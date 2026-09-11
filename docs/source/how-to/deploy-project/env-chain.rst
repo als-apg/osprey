@@ -171,6 +171,14 @@ are.
    the minted password, remove the ``ariel_postgres_data`` volume and redeploy
    (this deletes the stored logbook data — re-ingest afterwards).
 
+   ``ARIEL_DB_READONLY_PASSWORD`` is minted beside it and has the same
+   fresh-volume caveat: it is the login secret of the SELECT-only role the
+   agent's SQL tool queries through, created by an init script the same
+   volume initialization runs. A volume that predates the role simply does not
+   have it, and the agent says so once at start-up rather than failing. See
+   :doc:`../ariel/standalone-deployment` for adopting the role on an existing
+   database.
+
 Egress through a site proxy
 ---------------------------
 

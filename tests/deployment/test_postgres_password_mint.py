@@ -49,6 +49,7 @@ def captured_argv(monkeypatch, tmp_path):
 @pytest.fixture
 def _clean_token_env(monkeypatch):
     monkeypatch.delenv("ARIEL_DB_PASSWORD", raising=False)
+    monkeypatch.delenv("ARIEL_DB_READONLY_PASSWORD", raising=False)
     monkeypatch.delenv("ARIEL_DSN", raising=False)
 
 
@@ -145,4 +146,37 @@ def test_operator_password_with_reserved_char_is_rejected(
     silently reshape the ariel DSN — refuse at the deploy boundary instead."""
     (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=p@ssword\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="ARIEL_DB_PASSWORD"):
+        container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+
+def test_postgresql_deploy_mints_the_readonly_password_too(
+    captured_argv, _clean_token_env, tmp_path
+):
+    """The SELECT-only role's login secret is minted beside the owner's.
+
+    Both are Postgres identities the same fresh volume is initialized with, so
+    a deploy that mints one and not the other leaves the read-only role on a
+    publicly-known default.
+    """
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
+
+    env = _parse_env(tmp_path)
+    assert env.get("ARIEL_DB_READONLY_PASSWORD")
+    assert len(env["ARIEL_DB_READONLY_PASSWORD"]) == 64
+    assert env["ARIEL_DB_READONLY_PASSWORD"] != env["ARIEL_DB_PASSWORD"]
+
+
+def test_readonly_password_generator_is_uri_safe_every_time():
+    """It lands unescaped in the readonly DSN's password slot."""
+    for _ in range(50):
+        value = _generate_token("ARIEL_DB_READONLY_PASSWORD")
+        assert value.isalnum()
+        assert _validate_var("ARIEL_DB_READONLY_PASSWORD", value)
+
+
+def test_operator_readonly_password_with_reserved_char_is_rejected(
+    captured_argv, _clean_token_env, tmp_path
+):
+    (tmp_path / ".env").write_text("ARIEL_DB_READONLY_PASSWORD=p@ssword\n", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="ARIEL_DB_READONLY_PASSWORD"):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)

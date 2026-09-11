@@ -880,7 +880,14 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey("services.postgresql.username", gate=_ariel_on),
             ProjectedKey("services.postgresql.database_name", gate=_ariel_on),
         ),
-        credentials=(CredentialGrant("ARIEL_DB_PASSWORD", config_needs_ariel_password),),
+        credentials=(
+            CredentialGrant("ARIEL_DB_PASSWORD", config_needs_ariel_password),
+            # The SELECT-only role the agent's raw-SQL path connects as. Same
+            # entitlement as the owner password: a container that derives an
+            # ARIEL DSN derives both rungs of it, and without this one the SQL
+            # tool falls back to the ingestion connection with a warning.
+            CredentialGrant("ARIEL_DB_READONLY_PASSWORD", config_needs_ariel_password),
+        ),
         names_external=_ariel_database_named,
         note="resolve_ariel_dsn derives the DSN from the block on loopback",
     ),

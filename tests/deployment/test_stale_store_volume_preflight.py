@@ -1,10 +1,10 @@
 """A freshly minted store credential must never meet a volume that predates it.
 
-The three stores in ``_VOLUME_INITIALIZED_VARS`` read their root credential
-only while initializing an empty data volume. Mint a new value beside a volume
-that already exists and the store keeps the password it was born with: the
-stack starts, the deploy waits, and the store refuses the credential the
-``.env`` now claims.
+The stores in ``_VOLUME_INITIALIZED_VARS`` read their credentials only while
+initializing an empty data volume. Mint a new value beside a volume that
+already exists and the store keeps the password it was born with: the stack
+starts, the deploy waits, and the store refuses the credential the ``.env`` now
+claims.
 
 ``osprey up`` used to only *guess* at this — it warned "if this deployment's
 volume already exists" at the mint and started the stack anyway. Two things
@@ -357,3 +357,137 @@ def test_the_volume_probe_is_label_filtered_to_this_project(deploy, tmp_path):
 
     (volume_ls,) = [c for c in fake.calls if c[1:3] == ["volume", "ls"]]
     assert f"label=com.docker.compose.project={PROJECT}" in volume_ls
+
+
+class TestBothPostgresIdentities:
+    """One volume, two credentials — and only one of them may stop a deploy.
+
+    ``ariel_postgres_data`` is initialized with the owner password *and* with
+    the SELECT-only role the init script creates. They fail differently, and
+    the registry has to say so:
+
+    * a stale owner password means the store will not authenticate at all —
+      the refusal this module is about;
+    * a stale read-only password means the role is unreachable and the agent's
+      SQL tool runs on the ingestion connection it ran on before the role
+      existed, saying so once at start-up. That is the designed fallback, and
+      it is what every deployment older than the role is in. Refusing there
+      would stop those deployments on their next start and offer them nothing
+      but discarding the logbook.
+
+    So the read-only password is registered non-blocking: never a refusal of
+    its own, and adopted whenever ``--reuse-stores`` adopts the volume it
+    belongs to — which is the case that would otherwise take the role away from
+    a stack that has one.
+    """
+
+    @pytest.fixture
+    def deploy_postgres(self, monkeypatch, tmp_path):
+        monkeypatch.chdir(tmp_path)
+        for var in ("ARIEL_DB_PASSWORD", "ARIEL_DB_READONLY_PASSWORD"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setattr(
+            container_lifecycle,
+            "prepare_compose_files",
+            lambda *a, **k: (
+                {"deployed_services": ["postgresql"], "project_name": PROJECT},
+                ["docker-compose.yml"],
+            ),
+        )
+        monkeypatch.setattr(
+            container_lifecycle, "verify_runtime_is_running", lambda config: (True, "")
+        )
+        monkeypatch.setattr(
+            container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+        )
+
+        def _run(fake: FakeRuntime):
+            monkeypatch.setattr(container_lifecycle.subprocess, "run", fake)
+            return lambda **kw: container_lifecycle.deploy_up(
+                str(tmp_path / "config.yml"), detached=True, **kw
+            )
+
+        return _run
+
+    def test_the_readonly_password_is_registered_non_blocking(self):
+        store = container_lifecycle._VOLUME_INITIALIZED_VARS["ARIEL_DB_READONLY_PASSWORD"]
+        assert store.service == "postgresql"
+        assert store.volume == "ariel_postgres_data"
+        # The container spells it the same way the .env does, so nothing is
+        # stripped on the way back out.
+        assert store.cred_env == "ARIEL_DB_READONLY_PASSWORD"
+        assert store.cred_prefix == ""
+        assert store.blocking is False
+        # Every other store's credential is the one its login depends on.
+        assert container_lifecycle._VOLUME_INITIALIZED_VARS["ARIEL_DB_PASSWORD"].blocking is True
+
+    def test_an_upgrade_onto_a_volume_older_than_the_role_still_deploys(
+        self, deploy_postgres, tmp_path
+    ):
+        """The shape every existing deployment is in on its first start after
+        the role ships: the owner password is already in ``.env``, the read-only
+        one is minted for the first time, and the volume predates both the role
+        and the secret. Refusing here would be a fail-closed flip on a stack
+        that works."""
+        (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=preexistingvalue\n", encoding="utf-8")
+        up = deploy_postgres(FakeRuntime(volumes=[f"{PROJECT}_ariel_postgres_data"]))
+
+        up()
+
+        env = _env(tmp_path)
+        assert env["ARIEL_DB_PASSWORD"] == "preexistingvalue"
+        assert len(env["ARIEL_DB_READONLY_PASSWORD"]) == 64
+
+    def test_a_stale_owner_password_still_refuses(self, deploy_postgres, tmp_path):
+        """The blocking half is unchanged by the non-blocking one beside it."""
+        up = deploy_postgres(FakeRuntime(volumes=[f"{PROJECT}_ariel_postgres_data"]))
+
+        with pytest.raises(RuntimeError) as excinfo:
+            up()
+
+        message = str(excinfo.value)
+        assert "1 store(s)" in message
+        assert f"{PROJECT}_ariel_postgres_data" in message
+
+    def test_reuse_stores_harvests_both_from_the_container(self, deploy_postgres, tmp_path):
+        """Adopting the owner password and re-minting the read-only one would
+        take the role away from a stack that has it."""
+        up = deploy_postgres(
+            FakeRuntime(
+                volumes=[f"{PROJECT}_ariel_postgres_data"],
+                container_env={
+                    f"{PROJECT}-ariel-postgres": {
+                        "POSTGRES_PASSWORD": "theowner",
+                        "ARIEL_DB_READONLY_PASSWORD": "thereadonly",
+                    }
+                },
+            )
+        )
+
+        up(reuse_stores=True)
+
+        env = _env(tmp_path)
+        assert env["ARIEL_DB_PASSWORD"] == "theowner"
+        assert env["ARIEL_DB_READONLY_PASSWORD"] == "thereadonly"
+
+    def test_reuse_stores_adopts_the_owner_from_a_container_predating_the_role(
+        self, deploy_postgres, tmp_path
+    ):
+        """A container older than the role carries no read-only password, and
+        that must not make the volume unadoptable: the owner password is what
+        reopens it, and the role is adopted separately by the documented
+        one-shot command."""
+        up = deploy_postgres(
+            FakeRuntime(
+                volumes=[f"{PROJECT}_ariel_postgres_data"],
+                container_env={f"{PROJECT}-ariel-postgres": {"POSTGRES_PASSWORD": "theowner"}},
+            )
+        )
+
+        up(reuse_stores=True)
+
+        env = _env(tmp_path)
+        assert env["ARIEL_DB_PASSWORD"] == "theowner"
+        # Nothing to restore it from, so the fresh mint stands and the agent
+        # falls back with its start-up warning.
+        assert len(env["ARIEL_DB_READONLY_PASSWORD"]) == 64

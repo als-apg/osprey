@@ -4252,6 +4252,7 @@ def test_render_without_dispatcher_personas_emits_no_token_line() -> None:
 # ---------------------------------------------------------------------------
 
 _ARIEL_PASSWORD_LINE = "ARIEL_DB_PASSWORD=${ARIEL_DB_PASSWORD:-ariel}"
+_ARIEL_READONLY_PASSWORD_LINE = "ARIEL_DB_READONLY_PASSWORD=${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}"
 
 
 def test_ariel_persona_gets_the_database_password() -> None:
@@ -4281,6 +4282,26 @@ def test_persona_without_ariel_gets_no_database_password() -> None:
     # Assert
     bob_env = compose["services"]["web-bob"]["environment"]
     assert not any("ARIEL_DB_PASSWORD" in line for line in bob_env)
+
+
+def test_ariel_persona_gets_the_readonly_role_password() -> None:
+    """The SQL tool's own identity travels with the ingestion one.
+
+    Both rungs of the derived DSN are read by the same process; a container
+    handed only the owner password opens no read-only pool and queries the
+    logbook through the ingestion connection instead.
+    """
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), ariel_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    assert _ARIEL_READONLY_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("ARIEL_DB_READONLY_PASSWORD" in line for line in bob_env)
 
 
 def test_render_without_ariel_personas_emits_no_password_line() -> None:

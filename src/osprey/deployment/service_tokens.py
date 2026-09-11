@@ -142,6 +142,11 @@ _VAR_GENERATORS: dict[str, Callable[[], str]] = {
     # alphanumeric by construction and matches the Tiled recipe: same 256
     # bits of entropy, zero escaping concerns in .env, YAML, or the URI.
     "ARIEL_DB_PASSWORD": lambda: secrets.token_hex(32),
+    # The login secret of the SELECT-only role the agent's raw-SQL path
+    # connects as. Same rationale as ARIEL_DB_PASSWORD one line up, and it has
+    # to be: the readonly rung of the derived DSN substitutes it into the same
+    # password slot of the same URI.
+    "ARIEL_DB_READONLY_PASSWORD": lambda: secrets.token_hex(32),
     # The archiver Mongo root password follows the ARIEL_DB_PASSWORD rationale.
     # The connector passes it to ``MongoClient`` as a keyword argument, where
     # escaping would not matter — but it is not the only consumer: the recorder
@@ -323,6 +328,8 @@ _VAR_VALIDATORS: dict[str, Callable[[str], bool]] = {
     # silently reshape the DSN (see _validate_ariel_dsn) — reject it at the
     # deploy boundary instead.
     "ARIEL_DB_PASSWORD": _validate_uri_safe_password,
+    # Same slot in the same derived DSN, one rung along.
+    "ARIEL_DB_READONLY_PASSWORD": _validate_uri_safe_password,
     # Same character rule, different consumer: the archiver Mongo password is
     # read by the recorder, the seeder, and the agent's connector, at least one
     # of which may assemble a mongodb:// URI around it.
@@ -352,6 +359,11 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
     "ARIEL_DB_PASSWORD": (
         "must be non-empty with no whitespace and no URI-reserved character "
         "(@ : / ? #) — the value is substituted into the ariel DSN's password slot"
+    ),
+    "ARIEL_DB_READONLY_PASSWORD": (
+        "must be non-empty with no whitespace and no URI-reserved character "
+        "(@ : / ? #) — the value is substituted into the password slot of the "
+        "ariel DSN the read-only SQL role connects with"
     ),
     "MONGO_ROOT_PASSWORD": (
         "must be non-empty with no whitespace and no URI-reserved character "
