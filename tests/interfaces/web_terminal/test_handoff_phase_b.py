@@ -575,23 +575,30 @@ async def test_hookless_pty_held_key_is_refused_without_an_interrupt():
 
 
 async def test_hookless_pty_with_interrupt_is_escaped_and_ends_on_the_marker(tmp_path):
+    # The marker lands on a named look for the reason spelt out on the
+    # store-edge test below: a wait whose sleeps are free takes an unbounded
+    # number of looks while the test body waits in real time.
     app = make_pty_app(hook=False)
     pty = pool_pty(app)
     transcript = write_transcript(tmp_path / f"{KEY}.jsonl", [user_entry("do it")], time.time())
+    looks_before_marker = 4
+
+    def marker_on_the_fourth_look(count: int) -> None:
+        assert pty.writes == [ESC], "Escape is written on the first look, before any sleep"
+        if count == looks_before_marker:
+            write_transcript(transcript, [user_entry("do it"), INTERRUPT_ENTRY], time.time())
+
+    app.clock.on_sleep.append(marker_on_the_fourth_look)
     recorder = Recorder()
     with (
         patch.object(session_handoff, "_transcript_path", lambda _app, _tid: transcript),
         patch.object(session_handoff, "_phase_c", recorder),
     ):
-        task = asyncio.create_task(acquire_surface(app, KEY, "simple", object(), interrupt=True))
-        await until(lambda: pty.writes == [ESC])
-        await ticks(app, 3)
-        assert not task.done()
-        write_transcript(transcript, [user_entry("do it"), INTERRUPT_ENTRY], time.time())
-        await task
+        await acquire_surface(app, KEY, "simple", object(), interrupt=True)
     assert recorder.calls[-1][1] == WaitOutcome(REASON_INTERRUPTED)
     assert pty.writes == [ESC]
     assert pty.terminates == 0
+    assert len(app.clock.sleeps) == looks_before_marker
     assert sum(app.clock.sleeps) < INTERRUPT_GRACE_S
 
 
@@ -614,20 +621,32 @@ async def test_hookless_pty_without_a_transcript_is_not_assumed_idle():
 
 
 async def test_interrupt_writes_escape_then_proceeds_on_the_store_idle_edge():
+    # The flip to idle is driven from the fake clock rather than from the test
+    # body, because the wait's sleeps cost no real time: every real-time poll
+    # the body makes lets the wait take tens of further looks, and past the
+    # fiftieth the grace has expired and the outcome is `forced`. Flipping on a
+    # named look keeps "several looks pass while the store says busy" exact.
     app = make_pty_app()
     pty = pool_pty(app)
     set_store(app, "busy", time.time())
+    looks_before_idle = 4
+
+    def idle_on_the_fourth_look(count: int) -> None:
+        assert pty.writes == [ESC], "Escape is written on the first look, before any sleep"
+        if count >= looks_before_idle:
+            set_store(app, "idle", time.time())
+
+    app.clock.on_sleep.append(idle_on_the_fourth_look)
     recorder = Recorder()
     with patch.object(session_handoff, "_phase_c", recorder):
-        task = asyncio.create_task(acquire_surface(app, KEY, "simple", object(), interrupt=True))
-        await until(lambda: pty.writes == [ESC])
-        await ticks(app, 3)
-        assert not task.done()
-        set_store(app, "idle", time.time())
-        plan = await task
+        plan = await acquire_surface(app, KEY, "simple", object(), interrupt=True)
+    assert pty.writes == [ESC]
     assert plan.interrupt is True
     assert recorder.calls[-1][1] == WaitOutcome(REASON_INTERRUPTED)
     assert pty.terminates == 0
+    # The wait held for every look the store said busy, and ended well inside
+    # the grace rather than by running it out.
+    assert len(app.clock.sleeps) == looks_before_idle
     assert sum(app.clock.sleeps) < INTERRUPT_GRACE_S
 
 
