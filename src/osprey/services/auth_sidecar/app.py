@@ -64,6 +64,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from osprey.config_guards import is_positive_int
 from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suffix_collisions
 
 # The session-lifetime default is defined once, in the stdlib-only web_auth
@@ -259,12 +260,22 @@ def _is_unrecognized_flag(raw: str | None) -> bool:
 
 
 def _positive_int(raw: str | None, default: int) -> int:
-    """Read a positive int from the environment, falling back to ``default``."""
+    """Read a positive int from the environment, falling back to ``default``.
+
+    What counts as positive is
+    :func:`osprey.config_guards.is_positive_int`'s definition, shared with
+    every other surface that reads an integer config value.
+
+    This parser falls back rather than refusing, so a typo does not stop the
+    sidecar from coming up. The surface that refuses is the codec check: a
+    lifetime the session codec cannot be built from is reported as unservable
+    with ``OSPREY_AUTH_SESSION_LIFETIME`` named.
+    """
     try:
         value = int(str(raw).strip())
     except (TypeError, ValueError):
         return default
-    return value if value > 0 else default
+    return value if is_positive_int(value) else default
 
 
 def _logged_value(value: str) -> str:
