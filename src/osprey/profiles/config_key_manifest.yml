@@ -325,7 +325,7 @@ keys:
     default_note: >-
       the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/qmd
   services.qmd.port:
-    evidence: '_positive_int\(\s*block\.get\("port"\)'
+    evidence: 'require_positive_int\(\s*block\.get\("port"\)'
     note: >-
       Defaults to the layout's `qmd` slot on the deployment's base, and
       deliberately NOT qmd's own 8181: the daemon hardcodes an IPv6-loopback
