@@ -1560,10 +1560,11 @@ class ConnectorHostManager:
 
         The fields describe the child that is already running rather than one
         that was just launched: its connector type, the role it reported having
-        connected on, and the channel it proved itself with — empty for the two
-        children that start without one: the deployment's first, and a return to
-        a baseline whose block sets no ``probe_channel``. Claiming a probe that
-        never ran would be worse than saying so.
+        connected on, and the channel it proved itself with — empty for a child
+        that proved itself with none: one launched while nothing was serving
+        (the deployment's first, or a childless server whose record moved), and
+        a return to a baseline whose block sets no ``probe_channel``. Claiming a
+        probe that never ran would be worse than saying so.
 
         Returns:
             The normal switch result for the running child, or ``None`` when
