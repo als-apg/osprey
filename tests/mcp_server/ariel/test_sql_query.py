@@ -232,3 +232,61 @@ async def test_sql_query_service_error(tmp_path, monkeypatch):
 
     data = _exc_ctx["envelope"]
     assert "Connection refused" in data["error_message"]
+
+
+@pytest.mark.unit
+async def test_sql_query_uses_the_readonly_pool(tmp_path, monkeypatch):
+    """The tool queries through the SELECT-only role where the deployment has
+    one, so a dangerous function is refused by Postgres rather than by a
+    pattern match over the query text."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.pool = AsyncMock()
+    mock_service.readonly_pool = AsyncMock()
+
+    mock_sql = AsyncMock(return_value=[])
+
+    with (
+        patch(
+            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+            new=AsyncMock(return_value=mock_service),
+        ),
+        patch(
+            "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
+            new=mock_sql,
+        ),
+    ):
+        fn = _get_sql_query()
+        await fn(sql="SELECT entry_id FROM enhanced_entries")
+
+    assert mock_sql.call_args.args[0] is mock_service.readonly_pool
+
+
+@pytest.mark.unit
+async def test_sql_query_falls_back_to_the_ingestion_pool(tmp_path, monkeypatch):
+    """A store whose data volume predates the role has no read-only pool. The
+    tool keeps working on the connection it always used; the service logs the
+    one warning about it at start-up rather than here, per query."""
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_service = AsyncMock()
+    mock_service.pool = AsyncMock()
+    mock_service.readonly_pool = None
+
+    mock_sql = AsyncMock(return_value=[])
+
+    with (
+        patch(
+            "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+            new=AsyncMock(return_value=mock_service),
+        ),
+        patch(
+            "osprey.mcp_server.ariel.tools.sql_query.execute_sql_query",
+            new=mock_sql,
+        ),
+    ):
+        fn = _get_sql_query()
+        await fn(sql="SELECT entry_id FROM enhanced_entries")
+
+    assert mock_sql.call_args.args[0] is mock_service.pool

@@ -116,6 +116,7 @@ class ARIELSearchService:
         config: ARIELConfig,
         pool: AsyncConnectionPool,
         repository: ARIELRepository,
+        readonly_pool: AsyncConnectionPool | None = None,
     ) -> None:
         """Initialize the service.
 
@@ -123,9 +124,14 @@ class ARIELSearchService:
             config: ARIEL configuration
             pool: Database connection pool
             repository: Database repository
+            readonly_pool: The same store reached as its SELECT-only role, for
+                the agent's raw-SQL path. ``None`` where this deployment has no
+                such role -- an explicit DSN, or a data volume older than the
+                role -- and the raw-SQL path then shares ``pool``.
         """
         self.config = config
         self.pool = pool
+        self.readonly_pool = readonly_pool
         self.repository = repository
         self._embedder: BaseEmbeddingProvider | None = None
         self._validated_search_model = False
@@ -854,6 +860,8 @@ class ARIELSearchService:
 
     async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Exit async context and cleanup."""
+        if self.readonly_pool is not None:
+            await self.readonly_pool.close()
         await self.pool.close()
 
 
@@ -879,12 +887,47 @@ async def create_ariel_service(
 
     pool = await create_connection_pool(config.database)
     repository = ARIELRepository(pool, config)
+    readonly_pool = await _open_readonly_pool(config)
 
     return ARIELSearchService(
         config=config,
         pool=pool,
         repository=repository,
+        readonly_pool=readonly_pool,
     )
+
+
+async def _open_readonly_pool(config: ARIELConfig) -> AsyncConnectionPool | None:
+    """Open the SELECT-only pool the agent's raw-SQL path queries through.
+
+    Small: it serves one tool, not the search and ingestion traffic the
+    ingestion pool carries.
+
+    Returns ``None`` -- with one warning, at start-up rather than per query --
+    when the deployment has no read-only identity to open. Two shapes reach
+    that: a project pointing at a database osprey did not provision (no
+    ``readonly_uri``), and a data volume initialized before the role existed,
+    where the DSN resolves but the login is refused. Neither is a reason to
+    refuse to start, because the tool already ran on the ingestion connection
+    before the role existed; falling back leaves it exactly there, and says so.
+    """
+    from osprey.services.ariel_search.database.connection import create_connection_pool
+
+    readonly_uri = config.database.readonly_uri
+    if readonly_uri is None:
+        reason = "no read-only role is configured for this database"
+    else:
+        try:
+            return await create_connection_pool(config.database, uri=readonly_uri, max_size=3)
+        except Exception as exc:  # noqa: BLE001 -- any failure to open falls back
+            reason = f"{type(exc).__name__}: {exc}"
+
+    logger.warning(
+        "SQL tool is running on the ingestion role: %s. See the how-to "
+        "'Standalone Deployment', section 'Read-only role for the SQL tool'.",
+        reason,
+    )
+    return None
 
 
 __all__ = [

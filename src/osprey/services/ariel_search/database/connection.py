@@ -11,11 +11,22 @@ if TYPE_CHECKING:
     from osprey.services.ariel_search.config import DatabaseConfig
 
 
-async def create_connection_pool(config: "DatabaseConfig") -> "AsyncConnectionPool":
+async def create_connection_pool(
+    config: "DatabaseConfig",
+    *,
+    uri: str | None = None,
+    max_size: int = 10,
+) -> "AsyncConnectionPool":
     """Create async connection pool for ARIEL repository.
 
     Args:
         config: Database configuration with connection URI
+        uri: Connect with this DSN instead of ``config.uri``. The one caller
+            that passes it is the read-only pool the agent's raw-SQL path uses,
+            which reaches the SAME store as a different role, so everything
+            else about the pool is unchanged.
+        max_size: Upper bound on pooled connections. The default sizes the
+            ingestion and search pool; a pool serving one tool wants far fewer.
 
     Returns:
         Configured AsyncConnectionPool ready for use
@@ -32,9 +43,9 @@ async def create_connection_pool(config: "DatabaseConfig") -> "AsyncConnectionPo
         ) from e
 
     pool = AsyncConnectionPool(
-        conninfo=config.uri,
+        conninfo=uri if uri is not None else config.uri,
         min_size=1,
-        max_size=10,
+        max_size=max_size,
         kwargs={"autocommit": True},
         open=False,  # Don't open immediately
         reconnect_timeout=0,  # Don't retry on failure
