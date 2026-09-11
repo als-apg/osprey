@@ -41,8 +41,9 @@ async def create_interactive_plot(
     ``pd`` and ``stats``; no plotting library is imported for you.
     <<AVAILABLE_PACKAGES>>
     Imports outside the sandbox allowlist are rejected before your code runs, as
-    are EPICS access and network access. The allowlist also admits a safe stdlib
-    subset (json, datetime, math, pathlib, collections, itertools, re, ...).
+    are control-system access and network access. The allowlist also admits a
+    safe stdlib subset (json, datetime, math, pathlib, collections, itertools,
+    re, ...).
 
     You MUST call ``save_artifact(fig, "title")`` on your Plotly figure to
     produce output — figures are not auto-captured.
