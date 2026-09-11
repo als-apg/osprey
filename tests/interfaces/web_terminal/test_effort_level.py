@@ -1,9 +1,24 @@
 """Tests for effort level reading from config."""
 
+import re
+from pathlib import Path
+
 import pytest
 import yaml
 
+from osprey.cli.chat_cmd import chat as chat_command
 from osprey.interfaces.web_terminal.routes.websocket import _read_effort_level
+
+_SETTINGS_JS = (
+    Path(__file__).parents[3]
+    / "src"
+    / "osprey"
+    / "interfaces"
+    / "web_terminal"
+    / "static"
+    / "js"
+    / "settings.js"
+)
 
 
 class TestReadEffortLevel:
@@ -45,3 +60,27 @@ class TestReadEffortLevel:
         config = tmp_path / "config.yml"
         config.write_text(yaml.dump({"claude_code": {"effort": effort}}))
         assert _read_effort_level(config) == effort
+
+
+def _cli_effort_choices() -> list[str]:
+    """The effort vocabulary ``osprey chat --effort`` accepts."""
+    for param in chat_command.params:
+        if param.name == "effort":
+            return list(param.type.choices)
+    raise AssertionError("osprey chat has no --effort option")
+
+
+def test_the_settings_drawer_offers_the_cli_effort_vocabulary() -> None:
+    """The drawer's effort select and the CLI flag speak one vocabulary.
+
+    The drawer writes ``claude_code.effort`` straight into the deployment's
+    config; a value the CLI would reject is a setting that looks applied and
+    then falls back at the next launch, with nothing said. JavaScript cannot
+    import the click option, so the list is pinned here instead.
+    """
+    match = re.search(
+        r"'claude_code\.effort':\s*\[([^\]]*)\]", _SETTINGS_JS.read_text(encoding="utf-8")
+    )
+    assert match, f"no claude_code.effort entry in {_SETTINGS_JS}"
+    rendered = re.findall(r"'([^']+)'", match.group(1))
+    assert rendered == _cli_effort_choices()

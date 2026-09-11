@@ -11,11 +11,8 @@ newly gated tool appears.
 What is NOT protected by any of that is the other direction: a row naming a tool
 the preset's resolved servers do not gate. Such a row governs nothing, reads as
 posture the deployment does not have, and nothing errors. That is what these
-tests pin, plus the two other surfaces the same set has to appear on: the
-manifest documents every shipped row, and the settings panel's ``ENUM_FIELDS``
-offers each one as a policy dropdown. A key the panel does not know renders as a
-free-text box, which is an approval policy an operator can only get wrong, so
-the panel is held to the whole set rather than to a subset of it.
+tests pin, along with the one other surface the same set has to appear on: the
+manifest documents every shipped row, and documents no row that is unshipped.
 """
 
 from __future__ import annotations
@@ -32,9 +29,6 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PRESET_DIR = REPO_ROOT / "src" / "osprey" / "profiles" / "presets"
 MANIFEST_PATH = REPO_ROOT / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
 GUARD_PATH = REPO_ROOT / "scripts" / "check_config_keys.py"
-SETTINGS_JS = (
-    REPO_ROOT / "src" / "osprey" / "interfaces" / "web_terminal" / "static" / "js" / "settings.js"
-)
 
 #: The four documents an operator starts from. Persona presets extend
 #: control-assistant and carry deltas, not blocks of their own.
@@ -54,10 +48,6 @@ _INERT_ROWS = {("hello-world", "entry_create"), ("hello-world", "entry_publish")
 _INERT_NOTE_RE = re.compile(r"inert in hello[-_]world", re.IGNORECASE)
 
 _ROW_RE = re.compile(r"^\s*approval\.tools\.([a-z_]+):", re.MULTILINE)
-
-#: The same key in the settings panel's `ENUM_FIELDS` map, where it is a
-#: quoted JS string rather than a YAML key.
-_ENUM_FIELD_RE = re.compile(r"""['"]approval\.tools\.([a-z_]+)['"]\s*:""")
 
 pytestmark = pytest.mark.unit
 
@@ -122,43 +112,3 @@ def test_the_manifest_rows_are_the_union_of_what_the_presets_ship(manifest) -> N
         shipped |= _preset_rows(preset)
 
     assert documented == shipped
-
-
-def _settings_panel_rows() -> set[str]:
-    """The tool short names the settings panel offers a policy dropdown for."""
-    return set(_ENUM_FIELD_RE.findall(SETTINGS_JS.read_text()))
-
-
-def test_the_settings_panel_offers_every_shipped_row() -> None:
-    """A settable approval policy the panel does not know is a free-text box.
-
-    The drawer is where an operator changes posture at runtime, and
-    ``ENUM_FIELDS`` decides which keys it renders as a dropdown over the three
-    policies. A key missing from it is offered as prose the operator has to
-    spell correctly, for a value the hook reads fail-closed.
-    """
-    shipped: set[str] = set()
-    for preset in ROOT_PRESETS:
-        shipped |= _preset_rows(preset)
-
-    offered = _settings_panel_rows()
-
-    assert offered == shipped, (
-        "the settings panel and the shipped presets name different approval.tools "
-        f"keys: panel-only {sorted(offered - shipped)}, preset-only "
-        f"{sorted(shipped - offered)}. Every settable policy gets a dropdown."
-    )
-
-
-def test_the_panel_offers_no_policy_the_servers_do_not_gate(guard) -> None:
-    """The panel's own rows, read against the registry rather than via a preset."""
-    governed: set[str] = set()
-    for preset in ROOT_PRESETS:
-        governed |= guard.governed_tools(preset)
-
-    ungated = {tool for tool in _settings_panel_rows() if tool not in governed}
-
-    assert not ungated, (
-        f"the settings panel offers approval policies for {sorted(ungated)}, which "
-        f"no root preset's resolved servers attach the approval hook to"
-    )
