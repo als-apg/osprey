@@ -80,7 +80,6 @@ import { TERMINAL_RUN_STATUSES, describeProgress } from './queue-client.js';
 /** @typedef {{ok: true, data: Figure} | {ok: false, notFound: boolean, message: string}} FigureFetch */
 
 const POLL_INTERVAL_MS = 1000;
-const TERMINAL_STATUSES = ['completed', 'stopped', 'error'];
 
 /**
  * Badge tone for a run status. `pending`/`running` read as in-flight, a clean
@@ -144,7 +143,7 @@ export function formatCell(value) {
  * @returns {boolean}
  */
 export function shouldKeepPolling(status, partial) {
-  return partial || !TERMINAL_STATUSES.includes(status);
+  return partial || !TERMINAL_RUN_STATUSES.includes(status);
 }
 
 /**
