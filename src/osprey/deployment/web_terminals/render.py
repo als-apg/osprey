@@ -2342,19 +2342,38 @@ def _non_empty_str(value: Any, default: str) -> str:
     return value if isinstance(value, str) and value.strip() else default
 
 
+def _blank_scope_index(value: Any) -> int | None:
+    """The index of the first ``auth.oidc.scopes`` entry that is blank.
+
+    A blank entry is an authoring slip with no legitimate reading, and it is
+    the one unusable shape a reader can point at precisely. Only a list or
+    tuple carries indices, so every other shape — a bare string included —
+    returns ``None`` and is left to :func:`_scope_list` to judge.
+    """
+    if not isinstance(value, list | tuple):
+        return None
+    for index, item in enumerate(value):
+        if isinstance(item, str) and not item.strip():
+            return index
+    return None
+
+
 def _scope_list(value: Any) -> str | None:
     """``auth.oidc.scopes`` read as the space-separated string OAuth spells.
 
     A list of strings is the authored shape; a bare string is accepted as
     already-joined scopes, because that is what an operator who has copied the
-    line out of their IdP's documentation will write. Anything else — and an
-    empty list — reads as unset, which renders no env line and leaves the
-    sidecar's own default in force.
+    line out of their IdP's documentation will write. Anything else — an empty
+    list, and a list with a blank entry — reads as unset, which renders no env
+    line and leaves the sidecar's own default in force.
     """
     if isinstance(value, str):
         return " ".join(value.split()) or None
     if isinstance(value, list | tuple) and all(isinstance(item, str) for item in value):
-        return " ".join(item.strip() for item in value if item.strip()) or None
+        stripped = [item.strip() for item in value]
+        if not stripped or any(not item for item in stripped):
+            return None
+        return " ".join(stripped)
     return None
 
 
