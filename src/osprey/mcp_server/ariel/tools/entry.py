@@ -1,9 +1,9 @@
 """MCP tools: entry_get + entry_create — logbook entry CRUD.
 
-PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
+PROMPT-PROVIDER: Tool docstrings are static prompts visible to the agent.
   Future: source from FrameworkPromptProvider.get_logbook_search_prompt_builder()
-  Facility-customizable: shift identifiers (e.g., "Day"/"Swing"/"Owl"),
-  attachment limits, logbook name conventions
+  Facility-customizable: shift identifiers, attachment limits, logbook name
+  conventions
 """
 
 import json
@@ -208,7 +208,7 @@ async def entry_create(
         details: Entry body/details (required).
         author: Author name (default: "Anonymous").
         logbook: Logbook name to file under.
-        shift: Shift identifier (e.g. "Day", "Swing", "Owl").
+        shift: Shift or run-block identifier as your facility names it (free-form).
         tags: List of tags for the entry.
         file_paths: Local file paths to attach (max 10 MB each).
         artifact_ids: Artifact IDs from the gallery to attach. HTML artifacts

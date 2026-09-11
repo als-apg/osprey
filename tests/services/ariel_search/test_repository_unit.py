@@ -376,7 +376,7 @@ class TestUpsertEntryReingestHazards:
     ) -> None:
         """Pins the ``'[]'::jsonb`` CASE that protects ARIEL-native attachments.
 
-        Hazard: the upstream write API cannot accept file uploads, so an entry
+        Hazard: the adapter write contract carries no attachments, so an entry
         published by ARIEL comes back from the next poll with
         ``attachments = '[]'::jsonb``. Collapsing the CASE into a plain
         ``attachments = EXCLUDED.attachments`` erases web-uploaded attachments

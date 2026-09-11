@@ -190,7 +190,7 @@ class ARIELRepository:
                         -- Preserve existing attachments when the incoming upsert
                         -- carries none. A background re-ingestion poll re-fetches an
                         -- already-published entry from the upstream logbook, which has
-                        -- no attachments (the OLOG write API cannot accept file
+                        -- no attachments (the adapter write contract carries no
                         -- uploads), so a blind overwrite would erase ARIEL-native
                         -- web-uploaded attachments and orphan their stored blobs. A
                         -- non-empty incoming list still replaces (upstream wins when it
