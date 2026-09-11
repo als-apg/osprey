@@ -167,12 +167,29 @@ class TestGatherSessionMetadata:
         # settings.json doesn't exist, so env var should be used
         assert result["model_name"] == "claude-haiku-4-5"
 
-    def test_operator_from_user_env(self, fake_project, monkeypatch):
-        """operator comes from USER env var."""
+    def test_operator_is_the_container_user(self, fake_project, monkeypatch):
+        """operator names the person the audit ledger names.
+
+        A per-user terminal container sets ``OSPREY_TERMINAL_USER`` and no
+        ``USER``, so a lookup that read the process account would file the
+        entry under a service account while the ledger named the operator.
+        """
         from osprey.mcp_server.session import gather_session_metadata
 
-        monkeypatch.setenv("USER", "test-operator")
+        monkeypatch.delenv("USER", raising=False)
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
 
         result = gather_session_metadata("test")
 
-        assert result["operator"] == "test-operator"
+        assert result["operator"] == "alice"
+
+    def test_operator_floors_at_unknown(self, fake_project, monkeypatch):
+        """An unresolvable identity is spelled, not left empty."""
+        from osprey.mcp_server import session
+        from osprey.utils.identity import UNKNOWN_IDENTITY
+
+        monkeypatch.setattr(session, "acting_identity", lambda: UNKNOWN_IDENTITY)
+
+        result = session.gather_session_metadata("test")
+
+        assert result["operator"] == UNKNOWN_IDENTITY

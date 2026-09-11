@@ -101,7 +101,7 @@ lookups and validation.
 - ``inspect_fields`` -- Inspect the field structure of a device family.
 - ``validate`` -- Validate that channel names exist in the database.
 - ``statistics`` -- Get database statistics (total channels, systems, families).
-- ``run_sql`` -- Run a read-only SQL query directly against the channel finder DuckDB database (``channels``, ``systems``, ``families`` tables).
+- ``run_sql`` -- Run a read-only SQL query directly against the channel finder DuckDB database (``channels``, ``systems``, ``families`` tables). Answers are bounded by ``channel_finder.query_max_rows``; a truncated reply says so and names the key, so a partial list is never presented as complete.
 
 ``channel_finder_graph``
 ~~~~~~~~~~~~~~~~~~~~~~~~

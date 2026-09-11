@@ -139,7 +139,7 @@ def build_base_child_env() -> dict[str, str]:
        the SDK overlay path an absent key is inherited from ``os.environ``
        anyway, which makes it defence-in-depth there rather than a boundary.
     3. Resolve the auth-token conflict: when token-based auth is configured
-       (e.g. the CBORG proxy at LBNL), drop a stale ``ANTHROPIC_API_KEY`` that
+       (a token-auth proxy provider), drop a stale ``ANTHROPIC_API_KEY`` that
        Claude Code would otherwise auto-load from the project ``.env`` and warn
        about.
     4. Augment ``PATH`` with user-local bin dirs (e.g. ``~/.local/bin``) so child

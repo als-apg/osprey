@@ -105,12 +105,14 @@ user somewhere else, add ``theme`` to their entry in the user list:
            theme: desy-light
 
 The value takes the same two forms as ``web.theme``: a family, or a specific
-theme to also pin light or dark. It applies to that user only, and their own
-pick in the display menu still wins over it.
+theme to also pin light or dark. It overrides ``web.theme`` for that user's
+terminal only, and their own pick in the display menu still wins over it.
 
 The landing page that lists everyone's terminals uses the deployment-wide
-``web.theme``. It is shown before anyone has said who they are, so there is no
-personal setting to apply yet.
+``web.theme``, and so does the sign-in page a user reaches from it, which also
+shows the facility name from ``facility.name`` above the OSPREY wordmark. Both
+are shown before anyone has said who they are, so there is no personal setting
+to apply yet.
 
 A navy-and-teal terminal
 ------------------------

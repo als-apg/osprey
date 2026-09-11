@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
         ClaudeSDKClient,
         PermissionMode,
         ResultMessage,
+        SettingSource,
         SystemMessage,
         ToolResultBlock,
     )
@@ -229,9 +231,9 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
     spec = _resolve_project_spec(project_dir, provider=provider)
     if spec is None:
         raise RuntimeError(
-            f"Project at {project_dir} has no resolvable provider in "
-            "config.yml — pass provider=<als-apg|cborg|anthropic|amsc-i2|argo> "
-            "to init_project()."
+            f"Project at {project_dir} has no resolvable provider: its config.yml "
+            "sets no claude_code.provider. Set `provider:` in profile.yml and run "
+            "`osprey build`."
         )
     env: dict[str, str] = dict(spec.env_block)
 
@@ -407,24 +409,38 @@ class SDKWorkflowResult:
 # ---------------------------------------------------------------------------
 
 
-def resolve_default_model(project_dir: Path) -> str:
-    """Resolve the haiku-tier model name for the given project.
+#: Upstream Anthropic model per tier, used only when a project resolves no
+#: provider spec at all — a deployment on a gateway names its own ids.
+_TIER_FALLBACK_MODELS = {
+    "haiku": "claude-haiku-4-5-20251001",
+    "sonnet": "claude-sonnet-5",
+    "opus": "claude-opus-5",
+}
 
-    Reads ``config.yml`` and returns the provider's haiku-tier model id,
+
+def resolve_default_model(project_dir: Path, tier: str = "haiku") -> str:
+    """Resolve a tier's model name for the given project.
+
+    Reads ``config.yml`` and returns the provider's model id for *tier*,
     falling back to the upstream Anthropic default when no spec is
     configured.
 
     Args:
         project_dir: Path to an initialized OSPREY project.
+        tier: Which tier to resolve — ``"haiku"`` (the default, for the cheap
+            headless paths), ``"sonnet"`` or ``"opus"``. Resolving through the
+            project's own tier map is what keeps a caller from naming a bare
+            vendor id that a gateway-fronted deployment does not serve.
 
     Returns:
         Model identifier string suitable for passing to the Claude Agent SDK
         ``model=`` argument.
     """
+    fallback = _TIER_FALLBACK_MODELS.get(tier, _TIER_FALLBACK_MODELS["haiku"])
     spec = _resolve_project_spec(project_dir)
     if spec is not None:
-        return str(spec.tier_to_model.get("haiku", "claude-haiku-4-5-20251001"))
-    return "claude-haiku-4-5-20251001"
+        return str(spec.tier_to_model.get(tier, fallback))
+    return fallback
 
 
 def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> dict[str, str]:
@@ -531,6 +547,7 @@ def build_agent_options(
     max_budget_usd: float = 2.0,
     model: str | None = None,
     permission_mode: PermissionMode = "bypassPermissions",
+    setting_sources: list[SettingSource] | None = None,
 ) -> ClaudeAgentOptions:
     """Build ``ClaudeAgentOptions`` routed to a project's configured provider.
 
@@ -552,6 +569,12 @@ def build_agent_options(
         permission_mode: SDK permission mode. ``"bypassPermissions"`` for the
             read-only headless path; ``"default"`` when an approval callback
             should mediate tool use.
+        setting_sources: Which settings layers the SDK loads. ``None`` (the
+            default) means the project's own ``.claude`` settings — its hooks,
+            agents and permissions — which is right for every path that runs
+            *as* the deployment. Pass ``[]`` for a run that must not adopt the
+            target project's settings, such as a reviewer pointed at a project
+            it is only reading.
 
     Returns:
         Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
@@ -590,7 +613,7 @@ def build_agent_options(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         env=env,
-        setting_sources=["project"],
+        setting_sources=["project"] if setting_sources is None else setting_sources,
         disallowed_tools=disallowed_tools,
     )
 
@@ -683,7 +706,36 @@ async def _drain_response(
 # Callers that spawn the CLI should hand the same figure to the CLI's own
 # ``MCP_TIMEOUT`` (its stdio-startup limit, 30s by default), or the CLI marks a
 # slow server failed before this barrier would have seen it connect.
-MCP_READY_TIMEOUT_S = float(os.environ.get("OSPREY_E2E_MCP_READY_TIMEOUT", "90"))
+#
+# The variable is ``OSPREY_MCP_READY_TIMEOUT``. It is a HOST property — how long
+# this machine takes to start the servers a deployment declares — not a
+# deployment one, which is why it is an environment variable and not a config
+# key; the dispatch worker takes its own budgets from container env for the
+# same reason. It gates production ``osprey query`` as much as it gates a test,
+# which is what the old ``OSPREY_E2E_`` spelling denied. That spelling is still
+# read, so a host that sets it keeps working; it goes after one release.
+MCP_READY_TIMEOUT_ENV = "OSPREY_MCP_READY_TIMEOUT"
+_LEGACY_MCP_READY_TIMEOUT_ENV = "OSPREY_E2E_MCP_READY_TIMEOUT"
+_MCP_READY_TIMEOUT_DEFAULT_S = 90.0
+
+
+def _mcp_ready_timeout_from_env(environ: Mapping[str, str]) -> float:
+    """The readiness ceiling an environment declares, in seconds.
+
+    Args:
+        environ: The environment to read, ``os.environ`` in production.
+
+    Returns:
+        The new name's value, else the legacy one's, else the default. An
+        unparseable value raises rather than falling back: a host that meant to
+        widen the budget and typed it wrong should hear about it at import,
+        not run every session on a ceiling it did not choose.
+    """
+    declared = environ.get(MCP_READY_TIMEOUT_ENV) or environ.get(_LEGACY_MCP_READY_TIMEOUT_ENV)
+    return float(declared) if declared else _MCP_READY_TIMEOUT_DEFAULT_S
+
+
+MCP_READY_TIMEOUT_S = _mcp_ready_timeout_from_env(os.environ)
 _MCP_READY_TIMEOUT_S = MCP_READY_TIMEOUT_S
 _MCP_READY_POLL_S = 0.3
 

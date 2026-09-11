@@ -132,6 +132,10 @@ config:
   # No benchmark query set ships here. `osprey channel-finder benchmark` still
   # runs with `--queries-path FILE`; to make a file the default, name it here.
   # channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
+  # Rows one `run_sql` answer carries before it is cut. The cap is on the
+  # AGENT's context, not on DuckDB: a truncated answer says so and names this
+  # key, so the agent narrows the query rather than presenting a partial list.
+  channel_finder.query_max_rows: 500
 
   # ── Approval ───────────────────────────────────────────────────────────────
   # The channel finder is read-only, so no control-system write is gated here.
@@ -178,9 +182,30 @@ config:
   # has no env override.
   artifact_server.host: 127.0.0.1
   artifact_server.auto_launch: true
+  # Largest timeseries data file the gallery will chart or tabulate, in MB.
+  # The handler loads the whole file to build the view, so raising this spends
+  # memory on the machine serving the gallery. Over the cap the browser views
+  # refuse with a 413; the file itself stays downloadable either way.
+  # artifact_server.max_timeseries_file_mb: 200
+  # Extra artifact categories on top of the ones the gallery ships, so a badge
+  # reads in this facility's own vocabulary. One dotted line per category, each
+  # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
+  # category nobody declared is still stored — it just keeps the default badge,
+  # and the save logs a warning naming this key.
+  # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
   # Target of the Documentation button. Point it at a locally hosted copy of
-  # the docs when the control room has no route to the public site.
-  web.docs_url: https://als-apg.github.io/osprey
+  # the docs when the control room has no route to the public site. Commented
+  # rather than shipped live: a rendered value would put the OSPREY project's
+  # own documentation site into this deployment's profile.yml as though the
+  # facility had chosen it. Unset, the button points at the published site.
+  # web.docs_url: https://docs.example.org/osprey
+  # Who gets offered the onboarding tour, and how often. `once` (the default)
+  # invites until a browser dismisses it or finishes the tour; `always` invites
+  # on every load and offers no permanent dismissal, which is what a shared
+  # read-only screen wants; `never` offers nothing and leaves the tour on the
+  # rail's Tour control and the command palette. A roster entry's `tour:` field
+  # overrides it per user.
+  # web.tour: once
   # Whether the web Config panel may edit this deployment's config.yml and
   # .claude/ setup files. `false` withdraws the panel's whole server surface
   # (every /api/config verb answers 403), not just its tab: these files are what
@@ -205,7 +230,7 @@ config:
   # together: redirecting the mail but leaving the tracker upstream sends
   # half the reports to strangers.
   # web.feedback.owner:
-  #   name: ALS Controls
+  #   name: Example Controls
   #   email: controls@example.org
   #   tracker:
   #     kind: gitlab            # gitlab | github
@@ -215,8 +240,10 @@ config:
   # owner/repo whose new-issue form the GitHub channel prefills. Predates
   # `owner` above and still wins over it wherever it is spelled, so an
   # existing deployment keeps meaning what it meant; "" offers no GitHub
-  # channel.
-  web.feedback.github_repo: als-apg/osprey
+  # channel. Commented rather than shipped live: a rendered value would put
+  # the OSPREY project's own tracker into this deployment's profile.yml as
+  # though the facility had chosen it.
+  # web.feedback.github_repo: my-org/controls
   # Further trackers, one channel each: a `gitlab` entry takes the project's
   # base URL, a `github` entry owner/repo; `label` captions it.
   # web.feedback.trackers:
@@ -224,8 +251,9 @@ config:
   #     url: https://git.example.org/controls/osprey
   #     label: Facility GitLab
   # Recipient of the prefilled mailto: draft the Email channel opens. Wins
-  # over `owner.email` above, on the same grounds as `github_repo`.
-  web.feedback.email: thellert@lbl.gov
+  # over `owner.email` above, on the same grounds as `github_repo`, and
+  # commented for the same reason.
+  # web.feedback.email: controls@example.org
   # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
   # oldest saved session contexts are deleted; submission headers are kept.
   web.feedback.max_store_bytes: 268435456
@@ -238,6 +266,11 @@ config:
   # ── Runtime ────────────────────────────────────────────────────────────────
   # Agent Python runs as a host subprocess.
   execution.execution_method: subprocess
+  # Wall-clock ceiling on one agent Python run, in seconds. A run that reaches
+  # it is killed and reported as a timeout, so raise it for a facility whose
+  # analyses legitimately run long and lower it to keep a runaway script from
+  # holding the sandbox.
+  # python_executor.execution_timeout_seconds: 600
   # Facility timezone: how operator times are read and every timestamp is
   # rendered. Pinned to UTC for reproducibility; set your real zone in
   # production (e.g. America/Los_Angeles).

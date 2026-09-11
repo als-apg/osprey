@@ -333,13 +333,22 @@ config:
   # table renders. Drop the key and the subagent is told no vocabulary was
   # declared; point it at a missing file and the build stops and says so.
   facility.ontology: data/facility_ontology.json
+  # Your facility's own registry module — the file that registers its
+  # connectors, providers and ARIEL adapters with the framework (see
+  # "Extending Osprey" in the docs). Relative to the project root; unset means
+  # no application registry, and the framework-only one is used. `REGISTRY_PATH`
+  # in the environment outranks this key, for a container pointed at a registry
+  # mounted somewhere the config could not have named.
+  # registry_path: project/registry.py
 
   # ── Control system ─────────────────────────────────────────────────────────
   # Which machine a session starts on. "live_standin" is the stand-in declared
   # above, so this deployment's baseline is a facility-shaped soft IOC that
   # behaves like hardware and moves nothing. "virtual_accelerator" is the
   # sandbox simulator, "epics" your own control system, "mock" needs no
-  # containers but cannot complete a plan.
+  # containers but cannot complete a plan. "doocs" and "tango" reach those
+  # control systems in place of Channel Access. Those five are every type
+  # `osprey init` will materialize; `osprey config --defaults` lists them too.
   # `control_target_set live` moves a session onto the machine authored under
   # `epics:`. The template ships that block unconfigured — author its
   # `gateways` and `probe_channel` first — then the switch probes that target,
@@ -444,6 +453,10 @@ config:
   #
   # Channel Access timeout in seconds.
   control_system.connector.epics.timeout: 5.0
+  # How long the pre-write `max_step` check waits for a channel's present
+  # value, in seconds. Running out of budget refuses the write, so raise this
+  # for a slow gateway — it buys room, never a weaker check.
+  # control_system.connector.epics.step_read_timeout_s: 2.0
   # Write posture for the live machine. Stating it pins it: a type with its
   # own posture never falls back to the master switch.
   # control_system.connector.epics.writes_enabled: false
@@ -488,8 +501,8 @@ config:
   # not turn it on; without this line you would deploy a store and not read it.
   # The store's coordinates (`archiver.mongodb_archiver.*`) are derived from
   # that block, so they are not written here. The alternatives are
-  # "mock_archiver" (synthesized history) and "epics_archiver" (an Archiver
-  # Appliance, configured below).
+  # "mock_archiver" (synthesized history), "epics_archiver" (an Archiver
+  # Appliance, configured below) and "doocs_archiver" (DOOCS local history).
   archiver.type: mongodb_archiver
   # When a read names no bin size, the bin is chosen so a continuously archived
   # channel returns about this many points. The agent is told which bin it got.
@@ -530,6 +543,10 @@ config:
   # build; `osprey channel-finder benchmark` runs it (`--queries-path FILE`
   # for another).
   channel_finder.benchmark.dataset_path: data/benchmarks/queries.json
+  # Rows one `run_sql` answer carries before it is cut. The cap is on the
+  # AGENT's context, not on DuckDB: a truncated answer says so and names this
+  # key, so the agent narrows the query rather than presenting a partial list.
+  channel_finder.query_max_rows: 500
   # osprey:panel-port channel_finder
   # The CHANNELS tab's own web server. It launches when `channel-finder` is in
   # `web_panels:` above, on this deployment's channel-finder slot;
@@ -607,6 +624,10 @@ config:
   # opening tab, `osprey ariel search` without `--mode`, and the service API.
   # Naming a module that is off below is refused at startup.
   ariel.default_search_mode: hybrid
+  # Largest file one entry may attach, in MB. Attachments are stored as rows in
+  # the same Postgres the logbook lives in, so this number is a storage
+  # decision in both directions.
+  # ariel.attachments.max_file_mb: 10
   # Facility vocabulary: control-room shorthand ("t/s the bpm offset") mapped
   # to the words the logbook prose contains, so a search typed in shorthand
   # finds the entries about it. Plain dictionary matching, every rewrite
@@ -675,6 +696,15 @@ config:
   ariel.enhancement_modules.semantic_processor.enabled: false
   # Token budget for each of its LLM calls.
   ariel.enhancement_modules.semantic_processor.model.max_tokens: 256
+  # How much of an entry is sent for keywords and summary. Longer entries are
+  # cut here — the cut is logged, naming the entry — so this is what a facility
+  # with long entries and a roomy context window raises.
+  # ariel.enhancement_modules.semantic_processor.max_input_chars: 8000
+  # The extraction prompt. Unset means the module's own default, whose examples
+  # are categories rather than devices. Set it to put this facility's vocabulary
+  # in front of the model; the replacement must keep the {text} placeholder and
+  # the JSON schema the module parses.
+  # ariel.enhancement_modules.semantic_processor.prompt_template: |
   # Text embedding for semantic search. Degrades gracefully when Ollama or
   # pgvector is unavailable.
   ariel.enhancement_modules.text_embedding.enabled: true
@@ -683,6 +713,11 @@ config:
   ariel.enhancement_modules.text_embedding.models:
     - name: nomic-embed-text
       dimension: 768
+  # IVFFlat `lists` for the vector index, chosen when the index is created.
+  # Rule of thumb: rows/1000 for corpora up to a million entries. It cannot be
+  # derived — `osprey ariel migrate` runs against an empty table — and changing
+  # it later needs the index dropped and recreated.
+  # ariel.enhancement_modules.text_embedding.index_lists: 224
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.
@@ -823,6 +858,11 @@ config:
   # is the primary re-index trigger, so this is the ceiling on staleness.
   # Raise it on a large corpus, where a no-op sweep is not free.
   services.qmd.interval: 30
+  # How long the container's healthcheck holds off, in seconds, while the first
+  # full index is built — the sidecar does not open its port until the index
+  # exists and is non-empty, so until then it is legitimately unhealthy. Scale
+  # it with the corpus: too short reports a working container as failed.
+  # services.qmd.first_index_grace: 3600
   # Neo4j graph store holding a DISPOSABLE mirror of an RDF/Turtle corpus. The
   # TTL on disk stays the source of truth and `osprey knowledge seed-graph`
   # rebuilds the graph from it. It answers the multi-hop questions keyword and
@@ -866,6 +906,9 @@ config:
   # GRAPHDB_PASSWORD in this repo's .env yourself.
   # services.graphdb.uri: bolt://graph.example.org:7687
   # services.graphdb.username: neo4j
+  # Which database on that store holds the corpus. The store this deployment
+  # runs serves exactly one, called `neo4j`; a cluster of your own may not.
+  # services.graphdb.database: neo4j
   # Which declared services `osprey up` launches. qmd and graphdb each go
   # together with their `services.<name>.*` keys above: remove both or neither.
   deployed_services:
@@ -892,6 +935,17 @@ config:
   # thing that stops it. `host` has no env override.
   artifact_server.host: 127.0.0.1
   artifact_server.auto_launch: true
+  # Largest timeseries data file the gallery will chart or tabulate, in MB.
+  # The handler loads the whole file to build the view, so raising this spends
+  # memory on the machine serving the gallery. Over the cap the browser views
+  # refuse with a 413; the file itself stays downloadable either way.
+  # artifact_server.max_timeseries_file_mb: 200
+  # Extra artifact categories on top of the ones the gallery ships, so a badge
+  # reads in this facility's own vocabulary. One dotted line per category, each
+  # value a `label` and a `#RRGGBB` `color`. An artifact handed in under a
+  # category nobody declared is still stored — it just keeps the default badge,
+  # and the save logs a warning naming this key.
+  # artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
   # Seed one shipped example (an interactive plot, synthetic data) into an
   # empty WORKSPACE on the gallery's first start. Deleting it there is permanent.
   artifact_server.example_artifact: true
@@ -910,6 +964,14 @@ config:
   # The terminal process itself (`osprey web`), every key at its default. The
   # multi-user compose sets OSPREY_TERMINAL_BIND_HOST on every container, which
   # outranks `host`; `shell` REPLACES the launcher and defeats the CLI pin.
+  # `shell` is argv, written either way — a string (quoting honoured) or a
+  # list; only the first word is resolved to an absolute path and the rest are
+  # passed through:
+  #   web_terminal.shell: /opt/harness/run --profile ops
+  #   web_terminal.shell: ["/opt/harness/run", "--profile", "ops"]
+  # The PTY spawn still appends `--session-id`/`--resume` and `--effort` to
+  # whatever is set here, so a harness that does not take those flags needs a
+  # wrapper that drops them.
   # web_terminal.host: 127.0.0.1
   # web_terminal.port: <a port outside this deployment's block>
   # web_terminal.max_background_sessions: 5
@@ -919,9 +981,19 @@ config:
   # id ("desy-light") pins it. Each browser can override it from the display
   # menu, and a roster entry's `theme:` overrides it per user.
   web.theme: light
+  # Who gets offered the onboarding tour, and how often. `once` (the default)
+  # invites until a browser dismisses it or finishes the tour; `always` invites
+  # on every load and offers no permanent dismissal, which is what a shared
+  # read-only screen wants; `never` offers nothing and leaves the tour on the
+  # rail's Tour control and the command palette. A roster entry's `tour:` field
+  # overrides it per user.
+  # web.tour: once
   # Target of the Documentation button. Point it at a locally hosted copy of
-  # the docs when the control room has no route to the public site.
-  web.docs_url: https://als-apg.github.io/osprey
+  # the docs when the control room has no route to the public site. Commented
+  # rather than shipped live: a rendered value would put the OSPREY project's
+  # own documentation site into this deployment's profile.yml as though the
+  # facility had chosen it. Unset, the button points at the published site.
+  # web.docs_url: https://docs.example.org/osprey
   # The Feedback dialog's outbound channels. Nothing is posted for the user:
   # the browser opens a prefilled issue form or mail draft. Every submission
   # is also recorded here (`osprey feedback list` / `export`).
@@ -935,7 +1007,7 @@ config:
   # together: redirecting the mail but leaving the tracker upstream sends
   # half the reports to strangers.
   # web.feedback.owner:
-  #   name: ALS Controls
+  #   name: Example Controls
   #   email: controls@example.org
   #   tracker:
   #     kind: gitlab            # gitlab | github
@@ -945,8 +1017,10 @@ config:
   # owner/repo whose new-issue form the GitHub channel prefills. Predates
   # `owner` above and still wins over it wherever it is spelled, so an
   # existing deployment keeps meaning what it meant; "" offers no GitHub
-  # channel.
-  web.feedback.github_repo: als-apg/osprey
+  # channel. Commented rather than shipped live: a rendered value would put
+  # the OSPREY project's own tracker into this deployment's profile.yml as
+  # though the facility had chosen it.
+  # web.feedback.github_repo: my-org/controls
   # Further trackers, one channel each: a `gitlab` entry takes the project's
   # base URL, a `github` entry owner/repo; `label` captions it.
   # web.feedback.trackers:
@@ -954,8 +1028,9 @@ config:
   #     url: https://git.example.org/controls/osprey
   #     label: Facility GitLab
   # Recipient of the prefilled mailto: draft the Email channel opens. Wins
-  # over `owner.email` above, on the same grounds as `github_repo`.
-  web.feedback.email: thellert@lbl.gov
+  # over `owner.email` above, on the same grounds as `github_repo`, and
+  # commented for the same reason.
+  # web.feedback.email: controls@example.org
   # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
   # oldest saved session contexts are deleted; submission headers are kept.
   web.feedback.max_store_bytes: 268435456
@@ -1029,6 +1104,16 @@ config:
       # Accepts login over plain HTTP, which fits 127.0.0.1 and nothing else.
       # For any reachable host, delete this line and configure tls instead.
       allow_insecure_http: true
+      # Single sign-on instead of passwords: set `method: oidc` above and give
+      # your provider's details here. `scopes` is what is asked for at the
+      # authorization endpoint — the default below suits a provider that
+      # publishes the identity claim under `profile` or `email`; add whatever
+      # scope yours publishes it under. `openid` cannot be dropped: without it
+      # the provider issues no ID token and the sidecar refuses every login.
+      #   oidc:
+      #     issuer: https://idp.example.org
+      #     claim: preferred_username
+      #     scopes: [openid, profile, email]
     # Which tier a user lands on is pinned per entry below. Single sign-on can
     # pick it instead by mapping provider groups onto declared roles — see
     # "Let single sign-on pick the tier" in the multi-user login guide.
@@ -1129,6 +1214,11 @@ config:
   # ── Runtime ────────────────────────────────────────────────────────────────
   # Agent Python runs as a host subprocess.
   execution.execution_method: subprocess
+  # Wall-clock ceiling on one agent Python run, in seconds. A run that reaches
+  # it is killed and reported as a timeout, so raise it for a facility whose
+  # analyses legitimately run long and lower it to keep a runaway script from
+  # holding the sandbox.
+  # python_executor.execution_timeout_seconds: 600
   # Console colour theme for the CLI: default | custom. With custom, set the
   # colours (`cli.custom_theme.primary` and friends) and optionally a banner.
   cli.theme: default
@@ -1166,10 +1256,10 @@ dispatch:
 # (name to value) and `file` (a profile-relative path copied in as .env):
 #
 #   env:
-#     required: [EPICS_CA_ADDR_LIST]
+#     required: [DISPATCH_WORKER_TOKEN]
 #     pinned: [ARIEL_DB_PASSWORD]
 #     defaults:
-#       EPICS_CA_ADDR_LIST: 127.0.0.1
+#       OSPREY_FACILITY_NAME: "Example Facility"
 #     file: env/facility.env
 #
 # If `env:` already has children, add yours under it.
@@ -1974,9 +2064,14 @@ __pycache__/
 ENV_EXAMPLE = """\
 # Als Exemplar Environment Configuration
 #
-# Every variable this agent reads, listed in one place. Copy it to `.env` at the
-# repository root, beside `profile.yml`, and fill in what you need. That one file
-# holds all your secrets, and a value in it survives every rebuild.
+# Every variable this deployment supplies: the provider keys, whatever its
+# profile declares, and the tokens `osprey up` mints. Copy this file to `.env`
+# at the repository root, beside `profile.yml`, and fill in what you need. That
+# one file holds all your secrets, and a value in it survives every rebuild.
+#
+# Not listed here: the host-level knobs a command reads from its own environment
+# (CONTAINER_RUNTIME, OSPREY_OFFLINE, ...), and the names the build stamps into
+# the containers. The Environment Variables reference covers both.
 #
 # This file has no secrets in it and is safe to commit.
 #
@@ -2002,6 +2097,12 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 # ARGO_API_KEY=your-argo-api-key-here
 # STANFORD_API_KEY=your-stanford-api-key-here
 # ALS_APG_API_KEY=your-als-apg-api-key-here
+
+# Gateway endpoints. These providers front a gateway that is your own host, so
+# OSPREY ships no default: switch to one of them and it will not start until
+# its endpoint is set here.
+# als-apg
+# ALS_APG_BASE_URL=
 
 # Declared by this profile with a default (`env.defaults`). Override only if
 # your facility needs a different value.
@@ -2030,6 +2131,7 @@ OSPREY_AUTH_PW_CAROL=carol
 # OSPREY_TERMINAL_SECRET=  # bluesky_web — the operator login secret for the bluesky-web panel's web gate
 # ZO_ROOT_USER_PASSWORD=  # openobserve — OpenObserve root/ingest credential
 # ARIEL_DB_PASSWORD=  # postgresql — ARIEL Postgres password (also fills the agent's derived DSN)
+# ARIEL_DB_READONLY_PASSWORD=  # postgresql — password of the SELECT-only Postgres role the agent's SQL tool queries through
 # MONGO_ROOT_PASSWORD=  # mongodb — archiver store root password (the seeder, recorder and agent all authenticate with it)
 # GRAPHDB_PASSWORD=  # graphdb — graph store password (the seeder, health check and deploy staging all authenticate with it)
 """
@@ -2393,7 +2495,10 @@ deploy:
       REMOTE
   environment:
     name: production
-    url: https://$DEPLOY_HOST
+    # The address browsers open this deployment at, derived from the same
+    # origin the landing page carries and every terminal checks a write
+    # against — not the SSH host the job connects to.
+    url: http://127.0.0.1:10000
   resource_group: production
   rules:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

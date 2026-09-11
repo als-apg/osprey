@@ -39,6 +39,11 @@ EPICS_TYPE = "epics"
 VA_TYPE = "virtual_accelerator"
 STANDIN_TYPE = "live_standin"
 
+#: A control system the switch has no way to dial. Any type outside
+#: ``CHANNEL_ACCESS_TYPES`` would do; this one is a real connector a facility
+#: can be deployed on, which is the case the refusal exists for.
+UNSWITCHABLE_TYPE = "doocs"
+
 #: The port this deployment's stand-in soft IOC serves, as
 #: ``services.live_standin.port`` projects it and as the stand-in's own gateways
 #: dial it. Deliberately not 5064: a stand-in on the Channel Access default
@@ -245,6 +250,53 @@ def test_an_empty_gateways_table_is_ineligible() -> None:
     assert verdict.eligible is False
     assert verdict.reason == te.REASON_GATEWAYS_MISSING
     assert "control_system.connector.epics.gateways" in verdict.detail
+
+
+def test_a_connector_the_switch_cannot_dial_is_refused_by_name() -> None:
+    """A deployment on another control system is told that, not that its
+    Channel Access table is empty. The switch points a connector host at a CA
+    gateway, so a block that was never going to carry one is a refusal about the
+    protocol rather than about a key nobody filled in."""
+    config = _config(
+        control_system_type=UNSWITCHABLE_TYPE,
+        connector={UNSWITCHABLE_TYPE: {"timeout": 5.0}, VA_TYPE: _va_block()},
+    )
+
+    verdict = _eligibility(config, LIVE)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_CONNECTOR_NOT_SWITCHABLE
+    assert UNSWITCHABLE_TYPE in verdict.detail
+
+
+def test_a_connector_the_switch_cannot_dial_is_refused_even_with_gateways() -> None:
+    """Authoring a gateways table does not make another control system dialable.
+    The switch points a connector host at a Channel Access address; a block that
+    writes one under a type nothing reaches that way is still refused for the
+    protocol, not walked through the Channel Access checks behind it."""
+    config = _config(
+        control_system_type=UNSWITCHABLE_TYPE,
+        connector={
+            UNSWITCHABLE_TYPE: _epics_block(probe_channel=""),
+            VA_TYPE: _va_block(),
+        },
+    )
+
+    verdict = _eligibility(config, LIVE)
+
+    assert verdict.eligible is False
+    assert verdict.reason == te.REASON_CONNECTOR_NOT_SWITCHABLE
+
+
+def test_coming_home_to_a_connector_the_switch_cannot_dial_is_not_refused() -> None:
+    """The same block is still where the deployment lives: refusing the return
+    leg over the protocol would strand the session on the simulator."""
+    config = _config(
+        control_system_type=UNSWITCHABLE_TYPE,
+        connector={UNSWITCHABLE_TYPE: {"timeout": 5.0}, VA_TYPE: _va_block()},
+    )
+
+    assert _eligibility(config, LIVE, direction=te.DIRECTION_BACK).eligible is True
 
 
 def test_a_gateways_table_without_the_selectable_role_is_ineligible() -> None:
@@ -486,16 +538,54 @@ def test_returning_to_live_needs_neither_posture_nor_acknowledgment() -> None:
     assert _eligibility(config, LIVE, direction=te.DIRECTION_BACK).eligible is True
 
 
-def test_the_return_exemption_does_not_excuse_the_configuration_checks() -> None:
-    """It waives FR-8's posture, not the target's existence."""
-    block = _epics_block()
-    block.pop("probe_channel")
-    config = _config(limits="permissive", ack=False, connector={EPICS_TYPE: block})
+def test_the_return_exemption_does_not_excuse_the_targets_own_block() -> None:
+    """It waives what the block says, not that there is one: a return still has to
+    resolve to a connector type and find that type configured."""
+    config = _config(limits="permissive", ack=False, connector={VA_TYPE: _va_block()})
 
     verdict = _eligibility(config, LIVE, direction=te.DIRECTION_BACK)
 
     assert verdict.eligible is False
-    assert verdict.reason == te.REASON_PROBE_CHANNEL_MISSING
+    assert verdict.reason == te.REASON_CONNECTOR_BLOCK_MISSING
+
+
+def test_coming_home_to_a_baseline_with_no_gateways_is_not_refused() -> None:
+    """The gateways table is Channel Access's shape, and a baseline that does not
+    fill it in — a machine on another protocol, a block half written — is still the
+    machine this deployment was built for. Refusing the return leg over it strands
+    the session on whatever it switched to."""
+    config = _config(connector={EPICS_TYPE: _epics_block(gateways={}), VA_TYPE: _va_block()})
+
+    assert _eligibility(config, LIVE, direction=te.DIRECTION_BACK).eligible is True
+    assert _eligibility(config, LIVE, direction=te.DIRECTION_AWAY).reason == (
+        te.REASON_GATEWAYS_MISSING
+    )
+
+
+def test_coming_home_to_a_baseline_with_no_probe_channel_is_not_refused() -> None:
+    """A target that cannot prove itself reachable is never switched *to*; the
+    baseline is where a session that can prove nothing else belongs."""
+    block = _epics_block()
+    block.pop("probe_channel")
+    config = _config(connector={EPICS_TYPE: block, VA_TYPE: _va_block()})
+
+    assert _eligibility(config, LIVE, direction=te.DIRECTION_BACK).eligible is True
+    assert _eligibility(config, LIVE, direction=te.DIRECTION_AWAY).reason == (
+        te.REASON_PROBE_CHANNEL_MISSING
+    )
+
+
+def test_coming_home_to_a_baseline_missing_the_selected_role_is_not_refused() -> None:
+    """Writes unarmed selects ``read_only``, which a write-only table does not
+    carry. Away that is a refusal; home it is the read-only gateway the connector
+    would have fallen back to anyway."""
+    gateways = {"write_access": {"address": "gw.example.org", "port": 5084}}
+    config = _config(connector={EPICS_TYPE: _epics_block(gateways=gateways), VA_TYPE: _va_block()})
+
+    assert _eligibility(config, LIVE, direction=te.DIRECTION_BACK).eligible is True
+    assert _eligibility(config, LIVE, direction=te.DIRECTION_AWAY).reason == (
+        te.REASON_SELECTED_ROLE_MISSING
+    )
 
 
 def test_va_is_never_gated_on_posture_or_acknowledgment() -> None:

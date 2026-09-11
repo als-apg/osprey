@@ -110,6 +110,28 @@ unmasked: the frozen copy must still spell ports the layout cannot produce for
 this config, which is exactly what a copy regenerated from today's renderer
 could not do.
 
+**Notice prose is masked, not pinned**, for the same reason and on the same
+terms. The landing page renders each notice as a ``<details>`` section whose
+``<div class="landing-notice-body">`` holds the notice document turned into
+HTML. That prose is framework-shipped safety copy: no auth posture decides a
+word of it, it is written for operators rather than emitted by a template
+branch, and it is edited whenever the advice improves. Pinning it here would
+make every copy edit read as an SC6 violation and would say nothing about
+authentication. So both sides go through :func:`_mask_notice_bodies` too, which
+replaces the interior of each notice body with ``<notice body>`` and leaves the
+delimiters — and therefore the section's presence, count and ordering — in the
+diff.
+
+What that mask does NOT cover is everything SC6 is about. The ``<details>``
+wrapper, the ``id``, the ``<summary>`` label, every user card, badge, form,
+role and claim on the page sits outside a notice body and is still compared
+line for line; ``test_no_authorization_vocabulary_reaches_a_roles_off_render``
+reads the artifacts *unmasked*, so authorization vocabulary inside a notice
+body fails there. And a mask that stopped matching would hide the bodies'
+disappearance, so
+``test_the_frozen_baseline_really_predates_the_feature`` counts them on both
+sides.
+
 **The front proxy's image tag is masked too.** The baseline was frozen against
 one nginx release, and the front proxy tracks the supported mainline, so the
 ``image:`` line moves for reasons SC6 has no opinion about. :func:`_mask_image_tag`
@@ -117,6 +139,7 @@ blanks the tag on both sides; the image NAME still compares byte for byte, and t
 tag itself is pinned by ``test_golden_render.py`` for today's output and by the
 renderer's own default. ``_assert_the_frozen_image_tag_predates_the_current_default``
 reads it back unmasked, on the same argument the ports use.
+
 
 **When a hunk here fails**, the question is not "how do I widen the allowlist".
 It is: does the new line belong in a ``token``, roles-off render at all? If it
@@ -246,6 +269,57 @@ def _ports_in(text: str) -> frozenset[int]:
     )
 
 
+# --- The notice-body mask ----------------------------------------------------
+# See "Notice prose is masked, not pinned" in the module docstring.
+
+#: What a masked notice body reads as. Not prose, so a body the mask reaches can
+#: never compare equal to one it missed.
+_NOTICE_BODY_MASK = "<notice body>"
+
+#: One landing-page notice's rendered body: the markdown document as HTML,
+#: between the wrapper `<div>` the template emits and its close. Non-greedy, so
+#: a page with several notices masks each body separately and keeps every
+#: delimiter between them in the diff.
+_NOTICE_BODY = re.compile(
+    r'(?P<open><div class="landing-notice-body">)(?P<body>.*?)(?P<close></div>)',
+    re.DOTALL,
+)
+
+
+def _mask_notice_bodies(text: str) -> str:
+    """Blank out the prose inside every landing-page notice in one artifact.
+
+    Args:
+        text: A rendered or frozen artifact. The two that carry no notices are
+            returned unchanged.
+
+    Returns:
+        The same text with each notice body replaced by
+        :data:`_NOTICE_BODY_MASK`, so a render whose safety copy has been
+        reworded compares equal to the frozen baseline's — while the notice's
+        wrapper, id and ``<summary>`` label stay in the comparison.
+    """
+    return _NOTICE_BODY.sub(
+        lambda match: f"{match.group('open')}{_NOTICE_BODY_MASK}{match.group('close')}", text
+    )
+
+
+def _notice_bodies(text: str) -> list[str]:
+    """Every notice body one artifact carries, in order.
+
+    The inverse of :func:`_mask_notice_bodies` over the same pattern, so what is
+    read back here is exactly what the diffs below stop seeing.
+
+    Args:
+        text: A rendered or frozen artifact.
+
+    Returns:
+        The bodies found, as HTML — empty for the two artifacts that are not the
+        landing page.
+    """
+    return [match.group("body") for match in _NOTICE_BODY.finditer(text)]
+
+
 # --- The front-proxy image-tag mask ------------------------------------------
 # See "The front proxy's image tag is masked" in the module docstring. Only the
 # tag is replaced: the image NAME stays in the diff, so swapping the front proxy
@@ -340,6 +414,17 @@ _ALLOWED_COMPOSE_LINES = Counter(
         # absent `auth:` block already resolves to, so the line restates today's
         # behaviour rather than changing it.
         "      - OSPREY_TERMINAL_SESSION_LIFETIME=43200": 2,
+        # The proxy passthrough — the FOURTH exception to SC6. Every per-user
+        # container now receives the deploy env chain's three uppercase proxy
+        # names, as the login service already did, because `.env.users` is a
+        # closed credential allowlist and carries none of them. It is not an
+        # authentication or authorization line: it renders identically under
+        # every method, `token` included, and on a host with no proxy the
+        # `${VAR:-}` directives resolve to empty and change nothing. Count 2 =
+        # alice + bob.
+        "      - HTTP_PROXY=${HTTP_PROXY:-}": 2,
+        "      - HTTPS_PROXY=${HTTPS_PROXY:-}": 2,
+        "      - NO_PROXY=${NO_PROXY:-}": 2,
     }
 )
 
@@ -522,17 +607,22 @@ def _opcodes(
 ) -> tuple[list[str], list[str], list[tuple]]:
     """Baseline lines, current lines, and the line-level edit script between them.
 
-    Both sides are port-masked and image-tag-masked first (see the module
-    docstring), so the edit script reports structure and never renumbering or a
-    base-image release.
+    Both sides are port-masked, notice-body-masked and image-tag-masked first
+    (see the module docstring), so the edit script reports structure and never
+    renumbering, a reworded safety notice or a base-image release.
 
     ``artifacts`` defaults to the absent-stanza render; pass the explicit-token
     render to hold that spelling to the same frozen baseline.
     """
     rendered = _token_render() if artifacts is None else artifacts
-    old = _mask_image_tag(_mask_ports(_baseline(name))).splitlines()
-    new = _mask_image_tag(_mask_ports(rendered[_ARTIFACTS[name]])).splitlines()
+    old = _masked(_baseline(name)).splitlines()
+    new = _masked(rendered[_ARTIFACTS[name]]).splitlines()
     return old, new, difflib.SequenceMatcher(a=old, b=new, autojunk=False).get_opcodes()
+
+
+def _masked(text: str) -> str:
+    """One artifact with every mask applied, in the order the diffs see them."""
+    return _mask_image_tag(_mask_notice_bodies(_mask_ports(text)))
 
 
 def test_the_frozen_baseline_really_predates_the_feature() -> None:
@@ -570,7 +660,31 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
     assert "X-Osprey-Auth-Role" not in nginx
 
     _assert_the_frozen_ports_predate_the_layout()
+    _assert_the_notice_body_mask_still_matches()
     _assert_the_frozen_image_tag_predates_the_current_default()
+
+
+def _assert_the_notice_body_mask_still_matches() -> None:
+    """The notice-body mask hides prose only while it is finding prose to hide.
+
+    A mask that stopped matching — a renamed wrapper class, a notice the page no
+    longer renders — would let the bodies vanish from BOTH sides of every diff
+    and report nothing, so the count is asserted equal here instead. The bodies
+    themselves stay outside the comparison; how many sections the page carries
+    does not.
+    """
+    frozen = _notice_bodies(_baseline("landing.html"))
+    live = _notice_bodies(_token_render()[_ARTIFACTS["landing.html"]])
+
+    assert frozen, (
+        "the frozen landing baseline carries no notice body — the mask's wrapper "
+        "spelling no longer matches the artifact it was written for"
+    )
+    assert len(live) == len(frozen), (
+        f"the `token` landing page renders {len(live)} notice section(s) where the "
+        f"pre-feature render had {len(frozen)}. The mask hides a notice's PROSE, "
+        f"never whether the section is there."
+    )
 
 
 def _assert_the_frozen_ports_predate_the_layout() -> None:

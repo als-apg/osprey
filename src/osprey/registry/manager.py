@@ -7,6 +7,7 @@ Provides :class:`RegistryManager` plus the global singleton helpers
 """
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -318,40 +319,83 @@ def get_registry(config_path: str | None = None) -> RegistryManager:
     return _registry
 
 
+#: Environment variable that names the application registry file, outranking
+#: every config spelling. Containers set it to point at a mounted registry.
+REGISTRY_PATH_ENV = "REGISTRY_PATH"
+
+
+def resolve_registry_path(
+    config: Mapping[str, Any] | None = None,
+    *,
+    base_path: Path | str | None = None,
+) -> str | None:
+    """Resolve the application registry file path — the one resolver for it.
+
+    Three spellings reach the same file, and every reader must agree on which
+    one is in effect: the registry loader, the health row that reports whether
+    that file is there, and anything else that asks whether a deployment has an
+    application registry at all. A reader that knows only one spelling reports
+    on a different deployment than the one that loaded.
+
+    Lookup order, first hit wins:
+
+    1. the ``REGISTRY_PATH`` environment variable — the container override;
+    2. top-level ``registry_path`` — the canonical spelling;
+    3. ``application.registry_path`` — an accepted alias.
+
+    ``${VAR}`` in the value is expanded against the environment, and a relative
+    path is resolved against *base_path* when one is given.
+
+    Args:
+        config: Config mapping to read. ``None`` reads through the global
+            config singleton, which is what the registry factory has when it
+            was handed only a config path.
+        base_path: Directory relative paths resolve against; ``None`` leaves a
+            relative path relative.
+
+    Returns:
+        The resolved path, or ``None`` when no spelling names one.
+    """
+    import os
+
+    raw: Any = os.environ.get(REGISTRY_PATH_ENV)
+    if not raw:
+        if config is None:
+            raw = get_config_value("registry_path", None)
+            if not raw:
+                application = get_config_value("application", None)
+                if isinstance(application, Mapping):
+                    raw = application.get("registry_path")
+        else:
+            raw = config.get("registry_path")
+            if not raw:
+                application = config.get("application")
+                if isinstance(application, Mapping):
+                    raw = application.get("registry_path")
+
+    if not raw or not isinstance(raw, str):
+        return None
+
+    expanded: str = os.path.expandvars(str(raw))
+    if base_path is not None and not Path(expanded).is_absolute():
+        return str((Path(base_path) / expanded).resolve())
+    return expanded
+
+
 def _create_registry_from_config(config_path: str | None = None) -> RegistryManager:
     """Create registry manager from global configuration.
 
-    Supports multiple configuration formats for registry path specification:
-
-    1. Environment variable (highest priority, for container overrides):
-       REGISTRY_PATH=/app/repo_src/my_app/registry.py
-
-    2. Top-level format (simple, for single-app projects):
-       registry_path: ./src/my_app/registry.py
-
-    3. Nested format (standard, recommended):
-       application:
-         registry_path: ./src/my_app/registry.py
+    The path itself comes from :func:`resolve_registry_path`, which every
+    reader of it shares (REGISTRY_PATH, then top-level ``registry_path``, then
+    ``application.registry_path``).
 
     :param config_path: Optional explicit path to configuration file
     :return: Configured registry manager with registry paths
     :rtype: RegistryManager
     :raises ConfigurationError: If configuration format is invalid
     """
-    import os
-
     logger.debug("Creating registry from config...")
     try:
-        registry_path = None
-
-        env_registry_path = os.environ.get("REGISTRY_PATH")
-        if env_registry_path:
-            registry_path = env_registry_path
-            logger.info(
-                f"Using registry path from REGISTRY_PATH environment variable: {registry_path}"
-            )
-            return RegistryManager(registry_path=registry_path)
-
         if config_path:
             from osprey.utils.config import get_config_builder
 
@@ -368,23 +412,9 @@ def _create_registry_from_config(config_path: str | None = None) -> RegistryMana
                 base_path = Path(config_path).resolve().parent
                 logger.debug(f"Using config file directory as base path: {base_path}")
 
-        def resolve_registry_path(path: str) -> str:
-            """Resolve registry path, handling relative paths correctly."""
-            if base_path and not Path(path).is_absolute():
-                resolved = (base_path / path).resolve()
-                logger.debug(f"Resolved registry path '{path}' -> '{resolved}'")
-                return str(resolved)
-            return path
-
-        registry_path = get_config_value("registry_path", None)
-
-        if not registry_path:
-            application = get_config_value("application", None)
-            if application and isinstance(application, dict):
-                registry_path = application.get("registry_path")
+        registry_path = resolve_registry_path(base_path=base_path)
 
         if registry_path:
-            registry_path = resolve_registry_path(registry_path)
             logger.info(f"Using application registry: {registry_path}")
         else:
             logger.info("No application registry configured - using framework-only registry")

@@ -86,7 +86,7 @@ def _create_unauthorized_dashboard_app() -> FastAPI:
     )
 
     def _page() -> str:
-        return str(render_dashboard_html(facility_name="Test Facility", pv_strip_prefix="SR:"))
+        return str(render_dashboard_html(facility_name="Test Facility", channel_strip_prefix="SR:"))
 
     @app.get("/", response_class=HTMLResponse)
     async def standalone() -> str:

@@ -180,7 +180,7 @@ def _patch_pool(monkeypatch: pytest.MonkeyPatch, pool: Any) -> list[Any]:
 
     seen: list[Any] = []
 
-    async def _fake_create_pool(db_config):
+    async def _fake_create_pool(db_config, **kwargs):
         seen.append(db_config)
         return pool
 

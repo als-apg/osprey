@@ -1,6 +1,6 @@
 """TTL-based OKF stub document seeder.
 
-Reads a canonical NARAD/als-ontology RDF/Turtle file and emits one
+Reads a canonical NARAD RDF/Turtle file and emits one
 :class:`DeviceStub` per device node (``?d a narad_sem:<Class>``).
 
 **rdflib is imported lazily inside each public function** — never at module
@@ -15,9 +15,9 @@ Stub document format (OKF §9)::
     type: device_stub
     title: GTL:BC1 (BuckingCoil)
     description: Auto-generated stub for BuckingCoil GTL:BC1.
-    resource: https://narad.example.org/device/als_GTL_BC1
+    resource: https://narad.example.org/device/ex_GTL_BC1
     device_class: BuckingCoil
-    device_id: narad:device:als:GTL:BC1
+    device_id: narad:device:ex:GTL:BC1
     ---
 
     # Schema
@@ -146,7 +146,7 @@ def _binding_channel_name(binding_iri: str) -> str:
 
     Examples::
 
-        .../narad_endpoint_als_GTL_BC1_Monitor  -> "Monitor"
+        .../narad_endpoint_ex_GTL_BC1_Monitor   -> "Monitor"
         .../tst_SEC_QF1_Setpoint                -> "Setpoint"
     """
     segment = local_name(binding_iri)
@@ -232,7 +232,7 @@ def _render_stub(stub: DeviceStub) -> str:
 
 
 def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
-    """Seed OKF stub documents from a NARAD/als-ontology TTL file.
+    """Seed OKF stub documents from a NARAD TTL file.
 
     Parses *ttl_path* with rdflib, then for every subject whose type IRI
     starts with the ``narad_sem:`` namespace prefix and is a device node

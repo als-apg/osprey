@@ -248,6 +248,41 @@ describe('steps', () => {
     expect(document.querySelector('.tour-card')).toBe(null);
   });
 
+  test('panel cards wear the labels the server serves, not a private copy', () => {
+    mountFullShell();
+    applyTourConfig({
+      tour: { policy: 'never' },
+      labels: { artifacts: 'FILES', okf: 'DOCS', ariel: 'LOGBOOK' },
+    });
+    startTour();
+
+    const bodies = [];
+    for (let i = 0; i < 8; i++) {
+      bodies.push(cardBody());
+      click(nextBtn());
+      vi.advanceTimersByTime(200);
+    }
+    expect(bodies[5]).toContain('FILES');
+    expect(bodies[6]).toContain('DOCS');
+    expect(bodies[7]).toContain('LOGBOOK');
+  });
+
+  test('a payload with no labels leaves the shipped names on the cards', () => {
+    mountFullShell();
+    applyTourConfig({ tour: { policy: 'never' } });
+    startTour();
+
+    const bodies = [];
+    for (let i = 0; i < 8; i++) {
+      bodies.push(cardBody());
+      click(nextBtn());
+      vi.advanceTimersByTime(200);
+    }
+    expect(bodies[5]).toContain('WORKSPACE');
+    expect(bodies[6]).toContain('KNOWLEDGE');
+    expect(bodies[7]).toContain('ARIEL');
+  });
+
   test('steps with absent anchors drop out and the count adjusts', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
     startTour();
@@ -432,5 +467,47 @@ describe('prompt chips', () => {
     );
     expect(input.value).toBe('What can you read right now?');
     expect(term.paste).not.toHaveBeenCalled();
+  });
+});
+
+describe('the palette chord it teaches', () => {
+  /**
+   * Walk the tour to the palette step and return that card's body text.
+   * @returns {string}
+   */
+  function paletteStepBody() {
+    mountFullShell();
+    applyTourConfig({ tour: { policy: 'never' } });
+    startTour();
+    for (let i = 0; i < 4; i += 1) {
+      click(nextBtn());
+      vi.advanceTimersByTime(200);
+    }
+    expect(cardTitle()).toBe('Search everything');
+    return cardBody();
+  }
+
+  /** @param {string} value */
+  function stubPlatform(value) {
+    Object.defineProperty(navigator, 'platform', { value, configurable: true });
+    Object.defineProperty(navigator, 'userAgentData', { value: undefined, configurable: true });
+  }
+
+  test('macOS is taught the chord macOS binds', () => {
+    stubPlatform('MacIntel');
+
+    expect(paletteStepBody()).toContain('⌘K');
+  });
+
+  test('everywhere else is taught Ctrl+K, and where it works', () => {
+    stubPlatform('Linux x86_64');
+
+    const body = paletteStepBody();
+
+    expect(body).toContain('Ctrl+K');
+    expect(body).not.toContain('⌘');
+    // Off macOS the palette binds the chord outside the terminal only, so the
+    // tour has to say what to do inside it.
+    expect(body).toContain('outside the terminal');
   });
 });

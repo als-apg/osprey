@@ -481,9 +481,8 @@ async def list_entries(
     end_date: datetime | None = None,
     author: str | None = None,
     source_system: str | None = None,
-    sort_order: str = "desc",
 ) -> EntriesListResponse:
-    """List entries with pagination and filtering."""
+    """List entries with pagination and filtering, newest first."""
     service = _require_service(request)
 
     try:
@@ -711,8 +710,8 @@ async def _store_and_link_attachments(
     """Persist staged ``(filename, mime_type, data)`` files and link them on the entry.
 
     Files are stored in ARIEL's own attachment store and referenced on the entry
-    record. Note: the OLOG write API cannot accept file uploads, so attachments
-    are never pushed to an external logbook — they live in ARIEL only.
+    record. The adapter write contract carries no attachments, so they are never
+    pushed to an external logbook — they live in ARIEL only.
 
     Returns:
         The number of attachments stored.
@@ -767,8 +766,8 @@ async def create_entry_with_attachments(
     semantics as ``POST /entries`` — a logbook that requires credentials returns
     401, a genuine publish failure returns 502, and a read-only adapter falls
     back to a local-only save. Attachments are then stored in ARIEL. Because the
-    OLOG write API cannot accept file uploads, attachments are never published to
-    an external logbook; when the text body does publish externally, the response
+    adapter write contract carries no attachments, they are never published to an
+    external logbook; when the text body does publish externally, the response
     says so explicitly rather than silently dropping the files.
     """
     service = _require_service(request)
@@ -841,11 +840,11 @@ async def create_entry_with_attachments(
     attachment_count = await _store_and_link_attachments(service, entry_id, staged)
 
     # If the text published externally, be explicit that the files did not —
-    # the OLOG write API can't accept file uploads.
+    # the adapter write contract carries no attachments.
     if attachment_count and sync_status != "local_only":
         message = (
-            f"{message}. {attachment_count} attachment(s) saved to ARIEL only "
-            "(the logbook API cannot accept file uploads yet)."
+            f"{message}. {attachment_count} attachment(s) saved to ARIEL only; "
+            "attachments are not published to the external logbook."
         )
 
     return EntryCreateResponse(

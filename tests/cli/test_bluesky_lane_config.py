@@ -814,6 +814,17 @@ _LANE_REGISTRY_MODULE = "bluesky_bridge_connection.py"
 #: what keeps them in step. Excluded here rather than exempted quietly.
 _STANDALONE_TEMPLATES = "templates"
 
+#: The panel module that addresses lane 1. JavaScript cannot import the Python
+#: registry, so its copy of the key is pinned by test instead.
+_LANE_CLIENT_JS = (
+    Path(osprey.__file__).parent
+    / "interfaces"
+    / "bluesky_web"
+    / "panels"
+    / "bluesky"
+    / "lane-client.js"
+)
+
 
 def test_the_lane_service_keys_are_spelled_in_exactly_one_module() -> None:
     """No module but the registry writes a lane key as a string literal.
@@ -846,6 +857,22 @@ def test_the_lane_service_keys_are_spelled_in_exactly_one_module() -> None:
     assert offenders == [], (
         "Lane service keys belong to osprey.bluesky_bridge_connection. Import "
         "SECOND_LANE_KEYS or LANE_KEYS instead of respelling them:\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_panel_addresses_lane_one_by_the_registry_key() -> None:
+    """The panel's own ``LANE_ONE`` is the registry's, spelled once.
+
+    JavaScript cannot import the Python registry, so this literal is the one
+    respelling the rule above cannot reach. It is load-bearing: every request
+    the panel addresses to lane 1 goes out bare, and a respelled key would
+    address a lane the sidecar does not serve.
+    """
+    source = _LANE_CLIENT_JS.read_text(encoding="utf-8")
+    assert f"export const LANE_ONE = '{LANE_ONE}';" in source, (
+        f"{_LANE_CLIENT_JS} must spell lane 1's service key as the registry "
+        f"does ({LANE_ONE!r}); found:\n"
+        + "\n".join(line for line in source.splitlines() if "LANE_ONE =" in line)
     )
 
 

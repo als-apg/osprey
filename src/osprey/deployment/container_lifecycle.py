@@ -41,6 +41,7 @@ from osprey.deployment.compose_generator import (
     resolve_image_defaults,
     resolve_project_name,
     resolve_repo_root,
+    resolve_site_image_axes,
 )
 from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.errors import (
@@ -198,7 +199,11 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     # can learn — the mint here is what makes the deployed panel reachable.
     "bluesky_web": ("OSPREY_TERMINAL_SECRET",),
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
-    "postgresql": ("ARIEL_DB_PASSWORD",),
+    # Two identities on one store: the owner ingestion writes with, and the
+    # SELECT-only role the agent's raw-SQL path connects as. Both are read by
+    # Postgres only while it initializes a fresh volume, and both fill the
+    # password slot of a DSN the agent derives.
+    "postgresql": ("ARIEL_DB_PASSWORD", "ARIEL_DB_READONLY_PASSWORD"),
     "mongodb": ("MONGO_ROOT_PASSWORD",),
     "graphdb": ("GRAPHDB_PASSWORD",),
 }
@@ -313,6 +318,18 @@ class VolumeInitializedStore(NamedTuple):
       ``--reuse-stores`` would then "restore" ``neo4j/<password>`` into
       ``GRAPHDB_PASSWORD``, re-composing to ``neo4j/neo4j/<password>`` and
       locking the operator out of a store that was working.
+
+    And one field that is policy rather than a name:
+
+    * ``blocking`` — whether a stale value of this credential is a reason to
+      refuse the deploy. True for a store's root credential, where a mismatch
+      means the store will not authenticate at all. False for a credential the
+      deployment is *designed* to do without: the store starts, the feature the
+      credential unlocks falls back to the behavior it had before the credential
+      existed, and the fallback says so. Refusing there would turn a documented
+      degradation into a stop whose only remedy is discarding the volume — so a
+      non-blocking credential is adopted when its store's volume is adopted, and
+      is silent otherwise.
     """
 
     service: str
@@ -320,6 +337,7 @@ class VolumeInitializedStore(NamedTuple):
     container: str
     cred_env: str
     cred_prefix: str = ""
+    blocking: bool = True
 
 
 #: Minted vars a service reads ONLY when it initializes a fresh data volume.
@@ -346,6 +364,27 @@ _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
         volume="ariel_postgres_data",
         container="-ariel-postgres",
         cred_env="POSTGRES_PASSWORD",
+    ),
+    # The second identity the SAME volume is initialized with: the init script
+    # that creates the SELECT-only role runs only while the entrypoint is
+    # building a fresh data directory, so a re-minted secret beside a surviving
+    # volume is stale for exactly the reason the owner password above is.
+    #
+    # NOT blocking, and this is the entry the field exists for. A volume older
+    # than the role has no `_ro` login to mismatch: the agent's SQL tool runs on
+    # the ingestion connection it always ran on, and says so once at start-up,
+    # pointing at the how-to section that adopts the role by hand. Refusing
+    # would stop every deployment that predates the role on its next start and
+    # offer it nothing but discarding the logbook. Listed all the same, so that `--reuse-stores` restores this
+    # credential along with the owner password whenever it adopts the volume —
+    # adopting one and re-minting the other is how the role quietly stops being
+    # reachable on a stack that has it.
+    "ARIEL_DB_READONLY_PASSWORD": VolumeInitializedStore(
+        service="postgresql",
+        volume="ariel_postgres_data",
+        container="-ariel-postgres",
+        cred_env="ARIEL_DB_READONLY_PASSWORD",
+        blocking=False,
     ),
     "MONGO_ROOT_PASSWORD": VolumeInitializedStore(
         service="mongodb",
@@ -1186,15 +1225,19 @@ def _preflight_stale_store_volumes(
     probe = RuntimeProbe(get_runtime_command(config)[0], run=subprocess.run)
 
     stale, originals = _stale_store_volumes(probe, project, minted, services, env_path)
-    if not stale:
+    # Only a blocking credential can produce a refusal or make one unavoidable.
+    # A non-blocking one rides along with its store's adoption and is otherwise
+    # not the operator's problem — see VolumeInitializedStore.blocking.
+    blocking = [(var, store) for var, store in stale if store.blocking]
+    if not blocking:
         return
 
-    if reuse_stores and all(originals.values()):
+    if reuse_stores and all(originals[var] is not None for var, _ in blocking):
         _adopt_original_credentials(env_path, stale, originals)
         return
 
     raise RuntimeError(
-        _stale_store_report(project, env_path, stale, originals, reuse_stores=reuse_stores)
+        _stale_store_report(project, env_path, blocking, originals, reuse_stores=reuse_stores)
     )
 
 
@@ -1221,7 +1264,12 @@ def _adopt_original_credentials(
     absent: dict[str, str] = {}
     for var, _store in stale:
         original = originals[var]
-        if original is None:  # unreachable via the caller's `all(...)` guard
+        if original is None:
+            # Only a non-blocking credential reaches here unreadable: the
+            # caller refuses rather than adopt when a blocking one is gone.
+            # Leave the fresh mint standing — the feature it unlocks falls
+            # back and says so, which is what it does on a volume that
+            # never had the credential at all.
             continue
         if var in on_disk:
             text = re.sub(
@@ -1241,7 +1289,12 @@ def _adopt_original_credentials(
         )
 
     written = parse_dotenv_file(env_path)
-    missed = [var for var, _ in stale if written.get(var) != originals[var]]
+    # A credential the container no longer carries was skipped above rather than
+    # restored, and only a non-blocking one reaches here in that state — the
+    # caller refuses outright when a blocking credential is unrecoverable.
+    missed = [
+        var for var, _ in stale if originals[var] is not None and written.get(var) != originals[var]
+    ]
     if missed:
         raise RuntimeError(
             f"Could not restore {', '.join(sorted(missed))} in {env_path.resolve()}. "
@@ -2072,6 +2125,116 @@ def _resolve_pip_spec(dev_mode: bool = False) -> str:
     return f"osprey-framework=={get_release_version()}"
 
 
+#: The name a staged site CA is copied to inside each build context it reaches,
+#: value ``OSPREY_SITE_CA`` therefore carries. ``COPY`` cannot reach outside the
+#: context, so the operator's host path is staged under a fixed name here rather
+#: than passed through — every recipe's ``*.cr[t]`` glob then matches it.
+SITE_CA_CONTEXT_FILENAME = "osprey-site-ca.crt"
+
+
+def site_image_build_args(config: dict, context_dir: Path | str) -> list[str]:
+    """The site's ``--build-arg`` flags for one image build, context staged.
+
+    One producer for the three images ``osprey up`` builds from OSPREY's own
+    recipes — the project image, each persona image and the web-terminal auth
+    sidecar — so a deployment behind a
+    TLS-intercepting proxy, on an internal package index, or on an air-gapped
+    host configures those facts once in ``config.yml`` and every managed build
+    honours them. Before this, the Dockerfiles declared the ARGs and no builder
+    passed them: the settings existed only for a hand-run ``docker build``.
+
+    Two producers feed it:
+
+    * :func:`~osprey.deployment.compose_generator.resolve_site_image_axes` for
+      the ``images.*`` block — the site CA, pip's proxy bypass list and the two
+      index URLs; and
+    * the top-level ``offline`` key, read exactly as
+      :func:`osprey.interfaces.vendor.is_offline` reads it, so build-time
+      vendoring and the runtime check that decides whether to SERVE the
+      vendored assets cannot disagree. A deployment that sets ``offline: true``
+      and gets an image that never ran ``osprey vendor fetch`` serves broken
+      asset paths with nothing to point at.
+
+    An axis the deployment did not set contributes nothing, so an unconfigured
+    deployment's build command is exactly what it was before this existed.
+
+    :param config: The deployment's raw config.
+    :param context_dir: The build context this argv will be run against — the
+        directory a site CA is staged into.
+    :return: The flags, ready to extend a build command with.
+    :raises FileNotFoundError: If ``images.site_ca`` names a file that is not
+        there. A CA the build cannot find is a build that silently fails TLS
+        verification against the site proxy much later.
+    """
+    from osprey.interfaces.vendor import offline_from_config
+
+    args: list[str] = []
+    axes = resolve_site_image_axes(config)
+    for arg_name, value in axes.items():
+        if arg_name == "OSPREY_SITE_CA":
+            value = _stage_site_ca(value, context_dir)
+        args.extend(["--build-arg", f"{arg_name}={value}"])
+    if offline_from_config(config):
+        # "1" is the one spelling the Dockerfiles compare against; the config
+        # layer accepts every truthy spelling `is_offline` does.
+        args.extend(["--build-arg", "OSPREY_OFFLINE=1"])
+    return args
+
+
+def _stage_site_ca(source: str, context_dir: Path | str) -> str:
+    """Copy the site CA into *context_dir* and return the name COPY will see.
+
+    The file is refreshed on every build rather than copied once: the operator
+    edits their own bundle, not this copy, and a stale copy in a context that
+    is otherwise regenerable would outlive the certificate it was made from.
+
+    :param source: The host path ``images.site_ca`` names.
+    :param context_dir: The build context to stage into.
+    :return: :data:`SITE_CA_CONTEXT_FILENAME`.
+    :raises FileNotFoundError: If *source* does not name a readable file.
+    """
+    import shutil
+
+    src = Path(source).expanduser()
+    if not src.is_file():
+        raise FileNotFoundError(
+            f"images.site_ca names {source}, which is not a readable file. "
+            "It must be a PEM bundle on this host: the build stages a copy of "
+            "it into the build context, which is the only place a Dockerfile "
+            "COPY can reach."
+        )
+    dest = Path(context_dir) / SITE_CA_CONTEXT_FILENAME
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dest)
+    return SITE_CA_CONTEXT_FILENAME
+
+
+def clear_staged_site_ca(cmd: Sequence[str], context_dir: Path | str) -> None:
+    """Remove the site CA :func:`site_image_build_args` staged into *context_dir*.
+
+    A build context is the operator's own directory — for the project image it
+    IS the deployment repo — so the copy of their CA bundle is cleared once the
+    build that needed it has read it, the way the staged dev wheel and its
+    requirements manifest are. Nothing needs it to persist: every build stages
+    it again from ``images.site_ca``, which is what keeps a rotated certificate
+    from being shadowed by a stale copy.
+
+    Keyed on the argv that was actually built rather than on the config: a
+    deployment that stages no CA must never have a file of its own that happens
+    to carry this name removed from under it.
+
+    :param cmd: The build command :func:`site_image_build_args` contributed to.
+    :param context_dir: The build context that argv was staged into.
+    """
+    if f"OSPREY_SITE_CA={SITE_CA_CONTEXT_FILENAME}" not in cmd:
+        return
+    staged = Path(context_dir) / SITE_CA_CONTEXT_FILENAME
+    try:
+        staged.unlink(missing_ok=True)
+    except OSError:
+        logger.warning("Could not remove the staged site CA %s", staged)
+
+
 #: Env-var spellings for "on" and "off", matching the other framework switches.
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSY = {"0", "false", "no", "off"}
@@ -2216,6 +2379,11 @@ def _project_image_build_cmd(
     ``OSPREY_DEV=1`` build-arg is added (mirroring the persona dev path), so
     the Dockerfile's dev branch can key off it.
 
+    The site's own build args — proxy bypass, package index, TLS-intercepting
+    CA, offline vendoring — come from :func:`site_image_build_args`, the one
+    producer this build shares with the persona and sidecar builds, and
+    contribute nothing when the deployment declares none.
+
     :param config: Raw deploy config (project name, ``claude_code.cli_version``).
     :param runtime: Base container command (``docker`` or ``podman``).
     :param project_root: Build context — the project root that holds the
@@ -2246,6 +2414,7 @@ def _project_image_build_cmd(
     ]
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    cmd.extend(site_image_build_args(config, project_root))
     with_plain_build_progress(cmd)
     cmd.append(project_root)
     return cmd
@@ -2283,7 +2452,9 @@ def _build_project_image(
     actually succeeded — a failed wheel build keeps the pinned install
     fail-loud instead of silently relaxing it to the latest published release.
     The staged wheel is removed afterward so it cannot poison a later
-    non-dev build (whose wheel-drop branch fires on any ``*.whl`` in the context).
+    non-dev build (whose wheel-drop branch fires on any ``*.whl`` in the
+    context), and so is the site CA the build args stage — this context is the
+    operator's own directory, not a render zone OSPREY regenerates.
 
     :param config: Raw deploy config.
     :param dev_mode: Whether ``--dev`` was passed (stage a local wheel).
@@ -2351,6 +2522,7 @@ def _build_project_image(
                 "osprey-framework install."
             )
 
+    cmd: list[str] = []
     try:
         cmd = _project_image_build_cmd(config, runtime, project_root, dev_mode and wheel_staged)
         logger.debug("Building dispatch worker project image %s:", project_image)
@@ -2375,6 +2547,9 @@ def _build_project_image(
                 artifact.unlink()
             except OSError:
                 logger.warning("Could not remove staged dev artifact %s", artifact)
+        # Same reason, for the third thing this build stages: the context here
+        # is the deployment repo itself.
+        clear_staged_site_ca(cmd, project_root)
 
 
 #: The merged env chain, written under the render zone for the delivery shapes
@@ -2845,9 +3020,9 @@ def _required_env_problems(repo_root: Path | str, env: Mapping[str, str]) -> lis
                 f"{name} is required by this deployment's profile (env.required), but no "
                 f"value reaches the stack: it is unset in .env, .env.shared and the "
                 f"environment, or set there to an empty value.",
-                f"Set {name} in .env at the repo root. .env.example lists every variable "
-                f"this deployment reads; copy it first (cp .env.example .env) if this repo "
-                f"has no .env yet.",
+                f"Set {name} in .env at the repo root. .env.example lists the variables "
+                f"this deployment supplies; copy it first (cp .env.example .env) if this "
+                f"repo has no .env yet.",
             )
         )
     return problems
@@ -3050,24 +3225,25 @@ def _preflight_pinned_overrides(repo_root: Path | str) -> list[str]:
     )
 
 
-#: The proxy names the login service is handed from the chain, in their
+#: The proxy names the web-terminal stack is handed from the chain, in their
 #: lowercase spelling — the one curl honours and site documentation hands out.
 _LOWERCASE_PROXY_NAMES = ("http_proxy", "https_proxy", "no_proxy")
 
 
 def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tuple[str, str]]:
-    """Warn (never rewrite) when the chain spells a proxy name the login service cannot see.
+    """Warn (never rewrite) when the chain spells a proxy name the web stack cannot see.
 
-    The login service receives exactly three names from the chain —
-    ``HTTP_PROXY``, ``HTTPS_PROXY``, ``NO_PROXY`` — interpolated one by one into
-    its compose ``environment:``; every other container reads the whole chain
-    through ``env_file:``. A chain spelling one of them in lowercase therefore
-    reaches every container except the one that has to reach the identity
-    provider, and nothing notices: the stack starts, the health check is green,
-    and every login fails at the discovery fetch. ``no_proxy`` is the sharp
-    case — a lowercase bypass list beside an uppercase proxy hands the sidecar
-    a proxy with no exceptions, and an on-site issuer is then asked for through
-    a relay that refuses internal hosts.
+    Every container in the web-terminal stack — the login service and each
+    per-user terminal — receives exactly three names from the chain,
+    ``HTTP_PROXY``, ``HTTPS_PROXY`` and ``NO_PROXY``, interpolated one by one
+    into its compose ``environment:``. Neither reads the chain wholesale: the
+    login service's ``env_file`` is ``.env.auth``, and a terminal's is
+    ``.env.users``, a closed allowlist. A chain spelling one of them in
+    lowercase therefore misses the whole stack, and nothing notices: the stack
+    starts, the health check is green, and the outbound calls fail. ``no_proxy``
+    is the sharp case — a lowercase bypass list beside an uppercase proxy hands
+    a container a proxy with no exceptions, and an on-site host is then asked
+    for through a relay that refuses internal addresses.
 
     Passing the lowercase names through as well is not the fix: ``${var:-}``
     renders an empty lowercase name beside a set uppercase one on every host
@@ -3079,22 +3255,17 @@ def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tup
     Advisory, and the value is left as written, on the same grounds as
     ``_warn_on_invalid_proxy_env`` in the resolver: a rename the operator did
     not make would surprise every other consumer of the name. Scoped to a
-    deployment that renders the login service and sends it out to an identity
-    provider — web terminals on, ``auth.method: oidc`` — because that is the
-    one container the lowercase spelling misses. **Names only, never values.**
+    deployment that renders the web-terminal stack, because that is where the
+    three-name passthrough is the only delivery. **Names only, never values.**
 
     :param repo_root: The deployment repo holding the chain.
-    :param config: The rendered config, for the web-terminal and auth gates.
+    :param config: The rendered config, for the web-terminal gate.
     :return: ``(file, name)`` per lowercase name whose uppercase twin nothing
         in the chain sets, naming the file that set it — the local file when
         both do, since that is the line that wins. Empty when there is nothing
         to say.
     """
     if not _web_terminals_enabled(config):
-        return []
-    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    auth = web_terminals.get("auth") or {}
-    if not isinstance(auth, dict) or auth.get("method") != "oidc":
         return []
 
     root = Path(repo_root).expanduser().absolute()
@@ -3111,10 +3282,10 @@ def _warn_lowercase_proxy_names(repo_root: Path | str, config: dict) -> list[tup
         where = COMPOSE_ENV_FILENAME if lower in local else ENV_SHARED_FILENAME
         findings.append((where, lower))
         logger.warning(
-            "%s sets %s, and nothing in the chain sets %s. The login service is handed "
-            "the three uppercase proxy names and nothing else, so its identity-provider "
-            "fetches will not see this value: the stack will start, and every login will "
-            "fail at the discovery fetch. Rename it to %s. The value is left as written.",
+            "%s sets %s, and nothing in the chain sets %s. The web-terminal stack is "
+            "handed the three uppercase proxy names and nothing else, so its outbound "
+            "fetches will not see this value: the stack will start, and every call that "
+            "needs the proxy will fail. Rename it to %s. The value is left as written.",
             where,
             lower,
             lower.upper(),
@@ -5074,10 +5245,18 @@ def _stage_ariel_store(config, compose_files, env, project_dir, *, provider=None
 # ---------------------------------------------------------------------------
 
 # How long the staged graph store gets to accept a bolt connection. The same
-# budget ARIEL's store gets, and for the same reason: Neo4j opens its port only
-# once the store is recovered and the plugins the image fetches at every start
-# are loaded, so what this waits out is a refusal rather than a slow answer.
-_GRAPHDB_HEALTH_TIMEOUT_S = 90.0
+# budget the archiver's store gets, and for the same reason: Neo4j opens its
+# port only once the store is recovered and the plugins the image fetches at
+# every start are loaded, so what this waits out is a refusal rather than a slow
+# answer.
+#
+# It must OUTLAST the graphdb template's own healthcheck ``start_period``, which
+# is the container's own estimate of how long that first start takes. Under it,
+# this wait gives up while the store is still doing exactly what the template
+# says it does, and the corpus seed is skipped on a deployment that was working
+# — silently, because nothing is wrong. ``test_the_graph_store_wait_outlasts_
+# its_own_healthcheck_start_period`` pins the pair so the two cannot drift.
+_GRAPHDB_HEALTH_TIMEOUT_S = 180.0
 _GRAPHDB_HEALTH_POLL_S = 2.0
 
 # Trivial round-trip that proves the store is up, authenticated and answering
@@ -5198,7 +5377,10 @@ def _wait_for_graphdb_store(connection, deadline: float) -> None:
     while True:
         try:
             with graph_seeder.open_session(
-                connection.uri, connection.username, connection.password
+                connection.uri,
+                connection.username,
+                connection.password,
+                database=connection.database,
             ) as session:
                 session.run(_GRAPHDB_PING_CYPHER).consume()
                 return
@@ -5242,7 +5424,10 @@ def _bootstrap_and_seed_graphdb(config: dict, project_dir: Path, connection) -> 
     ttl_path = settings.ttl_path if settings is not None else None
 
     with graph_seeder.open_session(
-        connection.uri, connection.username, connection.password
+        connection.uri,
+        connection.username,
+        connection.password,
+        database=connection.database,
     ) as session:
         bootstrapped = graph_seeder.bootstrap(session)
         if not bootstrapped.ok:
@@ -5865,10 +6050,10 @@ def _start_stack(
     # doomed by a contradicted pin aborts having provisioned nothing.
     _preflight_pinned_overrides(repo_root)
     # Advisory sibling on the same chain: a proxy name spelled in lowercase
-    # reaches every container but the login service, which is handed the
-    # uppercase three and nothing else. Warned here, beside the refusals that
-    # read the same two files, so the file and the variable are named while
-    # the operator still has them in front of them.
+    # misses the whole web-terminal stack, which is handed the uppercase three
+    # and nothing else. Warned here, beside the refusals that read the same two
+    # files, so the file and the variable are named while the operator still
+    # has them in front of them.
     _warn_lowercase_proxy_names(repo_root, config)
 
     # Self-provision fail-closed service tokens into .env (before the --env-file
@@ -6293,13 +6478,13 @@ def _published_on_all_interfaces(compose_files: list[str]) -> list[str]:
     when it rendered ``deployment.bind_address`` into every ``ports:`` entry, so
     at start time this is a fact to be discovered, not a setting to be applied.
     """
-    from osprey.deployment.host_ports import _WILDCARD_HOSTS
+    from osprey.deployment.qmd_service import WILDCARD_BIND_ADDRESSES
 
     return sorted(
         {
             binding.service
             for binding in parse_host_port_bindings(compose_files)
-            if binding.host_ip in _WILDCARD_HOSTS
+            if binding.host_ip in WILDCARD_BIND_ADDRESSES
         }
     )
 

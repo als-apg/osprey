@@ -36,6 +36,7 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
+from tests.e2e.conftest import e2e_provider
 from tests.e2e.profile_edits import set_pairs
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
@@ -260,11 +261,10 @@ def allow_all_tools(repo: Path) -> None:
 def find_png_files(root: Path) -> list[Path]:
     """Recursively find generated .png files under *root*.
 
-    Excludes template assets (logos, icons) that ship with ``osprey build``
-    and therefore don't prove that ``execute`` created a plot.
+    Every .png under the agent-data root is one ``execute`` wrote: ``osprey
+    build`` renders no image assets into it.
     """
-    template_names = {"ALS_assistant_logo.png"}
-    return sorted(p for p in root.rglob("*.png") if p.name not in template_names)
+    return sorted(root.rglob("*.png"))
 
 
 def diagnose_workspace(repo: Path, max_depth: int = 3) -> str:
@@ -406,7 +406,7 @@ class TestBuildProjectClaudeCodeFilesSmoke:
     @pytest.mark.e2e_smoke
     def test_build_creates_valid_claude_code_files(self, tmp_path):
         """osprey build creates all 8 Claude Code files with valid content."""
-        repo = init_project(tmp_path, "smoke-test", provider="als-apg")
+        repo = init_project(tmp_path, "smoke-test", provider=e2e_provider())
         render = render_dir(repo)
 
         # -- All 8 files exist, in the render (the agent's cwd) --
@@ -473,7 +473,7 @@ class TestClaudeExecutesArchiverAndPlots:
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
     def test_claude_executes_archiver_and_plots(self, tmp_path):
-        repo = init_project(tmp_path, "archiver-plot-test", provider="als-apg")
+        repo = init_project(tmp_path, "archiver-plot-test", provider=e2e_provider())
         disable_approval(repo)
         allow_all_tools(repo)
 
@@ -582,7 +582,7 @@ class TestClaudeFullBpmAnalysisPipeline:
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
     def test_claude_full_bpm_analysis_pipeline(self, tmp_path):
-        repo = init_project(tmp_path, "bpm-pipeline-test", provider="als-apg")
+        repo = init_project(tmp_path, "bpm-pipeline-test", provider=e2e_provider())
         disable_approval(repo)
         allow_all_tools(repo)
 

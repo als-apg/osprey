@@ -194,12 +194,18 @@ export function statePhrase(word) {
  * The three `not set up` codes are one phrase on purpose: all three mean the
  * deployment has not authored this machine yet, and the distinction between
  * them belongs to the tooltip, not the row.
+ *
+ * `connector_not_switchable` is deliberately NOT one of them: that block is
+ * authored and the deployment is running on it — the switch just has no way to
+ * dial its protocol — so the row says what is unsupported instead of implying
+ * the deployer left something out.
  * @type {Record<string, string>}
  */
 export const REASON_PHRASES = {
   connector_block_missing: 'not set up',
   gateways_missing: 'not set up',
   probe_channel_missing: 'not set up',
+  connector_not_switchable: 'switching not supported',
   target_unresolvable: 'unavailable',
   limits_posture: 'needs strict limits',
   operator_ack_missing: 'needs gateway ack',

@@ -63,6 +63,43 @@ async def test_dispatch_passthrough_pops_input_files_before_fold_and_record():
 
 
 @pytest.mark.asyncio
+async def test_dispatch_forwards_the_triggers_parsed_turn_ceiling():
+    """The ceiling the worker receives is the typed field, not a raw lookup."""
+    registry = AsyncMock()
+    captured: dict[str, Any] = {}
+
+    async def _fake_dispatch(**kwargs):
+        captured.update(kwargs)
+        return {"run_id": "r1", "status": "accepted"}
+
+    trigger = TriggerConfig(
+        name="deploy",
+        source="webhook",
+        action={"prompt": "do it", "allowed_tools": []},
+        max_turns=7,
+    )
+    with patch.object(server, "dispatch_to_worker", _fake_dispatch):
+        await server._dispatch_with_policy(trigger, {}, registry, "http://worker", "tok")
+
+    assert captured["max_turns"] == 7
+
+
+@pytest.mark.asyncio
+async def test_dispatch_omits_a_turn_ceiling_no_trigger_states():
+    registry = AsyncMock()
+    captured: dict[str, Any] = {}
+
+    async def _fake_dispatch(**kwargs):
+        captured.update(kwargs)
+        return {"run_id": "r1", "status": "accepted"}
+
+    with patch.object(server, "dispatch_to_worker", _fake_dispatch):
+        await server._dispatch_with_policy(_trigger(), {}, registry, "http://worker", "tok")
+
+    assert captured["max_turns"] is None
+
+
+@pytest.mark.asyncio
 async def test_dispatch_passthrough_no_input_files_forwards_none():
     registry = AsyncMock()
     captured: dict[str, Any] = {}

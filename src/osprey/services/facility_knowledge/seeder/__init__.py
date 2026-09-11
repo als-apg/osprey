@@ -2,7 +2,7 @@
 
 Two seeders, both offline and both driven from ``osprey knowledge``:
 
-* :func:`seed_from_ttl` (:mod:`.ttl_seeder`) turns a NARAD/als-ontology RDF/TTL
+* :func:`seed_from_ttl` (:mod:`.ttl_seeder`) turns a NARAD RDF/TTL
   file into OKF stub *documents* — a text bundle on disk.
 * :func:`bootstrap` / :func:`import_ttl` and friends (:mod:`.graph_seeder`) load
   that same TTL into a deployed Neo4j *graph store* through neosemantics.
@@ -19,7 +19,9 @@ Example::
 
     stubs = seed_from_ttl(Path("/path/to/corpus.ttl"))
 
-    with open_session(conn.uri, conn.username, conn.password) as session:
+    with open_session(
+        conn.uri, conn.username, conn.password, database=conn.database
+    ) as session:
         bootstrap(session)
 """
 

@@ -20,6 +20,8 @@ from an earlier ``create_server()`` would shadow the live one and 503).
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from starlette.testclient import TestClient
 
@@ -544,10 +546,18 @@ async def test_dispatch_with_policy_retries_with_backoff_on_dispatch_error(monke
     async def fake_sleep(seconds):
         slept.append(seconds)
 
-    # ``server`` calls ``await asyncio.sleep(...)`` against its module-level
-    # ``asyncio`` import; patch that so the backoff is asserted without delay.
+    # ``server`` awaits ``asyncio.sleep(...)`` through its module-level ``asyncio``
+    # name. Patch THAT name, never ``asyncio.sleep`` itself: the function is shared
+    # with every other event loop alive in the process, and a daemon thread left
+    # by an earlier test in the same worker would tick through the fake.
+    class _AsyncioForServer:
+        sleep = staticmethod(fake_sleep)
+
+        def __getattr__(self, name):
+            return getattr(asyncio, name)
+
     monkeypatch.setattr(server, "dispatch_to_worker", always_fails)
-    monkeypatch.setattr(server.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(server, "asyncio", _AsyncioForServer())
 
     reg = TriggerRegistry()
     trig = TriggerConfig(

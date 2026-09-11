@@ -39,7 +39,14 @@ CONFIG_STATUS_INVALID = "configuration_invalid"
 
 #: Remedies are derived from the error class, never written per call site, so
 #: the banner, ``/api/capabilities`` and the UI name the same operator action.
-REMEDY_NO_CONFIG_FILE = "mount config.yml at /app/config.yml or set CONFIG_FILE, then restart"
+REMEDY_NO_CONFIG_FILE = "set CONFIG_FILE to this deployment's config.yml, then restart"
+
+#: Legacy container mount point, kept as a last resort before the working
+#: directory. Nothing in the shipped image writes a config here — the project
+#: lands at ``/app/<project>/`` — so it names only a hand-authored mount, and it
+#: is searched after ``CONFIG_FILE`` so an explicitly declared config always
+#: wins over one somebody left mounted.
+_CONTAINER_CONFIG_PATH = Path("/app/config.yml")
 REMEDY_NAMED_KEY = "fix the named key in config.yml and restart"
 
 
@@ -50,9 +57,14 @@ def load_ariel_config_with_path(
 
     Looks for config in:
     1. Provided config_path argument
-    2. /app/config.yml (Docker mount)
-    3. CONFIG_FILE environment variable
+    2. ``CONFIG_FILE`` environment variable
+    3. :data:`_CONTAINER_CONFIG_PATH` (a hand-authored container mount)
     4. Current directory config.yml
+
+    ``CONFIG_FILE`` outranks the mount: it is what a deployment declares, and
+    the shipped image puts its config at ``/app/<project>/config.yml`` rather
+    than at the mount point, so a file at that path can only be one somebody
+    left behind.
 
     The DSN is resolved by
     :func:`osprey.services.ariel_search.config.resolve_ariel_dsn`, which reads
@@ -77,8 +89,8 @@ def load_ariel_config_with_path(
     """
     config_paths = [
         Path(config_path) if config_path else None,
-        Path("/app/config.yml"),
         Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
+        _CONTAINER_CONFIG_PATH,
         Path("config.yml"),
     ]
 
@@ -117,8 +129,8 @@ def load_ariel_config_with_path(
             return ariel_config, path
 
     raise RuntimeError(
-        "No config.yml found. Set CONFIG_FILE environment variable "
-        "or mount config.yml at /app/config.yml"
+        "No config.yml found. Set the CONFIG_FILE environment variable to this "
+        f"deployment's config.yml, or mount one at {_CONTAINER_CONFIG_PATH}"
     )
 
 

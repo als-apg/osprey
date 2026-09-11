@@ -252,19 +252,74 @@ class TestTheDockerDesktopPredicate:
 
         assert docker_desktop.on_docker_desktop({}) is True
 
-    def test_a_linux_host_is_not(self, monkeypatch):
+    def test_a_linux_host_on_the_bare_engine_is_not(self, monkeypatch):
         """There ``network_mode: host`` binds on the machine itself, so an
         unreachable port means something else entirely."""
         monkeypatch.setattr(docker_desktop.sys, "platform", "linux")
+        monkeypatch.setattr(docker_desktop, "get_runtime_command", lambda config: ["docker"])
+        monkeypatch.setattr(docker_desktop, "_active_docker_context", lambda: "default")
 
         assert docker_desktop.on_docker_desktop({}) is False
 
-    def test_the_runtime_is_not_resolved_on_a_linux_host(self, monkeypatch):
-        """The platform is checked first so the cheap answer stays cheap."""
+    def test_docker_desktop_on_linux_is_docker_desktop(self, monkeypatch):
+        """Its Linux build has the same VM and the same port handling.
+
+        Keying on ``sys.platform`` answered ``False`` here, which is why the
+        two Linux path readers in this very module were unreachable code.
+        """
         monkeypatch.setattr(docker_desktop.sys, "platform", "linux")
+        monkeypatch.setattr(docker_desktop, "get_runtime_command", lambda config: ["docker"])
+        monkeypatch.setattr(docker_desktop, "_active_docker_context", lambda: "desktop-linux")
+
+        assert docker_desktop.on_docker_desktop({}) is True
+
+    def test_desktop_installed_but_containers_on_the_bare_engine_is_not(self, monkeypatch):
+        """Presence of the install is not the question; which engine runs is.
+
+        Docker Desktop's files sit on the host whether or not the active
+        context points at it, so the presence test alone is a false positive on
+        exactly the shape it would matter for.
+        """
+        monkeypatch.setattr(docker_desktop.sys, "platform", "linux")
+        monkeypatch.setattr(docker_desktop, "get_runtime_command", lambda config: ["docker"])
+        monkeypatch.setattr(docker_desktop, "_active_docker_context", lambda: "default")
+        monkeypatch.setattr(
+            docker_desktop, "backend_socket_path", lambda: pytest.fail("presence must not decide")
+        )
+
+        assert docker_desktop.on_docker_desktop({}) is False
+
+    def test_an_unreadable_context_falls_back_to_the_install(self, monkeypatch, tmp_path):
+        """A CLI that cannot be asked leaves the presence test as the answer."""
+        monkeypatch.setattr(docker_desktop.sys, "platform", "linux")
+        monkeypatch.setattr(docker_desktop, "get_runtime_command", lambda config: ["docker"])
+        monkeypatch.setattr(docker_desktop, "_active_docker_context", lambda: None)
+        socket_path = tmp_path / "backend.sock"
+        socket_path.touch()
+        monkeypatch.setattr(docker_desktop, "backend_socket_path", lambda: socket_path)
+
+        assert docker_desktop.on_docker_desktop({}) is True
+
+    def test_podman_on_linux_never_asks_for_a_context(self, monkeypatch):
+        """The runtime settles it, so the subprocess is not spent."""
+        monkeypatch.setattr(docker_desktop.sys, "platform", "linux")
+        monkeypatch.setattr(
+            docker_desktop, "get_runtime_command", lambda config: ["podman", "compose"]
+        )
+        monkeypatch.setattr(
+            docker_desktop,
+            "_active_docker_context",
+            lambda: pytest.fail("the runtime already answered"),
+        )
+
+        assert docker_desktop.on_docker_desktop({}) is False
+
+    def test_a_platform_with_no_desktop_build_is_not(self, monkeypatch):
+        """No runtime is resolved where the product does not exist."""
+        monkeypatch.setattr(docker_desktop.sys, "platform", "freebsd13")
 
         def fail(config: dict) -> list[str]:
-            raise AssertionError("the runtime should not be resolved on Linux")
+            raise AssertionError("the runtime should not be resolved here")
 
         monkeypatch.setattr(docker_desktop, "get_runtime_command", fail)
 

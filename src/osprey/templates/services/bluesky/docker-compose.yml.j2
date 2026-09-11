@@ -359,6 +359,19 @@ services:
       # the default, so a default-valued deploy never renders this key at all.
       BLUESKY_DEVICE_PAGE_SIZE: "{{ svc.device_page_size }}"
 {% endif %}
+{%- if svc.live_max_runs %}
+      # Live-run buffer retention: how many run buffers the bridge holds in
+      # memory, oldest evicted first. The bridge is where the buffers live, so
+      # this and the row cap below stop here. Written by _inject_bluesky
+      # (build_injectors.py) only when the profile departs from the default.
+      BLUESKY_LIVE_MAX_RUNS: "{{ svc.live_max_runs }}"
+{% endif %}
+{%- if svc.live_max_rows_per_run %}
+      # Per-run row storage cap. Rows past it are still counted, so the
+      # run-data route reports the true total over a truncated buffer. Same
+      # omit-when-default contract as the retention count above.
+      BLUESKY_LIVE_MAX_ROWS_PER_RUN: "{{ svc.live_max_rows_per_run }}"
+{% endif %}
 {% if svc.target == 'standin' %}
       # This lane serves the STAND-IN target: the `live-standin` soft IOC this
       # deployment runs for itself, so a session can rehearse against the live
@@ -700,6 +713,24 @@ services:
       # Exclusions apply worker-side too — a plan hidden from the catalog must
       # not be reachable by name through a hand-built queue item.
       BLUESKY_EXCLUDED_PLANS: "{{ svc.excluded_plans }}"
+{% endif %}
+{%- if svc.settle_timeout_s %}
+      # Plan-write settle budget: the worker is where devices are built, so
+      # this is the only container that reads it. `ConnectorSettable.set()`
+      # polls the readback until it reaches the demand and raises once this
+      # many seconds pass. Written by _inject_bluesky (build_injectors.py) only
+      # when the profile departs from the default, so a default-valued deploy
+      # renders nothing here at all.
+      BLUESKY_SETTLE_TIMEOUT_S: "{{ svc.settle_timeout_s }}"
+{% endif %}
+{%- if svc.settle_tolerance is defined %}
+      # Plan-write settle tolerance: the absolute `abs(readback - demand)` a
+      # move must reach to count as settled. Same worker-only reach and the
+      # same omit-when-default contract as the budget above. Tested for
+      # DEFINEDNESS rather than truth: zero is a tolerance the profile parser
+      # and the device's reader both accept — an exact-match demand — and a
+      # truth test would drop it and leave the device on its own default.
+      BLUESKY_SETTLE_TOLERANCE: "{{ svc.settle_tolerance }}"
 {% endif %}
 {% if svc.target == 'standin' %}
       # The co-deployed stand-in IOC, the same container address as the bridge's

@@ -1346,6 +1346,17 @@ def render_web_terminals(
         # only inside the block it already gates on `sidecar_active`,
         # because a deployment with no sidecar service has nothing to mount them
         # into.
+        # What the login page wears. The sidecar sits one hop before the
+        # terminals and had no way to know either, so it fell back to the
+        # framework palette and the bare OSPREY wordmark while everything
+        # behind it carried the deployment's own. The THEME ID travels here,
+        # never rendered CSS: palettes have exactly one producer
+        # (design_system.theme_config), and the sidecar resolves the id through
+        # it the same way the landing page does. Both are emitted
+        # unconditionally and gated in the template, so an unset value emits no
+        # env line and the page keeps its built-in fallbacks.
+        "web_theme": str(as_dict(root.get("web")).get("theme") or ""),
+        "web_app_name": resolve_facility_name(root, ""),
         "auth_audit_identity": AUTH_SIDECAR_AUDIT_IDENTITY,
         "auth_audit_mount_source": _audit_mount_source(AUTH_SIDECAR_AUDIT_IDENTITY),
         "auth_audit_dir": _container_audit_dir(
@@ -2046,6 +2057,13 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         # compose service emits no OSPREY_AUTH_OIDC_CLAIM at all and the
         # sidecar's own documented default applies — one default, in one place.
         "auth_oidc_claim": _non_empty_str(oidc.get("claim"), "") or None,
+        # The scopes to request at the authorization endpoint. Left as None
+        # when unset — as with `claim`, an unauthored list emits no env line at
+        # all and the sidecar's own documented default applies, so the default
+        # lives in one place. `openid` is not enforced here: the sidecar
+        # refuses a list without it, which keeps one rule in one place and
+        # keeps a config edit from being the thing that removes it.
+        "auth_oidc_scopes": _scope_list(oidc.get("scopes")),
         "tls_enabled": bool(tls.get("enabled", False)),
         "tls_port": _port_int(tls.get("port"), TLS_LISTEN_PORT),
         # Carried alongside so the template's "is this the port a browser
@@ -2315,6 +2333,22 @@ def _port_int(value: Any, default: int) -> int:
 def _non_empty_str(value: Any, default: str) -> str:
     """A config value read as a non-empty string, falling back to ``default``."""
     return value if isinstance(value, str) and value.strip() else default
+
+
+def _scope_list(value: Any) -> str | None:
+    """``auth.oidc.scopes`` read as the space-separated string OAuth spells.
+
+    A list of strings is the authored shape; a bare string is accepted as
+    already-joined scopes, because that is what an operator who has copied the
+    line out of their IdP's documentation will write. Anything else — and an
+    empty list — reads as unset, which renders no env line and leaves the
+    sidecar's own default in force.
+    """
+    if isinstance(value, str):
+        return " ".join(value.split()) or None
+    if isinstance(value, list | tuple) and all(isinstance(item, str) for item in value):
+        return " ".join(item.strip() for item in value if item.strip()) or None
+    return None
 
 
 #: The audit identities that belong to a SERVICE rather than to a person: the

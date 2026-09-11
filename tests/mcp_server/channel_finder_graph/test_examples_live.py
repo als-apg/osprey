@@ -61,6 +61,7 @@ import pytest
 
 from osprey.mcp_server.channel_finder_graph.tools.examples_data import EXAMPLE_QUERIES
 from tests._graphdb_container import (
+    GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
     graphdb_store,
@@ -136,7 +137,9 @@ def _seed(uri: str, ttl: str, label: str) -> None:
     """
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
-    with graph_seeder.open_session(uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD) as session:
+    with graph_seeder.open_session(
+        uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD, database=GRAPHDB_TEST_DATABASE
+    ) as session:
         graph_seeder.wipe(session)
 
         result = graph_seeder.bootstrap(session)

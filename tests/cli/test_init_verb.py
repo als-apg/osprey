@@ -1380,7 +1380,7 @@ class TestResetFlag:
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
         monkeypatch.setattr(
             "osprey.cli.init_cmd._surviving_project_resources",
-            lambda target: ["container old-thing", "volume old-thing_data"],
+            lambda target, runtime: ["container old-thing", "volume old-thing_data"],
         )
 
         result = runner.invoke(
@@ -1392,9 +1392,44 @@ class TestResetFlag:
         assert "old-thing" in result.output
         assert "com.osprey.repo-id" in result.output
 
+    def test_the_remedy_names_the_runtime_this_host_actually_resolves(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """The commands to paste have to be runnable on the host reading them.
+
+        The probe two lines above already resolved the runtime binary; the
+        remedy printed ``docker`` regardless, so a podman host was handed three
+        commands it has no binary for.
+        """
+        monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
+        monkeypatch.setattr(
+            "osprey.cli.init_cmd._surviving_project_resources",
+            lambda target, runtime: ["container old-thing"],
+        )
+        monkeypatch.setattr(
+            "osprey.deployment.runtime_helper.get_runtime_command",
+            lambda _config: ["podman"],
+        )
+
+        result = runner.invoke(
+            cli,
+            ["init", str(tmp_path / "demo"), "--preset", "hello-world", "--no-git", "--reset"],
+        )
+
+        # The report is wrapped to the terminal width, so compare on one line.
+        printed = " ".join(result.output.split())
+
+        assert result.exit_code != 0
+        assert "podman ps -aq" in printed
+        assert "podman volume ls -q" in printed
+        assert "xargs podman rm -f" in printed
+        assert "docker " not in printed.replace("com.docker.compose.project", "")
+
     def test_it_proceeds_when_the_sweep_was_complete(self, runner, tmp_path, monkeypatch):
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _completed_reset)
-        monkeypatch.setattr("osprey.cli.init_cmd._surviving_project_resources", lambda target: [])
+        monkeypatch.setattr(
+            "osprey.cli.init_cmd._surviving_project_resources", lambda target, runtime: []
+        )
 
         result = runner.invoke(
             cli,

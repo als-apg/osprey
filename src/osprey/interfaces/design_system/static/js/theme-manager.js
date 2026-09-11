@@ -102,6 +102,10 @@ const SENTINEL_VAR = '--bg-primary';
 // empty slot could just as easily be a transient hidden-iframe read).
 const MAX_CHART_SERIES = 12;
 
+// Rendered when --font-mono reads empty: the family the token itself ships,
+// so an unresolved read is a fallback rather than the browser's default.
+const MONO_FALLBACK = "'JetBrains Mono', monospace";
+
 // tokens.js is plain (unchecked) generated JS: cast its exports to the
 // shapes documented above rather than relying on tsc's own inference of
 // the literal object it emits. This also means theme-manager.js type-checks
@@ -768,6 +772,20 @@ function _checkSentinel(styles) {
   return false;
 }
 
+/**
+ * The monospace stack the design system is serving, with the shipped default
+ * for a document whose tokens have not resolved (an unstyled test DOM, or a
+ * page served without tokens.css).
+ *
+ * @param {CSSStyleDeclaration} [styles] Computed style to read the token
+ *   from; the document element's own when omitted.
+ * @returns {string}
+ */
+export function monoFontStack(styles) {
+  const source = styles ?? getComputedStyle(document.documentElement);
+  return _readVar(source, '--font-mono') || MONO_FALLBACK;
+}
+
 /** xterm.js `theme` option, built from --ansi-* custom properties. */
 export function xtermPalette() {
   const styles = _computedStyles();
@@ -854,7 +872,7 @@ export function chartRelayout(gd) {
     // an author who leaves colors unset gets the same series colors the native
     // time-series viewer draws with, in all eight themes.
     colorway: chartSeries(),
-    'font.family': _readVar(styles, '--font-mono') || "'JetBrains Mono', monospace",
+    'font.family': monoFontStack(styles),
     'legend.bgcolor': paper,
     'legend.bordercolor': line,
   };

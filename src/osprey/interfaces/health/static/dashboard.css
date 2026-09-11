@@ -1,7 +1,7 @@
 /*
   System Health dashboard — panel-local styles.
 
-  Ported from the ALS integration-status dashboard, re-themed entirely
+  Ported from an earlier integration-status dashboard, re-themed entirely
   through design-system tokens: every color, surface, border, glow, and
   font resolves through a design-token custom property from tokens.css, so the
   panel renders correctly under every family in both light and dark with no

@@ -313,6 +313,30 @@ def test_devices_file_with_no_entries_warns_and_builds_no_devices(
     assert "this worker will expose no plans" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("env_var", "value"),
+    [
+        ("BLUESKY_SETTLE_TIMEOUT_S", "soon"),
+        ("BLUESKY_SETTLE_TOLERANCE", "-1"),
+    ],
+    ids=["timeout-not-a-number", "negative-tolerance"],
+)
+def test_an_unusable_settle_budget_fails_the_worker_boot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, env_var: str, value: str
+) -> None:
+    """A settle budget the move loop cannot use must not reach a plan.
+
+    Both are read inside the RunEngine, once per move, so a worker that came up
+    on a bad value would abort the first write of the first plan an operator
+    ran instead of refusing to start.
+    """
+    monkeypatch.setenv(env_var, value)
+    env = _stock_devices_env(tmp_path)
+
+    with pytest.raises(ValueError, match=env_var):
+        asyncio.run(qserver_startup.build_devices(env=env, connector=FakeConnector()))
+
+
 def test_build_devices_builds_connector_mediated_devices_from_the_device_file(
     tmp_path: Path,
 ) -> None:

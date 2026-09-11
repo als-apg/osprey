@@ -49,10 +49,17 @@ def _validate_record_type(record_type: str) -> None:
 
 
 class AddEntryRequest(BaseModel):
-    """Request body for adding a manual feedback entry."""
+    """Request body for adding a manual feedback entry.
+
+    ``facility`` is optional and normally absent: the name belongs to the
+    deployment, which the app resolved at startup, so a client that omits it
+    gets that name rather than whatever an operator retyped. A client that
+    sends one — the detail view re-filing an existing entry — keeps it, so a
+    record cannot silently change machines.
+    """
 
     query: str
-    facility: str
+    facility: str = ""
     entry_type: str = "success"
     selections: dict[str, Any] = {}
     channel_count: int = 0
@@ -149,7 +156,7 @@ async def feedback_add(request: Request, body: AddEntryRequest):
         )
     key = store.add_manual_entry(
         query=body.query,
-        facility=body.facility,
+        facility=body.facility or getattr(request.app.state, "facility_name", ""),
         entry_type=body.entry_type,
         selections=body.selections,
         channel_count=body.channel_count,

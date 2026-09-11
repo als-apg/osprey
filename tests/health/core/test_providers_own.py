@@ -77,6 +77,24 @@ async def test_without_a_claude_code_provider_every_failure_stays_advisory() -> 
     assert rows[0].status is Status.WARNING
 
 
+async def test_the_deployments_own_config_only_provider_is_skipped_not_failed() -> None:
+    """No adapter class for the agent's provider is not a broken deployment.
+
+    ``osprey health`` exits 2 on an error row, so grading "there is no Python
+    class for this name" as a failure takes down the exit status of a
+    deployment whose agent is running fine on a config-only endpoint.
+    """
+    config = {
+        "claude_code": {"provider": "house_gateway"},
+        "api": {"providers": {"house_gateway": {"base_url": "https://gw.example/v1"}}},
+    }
+    by_name = {r.name: r for r in await _run(config, _StubRegistry({}))}
+
+    assert by_name["house_gateway"].status is Status.SKIP
+    assert "no code adapter" in by_name["house_gateway"].message
+    assert "claude_code.provider" in by_name["house_gateway"].message
+
+
 async def test_an_own_provider_absent_from_api_providers_is_reported() -> None:
     """Named as the agent's provider but configured nowhere: there is no key to
     probe, and that is itself the error."""

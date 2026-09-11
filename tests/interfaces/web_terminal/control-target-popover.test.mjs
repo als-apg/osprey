@@ -471,6 +471,31 @@ describe('names', () => {
     expect(desc.textContent).toBe('Not set up yet');
     expect(desc.dataset.tone).toBeUndefined();
   });
+
+  test('a machine the switch cannot dial is still a machine, and reads as one', async () => {
+    // Refused for its protocol, not for a key nobody filled in: the deployment
+    // runs on that connector and the descriptor keeps saying what writing there
+    // would do. "Not set up" would be the wrong sentence twice over.
+    await bootOpen(
+      viewOf({
+        targets: [
+          rowOf(KINDS.live, {
+            ...STATES['read-only'],
+            available_now: false,
+            reason: 'connector_not_switchable',
+            reason_detail: "Target 'live' resolves to connector type 'doocs'.",
+          }),
+          rowOf(KINDS.va, { active: true, available_now: false, reason: 'already_active' }),
+        ],
+      })
+    );
+    const desc = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-tip-what'));
+    expect(desc.textContent).toBe('Writes move hardware');
+    expect(desc.dataset.tone).toBe('hazard');
+    const reason = /** @type {HTMLElement} */ (rowEl('live')?.querySelector('.ctc-reason'));
+    expect(reason.textContent).toBe('switching not supported');
+    expect(reason.title).toBe("Target 'live' resolves to connector type 'doocs'.");
+  });
 });
 
 /* ---- reachability -------------------------------------------------------- */

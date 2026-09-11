@@ -117,3 +117,45 @@ class TestLoadManifestFile:
             "record_type",
             "noise",
         }
+
+
+class TestSubfieldVocabularyHasOneProducer:
+    """``SP``/``RB`` are declared once, by the manifest, and read everywhere else.
+
+    The subfield vocabulary decides what a write MEANS -- which channel is
+    writable, which readback it echoes onto, which limit band applies. A
+    second spelling of it in a consumer is a second source of truth that is
+    free to drift from the manifest the IOC is actually serving.
+    """
+
+    def test_the_manifest_package_exports_the_vocabulary(self):
+        from osprey.services.virtual_accelerator import manifest
+
+        assert manifest.SETPOINT_SUBFIELD == "SP"
+        assert manifest.READBACK_SUBFIELD == "RB"
+
+    def test_every_consumer_reads_the_same_constants(self):
+        from osprey.services.virtual_accelerator import manifest
+        from osprey.services.virtual_accelerator.manifest import build, classify
+        from osprey.services.virtual_accelerator.model import catalog
+        from osprey.services.virtual_accelerator.serving import pvdb
+
+        assert manifest.SETPOINT_SUBFIELD is classify.SETPOINT_SUBFIELD
+        for module in (build, pvdb, catalog):
+            assert module.SETPOINT_SUBFIELD is classify.SETPOINT_SUBFIELD
+            assert module.READBACK_SUBFIELD is classify.READBACK_SUBFIELD
+
+    def test_no_consumer_declares_a_vocabulary_of_its_own(self):
+        import inspect
+
+        from osprey.services.virtual_accelerator.manifest import build, classify
+        from osprey.services.virtual_accelerator.model import catalog
+        from osprey.services.virtual_accelerator.serving import pvdb, write_path
+
+        for module in (build, pvdb, catalog, write_path):
+            source = inspect.getsource(module)
+            assert "SETPOINT_SUBFIELD = " not in source, module.__name__
+            assert "READBACK_SUBFIELD = " not in source, module.__name__
+        producer = inspect.getsource(classify)
+        assert 'SETPOINT_SUBFIELD = "SP"' in producer
+        assert 'READBACK_SUBFIELD = "RB"' in producer

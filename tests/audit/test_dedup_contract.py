@@ -102,6 +102,14 @@ def project(tmp_path, monkeypatch):
     am.reset_audit_state()
     dedup.clear_recorded()
 
+    # The redirect is process-global — the writer is imported at call time, so
+    # anything else recording in this process lands here too. A web server left
+    # running by an earlier test answers a probe with a `GET /` refusal, and the
+    # zone this fixture promises to hand over empty is not. Hand over what the
+    # docstring says: whatever arrived before the test began is not the test's.
+    for stray in audit_root.rglob("*.jsonl"):
+        stray.unlink()
+
     yield audit_root
 
     am.reset_audit_state()

@@ -1114,7 +1114,10 @@ html[data-ui-mode="simple"] .session-selector {
 }
 
 /* Glyph — mapped from the panel id via data-icon, with a generic fallback for
-   runtime/custom panels. */
+   runtime/custom panels. Every built-in panel id gets a rule of its own, so a
+   rail never shows two panels wearing the fallback; the id set is
+   `profiles.web_panels.BUILTIN_PANEL_LABELS` plus the session tile's rail id,
+   and `test_panel_rail_glyph_parity.py` holds the two together. */
 .panel-rail-icon {
   font-size: var(--text-xl);
   line-height: var(--leading-none);
@@ -1127,6 +1130,8 @@ html[data-ui-mode="simple"] .session-selector {
 .panel-rail-icon[data-icon="channel-finder"]::before { content: "\2315"; } /* ⌕ channels */
 .panel-rail-icon[data-icon="lattice"]::before { content: "\2b21"; }   /* ⬡ lattice */
 .panel-rail-icon[data-icon="okf"]::before { content: "\1f56e"; }      /* 🕮 knowledge */
+.panel-rail-icon[data-icon="jupyter"]::before { content: "\25a6"; }  /* ▦ notebook cells */
+.panel-rail-icon[data-icon="system-health"]::before { content: "\223f"; } /* ∿ health trace */
 
 .panel-rail-label {
   font-size: var(--text-xs);

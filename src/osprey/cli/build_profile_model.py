@@ -61,6 +61,7 @@ from .build_profile_schema import (
     ServiceDef,
     VAConfig,
     env_names_errors,
+    http_errors,
     network_mode_errors,
 )
 from .build_profile_va_faults import (
@@ -681,16 +682,33 @@ class BuildProfile:
 
         return errors
 
+    def _validate_http_axis(self) -> list[str]:
+        """Return validation errors for every ``http:`` declaration.
+
+        Same two authoring surfaces as the network axis, and the same
+        as-authored timing. Unlike ``network:`` there is no dispatch-pair rule:
+        the pair's halves are framework services the summary already recognises
+        by name, so a declaration on one is merely redundant rather than
+        something the build would overwrite.
+
+        Returns:
+            Human-readable error messages; empty when every declaration is a
+            boolean.
+        """
+        errors: list[str] = []
+        for _name, value, key in self._service_axis_declarations("http"):
+            errors.extend(http_errors(value, key))
+        return errors
+
     def _validate_env_axis(self) -> list[str]:
         """Return validation errors for every ``env:`` name-list declaration.
 
         Same two authoring surfaces and the same as-authored timing as the
-        network axis. The dispatch pair is excluded for a different reason than
-        it is there: the two halves need no shared value, but the dispatch
-        injection rewrites both service config blocks wholesale, so an ``env:``
-        authored on a half would be dropped before it could reach a container.
-        Refused rather than honored-looking, and pointed at the env chain both
-        halves already read.
+        network axis, plus ``dispatch.env`` — the pair's own spelling, checked
+        here so both surfaces report the same problems in the same words. The
+        per-half spelling stays refused: the dispatch injection rewrites both
+        service config blocks wholesale, so an ``env:`` authored on a half would
+        be dropped before it could reach a container.
 
         Returns:
             Human-readable error messages; empty when every declaration lists
@@ -698,6 +716,9 @@ class BuildProfile:
         """
         errors: list[str] = []
         pair_reported: set[str] = set()
+
+        if self.dispatch is not None:
+            errors.extend(env_names_errors(self.dispatch.env, "dispatch.env"))
 
         for name, value, key in self._service_axis_declarations("env"):
             if name in DISPATCH_PAIR_SERVICES:
@@ -707,9 +728,8 @@ class BuildProfile:
                 errors.append(
                     f"{key} is not a per-service knob: the dispatch: block rewrites the "
                     f"event dispatcher's and the workers' service config, so {key} would "
-                    f"be dropped before it reached a container (got {value!r}). Both "
-                    f"halves already read the project's env chain — put the variable in "
-                    f".env and declare it under env.required instead."
+                    f"be dropped before it reached a container (got {value!r}). Remove "
+                    f"{key} and set dispatch.env instead — it reaches both halves."
                 )
             else:
                 errors.extend(env_names_errors(value, key))
@@ -1413,6 +1433,7 @@ class BuildProfile:
         errors.extend(self._validate_service_key_shapes())
         errors.extend(self._validate_network_axis())
         errors.extend(self._validate_env_axis())
+        errors.extend(self._validate_http_axis())
 
         # Validate lifecycle steps
         for phase_name in ("pre_build", "post_build", "validate"):

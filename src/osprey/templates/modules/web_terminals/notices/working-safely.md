@@ -26,12 +26,16 @@ lets you judge the next thing it proposes.
 - Notice which channels and sources it drew on.
 - Stop the session if it starts looping or heads somewhere you did not intend.
 
-## Know what this deployment covers
+## Agents are built to find you an answer
 
-Every deployment is set up for a particular set of systems and channels.
+These agents are biased toward producing a solution for whatever you ask them
+for. Ask for something this deployment cannot actually do and you are more likely
+to get an answer-shaped attempt than a refusal.
 
-- Know which subsystems and channels yours is configured for.
+- Know which subsystems and channels this deployment is configured for.
 - Narrow open-ended asks ("fix everything", "optimize the beam") yourself before
   handing them over.
+- Treat a confident answer about something outside that scope as a reason to
+  check, not as a result.
 
 When in doubt, stop the session and talk to your control system team.

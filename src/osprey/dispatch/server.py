@@ -132,6 +132,12 @@ async def _dispatch_with_policy(
     source_default_surface_tools: list[str] | None = None
     surface_tools = action.get("surface_tools") or source_default_surface_tools
 
+    # An optional per-trigger turn ceiling, already parsed and type-checked off
+    # ``action.max_turns`` when the trigger file was loaded (TriggerConfig).
+    # Omitted when unset, in which case the worker applies the deployment's own
+    # ``dispatch.max_turns``.
+    max_turns = trigger.max_turns
+
     # Fold the event payload into the prompt so payload-driven triggers can act
     # on it. The payload is UNTRUSTED input (a webhook body); the per-trigger
     # tool allowlist and the worker's denylist — not the prompt — are the
@@ -148,6 +154,7 @@ async def _dispatch_with_policy(
             surface_prompt=surface_prompt,
             surface_tools=surface_tools,
             input_files=input_files,
+            max_turns=max_turns,
         )
         await registry.record_event(trigger.name, payload, "dispatched")
         return result
@@ -544,7 +551,7 @@ def create_server() -> FastMCP:
         return HTMLResponse(
             render_dashboard_html(
                 facility_name=os.environ.get("OSPREY_FACILITY_NAME", ""),
-                pv_strip_prefix=os.environ.get("PV_STRIP_PREFIX", ""),
+                channel_strip_prefix=os.environ.get("CHANNEL_STRIP_PREFIX", ""),
                 # Set by the compose template only when the telemetry store is
                 # deployed AND agent telemetry is on, so an unset var is the
                 # honest "no telemetry to link to" signal (the dashboard then

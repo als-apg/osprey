@@ -10,7 +10,7 @@ import os
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from osprey.port_layout import default_port
 from osprey.utils.config_paths import resolve_config_relative_path
@@ -37,6 +37,20 @@ _DEFAULT_DB_NAME = "ariel"
 #: uses, so the agent stays launchable before the first `osprey up`
 #: mints a real password into the project ``.env``.
 _DEFAULT_DB_PASSWORD = "ariel"
+
+#: Appended to the Postgres username to name the SELECT-only role the store's
+#: init script creates. Derived rather than configured: the owner is declared
+#: once, under ``services.postgresql.username``, and a second key naming the
+#: read-only role would be a copy of that fact with nothing keeping the two in
+#: step. The init template derives the same name from the same key.
+_READONLY_ROLE_SUFFIX = "_ro"
+
+#: Where the read-only role's password is read from, and the value that stands
+#: in before a deploy mints one -- mirroring ``ARIEL_DB_PASSWORD`` and the
+#: ``${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}`` fallback the compose service and
+#: the init script both carry.
+_DB_READONLY_PASSWORD_ENV_VAR = "ARIEL_DB_READONLY_PASSWORD"
+_DEFAULT_DB_READONLY_PASSWORD = _DEFAULT_DB_PASSWORD + _READONLY_ROLE_SUFFIX
 
 #: Store-address overrides for the *derived* DSN. A process inside the compose
 #: network reaches Postgres by its service name on the in-network port, not by
@@ -67,6 +81,7 @@ def resolve_ariel_dsn(
     env: Mapping[str, str] | None = None,
     *,
     base: int | None = None,
+    role: Literal["ingest", "readonly"] = "ingest",
 ) -> str:
     """Resolve the effective ARIEL database DSN.
 
@@ -94,6 +109,16 @@ def resolve_ariel_dsn(
     run at all, so redirecting it would point the agent at a different store
     than the project asked for.
 
+    ``role`` selects WHICH identity on that store the DSN authenticates as, and
+    only changes the derived third rung. ``"readonly"`` names
+    ``<username>_ro``, the SELECT-only role the store's init script creates,
+    with its password read from ``ARIEL_DB_READONLY_PASSWORD``. The first two
+    rungs are returned verbatim for either role: a DSN the project wrote down
+    names one endpoint and one identity on a database osprey did not
+    provision, and inventing a second login for it would fabricate a role that
+    may not exist. :class:`DatabaseConfig` reads that equality as "this
+    deployment has no separate read-only identity".
+
     Args:
         ariel_section: The ``ariel`` section from config.yml.
         services: The ``services.postgresql`` mapping from config.yml, or None
@@ -107,6 +132,9 @@ def resolve_ariel_dsn(
             ``.env`` instead: run from another directory, the ambient value
             belongs to some other deployment, and using it would either fail
             confusingly or reach a database this call was never pointed at.
+        role: Which identity on the derived store to authenticate as --
+            ``"ingest"``, the owner the container is initialized with, or
+            ``"readonly"``, the SELECT-only role beside it.
         base: The port base this deployment resolved, from
             :func:`osprey.port_layout.resolve_port_base`. Only consulted when
             ``services`` sets no ``port_host``, in which case the derived DSN
@@ -138,7 +166,11 @@ def resolve_ariel_dsn(
     postgresql = services or {}
     username = postgresql.get("username", _DEFAULT_DB_USERNAME)
     database_name = postgresql.get("database_name", _DEFAULT_DB_NAME)
-    password = source.get("ARIEL_DB_PASSWORD", _DEFAULT_DB_PASSWORD)
+    if role == "readonly":
+        username = f"{username}{_READONLY_ROLE_SUFFIX}"
+        password = source.get(_DB_READONLY_PASSWORD_ENV_VAR, _DEFAULT_DB_READONLY_PASSWORD)
+    else:
+        password = source.get("ARIEL_DB_PASSWORD", _DEFAULT_DB_PASSWORD)
 
     host = _env_override(source, _DB_HOST_ENV_VAR) or _DEFAULT_DB_HOST
 
@@ -335,33 +367,60 @@ class WriteConfig:
         )
 
 
-def _known_ingestion_adapters() -> list[str]:
-    """Adapter names to offer an operator who named none.
+def framework_ariel_names(attribute: str) -> list[str]:
+    """ARIEL names the framework itself registers under *attribute*.
 
-    The live registry first — a deployment that registered its own adapter must
-    see it here — and the framework's built-in registrations as the fallback,
-    since a config can be parsed outside a project, where there is no registry
-    to ask.
+    Args:
+        attribute: Registry-config list attribute, e.g. ``ariel_search_modules``.
 
     Returns:
-        Sorted adapter names, or an empty list if neither source can answer.
+        Registered names, in registration order.
+    """
+    from osprey.registry.builtins import FrameworkRegistryProvider
+
+    config = FrameworkRegistryProvider().get_registry_config()
+    return [registration.name for registration in getattr(config, attribute)]
+
+
+def registered_ariel_names(attribute: str) -> list[str]:
+    """ARIEL names registered under *attribute*, in registry order.
+
+    The one owner of this fallback. Every surface that has to name what is
+    registered goes through here — the ``--adapter``, ``--module`` and ``--mode``
+    choices, the status report's module table, and the refusal below that tells
+    an operator which adapters exist — so a name one of them accepts can never be
+    a name another does not know.
+
+    The live registry answers first, so a deployment that registered its own
+    adapter or module is reported without a code change. The framework's own
+    registrations are the fallback: a config can be parsed and ``--help`` can be
+    rendered outside a project, where there is no registry to ask, and a missing
+    project config must not turn either into an error.
+
+    Args:
+        attribute: Registry-config list attribute, e.g. ``ariel_search_modules``.
+
+    Returns:
+        Registered names, or an empty list if neither source can answer.
     """
     try:
-        from osprey.registry.manager import get_registry
+        from osprey.registry import get_registry
 
-        names = get_registry().list_ariel_ingestion_adapters()
+        names = [registration.name for registration in getattr(get_registry().config, attribute)]
         if names:
-            return sorted(names)
-    except Exception:  # noqa: BLE001 — the refusal matters more than the list
+            return names
+    except Exception:  # noqa: BLE001 — the caller's own job matters more than the list
         pass
 
     try:
-        from osprey.registry.builtins import FrameworkRegistryProvider
-
-        registrations = FrameworkRegistryProvider().get_registry_config()
-        return sorted(r.name for r in registrations.ariel_ingestion_adapters)
+        return framework_ariel_names(attribute)
     except Exception:  # noqa: BLE001 — same
         return []
+
+
+def _known_ingestion_adapters() -> list[str]:
+    """Adapter names to offer an operator who named none, sorted for the message."""
+    return sorted(registered_ariel_names("ariel_ingestion_adapters"))
 
 
 @dataclass
@@ -456,9 +515,14 @@ class DatabaseConfig:
 
     Attributes:
         uri: PostgreSQL connection URI (e.g., "postgresql://localhost:5432/ariel")
+        readonly_uri: The same store reached as its SELECT-only role, for the
+            agent's raw-SQL path. ``None`` when this deployment has no separate
+            read-only identity -- an explicit ``uri`` names a database osprey
+            did not provision and therefore created no second role on.
     """
 
     uri: str
+    readonly_uri: str | None = None
 
     @classmethod
     def from_dict(
@@ -470,6 +534,13 @@ class DatabaseConfig:
     ) -> "DatabaseConfig":
         """Create DatabaseConfig from the ``ariel.database`` mapping.
 
+        Both identities come from the same resolver and the same inputs, so the
+        read-only DSN cannot drift from the one ingestion uses. They come back
+        equal exactly when an explicit ``uri`` (or the legacy alias) short-
+        circuits the derivation, which is the case where there is no second
+        role to reach -- recorded as ``None`` rather than as a duplicate DSN
+        that would silently connect the SQL tool as the owner.
+
         Args:
             data: The ``ariel.database`` mapping from config.yml.
             services: The ``services.postgresql`` mapping, used to derive the
@@ -478,7 +549,9 @@ class DatabaseConfig:
                 :func:`resolve_ariel_dsn` so a derived DSN dials this
                 deployment's ``postgres`` slot rather than the default base's.
         """
-        return cls(uri=resolve_ariel_dsn({"database": data}, services, base=base))
+        uri = resolve_ariel_dsn({"database": data}, services, base=base)
+        readonly_uri = resolve_ariel_dsn({"database": data}, services, base=base, role="readonly")
+        return cls(uri=uri, readonly_uri=None if readonly_uri == uri else readonly_uri)
 
 
 @dataclass

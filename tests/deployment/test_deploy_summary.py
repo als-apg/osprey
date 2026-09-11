@@ -1476,3 +1476,141 @@ def test_shared_cards_are_reported_only_while_a_wall_stands():
     URL, shared or not — so naming it would be noise."""
     assert deploy_summary._shared_cards(_walled_roster_config("token")) == []
     assert deploy_summary._shared_cards(_walled_roster_config("oidc")) == ["ops"]
+
+
+# ---------------------------------------------------------------------------
+# A facility's own service saying it answers HTTP
+#
+# The framework recognises its own services by name, which is exactly what it
+# cannot do for a service a deployment brought with it. `services.<name>.http`
+# is that service saying so, and the only thing it changes is whether the
+# summary prints an address an operator can click.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def facility_service_compose(tmp_path):
+    """A compose file publishing one service the framework has never heard of."""
+    path = tmp_path / "facility-compose.yml"
+    path.write_text(
+        """
+services:
+  facility-mcp:
+    ports:
+      - "127.0.0.1:10900:10900"
+  facility-gateway:
+    ports:
+      - "127.0.0.1:10901:10901"
+""",
+        encoding="utf-8",
+    )
+    return str(path)
+
+
+def test_a_declared_facility_service_renders_as_a_link(facility_service_compose):
+    """`http: true` is what turns a bare address into one a browser can open."""
+    config = {
+        "project_name": "demo",
+        "services": {"facility-mcp": {"http": True}},
+    }
+
+    text = deploy_summary.format_endpoint_summary(config, [facility_service_compose])
+
+    assert "http://127.0.0.1:10900" in text
+
+
+def test_an_undeclared_facility_service_stays_a_bare_address(facility_service_compose):
+    """Default off: a binary-protocol service must never be shown as a link."""
+    config = {"project_name": "demo", "services": {"facility-gateway": {}}}
+
+    text = deploy_summary.format_endpoint_summary(config, [facility_service_compose])
+
+    assert "127.0.0.1:10901" in text
+    assert "http://127.0.0.1:10901" not in text
+
+
+def test_http_false_is_honoured_like_an_absent_key(facility_service_compose):
+    """An explicit `false` says the same thing as saying nothing."""
+    config = {"project_name": "demo", "services": {"facility-mcp": {"http": False}}}
+
+    text = deploy_summary.format_endpoint_summary(config, [facility_service_compose])
+
+    assert "http://127.0.0.1:10900" not in text
+
+
+def test_a_non_boolean_declaration_does_not_produce_a_link(facility_service_compose):
+    """A profile that never validated must not hand out a dead link."""
+    config = {"project_name": "demo", "services": {"facility-mcp": {"http": "yes"}}}
+
+    text = deploy_summary.format_endpoint_summary(config, [facility_service_compose])
+
+    assert "http://127.0.0.1:10900" not in text
+
+
+def test_a_declaration_cannot_relabel_a_multi_port_services_binary_port(tmp_path):
+    """Per-port roles win: bolt stays bolt however the config is written.
+
+    The graph store's two ports are described by role, and prefixing bolt with
+    `http://` would hand the operator a link that cannot open — which is the
+    whole reason the roles table exists.
+    """
+    path = tmp_path / "graphdb-compose.yml"
+    path.write_text(
+        """
+services:
+  graphdb:
+    ports:
+      - "127.0.0.1:10802:7687"
+      - "127.0.0.1:10803:7474"
+""",
+        encoding="utf-8",
+    )
+    config = {"project_name": "demo", "services": {"graphdb": {"http": True}}}
+
+    text = deploy_summary.format_endpoint_summary(config, [str(path)])
+
+    assert "bolt 127.0.0.1:10802" in text
+    assert "http://127.0.0.1:10802" not in text
+    assert "browser http://127.0.0.1:10803" in text
+
+
+def test_a_declared_service_survives_the_card_filter(facility_service_compose):
+    """The rows the deploy card carries are the ones the summary built.
+
+    ``as_built_endpoint_entries`` is ``endpoint_entries`` plus the file lookup,
+    and the card reads its ``(tier, service, address)`` triples straight
+    through — so what has to hold is that the declaration reaches the address in
+    the row, not only the printed text.
+    """
+    config = {"project_name": "demo", "services": {"facility-mcp": {"http": True}}}
+
+    entries = deploy_summary.endpoint_entries(config, [facility_service_compose])
+
+    addresses = {service: address for _tier, service, address in entries}
+    assert addresses["facility-mcp"] == "http://127.0.0.1:10900"
+    assert addresses["facility-gateway"] == "127.0.0.1:10901"
+
+
+def test_the_declared_set_is_the_schema_accessor_applied_per_block():
+    """One spelling of the axis default: the summary asks the schema, not the key.
+
+    ``ServiceDef.speaks_http()`` is where the ``http:`` default lives. A second
+    reading of the key here would be a second place it lives, and the two would
+    drift the first time the axis grew a shape one of them did not know about.
+    """
+    from osprey.cli.build_profile_schema import ServiceDef
+
+    blocks = {
+        "declared": {"http": True},
+        "refused": {"http": False},
+        "silent": {},
+        "malformed": {"http": "yes"},
+    }
+
+    declared = deploy_summary._declared_http_services({"services": blocks})
+
+    assert declared == {
+        name
+        for name, block in blocks.items()
+        if ServiceDef(template="", config=block).speaks_http()
+    }

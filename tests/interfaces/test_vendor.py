@@ -3,16 +3,25 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import ssl
 import urllib.error
 from contextlib import contextmanager
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 import osprey.interfaces.vendor as vendor_mod
-from osprey.interfaces.vendor import _fetch_one, asset_cdn_url, is_offline, vendor_url
+from osprey.interfaces.vendor import (
+    MANIFEST_PATH,
+    _fetch_one,
+    _load_manifest,
+    asset_cdn_url,
+    is_offline,
+    vendor_url,
+)
 
 
 @contextmanager
@@ -232,3 +241,60 @@ class TestWebTerminalRendering:
         body = resp.text
         assert "/static/vendor/xterm.min.js" in body
         assert "cdn.jsdelivr.net" not in body
+
+
+# --- vendored filename drift ------------------------------------------------
+
+#: Sources that can name a vendored bundle. The vendored payloads themselves are
+#: excluded: a minified bundle is one enormous line in which a filename-shaped
+#: token is coincidence, and none of it is ours to reword.
+_INTERFACES_ROOT = Path(vendor_mod.__file__).parent
+_SCAN_SUFFIXES = (".py", ".js", ".html")
+
+#: A bundle filename as it appears in source — basename only, no directory part.
+_BUNDLE_TOKEN_RE = re.compile(r"[\w.@-]+\.(?:min\.)?(?:js|css)\b")
+
+#: The version segment of a vendored filename: ``plotly-3.3.1.min.js`` and
+#: ``plotly-4.0.0.min.js`` are the same asset at two versions.
+_VERSION_SEGMENT_RE = re.compile(r"-\d+(?:\.\d+)*(?=\.)")
+
+
+def _asset_family(filename: str) -> str:
+    """The version-free identity of a vendored filename."""
+    return _VERSION_SEGMENT_RE.sub("", filename)
+
+
+def _scanned_sources() -> list[Path]:
+    return [
+        path
+        for path in sorted(_INTERFACES_ROOT.rglob("*"))
+        if path.suffix in _SCAN_SUFFIXES and "vendor" not in path.parts and ".min." not in path.name
+    ]
+
+
+def test_every_vendored_filename_literal_matches_the_manifest() -> None:
+    """A filename carrying a version is a copy of the manifest, and copies rot.
+
+    ``vendor_url()`` takes the local path from its caller and the panel JS has
+    no manifest access at all, so these literals cannot be re-plumbed away. What
+    they can have is a lint: bump an asset in ``vendor_manifest.json`` and every
+    literal still naming the old file is named here rather than 404-ing in the
+    one deployment that serves vendored assets (offline builds).
+    """
+    by_family = {_asset_family(a["filename"]): a["filename"] for a in _load_manifest()["assets"]}
+    assert len(by_family) == len(_load_manifest()["assets"]), (
+        f"two assets in {MANIFEST_PATH.name} share a version-free filename"
+    )
+
+    stale: list[str] = []
+    for path in _scanned_sources():
+        for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            for token in _BUNDLE_TOKEN_RE.findall(line):
+                expected = by_family.get(_asset_family(token))
+                if expected is not None and token != expected:
+                    rel = path.relative_to(_INTERFACES_ROOT)
+                    stale.append(f"{rel}:{lineno} names {token}, manifest has {expected}")
+
+    assert not stale, (
+        "vendored filename literals out of step with vendor_manifest.json:\n  " + "\n  ".join(stale)
+    )

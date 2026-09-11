@@ -1729,6 +1729,199 @@ def test_project_image_build_cmd_omits_plain_progress_on_podman():
 
 
 # ---------------------------------------------------------------------------
+# Site build args. The Dockerfiles have always DECLARED PIP_NO_PROXY,
+# OSPREY_OFFLINE and OSPREY_SITE_CA, and no builder ever passed them: a
+# deployment on a site network could only get them in by running
+# `docker build` by hand. `site_image_build_args` is the one producer that
+# turns the config into those flags, shared by every managed image build.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def no_site_env(monkeypatch):
+    """A host that exports none of the axis overrides.
+
+    The overrides are named after the build args themselves (PIP_INDEX_URL and
+    kin), so a developer machine that happens to export one for its own tooling
+    would otherwise leak into every assertion here.
+    """
+    for name in ("OSPREY_SITE_CA", "PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+
+
+def _site_config(tmp_path, **extra):
+    """A config declaring every site axis, with a real CA file to stage."""
+    ca = tmp_path / "site-ca.pem"
+    ca.write_text("-----BEGIN CERTIFICATE-----\n")
+    config = {
+        "project_name": "myfacility",
+        "images": {
+            "site_ca": str(ca),
+            "pip_no_proxy": ".internal.example.org",
+            "pip_index_url": "https://mirror.example.org/simple",
+            "pip_extra_index_url": "https://wheels.example.org/simple",
+        },
+    }
+    config.update(extra)
+    return config
+
+
+def _build_args(cmd):
+    """The ``--build-arg`` values in *cmd*, as a ``NAME -> value`` mapping."""
+    return dict(
+        arg.split("=", 1) for flag, arg in zip(cmd, cmd[1:], strict=False) if flag == "--build-arg"
+    )
+
+
+def test_site_image_build_args_are_empty_when_nothing_is_configured(no_site_env, tmp_path):
+    """A deployment that declares no site settings builds exactly what it did
+    before these keys existed — the argv is unchanged, flag for flag."""
+    assert container_lifecycle.site_image_build_args({"project_name": "x"}, tmp_path) == []
+
+
+def test_site_image_build_args_carry_every_axis(no_site_env, tmp_path):
+    args = container_lifecycle.site_image_build_args(_site_config(tmp_path), tmp_path)
+
+    assert _build_args(args) == {
+        # The staged NAME, never the host path: COPY cannot reach outside the
+        # build context, so the file is copied in under a fixed name.
+        "OSPREY_SITE_CA": container_lifecycle.SITE_CA_CONTEXT_FILENAME,
+        "PIP_NO_PROXY": ".internal.example.org",
+        "PIP_INDEX_URL": "https://mirror.example.org/simple",
+        "PIP_EXTRA_INDEX_URL": "https://wheels.example.org/simple",
+    }
+    staged = tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    assert staged.read_text() == "-----BEGIN CERTIFICATE-----\n"
+
+
+def test_site_image_build_args_refuse_a_site_ca_that_is_not_there(no_site_env, tmp_path):
+    """A CA the build cannot find must fail the deploy: an image built without
+    it does not trust the site proxy, and says so only much later."""
+    config = {"project_name": "x", "images": {"site_ca": str(tmp_path / "nope.pem")}}
+    with pytest.raises(FileNotFoundError, match="images.site_ca"):
+        container_lifecycle.site_image_build_args(config, tmp_path)
+
+
+def test_clear_staged_site_ca_removes_the_copy_the_build_read(no_site_env, tmp_path):
+    """The staged CA is a copy of the operator's own bundle, living in a
+    directory they keep — the project image's context IS the deployment repo —
+    so it is cleared once the build has read it, like the dev wheel beside it.
+    Nothing needs it to persist: the next build stages it again, which is what
+    keeps a rotated certificate from being shadowed by a stale copy."""
+    args = container_lifecycle.site_image_build_args(_site_config(tmp_path), tmp_path)
+    staged = tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    assert staged.is_file()
+
+    container_lifecycle.clear_staged_site_ca(args, tmp_path)
+
+    assert not staged.exists()
+
+
+def test_clear_staged_site_ca_leaves_a_file_this_build_did_not_stage(no_site_env, tmp_path):
+    """Keyed on the argv rather than on the name: a deployment that configures
+    no CA keeps whatever it happens to keep under that name."""
+    theirs = tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    theirs.write_text("the operator's own file\n")
+
+    container_lifecycle.clear_staged_site_ca(
+        container_lifecycle.site_image_build_args({"project_name": "x"}, tmp_path), tmp_path
+    )
+
+    assert theirs.read_text() == "the operator's own file\n"
+
+
+def test_the_project_image_build_stages_the_ca_then_clears_it(no_site_env, tmp_path, monkeypatch):
+    """End to end for the one context that is not regenerable: the CA is there
+    while the build runs and gone when it returns."""
+    staged_while_building: list[bool] = []
+
+    def _run(cmd, **kwargs):
+        staged_while_building.append(
+            (tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME).is_file()
+        )
+
+    monkeypatch.setattr(container_lifecycle, "run_captured", _run)
+    monkeypatch.setattr(container_lifecycle, "resolve_repo_root", lambda config: tmp_path)
+    monkeypatch.setattr(container_lifecycle, "get_runtime_command", lambda config: ["docker"])
+
+    container_lifecycle._build_project_image(
+        _site_config(tmp_path, deployed_services=["dispatch_worker"]),
+        False,
+        {},
+        build_context=tmp_path,
+    )
+
+    assert staged_while_building == [True]
+    assert not (tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME).exists()
+
+
+def test_site_image_build_args_read_offline_from_the_top_level_key(no_site_env, tmp_path):
+    """`offline: true` is what makes the image vendor its web assets — the same
+    key `vendor.is_offline` reads at run time to decide whether to serve them."""
+    args = container_lifecycle.site_image_build_args(
+        {"project_name": "x", "offline": True}, tmp_path
+    )
+    assert _build_args(args) == {"OSPREY_OFFLINE": "1"}
+
+
+def test_site_image_build_args_omit_offline_when_the_key_is_off(no_site_env, tmp_path):
+    args = container_lifecycle.site_image_build_args(
+        {"project_name": "x", "offline": False}, tmp_path
+    )
+    assert "OSPREY_OFFLINE=1" not in args
+
+
+def test_site_image_build_args_take_the_environment_ahead_of_the_config(monkeypatch, tmp_path):
+    """Same precedence as the registry/tag axes: one shell can override a pin."""
+    monkeypatch.delenv("OSPREY_SITE_CA", raising=False)
+    monkeypatch.delenv("PIP_EXTRA_INDEX_URL", raising=False)
+    monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
+    monkeypatch.setenv("PIP_INDEX_URL", "https://from-the-shell.example.org/simple")
+    monkeypatch.setenv("PIP_NO_PROXY", ".shell.example.org")
+
+    config = {"project_name": "x", "images": {"pip_index_url": "https://pinned.example.org"}}
+    args = container_lifecycle.site_image_build_args(config, tmp_path)
+
+    assert _build_args(args) == {
+        "PIP_INDEX_URL": "https://from-the-shell.example.org/simple",
+        "PIP_NO_PROXY": ".shell.example.org",
+    }
+
+
+def test_project_image_build_cmd_carries_the_site_build_args(no_site_env, tmp_path):
+    """The project image is one of the three managed builds fed by the helper."""
+    cmd = container_lifecycle._project_image_build_cmd(
+        _site_config(tmp_path, offline=True), "docker", str(tmp_path)
+    )
+
+    args = _build_args(cmd)
+    assert args["OSPREY_SITE_CA"] == container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    assert args["PIP_INDEX_URL"] == "https://mirror.example.org/simple"
+    assert args["OSPREY_OFFLINE"] == "1"
+    # The context still comes last, behind every flag.
+    assert cmd[-1] == str(tmp_path)
+
+
+def test_project_and_persona_builds_share_one_site_arg_producer(no_site_env, tmp_path):
+    """Two builders, one producer: an image built for a persona and the project
+    image must not end up trusting different CAs or resolving from different
+    indexes on the same host."""
+    from osprey.deployment.web_terminals import persona_images
+
+    config = _site_config(tmp_path, offline=True)
+    project = container_lifecycle._project_image_build_cmd(config, "docker", str(tmp_path))
+    persona = persona_images._persona_image_build_cmd(
+        "docker", str(tmp_path), "demo:local", "myfacility", config
+    )
+
+    site_args = set(container_lifecycle.site_image_build_args(config, tmp_path))
+    assert site_args, "the fixture config declares site axes"
+    assert site_args <= set(project)
+    assert site_args <= set(persona)
+
+
+# ---------------------------------------------------------------------------
 # The project image build is watched, labeled with its own tag. A single-image
 # build's BuildKit headers name no service (`#10 [ 2/13]`), so an unlabeled
 # model parses the whole build into nothing -- silently, with no error. The
@@ -3194,6 +3387,40 @@ def test_compression_comes_from_the_service_block_not_the_knobs(
     assert staged_archiver["seeded"][0]["kwargs"]["compression"] == expected
 
 
+def test_the_graph_store_wait_outlasts_its_own_healthcheck_start_period():
+    """The deploy's bolt wait must cover the first start the template budgets for.
+
+    The template's ``start_period`` is the container's own estimate of how long
+    a first start takes — fetch the n10s jar, initialize a fresh store, wait out
+    the JVM. The host-side wait was shorter than that, so on a first deploy it
+    gave up while the store was doing exactly what the template says it does,
+    and the corpus seed was skipped. Nothing failed: the deployment came up with
+    an empty graph, which reads as a store nobody seeded rather than a wait that
+    was too short. Pinned as a pair, because either number alone looks fine.
+    """
+    import re
+
+    import osprey
+
+    template = (
+        Path(osprey.__file__).parent
+        / "templates"
+        / "services"
+        / "graphdb"
+        / "docker-compose.yml.j2"
+    ).read_text(encoding="utf-8")
+
+    match = re.search(r"start_period:\s*(\d+)s", template)
+    assert match, "no healthcheck start_period found in the graphdb template"
+    start_period_s = float(match.group(1))
+
+    assert start_period_s < container_lifecycle._GRAPHDB_HEALTH_TIMEOUT_S, (
+        f"the bolt wait ({container_lifecycle._GRAPHDB_HEALTH_TIMEOUT_S}s) must outlast the "
+        f"store's own healthcheck start_period ({start_period_s}s), or a first deploy "
+        f"gives up on a container that is still coming up and skips the corpus seed"
+    )
+
+
 def test_the_auth_grace_sits_between_the_healthcheck_and_the_reachability_budget():
     """The 15/45/180 ordering documented at ``_ARCHIVER_AUTH_GRACE_S`` IS the design.
 
@@ -3552,11 +3779,11 @@ def test_a_pinned_worker_image_builds_nothing_under_either_axis(monkeypatch, axe
 # The lowercase-proxy advisory on the env chain
 # ---------------------------------------------------------------------------
 #
-# The login service is handed HTTP_PROXY / HTTPS_PROXY / NO_PROXY from the chain
-# and nothing else, so a lowercase spelling reaches every other container and
-# misses the one that has to reach the identity provider. The advisory names
-# the file and the variable, never the value, and fires only where the login
-# service makes that outbound call.
+# Every container in the web-terminal stack is handed HTTP_PROXY / HTTPS_PROXY /
+# NO_PROXY from the chain and nothing else — neither the login service nor a
+# per-user terminal reads the chain wholesale — so a lowercase spelling misses
+# all of them. The advisory names the file and the variable, never the value,
+# and fires wherever that stack is rendered.
 
 
 def _oidc_web_config(**overrides) -> dict:
@@ -3629,16 +3856,13 @@ def test_the_local_file_is_named_when_it_is_the_one_that_sets_the_lowercase_name
     [
         {},
         {"modules": {"web_terminals": {"enabled": False, "auth": {"method": "oidc"}}}},
-        _oidc_web_config(auth={"method": "password"}),
-        _oidc_web_config(auth={"method": "token"}),
-        _oidc_web_config(auth=None),
     ],
-    ids=["no-web-terminals", "web-terminals-off", "password", "token", "no-auth-stanza"],
+    ids=["no-web-terminals", "web-terminals-off"],
 )
-def test_the_advisory_is_scoped_to_a_deployment_whose_login_service_reaches_out(
+def test_the_advisory_is_scoped_to_a_deployment_that_renders_web_terminals(
     tmp_path, caplog, config
 ):
-    """Only an OIDC login service makes the outbound call the lowercase name misses."""
+    """No web-terminal stack, no three-name passthrough, nothing to warn about."""
     repo = _chain_repo(tmp_path, shared="https_proxy=http://proxy.example.com:8080\n")
 
     with caplog.at_level(logging.WARNING):
@@ -3646,6 +3870,31 @@ def test_the_advisory_is_scoped_to_a_deployment_whose_login_service_reaches_out(
 
     assert findings == []
     assert "https_proxy" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        _oidc_web_config(auth={"method": "password"}),
+        _oidc_web_config(auth={"method": "token"}),
+        _oidc_web_config(auth=None),
+    ],
+    ids=["password", "token", "no-auth-stanza"],
+)
+def test_the_advisory_fires_without_an_oidc_login_service(tmp_path, caplog, config):
+    """The per-user terminals miss the lowercase spelling under every auth
+    method, not only OIDC: the agent inside one reaches the model provider
+    whether or not a login service exists, and the terminal is handed the same
+    three uppercase names and nothing else."""
+    repo = _chain_repo(tmp_path, shared="https_proxy=http://proxy.example.com:8080\n")
+
+    with caplog.at_level(logging.WARNING):
+        findings = container_lifecycle._warn_lowercase_proxy_names(repo, config)
+
+    assert findings == [(".env.shared", "https_proxy")]
+    assert "HTTPS_PROXY" in caplog.text
+    # Names only, never values.
+    assert "proxy.example.com" not in caplog.text
 
 
 def test_a_repo_with_no_chain_files_is_silent(tmp_path):

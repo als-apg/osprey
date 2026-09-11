@@ -27,7 +27,7 @@ Facility Adapters
 
 Every logbook system has its own API, data format, and naming conventions. Facility adapters encapsulate these differences behind a uniform interface so that the rest of ARIEL --- storage, enhancement, search --- never needs to know where the data came from. Each adapter connects to one source system, fetches entries within an optional time range, and yields them as ``EnhancedLogbookEntry`` TypedDicts that the repository can store directly. All adapters inherit from ``FacilityAdapter`` and implement two required members --- a source-system name and an entry generator. Writing one for a logbook Osprey does not ship is a developer task: the base class, the registration and the test that pins them are the ARIEL seam in :doc:`/contributing/extending-osprey`.
 
-Adapters are discovered through Osprey's central registry. The framework ships with the following built-in adapters:
+Adapters are discovered through Osprey's central registry. The built-in ones below are the logbooks contributed so far, not a list of the systems Osprey supports --- a logbook that is not here needs an adapter, not a change to ARIEL:
 
 .. list-table::
    :header-rows: 1
@@ -38,20 +38,20 @@ Adapters are discovered through Osprey's central registry. The framework ships w
      - Description
    * - **ALS eLog**
      - ``als_logbook``
-     - Production adapter for the Advanced Light Source electronic logbook. Supports JSONL file and HTTP API modes with SOCKS proxy, time-windowed chunked requests, retry with backoff, and entry deduplication.
+     - The one production adapter. Supports JSONL file and HTTP API modes with SOCKS proxy, time-windowed chunked requests, retry with backoff, and entry deduplication.
    * - **JLab Logbook**
      - ``jlab_logbook``
-     - Schema-ready prototype for Jefferson Lab. Parses JLab JSON format into the common schema but does not yet implement the facility's native API protocol.
+     - Schema-ready prototype. Parses its logbook's JSON format into the common schema but does not yet implement that system's native API protocol.
    * - **ORNL Logbook**
      - ``ornl_logbook``
-     - Schema-ready prototype for Oak Ridge National Laboratory. Parses ORNL JSON format into the common schema but does not yet implement the facility's native API protocol.
+     - Schema-ready prototype. Parses its logbook's JSON format into the common schema but does not yet implement that system's native API protocol.
    * - **Generic JSON**
      - ``generic_json``
-     - Reads from a JSON file with flexible field mapping. Useful for demos, testing, and facilities without a custom API.
+     - Reads entries from a JSON file. ``id``, ``title``, ``text``, ``author``, ``timestamp`` and ``attachments`` map onto the common schema; every other top-level field is kept as entry metadata, and an explicit ``metadata`` object merges last and wins. Useful for demos, testing, and facilities without a custom API.
 
 **Using a custom adapter:**
 
-An adapter written and registered as described in :doc:`/contributing/extending-osprey` is selected the same way as a built-in one: set ``ariel.ingestion.adapter`` to its registered name in ``config.yml``.
+An adapter written and registered as described in :doc:`/contributing/extending-osprey` is selected the same way as a built-in one: set ``ariel.ingestion.adapter`` to its registered name in ``config.yml``, or pass it as ``--adapter`` --- both accept every registered name, the framework's and your own.
 
 .. admonition:: Collaboration Welcome
    :class: outreach
@@ -105,6 +105,15 @@ The filename is a facility convention, not a standard, so each adapter declares 
 
 The default is ``("metadata.json",)``. Matching is case-insensitive, and a name that never appears is simply a no-op --- there is no switch to turn this off. If an entry has attachments and none of them matched, ingestion says so at debug level rather than staying silent about metadata it did not collect.
 
+Attachment Size
+~~~~~~~~~~~~~~~
+
+``ariel.attachments.max_file_mb`` (default 10) is the largest file one entry may
+attach; a bigger one is refused, naming the file and the limit. Attachments are
+stored as rows in the same Postgres the logbook lives in, so this number is a
+storage decision in both directions --- raise it for a facility that attaches
+raw traces, lower it to keep the database small.
+
 
 .. _`Enhancement Pipeline`:
 
@@ -132,9 +141,16 @@ The built-in enhancement modules:
              text_embedding:
                enabled: true
                provider: ollama
+               index_lists: 224
                models:
                  - name: nomic-embed-text
                    dimension: 768
+
+      ``index_lists`` (default 224) sizes the pgvector IVFFlat index. The rule of
+      thumb is roughly one list per 1000 entries, up to about a million entries.
+      It cannot be worked out for you --- ``osprey ariel migrate`` creates the
+      index before a single entry is embedded --- and the value is baked in at
+      creation, so changing it later means dropping the index and recreating it.
 
       **Requirements:** Ollama (or another embedding provider) running with the specified model.
 
@@ -153,9 +169,34 @@ The built-in enhancement modules:
              semantic_processor:
                enabled: true
                provider: cborg
+               max_input_chars: 8000
                model:
                  model_id: anthropic/claude-haiku
                  max_tokens: 256
+
+      ``max_input_chars`` (default 8000) is how much of an entry is sent. A
+      longer entry is cut at that point and the cut is logged, naming the
+      entry, so a summary that describes only an opening says so somewhere.
+      Raise it if your entries run long and your provider's context window has
+      the room.
+
+      The shipped extraction prompt asks for categories --- equipment names, measured quantities, actions taken, problem types, locations --- because a framework default cannot know what your site calls its equipment. ``prompt_template`` replaces that prompt outright, and is where your own vocabulary belongs: the device families, abbreviations and process words your operators actually write. Keep the ``{text}`` placeholder and the JSON schema the module parses, or enhancement fails for every entry.
+
+      .. code-block:: yaml
+
+         ariel:
+           enhancement_modules:
+             semantic_processor:
+               prompt_template: |
+                 Extract keywords and generate a summary from this logbook entry.
+
+                 Entry text:
+                 {text}
+
+                 ... your instructions here ...
+
+                 Return ONLY valid JSON matching this schema:
+                 {{"keywords": ["keyword1", ...], "summary": "..."}}
 
    .. tab-item:: qmd Export
 

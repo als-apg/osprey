@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
+from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.port_layout import DEFAULT_PORT_BASE, SLOTS_BY_NAME, default_port, layout_ports
 
 #: The shape of an environment-variable NAME wherever a profile names one
@@ -294,6 +295,9 @@ class ServiceDef:
       :data:`DEFAULT_NETWORK_MODE`; read through :meth:`network_mode`.
     - ``env:`` — host environment variable NAMES the service passes through to
       its container, defaulting to none; read through :meth:`env_names`.
+    - ``http:`` — whether the service answers HTTP on the port it publishes, so
+      the deploy summary shows its address as a link; defaults to
+      :data:`DEFAULT_SPEAKS_HTTP`, read through :meth:`speaks_http`.
     """
 
     template: str  # Path to template dir (relative to profile dir)
@@ -340,6 +344,56 @@ class ServiceDef:
             return []
         return [name for name in names if isinstance(name, str)]
 
+    def speaks_http(self) -> bool:
+        """Whether the service answers HTTP on the port it publishes.
+
+        The framework's own services are recognised by name; a facility's are
+        not, and nothing about a service definition says what protocol sits
+        behind its port. This is the service telling the deploy summary, so its
+        address is printed as a link an operator can open rather than as a bare
+        ``host:port``.
+
+        Returns:
+            The declared value, or :data:`DEFAULT_SPEAKS_HTTP` when the service
+            declares none. A non-boolean means the profile never passed
+            :meth:`BuildProfile.validate`; it reads as the default rather than
+            being coerced, since the wrong direction hands out a dead link.
+        """
+        if not isinstance(self.config, dict):
+            return DEFAULT_SPEAKS_HTTP
+        declared = self.config.get("http", DEFAULT_SPEAKS_HTTP)
+        return declared if isinstance(declared, bool) else DEFAULT_SPEAKS_HTTP
+
+
+DEFAULT_SPEAKS_HTTP = False
+"""Whether a declared service is fronted by HTTP when it says nothing.
+
+False, because that is the safe direction: a binary-protocol service shown as a
+bare address is merely terse, while one shown as ``http://…`` hands an operator
+a link that cannot open."""
+
+
+def http_errors(value: Any, key: str) -> list[str]:
+    """Return the problems with one ``http:`` declaration (empty when valid).
+
+    The twin of :func:`network_mode_errors`, and accumulating for the same
+    reason: :meth:`BuildProfile.validate` reports every axis problem at once.
+
+    Args:
+        value: The declared value, exactly as it came out of the YAML.
+        key: Dotted path of the declaration (e.g.
+            ``"services.facility-mcp.http"``), used verbatim in the message.
+
+    Returns:
+        Human-readable error messages; empty when *value* is a boolean.
+    """
+    if isinstance(value, bool):
+        return []
+    return [
+        f"{key} must be true or false — whether this service answers HTTP on the "
+        f"port it publishes (got {value!r})"
+    ]
+
 
 @dataclass
 class DispatchConfig:
@@ -354,8 +408,8 @@ class DispatchConfig:
     triggers: str
     worker_count: int = 1
     workspace_mode: Literal["isolated", "shared"] = "isolated"
-    max_concurrent_runs: int = 2
-    max_queue_depth: int = 50
+    max_concurrent_runs: int = DEFAULT_MAX_CONCURRENT_RUNS
+    max_queue_depth: int = DEFAULT_MAX_QUEUE_DEPTH
     dispatcher_port: int = default_port("dispatcher")
     """Host port the event dispatcher publishes, at the layout's ``dispatcher``
     slot.
@@ -388,8 +442,30 @@ class DispatchConfig:
 
     timeout_sec: int = 300
     inactivity_sec: int = 120
+
+    max_turns: int = 25
+    """How many agentic turns one dispatched run may take before the SDK stops it.
+
+    The third budget beside :attr:`timeout_sec` and :attr:`inactivity_sec`, and
+    the one that is about the WORK rather than the clock: a facility whose
+    triggers ask for a multi-step investigation raises it, one that dispatches
+    single-shot summaries lowers it. A trigger may still name its own
+    ``max_turns``; this is what a trigger that names none is given."""
+
     facility_name: str = ""
-    pv_strip_prefix: str = ""
+
+    channel_strip_prefix: str = ""
+    """Leading prefix trimmed off a channel address before the dashboard shows it.
+
+    Facilities give every address the same leading segment, which carries no
+    information once the reader knows which deployment they are looking at and
+    costs horizontal room in a dense trigger list. The trim reaches the trigger
+    sources that carry a channel; a source that renders an interval or a bare
+    name has nothing to trim and is unaffected.
+
+    Spelled without a protocol noun deliberately: the key sits on the
+    protocol-neutral dispatch block beside :attr:`facility_name`, and any later
+    source that carries a channel uses this same trim."""
 
     network: NetworkMode = DEFAULT_NETWORK_MODE
     """Network attachment for the dispatcher and its workers, one of
@@ -401,6 +477,23 @@ class DispatchConfig:
     on ``services.event_dispatcher`` or ``services.dispatch_worker`` is
     therefore rejected by :meth:`BuildProfile.validate` — the build writes this
     single value into both halves instead.
+    """
+
+    env: list[str] = field(default_factory=list)
+    """Host environment variable NAMES both halves pass through to their
+    containers, in author order.
+
+    The same axis every other service declares as ``services.<name>.env``, and
+    it lives here for the same reason ``network`` does: ``_inject_dispatch``
+    writes both ``services.<half>`` blocks wholesale, so a name authored on
+    either half would be dropped before it reached a container — which is why
+    that spelling is refused outright.
+
+    One knob for both halves, unlike ``network`` for a different reason: they
+    are two containers of one feature reading one deployment's environment, and
+    a name the dispatcher needs to see the machine is a name a worker acting on
+    what it saw needs too. Names only, never values: each is emitted as a bare
+    ``NAME: ${NAME}`` the deploy env chain fills in.
     """
 
 
@@ -621,6 +714,58 @@ class BlueskyConfig:
     compose file — the rendered deployment carries the key only when a profile
     authors a value that differs, and the bridge falls back to the same default
     when the env var is absent.
+    """
+
+    settle_timeout_s: float = 5.0
+    """How long a plan write waits for the readback to reach its demand.
+
+    ``ConnectorSettable.set()`` writes the setpoint, then polls the readback
+    channel until it arrives within :attr:`settle_tolerance` — or until this
+    budget runs out, at which point the move raises and the RunEngine aborts.
+    Fail-closed by construction: raising this key gives a slow device more
+    room, and never turns an unsettled move into a successful one.
+
+    Authored per facility because settling time is a property of the DEVICES a
+    plan drives — an aliased software setpoint returns immediately, a magnet or
+    an insertion-device gap does not.
+
+    At the default value this key renders NOTHING into the compose file, and
+    the bridge falls back to the same default when the env var is absent.
+    """
+
+    settle_tolerance: float = 1e-9
+    """How close the readback must come to the demand to count as settled.
+
+    An ABSOLUTE bound on ``abs(readback - demand)``. The default is a
+    float-noise bound: the right value for a setpoint/readback pair the IOC
+    keeps in exact software sync, and far too strict for a device that
+    physically moves, which is exactly why a facility authors it.
+
+    At the default value this key renders NOTHING into the compose file, and
+    the bridge falls back to the same default when the env var is absent.
+    """
+
+    live_max_runs: int = 50
+    """How many run buffers the bridge keeps in memory, oldest evicted first.
+
+    This is what lets a completed run's data stay readable after the run ends.
+    Authored per facility because how many runs are worth holding is a property
+    of how a facility uses the data — and of how much memory the deployment
+    host has.
+
+    At the default value this key renders NOTHING into the compose file, and
+    the bridge falls back to the same default when the env var is absent.
+    """
+
+    live_max_rows_per_run: int = 10_000
+    """How many rows one run's buffer stores before it stops growing.
+
+    A safety valve against a runaway or never-ending plan, not a normal-case
+    limit: rows past the cap are still COUNTED, so the run-data route keeps
+    reporting the true total over a truncated buffer.
+
+    At the default value this key renders NOTHING into the compose file, and
+    the bridge falls back to the same default when the env var is absent.
     """
 
     external: BlueskyExternalConfig | None = None

@@ -513,15 +513,6 @@ _RETIRED_SPELLING_ALLOWLIST: dict[tuple[str, str], str] = {
         "src/osprey/deployment/container_lifecycle.py",
         "the legacy ``deploy up``. The locations come from the rendered config's own",
     ): "narrates the retired verb it replaced",
-    # A history sentence, kept deliberately: it names a dead verb in order to
-    # explain where a surviving behaviour came from, and says so in the same
-    # breath. Listed individually rather than matched by a keyword, because a
-    # rule that excused any line containing the word "retired" would be an
-    # escape hatch rather than an exemption.
-    (
-        "src/osprey/cli/set_cmd.py",
-        "#: CLI-only shorthand absorbed from ``osprey config set-epics-gateway",
-    ): "names the retired verb this shorthand replaced",
 }
 
 

@@ -14,11 +14,12 @@ silently broke proxy-provider auth for the in_context backend.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
 
-from osprey.agent_runner import sdk_env
+from osprey.agent_runner import primitives, sdk_env
 from osprey.agent_runner.primitives import provider_env_for_project
 
 
@@ -58,6 +59,9 @@ def test_provider_override_propagates_raw_secret(
     raw secret for the overridden provider, not the config's."""
     _write_config(tmp_path, "anthropic")
     monkeypatch.setenv("ALS_APG_API_KEY", "sk-als-secret")
+    # als-apg ships no endpoint of its own, so a deployment names one; here the
+    # break-glass variable stands in for the deployment's providers.yml entry.
+    monkeypatch.setenv("ALS_APG_BASE_URL", "https://gw.test/v1")
 
     env = provider_env_for_project(tmp_path, provider="als-apg")
 
@@ -114,6 +118,25 @@ def test_unresolvable_provider_raises(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="no resolvable provider"):
         provider_env_for_project(tmp_path)
+
+
+def test_the_no_provider_error_names_the_key_the_operator_sets(tmp_path: Path) -> None:
+    """The remedy has to be one an operator can carry out.
+
+    This branch fires when the key is unset, so it names that key and the file
+    it is set in — not a five-name provider list (an *unknown* name gets the
+    registry-derived union elsewhere) and not a test-only helper.
+    """
+    (tmp_path / "config.yml").write_text("api:\n  providers: {}\n")
+
+    with pytest.raises(RuntimeError) as excinfo:
+        provider_env_for_project(tmp_path)
+
+    message = str(excinfo.value)
+    assert "claude_code.provider" in message
+    assert "profile.yml" in message
+    assert "osprey build" in message
+    assert "init_project" not in message
 
 
 # ---------------------------------------------------------------------------
@@ -363,3 +386,42 @@ class TestTelemetryCredentialNotIssuedYet:
 
         assert env["CLAUDE_CODE_ENABLE_TELEMETRY"] == "1"
         assert "Authorization=Basic " in env["OTEL_EXPORTER_OTLP_HEADERS"]
+
+
+class TestTheMcpReadinessBudgetIsNamedForWhatItGates:
+    """``OSPREY_MCP_READY_TIMEOUT``: the readiness barrier's ceiling.
+
+    It gates production ``osprey query`` (exit 1 when a declared server never
+    registers), the interactive session, and the dispatch worker — not only
+    E2E, which is what the old ``OSPREY_E2E_`` spelling implied.
+
+    The reader takes the environment as an argument, so these cases hand it a
+    dict rather than reloading the module: a reload would rebind the module's
+    classes while every importer keeps the originals.
+    """
+
+    def test_the_default_applies_with_neither_name_set(self) -> None:
+        assert primitives._mcp_ready_timeout_from_env({}) == 90.0
+
+    def test_the_new_name_is_read(self) -> None:
+        assert primitives._mcp_ready_timeout_from_env({"OSPREY_MCP_READY_TIMEOUT": "12"}) == 12.0
+
+    def test_the_old_name_still_works_for_one_release(self) -> None:
+        """A host that already sets the E2E spelling keeps its value."""
+        assert primitives._mcp_ready_timeout_from_env({"OSPREY_E2E_MCP_READY_TIMEOUT": "7"}) == 7.0
+
+    def test_the_new_name_wins_when_both_are_set(self) -> None:
+        assert (
+            primitives._mcp_ready_timeout_from_env(
+                {
+                    "OSPREY_MCP_READY_TIMEOUT": "12",
+                    "OSPREY_E2E_MCP_READY_TIMEOUT": "7",
+                }
+            )
+            == 12.0
+        )
+
+    def test_the_module_constant_comes_from_this_process_environment(self) -> None:
+        """The barrier's own default is what the reader answers for this host."""
+        assert primitives.MCP_READY_TIMEOUT_S == primitives._mcp_ready_timeout_from_env(os.environ)
+        assert primitives._MCP_READY_TIMEOUT_S == primitives.MCP_READY_TIMEOUT_S

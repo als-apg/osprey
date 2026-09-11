@@ -395,6 +395,103 @@ class AppProvider(RegistryConfigProvider):
         assert pr.get_provider("anthropic") is not None
 
 
+class TestApplicationOverridesTakeEffect:
+    """A same-name registration REPLACES the built-in it shadows.
+
+    ``register_provider`` documents overwrite-by-name and ``override_providers``
+    documents "replace framework versions (by name)", but the registry is
+    pre-seeded with every built-in, so a name check against it dropped exactly
+    the registrations that were meant to replace one — silently.
+    """
+
+    def _registry_file(self, tmp_path, body: str):
+        registry_file = tmp_path / "app" / "registry.py"
+        registry_file.parent.mkdir(parents=True, exist_ok=True)
+        registry_file.write_text(body)
+        return registry_file
+
+    def test_a_same_name_registration_replaces_the_builtin(self, tmp_path):
+        module = tmp_path / "house_openai.py"
+        module.write_text(
+            """
+from osprey.models.providers.base import BaseProvider
+
+
+class HouseOpenAIProvider(BaseProvider):
+    name = "openai"
+    requires_api_key = False
+"""
+        )
+        import sys
+
+        sys.path.insert(0, str(tmp_path))
+        try:
+            registry_file = self._registry_file(
+                tmp_path,
+                """
+from osprey.registry import (
+    RegistryConfigProvider,
+    extend_framework_registry,
+    ProviderRegistration,
+)
+
+
+class AppProvider(RegistryConfigProvider):
+    def get_registry_config(self):
+        return extend_framework_registry(
+            override_providers=[
+                ProviderRegistration(
+                    module_path="house_openai",
+                    class_name="HouseOpenAIProvider",
+                    name="openai",
+                )
+            ],
+            exclude_providers=["openai"],
+        )
+""",
+            )
+            RegistryManager(registry_path=str(registry_file)).initialize(silent=True)
+
+            pr = get_provider_registry()
+            provider_class = pr.get_provider("openai")
+            assert provider_class is not None
+            # The app's class, not the framework's.
+            assert provider_class.__name__ == "HouseOpenAIProvider"
+        finally:
+            sys.path.remove(str(tmp_path))
+
+    def test_a_nameless_registration_warns_that_it_is_inert(self, tmp_path, caplog):
+        registry_file = self._registry_file(
+            tmp_path,
+            """
+from osprey.registry import (
+    RegistryConfigProvider,
+    extend_framework_registry,
+    ProviderRegistration,
+)
+
+
+class AppProvider(RegistryConfigProvider):
+    def get_registry_config(self):
+        return extend_framework_registry(
+            providers=[
+                ProviderRegistration(
+                    module_path="my_app.providers.custom",
+                    class_name="CustomProvider",
+                )
+            ]
+        )
+""",
+        )
+        import logging
+
+        with caplog.at_level(logging.WARNING):
+            RegistryManager(registry_path=str(registry_file)).initialize(silent=True)
+
+        assert "CustomProvider" in caplog.text
+        assert "name=" in caplog.text
+
+
 class TestProviderMergingEdgeCases:
     """Test edge cases in provider merging."""
 

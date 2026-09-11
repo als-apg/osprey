@@ -33,7 +33,7 @@ Available Providers
      - ``CBORG_API_KEY``
      - Anthropic (native)
    * - ``als-apg``
-     - ALS Accelerator Physics Group AWS proxy
+     - ALS Accelerator Physics Group gateway
      - ``ALS_APG_API_KEY``
      - Anthropic (native)
    * - ``stanford``
@@ -100,6 +100,25 @@ Set the API key as an environment variable before running Osprey:
    export STANFORD_API_KEY="..."
 
 Ollama and vLLM run locally and do not require an API key.
+
+``als-apg`` needs one more variable: it fronts a gateway that each site hosts
+itself, so there is no endpoint to default to. Name it alongside the key, or
+put the URL straight into ``providers.yml``:
+
+.. code-block:: bash
+
+   export ALS_APG_BASE_URL="https://your-gateway.example.org/v1"
+
+Without it, every path that would place a call refuses rather than sending the
+gateway's token to another host. A launch — ``osprey chat``, ``osprey web``, an
+agent run — stops with::
+
+   Provider 'als-apg' has no base_url. It fronts models through a gateway that
+   has no default endpoint, so the URL has to be named: set ALS_APG_BASE_URL,
+   or api.providers.als-apg.base_url in config.yml.
+
+A direct model call and ``osprey health`` report the same thing more briefly,
+as ``Base URL required for als-apg``.
 
 .. note::
 
@@ -207,9 +226,12 @@ substitutes another provider's model IDs; a provider with no ``models``
 mapping *and* no ``default_model`` to fall back on is refused.
 
 ``base_url`` is the endpoint the agent itself talks to. ``cborg`` and
-``als-apg`` ship a built-in URL that a value here overrides; omit it to keep
-the built-in one. ``anthropic`` ships none, so omitting it sends requests to
-Anthropic's own API. Keep the trailing
+``als-apg`` front a gateway each site hosts itself and ship no built-in URL:
+name the endpoint here (or, for ``als-apg``, in ``ALS_APG_BASE_URL`` as above)
+or the provider refuses to start. ``argo``, ``stanford`` and the local runtimes
+(``ollama``, ``vllm``, ``ds4``) ship a well-known endpoint that a value here
+overrides. ``anthropic`` and ``openai`` need none, so omitting it sends
+requests to the vendor's own API. Keep the trailing
 ``/v1`` on OpenAI-compatible gateways — the translation proxy needs it, and the
 agent's own requests have it stripped automatically.
 
@@ -345,8 +367,10 @@ LiteLLM SDK path used by MCP servers sets the same identity as the OpenAI
 ``user`` field. Nothing is sent to a direct vendor.
 
 The built-in ``als-apg`` and ``cborg`` providers are LiteLLM proxies and get
-this automatically. A custom gateway declares it in its ``providers.yml``
-entry:
+this automatically; a ``gateway:`` key on one of those names overrides that
+default, and ``gateway: none`` turns attribution off for an entry that points
+the name at a direct endpoint. A custom gateway declares it in its
+``providers.yml`` entry:
 
 .. code-block:: yaml
 
@@ -377,8 +401,10 @@ Adding a New Provider
 To add a new OpenAI-compatible provider, append an entry to ``providers.yml``
 beside ``profile.yml`` (see
 :ref:`Provider Configuration <provider-configuration>` above) and run
-``osprey build`` — no code changes required. The rendered result in
-``build/config.yml``:
+``osprey build`` — no code changes required. ``osprey health`` reports such a
+config-only provider as *skipped*, not failed: there is no adapter class to
+probe it with, so the run says it went unverified rather than grading the
+deployment unhealthy. The rendered result in ``build/config.yml``:
 
 .. code-block:: yaml
 
@@ -413,4 +439,7 @@ The framework automatically:
    config-only entry means nothing to them and a tool call that asks for it
    fails with ``Unknown provider``. Giving an MCP tool server a new provider
    takes code: a provider class registered under that name through a
-   ``ProviderRegistration`` in your application's registry.
+   ``ProviderRegistration`` in your application's registry. That registry file
+   is the one named by ``registry_path`` in the project's ``config.yml`` (set
+   it in your profile's ``config:`` block) or by the ``REGISTRY_PATH``
+   environment variable; see :doc:`/contributing/extending-osprey`.

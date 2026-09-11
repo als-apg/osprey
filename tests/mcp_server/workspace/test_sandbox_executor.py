@@ -2,6 +2,7 @@
 
 import json
 import textwrap
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -386,6 +387,21 @@ class TestExecuteSandboxCode:
 
         assert not result.success
         assert result.error_message is not None
+
+    async def test_execution_metadata_timestamps_carry_an_offset(
+        self, execution_folder, workspace_root
+    ):
+        """The child stamps offset-aware times, so its metadata is orderable."""
+        with patch(
+            "osprey.utils.workspace.resolve_workspace_root",
+            return_value=workspace_root,
+        ):
+            result = await execute_sandbox_code(code="x = 1", execution_folder=execution_folder)
+
+        assert result.success
+        metadata = json.loads((execution_folder / "execution_metadata.json").read_text())
+        for field in ("start_time", "end_time"):
+            assert datetime.fromisoformat(metadata[field]).utcoffset() is not None
 
     async def test_stdout_captured(self, execution_folder, workspace_root):
         code = "print('hello from sandbox')"

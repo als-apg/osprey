@@ -1619,27 +1619,39 @@ def _report_va_manifest_outcome(
     # claim is read off the manifest's own census -- 0 setpoints, everything
     # static-noisy -- never off the source list, so a source that someday
     # yields identity keys cannot have this printed falsely over it. The
-    # lead-in names the mechanism per source: for a database tree the
-    # hierarchical database is the only paradigm carrying a hierarchy path;
-    # for the graph this is not a missing database at all -- the corpus states
-    # membership and direction but no hierarchy path, and nothing is invented
-    # to classify better than the source can say.
+    # lead-in names the mechanism per source, and every source has one: for the
+    # graph this is not a missing database at all -- the corpus states
+    # membership and direction but no hierarchy path; for a tree without the
+    # hierarchical database no channel carries identity keys; and a tree that
+    # HAS one is degraded because of what that database says, either levels the
+    # partition rules cannot be evaluated against or tokens no rule matched.
+    # Nothing is invented to classify better than the source can say, and no
+    # source is left without an explanation of a census this thin.
     degraded = metadata["setpoint_count"] == 0 and set(metadata["by_partition"]) <= {
         PARTITION_STATIC_NOISY
     }
     if degraded:
+        unclassified_reason = metadata.get("unclassified_reason")
         if graph_source is not None:
             lead_in = " The knowledge graph carries no hierarchy identity keys, so"
         elif "hierarchical" not in metadata["source_paradigms"]:
             lead_in = " Without a hierarchical database the channels carry no identity keys, so"
-        else:
-            lead_in = None
-        if lead_in is not None:
-            line += lead_in + (
-                " this"
-                " accelerator serves 0 setpoints, pairs no readback with a setpoint, and drives"
-                " every channel as static-noisy."
+        elif unclassified_reason:
+            lead_in = (
+                " The hierarchical database is not levelled the way the partition rules read it "
+                f"({unclassified_reason}), so"
             )
+        else:
+            tokens = metadata["by_ring"]
+            lead_in = (
+                " The hierarchical database's tokens matched no partition rule (top-level tokens "
+                f"seen: {_named_in_prose(sorted(tokens)) if tokens else 'none'}), so"
+            )
+        line += lead_in + (
+            " this"
+            " accelerator serves 0 setpoints, pairs no readback with a setpoint, and drives"
+            " every channel as static-noisy."
+        )
     _report_fact(line)
     reconciliation = metadata["machine_state_reconciliation"]
     _report_fact(
@@ -2355,7 +2367,17 @@ def _render_project(
         # raises ObservabilityCredentialError into this ValueError catch.
         # Pinned by test_deferred_var_credential_warns_not_raises_through_resolve
         # in tests/cli/test_telemetry_env.py.
-        load_provider_spec(render_dir, defer_unresolved_telemetry_creds=True)
+        #
+        # A provider base_url still spelled "${VAR}" is deferred for the same
+        # reason: this render may start on another host (a container image is
+        # built here and handed its gateway there), so the reference is the
+        # render's contract with its runtime. The launch paths resolve it for
+        # real and refuse by name when nothing supplies it.
+        load_provider_spec(
+            render_dir,
+            defer_unresolved_telemetry_creds=True,
+            defer_unresolved_base_url=True,
+        )
     except ValueError as e:
         raise BuildProfileError(str(e)) from e
 

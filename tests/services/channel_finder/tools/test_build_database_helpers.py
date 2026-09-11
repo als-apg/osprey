@@ -12,11 +12,14 @@ from pathlib import Path
 
 import pytest
 
+from osprey.services.channel_finder.core.exceptions import AddressPatternError
 from osprey.services.channel_finder.tools.build_database import (
+    build_database,
     create_template,
     find_common_description,
     group_by_family,
     load_csv,
+    parse_instance_range,
 )
 
 # ---------------------------------------------------------------------------
@@ -264,3 +267,108 @@ def test_create_template_rejects_non_numeric_instance_count() -> None:
 
     with pytest.raises(ValueError):
         create_template("SCH", channels)
+
+
+# ---------------------------------------------------------------------------
+# The address column is the family's pattern
+# ---------------------------------------------------------------------------
+
+
+def _patterned_row(sub_channel: str, address: str, instances: str = "10") -> dict:
+    return {
+        "address": address,
+        "description": f"BPM {sub_channel}",
+        "family_name": "BPM",
+        "instances": instances,
+        "sub_channel": sub_channel,
+    }
+
+
+def test_create_template_uses_the_address_column_as_the_pattern() -> None:
+    """A machine's own address shape survives instead of being re-synthesised."""
+    address = "SR:BPM:{instance:03d}:{sub_channel}"
+    channels = [
+        _patterned_row("XPOS", address),
+        _patterned_row("YPOS", address),
+    ]
+
+    template = create_template("BPM", channels)
+
+    # {sub_channel} is the CSV's spelling of the expander's {suffix}.
+    assert template["address_pattern"] == "SR:BPM:{instance:03d}:{suffix}"
+    assert template["sub_channels"] == ["XPOS", "YPOS"]
+
+
+def test_create_template_synthesises_a_pattern_only_without_placeholders() -> None:
+    """A literal address column still gets today's <family>{instance}{suffix}."""
+    channels = [
+        _patterned_row("XPOS", "SR:BPM01:XPOS"),
+        _patterned_row("XPOS", "SR:BPM01:XPOS"),
+    ]
+
+    template = create_template("BPM", channels)
+
+    assert template["address_pattern"] == "BPM{instance:02d}{suffix}"
+
+
+def test_create_template_refuses_two_patterns_in_one_family() -> None:
+    """One family expands from one pattern, so disagreement is not guessed at."""
+    channels = [
+        _patterned_row("XPOS", "SR:BPM:{instance:03d}:{sub_channel}"),
+        _patterned_row("YPOS", "BR:BPM:{instance:02d}:{sub_channel}"),
+    ]
+
+    with pytest.raises(AddressPatternError, match="different addresses"):
+        create_template("BPM", channels)
+
+
+def test_create_template_refuses_a_placeholder_the_expander_cannot_fill() -> None:
+    """The pattern is checked against the expander's own vocabulary, once."""
+    channels = [_patterned_row("XPOS", "SR:BPM:{sector}:{instance:02d}:{sub_channel}")]
+
+    with pytest.raises(AddressPatternError, match="cannot be filled in"):
+        create_template("BPM", channels)
+
+
+def test_create_template_takes_an_explicit_instance_range() -> None:
+    """A machine whose device numbering does not start at 1 can say so."""
+    address = "SR:BPM:{instance:02d}:{sub_channel}"
+    channels = [_patterned_row("XPOS", address, instances="4-11")]
+
+    assert create_template("BPM", channels)["instances"] == [4, 11]
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [("8", [1, 8]), (8, [1, 8]), ("4-11", [4, 11]), (" 3 ", [1, 3]), (None, [1, 1])],
+)
+def test_parse_instance_range_reads_counts_and_ranges(raw, expected) -> None:
+    """A bare count means 1..N; a dashed pair means exactly what it says."""
+    assert parse_instance_range(raw) == expected
+
+
+def test_parse_instance_range_refuses_a_backwards_range() -> None:
+    """A range that ends before it starts expands to nothing, so it is refused."""
+    with pytest.raises(ValueError, match="ends before it starts"):
+        parse_instance_range("11-4")
+
+
+def test_build_database_stops_on_an_unfillable_address_pattern(tmp_path: Path) -> None:
+    """The build fails rather than writing addresses that are the pattern text.
+
+    Every other per-family failure demotes the family to standalone rows, which
+    is why this one has to be a distinct exception: a family whose pattern
+    cannot be expanded would otherwise land in the database verbatim, braces
+    and all, and the run would still report success.
+    """
+    csv_path = _write_csv(
+        tmp_path,
+        "address,description,family_name,instances,sub_channel\n"
+        "SR:BPM:{sector}:{instance:02d}:{sub_channel},X position,BPM,2,XPOS\n",
+    )
+    output = tmp_path / "database.json"
+
+    with pytest.raises(AddressPatternError, match="cannot be filled in"):
+        build_database(csv_path=csv_path, output_path=output)
+
+    assert not output.exists()

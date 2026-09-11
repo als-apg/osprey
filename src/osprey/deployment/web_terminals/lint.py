@@ -67,6 +67,7 @@ from osprey.deployment.web_terminals.render import (
     _configured_external_origin,
     _external_origin,
     _port_int,
+    _scope_list,
 )
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
@@ -83,7 +84,9 @@ from osprey_connectors.types import TYPE_WRITES_ENABLED_LEAF, WRITES_ENABLED_KEY
 # `render._port_int`, the one reader that says which values reach a `listen`
 # directive at all — the checks below resolve a configured port exactly as
 # render resolves it, which is what makes a finding that says "render falls
-# back" true across the whole invalid domain.
+# back" true across the whole invalid domain. `render._scope_list` is imported
+# for the same reason: the shapes it reads as unset are exactly the ones whose
+# scopes never reach the sidecar.
 
 # The credential env-var stem a roster username is keyed into
 # (`OSPREY_AUTH_PW_HASH_<SUFFIX>`), quoted only inside this module's collision
@@ -3034,10 +3037,10 @@ def _check_auth_transport(root: dict[str, Any], web_terminals: dict[str, Any]) -
 
 
 def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> list[Finding]:
-    """``method: oidc`` needs an issuer, usable client env-var names, safe
-    subjects, and an origin.
+    """``method: oidc`` needs an issuer, usable client env-var names, readable
+    scopes, safe subjects, and an origin.
 
-    Four ERRORs, all config-visible and all fatal at *request* time rather
+    Five ERRORs, all config-visible and all fatal at *request* time rather
     than deploy time if they slip through — a sidecar that cannot complete a
     login flow locks the whole roster out (or, for a ``$``-bearing subject,
     one named user out):
@@ -3051,6 +3054,10 @@ def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> lis
       to something unusable (empty, wrong type) is not — render silently
       restores the default, so the sidecar would read a variable the operator
       never set.
+    * **Scopes.** ``auth.oidc.scopes`` is a list of scope strings (or one
+      space-separated string). Any other shape renders no scopes line at all,
+      so the sidecar's default applies and the authored scopes are gone
+      without a trace.
     * **External origin.** The OIDC ``redirect_uri`` is built from the
       deployment's one external origin, which needs ``deploy.fqdn``. An IdP
       rejects a callback whose ``redirect_uri`` isn't character-for-character
@@ -3095,6 +3102,29 @@ def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> lis
                 ),
             )
         )
+
+    # `scopes` is read the same way and fails the same way: render joins a list
+    # of strings (or an already-joined string) into the env line and treats
+    # every other shape as unset, so a wrong-typed value renders nothing and
+    # the sidecar's own default applies — the authored scopes are gone with no
+    # trace. Only the SHAPE is checked here; the sidecar refuses a list without
+    # `openid` at startup, where it also knows what the IdP was asked for.
+    if "scopes" in oidc:
+        scopes = oidc.get("scopes")
+        joined = _scope_list(scopes)
+        if joined is None:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.auth_oidc_invalid_scopes",
+                    message=(
+                        f"modules.web_terminals.auth.oidc.scopes {scopes!r} is neither a "
+                        "non-empty list of scope strings nor a space-separated string; "
+                        "render would emit no scopes line and the sidecar would fall "
+                        "back to its own default, silently dropping what was authored"
+                    ),
+                )
+            )
 
     # A roster entry's `oidc_subject` is the one OIDC value that travels through
     # the compose *document* (an `environment:` entry on the sidecar), not an
@@ -3569,8 +3599,8 @@ def _check_duplicate_access_principals(
 
     * ``domain:`` under every claim, because the resolver ASCII-lower-cases the
       value and the login side folds the asserted domain the same way — so
-      ``domain:LBL.gov`` and ``domain:lbl.gov`` are one principal wherever they
-      are read, and the pair is invisible in the resolved set;
+      ``domain:EXAMPLE.org`` and ``domain:example.org`` are one principal
+      wherever they are read, and the pair is invisible in the resolved set;
     * ``user:`` byte-exact, and additionally without regard to case under an
       ``email`` claim — the fold
       :data:`~osprey.services.auth_sidecar.identity_headers.CASE_INSENSITIVE_CLAIMS`

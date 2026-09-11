@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 TEST_DATA_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_logbook_entries.jsonl"
 
 # Path to config file for LLM access (RAG tests need this)
-# Uses minimal test config with ALS-APG API access (AWS Bedrock proxy)
+# Uses minimal test config with ALS-APG API access (gateway)
 CONFIG_FILE_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_config.yml"
 
 # Dev database URL - uses port 5432 (ariel-postgres container)
@@ -807,3 +807,157 @@ async def test_vocabulary_mcp_server_refuses_to_start_without_vocabulary_file(
     finally:
         reset_ariel_context()
         reset_config_cache()
+
+
+# =============================================================================
+# The read-only role, against a live server
+#
+# `BEGIN READ ONLY` and the query allowlist are the first line and they hold on
+# their own — the allowlist would refuse `pg_read_file()` before it reached the
+# server, because the query reads no allowlisted table. What it cannot do is
+# prove anything about the privileges the connection HOLDS, and an allowlist
+# over SQL text can never enumerate every function worth refusing. So these
+# tests skip the tool and talk to the server directly, as the role: the point is
+# what the server says no to when nothing upstream said no first.
+# =============================================================================
+
+READONLY_TEMPLATE = "services/postgresql/10-readonly-role.sh.j2"
+READONLY_SECRET = "role-probe-secret"
+
+
+def _render_readonly_script(username: str, database: str) -> str:
+    from importlib import resources
+
+    from jinja2 import Environment, FileSystemLoader
+
+    from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+
+    templates_root = resources.files("osprey").joinpath("templates")
+    env = Environment(loader=FileSystemLoader(str(templates_root)), autoescape=False)
+    return env.get_template(READONLY_TEMPLATE).render(
+        services={"postgresql": {"username": username, "database_name": database}},
+        deployment={},
+        system={"timezone": "UTC"},
+        osprey_labels={"project_name": "e2e", "repo_id": "0123456789ab", "project_root": "/r/e2e"},
+        osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+    )
+
+
+@pytest.fixture
+def readonly_role(e2e_database_url: str, tmp_path):
+    """Adopt the role on the live database the way an existing stack does.
+
+    Exactly the documented migration: run the init script the fresh-volume path
+    would have run, as the owner, against a database that already has tables.
+    Yields the DSN of the role it created.
+    """
+    import shutil
+    import subprocess
+    from urllib.parse import urlsplit
+
+    if shutil.which("psql") is None:
+        pytest.skip("psql is required to run the init script the entrypoint runs")
+
+    parts = urlsplit(e2e_database_url)
+    owner, database = parts.username or "ariel", parts.path.lstrip("/")
+    script = tmp_path / "10-readonly-role.sh"
+    script.write_text(_render_readonly_script(owner, database), encoding="utf-8")
+
+    result = subprocess.run(
+        ["bash", str(script)],
+        env={
+            **os.environ,
+            "PGHOST": parts.hostname or "localhost",
+            "PGPORT": str(parts.port or 5432),
+            "PGPASSWORD": parts.password or "",
+            "POSTGRES_USER": owner,
+            "POSTGRES_DB": database,
+            "ARIEL_DB_READONLY_PASSWORD": READONLY_SECRET,
+        },
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    yield e2e_database_url.replace(
+        f"{owner}:{parts.password}@", f"{owner}_ro:{READONLY_SECRET}@", 1
+    )
+
+
+@pytest.fixture
+def owner_tables(e2e_database_url: str, readonly_role: str):
+    """One table created before the script ran and one created after it.
+
+    The second is the case the ``ALTER DEFAULT PRIVILEGES`` clause exists for:
+    a ``text_embeddings_*`` table an enhancement module adds later has to be
+    readable without anyone remembering a second grant.
+    """
+    import psycopg
+
+    before, after = "ro_probe_before", "ro_probe_after"
+    with psycopg.connect(e2e_database_url, autocommit=True) as conn:
+        conn.execute(f"DROP TABLE IF EXISTS {before}")
+        conn.execute(f"CREATE TABLE {before} (id int)")
+    yield_error = None
+    try:
+        yield before, after
+    except Exception as exc:  # pragma: no cover - re-raised below
+        yield_error = exc
+    finally:
+        with psycopg.connect(e2e_database_url, autocommit=True) as conn:
+            conn.execute(f"DROP TABLE IF EXISTS {before}")
+            conn.execute(f"DROP TABLE IF EXISTS {after}")
+    if yield_error is not None:  # pragma: no cover
+        raise yield_error
+
+
+@pytest.mark.e2e_services
+async def test_the_readonly_role_selects_and_is_refused_everything_else(
+    e2e_database_url: str, readonly_role: str, owner_tables
+):
+    """SELECT on the owner's tables, and nothing else — including a table the
+    owner creates after the role exists, and a server-side file read."""
+    import psycopg
+
+    from osprey.services.ariel_search.config import DatabaseConfig
+    from osprey.services.ariel_search.database import create_connection_pool
+
+    before, after = owner_tables
+    with psycopg.connect(e2e_database_url, autocommit=True) as conn:
+        conn.execute(f"CREATE TABLE {after} (id int)")
+
+    pool = await create_connection_pool(DatabaseConfig(uri=readonly_role), max_size=3)
+    try:
+        async with pool.connection() as conn:
+            assert (await (await conn.execute(f"SELECT count(*) FROM {before}")).fetchone()) == (0,)
+            assert (await (await conn.execute(f"SELECT count(*) FROM {after}")).fetchone()) == (0,)
+
+            # No read-only transaction around either of these: the refusal has
+            # to come from the privileges the role holds, not from the
+            # transaction mode the tool opens on top of them.
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                await conn.execute(f"INSERT INTO {before} VALUES (1)")
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                await conn.execute("SELECT pg_read_file('/etc/hostname')")
+    finally:
+        await pool.close()
+
+
+@pytest.mark.e2e_services
+async def test_the_readonly_role_holds_no_superuser_attribute(
+    e2e_database_url: str, readonly_role: str
+):
+    """The attributes the script asks for are the ones the server recorded."""
+    from urllib.parse import urlsplit
+
+    import psycopg
+
+    role = urlsplit(readonly_role).username
+    with psycopg.connect(e2e_database_url, autocommit=True) as conn:
+        row = conn.execute(
+            "SELECT rolsuper, rolcreatedb, rolcreaterole, rolinherit, rolcanlogin "
+            "FROM pg_roles WHERE rolname = %s",
+            (role,),
+        ).fetchone()
+
+    assert row == (False, False, False, False, True)

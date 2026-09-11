@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from osprey.deployment.qmd_service import DEFAULT_BIND_ADDRESS, dial_address
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port, resolve_port_base
 
@@ -36,7 +37,6 @@ CATEGORY = "openobserve"
 
 _HEALTHZ_TIMEOUT_S = 5.0
 _RETENTION_FLOOR_DAYS = 3
-_DEFAULT_BIND = "127.0.0.1"
 _DEFAULT_RETENTION_DAYS = 14  # mirror the compose default
 
 
@@ -72,7 +72,7 @@ def openobserve(
         # number on the host — on a two-deployment host, the other store — and
         # report its health as this one's.
         port = oo.get("port", default_port("openobserve", base=resolve_port_base(cfg)))
-        bind = (cfg.get("deployment", {}) or {}).get("bind_address", _DEFAULT_BIND)
+        bind = (cfg.get("deployment", {}) or {}).get("bind_address", DEFAULT_BIND_ADDRESS)
         retention = oo.get("retention_days", _DEFAULT_RETENTION_DAYS)
 
         return [
@@ -86,8 +86,13 @@ def openobserve(
 async def _check_healthz(
     bind: str, port: Any, transport: httpx.AsyncBaseTransport | None
 ) -> CheckResult:
-    """Probe the ``/healthz`` readiness endpoint; ``running`` is not ``ready``."""
-    url = f"http://{bind}:{port}/healthz"
+    """Probe the ``/healthz`` readiness endpoint; ``running`` is not ``ready``.
+
+    The bind address is resolved to a dialable host first
+    (:func:`~osprey.deployment.qmd_service.dial_address`): a wildcard publish is
+    reached on loopback, a pinned interface on that interface.
+    """
+    url = f"http://{dial_address(bind)}:{port}/healthz"
     try:
         async with httpx.AsyncClient(timeout=_HEALTHZ_TIMEOUT_S, transport=transport) as client:
             resp = await client.get(url)

@@ -42,6 +42,7 @@ whatever can route to that interface.
 
 from __future__ import annotations
 
+import ipaddress
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,7 +72,23 @@ DEFAULT_PORT = default_port(QMD_SERVICE_NAME)
 
 #: Interface every deployed service publishes on when ``deployment`` is absent.
 #: Matches the ``| default('127.0.0.1')`` the service compose templates spell.
+#:
+#: This is the project-wide default for ``deployment.bind_address``, not a
+#: qmd-specific one: the provisioner, the health categories and the host-port
+#: preflight all read the same key and so share this constant rather than
+#: keeping a copy each.
 DEFAULT_BIND_ADDRESS = "127.0.0.1"
+
+#: Addresses that mean "listen on every interface". They are bind targets, not
+#: destinations — connecting to one is undefined on some platforms — so a
+#: host-side caller dials the matching loopback instead
+#: (:func:`dial_host`).
+WILDCARD_BIND_ADDRESSES = frozenset({"", "0.0.0.0", "::", "*"})
+
+#: Loopback address of the family a wildcard bind belongs to. ``::`` publishes
+#: on the IPv6 wildcard, which is reached at ``::1``; every other spelling is
+#: IPv4 or family-agnostic and is reached at :data:`DEFAULT_BIND_ADDRESS`.
+_WILDCARD_LOOPBACK = {"::": "::1"}
 
 #: Seconds between fallback corpus sweeps, and NOT the expected freshness lag —
 #: a corpus writer touches its ``.qmd-touch`` marker, which triggers an update
@@ -85,6 +102,14 @@ DEFAULT_BIND_ADDRESS = "127.0.0.1"
 #: 42% of the time discovering nothing, so a large corpus should raise it —
 #: marker-driven updates keep freshness regardless.
 DEFAULT_INTERVAL_SECONDS = 30
+
+#: Seconds Docker waits before an unhealthy sidecar counts against its retry
+#: budget, when ``services.qmd.first_index_grace`` is unset. The entrypoint
+#: refuses to open the port until the index is built and provably non-empty, so
+#: a first boot is unhealthy for as long as the full build takes — an hour is
+#: generous for a corpus of a few hundred thousand documents. A corpus much
+#: larger than that needs more, and a small one can have far less.
+DEFAULT_FIRST_INDEX_GRACE_SECONDS = 3600
 
 #: Config key an operator edits to move the published host port. Spelled once
 #: so the deploy-time port-conflict remedy and the schema cannot drift apart.
@@ -125,6 +150,9 @@ class QMDServiceConfig:
             project-wide ``deployment.bind_address``.
         interval_seconds: Fallback corpus-sweep period for the sidecar's
             update loop.
+        first_index_grace_seconds: How long the container's healthcheck holds
+            off before an unhealthy result counts, covering the first full
+            index build.
         models_dir: Absolute host directory holding the pre-staged GGUF models,
             or ``None`` (the default) to bake them into the image at build
             time. Validated for shape here and for contents by
@@ -134,17 +162,20 @@ class QMDServiceConfig:
     port: int = DEFAULT_PORT
     bind_address: str = DEFAULT_BIND_ADDRESS
     interval_seconds: int = DEFAULT_INTERVAL_SECONDS
+    first_index_grace_seconds: int = DEFAULT_FIRST_INDEX_GRACE_SECONDS
     models_dir: str | None = None
 
     @property
     def base_url(self) -> str:
         """URL a client on the host reaches the sidecar at.
 
-        Always loopback, never ``bind_address``: a wildcard publish
-        (``0.0.0.0``) is an address to *listen* on, not one to connect to, and
-        a host-side caller reaches every published port over loopback anyway.
+        The address comes from :func:`dial_address`, the one rule every
+        host-side dial of a published port follows: a wildcard publish is an
+        address to *listen* on rather than one to connect to and is dialed on
+        loopback, while a concrete interface is published only on that
+        interface and is dialed there.
         """
-        return f"http://127.0.0.1:{self.port}"
+        return f"http://{dial_address(self.bind_address)}:{self.port}"
 
 
 def resolve_qmd_service_config(config: Mapping[str, Any] | None) -> QMDServiceConfig | None:
@@ -189,6 +220,11 @@ def resolve_qmd_service_config(config: Mapping[str, Any] | None) -> QMDServiceCo
         interval_seconds=_positive_int(
             block.get("interval"), DEFAULT_INTERVAL_SECONDS, "services.qmd.interval"
         ),
+        first_index_grace_seconds=_positive_int(
+            block.get("first_index_grace"),
+            DEFAULT_FIRST_INDEX_GRACE_SECONDS,
+            "services.qmd.first_index_grace",
+        ),
         models_dir=_absolute_path(block.get("models_dir"), MODELS_DIR_CONFIG_KEY),
     )
 
@@ -212,6 +248,75 @@ def resolve_bind_address(config: Mapping[str, Any] | None) -> str:
     if not isinstance(address, str) or not address.strip():
         return DEFAULT_BIND_ADDRESS
     return address.strip()
+
+
+def is_loopback_bind(bind: str) -> bool:
+    """Whether a service bound to *bind* is reachable only from this machine.
+
+    The question every "is this on the network" reader asks, from the exposure
+    warning ``osprey web`` prints to the decision of which host a browser-facing
+    link can name. Keyed on "is loopback" rather than on a literal, because
+    ``0.0.0.0`` is one of several spellings that expose the port: ``::``
+    publishes on every IPv6 interface, an empty address is the wildcard uvicorn
+    defaults to, and a concrete interface address is on the network by
+    definition.
+
+    Args:
+        bind: A configured bind address or host.
+
+    Returns:
+        ``True`` only for an address nothing off this machine can reach. A name
+        that is not an IP literal is loopback only when it is ``localhost``;
+        anything else counts as exposed, because resolving it would make the
+        answer depend on DNS.
+    """
+    address = (bind or "").strip()
+    if address in WILDCARD_BIND_ADDRESSES:
+        return False
+    try:
+        return ipaddress.ip_address(address).is_loopback
+    except ValueError:
+        return address == "localhost"
+
+
+def dial_host(bind: str) -> str:
+    """Return the host a published port bound to *bind* is reached on.
+
+    One rule for every host-side reader of ``deployment.bind_address``: a
+    wildcard is a bind target, not a destination, so it is dialed on its
+    family's loopback address; a concrete interface is published only on that
+    interface, so it is dialed there. Standardising on loopback instead would
+    dial nothing on a deployment that pinned an interface.
+
+    Args:
+        bind: A configured bind address, wildcard or concrete.
+
+    Returns:
+        A bare host — no brackets, suitable for :func:`socket.create_connection`
+        and for :func:`socket.getaddrinfo`. Use :func:`dial_address` to build a
+        URL authority from it.
+    """
+    address = (bind or "").strip()
+    if address in WILDCARD_BIND_ADDRESSES:
+        return _WILDCARD_LOOPBACK.get(address, DEFAULT_BIND_ADDRESS)
+    return address
+
+
+def dial_address(bind: str) -> str:
+    """Return the URL authority a published port bound to *bind* is reached at.
+
+    :func:`dial_host` with an IPv6 literal bracketed, which is what a URL's
+    authority component requires and what every ``http://{address}:{port}``
+    caller needs.
+
+    Args:
+        bind: A configured bind address, wildcard or concrete.
+
+    Returns:
+        The dialable host, bracketed when it is an IPv6 literal.
+    """
+    host = dial_host(bind)
+    return f"[{host}]" if ":" in host else host
 
 
 def preflight_qmd_models_dir(config: Mapping[str, Any] | None) -> None:

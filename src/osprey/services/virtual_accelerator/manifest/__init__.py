@@ -23,13 +23,16 @@ from .classify import (
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
     PARTITION_STATIC_NOISY,
+    READBACK_SUBFIELD,
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_BINARY,
     RECORD_TYPE_LONG_STRING,
     RECORD_TYPE_MBB,
     RECORD_TYPE_STRING,
+    SETPOINT_SUBFIELD,
     classify_partition,
     derive_record_type,
+    setpoint_addresses,
 )
 from .loaders import MANIFEST_CHANNEL_KEYS, ManifestFileError, load_manifest_file
 
@@ -43,9 +46,12 @@ __all__ = [
     "PARTITION_PYAT_COUPLED",
     "PARTITION_SP_ECHO",
     "PARTITION_STATIC_NOISY",
+    "READBACK_SUBFIELD",
     "RECORD_TYPE_ANALOG",
     "RECORD_TYPE_BINARY",
     "RECORD_TYPE_LONG_STRING",
     "RECORD_TYPE_MBB",
     "RECORD_TYPE_STRING",
+    "SETPOINT_SUBFIELD",
+    "setpoint_addresses",
 ]

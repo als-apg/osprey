@@ -20,7 +20,7 @@ Only APIs present in *both* lines are used — ``session.run()`` and
 ``Session.write_transaction`` (removed in 6.0).
 
 The canonical n10s graph config and the NARAD prefix table are spelled exactly
-once, here, and are taken verbatim from the als-ontology prototype's
+once, here, and are taken verbatim from the prototype ontology's
 ``neo4j/init/01-init-constraints.cypher``.  Bootstrap diffs a store's live
 config against :data:`N10S_GRAPH_CONFIG` rather than silently skipping
 ``graphconfig.init``, so a store initialized under older settings is reported
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 
 #: The n10s graph configuration osprey initializes every graph store with.
 #:
-#: Verbatim from the als-ontology prototype's init cypher, whose reasoning is:
+#: Verbatim from the prototype ontology's init cypher, whose reasoning is:
 #:
 #: * ``handleVocabUris='MAP'`` — property names are stored as-is with the
 #:   namespaces kept on a separate ``_NsPrefDef`` node, so Cypher sees
@@ -61,7 +61,8 @@ if TYPE_CHECKING:
 #:   the rest of the graph scalar (``.sectionCode = 'GTL'``, not ``['GTL']``):
 #:   ARRAY on its own would wrap *every* property in a list and rewrite every
 #:   query.
-#: * ``keepLangTag=False`` — the ALS data carries no language tags.
+#: * ``keepLangTag=False`` — the corpora this generator emits carry no
+#:   language tags.
 #: * ``handleRDFTypes='LABELS_AND_NODES'`` — every ``rdf:type`` becomes both a
 #:   ``:Resource`` label and a typed node, which is what the class-hierarchy
 #:   rollup queries traverse.
@@ -91,19 +92,15 @@ NARAD_PREFIXES: dict[str, str] = {
 #:
 #: Spelled once, and passed explicitly rather than left to the n10s default so
 #: the transaction-heap envelope is a property of osprey rather than of whatever
-#: plugin build happens to be installed.  The shipped ALS TTL (~8k triples) lands
-#: in a single batch; a larger facility TTL streams in bounded batches that stay
-#: well inside the default 512m heap.  Note the consequence, which is why the
+#: plugin build happens to be installed.  The shipped demo TTL (~8k triples)
+#: lands in a single batch; a larger facility TTL streams in bounded batches
+#: that stay well inside the default 512m heap.  Note the consequence, which is why the
 #: seed marker exists: batches commit as they go, so an import that dies partway
 #: leaves committed data behind (the "unmanaged-partial" state).
 COMMIT_SIZE = 10_000
 
 #: ``terminationStatus`` value n10s reports for a fully successful import.
 TERMINATION_OK = "OK"
-
-#: Default Neo4j database.  Named explicitly so the driver skips the home-database
-#: lookup round-trip on every session.
-DEFAULT_DATABASE = "neo4j"
 
 #: Label of the singleton node carrying the seeded TTL's sha256.
 SEED_MARKER_LABEL = "_OspreySeed"
@@ -274,21 +271,24 @@ def open_session(
     username: str,
     password: str,
     *,
-    database: str = DEFAULT_DATABASE,
+    database: str,
 ) -> Iterator[Session]:
     """Open a driver session against the graph store, closing both on exit.
 
-    Takes the three fields of
+    Takes the four fields of
     :class:`~osprey.deployment.graphdb_service.GraphdbConnection` explicitly
     rather than the dataclass itself, so this module stays free of any
     deployment/config import and can be driven from a test or a script with
-    three literals.
+    four literals.
 
     Args:
         uri: Bolt address to dial, e.g. ``bolt://localhost:7687``.
         username: Account to authenticate as.
         password: That account's password.
-        database: Database to open the session against.
+        database: Database to open the session against, named explicitly so the
+            driver skips the home-database lookup round-trip. Required rather
+            than defaulted: the one place that name is decided is the resolved
+            ``GraphdbConnection``, never a literal restated here.
 
     Yields:
         An open :class:`neo4j.Session`.

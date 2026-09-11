@@ -102,15 +102,6 @@ pytestmark = [
 # and scipy, both of which OSPREY pins. `freeze_base_environment` fails a build
 # whose base venv conflicts with those pins, so lmfit would make the fixture's
 # success depend on transitive-resolution luck rather than on the mechanism
-# NONE OF THE THREE MAY BE ADDED TO OSPREY'S OWN DEV DEPENDENCIES. Under its
-# litellm-quarantine fallback, `_create_project_venv` writes an
-# `_osprey_build_env.pth` into the project venv pointing at the BUILD
-# environment's site-packages (build_environment.py:940-950), so when that
-# branch fires "importable in the project venv" is a union, not "installed
-# here". The markers are absent from the repo venv today (verified), but a
-# marker that entered OSPREY's dev deps would make the frozen-marker assertion
-# below silently stop testing the freeze.
-#
 # under test. What the test needs is a package whose *only* possible route into
 # the project is the freeze; a leaf package is the honest choice.
 

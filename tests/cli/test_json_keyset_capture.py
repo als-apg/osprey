@@ -23,8 +23,10 @@ so equality is a real contract rather than a fixture artifact:
 * ``query`` → ``tool_traces[]`` (a literal dict comprehension in
   ``_build_json_output``);
 * ``ariel status`` → ``database``, ``embedding_tables[]``,
-  ``enhancement_modules``, ``search_modules`` (all literal dicts in
-  ``get_status``);
+  ``enhancement_modules``, ``search_modules``. ``database`` is a literal dict
+  in ``get_status``; the two module maps are keyed by what the registry
+  carries, so this golden also records which modules the framework registers,
+  and a module added or renamed lands here.
 * ``ariel search`` → ``entries[]`` (``_entry_summary``'s fixed projection).
 
 Deliberately **not** nested: ``health``'s ``results[]`` rows, whose ``value`` /

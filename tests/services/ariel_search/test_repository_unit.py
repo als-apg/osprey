@@ -376,7 +376,7 @@ class TestUpsertEntryReingestHazards:
     ) -> None:
         """Pins the ``'[]'::jsonb`` CASE that protects ARIEL-native attachments.
 
-        Hazard: the upstream write API cannot accept file uploads, so an entry
+        Hazard: the adapter write contract carries no attachments, so an entry
         published by ARIEL comes back from the next poll with
         ``attachments = '[]'::jsonb``. Collapsing the CASE into a plain
         ``attachments = EXCLUDED.attachments`` erases web-uploaded attachments
@@ -721,14 +721,23 @@ class TestEnhancementStatus:
         assert "ORDER BY created_at ASC LIMIT %s" in body
         assert params == [7]
 
-    async def test_get_enhancement_stats_maps_row_positions(self, fake_pool_factory) -> None:
-        """The seven aggregate columns are unpacked positionally.
+    async def test_get_enhancement_stats_groups_by_module_key(self, fake_pool_factory) -> None:
+        """Whatever modules the store carries are reported, none of them named in SQL.
 
-        Hazard: the SELECT list order and this mapping are one contract with no
-        column names between them -- reordering the FILTER clauses without
-        reordering the indices would silently swap 'failed' and 'pending'.
+        The aggregate returns one row per (module, status) pair, so a module a
+        facility registered itself is counted the moment its first entry lands.
         """
-        pool = fake_pool_factory(results=[[(100, 90, 5, 5, 80, 10, 10)]])
+        pool = fake_pool_factory(
+            rows_for={
+                "jsonb_each(enhancement_status)": [
+                    (100, "text_embedding", "complete", 90),
+                    (100, "text_embedding", "failed", 5),
+                    (100, "text_embedding", "pending", 5),
+                    (100, "facility_tagger", "complete", 80),
+                    (100, "facility_tagger", "failed", 10),
+                ],
+            }
+        )
         repo = ARIELRepository(pool, _make_config())
 
         stats = await repo.get_enhancement_stats()
@@ -736,8 +745,54 @@ class TestEnhancementStatus:
         assert stats == {
             "total_entries": 100,
             "text_embedding": {"complete": 90, "failed": 5, "pending": 5},
-            "semantic_processor": {"complete": 80, "failed": 10, "pending": 10},
+            # 10 entries never reached this module at all: no key, so no row.
+            "facility_tagger": {"complete": 80, "failed": 10, "pending": 10},
         }
+
+    async def test_get_enhancement_stats_reads_one_snapshot(self, fake_pool_factory) -> None:
+        """Total and per-module counts come from a single statement.
+
+        ``pending`` is derived by subtracting the module's seen rows from the
+        total, so the two counts must describe the same snapshot. Split across
+        two statements on an autocommit connection, an ingest landing in between
+        would make the subtraction negative.
+        """
+        pool = fake_pool_factory(
+            rows_for={"jsonb_each(enhancement_status)": [(4, "text_embedding", "complete", 4)]}
+        )
+        repo = ARIELRepository(pool, _make_config())
+
+        await repo.get_enhancement_stats()
+
+        assert len(pool.calls) == 1
+        body = _sql_body(pool.calls[0][0])
+        assert "COUNT(*) AS entries FROM enhanced_entries" in body
+        assert "jsonb_each(enhancement_status)" in body
+
+    async def test_get_enhancement_stats_names_no_module_in_sql(self, fake_pool_factory) -> None:
+        """Fixed SQL text: a module name never reaches the statement."""
+        pool = fake_pool_factory(
+            rows_for={"jsonb_each(enhancement_status)": [(1, None, None, None)]}
+        )
+        repo = ARIELRepository(pool, _make_config())
+
+        await repo.get_enhancement_stats()
+
+        aggregate = [sql for sql, _ in pool.calls if "jsonb_each" in sql]
+        assert len(aggregate) == 1
+        assert "text_embedding" not in aggregate[0]
+        assert "semantic_processor" not in aggregate[0]
+
+    async def test_get_enhancement_stats_reports_a_total_with_no_status_keys(
+        self, fake_pool_factory
+    ) -> None:
+        """A store whose entries carry no status key still reports its total."""
+        pool = fake_pool_factory(
+            rows_for={"jsonb_each(enhancement_status)": [(7, None, None, None)]}
+        )
+        repo = ARIELRepository(pool, _make_config())
+
+        assert await repo.get_enhancement_stats() == {"total_entries": 7}
 
     async def test_get_enhancement_stats_on_empty_database(self, fake_pool) -> None:
         """No aggregate row degrades to a zero total rather than raising."""

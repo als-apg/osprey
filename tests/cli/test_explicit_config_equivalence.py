@@ -48,14 +48,16 @@ which land with the tasks that cause them:
 that whole mapping (it resolves to an interpreter path), so it can never surface
 as a delta and needs no entry here.
 
-Two more deltas are declared that Requirement 1 did not foresee, both from
+Three more deltas are declared that Requirement 1 did not foresee, two from
 later gating work rather than from the conversion. ``approval.tools.entry_publish``
 reaches every render made from a preset that spells an ARIEL approval policy,
 and the three panel-rail verbs — ``approval.tools.add_panel_to_rail``,
 ``approval.tools.remove_panel_from_rail`` and ``approval.tools.register_panel``
 — reach every render made from a preset that names its approval policy tool by
 tool. The fixtures were frozen while all four were gated nowhere, so those
-leaves are genuinely new.
+leaves are genuinely new. ``web.feedback.email`` goes the other way: the three
+root presets stopped shipping a recipient, so every document they render
+carries ``""`` where the frozen one carries the address the baseline shipped.
 
 One leaf is exempt from the table rather than declared in it. ``osprey build``
 answers the presets' ``container_runtime: auto`` with the runtime that served
@@ -365,6 +367,95 @@ def _rail_tool_deltas(*documents: str) -> tuple[Delta, ...]:
     )
 
 
+def _retired_upstream_link_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The three leaves naming the upstream project the presets stopped rendering.
+
+    ``web.feedback.email``, ``web.feedback.github_repo`` and ``web.docs_url``
+    named the OSPREY maintainers, their tracker and their documentation site.
+    Rendered live they landed in every deployment's own ``profile.yml`` as
+    though the facility had chosen them; each preset now documents the key as a
+    commented example instead. The code defaults in
+    ``interfaces/web_terminal/feedback_destination.py`` still apply when
+    nothing spells the key, so the running deployment is unchanged — only the
+    rendered document is three leaves shorter.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        Three deltas per document.
+    """
+    return tuple(
+        Delta(document=document, path=path, fixture=fixture, live=ABSENT)
+        for document in documents
+        for path, fixture in (
+            ("web.docs_url", "https://als-apg.github.io/osprey"),
+            ("web.feedback.email", "thellert@lbl.gov"),
+            ("web.feedback.github_repo", "als-apg/osprey"),
+        )
+    )
+
+
+def _query_max_rows_deltas(*documents: str) -> tuple[Delta, ...]:
+    """The middle-layer SQL row cap the presets now state.
+
+    ``run_sql`` capped its answer at a number fixed in the tool, so a facility
+    could not decide how much of its channel table was worth a turn of the
+    agent's context. The cap is now ``channel_finder.query_max_rows``, stated at
+    its previous value in the two presets that carry a ``channel_finder`` block,
+    so every document they render gains the leaf. The fixtures were frozen
+    before the key existed, which is why it reads as a difference here rather
+    than as a render that changed.
+
+    ``hello-world`` and ``ariel-standalone`` name no ``channel_finder`` block
+    and gain nothing, so their cells are absent below.
+
+    Args:
+        documents: The rendered documents the cell emits, ``root`` plus one per
+            persona.
+
+    Returns:
+        One delta per document.
+    """
+    return tuple(
+        Delta(
+            document=document,
+            path="channel_finder.query_max_rows",
+            fixture=ABSENT,
+            live=500,
+        )
+        for document in documents
+    )
+
+
+def _dispatch_max_turns_deltas() -> tuple[Delta, ...]:
+    """The dispatch worker's turn ceiling, now written into its service block.
+
+    How many agentic turns one dispatched run may take was a literal in the
+    worker's request model, so a facility could set the two clock budgets and
+    not this one. ``dispatch.max_turns`` is the third budget, and the build
+    writes it into ``services.dispatch_worker`` beside ``timeout_sec`` and
+    ``inactivity_sec`` on every deploy. The fixtures were frozen before the key
+    existed, and only the root document carries a service block, so this is one
+    delta rather than one per persona.
+
+    Only ``control-assistant`` deploys a dispatch worker; the other presets gain
+    nothing and are absent below.
+
+    Returns:
+        The single root-document delta.
+    """
+    return (
+        Delta(
+            document="root",
+            path="services.dispatch_worker.max_turns",
+            fixture=ABSENT,
+            live=25,
+        ),
+    )
+
+
 #: The documents a control-assistant cell renders: the root config plus one per
 #: persona in the preset's roster.
 _CONTROL_ASSISTANT_DOCUMENTS = (
@@ -419,25 +510,44 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     ),
     "ariel-standalone/unset": _standalone_catalog_delta()
     + _entry_publish_deltas("root")
-    + _rail_tool_deltas("root"),
-    "channel-finder-standalone/in_context": _standalone_catalog_delta(),
-    "channel-finder-standalone/hierarchical": _standalone_catalog_delta(),
-    "channel-finder-standalone/middle_layer": _standalone_catalog_delta(),
+    + _rail_tool_deltas("root")
+    + _retired_upstream_link_deltas("root"),
+    "channel-finder-standalone/in_context": _standalone_catalog_delta()
+    + _retired_upstream_link_deltas("root")
+    + _query_max_rows_deltas("root"),
+    "channel-finder-standalone/hierarchical": _standalone_catalog_delta()
+    + _retired_upstream_link_deltas("root")
+    + _query_max_rows_deltas("root"),
+    "channel-finder-standalone/middle_layer": _standalone_catalog_delta()
+    + _retired_upstream_link_deltas("root")
+    + _query_max_rows_deltas("root"),
     "control-assistant/in_context": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _dispatch_max_turns_deltas()
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _dispatch_max_turns_deltas()
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _dispatch_max_turns_deltas()
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
+    + _dispatch_max_turns_deltas()
+    + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas(),
 }
 

@@ -167,7 +167,7 @@ def _pair_blocks(*, on_host: bool, worker_count: int = 1) -> dict[str, dict]:
     dispatcher: dict = {
         "port": dispatch.dispatcher_port,
         "facility_name": dispatch.facility_name,
-        "pv_strip_prefix": dispatch.pv_strip_prefix,
+        "channel_strip_prefix": dispatch.channel_strip_prefix,
     }
     worker: dict = {
         "worker_count": worker_count,
@@ -181,6 +181,16 @@ def _pair_blocks(*, on_host: bool, worker_count: int = 1) -> dict[str, dict]:
         worker["network"] = "host"
         worker["worker_port_stride"] = dispatch.worker_port_stride
     return {"event_dispatcher": dispatcher, "dispatch_worker": worker}
+
+
+def _with_env(blocks: dict[str, dict], names: list[str]) -> dict[str, dict]:
+    """The same blocks with ``env`` on every half, as ``_inject_dispatch`` writes it.
+
+    One profile knob (``dispatch.env``) reaches both service blocks, so a
+    fixture that put the names on one half would be pinning a config no build
+    produces.
+    """
+    return {key: {**block, "env": list(names)} for key, block in blocks.items()}
 
 
 @dataclass(frozen=True)
@@ -276,6 +286,19 @@ SCENARIOS: tuple[Scenario, ...] = (
         },
         deployed=(),
         templates=("virtual_accelerator", "bluesky_web"),
+    ),
+    # The same axis on the dispatch pair, whose two service blocks come from
+    # one profile knob (`dispatch.env`) rather than from two authored ones.
+    # Both halves are pinned in one scenario because that is what the knob
+    # promises: a name the dispatcher is handed and the worker is not would let
+    # a trigger see a value the run acting on it cannot. Their `environment:`
+    # blocks end differently again — the dispatcher on `TZ:`, the worker on a
+    # mode-dependent block — so the whitespace contract is exercised on both.
+    Scenario(
+        name="dispatch-env-passthrough",
+        services=_with_env(_pair_blocks(on_host=False), list(_ENV_PASSTHROUGH)),
+        deployed=("event_dispatcher", "dispatch_worker"),
+        templates=("event_dispatcher", "dispatch_worker"),
     ),
     # The same axis on the one template that renders MORE THAN ONE container
     # from a single service block: the bridge, the queueserver that executes
@@ -779,14 +802,14 @@ def _env_case_id(case: tuple[Scenario, str, tuple[str, ...]]) -> str:
     return f"{scenario.name}/{key}"
 
 
-#: Service templates that carry no ``env:`` axis at all. The dispatch pair is
-#: configured through the profile's ``dispatch:`` block, whose two
-#: ``services.<half>`` blocks are written wholesale by ``_inject_dispatch`` —
-#: there is no author-declared ``env:`` for the macro to read there, so the call
-#: is absent by intent rather than by oversight. Named here so that intent is
-#: asserted rather than assumed: a template that quietly stopped honoring the
-#: axis would otherwise just leave this set unchanged.
-_AXIS_FREE_TEMPLATES = frozenset({"event_dispatcher", "dispatch_worker"})
+#: Service templates that carry no ``env:`` axis at all. Empty: every shipped
+#: template honours the axis. The dispatch pair was the exception until
+#: ``dispatch.env`` gave it an authoring surface of its own — its two
+#: ``services.<half>`` blocks are written wholesale by ``_inject_dispatch``, so
+#: the names arrive from the profile's ``dispatch:`` block rather than from a
+#: per-service one. Kept as a named set so that a template which quietly
+#: stopped honouring the axis is a failure rather than a silent regression.
+_AXIS_FREE_TEMPLATES: frozenset[str] = frozenset()
 
 
 @pytest.mark.parametrize("case", ENV_CASES, ids=_env_case_id)

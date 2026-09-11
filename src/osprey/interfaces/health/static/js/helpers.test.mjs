@@ -107,19 +107,23 @@ describe('worst', () => {
 
 describe('fmtName', () => {
   test('strips the leading "<category>." prefix and title-cases the rest', () => {
-    expect(fmtName('epics.beam_current')).toBe('Beam Current');
+    expect(fmtName('control_system.beam_current', 'control_system')).toBe('Beam Current');
   });
 
   test('a name with no dot is title-cased as-is', () => {
-    expect(fmtName('disk_space')).toBe('Disk Space');
+    expect(fmtName('disk_space', 'file_system')).toBe('Disk Space');
   });
 
-  test('only the first dot delimits the prefix', () => {
-    expect(fmtName('a.b_c')).toBe('B C');
+  // A check name is free-form, so a dot in it means nothing on its own: only
+  // the row's OWN category is a prefix. Stripping to the first dot regardless
+  // is how a name that merely spells one loses its leading word.
+  test('the prefix is stripped only when it is the row category', () => {
+    expect(fmtName('a.b_c', 'a')).toBe('B C');
+    expect(fmtName('a.b_c', 'x')).toBe('A.B C');
   });
 
   test('a single word is capitalized', () => {
-    expect(fmtName('latency')).toBe('Latency');
+    expect(fmtName('latency', 'network')).toBe('Latency');
   });
 });
 

@@ -37,6 +37,7 @@ from pathlib import Path
 from osprey.errors import BuildProfileError
 
 from . import classify, loaders
+from .classify import READBACK_SUBFIELD, SETPOINT_SUBFIELD
 from .paths import MANIFEST_OUTPUT, PACKAGE_PATHS, ManifestPaths
 
 logger = logging.getLogger(__name__)
@@ -142,6 +143,8 @@ class ParadigmExpansion:
             corrupt.
         hierarchy_paths: The hierarchy path per address, from the
             ``hierarchical`` database when it loaded; empty otherwise.
+        hierarchy_levels: The level names that database DECLARES, in tree
+            order; empty when it did not load or the tree stages none.
         corrupt: The staged databases that are present and could not be read,
             in read order. Each contributed zero addresses.
     """
@@ -149,17 +152,21 @@ class ParadigmExpansion:
     addresses: dict[str, set[str]]
     hierarchy_paths: dict[str, dict[str, str]]
     corrupt: tuple[CorruptParadigm, ...]
+    hierarchy_levels: tuple[str, ...] = ()
 
 
-def _hierarchical_expansion(paths: ManifestPaths) -> tuple[set[str], dict[str, dict[str, str]]]:
-    """Expand the hierarchical database into its addresses and their paths.
+def _hierarchical_expansion(
+    paths: ManifestPaths,
+) -> tuple[set[str], dict[str, dict[str, str]], tuple[str, ...]]:
+    """Expand the hierarchical database into its addresses, paths and levels.
 
     It is the one paradigm that declares a hierarchy path, and it is read once
     here so the manifest never re-opens a file this expansion already found
     unreadable.
     """
-    by_address = {c.address: c.path for c in loaders.load_hierarchical_channels(paths)}
-    return set(by_address), by_address
+    channels, levels = loaders.load_hierarchical_database(paths)
+    by_address = {c.address: c.path for c in channels}
+    return set(by_address), by_address, levels
 
 
 def _paradigm_addresses(paths: ManifestPaths) -> ParadigmExpansion:
@@ -183,15 +190,16 @@ def _paradigm_addresses(paths: ManifestPaths) -> ParadigmExpansion:
     """
     loader_by_paradigm = {
         "hierarchical": lambda: _hierarchical_expansion(paths),
-        "in_context": lambda: (loaders.load_in_context_addresses(paths), {}),
-        "middle_layer": lambda: (loaders.load_middle_layer_addresses(paths), {}),
+        "in_context": lambda: (loaders.load_in_context_addresses(paths), {}, ()),
+        "middle_layer": lambda: (loaders.load_middle_layer_addresses(paths), {}, ()),
     }
     addresses: dict[str, set[str]] = {}
     hierarchy_paths: dict[str, dict[str, str]] = {}
+    hierarchy_levels: tuple[str, ...] = ()
     corrupt: list[CorruptParadigm] = []
     for name in paths.staged_paradigms:
         try:
-            expanded, paths_by_address = loader_by_paradigm[name]()
+            expanded, paths_by_address, declared_levels = loader_by_paradigm[name]()
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "The tier-%d %s channel database at %s is present and could not be read "
@@ -212,8 +220,13 @@ def _paradigm_addresses(paths: ManifestPaths) -> ParadigmExpansion:
             continue
         addresses[name] = expanded
         hierarchy_paths.update(paths_by_address)
+        if declared_levels:
+            hierarchy_levels = declared_levels
     return ParadigmExpansion(
-        addresses=addresses, hierarchy_paths=hierarchy_paths, corrupt=tuple(corrupt)
+        addresses=addresses,
+        hierarchy_paths=hierarchy_paths,
+        corrupt=tuple(corrupt),
+        hierarchy_levels=hierarchy_levels,
     )
 
 
@@ -298,6 +311,23 @@ def build_manifest(paths: ManifestPaths = PACKAGE_PATHS) -> dict:
     # address already is.
     path_by_address = expansion.hierarchy_paths
 
+    # A hierarchical database names its own levels, and the classifier reads
+    # six particular names off each path. A tree levelled some other way
+    # (system/family/sector/device/pv, say) states a hierarchy no rule here can
+    # be evaluated against -- so nothing is classified, the reason is recorded,
+    # and the build reports it. Guessing would put a facility's channels in
+    # partitions derived from another facility's tokens; the KeyError this
+    # replaces called a valid file unreadable.
+    unclassified_reason: str | None = None
+    missing_levels = [
+        level for level in classify.CLASSIFIER_LEVELS if level not in expansion.hierarchy_levels
+    ]
+    if expansion.hierarchy_levels and missing_levels:
+        unclassified_reason = (
+            f"levels {'/'.join(expansion.hierarchy_levels)} lack {', '.join(missing_levels)}"
+        )
+        path_by_address = {}
+
     entries: list[ManifestEntry] = []
     for address in sorted(addresses):
         path = path_by_address.get(address)
@@ -326,6 +356,7 @@ def build_manifest(paths: ManifestPaths = PACKAGE_PATHS) -> dict:
         paths,
         source_paradigms=list(expansion.addresses),
         absent_paradigms=list(paths.absent_paradigms),
+        unclassified_reason=unclassified_reason,
         corrupt_paradigms=[
             {
                 "paradigm": c.paradigm,
@@ -345,6 +376,7 @@ def _finish_manifest(
     absent_paradigms: list[str],
     corrupt_paradigms: list[dict],
     source_corpus: str | None = None,
+    unclassified_reason: str | None = None,
 ) -> dict:
     """Union the scenario seed in, reconcile machine state, and assemble the document.
 
@@ -369,6 +401,9 @@ def _finish_manifest(
             channel search index built from the corpus), as an operator would
             name it, or ``None`` for a database-sourced manifest -- the key
             appears only when the graph actually fed it.
+        unclassified_reason: Why no entry could be classified, or ``None``
+            when classification ran. The key appears only when it happened,
+            and the build's census report prints it.
     """
     entries = list(entries)
     addresses = {entry.address for entry in entries}
@@ -406,7 +441,7 @@ def _finish_manifest(
         if e.ring:
             by_ring[e.ring] = by_ring.get(e.ring, 0) + 1
         by_partition[e.partition] = by_partition.get(e.partition, 0) + 1
-        if e.subfield == "SP":
+        if e.subfield == SETPOINT_SUBFIELD:
             setpoint_count += 1
 
     metadata: dict = {
@@ -422,6 +457,8 @@ def _finish_manifest(
     }
     if source_corpus is not None:
         metadata["source_corpus"] = source_corpus
+    if unclassified_reason is not None:
+        metadata["unclassified_reason"] = unclassified_reason
     metadata.update(
         {
             "absent_paradigms": absent_paradigms,
@@ -494,14 +531,6 @@ def _graph_missing_sources(paths: ManifestPaths) -> list[Path]:
         if not path.is_file()
     ]
     return missing
-
-
-#: The subfield tokens the container pairs a setpoint with its readback on
-#: (``serving/pvdb.py`` spells the same two; not imported from there because
-#: this module is imported on the build host, where the IOC's dependencies
-#: are not installed).
-SETPOINT_SUBFIELD = "SP"
-READBACK_SUBFIELD = "RB"
 
 
 def _echo_entry(address: str, *, pair_key: str, subfield: str) -> ManifestEntry:

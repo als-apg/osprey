@@ -172,7 +172,10 @@ Exit Codes
      - Verdict fail
      - The agent ran but the outcome was unsatisfactory: a required MCP
        server was missing from the session, the agent returned an error
-       result, or the run hit its cost budget (USD) or turn limit.
+       result, or the run hit its cost budget (USD) or turn limit. "Missing"
+       includes a declared server that did not register in time: the run waits
+       ``OSPREY_MCP_READY_TIMEOUT`` seconds (default 90) for every server the
+       project declares, and a busy or cold host can need longer than that.
    * - ``2``
      - Infra / usage error
      - The run never started: no project found at the resolved path, the

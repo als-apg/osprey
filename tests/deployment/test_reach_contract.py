@@ -1032,6 +1032,40 @@ def test_the_graph_channel_finder_is_a_store_consumer_of_its_own():
     assert reach_errors(off) == []
 
 
+def test_a_host_that_names_the_stores_database_projects_it_beside_the_address():
+    """The database name is the host's fact about the store, as ``uri`` and
+    ``username`` are: every session a persona opens against an external store
+    has to name the database that holds the corpus, and a persona told only the
+    address would open them against the driver's default and read a corpus
+    that is not there. Projected on the same gate as the address, so a render
+    with no store consumer is told nothing about it either."""
+    from osprey.deployment.reach import project_attached_overrides
+
+    attached = {"channel_finder": {"pipeline_mode": "graph"}}
+    host = {
+        "services": {
+            "graphdb": {
+                "uri": "bolt://graph.facility.example:7687",
+                "username": "reader",
+                "database": "corpus",
+            }
+        }
+    }
+
+    projected = project_attached_overrides(host, attached)
+    assert projected["services.graphdb.database"] == "corpus"
+    assert projected["services.graphdb.uri"] == host["services"]["graphdb"]["uri"]
+    assert projected["services.graphdb.username"] == "reader"
+
+    off = {
+        **attached,
+        "claude_code": {
+            "servers": {"graph": {"enabled": False}, "channel-finder": {"enabled": False}}
+        },
+    }
+    assert project_attached_overrides(host, off) == {}
+
+
 # ---------------------------------------------------------------------------
 # Each plan lane's launch token, on a synthetic two-lane render
 # ---------------------------------------------------------------------------

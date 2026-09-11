@@ -113,6 +113,36 @@ async def test_unknown_provider_is_warning() -> None:
     assert result.message == "Unknown provider"
 
 
+async def test_config_only_provider_is_skipped() -> None:
+    """A name with an ``api.providers`` block but no adapter class is not unknown.
+
+    The documented no-code route to a new endpoint writes a config block and
+    nothing else. There is no class to instantiate, so the canary cannot probe
+    it — that is a skip, not a complaint about the deployment.
+    """
+    result = await run(
+        {"name": "house_gateway"},
+        _ctx({"api": {"providers": {"house_gateway": {"base_url": "https://gw.example/v1"}}}}),
+        registry=_StubRegistry({}),
+    )
+
+    assert result.status is Status.SKIP
+    assert result.name == "house_gateway"
+    assert "no code adapter" in result.message
+
+
+async def test_empty_config_block_is_still_unknown() -> None:
+    """An entry with nothing in it declares no endpoint; it stays a warning."""
+    result = await run(
+        {"name": "made_up"},
+        _ctx({"api": {"providers": {"made_up": {}}}}),
+        registry=_StubRegistry({}),
+    )
+
+    assert result.status is Status.WARNING
+    assert result.message == "Unknown provider"
+
+
 async def test_env_var_resolution(monkeypatch: Any) -> None:
     monkeypatch.setenv("OSPREY_TEST_CANARY_KEY", "secret-123")
     captured: list[dict[str, Any]] = []

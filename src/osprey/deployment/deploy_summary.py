@@ -50,12 +50,12 @@ from osprey.deployment.graphdb_service import (
     GRAPHDB_SERVICE_NAME,
 )
 from osprey.deployment.host_ports import (
-    _WILDCARD_HOSTS,
     _WORKER_SERVICE_PREFIX,
     HostPortBinding,
     derive_host_network_bindings,
     parse_host_port_bindings,
 )
+from osprey.deployment.qmd_service import dial_address
 from osprey.deployment.web_terminals.ports import resolve_nginx_port
 from osprey.port_layout import (
     LAYOUT,
@@ -170,7 +170,48 @@ _HOST_NETWORK_NOTE = "  (host network)"
 _ADDRESS_SEPARATOR = " · "
 
 
-def _http_service(service: str, container_port: int | None = None) -> bool:
+def _declared_http_services(config: dict) -> frozenset[str]:
+    """Compose service names a deployment declares as speaking HTTP.
+
+    Read off the rendered ``config.yml`` rather than off any table here: a
+    facility's own service is not in :data:`_HTTP_SERVICES` and never can be,
+    since the framework does not know its name. ``services.<name>.http: true``
+    is that service saying so for itself.
+
+    Each block is answered through the schema's own accessor rather than by
+    reaching for the key, so the axis default lives in exactly one place and
+    this module never spells it — the same route
+    :func:`osprey.cli.build_cmd._service_network_mode` takes for the
+    ``network:`` axis. The import is local because the deployment side does not
+    otherwise depend on the CLI package.
+
+    Args:
+        config: Loaded configuration dictionary.
+
+    Returns:
+        The names whose block declares HTTP. Anything else — absent, a
+        non-boolean, a malformed block — is not in the set, which leaves the
+        address a bare ``host:port``.
+    """
+    from osprey.cli.build_profile_schema import ServiceDef
+
+    services = config.get("services") if isinstance(config, dict) else None
+    if not isinstance(services, dict):
+        return frozenset()
+    return frozenset(
+        name
+        for name, block in services.items()
+        if isinstance(name, str)
+        and isinstance(block, dict)
+        and ServiceDef(template="", config=block).speaks_http()
+    )
+
+
+def _http_service(
+    service: str,
+    container_port: int | None = None,
+    declared_http: frozenset[str] = frozenset(),
+) -> bool:
     """Whether a binding is fronted by HTTP, so its address is shown as a URL.
 
     Multi-port services resolve per binding, on the port inside the container:
@@ -185,11 +226,19 @@ def _http_service(service: str, container_port: int | None = None) -> bool:
     :mod:`osprey.deployment.host_ports` makes to find their remedy key. They
     reach the summary only on the host network, where they bind directly.
 
+    A service the deployment itself declared as HTTP (``services.<name>.http:
+    true``) is answered after the per-port roles and before the framework name
+    table: roles describe a service this module knows two ports of, and no
+    declaration should be able to relabel one of them, while the name table
+    only ever knows framework services.
+
     Args:
         service: Compose service name.
         container_port: Port inside the container this binding maps to, when
             known. ``None`` reads as "not one of the HTTP ports" for a
             multi-port service, and is ignored for every single-port one.
+        declared_http: Service names the deployment declared as speaking HTTP,
+            from :func:`_declared_http_services`.
 
     Returns:
         True when the address should carry an ``http://`` scheme.
@@ -197,6 +246,8 @@ def _http_service(service: str, container_port: int | None = None) -> bool:
     roles = _MULTI_PORT_ROLES.get(service)
     if roles is not None:
         return roles.get(container_port or 0, ("", False))[1]
+    if service in declared_http:
+        return True
     return service in _HTTP_SERVICES or service.startswith(f"{_WORKER_SERVICE_PREFIX}-")
 
 
@@ -281,26 +332,30 @@ def _placement(service: str, host_port: int = 0, base: int | None = None) -> tup
     return (slot.tier, slot.offset)
 
 
-def _binding_address(binding: HostPortBinding) -> str:
+def _binding_address(binding: HostPortBinding, declared_http: frozenset[str] = frozenset()) -> str:
     """The address one published or derived binding answers at.
 
     Args:
         binding: One host port, parsed from a compose file or derived from the
             rendered config.
+        declared_http: Service names the deployment declared as speaking HTTP.
 
     Returns:
         ``host:port``, carrying an ``http://`` scheme when the service speaks
         HTTP on that container port. A wildcard bind is shown on loopback,
         where a service bound to every interface always answers.
     """
-    host = "127.0.0.1" if binding.host_ip in _WILDCARD_HOSTS else binding.host_ip
-    address = f"{host}:{binding.host_port}"
-    if _http_service(binding.service, binding.container_port):
+    address = f"{dial_address(binding.host_ip)}:{binding.host_port}"
+    if _http_service(binding.service, binding.container_port, declared_http):
         return f"http://{address}"
     return address
 
 
-def _service_address(service: str, bindings: list[HostPortBinding]) -> str:
+def _service_address(
+    service: str,
+    bindings: list[HostPortBinding],
+    declared_http: frozenset[str] = frozenset(),
+) -> str:
     """One service's whole address, however many ports it answers at.
 
     A service is one thing, so it gets one row: the graph store's bolt port and
@@ -314,6 +369,7 @@ def _service_address(service: str, bindings: list[HostPortBinding]) -> str:
         service: Compose service name.
         bindings: Every binding that service publishes or derives. A single
             binding renders exactly as it did before roles existed.
+        declared_http: Service names the deployment declared as speaking HTTP.
 
     Returns:
         The addresses joined by :data:`_ADDRESS_SEPARATOR`, with the
@@ -331,7 +387,7 @@ def _service_address(service: str, bindings: list[HostPortBinding]) -> str:
     all_host_network = all(binding.host_network for binding in ordered)
     parts: list[str] = []
     for binding in ordered:
-        address = _binding_address(binding)
+        address = _binding_address(binding, declared_http)
         label = roles.get(binding.container_port or 0, ("", False))[0]
         if label and len(ordered) > 1:
             address = f"{label} {address}"
@@ -356,8 +412,9 @@ _TERMINAL_FAMILY = "web"
 
 #: The service column of the one row that reports the bands nothing serves.
 #: Public because the tests key on it rather than on its spelling, and because
-#: a reader filtering the entries (the summary card keeps only ``http://``
-#: addresses) should be able to name it rather than pattern-match the text.
+#: a reader filtering the entries (the summary card keeps only the rows whose
+#: address is a URL) should be able to name it rather than pattern-match the
+#: text.
 RESERVED_BANDS_LABEL = "(reserved)"
 
 #: Sort position of that row inside the panels tier. Above every real family
@@ -720,6 +777,8 @@ def endpoint_entries(
     except Exception:
         pass
 
+    declared_http = _declared_http_services(config)
+
     by_service: dict[str, list[HostPortBinding]] = {}
     for binding in bindings:
         by_service.setdefault(binding.service, []).append(binding)
@@ -743,7 +802,7 @@ def endpoint_entries(
                 (_TIER_ORDER.index(tier), offset, first_port, service),
                 tier,
                 service,
-                _service_address(service, service_bindings),
+                _service_address(service, service_bindings, declared_http),
             )
         )
 

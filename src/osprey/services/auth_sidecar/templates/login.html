@@ -52,6 +52,11 @@
       below therefore carries a literal fallback, so a page with no token block
       still renders in the framework's default dark palette rather than
       unstyled.
+
+    app_name: str, possibly empty
+      The facility this deployment belongs to, shown above the wordmark. Empty
+      for a deployment that names none, and the page then shows the wordmark
+      alone.
 #}
 <!DOCTYPE html>
 <html lang="en">
@@ -96,6 +101,12 @@
       border-radius: 10px;
       background: var(--bg-panel, #181b1f);
       box-shadow: var(--shadow-dropdown, 0 8px 24px rgba(0, 0, 0, 0.4));
+    }
+    .login-facility {
+      margin: 0 0 0.25rem;
+      font-size: 1rem;
+      font-weight: 600;
+      line-height: 1.3;
     }
     .login-mark {
       margin: 0 0 1.5rem;
@@ -175,6 +186,12 @@
 </head>
 <body>
   <main class="login-card">
+    {#- The facility this deployment belongs to, when it names one. The
+        wordmark stays below it either way, so a page with no configured name
+        looks exactly as it did. #}
+    {%- if app_name %}
+    <p class="login-facility">{{ app_name|e }}</p>
+    {%- endif %}
     <p class="login-mark">OSPREY</p>
     {#- The acceptance gate: the username is stated, never asked for — except on
         a shared card, where the person opening it names themselves below. #}

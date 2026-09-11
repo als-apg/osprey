@@ -39,12 +39,15 @@ from fastapi.testclient import TestClient
 from osprey.deployment.web_terminals.personas import access_wire_value, env_var_suffix
 from osprey.interfaces._serving import run_app_server
 from osprey.services.auth_sidecar import audit
-from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, create_app
+from osprey.services.auth_sidecar.app import (
+    DEFAULT_OIDC_SCOPES,
+    STATE_COOKIE_NAME,
+    create_app,
+)
 from osprey.services.auth_sidecar.identity_headers import ACCOUNT_HEADER, SUBJECT_HEADER
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
     CLIENT_NAME,
-    DEFAULT_SCOPE,
     LOGIN_PATH,
     PENDING_FLOW_SESSION_KEY,
 )
@@ -280,7 +283,7 @@ def test_a_real_handshake_unlocks_the_clicked_user(idp: MockIdP) -> None:
     authorize = idp.authorize_requests[-1]
     assert authorize["client_id"] == idp.client_id
     assert authorize["response_type"] == "code"
-    assert authorize["scope"] == DEFAULT_SCOPE
+    assert authorize["scope"] == " ".join(DEFAULT_OIDC_SCOPES)
     # `openid` in the scope is what makes Authlib generate and later check a nonce.
     assert authorize["nonce"]
 

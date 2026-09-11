@@ -15,8 +15,11 @@ Not every partition-(c) address is necessarily defined in the bind-mounted
 ``machine.json`` (only a scenario-relevant subset is -- see
 ``machine-json-lattice-augment``); addresses the engine doesn't serve fall
 back to the same generic channel-taxonomy synthesis the mock connector itself uses
-for unknown channels (``osprey.connectors.channel_taxonomy.classify_channel``), so mock
-and VA present identical values for anything neither one has real data for.
+for unknown channels (``osprey.connectors.channel_taxonomy.classify_channel``): mock
+and VA run the same synthesis path for anything neither one has real data for.
+What each one puts on top of it -- the noise level in particular -- is
+configured separately, so the two agree on the method and not necessarily on
+the number.
 
 Scenario-switch detection deliberately does its own (mtime, content-hash)
 comparison of ``active_scenarios`` in addition to the engine's own internal
@@ -41,7 +44,14 @@ from osprey.services.virtual_accelerator.manifest import PARTITION_STATIC_NOISY,
 from osprey.simulation.engine import SimulationEngine, engine_serves
 
 ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
+#: Seconds between telemetry ticks when ``VA_POLL_INTERVAL_S`` is unset. The
+#: one place this number is written down: the entrypoint reads the env var and
+#: falls back here rather than keeping a copy of its own.
 DEFAULT_POLL_INTERVAL_S = 1.0
+
+#: Fractional noise applied to synthesised channel values when ``VA_NOISE_LEVEL``
+#: is unset. How lively a stand-in machine's readings should look is a facility's
+#: call, so the entrypoint forwards the env var into :class:`EngineSource`.
 DEFAULT_NOISE_LEVEL = 0.01
 
 _Signature = tuple[int, str]

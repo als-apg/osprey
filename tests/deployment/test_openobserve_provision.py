@@ -787,7 +787,7 @@ def test_the_address_is_the_one_this_deploy_publishes(env_file):
         "deployment": {"bind_address": "0.0.0.0"},
     }
 
-    assert provision.store_base_url(config) == "http://0.0.0.0:15080"
+    assert provision.store_base_url(config) == "http://127.0.0.1:15080"
     assert provision.store_base_url(CONFIG) == "http://127.0.0.1:5080"
     assert provision.store_org(CONFIG) == "default"
 

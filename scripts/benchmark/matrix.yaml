@@ -28,9 +28,11 @@ providers:
     judge: { via: cborg, model: google/claude-haiku-4-5 }
 
   als-apg:
-    # Native als-apg endpoint (AWS Bedrock proxy, NO /v1 — the Anthropic SDK
+    # Native als-apg endpoint (the ALS-APG gateway, NO /v1 — the Anthropic SDK
     # appends /v1/messages). Same base_url backs both SUT routing and the judge.
-    base_url: https://llm.gianlucamartino.com
+    # The gateway is a deployment's own host and has no default: set
+    # ALS_APG_BASE_URL, or write the endpoint here.
+    base_url: ${ALS_APG_BASE_URL}
     key_env: ALS_APG_API_KEY
     key_file: ~/.als_apg_key
     protocol: anthropic

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.errors import BuildProfileError
 from osprey.port_layout import (
     DEFAULT_PORT_BASE,
@@ -965,12 +966,19 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         # Checked on the merged block, like bluesky's: parents, -O layers and
         # --set pairs are all folded in by the time the parser runs.
         _reject_unknown_block_keys(dispatch_raw, _KNOWN_DISPATCH_KEYS, "dispatch")
+        max_turns = dispatch_raw.get("max_turns", DispatchConfig.max_turns)
+        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns < 1:
+            raise BuildProfileError(
+                f"dispatch.max_turns must be an integer >= 1 (got {max_turns!r})"
+            )
         dispatch = DispatchConfig(
             triggers=dispatch_raw.get("triggers", ""),
             worker_count=dispatch_raw.get("worker_count", 1),
             workspace_mode=dispatch_raw.get("workspace_mode", "isolated"),
-            max_concurrent_runs=dispatch_raw.get("max_concurrent_runs", 2),
-            max_queue_depth=dispatch_raw.get("max_queue_depth", 50),
+            max_concurrent_runs=dispatch_raw.get(
+                "max_concurrent_runs", DEFAULT_MAX_CONCURRENT_RUNS
+            ),
+            max_queue_depth=dispatch_raw.get("max_queue_depth", DEFAULT_MAX_QUEUE_DEPTH),
             dispatcher_port=dispatch_raw.get(
                 "dispatcher_port", default_port("dispatcher", base=port_base)
             ),
@@ -982,9 +990,11 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             ),
             timeout_sec=dispatch_raw.get("timeout_sec", 300),
             inactivity_sec=dispatch_raw.get("inactivity_sec", 120),
+            max_turns=max_turns,
             facility_name=dispatch_raw.get("facility_name", ""),
-            pv_strip_prefix=dispatch_raw.get("pv_strip_prefix", ""),
+            channel_strip_prefix=dispatch_raw.get("channel_strip_prefix", ""),
             network=dispatch_raw.get("network", "bridge"),
+            env=dispatch_raw.get("env", []),
         )
 
     bluesky_raw = raw.get("bluesky")
@@ -1017,6 +1027,45 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         ):
             raise BuildProfileError(
                 f"bluesky.device_page_size must be an integer >= 1 (got {device_page_size!r})"
+            )
+        settle_timeout_s = bluesky_raw.get("settle_timeout_s", BlueskyConfig.settle_timeout_s)
+        if (
+            not isinstance(settle_timeout_s, int | float)
+            or isinstance(settle_timeout_s, bool)
+            or settle_timeout_s <= 0
+        ):
+            raise BuildProfileError(
+                f"bluesky.settle_timeout_s must be a number > 0 (got {settle_timeout_s!r})"
+            )
+        live_max_runs = bluesky_raw.get("live_max_runs", BlueskyConfig.live_max_runs)
+        if (
+            not isinstance(live_max_runs, int)
+            or isinstance(live_max_runs, bool)
+            or live_max_runs < 1
+        ):
+            raise BuildProfileError(
+                f"bluesky.live_max_runs must be an integer >= 1 (got {live_max_runs!r})"
+            )
+        live_max_rows_per_run = bluesky_raw.get(
+            "live_max_rows_per_run", BlueskyConfig.live_max_rows_per_run
+        )
+        if (
+            not isinstance(live_max_rows_per_run, int)
+            or isinstance(live_max_rows_per_run, bool)
+            or live_max_rows_per_run < 1
+        ):
+            raise BuildProfileError(
+                "bluesky.live_max_rows_per_run must be an integer >= 1 "
+                f"(got {live_max_rows_per_run!r})"
+            )
+        settle_tolerance = bluesky_raw.get("settle_tolerance", BlueskyConfig.settle_tolerance)
+        if (
+            not isinstance(settle_tolerance, int | float)
+            or isinstance(settle_tolerance, bool)
+            or settle_tolerance < 0
+        ):
+            raise BuildProfileError(
+                f"bluesky.settle_tolerance must be a number >= 0 (got {settle_tolerance!r})"
             )
         external_raw = bluesky_raw.get("external")
         external = None
@@ -1052,6 +1101,10 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             excluded_plans=excluded_plans,
             devices_file=devices_file,
             device_page_size=device_page_size,
+            settle_timeout_s=float(settle_timeout_s),
+            settle_tolerance=float(settle_tolerance),
+            live_max_runs=live_max_runs,
+            live_max_rows_per_run=live_max_rows_per_run,
             external=external,
         )
 

@@ -42,6 +42,7 @@ import pytest
 import osprey
 from tests.deployment._proxy_idiom import (
     assert_apt_runs_carry_proxy_idiom,
+    assert_site_ca_idiom,
     carries_proxy_idiom,
     run_instructions,
 )
@@ -465,6 +466,50 @@ def test_manifest_installing_recipes_constrain_setuptools(dockerfile):
         f"PIP_CONSTRAINT — a plain requirement pin does not reach pip's "
         f"isolated build environments:\n{deps_run}"
     )
+
+
+def test_auth_sidecar_carries_the_site_ca_layer():
+    """The login service is the one container that has to reach OFF the
+    deployment — to the identity provider — so a site CA it does not carry is
+    a stack that starts green and fails every login at the discovery fetch.
+
+    Scoped to the sidecar deliberately: the seven service recipes reach the
+    network at build time too and have the same gap, but nothing builds them
+    with a CA yet, so asserting it there would be a red test rather than a
+    guard.
+    """
+    text = (TEMPLATES_DIR / "modules/web_terminals/auth_sidecar" / "Dockerfile").read_text()
+    # No NODE_EXTRA_CA_CERTS: this image has no Node.
+    assert_site_ca_idiom(text, "auth_sidecar", ("PIP_CERT", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"))
+
+
+def test_auth_sidecar_declares_the_site_pip_args():
+    """The sidecar build is handed the whole site set, not only the CA.
+
+    Docker drops a ``--build-arg`` no recipe declares — with a warning nobody
+    reads — so a missing ARG here is an internal mirror that reaches the
+    project image and quietly leaves the login image resolving from PyPI.
+    PIP_INDEX_URL and PIP_EXTRA_INDEX_URL are pip's own environment names, so
+    declaring them is all it takes; PIP_NO_PROXY is not one, and has to be
+    mapped onto the proxy-bypass names the deps layer's fetches read.
+    """
+    text = (TEMPLATES_DIR / "modules/web_terminals/auth_sidecar" / "Dockerfile").read_text()
+    for arg in ("PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+        assert re.search(rf'^ARG {arg}=""$', text, flags=re.M), (
+            f"auth_sidecar declares no `ARG {arg}` — the builder passes it and Docker drops it"
+        )
+    deps_run = next(instr for instr in run_instructions(text) if "pip install" in instr)
+    assert 'export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"' in deps_run, (
+        f"the deps layer does not map PIP_NO_PROXY onto the names its fetches "
+        f"read, so the site's bypass list is inert here:\n{deps_run}"
+    )
+
+
+def test_site_ca_guard_catches_a_recipe_without_the_layer():
+    """Meta-test: a recipe that fetches with no CA layer must fail the guard."""
+    bare = "FROM python:3.11-slim\nRUN apt-get update\n"
+    with pytest.raises(AssertionError, match="OSPREY_SITE_CA"):
+        assert_site_ca_idiom(bare, "synthetic", ("SSL_CERT_FILE",))
 
 
 def test_shipped_dockerfiles_are_all_discovered():

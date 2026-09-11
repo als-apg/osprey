@@ -37,7 +37,7 @@ from click.testing import CliRunner
 
 import osprey.cli.deploy_cmd as deploy_cmd
 from osprey.cli.deploy_cmd import up_verb
-from osprey.deployment import container_lifecycle
+from osprey.deployment import container_lifecycle, docker_desktop
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
 from osprey.deployment.web_terminals import provision
 from osprey.utils.workspace import container_image_context
@@ -155,6 +155,10 @@ def started(monkeypatch):
     # must not depend on which ports happen to be free here. Exposure is read
     # from the rendered bindings by a different function, which stays live.
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    # The Docker Desktop preflight asks the runtime on this machine which engine
+    # it is pointed at; a unit test must not depend on what is installed here.
+    # Its own tests live in test_docker_desktop.py.
+    monkeypatch.setattr(docker_desktop, "on_docker_desktop", lambda config: False)
     # The off-roster terminal sweep lists this project's containers on the real
     # runtime; nothing here has one. Its own tests live under web_terminals/.
     monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
@@ -163,8 +167,10 @@ def started(monkeypatch):
         record.setdefault("cmds", []).append(list(cmd))
         record["env"] = dict(env or {})
         # run_captured hangs its spool path off the result, so a stand-in has to
-        # be an object with a __dict__, not None.
-        return subprocess.CompletedProcess(list(cmd), 0)
+        # be an object with a __dict__, not None. Its streams are strings, as a
+        # real ``text=True`` run's are: this replaces ``subprocess.run`` for the
+        # whole process, and any reader that strips its stdout must not meet None.
+        return subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr="")
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
@@ -1198,7 +1204,7 @@ def test_the_legacy_deploy_up_still_renders(tmp_path, monkeypatch):
     monkeypatch.setattr(
         container_lifecycle.subprocess,
         "run",
-        lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0),
+        lambda cmd, **k: subprocess.CompletedProcess(list(cmd), 0, stdout="", stderr=""),
     )
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)

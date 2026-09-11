@@ -211,3 +211,44 @@ The render lands in the repository's ``build/`` directory, which is kept out of
 git. The profile is your facility's source of truth — commit it. ``build/`` is a
 regenerable artifact. See :doc:`../build-profiles` for the full schema and the
 preset → profile → build model.
+
+Read-only role for the SQL tool
+===============================
+
+The agent can run raw SQL against the logbook database. That query path
+connects as its own Postgres role — ``<username>_ro``, derived from
+``services.postgresql.username`` — which can log in, read the tables in the
+``public`` schema, and do nothing else. It is not the role ingestion writes
+with, and it is not a superuser, so a query naming a server-side function such
+as ``pg_read_file()`` is refused by Postgres rather than by a pattern match over
+the query text.
+
+The role is created by an init script the Postgres entrypoint runs **once,
+while it initializes a fresh data volume**, the same window
+``POSTGRES_PASSWORD`` is read in. Its password is ``ARIEL_DB_READONLY_PASSWORD``
+in the deployment's ``.env``, minted by ``osprey up`` beside
+``ARIEL_DB_PASSWORD``. A new deployment gets all of this with no action from
+you.
+
+Tables created later are covered: the script grants ``SELECT`` on the schema's
+tables and sets default privileges for the owner, so the ``enhanced_entries``
+table the migrations create and the per-model ``text_embeddings_*`` tables an
+enhancement module adds are readable without a second grant.
+
+Adopting the role on an existing database
+-----------------------------------------
+
+A data volume created before the role existed never runs the init script, so it
+has no ``<username>_ro``. Nothing breaks: the agent notices at start-up, logs
+one warning, and runs the SQL tool on the ingestion connection as it did
+before. To adopt the role without recreating the volume, run the same script by
+hand once:
+
+.. code-block:: bash
+
+   docker exec -e ARIEL_DB_READONLY_PASSWORD="$(grep '^ARIEL_DB_READONLY_PASSWORD=' .env | cut -d= -f2-)" \
+       <project>-ariel-postgres bash /docker-entrypoint-initdb.d/10-readonly-role.sh
+
+Restart the agent afterwards so it picks up the role, and the warning stops.
+The script is idempotent — running it again is how you roll the role's password
+after changing it in ``.env``.

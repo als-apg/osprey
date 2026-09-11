@@ -4,9 +4,10 @@
  *
  * No imports: every function here is self-contained and side-effect-free apart
  * from DOM node construction. Keep it that way so the module stays trivially
- * testable in isolation. Ported from the ALS integration-status dashboard, with
- * the DOM builder aligned to the okf panel's el(tag, attrs, children) signature
- * and every status mapped to a CSS class name — never an inline color literal.
+ * testable in isolation. Ported from an earlier integration-status dashboard,
+ * with the DOM builder aligned to the okf panel's el(tag, attrs, children)
+ * signature and every status mapped to a CSS class name — never an inline
+ * color literal.
  */
 
 /**
@@ -78,16 +79,22 @@ export function worst(results) {
 }
 
 /**
- * Humanize a check name for display: drop a leading `"<category>."` prefix (up
- * to the first dot) and title-case the remaining underscore/space separated
- * words. `"epics.beam_current"` → `"Beam Current"`.
+ * Humanize a check name for display: drop the row's OWN `"<category>."` prefix
+ * and title-case the remaining underscore/space separated words.
+ * `fmtName("control_system.beam_current", "control_system")` → `"Beam Current"`.
+ *
+ * A check name is free-form, so a dot in it is not a category marker by
+ * itself — only the category the row actually carries is stripped, or a name
+ * that merely spells a dot loses its leading word. Existing capitalisation
+ * survives: the regex only ever raises a lowercase letter.
  *
  * @param {string} name
+ * @param {string} [category]
  * @returns {string}
  */
-export function fmtName(name) {
-  const dot = name.indexOf(".");
-  const s = dot > -1 ? name.slice(dot + 1) : name;
+export function fmtName(name, category) {
+  const prefix = category ? `${category}.` : "";
+  const s = prefix && name.startsWith(prefix) ? name.slice(prefix.length) : name;
   return s.replace(/_/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }
 

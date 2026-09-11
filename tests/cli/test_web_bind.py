@@ -600,3 +600,62 @@ class TestCompanionProbeAttribution:
 
         self._render(lifecycle_repo, monkeypatch, roster=True)
         assert _probe_companion_ports() == []
+
+
+class TestExposureWarning:
+    """The "this is on the network" warning keys on "not loopback"."""
+
+    def _stub(self, monkeypatch):
+        monkeypatch.delenv(DECLARED_BIND_ENV, raising=False)
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+
+    @pytest.mark.parametrize("host", ["0.0.0.0", "::", "10.0.0.7"])
+    def test_detached_start_warns_before_it_returns(self, runner, monkeypatch, host):
+        """`osprey web -d` printed nothing: the warning sat below the return.
+
+        Also the only path that reaches the check with a non-IPv4 host: the
+        foreground branch's own bind probe is AF_INET and refuses ``::`` first.
+        """
+        self._stub(monkeypatch)
+        monkeypatch.setattr("osprey.cli.web_cmd._start_detached", lambda *_a, **_kw: None)
+
+        result = runner.invoke(
+            web,
+            [
+                "--host",
+                host,
+                "--detach",
+                "--port",
+                str(_free_port()),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+            catch_exceptions=False,
+        )
+        assert "exposes the terminal to the network" in result.stderr
+
+    @pytest.mark.parametrize("host", ["127.0.0.1", "localhost"])
+    def test_loopback_bind_stays_quiet(self, runner, monkeypatch, host):
+        """Both spellings of "this machine only": the literal and the name.
+
+        ``localhost`` is the one hostname the check accepts as loopback, so it
+        is the case that would regress first if the rule went back to comparing
+        against ``0.0.0.0``.
+        """
+        self._stub(monkeypatch)
+        result = runner.invoke(
+            web,
+            [
+                "--host",
+                host,
+                "--port",
+                str(_free_port()),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+            catch_exceptions=False,
+        )
+        assert "exposes the terminal to the network" not in result.stderr

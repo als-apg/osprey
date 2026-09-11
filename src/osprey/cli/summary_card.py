@@ -35,9 +35,12 @@ logger = get_logger("cli.summary_card")
 
 #: What to do next, per state. Only ``running`` is reachable-anywhere, so it is
 #: the only state whose card carries endpoints.
+#: ``osprey web`` is named alongside ``osprey up -d`` because a deployment that
+#: declares no containerized services has no other way in, and nothing else on
+#: this card says so.
 _NEXT_STEPS = {
-    "created": "osprey build · osprey up -d",
-    "built": "osprey up -d · osprey status",
+    "created": "osprey build · osprey up -d  (no containers: osprey web)",
+    "built": "osprey up -d · osprey status  (no containers: osprey web)",
     "running": "osprey status · osprey logs · osprey down",
     "stopped": "osprey up -d · osprey status",
 }
@@ -117,7 +120,7 @@ def _card_parts(repo_root: Path | str, state: str) -> tuple[str, list[tuple[str,
         rows += [
             (service, address)
             for _tier, service, address in as_built_endpoint_entries(root)
-            if address.startswith("http://")
+            if address.startswith(("http://", "https://"))
         ]
     if as_built_dangerously_allows_bash(root):
         # Above the housekeeping rows, on every state: a waiver of a safety

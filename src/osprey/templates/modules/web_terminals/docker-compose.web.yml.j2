@@ -11,7 +11,7 @@
   ----------------------------------------------------------------------------
 
     facility_prefix: str
-      `facility.prefix` from the deployed project's config (e.g. "als"). Used for
+      `facility.prefix` from the deployed project's config (e.g. "ex"). Used for
       container_name (`<prefix>-web-<user>`, `<prefix>-nginx`) only — the
       per-user agent-data mount path comes from each service's own
       `container_agent_data_dir` (below), not this field, so a persona-resolved
@@ -34,7 +34,7 @@
       "display_name": str | None, "panel_env": list,
       **allocate_ports(base_ports, index)}`:
         {
-          "user": str,                  # bare username, e.g. "thellert"
+          "user": str,                  # bare username, e.g. "alice"
           "image": str,                 # resolved by resolve_personas() -> per-svc `image:`
           "project": str,               # resolved by resolve_personas() (not read by this template)
           "container_project_dir": str, # resolved by resolve_personas(); the in-container
@@ -181,7 +181,7 @@
 
     landing_url: str, required when `services` is non-empty
       The fully-qualified origin browsers use to reach nginx, e.g.
-      "http://als-deploy.lbl.gov:10000" (scheme + deploy host + nginx_port, no
+      "https://osprey.example.org:10000" (scheme + deploy host + nginx_port, no
       trailing slash). Passed to every per-user service as
       OSPREY_TERMINAL_LANDING_URL so the in-app logout control has a target.
       This can't be computed the way nginx.conf.j2 computes its targets (from
@@ -302,7 +302,7 @@
       set, spelled by personas.access_wire_value() for the sidecar to parse
       back: "" for an owner-only entry, the literal `any` for the whole
       roster, else a compact sorted JSON array of the members
-      (`["domain:lbl.gov"]`, `["self","user:carol@lbl.gov"]`). One
+      (`["domain:example.org"]`, `["self","user:carol@example.org"]`). One
       OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>=<value> line is emitted per entry
       whose value is non-empty; an owner-only entry emits no line at all, and
       the sidecar resolves an absent variable as owner-only. Emitted under
@@ -658,6 +658,21 @@ services:
 {%- endif %}
     environment:
       - TZ={{ facility_timezone | default("UTC") }}
+      {#- What the login page wears: the deployment's theme id (never rendered
+         CSS — the sidecar resolves the id through the design system, the one
+         producer of palettes) and the facility name shown above the wordmark.
+         Both are guarded: an unset value emits no line and the page keeps its
+         built-in palette and bare wordmark. tojson quotes the WHOLE `KEY=value`
+         as one double-quoted YAML scalar, the same way the per-user containers
+         below carry these two variables: the compose `- KEY=value` list form
+         has no per-value quoting, so a facility name containing a `": "` or a
+         `" #"` would otherwise parse as a mapping or lose its tail. #}
+      {%- if web_theme %}
+      - {{ ("OSPREY_WEB_THEME=" ~ web_theme) | tojson }}
+      {%- endif %}
+      {%- if web_app_name %}
+      - {{ ("OSPREY_WEB_APP_NAME=" ~ web_app_name) | tojson }}
+      {%- endif %}
       {#- The sidecar's audit identity and the directory it writes to. It is one
          service rather than one per user, so the identity is the FIXED name
          `sidecar` (render.AUTH_SIDECAR_AUDIT_IDENTITY) — the users its login and
@@ -703,10 +718,11 @@ services:
          the lowercase pair here would therefore hand every stdlib caller a
          cancelled proxy on any host that sets none — which is exactly what
          `${VAR:-}` renders when the host has no proxy. No CA-bundle variable
-         joins them: nothing mounts a CA into this image, `SSL_CERT_FILE`
-         naming a path that does not exist crashes httpx at client
-         construction, and nothing in the sidecar reads `REQUESTS_CA_BUNDLE`.
-         Custom-CA support is a mount plus a variable, and its own change. #}
+         joins them, and none is needed: a site CA is BAKED INTO the sidecar
+         image from `images.site_ca`, and the image sets `SSL_CERT_FILE` and
+         `REQUESTS_CA_BUNDLE` itself to the merged bundle it installs into. A
+         path named here instead could name a file the container does not
+         have, which crashes httpx at client construction. #}
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
@@ -728,6 +744,12 @@ services:
          applies its own documented default (`sub`), so the default lives in
          one place instead of being restated by the renderer. #}
       - OSPREY_AUTH_OIDC_CLAIM={{ auth_oidc_claim }}
+{%- endif %}
+{%- if auth_oidc_scopes %}
+      {#- Only when the facility names them: with no line here the sidecar
+         applies its own documented default (`openid profile email`). A list
+         that drops `openid` is refused by the sidecar, not repaired. #}
+      - OSPREY_AUTH_OIDC_SCOPES={{ auth_oidc_scopes }}
 {%- endif %}
 {%- set role_claim = authorization_claim | default("") %}
 {%- set role_map = authorization_claim_map | default({}) %}
@@ -827,8 +849,8 @@ services:
    (personas.access_wire_value(), off the set personas.resolve_access_principals()
    read from the roster): the literal `any` for the whole roster, byte-identical
    to what this line has always emitted for `access: any`, and otherwise a
-   compact sorted JSON array of the principals — `["domain:lbl.gov"]`,
-   `["self","user:carol@lbl.gov"]`. Spelled render-side rather than here
+   compact sorted JSON array of the principals — `["domain:example.org"]`,
+   `["self","user:carol@example.org"]`. Spelled render-side rather than here
    because the sidecar parses it back, and one speller and one parser is what
    keeps the set this deployment ADMITS ON identical to the set its roster
    AUTHORED. A fixed token here would hand a `domain:` card to every login.
@@ -887,6 +909,23 @@ services:
       - HOME=/data/claude-config
       - TZ={{ facility_timezone | default("UTC") }}
       - OSPREY_TERMINAL_USER={{ svc.user }}
+      {#- The agent in this terminal reaches the network: the model provider,
+         and whatever a tool call fetches. On a proxied site those calls fail
+         unless the host's proxy settings are in this container's environment,
+         and `.env.users` cannot carry them — it is a closed allowlist whose
+         membership is a security statement, and a hand-added variable there
+         marks the file authored and trips the drift refusal.
+
+         So they arrive the same way the login service's do: `${VAR:-}`
+         passthrough interpolated from the deploy env chain, uppercase only.
+         The uppercase-only rule is the login service's, for the same reason —
+         `urllib.request.getproxies_environment` reads lowercase last and lets
+         a present-but-EMPTY lowercase name POP the scheme the uppercase pass
+         set, which is exactly what `${VAR:-}` renders on a host with no proxy.
+         An empty UPPERCASE variable is skipped instead. #}
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
       {#- WHO this container's audit records are written as, and WHERE. Both
          rendered from the same roster name that names the mount below
          (render._audit_mount_source / _container_audit_dir), so the identity
@@ -1124,6 +1163,16 @@ services:
          the host — an empty value would NOT, since `resolve_ariel_dsn` falls
          back only on an unset variable, never on an empty one. #}
       - ARIEL_DB_PASSWORD=${ARIEL_DB_PASSWORD:-ariel}
+      {#- The same password one rung along: the login secret of the SELECT-only
+         role the agent's raw-SQL tool connects as, which `resolve_ariel_dsn`
+         substitutes into the readonly DSN exactly as the line above is
+         substituted into the ingestion one. Without it the tool opens no
+         read-only pool and queries through the ingestion connection instead,
+         which is a superuser on a deployment that minted nothing.
+
+         Same gate, same per-user placement and the same `:-` mirror of the
+         postgresql service template's own default, for the reasons above. #}
+      - ARIEL_DB_READONLY_PASSWORD=${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}
 {%- endif %}
 {%- if svc.wants_launch_token %}
       {#- The Bluesky queue's launch token, for a persona entitled to arm a queue

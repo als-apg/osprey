@@ -36,6 +36,43 @@ class TestTypeDefs:
         assert HEX_RE.match(td.color), f"tool type {key!r} has invalid colour {td.color!r}"
 
 
+class TestSerializerCoverage:
+    """Every type ``serialize_object`` can stamp is a registered one.
+
+    The gallery reads its badge label and colour from this registry, so an
+    artifact stamped with a type the registry does not carry renders with the
+    raw key as its label and no colour at all — silently, in the UI only.
+    """
+
+    def test_every_emitted_artifact_type_is_registered(self):
+        import ast
+        from pathlib import Path
+
+        source = (
+            Path(__file__).resolve().parents[2] / "src" / "osprey" / "stores" / "artifact_store.py"
+        ).read_text()
+        tree = ast.parse(source)
+        function = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.FunctionDef) and node.name == "serialize_object"
+        )
+
+        # (content, artifact_type, filename, mime) — the second element of every
+        # tuple this function returns.
+        emitted = {
+            node.value.elts[1].value
+            for node in ast.walk(function)
+            if isinstance(node, ast.Return)
+            and isinstance(node.value, ast.Tuple)
+            and len(node.value.elts) == 4
+            and isinstance(node.value.elts[1], ast.Constant)
+        }
+
+        assert emitted, "the AST scan found no artifact types — the scan is broken"
+        assert emitted <= set(ARTIFACT_TYPES)
+
+
 class TestPublicAPI:
     def test_get_artifact_types_returns_copy(self):
         a = get_artifact_types()

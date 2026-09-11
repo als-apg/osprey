@@ -204,7 +204,7 @@ def render_net_guard(
                     f"({{_OSPREY_NET_PORTS_TEXT}}) are authenticated at the "
                     f"edge on the caller's behalf, so a connection from "
                     f"executed code would arrive already credentialed. "
-                    f"Connections to every other port (EPICS gateways, the "
+                    f"Connections to every other port (the control system, the "
                     f"archiver, external services) are unaffected."
                 )
 

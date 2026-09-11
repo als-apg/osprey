@@ -38,12 +38,29 @@ class TestHalfMovedDestination:
         assert "web.feedback.github_repo" in advisories[0]
         assert "web.feedback.owner" in advisories[0]
 
-    def test_a_moved_repo_with_an_upstream_email_is_named(self):
-        advisories = feedback_owner_advisories(
-            _config(email=DEFAULT_FEEDBACK_EMAIL, github_repo=FACILITY_REPO)
-        )
+    def test_a_moved_email_with_an_unspelled_repo_is_named(self):
+        """Absent is not silence: the tracker default still aims upstream."""
+        advisories = feedback_owner_advisories(_config(email=FACILITY_EMAIL))
         assert len(advisories) == 1
-        assert DEFAULT_FEEDBACK_EMAIL in advisories[0]
+        assert DEFAULT_FEEDBACK_GITHUB_REPO in advisories[0]
+
+    def test_a_moved_repo_beside_the_shipped_email_is_silent(self):
+        """The shipped mail default is blank, so it is a retired channel.
+
+        There is no "upstream email" half to leak: a deployment that names its
+        own tracker and says nothing about mail offers no mail channel, which
+        is a coherent posture rather than a half-finished edit.
+        """
+        assert (
+            feedback_owner_advisories(
+                _config(email=DEFAULT_FEEDBACK_EMAIL, github_repo=FACILITY_REPO)
+            )
+            == []
+        )
+
+    def test_a_moved_repo_beside_an_unspelled_email_is_silent(self):
+        """Absent reads as the shipped default, and the shipped default is blank."""
+        assert feedback_owner_advisories(_config(github_repo=FACILITY_REPO)) == []
 
     def test_moving_both_is_silent(self):
         assert (
@@ -81,8 +98,8 @@ class TestRetiredChannelsAreNotHalfMoves:
         """A retired channel delivers nothing, so it cannot be the leaking half."""
         assert feedback_owner_advisories(_config(email=FACILITY_EMAIL, github_repo="")) == []
 
-    def test_a_retired_repo_beside_an_upstream_email_is_silent(self):
-        """Neither channel reaches a facility; that is the shipped posture."""
+    def test_a_retired_repo_beside_the_shipped_email_is_silent(self):
+        """Neither channel reaches anyone; that is the air-gapped posture."""
         assert (
             feedback_owner_advisories(_config(email=DEFAULT_FEEDBACK_EMAIL, github_repo="")) == []
         )

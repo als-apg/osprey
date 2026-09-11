@@ -269,3 +269,49 @@ def test_load_ariel_config_with_path_returns_the_resolved_file(tmp_path: Path):
     assert config_dict["database"]["uri"] == DSN
     # The old entry point stays a pure delegation.
     assert load_ariel_config(config_file) == config_dict
+
+
+class TestConfigSearchPrecedence:
+    """``CONFIG_FILE`` outranks the container guess, in both readers.
+
+    Two orders lived in one package: the loader searched ``/app/config.yml``
+    before ``CONFIG_FILE``, the settings routes searched ``CONFIG_FILE`` before
+    ``/app``. Nothing puts a config at ``/app/config.yml`` in the shipped layout
+    (the image lands the project at ``/app/<project>/``), so the loader's order
+    was both wrong and a way for a stale mount to win over the variable an
+    operator explicitly set.
+    """
+
+    def test_config_file_outranks_the_container_mount(self, tmp_path, monkeypatch):
+        from osprey.interfaces.ariel.app import load_ariel_config_with_path
+
+        (tmp_path / "declared").mkdir()
+        declared = _write_config(tmp_path / "declared", {"database": {"uri": DSN}})
+        mounted = tmp_path / "mounted" / "config.yml"
+        mounted.parent.mkdir(parents=True, exist_ok=True)
+        mounted.write_text("ariel: {database: {uri: 'postgresql://stale/stale'}}\n")
+
+        monkeypatch.setenv("CONFIG_FILE", str(declared))
+        monkeypatch.setattr("osprey.interfaces.ariel.app._CONTAINER_CONFIG_PATH", mounted)
+
+        _, path = load_ariel_config_with_path()
+
+        assert path == declared
+
+    def test_an_explicit_argument_still_wins(self, tmp_path, monkeypatch):
+        from osprey.interfaces.ariel.app import load_ariel_config_with_path
+
+        (tmp_path / "argument").mkdir()
+        (tmp_path / "other").mkdir()
+        argument = _write_config(tmp_path / "argument", {"database": {"uri": DSN}})
+        other = _write_config(tmp_path / "other", {"database": {"uri": DSN}})
+        monkeypatch.setenv("CONFIG_FILE", str(other))
+
+        _, path = load_ariel_config_with_path(argument)
+
+        assert path == argument
+
+    def test_the_remedy_leads_with_the_variable(self):
+        from osprey.interfaces.ariel.app import REMEDY_NO_CONFIG_FILE
+
+        assert REMEDY_NO_CONFIG_FILE.startswith("set CONFIG_FILE")

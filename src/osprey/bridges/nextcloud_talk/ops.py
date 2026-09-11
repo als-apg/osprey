@@ -126,11 +126,16 @@ EMPTY_ANSWER_TEXT = "The run finished without producing any text."
 successful-but-silent run is indistinguishable from a broken bridge."""
 
 ERROR_TEXT = (
-    "I couldn't complete that request. Nothing was changed. Please try again, or ask an "
-    "operator to check the bridge log."
+    "I couldn't complete that request. Please try again, or ask an operator to check the "
+    "bridge log."
 )
 """Posted for any terminal status that is not ``completed``. The machine-readable failure
-never appears in the room."""
+never appears in the room.
+
+It says nothing about what the run did before it stopped. ``error``, ``timeout`` and
+``cancelled`` all land here, and a run can be approved a write and then fail on its way
+to reporting it — so "nothing was changed" would be a safety assurance the bridge cannot
+check, read by a whole room. The Google adapter's notice makes no such claim either."""
 
 QUEUED_TEXT = (
     "Queued — the service I need is unavailable right now. I'll answer here once it "

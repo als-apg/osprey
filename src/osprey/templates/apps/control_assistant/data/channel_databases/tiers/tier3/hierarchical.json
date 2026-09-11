@@ -288,7 +288,7 @@
           }
         },
         "QFA": {
-          "_description": "Achromat-Arc Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat-arc focusing quadrupole magnets.",
+          "_description": "Achromat-Arc Focusing Quadrupoles (QFA): storage ring achromat-arc focusing quadrupole magnets.",
           "DEVICE": {
             "_expansion": {
               "_type": "range",
@@ -325,7 +325,7 @@
           }
         },
         "SHF": {
-          "_description": "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets.",
+          "_description": "Harmonic Focusing Sextupoles (SHF): storage ring harmonic focusing sextupole magnets.",
           "DEVICE": {
             "_expansion": {
               "_type": "range",
@@ -362,7 +362,7 @@
           }
         },
         "SHD": {
-          "_description": "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets.",
+          "_description": "Harmonic Defocusing Sextupoles (SHD): storage ring harmonic defocusing sextupole magnets.",
           "DEVICE": {
             "_expansion": {
               "_type": "range",

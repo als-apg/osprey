@@ -248,6 +248,18 @@ class TestResultMapping:
 # ---------------------------------------------------------------------------
 
 
+def _bundle_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """The records the bundle logged, and no one else's.
+
+    ``caplog`` captures everything that reaches the root logger in this
+    process, so a server thread or config loader belonging to another test can
+    land records inside this window. What is under test is what the bundle
+    says, so the other producers are filtered out by logger name rather than
+    counted.
+    """
+    return [r for r in caplog.records if r.name == OKFBundle.__module__]
+
+
 class TestFallback:
     """When the ranked backend cannot answer."""
 
@@ -262,7 +274,7 @@ class TestFallback:
 
         assert [r.concept_id for r in results] == ["magnets/corrector_magnets"]
         assert results[0].score is None
-        assert caplog.records == []
+        assert _bundle_records(caplog) == []
 
     def test_configured_but_down_warns_and_falls_back(
         self, bundle_root: Path, caplog: pytest.LogCaptureFixture
@@ -274,7 +286,7 @@ class TestFallback:
 
         assert [r.concept_id for r in results] == ["magnets/corrector_magnets"]
         assert results[0].score is None
-        assert [r.levelname for r in caplog.records] == ["WARNING"]
+        assert [r.levelname for r in _bundle_records(caplog)] == ["WARNING"]
         assert "falling back to substring search" in caplog.text
 
     def test_outage_warns_once_not_once_per_query(
@@ -287,7 +299,7 @@ class TestFallback:
             for _ in range(5):
                 bundle.search("steer")
 
-        assert len(caplog.records) == 1
+        assert len(_bundle_records(caplog)) == 1
 
     def test_recovery_re_arms_the_warning(
         self, bundle_root: Path, caplog: pytest.LogCaptureFixture
@@ -303,7 +315,7 @@ class TestFallback:
             client.available = False
             bundle.search("steer")
 
-        assert len(caplog.records) == 2
+        assert len(_bundle_records(caplog)) == 2
 
     @pytest.mark.parametrize(
         "error",
@@ -321,7 +333,7 @@ class TestFallback:
 
         assert [r.concept_id for r in results] == ["magnets/corrector_magnets"]
         assert results[0].score is None
-        assert len(caplog.records) == 1
+        assert len(_bundle_records(caplog)) == 1
 
     def test_an_empty_ranked_result_is_not_a_fallback(self, bundle_root: Path) -> None:
         """A qmd result set of zero is an answer, and substring must not override it."""

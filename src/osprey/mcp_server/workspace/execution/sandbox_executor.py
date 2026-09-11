@@ -333,7 +333,7 @@ _execution_dir.mkdir(parents=True, exist_ok=True)
 # Execution metadata
 # ---------------------------------------------------------------------------
 execution_metadata = {{
-    "start_time": datetime.now().isoformat(),
+    "start_time": datetime.now().astimezone().isoformat(),
     "success": True,
     "error": None,
     "stdout": "",
@@ -372,7 +372,7 @@ finally:
 
     execution_metadata["stdout"] = stdout_capture.getvalue()
     execution_metadata["stderr"] = stderr_capture.getvalue()
-    execution_metadata["end_time"] = datetime.now().isoformat()
+    execution_metadata["end_time"] = datetime.now().astimezone().isoformat()
 
     # Write execution metadata
     try:

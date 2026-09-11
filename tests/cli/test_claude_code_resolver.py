@@ -12,6 +12,23 @@ from osprey.build.claude_code_resolver import (
     ClaudeCodeModelSpec,
     inject_provider_env,
 )
+from tests.conftest import GATEWAY_BASE_URL, GATEWAY_ORIGIN
+
+
+def _resolve_builtin(provider_name: str):
+    """Resolve a built-in provider, naming a gateway for the ones that need one.
+
+    A provider with no built-in endpoint (``requires_base_url``) is refused
+    unless config or the environment names one, so a sweep over the whole table
+    has to supply it — otherwise the sweep would only ever pass for the
+    providers that ship a URL.
+    """
+    api_providers = (
+        {provider_name: {"base_url": GATEWAY_BASE_URL}}
+        if CLAUDE_CODE_PROVIDERS[provider_name].get("requires_base_url")
+        else {}
+    )
+    return ClaudeCodeModelResolver.resolve({"provider": provider_name}, api_providers)
 
 
 class TestResolveReturnsNone:
@@ -99,32 +116,51 @@ class TestCBORGProvider:
 
 
 class TestAlsApgProvider:
-    """ALS-APG (LBL AWS proxy) provider configuration."""
+    """ALS-APG (gateway) provider configuration.
+
+    The gateway is a site's own host, so every case here has to name the
+    endpoint the way a deployment does — there is nothing built in to fall
+    back on, and :meth:`test_a_missing_base_url_is_refused` pins that.
+    """
+
+    ENVIRON = {"ALS_APG_BASE_URL": GATEWAY_BASE_URL}
+
+    def _spec(self):
+        return ClaudeCodeModelResolver.resolve({"provider": "als-apg"}, environ=self.ENVIRON)
 
     def test_env_block_has_base_url_but_no_auth(self):
         """Auth is handled via shell exports, not env block."""
-        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        spec = self._spec()
         assert "ANTHROPIC_AUTH_TOKEN" not in spec.env_block
         assert "ANTHROPIC_API_KEY" not in spec.env_block
         assert "ANTHROPIC_BASE_URL" in spec.env_block
 
-    def test_base_url_is_correct(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
-        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.gianlucamartino.com"
+    def test_base_url_is_the_configured_gateway(self):
+        spec = self._spec()
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == GATEWAY_ORIGIN
+
+    def test_a_missing_base_url_is_refused(self):
+        """No endpoint anywhere must not silently mean "Anthropic direct".
+
+        Without a base_url the env block simply omits ANTHROPIC_BASE_URL, and
+        the gateway's bearer token would be presented to api.anthropic.com.
+        """
+        with pytest.raises(ValueError, match="ALS_APG_BASE_URL"):
+            ClaudeCodeModelResolver.resolve({"provider": "als-apg"}, environ={})
 
     def test_shell_exports_use_als_apg_api_key(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        spec = self._spec()
         assert len(spec.shell_exports) == 1
         assert 'ANTHROPIC_AUTH_TOKEN="$ALS_APG_API_KEY"' in spec.shell_exports[0]
 
     def test_model_tiers(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        spec = self._spec()
         assert spec.tier_to_model["haiku"] == "claude-haiku-4-5-20251001"
         assert spec.tier_to_model["sonnet"] == "claude-sonnet-4-6"
         assert spec.tier_to_model["opus"] == "claude-opus-4-6"
 
     def test_default_model_tier_is_haiku(self):
-        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        spec = self._spec()
         assert spec.default_model_tier == "haiku"
 
 
@@ -405,7 +441,7 @@ class TestApiProvidersModelAuthority:
             {"provider": "als-apg"},
             api_providers={
                 "als-apg": {
-                    "base_url": "https://llm.gianlucamartino.com/v1",
+                    "base_url": GATEWAY_BASE_URL,
                     "models": {
                         "haiku": "claude-haiku-4-5-20251001",
                         "sonnet": "claude-sonnet-4-6",
@@ -500,6 +536,46 @@ class TestAgentDefaultTiersConsistency:
                 )
 
 
+class TestAgentDefaultTiersCoverFrameworkAgents:
+    """The tier map and the agent catalog are one list, not two.
+
+    ``AGENT_DEFAULT_TIERS`` lives in ``osprey.build`` and ``FRAMEWORK_AGENTS`` in
+    ``osprey.registry.mcp`` because the build must not import the registry — but
+    an agent missing from the map is not a build error, it silently takes the
+    ``sonnet`` fallback and disappears from ``osprey status``. So the two are
+    pinned equal here, and each agent template's own literal fallback is pinned
+    to the map entry it stands in for.
+    """
+
+    def test_the_map_covers_exactly_the_framework_agents(self):
+        from osprey.registry.mcp import FRAMEWORK_AGENTS
+
+        assert set(AGENT_DEFAULT_TIERS) == set(FRAMEWORK_AGENTS)
+
+    def test_each_template_fallback_matches_the_map(self):
+        """The ``else "<tier>"`` in a template renders when no spec is passed."""
+        import re
+        from pathlib import Path
+
+        agents_dir = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "osprey"
+            / "templates"
+            / "claude_code"
+            / "claude"
+            / "agents"
+        )
+        pattern = re.compile(r'agent_tier\("(?P<name>[^"]+)"\).*?else "(?P<tier>[a-z]+)"')
+        seen = {}
+        for path in sorted(agents_dir.glob("*.md.j2")):
+            match = pattern.search(path.read_text())
+            assert match, f"{path.name} declares no model line with a fallback tier"
+            seen[match.group("name")] = match.group("tier")
+
+        assert seen == AGENT_DEFAULT_TIERS
+
+
 class TestEnvBlockTierModels:
     """Env block contains ANTHROPIC_DEFAULT_*_MODEL vars for all providers."""
 
@@ -526,7 +602,7 @@ class TestEnvBlockTierModels:
 
     def test_all_three_vars_always_present(self):
         for provider_name in CLAUDE_CODE_PROVIDERS:
-            spec = ClaudeCodeModelResolver.resolve({"provider": provider_name})
+            spec = _resolve_builtin(provider_name)
             for var in (
                 "ANTHROPIC_DEFAULT_HAIKU_MODEL",
                 "ANTHROPIC_DEFAULT_SONNET_MODEL",
@@ -615,7 +691,7 @@ class TestAuthVarSeparation:
     def test_env_block_never_contains_auth_keys(self):
         """Auth keys must not be in env block (Claude Code doesn't expand ${VAR})."""
         for provider_name in CLAUDE_CODE_PROVIDERS:
-            spec = ClaudeCodeModelResolver.resolve({"provider": provider_name})
+            spec = _resolve_builtin(provider_name)
             assert "ANTHROPIC_API_KEY" not in spec.env_block
             assert "ANTHROPIC_AUTH_TOKEN" not in spec.env_block
 

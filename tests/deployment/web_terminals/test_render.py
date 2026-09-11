@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import re
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -50,6 +51,7 @@ from osprey.services.auth_sidecar.app import (
     ENV_STATE_SECRET,
     ENV_TLS_ENABLED,
     ENV_USERS,
+    ENV_WEB_APP_NAME,
 )
 from osprey.utils.workspace import agent_data_base_dir
 
@@ -3332,6 +3334,10 @@ def test_auth_sidecar_service_environment_is_exactly_the_non_secret_settings() -
     # Assert
     assert _env_names(auth) == [
         "TZ",
+        # What the login page wears. Non-secret and deployment-wide: the theme
+        # id (absent here, since this config names none) and the facility name
+        # the terminals behind the sidecar already carry.
+        ENV_WEB_APP_NAME,
         # The sidecar's audit identity and the directory it writes its login and
         # denial events to. Neither is a secret: one is the fixed name
         # `sidecar`, the other a container path.
@@ -3633,6 +3639,59 @@ def test_auth_context_reads_the_oidc_claim_and_leaves_it_none_when_unusable() ->
     )
 
 
+def test_auth_context_reads_the_oidc_scopes_and_leaves_them_none_when_unusable() -> None:
+    """A list, or a pre-joined string, becomes the space-separated OAuth spelling.
+
+    Anything unusable — absent, empty, wrong-typed — resolves to None, which is
+    what makes the sidecar's own default list apply instead of this renderer
+    restating it.
+    """
+
+    # Arrange
+    def _with(oidc: dict[str, Any]) -> dict[str, Any]:
+        web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+        web_terminals["auth"] = {"method": "oidc", "oidc": oidc}
+        return web_terminals
+
+    # Act / Assert
+    assert (
+        _auth_tls_context(_with({"scopes": ["openid", "profile", "groups"]}))["auth_oidc_scopes"]
+        == "openid profile groups"
+    )
+    assert (
+        _auth_tls_context(_with({"scopes": "openid  groups"}))["auth_oidc_scopes"]
+        == "openid groups"
+    )
+    assert _auth_tls_context(_with({"scopes": []}))["auth_oidc_scopes"] is None
+    assert _auth_tls_context(_with({"scopes": {"openid": True}}))["auth_oidc_scopes"] is None
+    assert _auth_tls_context(_with({}))["auth_oidc_scopes"] is None
+
+
+def test_authored_oidc_scopes_reach_the_sidecar_service() -> None:
+    """The authored list renders as one env line the sidecar reads."""
+    # Act
+    auth_env = _compose(
+        _auth_config(
+            method="oidc",
+            oidc={"issuer": "https://sso.example.org", "scopes": ["openid", "profile", "groups"]},
+        )
+    )["services"]["auth"]["environment"]
+
+    # Assert
+    assert "OSPREY_AUTH_OIDC_SCOPES=openid profile groups" in auth_env
+
+
+def test_unauthored_oidc_scopes_render_no_env_line() -> None:
+    """With no list authored the sidecar's own default is the only default."""
+    # Act
+    auth_env = _compose(_auth_config(method="oidc", oidc={"issuer": "https://sso.example.org"}))[
+        "services"
+    ]["auth"]["environment"]
+
+    # Assert
+    assert not any(str(entry).startswith("OSPREY_AUTH_OIDC_SCOPES=") for entry in auth_env)
+
+
 def test_auth_sidecar_service_healthcheck_probes_its_own_health_route() -> None:
     """`/health` answers 200 even when the sidecar is unconfigured and refusing
     everything, so the container stays up to explain the lockout instead of
@@ -3711,8 +3770,9 @@ _PROXY_ENTRIES = [
 _PROXY_NAMES = [entry.split("=", 1)[0] for entry in _PROXY_ENTRIES]
 _LOWERCASE_PROXY_NAMES = [name.lower() for name in _PROXY_NAMES]
 # The CA-bundle family that looks like it belongs beside the proxy trio and does
-# not: nothing mounts a CA into this image, so each of these can only ever name
-# a path that is not there.
+# not: a site CA is BAKED INTO the image from `images.site_ca`, and the image
+# sets these itself to the merged bundle it installs into. One named here could
+# only name a path the container might not have.
 _CA_BUNDLE_NAMES = ["SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE"]
 
 
@@ -3773,13 +3833,13 @@ def test_auth_sidecar_egress_is_uppercase_only() -> None:
 
 
 def test_auth_sidecar_egress_is_proxy_only_and_carries_no_ca_bundle_variable() -> None:
-    """The egress block stops at the proxy trio. A custom CA is the other half of
-    the corporate-network story and is deliberately NOT here: nothing mounts a CA
-    into this image, so `SSL_CERT_FILE` would name a path that does not exist —
-    which crashes httpx at client construction, turning a working plain-HTTP
-    deployment into a sidecar that cannot build a client at all — and nothing in
-    the sidecar reads `REQUESTS_CA_BUNDLE`. Custom-CA support is a mount plus a
-    variable, and its own change."""
+    """The egress block stops at the proxy trio. The other half of the
+    corporate-network story — a proxy that re-signs TLS with a site CA — is
+    deliberately NOT here: the CA is installed into the image at build time
+    from `images.site_ca`, and the image points these variables at the merged
+    bundle itself. Naming one here instead would name a path the container may
+    not have, which crashes httpx at client construction and turns a working
+    plain-HTTP deployment into a sidecar that cannot build a client at all."""
     # Act
     auth = _compose(_oidc_auth_config())["services"]["auth"]
 
@@ -3806,30 +3866,37 @@ def test_auth_sidecar_egress_adds_no_second_env_file() -> None:
     )
 
 
-def test_no_other_service_carries_a_proxy_passthrough() -> None:
-    """The passthrough is the sidecar's alone. The per-user containers reach the
-    outside through the settings their own image and `.env.users` already carry;
-    injecting a second, deploy-time proxy here would silently redirect every
-    agent's provider traffic on any host that sets one, which is a change to the
-    agent tier's egress and not to the login surface's.
+def test_every_container_that_reaches_out_carries_the_passthrough() -> None:
+    """The passthrough belongs to the two services that do not read the whole
+    env chain and still make outbound calls: the login sidecar (`.env.auth`)
+    and each per-user terminal (`.env.users`, a closed allowlist that carries
+    credentials and nothing else). A terminal without it cannot reach the model
+    provider on a proxied host, and says so nowhere — the stack starts and the
+    health check is green.
 
-    Every service in the rendered project is checked, with `auth` the only
-    exemption, so nginx — and whatever service the module renders next — is
-    covered without anyone having to remember to widen this test.
+    nginx is the counter-case and stays out: it proxies inbound requests within
+    the deployment and fetches nothing. Every service in the rendered project is
+    checked, so whatever the module renders next is covered without anyone
+    having to remember to widen this test.
     """
     # Act
-    services = _compose(_auth_config())["services"]
+    services = _compose(_auth_config(["alice", "bob"]))["services"]
 
     # Assert
-    assert [name for name in _env_names(services["auth"]) if name in _PROXY_NAMES] == _PROXY_NAMES
+    reaches_out = {"auth", "web-alice", "web-bob"}
+    assert reaches_out < set(services), sorted(services)
     for name, service in services.items():
-        if name == "auth":
-            continue
+        present = [env for env in _env_names(service) if env in _PROXY_NAMES]
+        if name in reaches_out:
+            assert present == _PROXY_NAMES, f"{name} is missing the proxy passthrough"
+        else:
+            assert not present, f"{name} fetches nothing and needs no proxy passthrough"
+        # UPPERCASE only, everywhere, for the reason spelled out above.
         assert not [
             env
             for env in _env_names(service)
-            if env in _PROXY_NAMES or env in _LOWERCASE_PROXY_NAMES
-        ], f"{name} carries a proxy passthrough that belongs to the login sidecar alone"
+            if env not in _PROXY_NAMES and env.lower() in _LOWERCASE_PROXY_NAMES
+        ], f"{name} carries a lowercase proxy name"
 
 
 def _session_lifetime_config(method: str, **auth: object) -> dict:
@@ -4185,6 +4252,7 @@ def test_render_without_dispatcher_personas_emits_no_token_line() -> None:
 # ---------------------------------------------------------------------------
 
 _ARIEL_PASSWORD_LINE = "ARIEL_DB_PASSWORD=${ARIEL_DB_PASSWORD:-ariel}"
+_ARIEL_READONLY_PASSWORD_LINE = "ARIEL_DB_READONLY_PASSWORD=${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}"
 
 
 def test_ariel_persona_gets_the_database_password() -> None:
@@ -4214,6 +4282,26 @@ def test_persona_without_ariel_gets_no_database_password() -> None:
     # Assert
     bob_env = compose["services"]["web-bob"]["environment"]
     assert not any("ARIEL_DB_PASSWORD" in line for line in bob_env)
+
+
+def test_ariel_persona_gets_the_readonly_role_password() -> None:
+    """The SQL tool's own identity travels with the ingestion one.
+
+    Both rungs of the derived DSN are read by the same process; a container
+    handed only the owner password opens no read-only pool and queries the
+    logbook through the ingestion connection instead.
+    """
+    # Act
+    compose = yaml.safe_load(
+        render_web_terminals(_events_persona_config(), ariel_personas={"readwrite"})[
+            "docker-compose.web.yml"
+        ]
+    )
+
+    # Assert
+    assert _ARIEL_READONLY_PASSWORD_LINE in compose["services"]["web-alice"]["environment"]
+    bob_env = compose["services"]["web-bob"]["environment"]
+    assert not any("ARIEL_DB_READONLY_PASSWORD" in line for line in bob_env)
 
 
 def test_render_without_ariel_personas_emits_no_password_line() -> None:

@@ -672,6 +672,32 @@ class TestValidateChannelAndMetadata:
         assert await connector.validate_channel("SR:CH") is True
 
     @pytest.mark.asyncio
+    async def test_validate_channel_probes_with_the_configured_timeout(self, monkeypatch):
+        """The probe uses the connector's own ``timeout``, not a literal of its own."""
+        value = ChannelValue(value=1.0, timestamp=None, metadata=ChannelMetadata())
+        read = AsyncMock(return_value=value)
+        connector = _connector(timeout=17.0)
+        monkeypatch.setattr(connector, "read_channel", read)
+
+        assert await connector.validate_channel("SR:CH") is True
+        assert read.await_args.kwargs["timeout"] == 17.0
+
+    @pytest.mark.asyncio
+    async def test_validate_channel_pva_probes_with_the_configured_timeout(self, monkeypatch):
+        """The PVA metadata-only probe is bounded by the same configured timeout."""
+        seen: list[float] = []
+        connector = _connector(timeout=17.0)
+        connector._pva_channel_globs = ("SR:CH",)
+        monkeypatch.setattr(
+            connector,
+            "_read_metadata_pva",
+            lambda address, timeout: seen.append(timeout),
+        )
+
+        assert await connector.validate_channel("SR:CH") is True
+        assert seen == [17.0]
+
+    @pytest.mark.asyncio
     async def test_validate_channel_false_on_read_error(self, monkeypatch):
         connector = _connector()
         monkeypatch.setattr(

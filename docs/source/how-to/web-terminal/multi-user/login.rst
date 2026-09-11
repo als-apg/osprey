@@ -110,16 +110,25 @@ user's terminal:
            client_id_env: OSPREY_AUTH_OIDC_CLIENT_ID      # names in .env.auth
            client_secret_env: OSPREY_AUTH_OIDC_CLIENT_SECRET
            claim: sub
+           scopes: [openid, profile, email]
        users:
          - name: alice
            index: 0
            oidc_subject: "8f4c1e02-..."     # alice's value of that claim
 
+``scopes`` is what is asked for at the authorization endpoint, and it decides
+which claims the provider releases: a claim that was never requested is simply
+absent, and an absent claim is a denied login. The three above are the default,
+so a deployment whose provider publishes its identity claim under ``profile``
+or ``email`` can leave the line out. ``openid`` may not be dropped — without it
+the provider issues no ID token at all, and the sidecar refuses to serve rather
+than run a login it cannot check.
+
 A login matches when the asserted claim equals the card's ``oidc_subject``.
 The comparison is exact for every claim except ``email``, which is compared
 case-insensitively: an address is the same mailbox in any case, and an
 identity provider is free to release the directory's spelling
-(``THellert@lbl.gov``) where the roster says ``thellert@lbl.gov``. ``sub`` is
+(``Alice@example.org``) where the roster says ``alice@example.org``. ``sub`` is
 an opaque, case-sensitive identifier by specification and stays exact.
 
 Under ``password`` or ``oidc`` a small authentication service joins the stack
@@ -206,11 +215,16 @@ on the deploy host. A ``claims`` stanza under ``password`` resolves nothing;
    emit only the groups assigned to this application, or define app roles and
    point ``claim`` at ``roles``.
 
-Behind a proxy that re-signs TLS with a site certificate authority, the
-identity-provider fetch fails inside the login service even with the site-CA
-block in ``.env.shared`` uncommented: that service receives the three proxy
-variables and nothing else, and no site CA is mounted into its image. See
-:ref:`deployment-env-chain` for what the chain delivers to which container.
+Behind a proxy that re-signs TLS with a site certificate authority, point
+``images.site_ca`` at the bundle on the deploy host and rebuild: the CA is
+installed into the login service's image, which is where its trust store lives.
+The site-CA block in ``.env.shared`` does not do this — a CA path in the chain
+names a file that image does not carry. See :ref:`deployment-env-chain` for
+what the chain delivers to which container.
+
+This applies to the image OSPREY builds. In registry mode
+(``modules.web_terminals.auth.image``) the login service runs a published image
+the facility built itself, so its trust store is that build's business.
 
 .. _multi-user-shared-card:
 
@@ -469,6 +483,12 @@ it as a bare origin — scheme, host, port if non-default, no path.
 ``allow_insecure_http`` is not a way to postpone certificates on a reachable
 host; with nothing terminating TLS, anyone watching the traffic can become
 that user.
+
+A single-user ``osprey web`` behind the same kind of TLS terminator sets
+``OSPREY_TERMINAL_EXTERNAL_ORIGIN`` to that address instead. It is the same
+origin every terminal checks a state-changing request against, and the login
+URL ``osprey web`` prints is built from it — without it the printed URL names
+the bind address, and a browser arriving from it has every write refused.
 
 Passwords, and where they live
 ==============================

@@ -76,6 +76,8 @@ from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     PARTITION_SP_ECHO,
     PARTITION_STATIC_NOISY,
     RECORD_TYPE_ANALOG,
+    build_manifest,
+    setpoint_addresses,
 )
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb  # noqa: E402
 from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E402
@@ -823,9 +825,9 @@ class TestDerivedDriveLimitsMatchChannelLimitsFile:
     built from. This pins that derivation against the file's own contents --
     read the same path the entrypoint reads, independently re-derive the
     expected map from the raw JSON, and require full-dict equality -- so a
-    future channel_limits retune that silently changes which ``:SP`` addresses
-    are writable-with-bounds fails here instead of just drifting the deployed
-    clamp unnoticed.
+    future channel_limits retune that silently changes which setpoint
+    addresses are writable-with-bounds fails here instead of just drifting the
+    deployed clamp unnoticed.
 
     Needs no server: this is the derivation, not its enforcement.
     """
@@ -833,9 +835,10 @@ class TestDerivedDriveLimitsMatchChannelLimitsFile:
     def test_derived_map_matches_writable_sp_entries_in_the_file(self) -> None:
         raw = json.loads(_channel_limits_path().read_text())
         defaults = raw.get("defaults", {})
+        setpoints = setpoint_addresses(build_manifest()["channels"])
         expected: dict[str, tuple[float, float]] = {}
         for address, entry in raw.items():
-            if address.startswith("_") or address == "defaults" or not address.endswith(":SP"):
+            if address.startswith("_") or address == "defaults" or address not in setpoints:
                 continue
             merged = {**defaults, **entry}
             if not merged.get("writable", True):
@@ -846,9 +849,9 @@ class TestDerivedDriveLimitsMatchChannelLimitsFile:
                 continue
             expected[address] = (float(min_value), float(max_value))
 
-        derived = _load_drive_limits()
+        derived = _load_drive_limits(setpoints=setpoints)
         assert derived == expected
-        # Sanity count: pins today's writable-:SP-with-bounds population so a
+        # Sanity count: pins today's writable-setpoint-with-bounds population so a
         # channel_limits.json edit that silently drops or adds entries is caught
         # here, not only downstream in clamp behavior.
         assert len(expected) == 396

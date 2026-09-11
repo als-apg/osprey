@@ -107,6 +107,21 @@ keys:
     evidence: 'config\.get\("project_root"\)'
     default: derived
     default_note: the repo root the loaded config.yml sits in
+  registry_path:
+    rendered: false
+    evidence: 'registry_path'
+    note: >-
+      The application registry module — a facility's own connectors, providers
+      and ARIEL adapters. Nothing derives it, so the build renders no line for
+      it; a deployment states it in its profile's `config:` block (commented
+      example in the control-assistant preset). Resolved by
+      `registry.manager.resolve_registry_path`, which also accepts the
+      `application.registry_path` alias and lets the `REGISTRY_PATH`
+      environment variable outrank both.
+    default: no-fallback
+    default_note: >-
+      unset names no application registry, and the framework-only registry is
+      used
   facility:
     evidence: 'config\.get\("facility"\)'
     note: >-
@@ -140,9 +155,9 @@ keys:
       it. The ONLY enforcement anywhere is a non-emptiness lint
       (deployment/web_terminals/lint.py `_check_empty_facility_prefix`); no
       charset or length rule exists in code. See notes.prefix_rule_drift.
+    default: ''
 
   # ── Container runtime / deployment ──────────────────────────────────
-    default: ''
   container_runtime:
     all-templates: true
     evidence: 'config\.get\("container_runtime", "auto"\) if config else None'
@@ -172,6 +187,20 @@ keys:
       lives. The evidence anchors on `resolve_port_base`, the one resolver;
       everything else takes the base from a caller that read it there.
     default: 10000
+  offline:
+    rendered: false
+    evidence: '\.get\("offline", False\)'
+    note: >-
+      Hidden key, commented in the framework template and unset in the four
+      presets. Both halves of air-gapped operation, deliberately under one
+      key: `osprey up` passes it to the project, persona and sidecar image
+      builds as `OSPREY_OFFLINE=1`, which makes each image run `osprey vendor
+      fetch`, and the running interfaces read it again through
+      `vendor.is_offline` to decide whether to serve those bundles instead of
+      a CDN. Two keys here would let an image be built for one mode and served
+      in the other. OSPREY_OFFLINE overrides it in the environment, on both
+      halves.
+    default: false
   images.registry:
     rendered: false
     evidence: 'images\.get\("registry"\)'
@@ -194,6 +223,49 @@ keys:
       builds on the host — so a deployment that sets neither key renders
       byte-for-byte what it rendered before the axes existed.
     default: local
+  images.site_ca:
+    rendered: false
+    evidence: '"OSPREY_SITE_CA": "site_ca"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the four
+      presets. Path on the DEPLOY HOST to the PEM bundle of a proxy that
+      re-signs TLS. `osprey up` stages a copy into the build context of each
+      image it builds from a shipped recipe — the project image, each persona
+      image and the login sidecar (`container_lifecycle.site_image_build_args`)
+      — and passes its staged name as the `OSPREY_SITE_CA` build arg, because a
+      Dockerfile COPY cannot reach outside its context. Same two layers as the
+      axes above, with OSPREY_SITE_CA as the environment override. A path that
+      names no readable file fails the deploy rather than building an image
+      that silently does not trust the site proxy.
+    default: ''
+  images.pip_no_proxy:
+    rendered: false
+    evidence: '"PIP_NO_PROXY": "pip_no_proxy"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the four
+      presets. The hosts pip reaches without going through the proxy, passed
+      to the project, persona and sidecar image builds as the `PIP_NO_PROXY`
+      build arg those recipes declare. PIP_NO_PROXY overrides it in the
+      environment.
+    default: ''
+  images.pip_index_url:
+    rendered: false
+    evidence: '"PIP_INDEX_URL": "pip_index_url"'
+    note: >-
+      Hidden key, commented in the framework template and unset in the four
+      presets. The package index the images resolve from, for a site that
+      mirrors PyPI internally. The build arg carries pip's own environment
+      name, so a declared value reaches pip directly and an unset one arrives
+      empty, which pip drops before it parses any configuration.
+      PIP_INDEX_URL overrides it in the environment.
+    default: ''
+  images.pip_extra_index_url:
+    rendered: false
+    evidence: '"PIP_EXTRA_INDEX_URL": "pip_extra_index_url"'
+    note: >-
+      The second index, consulted after `images.pip_index_url`; same layering
+      and the same empty-versus-unset handling.
+    default: ''
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
   # The bluesky bridge's plan-lane blocks are INJECTOR-written, not template-
@@ -269,6 +341,17 @@ keys:
       primary trigger. Default 30 s; a no-op sweep costs ~12.5 s at 135k
       documents, so a large corpus should raise it.
     default: 30
+  services.qmd.first_index_grace:
+    rendered: false
+    evidence: 'block\.get\("first_index_grace"\)'
+    note: >-
+      Seconds the container healthcheck holds off before an unhealthy result
+      counts, covering the first full index build. Commented in the two presets
+      that deploy the sidecar, because how long that build takes scales with
+      the corpus. The entrypoint does not open the port until the index exists
+      and is non-empty, so a grace period shorter than the build reports a
+      working container as failed. Rendered as the template's `start_period`.
+    default: 3600
   services.qmd.models_dir:
     rendered: false
     evidence: '_absolute_path\(block\.get\("models_dir"\)'
@@ -403,6 +486,18 @@ keys:
   # qmd's is — every service publishes on the project-wide
   # `deployment.bind_address`, and graphdb reuses that one reading.
     default: 200
+  services.graphdb.database:
+    rendered: false
+    evidence: '_text\(section\.get\("database"\), DEFAULT_DATABASE, "services\.graphdb\.database"\)'
+    note: >-
+      Which database on the store holds the corpus. Hidden like `uri`, and for
+      the same reason: the store this deployment runs is a Community image
+      serving exactly one database, so the key means something only against an
+      EXTERNAL store whose own naming a shipped default could only guess at.
+      Read by `resolve_graphdb_connection` onto `GraphdbConnection.database`,
+      which is the one name both the seeder's sessions and the graph MCP
+      server's reads open against.
+    default: neo4j
   services.graphdb.uri:
     rendered: false
     evidence: '_optional_text\(section\.get\("uri"\), "services\.graphdb\.uri"\)'
@@ -418,6 +513,7 @@ keys:
       read from the same block but named on no page. There is deliberately no
       `password` key at any layer — the credential lives in the project .env as
       GRAPHDB_PASSWORD.
+    default: null
   # `services.graphdb.username` is read beside `uri` but documented nowhere, so
   # it stays out of the ledger.
 
@@ -429,7 +525,6 @@ keys:
   # config.yml — hence `rendered: false` on all of them, exactly as on
   # `images.registry`/`images.tag`. `services.graphdb.image` is the one member
   # of the family a template does render, so it keeps its entry above.
-    default: null
   services.postgresql.image:
     rendered: false
     evidence: '\(services\.postgresql \| default\(\{\}\)\)\.image'
@@ -706,7 +801,14 @@ keys:
   # ── Control system ──────────────────────────────────────────────────
     default: required
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
-  control_system.type: {evidence: 'get_config_value\("control_system\.type", "mock"\)', default: required}
+  control_system.type:
+    evidence: 'get_config_value\("control_system\.type", "mock"\)'
+    default: required
+    default_note: >-
+      The types a project can be built on are `mock`, `epics`,
+      `virtual_accelerator`, `doocs` and `tango`. `live_standin` is settable
+      on a deployment that has a stand-in, and `osprey init` never offers it,
+      so a fresh project cannot start there.
   control_system.writes_enabled:
     evidence: '"control_system\.writes_enabled"'
     note: >-
@@ -811,6 +913,20 @@ keys:
   control_system.connector.mock.noise_level: {rendered: false, evidence: 'noise_level', default: 0.01}
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics, default: 5.0}
+  control_system.connector.epics.step_read_timeout_s:
+    rendered: false
+    evidence: 'config\.get\(STEP_READ_TIMEOUT_KEY\)'
+    note: >-
+      Ceiling on the fresh read a `max_step` check makes before a write, in
+      seconds. A facility-network fact like `timeout` beside it — a gateway two
+      hops away answers slower than a soft IOC on the deploy host — and read
+      from the same connector block, by the connector and by the python
+      executor's sandbox alike, so a script's step check and the connector's
+      wait the same length of time. Running out of budget answers `None`, which
+      REFUSES the write, so raising this buys a slow channel room and never a
+      weaker check. No preset ships a value: the default suits a control system
+      the deployment can reach directly.
+    default: 2.0
   # The nine EPICS gateway keys are `rendered: false` together, for one reason:
   # a facility's Channel Access gateways cannot be guessed and shipping someone
   # else's would point a control system at a stranger's machine. control-
@@ -847,6 +963,10 @@ keys:
   control_system.connector.epics.gateways.write_access.use_name_server: {rendered: false, evidence: 'use_name_server', default: false}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
+  # The VA connector subclasses the EPICS one and hands its own block to
+  # `super().connect()`, so the step-read budget above is read from this type's
+  # block too; the evidence is that one site.
+  control_system.connector.virtual_accelerator.step_read_timeout_s: {rendered: false, covered-by: control_system.connector.virtual_accelerator, default: 2.0}
   control_system.connector.virtual_accelerator.simulation_file: {evidence: 'simulation_file', default: derived, default_note: falls through to control_system.connector.mock.simulation_file}
   control_system.connector.virtual_accelerator.gateways:
     evidence: 'gateways = config\.get\("gateways"\)'
@@ -1127,7 +1247,12 @@ keys:
   # used to serve here and stopped describing the key the moment the
   # control-assistant default became mongodb_archiver — a matcher that tracks a
   # default is a matcher that goes quiet on the change it should have caught.
-  archiver.type: {evidence: 'archiver\.type is not set', default: required}
+  archiver.type:
+    evidence: 'archiver\.type is not set'
+    default: required
+    default_note: >-
+      The shipped archivers are `mock_archiver`, `epics_archiver`,
+      `mongodb_archiver` and `doocs_archiver`.
   # Point budget behind archiver_read's span-derived default bin (issue #117).
   archiver.auto_bin_points: {evidence: 'archiver\.auto_bin_points', default: 10000}
   archiver.epics_archiver:
@@ -1175,6 +1300,26 @@ keys:
   execution.environment.python: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
   execution.environment.packages: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
   execution.environment.inherit_exclude: {forward-declared: true, default: no-fallback, default_note: "the build derives it from the deployment's Python environment; no runtime reader"}
+  python_executor:
+    rendered: false
+    evidence: 'config\.get\("python_executor", \{\}\)\.get\(\s*"execution_timeout_seconds", DEFAULT_EXECUTION_TIMEOUT_SECONDS'
+    note: >-
+      The sandbox's own block. One key today, carried commented in all four
+      presets — the ceiling is a facility property (how long a legitimate
+      analysis may run) and the shipped number is a starting point, not a
+      value any preset should assert.
+    default: {}
+  python_executor.execution_timeout_seconds:
+    rendered: false
+    covered-by: python_executor
+    note: >-
+      Wall-clock ceiling on one agent Python run, read by
+      `mcp_server/python_executor/executor._read_config` from the config the
+      sandbox's MCP server process loaded at start-up and held for that
+      process's lifetime, so a change needs a restart; a run that reaches it
+      is killed and reported as a timeout rather than as the script's own
+      failure.
+    default: 600
 
   # ── System / paths ──────────────────────────────────────────────────
   system:
@@ -1337,6 +1482,17 @@ keys:
   channel_finder.pipelines.middle_layer.database: {covered-by: channel_finder.pipelines.middle_layer, default: {}}
   channel_finder.pipelines.middle_layer.database.type: {covered-by: channel_finder.pipelines.middle_layer.database, default: template}
   channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database, default: ''}
+  channel_finder.query_max_rows:
+    evidence: 'positive_int\(\s*cf_config\.get\("query_max_rows"\)'
+    note: >-
+      Rows one `run_sql` answer carries before it is truncated; the tool reports
+      the truncation and names this key, so a partial answer is never mistaken
+      for a complete one. Bounds what a question costs the AGENT's context
+      window rather than what it costs DuckDB, which is why it is a query-time
+      key and not a pipeline one — it sits outside the derived
+      `channel_finder.pipelines` prefix a profile may not spell, beside
+      `services.graphdb.query_max_rows`, the same bound for the graph paradigm.
+    default: 500
   channel_finder.benchmark:
     evidence: 'channel_finder\.benchmark\.dataset_path'
     note: >-
@@ -1348,11 +1504,11 @@ keys:
     default: {}
   channel_finder.benchmark.dataset_path:
     evidence: 'No benchmark query set configured'
-
-  # ── ARIEL ───────────────────────────────────────────────────────────
     default: no-fallback
     default_note: >-
       the runner refuses a benchmark with no query set, naming this key and --queries-path
+
+  # ── ARIEL ───────────────────────────────────────────────────────────
   ariel: {evidence: 'get_config_value\("ariel", \{\}\)', default: {}}
   ariel.ingestion: {covered-by: ariel, default: n/a}
   ariel.ingestion.adapter:
@@ -1527,10 +1683,56 @@ keys:
   ariel.enhancement_modules.semantic_processor.model: {covered-by: ariel.enhancement_modules.semantic_processor, default: {}}
   ariel.enhancement_modules.semantic_processor.model.model_id: {covered-by: ariel.enhancement_modules.semantic_processor.model, default: n/a}
   ariel.enhancement_modules.semantic_processor.model.max_tokens: {evidence: 'max_tokens', default: n/a}
+  ariel.attachments.max_file_mb:
+    rendered: false
+    evidence: 'get_config_value\("ariel\.attachments\.max_file_mb"'
+    note: >-
+      Largest file one logbook entry may attach, in megabytes. Commented in the
+      two presets that ship an `ariel:` block: attachments are BYTEA rows in
+      the same Postgres the logbook lives in, so both raising and lowering it
+      is a site storage decision. A value that is not a positive integer is
+      logged and the default kept.
+    default: 10
+  ariel.enhancement_modules.semantic_processor.max_input_chars:
+    rendered: false
+    evidence: 'config\.get\("max_input_chars", DEFAULT_MAX_INPUT_CHARS\)'
+    note: >-
+      How many characters of an entry are sent for keyword extraction and
+      summarising. Commented in the two presets that ship an `ariel:` block,
+      because the number that fits depends on how long a facility's entries run
+      and on the context window its provider serves. A cut is logged at INFO
+      naming the entry; a value that is not a positive integer is refused at
+      configure time.
+    default: 8000
+  ariel.enhancement_modules.semantic_processor.prompt_template:
+    rendered: false
+    evidence: 'config\.get\("prompt_template"\)'
+    note: >-
+      Hidden key, unset in the four presets and documented as a commented
+      example beside the module's other settings. It replaces the extraction
+      prompt outright, which is how a facility puts its own equipment and
+      process vocabulary in front of the model without a framework default
+      having to guess at it. A replacement must keep the `{text}` placeholder
+      and the JSON schema the module parses, so this is a deliberate
+      authoring step rather than a knob with a safe arbitrary value.
+    default: derived
+    default_note: the module's own DEFAULT_PROMPT_TEMPLATE
   ariel.enhancement_modules.text_embedding: {evidence: 'text_embedding', default: {}}
   ariel.enhancement_modules.text_embedding.enabled: {covered-by: ariel.enhancement_modules.text_embedding, default: false}
   ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
   ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
+  ariel.enhancement_modules.text_embedding.index_lists:
+    rendered: false
+    evidence: 'module_config\.settings\.get\("index_lists"\)'
+    note: >-
+      IVFFlat `lists` for the pgvector index, fixed when the index is created.
+      Commented in the two presets that ship an `ariel:` block: the rule of
+      thumb is rows/1000, and how many entries a facility's logbook holds is
+      not something the migration can see — `osprey ariel migrate` runs against
+      an empty table. Changing it afterwards needs the index dropped and
+      recreated; a value that is not a positive integer is refused when the
+      migration is built.
+    default: 224
   # The markdown mirror the qmd sidecar indexes — one file per logbook entry,
   # written during ingestion. Paired with `ariel.search_modules.hybrid` above: the
   # export without the search mode indexes a corpus nobody queries, and the
@@ -1586,6 +1788,33 @@ keys:
   artifact_server.host: {all-templates: true, covered-by: artifact_server, default: 127.0.0.1}
   artifact_server.port: {covered-by: artifact_server, default: derived, default_note: the layout's artifact slot at this deployment's port base}
   artifact_server.auto_launch: {all-templates: true, evidence: 'auto_launch', default: derived, default_note: the artifact server's registry auto_launch_default}
+  artifact_server.categories:
+    rendered: false
+    data-map: true
+    evidence: 'block\.get\("categories", \{\}\) if isinstance\(block, dict\) else \{\}'
+    note: >-
+      Extra artifact-gallery categories a facility declares for itself, each
+      leaf a `{label, color}` pair. The CATEGORY NAMES are the operator's own
+      vocabulary, so this is a data map: the guard checks that the block is
+      read, never which categories a deployment declares. Commented in all four
+      presets — a shipped value would be one facility's vocabulary imposed on
+      every other. Read once at startup by
+      `stores/type_registry.load_categories_from_config`, from the MCP server's
+      startup and from the artifact gallery's app factory; a malformed leaf is
+      skipped with a warning rather than failing the launch.
+    default: {}
+  artifact_server.max_timeseries_file_mb:
+    rendered: false
+    evidence: 'get_config_value\(\s*"artifact_server\.max_timeseries_file_mb"'
+    note: >-
+      Largest timeseries data file the gallery renders as a chart or a table,
+      in megabytes. Commented in all four presets, because the number that
+      fits is a property of the host serving the gallery and of the exports a
+      facility's archiver produces. The handler loads the whole file to build
+      the view, so raising it costs that much resident memory; over the cap the
+      two parsed formats refuse with a 413 and the raw download is unaffected.
+      A value that is not a positive integer is logged and the default kept.
+    default: 200
   artifact_server.example_artifact:
     evidence: 'get_config_value\("artifact_server\.example_artifact"'
 
@@ -1647,6 +1876,17 @@ keys:
       the shipped default family lives as the DEFAULT_WEB_THEME constant
       the evidence cites, so it survives a future rename of the family.
     default: main
+  web.tour:
+    rendered: false
+    evidence: 'get\("web", \{\}\)\.get\("tour", DEFAULT_TOUR_POLICY\)'
+    note: >-
+      Onboarding-tour invite policy: once / always / never. Same layering as
+      `web.theme`, one rung deeper — the per-user `OSPREY_WEB_TOUR` a multi-user
+      roster entry's `tour:` field renders OUTRANKS this key, and an unknown
+      word warns and falls back rather than blocking startup. Commented in all
+      four presets because `once` is what a first deployment wants and a
+      rendered value would only repeat the default.
+    default: once
   web.panels: {evidence: 'web\.panels', default: {}}
   # One pair per BUILTIN_PANELS entry. The framework template renders the block
   # for every builtin the profile's `web_panels:` selects, so the enumeration
@@ -1683,10 +1923,15 @@ keys:
       checks that the block exists, never which layouts a deployment declares.
     default: {}
   web.docs_url:
+    # Documented in every preset that carries a `web:` block as a commented
+    # example, never rendered as a live key: a rendered value would write the
+    # OSPREY project's own documentation site into every deployment's
+    # profile.yml. The default below still applies when nothing spells the key.
+    rendered: false
     evidence: 'get_config_value\(\s*"web\.docs_url",\s*DEFAULT_DOCS_URL\s*\)'
     note: >-
-      Rendered live in the four templates that carry a `web:` block;
-      hello_world has none, so this is deliberately not all-templates.
+      Documented as a commented example in every preset that carries a `web:`
+      block; hello-world has none.
       The `\s*` between the call's parts is load-bearing: these four reads sit
       in one lifespan block, and the formatter wraps a call across lines purely
       on line length, so a single-line pattern reds the guard when a rename
@@ -1697,9 +1942,10 @@ keys:
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
-      entry dies with that reader rather than outliving it. Rendered live in
-      the four templates that carry a `web:` block; hello_world has none, so
-      this is deliberately not all-templates, same as `web.docs_url`.
+      entry dies with that reader rather than outliving it. Rendered from the
+      root presets that carry a `web:` block — control-assistant,
+      ariel-standalone and channel-finder-standalone; hello-world has none, so
+      this is deliberately not all-templates.
     default: {}
   web.config_panel.enabled:
     evidence: '(?:get_config_value|resolve_config_flag|coerce_config_flag)\(\s*"web\.config_panel\.enabled",\s*(?:[^,)]+,\s*)?True'
@@ -1720,8 +1966,9 @@ keys:
     note: >-
       The block is never read as a mapping — its single leaf below carries the
       whole read, so the evidence anchors on the prefix they share and this
-      entry dies with that reader rather than outliving it. Rendered live in
-      the four templates that carry a `web:` block; hello_world has none, so
+      entry dies with that reader rather than outliving it. Rendered from the
+      root presets that carry a `web:` block — control-assistant,
+      ariel-standalone and channel-finder-standalone; hello-world has none, so
       this is deliberately not all-templates, same as `web.config_panel`.
     default: {}
   web.scaffold_gallery.write_enabled:
@@ -1750,6 +1997,11 @@ keys:
       last of them rather than outliving them all.
     default: {}
   web.feedback.github_repo:
+    # Documented in every preset that carries a `web:` block as a commented
+    # example, never rendered as a live key: a rendered value would write the
+    # OSPREY project's own tracker into every deployment's profile.yml. The
+    # default below still applies when nothing spells the key.
+    rendered: false
     evidence: 'get_config_value\("web\.feedback\.github_repo", None\)'
     note: >-
       Read with a None sentinel rather than its own default, unlike its
@@ -1766,11 +2018,16 @@ keys:
     evidence: 'get_config_value\(\s*"web\.feedback\.trackers",\s*None\s*\)'
     default: null
   web.feedback.email:
+    # Commented rather than rendered, for the reason `web.feedback.github_repo`
+    # carries above.
+    rendered: false
     evidence: 'get_config_value\("web\.feedback\.email", None\)'
     note: >-
       Read with a None sentinel for the same reason as
-      `web.feedback.github_repo` — see that entry.
-    default: thellert@lbl.gov
+      `web.feedback.github_repo` — see that entry. Blank ships no Email
+      channel at all: the prefilled draft can carry a session's scrollback,
+      and only the deployment's owner can say which mailbox may receive it.
+    default: ''
   web.feedback.owner:
     # Documented in every template that carries a `web:` block as a commented
     # example, never rendered as a live key: the shipped destination is the
@@ -1960,6 +2217,15 @@ keys:
   modules.web_terminals.auth.allow_insecure_http:
     evidence: 'bool\(auth\.get\("allow_insecure_http", False\)\)'
     default: false
+  modules.web_terminals.auth.oidc.scopes:
+    rendered: false
+    evidence: 'oidc\.get\("scopes"\)'
+    note: >-
+      Scopes requested at the IdP's authorization endpoint. Rendered only by a
+      profile that authors an `auth.oidc:` stanza, which no preset ships, so no
+      shipped deployment carries the key. `openid` may not be dropped: the auth
+      sidecar refuses a list without it rather than putting it back.
+    default: [openid, profile, email]
   modules.web_terminals.landing: {evidence: 'as_dict\(web_terminals\.get\("landing"\)\)', default: {}}
   modules.web_terminals.landing.notices:
     evidence: 'if "notices" not in landing_cfg'
@@ -2316,7 +2582,7 @@ render_contexts:
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 357
+  expected_union_size: 355
   note_union_size: >-
     Informational, not an assertion — it moves whenever the framework template
     or a preset gains or loses a key, and the guard reports a diff against it

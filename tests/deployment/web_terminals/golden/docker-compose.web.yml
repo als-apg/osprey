@@ -42,6 +42,9 @@ services:
       - HOME=/data/claude-config
       - TZ=America/Los_Angeles
       - OSPREY_TERMINAL_USER=alice
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
       - OSPREY_AUDIT_IDENTITY=alice
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/alice
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
@@ -92,6 +95,9 @@ services:
       - HOME=/data/claude-config
       - TZ=America/Los_Angeles
       - OSPREY_TERMINAL_USER=bob
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
       - OSPREY_AUDIT_IDENTITY=bob
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000

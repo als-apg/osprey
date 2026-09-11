@@ -119,6 +119,16 @@ class TestFeedbackConfigDefaults:
                 {"kind": "github", "label": "GitHub", "repo": DEFAULT_FEEDBACK_GITHUB_REPO}
             ]
 
+    def test_no_mailbox_ships_as_the_default_recipient(self):
+        """The unconfigured deployment offers no Email channel at all.
+
+        A prefilled feedback draft can carry a session's scrollback, so who
+        receives it is the deployment owner's decision and never the
+        framework's. Unconfigured, the Email channel is retired and the issue
+        tracker is the only channel the dialog offers.
+        """
+        assert DEFAULT_FEEDBACK_EMAIL == ""
+
     def test_default_ceiling_is_256_mb(self):
         """The documented default, spelled out so a silent change is caught."""
         assert DEFAULT_FEEDBACK_MAX_STORE_BYTES == 268435456

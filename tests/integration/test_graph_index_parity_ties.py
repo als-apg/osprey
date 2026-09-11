@@ -39,6 +39,7 @@ import pytest
 
 from osprey.services.channel_finder.graph_queries import GRAPH_CHANNEL_COUNT_CYPHER
 from tests._graphdb_container import (
+    GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
     graphdb_store,
@@ -147,7 +148,9 @@ def _session(uri: str) -> Iterator[Any]:
     """A driver session on *uri*, closed with the block."""
     from osprey.services.facility_knowledge.seeder import graph_seeder
 
-    with graph_seeder.open_session(uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD) as session:
+    with graph_seeder.open_session(
+        uri, GRAPHDB_TEST_USERNAME, GRAPHDB_TEST_PASSWORD, database=GRAPHDB_TEST_DATABASE
+    ) as session:
         yield session
 
 

@@ -7,12 +7,16 @@ automatically configures itself from the global config.
 Usage in generated code:
     >>> from osprey.runtime import write_channel, read_channel
     >>>
-    >>> # Write to control system (synchronous, like EPICS caput)
+    >>> # Write to the control system (synchronous)
     >>> write_channel("BEAM:CURRENT", 500.0)
     >>>
-    >>> # Read from control system (synchronous, like EPICS caget)
+    >>> # Read from the control system (synchronous)
     >>> value = read_channel("BEAM:CURRENT")
     >>> print(f"Current: {value}")
+
+    Channel addresses in these examples are placeholders. Address grammar is
+    the deployment's own — ask the control-system tools for real addresses
+    rather than composing one from an example.
 
 Configuration:
     The runtime uses the control system configuration from the global config.yml.
@@ -33,11 +37,11 @@ Write Outcomes:
     object to find out whether the hardware took the value.
 
 Control Target:
-    The execution sandbox is launched with a *target stamp* — ``live`` or ``va``
-    — in its environment, written by
-    :mod:`osprey.mcp_server.python_executor.executor`. That stamp, not the
-    config's own ``control_system.type``, decides which connector this runtime
-    builds: the type is resolved through
+    The execution sandbox is launched with a *target stamp* — one of
+    :data:`osprey_connectors.types.CONTROL_TARGETS` — in its environment,
+    written by :mod:`osprey.mcp_server.python_executor.executor`. That stamp,
+    not the config's own ``control_system.type``, decides which connector this
+    runtime builds: the type is resolved through
     :func:`osprey_connectors.types.resolve_target`, so the factory reads
     ``control_system.connector.<that type>`` and ``connect()`` derives that
     target's gateways here rather than anywhere upstream. An unstamped process
@@ -554,19 +558,21 @@ def _run_async(coro) -> Any:
 
 
 # ========================================================
-# Public synchronous API (like EPICS caput/caget)
+# Public synchronous API
 # ========================================================
 
 
 def write_channel(channel_address: str, value: Any, **kwargs) -> None:
     """Write value to control system channel.
 
-    Works with any configured control system (EPICS, Mock, etc.).
+    Works with any configured control system.
 
-    Synchronous function - no 'await' needed. Works like EPICS caput().
+    Synchronous function - no 'await' needed. This is a synchronous put, like
+    an EPICS ``caput`` or a TANGO ``write_attribute``.
 
     Args:
-        channel_address: Channel/PV name to write to
+        channel_address: Channel address to write to, in the grammar the
+            deployment's control system uses
         value: Value to write (will be coerced to appropriate type)
         **kwargs: Additional arguments passed to connector
                   - timeout: Operation timeout in seconds
@@ -600,21 +606,22 @@ def write_channel(channel_address: str, value: Any, **kwargs) -> None:
 def read_channel(channel_address: str, **kwargs) -> Any:
     """Read value from control system channel.
 
-    Works with any configured control system (EPICS, Mock, etc.).
+    Works with any configured control system.
 
-    Synchronous function - no 'await' needed. Works like EPICS caget().
+    Synchronous function - no 'await' needed. This is a synchronous get, like
+    an EPICS ``caget`` or a TANGO ``read_attribute``.
 
     Args:
-        channel_address: Channel/PV name to read from
+        channel_address: Channel address to read from, in the grammar the
+            deployment's control system uses
         **kwargs: Additional arguments passed to connector
                   - timeout: Operation timeout in seconds
 
     Returns:
-        Current value of the channel. An enum-typed channel (EPICS mbbi/bi/bo
-        and equivalents) reads as its integer state index; the matching state
-        names ride on the reading's metadata as ``enum_label`` /
-        ``enum_labels``, which the channel_read tool reports and which this
-        value-only helper does not return.
+        Current value of the channel. An enum-typed channel reads as its
+        integer state index; the matching state names ride on the reading's
+        metadata as ``enum_label`` / ``enum_labels``, which the channel_read
+        tool reports and which this value-only helper does not return.
 
     Raises:
         RuntimeError: If read operation fails

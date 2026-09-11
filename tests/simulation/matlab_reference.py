@@ -8,8 +8,8 @@ ring-vs-spec consistency test is circular (same author/source), this is not
 
 Provenance
 ----------
-* Source:  ``/Users/thellert/LBL/matlab/sc/applications/ALSU_AR_work/lattices/ALS_U_AR_v6.m``
-* Toolbox: MATLAB AT (``atmat`` at ``/Users/thellert/LBL/matlab/at``), MATLAB R2023b
+* Source:  ``ALS_U_AR_v6.m``
+* Toolbox: MATLAB AT (``atmat``), MATLAB R2023b
 * Date:    2026-07-15
 * Recipe (4D — radiation OFF and cavity OFF, apples-to-apples with pyAT
   ``ring.disable_6d()``)::

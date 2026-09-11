@@ -285,6 +285,13 @@ config:
   # table renders. Drop the key and the subagent is told no vocabulary was
   # declared; point it at a missing file and the build stops and says so.
   facility.ontology: data/facility_ontology.json
+  # Your facility's own registry module — the file that registers its
+  # connectors, providers and ARIEL adapters with the framework (see
+  # "Extending Osprey" in the docs). Relative to the project root; unset means
+  # no application registry, and the framework-only one is used. `REGISTRY_PATH`
+  # in the environment outranks this key, for a container pointed at a registry
+  # mounted somewhere the config could not have named.
+  # registry_path: project/registry.py
   # Master write switch, the FIRST guard in the write-safety chain: while
   # false, every hardware write is refused before the limits check or the
   # approval prompt is consulted. On here because the baseline is the stand-in,
@@ -785,8 +792,11 @@ config:
   # menu, and a roster entry's `theme:` overrides it per user.
   web.theme: light
   # Target of the Documentation button. Point it at a locally hosted copy of
-  # the docs when the control room has no route to the public site.
-  web.docs_url: https://als-apg.github.io/osprey
+  # the docs when the control room has no route to the public site. Commented
+  # rather than shipped live: a rendered value would put the OSPREY project's
+  # own documentation site into this deployment's profile.yml as though the
+  # facility had chosen it. Unset, the button points at the published site.
+  # web.docs_url: https://docs.example.org/osprey
   # The Feedback dialog's outbound channels. Nothing is posted for the user:
   # the browser opens a prefilled GitHub issue form or mail draft. Every
   # submission is also recorded here (`osprey feedback list` / `export`).
@@ -794,7 +804,7 @@ config:
   # owner/repo whose new-issue form the GitHub channel prefills. Point it at
   # the repository your users' reports should land in; "" offers no GitHub
   # channel.
-  web.feedback.github_repo: als-apg/osprey
+  web.feedback.github_repo: example-org/controls
   # Further trackers, one channel each: a `gitlab` entry takes the project's
   # base URL, a `github` entry owner/repo; `label` captions it.
   # web.feedback.trackers:
@@ -802,7 +812,7 @@ config:
   #     url: https://git.example.org/controls/osprey
   #     label: Facility GitLab
   # Recipient of the prefilled mailto: draft the Email channel opens.
-  web.feedback.email: thellert@lbl.gov
+  web.feedback.email: controls@example.org
   # Ceiling in bytes on the on-disk feedback store (256 MB). Above it the
   # oldest saved session contexts are deleted; submission headers are kept.
   web.feedback.max_store_bytes: 268435456

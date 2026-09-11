@@ -76,7 +76,7 @@ Record candidates in `INTERVIEW.md` under `## Upstream candidates`, one entry ea
   status: open
 ```
 
-`status` may only be `open`, `scouting`, `filed <url>`, `emailed <date>`, `branch <name>`,
+`status` may only be `open`, `scouting`, `filed <url>`, `branch <name>`,
 `dropped`, `profile-local`, or `already-supported (<key>)` — and only the scout moves an
 entry beyond `open`/`dropped`.
 

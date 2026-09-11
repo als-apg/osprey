@@ -155,6 +155,16 @@ recorded and never written. The name is what a plan and the agent refer to, and
 it is also the column heading in the run's data, so each name may appear only
 once across both lists.
 
+When a plan drives a settable, the write is followed by a poll of the readback
+until it reaches the demand. Two profile keys bound that wait:
+``bluesky.settle_timeout_s`` (default 5.0 seconds) is how long the poll runs
+before the move fails and the plan aborts, and ``bluesky.settle_tolerance``
+(default ``1e-9``) is how close the readback must come, as an absolute
+difference. The defaults suit a setpoint a controller echoes back exactly; a
+device that physically moves — a magnet, an insertion-device gap — needs both
+raised. Running out of budget always fails the plan: neither key can turn an
+unsettled move into a successful one.
+
 Nothing in the file is split on any character, which is the point of writing it
 this way: an address containing a comma — as some real magnet power supplies
 have — is written out plainly and needs no escaping.

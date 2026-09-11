@@ -81,11 +81,15 @@ class DirectionReport:
         limits_path: The limits file that was read, or ``None`` for the
             grammar fallback.
         message: The single operator-facing line the CLI prints.
+        write_groups: How many signal groups came out writable.  Zero means the
+            corpus asserts that nothing on this machine can be written, which
+            is a finding rather than a fact about the machine.
     """
 
     source: DirectionSource
     limits_path: Path | None
     message: str
+    write_groups: int
 
 
 class DirectionConflictError(ValueError):
@@ -236,11 +240,26 @@ def assign_directions(
             group.key: (DIRECTION_WRITE if group.subfield == WRITE_SUBFIELD else DIRECTION_READ)
             for group in model.signal_groups
         }
+        write_groups = sum(1 for value in directions.values() if value == DIRECTION_WRITE)
         grammar = f"direction from PV grammar (subfield == {WRITE_SUBFIELD} → write)"
+        if write_groups == 0:
+            # The subfield token is the facility's, not this module's: a machine
+            # that spells its setpoints anything else lands here with a corpus
+            # that says every channel is read-only, which is worth saying out
+            # loud rather than leaving to be discovered from the graph.
+            grammar += (
+                f"; 0 of {len(model.signal_groups)} signal groups matched, so the corpus "
+                "asserts nothing is writable — pass --limits or check the setpoint token"
+            )
         message = f"{grammar}; {lookup_message}" if lookup_message else grammar
         return (
             model.with_directions(directions),
-            DirectionReport(source=DirectionSource.GRAMMAR, limits_path=None, message=message),
+            DirectionReport(
+                source=DirectionSource.GRAMMAR,
+                limits_path=None,
+                message=message,
+                write_groups=write_groups,
+            ),
         )
 
     path = Path(limits_path)
@@ -262,6 +281,7 @@ def assign_directions(
             source=DirectionSource.LIMITS,
             limits_path=path,
             message=f"direction from channel limits: {path}",
+            write_groups=sum(1 for value in directions.values() if value == DIRECTION_WRITE),
         ),
     )
 

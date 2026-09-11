@@ -1801,11 +1801,19 @@ describe('generateClientId', () => {
     expect(generateClientId()).toBe('11111111-1111-1111-1111-111111111111');
   });
 
-  test('falls back to a Math.random-based id when crypto.randomUUID is unavailable', () => {
+  test('still mints a v4-shaped id when crypto.randomUUID is unavailable', () => {
+    // A non-secure-context deployment has no randomUUID. The id was a
+    // `tab-<base36>` stand-in there; it is now the same UUID grammar every
+    // other surface mints, so one shape reaches the server from every
+    // topology.
     vi.stubGlobal('crypto', {});
     const id = generateClientId();
-    expect(id).toMatch(/^tab-/);
-    expect(id.length).toBeGreaterThan(4);
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+  });
+
+  test('two ids in a row differ', () => {
+    vi.stubGlobal('crypto', {});
+    expect(generateClientId()).not.toBe(generateClientId());
   });
 });
 

@@ -180,6 +180,13 @@ def build_connector_config(control_system_type: str) -> dict[str, Any]:
     else is forwarded through with no type-specific config, so an unrecognized
     value surfaces as ``ConnectorFactory``'s own "Unknown control system type"
     error rather than being silently mis-wired to a connector nobody asked for.
+
+    Forwarding is not an offer to run plans on it: this connector type does not
+    execute plans. What keeps such a type away from a worker is the lane
+    renderer, which never renders one for it, and the sentence an operator reads
+    about it is the lane's capability report
+    (``REASON_UNSUPPORTED_CONNECTOR`` in
+    :mod:`osprey.services.bluesky_bridge.queue_backend`).
     """
     from osprey_connectors.types import CHANNEL_ACCESS_TYPES
 
@@ -259,10 +266,10 @@ async def build_devices(
     names a file this process can read — file presence is the switch, so there
     is no second flag that can disagree with it.
 
-    Returns an empty mapping — never raises — when the substrate is disabled
-    (browse-only) or when the device file names no devices at all. A caller
-    treats an empty result as "this worker cannot execute plans", which is
-    exactly what :func:`build_namespace` does with it.
+    Returns an empty mapping when the substrate is disabled (browse-only) or
+    when the device file names no devices at all. A caller treats an empty
+    result as "this worker cannot execute plans", which is exactly what
+    :func:`build_namespace` does with it.
 
     Args:
         env: Environment mapping to read; defaults to ``os.environ``.
@@ -272,6 +279,12 @@ async def build_devices(
 
     Returns:
         Mapping of device name to connected device.
+
+    Raises:
+        ValueError: ``BLUESKY_SETTLE_TIMEOUT_S`` or ``BLUESKY_SETTLE_TOLERANCE``
+            is set to a value the settle loop cannot use. A worker that came up
+            anyway would carry the fault to the first write of the first plan
+            and abort it there, so an unusable budget fails the boot instead.
     """
     env = os.environ if env is None else env
     devices_file = (env.get(DEVICES_FILE_ENV) or "").strip()
@@ -297,6 +310,12 @@ async def build_devices(
     # resolve and takes the whole worker environment down with it.
     from osprey.services.bluesky_bridge.devices import connector as connector_devices
     from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
+
+    # The settle budgets every ConnectorSettable.set() reads per move, parsed
+    # once here: they are read inside the RunEngine, where a ValueError aborts
+    # a plan an operator is waiting on.
+    connector_devices.settle_timeout_s()
+    connector_devices.settle_tolerance()
 
     setpoints, readbacks = specs_from_file(path)
     if not setpoints and not readbacks:

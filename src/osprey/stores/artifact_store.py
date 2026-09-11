@@ -293,6 +293,20 @@ EXAMPLE_REMOVED_SENTINEL = ".example-removed"
 """File in the artifact directory written when an example is deleted, so no
 later launch seeds it again. Removing the file brings the example back."""
 
+UNREGISTERED_CATEGORY_WARNING = (
+    "Unregistered category %r — declare it under `artifact_server.categories` "
+    "in profile.yml and run `osprey build`"
+)
+"""What the three save paths log for a category the registry does not know.
+
+Names the config seam rather than ``type_registry.py``: that module is
+packaged code, so editing it patches an installed file the next upgrade
+overwrites, while ``artifact_server.categories`` is read out of the
+deployment's own config at startup by
+:func:`osprey.stores.type_registry.load_categories_from_config`. The artifact
+is stored either way — an unknown category costs the badge its label and
+colour, never the data."""
+
 
 class ArtifactStore(BaseStore[ArtifactEntry]):
     """Manages artifact files and the artifacts.json index."""
@@ -366,7 +380,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             from osprey.stores.type_registry import valid_category_keys
 
             if category not in valid_category_keys():
-                logger.warning("Unregistered category %r — add to type_registry.py", category)
+                logger.warning(UNREGISTERED_CATEGORY_WARNING, category)
 
         with self._with_index_lock():
             art_id = self._make_id()
@@ -493,7 +507,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         from osprey.stores.type_registry import valid_category_keys
 
         if category and category not in valid_category_keys():
-            logger.warning("Unregistered category %r — add to type_registry.py", category)
+            logger.warning(UNREGISTERED_CATEGORY_WARNING, category)
 
         content = json.dumps(data, indent=2, default=str).encode()
         filename = f"{tool}.json"
@@ -604,7 +618,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         from osprey.stores.type_registry import valid_category_keys
 
         if category and category not in valid_category_keys():
-            logger.warning("Unregistered category %r — add to type_registry.py", category)
+            logger.warning(UNREGISTERED_CATEGORY_WARNING, category)
 
         metadata = dict(metadata or {})
         channel = metadata.get("channel")

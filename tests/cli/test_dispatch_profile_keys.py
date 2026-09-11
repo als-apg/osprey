@@ -60,8 +60,9 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         worker_port_base=9200,
         timeout_sec=600,
         inactivity_sec=240,
+        max_turns=40,
         facility_name="ALS",
-        pv_strip_prefix="SR:",
+        channel_strip_prefix="SR:",
         network="host",
     )
     block = {f.name: getattr(spelled, f.name) for f in fields(DispatchConfig)}
@@ -76,6 +77,38 @@ def test_empty_block_still_takes_the_defaults() -> None:
     profile = _parse_profile({"name": "x", "dispatch": {}})
 
     assert profile.dispatch == DispatchConfig(triggers="")
+
+
+def test_max_turns_defaults_when_unstated() -> None:
+    """An unstated turn ceiling takes the dataclass default the worker falls back to."""
+    profile = _parse_profile({"name": "x", "dispatch": {}})
+
+    assert profile.dispatch is not None
+    assert profile.dispatch.max_turns == DispatchConfig.max_turns
+
+
+def test_max_turns_is_read_from_the_block() -> None:
+    """An authored ceiling survives parsing."""
+    profile = _parse_profile({"name": "x", "dispatch": {"max_turns": 60}})
+
+    assert profile.dispatch is not None
+    assert profile.dispatch.max_turns == 60
+
+
+@pytest.mark.parametrize("value", [0, -5, True, "abc", 2.5])
+def test_max_turns_rejects_a_value_that_is_not_a_positive_int(value: Any) -> None:
+    """The number is rendered into the worker's env, which calls ``int()`` on it.
+
+    A ceiling of zero would end every run before its first turn, and a
+    non-integer only surfaces when the worker container fails at import — long
+    after the build that accepted it.
+    """
+    with pytest.raises(BuildProfileError) as excinfo:
+        _parse_profile({"name": "x", "dispatch": {"max_turns": value}})
+
+    message = str(excinfo.value)
+    assert "dispatch.max_turns" in message
+    assert repr(value) in message
 
 
 # ── unknown keys are rejected ────────────────────────────────────────────────
@@ -150,3 +183,29 @@ def test_the_bundled_dispatch_preset_still_resolves() -> None:
 
     assert profile.dispatch is not None
     assert profile.dispatch.triggers == "tutorial_triggers.yml"
+
+
+def test_the_block_names_the_trimmed_prefix_without_a_protocol_noun() -> None:
+    """The knob sits beside ``facility_name`` on a protocol-neutral block.
+
+    It trims a leading prefix off a channel name before the dashboard renders
+    it, which is a fact about channel addresses rather than about any one
+    control protocol.
+    """
+    assert "channel_strip_prefix" in _KNOWN_DISPATCH_KEYS
+    assert "pv_strip_prefix" not in _KNOWN_DISPATCH_KEYS
+
+
+def test_the_retired_spelling_is_refused_and_points_at_the_new_one() -> None:
+    """The rename must not be a silent one.
+
+    ``dispatch:`` is a closed block, so the old spelling raises rather than
+    being dropped into a default — and the refusal has to carry the reader to
+    the key that replaced it, which is the whole reason no alias is kept.
+    """
+    with pytest.raises(BuildProfileError) as caught:
+        _parse_profile({"name": "x", "dispatch": {"pv_strip_prefix": "SR:"}})
+
+    message = str(caught.value)
+    assert "pv_strip_prefix" in message, "the refusal must name what was written"
+    assert "channel_strip_prefix" in message, "and the key that replaced it"

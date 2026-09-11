@@ -718,6 +718,117 @@ declares ``network: host`` whose render does not carry it. See
 ``dispatch.network``, the single knob that covers the event dispatcher and its
 workers.
 
+A second ``config`` key the build reads is ``env``: a list of host environment
+variable NAMES the service passes through to its container, in the order you
+write them.
+
+.. code-block:: yaml
+
+   services:
+     typesense:
+       template: services/typesense
+       config:
+         env: [TYPESENSE_TELEMETRY, HTTPS_PROXY]
+
+Names only, never values — each becomes a ``NAME: ${NAME}`` the deploy env
+chain fills in, so rotating a value is an edit to ``.env`` and a restart. A name
+nothing sets arrives as an empty variable rather than an absent one.
+
+The event dispatcher and its workers take the same axis as ``dispatch.env``,
+one list for both halves, because the build writes both of their service blocks
+itself:
+
+.. code-block:: yaml
+
+   dispatch:
+     triggers: my_triggers.yml
+     env: [EPICS_CA_ADDR_LIST, EPICS_CA_NAME_SERVERS]
+
+Writing ``env:`` on either half's own service block is refused for the same
+reason ``network:`` there is: the build would overwrite it.
+
+A third ``config`` key the build reads is ``http``, default false: it says the
+service answers HTTP on the port it publishes, and the deploy summary prints
+its address as a link instead of a bare ``host:port``. Leave it out for a
+service that speaks any other protocol.
+
+.. _profile-dispatch-block:
+
+The ``dispatch:`` block
+=======================
+
+``dispatch:`` is a closed block: every key it accepts is listed below, and an
+unrecognised one fails the build rather than being dropped into a default.
+``triggers`` is the only required key --- writing the block at all is what opts
+the deployment into the event dispatcher and its workers.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 18 56
+
+   * - Key
+     - Default
+     - What it does
+   * - ``triggers``
+     - *(required)*
+     - Bundled trigger-file name, or a path relative to the profile.
+   * - ``worker_count``
+     - ``1``
+     - How many dispatch workers the build deploys.
+   * - ``workspace_mode``
+     - ``isolated``
+     - ``isolated`` gives each run its own workspace; ``shared`` puts every run
+       in one.
+   * - ``max_concurrent_runs``
+     - ``2``
+     - Runs a worker executes at once.
+   * - ``max_queue_depth``
+     - ``50``
+     - Queued runs held before the dispatcher starts refusing new ones.
+   * - ``dispatcher_port``
+     - *(from the port layout)*
+     - Host port the dispatcher publishes. Unset resolves against the
+       deployment's own ``deployment.port_base``.
+   * - ``worker_port_base``
+     - *(from the port layout)*
+     - Host port worker 1 publishes, in host-network mode only. Bridge-mode
+       workers publish nothing on the host.
+   * - ``worker_port_stride``
+     - ``1``
+     - Host-port spacing between consecutive workers. Widen it to leave room
+       for something else of yours between them.
+   * - ``timeout_sec``
+     - ``300``
+     - Wall-clock ceiling on one run, as ``DISPATCH_TIMEOUT_SEC``.
+   * - ``inactivity_sec``
+     - ``120``
+     - How long a run may produce nothing before it is cut off, as
+       ``DISPATCH_INACTIVITY_SEC``. Raise it for slow providers; a long tool
+       call is not inactivity, but a stalled one is.
+   * - ``max_turns``
+     - ``25``
+     - Agentic turns one dispatched run may take before the SDK stops it, as
+       ``DISPATCH_MAX_TURNS``; the budget about the work rather than the clock.
+       A trigger may state its own ``max_turns:`` under ``action:``; one that
+       names none gets this.
+   * - ``facility_name``
+     - ``""``
+     - Display name the dashboard shows.
+   * - ``channel_strip_prefix``
+     - ``""``
+     - Leading prefix trimmed off a channel address before the dashboard shows
+       it, so a dense trigger list is not mostly the segment every address
+       shares. It reaches the trigger sources that carry a channel; a source
+       that renders an interval or a bare name has nothing to trim.
+   * - ``network``
+     - ``bridge``
+     - Network attachment for the dispatcher and its workers together --- see
+       :ref:`deployment-network-attachment`.
+   * - ``env``
+     - ``[]``
+     - Host environment variable names passed through to both halves, in the
+       order you write them. Names only, never values.
+
 .. _profile-graph-mode:
 
 Graph-mode channel finding
@@ -1269,6 +1380,24 @@ build** and prints the valid set:
        is served a page at a time and can be narrowed by an exact name
        prefix. The same number decides when a refusal for an unknown device
        stops listing every device it does know and gives a count instead.
+   * - ``settle_timeout_s``
+     - How long a plan write waits for the readback to reach its demand
+       before the move fails and the plan aborts (default 5.0 seconds). Raise
+       it for devices that physically move; it never turns an unsettled move
+       into a successful one.
+   * - ``settle_tolerance``
+     - How close the readback must come to the demand to count as settled, as
+       an absolute difference (default ``1e-9``). The default is a float-noise
+       bound, right for a setpoint a controller echoes back exactly and far
+       too strict for a magnet or a gap.
+   * - ``live_max_runs``
+     - How many runs' live data the bridge keeps in memory, oldest dropped
+       first (default 50). This is what decides how long a finished run stays
+       readable in the web panel.
+   * - ``live_max_rows_per_run``
+     - How many rows of one run the bridge stores (default 10000). Rows past
+       the cap are still counted, so a long run reports its true length over a
+       truncated buffer.
 
 Whether a deployment can execute plans at all is not set here: it follows from
 the control system the deployment runs. See :doc:`/how-to/bluesky/queue` for

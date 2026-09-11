@@ -154,19 +154,21 @@ search a channel database file; ``graph`` searches the graph store named by
 ``services.graphdb`` -- deployed with the stack or facility-hosted -- instead of
 a database file.
 
-Two shorthands stand in for longer key paths: ``connector=`` writes
-``config.control_system.type``, and ``epics_gateway=`` writes a known facility's
-EPICS gateway addresses. (Control systems beyond the bundled ones are reachable
-through custom connector packages — see :doc:`/how-to/control-systems/use-connectors`.)
+One shorthand stands in for a longer key path: ``connector=`` writes
+``config.control_system.type``. (Control systems beyond the bundled ones are
+reachable through custom connector packages — see
+:doc:`/how-to/control-systems/use-connectors`.) An EPICS gateway is written by
+its own dotted keys, which is the only spelling: OSPREY ships no table of
+facilities' gateway addresses.
 
 .. code-block:: bash
 
    osprey set model=sonnet
    osprey set connector=epics
    osprey set tier=1 channel_finder_mode=in_context
-   osprey set config.facility.name='ALS Storage Ring'
-   osprey set epics_gateway=als
-   osprey set --repo ~/als-assistant config.control_system.writes_enabled=true
+   osprey set config.facility.name='Storage Ring'
+   osprey set config.control_system.connector.epics.gateways.read_only.address=gw.example.org
+   osprey set --repo ~/my-assistant config.control_system.writes_enabled=true
    osprey set config.control_system.connector.virtual_accelerator.writes_enabled=true
 
 osprey validate
@@ -811,6 +813,18 @@ Options: ``--project PATH``, ``-v, --verbose``
 ``osprey channel-finder build-database``
    Build a channel database from a CSV file.
 
+   The CSV's ``address`` column *is* each family's address pattern: write the
+   address the way your machine spells it, with ``{instance:02d}`` where the
+   device number goes and ``{sub_channel}`` where the row's sub-channel goes,
+   and it is used as written --- separators, prefixes and level order are
+   yours. All rows of one family must give the same address, and it may name
+   only ``{instance}``, ``{sub_channel}``, ``{base}`` and ``{axis}``; a family
+   that breaks either rule stops the build by name. A family whose rows carry a
+   literal address instead gets ``<family>{instance:02d}{suffix}`` synthesised
+   from its name, as before. The ``instances`` column is a count
+   (``10`` means 1--10) or an explicit range (``4-11``) for a machine whose
+   device numbering does not start at one.
+
 ``osprey channel-finder validate [--database PATH] [--pipeline hierarchical|in_context|middle_layer] [-v]``
    Validate a channel database JSON file. The paradigm is auto-detected from the
    project's config; ``--pipeline`` overrides that.
@@ -880,7 +894,7 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    synonyms and families that differ --- which is what a CI job or a pre-commit
    hook runs to prove a committed table still matches its schema.
 
-``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH] [--facility TOKEN]``
+``osprey knowledge build-ttl OUTPUT [--channel-db PATH] [--descriptions PATH] [--limits PATH] [--ontology PATH] [--section-order A,B,...] [--facility TOKEN]``
    Derive a NARAD-convention TTL corpus — the file ``seed-graph`` loads — from
    the project's own channel databases, so the graph store and the channel
    finder describe the same machine. The corpus carries one device node per
@@ -901,6 +915,13 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       ``channel_finder.pipelines.hierarchical.database.path``, resolved against
       the ``config.yml`` directory.
 
+      That grammar is the whole of what this verb reads: six levels, in that
+      order, with the device level generated. A hierarchical database built on
+      any other level list --- the shipped
+      ``data/channel_databases/examples/hierarchical_jlab_style.json``, whose
+      levels are ``system, family, sector, device, pv``, is one --- is refused
+      in one line naming the grammar, before a single address is parsed.
+
    ``--descriptions``
       The in-context database for the same machine: a flat list of addresses,
       each with a sentence about that one channel. Those sentences become
@@ -909,7 +930,7 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       the OSPREY source tree keeps the two, side by side under ``tiers/tier3/``.
       With no such neighbour the command asks for the flag.
 
-   Three more inputs decide details:
+   Four more inputs decide details:
 
    ``--limits``
       ``control_system.limits_checking.database_path``. This file is what tells
@@ -926,13 +947,26 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
       hand-written JSON table is still accepted, so an existing one keeps
       working untouched.
 
+   ``--section-order``
+      The order the corpus lists the machine's top-level sections in, which
+      decides every device's ordinal and the order the file reads in. Unnamed,
+      it is the order the ``--channel-db`` file's own ``tree`` block lists its
+      top-level tokens in --- a hierarchical database is written in the
+      machine's layout order, and JSON keeps that order. Name your own
+      (``--section-order LINAC,TL,RING``) for a database whose key order
+      carries no meaning; a section neither source names sorts after the ones
+      they do, alphabetically.
+
    ``--facility``
-      The facility token, ``demo`` by default. Every IRI and identifier the
-      corpus mints embeds it, and each device carries it as
-      ``narad_p:facility``, so name your own facility when the corpus is not
-      the demo machine's. The token is written once, from this flag: there is
-      no second place for it to come from and therefore no way for the
-      identifiers and the property to disagree.
+      The facility token. Every IRI and identifier the corpus mints embeds it,
+      and each device carries it as ``narad_p:facility``. Unnamed, it is the
+      project's own ``facility.prefix`` --- the key the rest of the deployment
+      already reads --- and ``demo`` only when no config names one, which is
+      what the shipped demo corpus carries. The token has to be usable inside
+      an identifier: a letter or underscore, then letters, digits and
+      underscores. Every run reports the token it minted with and the ontology
+      table it emitted against, and a run that falls back to ``demo`` against a
+      database that is not the packaged demo one says so.
 
    The neighbour rule for ``--descriptions`` is a convenience of the OSPREY
    source tree. A rendered project keeps only the paradigm it runs, as a flat
@@ -1154,9 +1188,14 @@ directories, and lifecycle scripts.
 
    osprey audit TARGET [OPTIONS]
 
+The reviewer runs on the deployment's configured provider
+(``claude_code.provider``), so an audit needs a built project: point it at one,
+or pass ``--build`` to build the profile first.
+
 ``--build`` — Build a profile in a temp directory, then audit the result.
 
-``--model TEXT`` — Model for the reviewer agent.
+``--model TEXT`` — Model for the reviewer agent. Defaults to the project's
+sonnet tier.
 
 ``--budget FLOAT`` — Maximum budget in USD.
 

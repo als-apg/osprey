@@ -220,29 +220,32 @@ def test_unknown_connector_is_refused_and_writes_nothing(runner, lifecycle_repo)
     assert _profile_text(lifecycle_repo) == before
 
 
-def test_epics_gateway_shorthand_writes_the_facility_addresses(runner, lifecycle_repo):
-    """`epics_gateway=als` expands to the facility's gateway addresses."""
-    result = _invoke(runner, lifecycle_repo, "epics_gateway=als")
+def test_the_retired_gateway_shorthand_is_refused_and_writes_nothing(runner, lifecycle_repo):
+    """`epics_gateway=` named a facility out of a table core no longer ships.
 
-    assert result.exit_code == 0, result.output
-    after = _profile_text(lifecycle_repo)
-    prefix = "control_system.connector.epics.gateways"
-    assert f"{prefix}.read_only.address: cagw-alsdmz.als.lbl.gov" in after
-    assert f"{prefix}.read_only.port: 5064" in after
-    assert f"{prefix}.write_access.port: 5084" in after
-    # Booleans survive the JSON→YAML round trip as booleans.
-    assert f"{prefix}.read_only.use_name_server: false" in after
-
-
-def test_unknown_facility_names_the_known_ones(runner, lifecycle_repo):
+    A refusal rather than a pass-through: the key is not a profile key, so
+    letting it land would write a line the next `osprey build` refuses, under
+    a name that reads like it did something.
+    """
     before = _profile_text(lifecycle_repo)
 
-    result = _invoke(runner, lifecycle_repo, "epics_gateway=nsls")
+    result = _invoke(runner, lifecycle_repo, "epics_gateway=als")
 
     assert result.exit_code != 0
-    assert "Unknown facility" in result.stderr
-    assert "als" in result.stderr
+    assert "epics_gateway" in result.stderr
+    # The refusal names the keys that do the job, spelled the way `set` takes them.
+    assert "control_system.connector.epics.gateways.read_only.address" in result.stderr
     assert _profile_text(lifecycle_repo) == before
+
+
+def test_no_facility_gateway_addresses_are_shipped():
+    """Core carries no table of named facilities' gateway hostnames."""
+    import osprey.templates as templates_pkg
+
+    # A stale ``__pycache__`` from a checkout that still had the table leaves the
+    # directory behind with no source in it; the guard is about shipped source.
+    data_dir = Path(templates_pkg.__file__).parent / "data"
+    assert not data_dir.exists() or not any(data_dir.rglob("*.py")), sorted(data_dir.rglob("*.py"))
 
 
 def test_tier_is_a_settable_key(runner, lifecycle_repo):
@@ -290,13 +293,13 @@ def test_recognized_and_config_prefixed_keys_are_never_called_out(runner, lifecy
     assert "Not a profile key" not in result.output
 
 
-def test_the_shorthands_are_expanded_before_the_key_is_judged(runner, lifecycle_repo):
-    """`epics_gateway` is a CLI-only spelling that never reaches the profile.
+def test_the_connector_shorthand_is_expanded_before_the_key_is_judged(runner, lifecycle_repo):
+    """`connector` is a CLI-only spelling that never reaches the profile.
 
     It is not a schema key, so judging the raw command line rather than the
     expansion would warn about the one key this command exists to expand.
     """
-    result = _invoke(runner, lifecycle_repo, "epics_gateway=als")
+    result = _invoke(runner, lifecycle_repo, "connector=virtual_accelerator")
 
     assert result.exit_code == 0, result.output
     assert "Not a profile key" not in result.output

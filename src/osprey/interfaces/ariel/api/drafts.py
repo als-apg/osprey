@@ -1,6 +1,6 @@
 """ARIEL Draft Entry API — filesystem-based draft store.
 
-Allows Claude Code (via MCP tool) to pre-fill the web form so a human
+Allows the agent (via MCP tool) to pre-fill the web form so a human
 can review, edit, and submit manually. Drafts are stored as JSON files
 in _agent_data/drafts/ and expire after 1 hour.
 """

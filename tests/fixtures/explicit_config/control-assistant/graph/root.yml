@@ -291,7 +291,7 @@ services:
     facility_name: ''
     path: ./services/event_dispatcher
     port: 10010
-    pv_strip_prefix: ''
+    channel_strip_prefix: ''
   graphdb:
     heap_initial_size: 512m
     heap_max_size: 1G

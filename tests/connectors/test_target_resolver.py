@@ -16,6 +16,7 @@ on hardware nobody selected.
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pytest
@@ -28,6 +29,7 @@ from osprey_connectors.types import (
     INVENTED_HISTORY_TYPES,
     LIVE_STANDIN,
     MOCK,
+    ONE_REAL_MACHINE,
     STANDIN_TYPES,
     TARGET_LIVE,
     TARGET_STANDIN,
@@ -221,6 +223,59 @@ def test_live_refuses_when_two_live_blocks_leave_it_ambiguous():
 
 
 @pytest.mark.unit
+@pytest.mark.parametrize(
+    "connector",
+    [
+        {"virtual_accelerator": {"timeout": 5.0}},
+        {"epics": {"address": "gw"}, "doocs": {"address": "gw"}},
+    ],
+    ids=["no-live-block", "two-live-blocks"],
+)
+def test_a_live_that_cannot_be_derived_names_the_one_real_machine_limit(connector: Any):
+    """Both halves of the refusal are the same topology: a deployment describes
+    one real machine, so nought and two are equally underivable. A deployer who
+    reads only the error still learns what the product's shape is."""
+    with pytest.raises(ValueError) as excinfo:
+        resolve_target(_section(VIRTUAL_ACCELERATOR, connector), TARGET_LIVE)
+
+    assert ONE_REAL_MACHINE in str(excinfo.value)
+
+
+@pytest.mark.unit
+def test_a_second_real_block_beside_a_real_baseline_is_reported(caplog: Any):
+    """A facility that writes a second real machine down gets no target for it:
+    the baseline is its own live type, so the connector table is never consulted.
+    Silence would leave that to be discovered by never being offered the machine."""
+    section = _section(EPICS, {"epics": {"address": "ring"}, DOOCS: {"address": "injector"}})
+
+    with caplog.at_level(logging.WARNING, logger="osprey_connectors.types"):
+        assert resolve_target(section, TARGET_LIVE) == EPICS
+
+    assert len(caplog.records) == 1
+    message = caplog.records[0].getMessage()
+    assert DOOCS in message
+    assert ONE_REAL_MACHINE in message
+
+
+@pytest.mark.unit
+def test_the_stand_in_and_the_simulator_are_not_a_second_real_machine(caplog: Any):
+    """The shape every stand-in deployment has, and it is within the limit."""
+    section = _section(
+        EPICS,
+        {
+            "epics": {"address": "gw"},
+            "virtual_accelerator": {"timeout": 5.0},
+            "live_standin": {"address": "127.0.0.1"},
+        },
+    )
+
+    with caplog.at_level(logging.WARNING, logger="osprey_connectors.types"):
+        assert resolve_target(section, TARGET_LIVE) == EPICS
+
+    assert caplog.records == []
+
+
+@pytest.mark.unit
 def test_live_never_falls_back_to_hardware_on_a_bare_config():
     """An empty config resolves to the mock baseline; live has to raise, not guess."""
     for section in ({}, None, _section(), _section(None)):
@@ -311,6 +366,7 @@ def test_an_unrecognized_target_raises_and_resolves_to_nothing(target: Any):
     assert TARGET_LIVE in message
     assert TARGET_VA in message
     assert TARGET_STANDIN in message
+    assert ONE_REAL_MACHINE in message
 
 
 # ---------------------------------------------------------------------------

@@ -61,12 +61,13 @@ Configuration
        path: ./services/qmd
        port: 10060     # host port clients talk to
        interval: 30    # fallback corpus-sweep period, seconds
+       first_index_grace: 3600   # seconds the health check waits out the first build
 
    deployed_services:
      - qmd
 
-Those three keys are the whole schema for a host that can reach the internet;
-a fourth, ``models_dir``, covers one that cannot (see `Building without
+Those four keys are the whole schema for a host that can reach the internet;
+a fifth, ``models_dir``, covers one that cannot (see `Building without
 egress`_). Notably **there is no ``bind_address`` here** --- see `Where the
 sidecar listens`_ below.
 
@@ -136,11 +137,13 @@ trees, and everything that *writes* them lives outside the container.
 
 The index itself lives in a named volume rather than a bind mount. It is
 derived data the sidecar owns end to end, it is large, and rebuilding it costs
-about **41 minutes** at ALS scale --- which is precisely why it must survive a
-container recreate. The service's health check allows a one-hour start period
-for the same reason: the sidecar refuses to open its port until the index is
-built and provably non-empty, and a container that is working correctly should
-not be reported unhealthy for most of its first hour.
+a full index build --- long on a large corpus --- which is precisely why it
+must survive a container recreate. The service's health check waits out that
+build for the same reason: the sidecar refuses to open its port until the index
+is built and provably non-empty, so until then a container that is working
+correctly would be reported unhealthy. ``first_index_grace`` is how long it
+waits, in seconds, and it defaults to an hour. Scale it with your corpus:
+shorter than the build and the first boot is reported as a failure.
 
 Sharing the knowledge bundle
 ----------------------------

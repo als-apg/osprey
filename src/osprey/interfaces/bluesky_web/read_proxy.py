@@ -14,6 +14,7 @@ bridge-owned field. This mirrors the read side of the bridge contract at
 - ``GET /bridge/health`` -> the bridge's ``GET /health``
 - ``GET /plans``
 - ``GET /plans/{name}/source``
+- ``GET /devices``
 - ``GET /runs`` (``limit`` query param)
 - ``GET /runs/{run_id}``
 - ``GET /runs/{run_id}/data`` (``max_rows``/``offset``/``tail`` query params)

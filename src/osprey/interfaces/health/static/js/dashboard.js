@@ -121,7 +121,7 @@ function buildCheckRow(ck) {
   const row = el("div", { class: "ck" });
   row.appendChild(el("span", { class: "led " + (LED_CLS[ck.status] || "led-sk") }));
   row.appendChild(
-    el("span", { class: "ck-nm" + (ck.status === "skip" ? " sk" : ""), text: fmtName(ck.name) }),
+    el("span", { class: "ck-nm" + (ck.status === "skip" ? " sk" : ""), text: fmtName(ck.name, ck.category) }),
   );
   if (ck.value) row.appendChild(el("span", { class: "ck-val", text: ck.value }));
 
@@ -132,7 +132,7 @@ function buildCheckRow(ck) {
   // value, fall back to its message so an informational row (e.g. the
   // restart-notice: name=control_system, no value/details, message IS the
   // payload) carries its text instead of dropping it. Value-bearing rows are
-  // untouched (ALS fidelity).
+  // untouched: a row that already shows a value keeps the value as its text.
   const extra = ck.details || (ck.value ? "" : ck.message);
   /** @type {HTMLElement | null} */
   let detail = null;

@@ -762,6 +762,32 @@ class TestCheckLitellmHealth:
         assert "placeholder" in msg
 
     @pytest.mark.unit
+    def test_missing_base_url_on_a_provider_that_has_no_default(self):
+        """A gateway provider with no endpoint is refused, not routed to OpenAI.
+
+        ``als-apg`` is openai-compatible, so litellm routes it as
+        ``openai/<model>`` and, with no ``api_base``, sends the call — carrying
+        the gateway's key — to api.openai.com. That comes back as an
+        authentication failure nowhere near its cause, so the endpoint is
+        checked the same way the key is.
+        """
+        assert check_litellm_health(
+            provider="als-apg",
+            api_key="sk-real",
+            base_url=None,
+            model_id="claude-haiku-4-5-20251001",
+        ) == (False, "Base URL required for als-apg")
+
+    @pytest.mark.unit
+    def test_unknown_provider_without_base_url_still_reaches_the_call(self):
+        """The guard reads the provider class, and an unknown name has none."""
+        with patch("litellm.completion") as mock_completion:
+            mock_completion.return_value = MagicMock()
+            assert check_litellm_health(
+                provider="not-a-provider", api_key="sk-real", base_url=None, model_id="m"
+            ) == (True, "API accessible and authenticated")
+
+    @pytest.mark.unit
     def test_missing_model_id(self):
         assert check_litellm_health(
             provider="openai", api_key="sk-real", base_url=None, model_id=None
@@ -776,14 +802,44 @@ class TestCheckLitellmHealth:
 
     @patch("litellm.completion")
     def test_ollama_healthy_without_api_key(self, mock_completion):
-        """ollama is exempt from the api-key guard, so a keyless health check
-        proceeds to the live call and the api_key is omitted from the kwargs."""
+        """A keyless adapter passes the guard and probes with the placeholder.
+
+        The exemption comes from the provider class's ``requires_api_key``,
+        not from ollama's name; the probe carries the ``EMPTY`` placeholder the
+        keyless adapters substitute by hand on the completion path.
+        """
         mock_completion.return_value = MagicMock()
         ok, msg = check_litellm_health(
             provider="ollama", api_key=None, base_url="http://localhost:11434", model_id="llama3.1"
         )
         assert (ok, msg) == (True, "API accessible and authenticated")
-        assert "api_key" not in mock_completion.call_args.kwargs
+        assert mock_completion.call_args.kwargs["api_key"] == "EMPTY"
+
+    @pytest.mark.unit
+    def test_a_registered_keyless_adapter_is_not_refused(self):
+        """Not a name list: any adapter declaring `requires_api_key = False`
+        gets the exemption, including a facility's own."""
+        from osprey.models.providers.litellm_adapter import _requires_api_key
+
+        class _Keyless:
+            requires_api_key = False
+
+        class _Registry:
+            def get_provider(self, name):
+                return _Keyless if name == "house-llm" else None
+
+        with patch(
+            "osprey.models.provider_registry.get_provider_registry", return_value=_Registry()
+        ):
+            assert _requires_api_key("house-llm") is False
+            # An unknown name keeps the old assumption: it needs a key.
+            assert _requires_api_key("who-knows") is True
+
+    @pytest.mark.unit
+    def test_a_key_requiring_adapter_still_fails_without_one(self):
+        assert check_litellm_health(
+            provider="anthropic", api_key=None, base_url=None, model_id="claude-haiku-4-5"
+        ) == (False, "API key not set")
 
     @patch("litellm.completion")
     def test_authentication_error_is_unhealthy(self, mock_completion):

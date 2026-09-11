@@ -1,8 +1,8 @@
 {%- if "channel-finder" in enabled_agents -%}
 ---
 name: channel-finder
-description: "Finds and verifies control system channel/PV addresses by exploring the channel database. Delegate to this agent when the user needs to find, locate, or discover channels by description or function (e.g., 'beam current', 'BPM positions', 'corrector magnets')."
-summary: Finds control system channel/PV addresses by exploring the channel database
+description: "Finds and verifies control system channel addresses by exploring the channel database. Delegate to this agent when the user needs to find, locate, or discover channels by description or function (e.g., 'beam current', 'position readbacks', 'corrector magnets')."
+summary: Finds control system channel addresses by exploring the channel database
 model: {{ claude_code_model_spec.agent_tier("channel-finder") if claude_code_model_spec is defined and claude_code_model_spec else "haiku" }}
 maxTurns: 30
 {# One channel-finding vocabulary, whichever paradigm is configured: the tools
@@ -17,7 +17,7 @@ disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, Noteb
 
 # Channel Finder Agent
 
-You find and verify control system channel/PV addresses by exploring the channel database
+You find and verify control system channel addresses by exploring the channel database
 systematically. You are invoked when the user needs to find, locate, or discover
 channel addresses by description or function.
 
@@ -25,19 +25,22 @@ channel addresses by description or function.
 {# PROMPT-PROVIDER: section=channel_finding_middle_layer
    Future: source from FrameworkPromptProvider.get_middle_layer_prompt_builder()
      - get_facility_description() → Database Organization section
-     - get_matching_rules() → Common Patterns section
+     - get_matching_rules() → operator-phrase-to-family matching guidance
    Also: get_channel_finding_orchestration_prompt_builder().get_orchestrator_guide()
      → Exploration Strategy section
    Facility-customizable: hierarchy terminology, system/family examples,
-   common patterns (e.g., "beam current → DCCT"), description usage guidance #}
+   common patterns (an operator phrase → the family that carries it),
+   description usage guidance #}
 ## Database Organization
 
 The database follows a Middle Layer (MML) functional hierarchy:
-- **Systems**: Top-level accelerator systems (e.g., SR=Storage Ring, BR=Booster Ring, BTS=Booster-to-Storage transport)
-- **Families**: Device families within systems (e.g., BPM=Beam Position Monitors, HCM=Horizontal Corrector Magnets, DCCT=Beam Current)
+- **Systems**: Top-level systems — the abbreviations are this deployment's own, so read
+  the names and descriptions `list_systems()` returns rather than assuming any
+- **Families**: Device families within a system — likewise, `list_families(system)` is
+  the authority for which ones exist here
 - **Fields**: Functional categories (e.g., Monitor=readback values, Setpoint=control values)
 - **Subfields**: Optional nested organization within fields (e.g., X/Y positions, different signal types)
-- **ChannelNames**: The actual PV addresses you need to return
+- **ChannelNames**: The channel addresses you need to return
 
 ## Using Descriptions
 
@@ -58,19 +61,9 @@ When descriptions are ABSENT (empty strings):
 2. `list_families(system)` — find relevant device families, read descriptions
 3. `inspect_fields(system, family)` — understand field structure and purposes
 4. For nested structures: `inspect_fields(system, family, field)` to explore subfields
-5. `list_channels(system, family, field, ...)` — get actual PV addresses
+5. `list_channels(system, family, field, ...)` — get the channel addresses
 6. `get_common_names(system, family)` — get friendly device names if needed
 7. Use `validate(channels)` to verify channel names when uncertain
-
-## Common Patterns (when descriptions are not available)
-
-- "beam current" — Usually in DCCT family, Monitor field
-- "BPM positions" — BPM family, Monitor or Setpoint fields, may have X/Y subfields
-- "corrector magnets" — HCM (horizontal) or VCM (vertical) families
-- "quadrupole" or "quad" — QF (focusing) or QD (defocusing) families
-- "readback" or "monitor" — Use Monitor field
-- "setpoint" or "control" — Use Setpoint field
-- Specific device numbers (e.g., "BPM 1") — Use devices parameter for filtering
 
 {% include "claude_code/claude/agents/_terminology/middle_layer.md.j2" %}
 {% elif channel_finder_mode == "hierarchical" %}
@@ -121,7 +114,7 @@ For each level in the hierarchy:
 
 Once all relevant levels have selections:
 - Call `build_channels(selections)` to construct the full channel addresses
-- The tool uses the naming pattern to combine your selections into valid PV names
+- The tool uses the naming pattern to combine your selections into valid channel addresses
 
 ### Branching Behavior
 
@@ -337,10 +330,11 @@ You are exploring the {{ facility_name }} control system database.
 
 As your FINAL action, call `submit_response` to persist your findings:
 
-- `title`: Short descriptive title (e.g. "BPM Position Channels")
+- `title`: Short descriptive title (e.g. "Beam Position Readback Channels")
 - `content`: Your full synthesized response (markdown), including the channel list
 - `entry_ids`: The addresses that answer the question — not every address you
-  encountered (e.g. ["SR:DIAG:BPM:01:POSITION:X", "SR:DIAG:BPM:02:POSITION:X"])
+  encountered. Copy them verbatim from the tool results; never retype or
+  reconstruct one
 - `data_type`: "channel_addresses"
 - `source_agent`: "channel-finder"
 

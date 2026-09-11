@@ -9,21 +9,42 @@ and to augment the child environment so *their* subprocesses can too.
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 from pathlib import Path
 
-# Well-known user-local bin directories, checked in order.
-_USER_BIN_CANDIDATES = [
-    Path.home() / ".local" / "bin",
-    Path.home() / ".cargo" / "bin",
-    Path("/usr/local/bin"),
-]
+#: Bin directories under the invoking user's home, relative to it.
+_HOME_RELATIVE_BINS = (Path(".local") / "bin", Path(".cargo") / "bin")
+
+#: Bin directories that exist independently of any account.
+_SYSTEM_BINS = (Path("/usr/local/bin"),)
+
+
+def _user_bin_candidates() -> list[Path]:
+    """Well-known user-local bin directories, in search order.
+
+    Built on call rather than at import, and tolerant of an account with no
+    home: a uid with no passwd entry and no ``HOME`` — ordinary under a
+    random-uid cluster policy — makes ``Path.home()`` raise, and doing that at
+    import turned a shorter PATH into an ImportError in every module that
+    imports this one at module scope. The same degrade-not-raise posture
+    :func:`osprey.utils.identity.resolve_identity` takes.
+
+    Returns:
+        The home-relative directories followed by the system ones, or only the
+        system ones when no home resolves.
+    """
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        return list(_SYSTEM_BINS)
+    return [home / relative for relative in _HOME_RELATIVE_BINS] + list(_SYSTEM_BINS)
 
 
 def user_bin_dirs() -> list[str]:
     """Return existing user-local bin directories not already on PATH."""
     current = set(os.environ.get("PATH", "").split(os.pathsep))
-    return [str(d) for d in _USER_BIN_CANDIDATES if d.is_dir() and str(d) not in current]
+    return [str(d) for d in _user_bin_candidates() if d.is_dir() and str(d) not in current]
 
 
 def resolve_shell_command(command: str) -> str:
@@ -47,8 +68,9 @@ def resolve_shell_command(command: str) -> str:
             return command
         raise FileNotFoundError(
             f"{command!r} does not exist or is not executable. "
-            f"Check the path or set web_terminal.shell under `config:` in "
-            f"profile.yml and run `osprey build`."
+            f"Check the path, or set web_terminal.shell under `config:` in "
+            f"profile.yml — a command name, an absolute path, or an argv list "
+            f"whose first element is one of those — and run `osprey build`."
         )
 
     # Normal PATH lookup.
@@ -66,7 +88,54 @@ def resolve_shell_command(command: str) -> str:
 
     raise FileNotFoundError(
         f"{command!r} not found on PATH or in common install locations "
-        f"({', '.join(str(d) for d in _USER_BIN_CANDIDATES)}). "
-        f"Install it, or set web_terminal.shell to an absolute path under "
-        f"`config:` in profile.yml and run `osprey build`."
+        f"({', '.join(str(d) for d in _user_bin_candidates())}). "
+        f"Install it, or set web_terminal.shell under `config:` in profile.yml "
+        f"to an absolute path — or to an argv list starting with one — and run "
+        f"`osprey build`."
     )
+
+
+def normalize_shell_command(value: str | list[str]) -> list[str]:
+    """Normalize a configured shell command into argv, resolving only argv[0].
+
+    ``web_terminal.shell`` is argv, and it may be written either way: a single
+    string (``"claude"``, ``"/opt/harness/run --profile ops"``, quoting
+    honoured by :func:`shlex.split`) or a YAML list
+    (``["/opt/harness/run", "--profile", "ops"]``). Both reach the PTY as the
+    same argv, so a facility whose harness needs arguments no longer has to
+    hide them in a wrapper script.
+
+    Only the first element is resolved to an absolute path — the arguments are
+    the harness's own and are passed through untouched.
+
+    Args:
+        value: The configured command, as a string or an argv list.
+
+    Returns:
+        argv with an absolute executable at index 0.
+
+    Raises:
+        FileNotFoundError: If argv[0] cannot be found (see
+            :func:`resolve_shell_command`).
+        ValueError: If *value* is neither a string nor a list, is empty, or
+            parses to no words at all.
+    """
+    # YAML admits shapes the key does not — a bare number, a mapping, a `shell:`
+    # written with no value at all. Each names the key, like the empty case
+    # below; the alternative is whatever shlex.split raises on a non-string.
+    if isinstance(value, list):
+        parts = [str(part) for part in value]
+    elif isinstance(value, str):
+        parts = shlex.split(value)
+    else:
+        raise ValueError(
+            f"web_terminal.shell must be a command string or an argv list, not "
+            f"{type(value).__name__}. Set it to a command, an absolute path, or "
+            f"an argv list, or remove the key to use the default launcher."
+        )
+    if not parts:
+        raise ValueError(
+            "web_terminal.shell is empty. Set it to a command, an absolute path, "
+            "or an argv list, or remove the key to use the default launcher."
+        )
+    return [resolve_shell_command(parts[0]), *parts[1:]]

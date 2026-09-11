@@ -75,18 +75,27 @@ import pytest
 # is LBLnet-gated and would 403 off-VPN. Values mirror osprey's own resolver
 # (CLAUDE_CODE_PROVIDERS in osprey.cli.claude_code_resolver).
 # --------------------------------------------------------------------------
+# Each entry is (key variable, endpoint variable or literal URL, model). An
+# entry whose endpoint names a variable is skipped when that variable is unset:
+# als-apg fronts a site's own gateway and has no endpoint to default to.
 _PROVIDERS = [
-    ("ALS_APG_API_KEY", "https://llm.gianlucamartino.com", "claude-haiku-4-5-20251001"),
-    ("CBORG_API_KEY", "https://api.cborg.lbl.gov", "claude-haiku-4-5"),
+    ("ALS_APG_API_KEY", ("env", "ALS_APG_BASE_URL"), "claude-haiku-4-5-20251001"),
+    ("CBORG_API_KEY", ("url", "https://api.cborg.lbl.gov"), "claude-haiku-4-5"),
     ("ANTHROPIC_API_KEY", None, "claude-haiku-4-5-20251001"),
 ]
 
 
 def _select_provider() -> tuple[str, str | None, str] | None:
-    """Return (secret, base_url, model) for the first provider with a key."""
-    for env_var, base_url, model in _PROVIDERS:
+    """Return (secret, base_url, model) for the first usable provider."""
+    for env_var, endpoint, model in _PROVIDERS:
         secret = os.environ.get(env_var)
-        if secret and "${" not in secret:
+        if not secret or "${" in secret:
+            continue
+        if endpoint is None:
+            return secret, None, model
+        kind, value = endpoint
+        base_url = os.environ.get(value) if kind == "env" else value
+        if base_url:
             return secret, base_url, model
     return None
 

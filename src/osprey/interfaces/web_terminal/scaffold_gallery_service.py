@@ -353,6 +353,7 @@ class ScaffoldGalleryService:
         if self._ownership.mode is not OwnershipMode.DEGRADED:
             return
         from osprey.cli.scaffold_cmd import OWNERSHIP_LIVES_IN_THE_PROFILE, ScaffoldClaimError
+        from osprey.interfaces.web_terminal.ownership import NO_DURABLE_STORE
 
         raise ScaffoldClaimError(
             f"{self.project_dir} was built from a profile, and that profile cannot be "
@@ -360,7 +361,8 @@ class ScaffoldGalleryService:
             f"{OWNERSHIP_LIVES_IN_THE_PROFILE}\n\n"
             "  Restore the profile this project names — its manifest records the path as\n"
             "  build_args.profile_path_abs — or rebuild from the profile you want to own\n"
-            "  this artifact, and try again."
+            "  this artifact, and try again.\n\n"
+            f"  {NO_DURABLE_STORE}"
         )
 
     def _write_body(self, output_path: str, content: str, name: str | None = None) -> bool:

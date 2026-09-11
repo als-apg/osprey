@@ -49,7 +49,7 @@ def _dispatch(**overrides: object) -> DispatchConfig:
         "worker_port_base": 9190,
         "timeout_sec": 300,
         "facility_name": "ALS",
-        "pv_strip_prefix": "ALS:",
+        "channel_strip_prefix": "ALS:",
     }
     base.update(overrides)
     return DispatchConfig(**base)  # type: ignore[arg-type]
@@ -81,7 +81,7 @@ def test_inject_dispatch_bundled_triggers(tmp_path: Path) -> None:
     ed = config["services"]["event_dispatcher"]
     assert ed["port"] == 8020
     assert ed["facility_name"] == "ALS"
-    assert ed["pv_strip_prefix"] == "ALS:"
+    assert ed["channel_strip_prefix"] == "ALS:"
     assert ed["path"] == "./services/event_dispatcher"
     # No pinned image: the service builds the project's local image (the compose
     # template defaults to ``<project>-dispatch:local`` + a ``build:`` section).
@@ -155,6 +155,25 @@ def test_inject_dispatch_propagates_inactivity_sec(tmp_path: Path) -> None:
 
     dw = _read_config(project_path)["services"]["dispatch_worker"]
     assert dw["inactivity_sec"] == 45
+
+
+def test_inject_dispatch_propagates_max_turns(tmp_path: Path) -> None:
+    """A dispatch.max_turns lands in services.dispatch_worker so the compose
+    template can render DISPATCH_MAX_TURNS beside the two clock budgets."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    profile_dir = tmp_path / "profile"  # empty — forces bundled resolution
+    profile_dir.mkdir()
+    _write_config(project_path)
+
+    _inject_dispatch(
+        _dispatch(max_turns=60),
+        profile_dir=profile_dir,
+        project_path=project_path,
+    )
+
+    dw = _read_config(project_path)["services"]["dispatch_worker"]
+    assert dw["max_turns"] == 60
 
 
 def test_inject_dispatch_propagates_pool_limits(tmp_path: Path) -> None:
@@ -239,3 +258,44 @@ def test_inject_dispatch_omits_the_stride_on_the_compose_bridge(tmp_path: Path) 
 
     dw = _read_config(project_path)["services"]["dispatch_worker"]
     assert "worker_port_stride" not in dw
+
+
+def test_inject_dispatch_writes_the_env_axis_into_both_halves(tmp_path: Path) -> None:
+    """One profile knob, both service blocks.
+
+    The pair is two containers of one feature: a name the dispatcher is handed
+    and the worker is not would let a trigger see a value the run acting on it
+    cannot reach. That is why the axis is declared once, on ``dispatch:``, and
+    why authoring it on either half is refused.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    _write_config(project_path)
+
+    _inject_dispatch(
+        _dispatch(env=["EPICS_CA_ADDR_LIST", "EPICS_CA_NAME_SERVERS"]),
+        profile_dir=profile_dir,
+        project_path=project_path,
+    )
+
+    services = _read_config(project_path)["services"]
+    names = ["EPICS_CA_ADDR_LIST", "EPICS_CA_NAME_SERVERS"]
+    assert list(services["event_dispatcher"]["env"]) == names
+    assert list(services["dispatch_worker"]["env"]) == names
+
+
+def test_inject_dispatch_omits_the_env_axis_when_nothing_is_declared(tmp_path: Path) -> None:
+    """An undeclared axis writes no key, so config.yml is what it always was."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    _write_config(project_path)
+
+    _inject_dispatch(_dispatch(), profile_dir=profile_dir, project_path=project_path)
+
+    services = _read_config(project_path)["services"]
+    assert "env" not in services["event_dispatcher"]
+    assert "env" not in services["dispatch_worker"]

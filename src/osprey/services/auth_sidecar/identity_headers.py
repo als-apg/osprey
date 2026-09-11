@@ -155,8 +155,8 @@ CASE_INSENSITIVE_CLAIMS: frozenset[str] = frozenset({"email"})
 ``email`` is the one claim OpenID Connect defines as an RFC 5322 address, and
 an address is the same mailbox in any case: the domain by RFC 5321, the local
 part by every mail provider in practice — the same person is
-``THellert@lbl.gov`` in a directory and ``thellert@lbl.gov`` in daily use, and
-a provider releases whichever spelling it stores. A byte-exact match would
+``Alice@example.org`` in a directory and ``alice@example.org`` in daily use,
+and a provider releases whichever spelling it stores. A byte-exact match would
 couple a roster to that cosmetic choice, refusing every login with a 403 that
 names nothing an operator can see in the config.
 
@@ -216,12 +216,13 @@ def same_domain(identity: str, domain: str) -> bool:
     5321 leaves its interpretation to the destination host, so ``Alice`` and
     ``alice`` are the same person only if that host says so.
 
-    The match is exact, never by suffix. ``lbl.gov`` admits ``alice@lbl.gov``
-    and refuses ``alice@als.lbl.gov``: a rule that admitted subdomains would
-    hand every host under a domain the grant its operator wrote for one, and a
-    subdomain is often delegated to someone else entirely. A trailing dot is a
-    different string and so is a different domain here; the resolver refuses
-    it at author time, so it never reaches this comparator.
+    The match is exact, never by suffix. ``example.org`` admits
+    ``alice@example.org`` and refuses ``alice@sub.example.org``: a rule that
+    admitted subdomains would hand every host under a domain the grant its
+    operator wrote for one, and a subdomain is often delegated to someone else
+    entirely. A trailing dot is a different string and so is a different domain
+    here; the resolver refuses it at author time, so it never reaches this
+    comparator.
 
     Both sides are folded with :data:`_ASCII_LOWER` rather than
     ``str.lower()``, which is what keeps this comparator in step with the fold

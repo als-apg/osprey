@@ -10,14 +10,24 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from watchdog.events import FileCreatedEvent, FileModifiedEvent
+from watchdog.events import (
+    DirDeletedEvent,
+    DirModifiedEvent,
+    FileCreatedEvent,
+    FileModifiedEvent,
+)
+from watchdog.observers.polling import PollingObserver
 
 from osprey.interfaces.web_terminal.file_watcher import (
     FileEventBroadcaster,
     WorkspaceWatcher,
     _WorkspaceHandler,
 )
-from tests.interfaces.fsevents_wait import collect_frames
+from tests.interfaces.fsevents_wait import (
+    collect_frames,
+    polled_frames,
+    wait_for_polling_baseline,
+)
 
 #: Tighter than the unit lane's 600 s cap, because this file is the one that
 #: has actually hung: ``test_start_creates_directory_if_missing`` sat inside
@@ -31,6 +41,15 @@ from tests.interfaces.fsevents_wait import collect_frames
 #: A timeout failure is ``Failed``, not ``AssertionError``, so a
 #: ``flaky(only_rerun=["AssertionError"])`` marker would not rerun it.
 pytestmark = pytest.mark.timeout(60)
+
+
+def _polling_observer() -> PollingObserver:
+    """A polling observer that re-reads its watch several times a second.
+
+    watchdog's default polling interval is a second, which is four wasted
+    seconds in a test that only needs the emitter to look again.
+    """
+    return PollingObserver(timeout=0.05)
 
 
 class TestFileEventBroadcaster:
@@ -97,7 +116,62 @@ class TestWorkspaceWatcher:
         # Should not raise on double stop
         watcher.stop()
 
+    def test_the_observer_backend_is_injectable(self, tmp_path):
+        """The seam every routing test below stands on.
+
+        Without it a test can only ask the platform's own notification stream
+        for a change and hope it was listening.
+        """
+        built = []
+
+        def factory() -> PollingObserver:
+            observer = _polling_observer()
+            built.append(observer)
+            return observer
+
+        watcher = WorkspaceWatcher(tmp_path, FileEventBroadcaster(), observer_factory=factory)
+        watcher.start()
+        try:
+            assert built == [watcher._observer]
+        finally:
+            watcher.stop()
+
     def test_detects_file_creation(self, tmp_path):
+        """Routing: a file that appears reaches the panel as ``created``.
+
+        On a polling observer, because the subject is what the handler does
+        with the change rather than whether a notification stream happened to
+        be carrying it. Polling re-reads the directory on every interval, so
+        the frame is decided by what is on disk — no arming window, no
+        coalescing, and nothing to re-apply. The live backend keeps its own
+        test below.
+        """
+        broadcaster = FileEventBroadcaster()
+        q = broadcaster.subscribe()
+        watcher = WorkspaceWatcher(tmp_path, broadcaster, observer_factory=_polling_observer)
+        watcher.start()
+
+        try:
+            wait_for_polling_baseline(watcher._observer)
+            (tmp_path / "new_file.txt").write_text("hello")
+
+            # Same requirement as the live test below: a ``created`` frame, not
+            # merely a frame naming the path.
+            frames = polled_frames(q, until="new_file.txt", until_type="created", budget=30)
+
+            assert {"created"} <= {
+                frame["type"] for frame in frames if frame["path"] == "new_file.txt"
+            }, f"no created frame for new_file.txt among {frames}"
+        finally:
+            watcher.stop()
+
+    def test_a_file_created_under_the_live_backend_reaches_the_panel(self, tmp_path):
+        """The one test here that runs the observer a deployment runs.
+
+        Everything above about routing is settled on a polling observer, which
+        cannot say whether the platform's own notification stream reaches the
+        handler at all. This one does, and only that.
+        """
         broadcaster = FileEventBroadcaster()
         q = broadcaster.subscribe()
         watcher = WorkspaceWatcher(tmp_path, broadcaster)
@@ -530,3 +604,209 @@ class TestBarItemVocabulary:
 
         assert items["logo"]["options"] == {}
         assert items["separator"]["options"] == {}
+
+
+class TestACoalescedDirectoryFrame:
+    """A directory-modified frame names the directory, not the file.
+
+    macOS FSEvents coalesces: a burst of writes inside a directory can reach
+    watchdog as one ``modified`` event on the directory itself, with no
+    per-file event behind it. Forwarded as-is that frame says a directory
+    changed and nothing about what is in it, so a file panel showing that
+    directory never learns the new file exists. The handler lists the
+    directory one level deep instead and broadcasts what actually differs.
+    """
+
+    def _handler(self, root: Path, broadcaster: MagicMock, **kwargs) -> _WorkspaceHandler:
+        handler = _WorkspaceHandler(root, broadcaster, **kwargs)
+        # The 100 ms debounce keys on the path, and these tests deliver two
+        # frames for the same directory back to back on purpose.
+        handler._debounce_seconds = 0
+        return handler
+
+    def _events(self, broadcaster: MagicMock) -> list[dict]:
+        return [call.args[0] for call in broadcaster.broadcast.call_args_list]
+
+    def test_the_first_frame_announces_what_the_directory_holds(self, tmp_path):
+        """Nothing to diff against yet, so the frame is read as "resync this
+        directory": its one level of contents is announced rather than dropped."""
+        (tmp_path / "already_here.txt").write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+
+        assert {"type": "created", "path": "already_here.txt", "is_dir": False} in self._events(
+            broadcaster
+        )
+
+    def test_a_file_added_between_two_frames_is_announced_created(self, tmp_path):
+        (tmp_path / "already_here.txt").write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+        broadcaster.reset_mock()
+
+        (tmp_path / "new_file.txt").write_text("world")
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+
+        events = self._events(broadcaster)
+        assert {"type": "created", "path": "new_file.txt", "is_dir": False} in events
+        assert [e for e in events if e["path"] == "already_here.txt"] == [], (
+            "an unchanged file was re-announced: the frame is diffed against the "
+            "last listing, not replayed"
+        )
+
+    def test_a_file_removed_between_two_frames_is_announced_deleted(self, tmp_path):
+        victim = tmp_path / "gone.txt"
+        victim.write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+        broadcaster.reset_mock()
+
+        victim.unlink()
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+
+        assert {"type": "deleted", "path": "gone.txt", "is_dir": False} in self._events(broadcaster)
+
+    def test_a_subdirectory_that_appears_is_announced_as_one(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+        broadcaster.reset_mock()
+
+        (tmp_path / "sub").mkdir()
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+
+        assert {"type": "created", "path": "sub", "is_dir": True} in self._events(broadcaster)
+
+    def test_the_rescan_stops_at_one_level(self, tmp_path):
+        """Bounded: the frame names one directory, so one directory is listed."""
+        nested = tmp_path / "sub"
+        nested.mkdir()
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+        broadcaster.reset_mock()
+
+        (nested / "deep.txt").write_text("hello")
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+
+        assert [e for e in self._events(broadcaster) if "deep.txt" in e["path"]] == []
+
+    def test_ignored_children_stay_ignored(self, tmp_path):
+        """The rescan is not a way around the ignore list."""
+        (tmp_path / "__pycache__").mkdir()
+        (tmp_path / "module.pyc").write_bytes(b"\x00")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+
+        assert self._events(broadcaster) == []
+
+    def test_concealed_children_stay_concealed(self, tmp_path):
+        """Nor around concealment: a store the tree happens to contain is a
+        store however its change was delivered."""
+        (tmp_path / "feedback").mkdir()
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster, concealed=(PurePath("feedback"),))
+
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+
+        assert self._events(broadcaster) == []
+
+    def test_a_frame_for_a_vanished_directory_is_survivable(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        handler.on_any_event(DirModifiedEvent(str(tmp_path / "never_existed")))
+
+        assert self._events(broadcaster) == []
+
+    def test_a_child_its_own_event_announced_is_not_announced_again(self, tmp_path):
+        """A write delivers both a per-file event and a frame for the parent —
+        the ordinary inotify pair — and the two describe one change. The child's
+        debounce slot is shared between the two paths, so whichever arrives
+        first is the one that speaks."""
+        child = tmp_path / "note.txt"
+        child.write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))  # a listing to diff against
+        broadcaster.reset_mock()
+        # Nothing has been announced recently any more, and the window is the
+        # shipped one: the two events below are a genuine pair, not a repeat.
+        handler._last_event.clear()
+        handler._debounce_seconds = 0.1
+
+        child.write_text("world")
+        handler.on_any_event(FileModifiedEvent(str(child)))
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+
+        assert self._events(broadcaster) == [
+            {"type": "modified", "path": "note.txt", "is_dir": False}
+        ]
+
+    def test_the_listing_of_a_directory_that_is_gone_is_dropped(self, tmp_path):
+        """One entry per directory that still exists: a tree that churns must
+        not grow the map for the life of the watcher."""
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "note.txt").write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(sub)))
+        assert str(sub) in handler._listings
+        broadcaster.reset_mock()
+
+        (sub / "note.txt").unlink()
+        sub.rmdir()
+        handler.on_any_event(DirModifiedEvent(str(sub)))
+
+        assert {"type": "deleted", "path": str(Path("sub") / "note.txt"), "is_dir": False} in (
+            self._events(broadcaster)
+        ), "what the directory held is still announced as deleted"
+        assert str(sub) not in handler._listings
+
+    def test_a_deleted_directory_drops_its_listing(self, tmp_path):
+        """A directory removed the ordinary way is announced by a deletion and
+        by nothing else — no later frame arrives to evict its listing."""
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "note.txt").write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(sub)))
+        assert str(sub) in handler._listings
+
+        (sub / "note.txt").unlink()
+        sub.rmdir()
+        handler.on_any_event(DirDeletedEvent(str(sub)))
+
+        assert str(sub) not in handler._listings
+
+    def test_a_frame_inside_the_debounce_window_still_announces_what_it_carries(self, tmp_path):
+        """The frames arrive as fast as the writes that produce them.
+
+        A coalesced frame is the whole report of the change — no per-file event
+        stands behind it — so a directory frame dropped by a path debounce is a
+        change lost outright rather than a duplicate suppressed. The listing
+        diff is what keeps a repeat frame silent, so the frame does not need a
+        time window as well, and the children it announces still claim theirs.
+        """
+        broadcaster = MagicMock()
+        handler = _WorkspaceHandler(tmp_path, broadcaster)
+        # Both frames below land inside one window by construction, rather than
+        # by being fast enough on the day.
+        handler._debounce_seconds = 30.0
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+        broadcaster.reset_mock()
+
+        (tmp_path / "new_file.txt").write_text("world")
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+
+        assert {"type": "created", "path": "new_file.txt", "is_dir": False} in self._events(
+            broadcaster
+        )

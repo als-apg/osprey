@@ -156,8 +156,10 @@ describe('renderPlotly', () => {
     // mapping, but element-identical for figures with no themed markers).
     expect(traces).toEqual(figData.data);
 
-    // Theme-independent shape: fixed font family/size, fixed margin, autosize on.
-    expect(layout.font.family).toBe('JetBrains Mono, monospace');
+    // Theme-independent shape: fixed font size, fixed margin, autosize on. The
+    // family comes from --font-mono; this unstyled DOM has no tokens.css, so
+    // the shipped fallback is what renders (see the token case below).
+    expect(layout.font.family).toBe("'JetBrains Mono', monospace");
     expect(layout.font.size).toBe(10);
     expect(layout.margin).toEqual({ l: 45, r: 15, t: 30, b: 35 });
     expect(layout.autosize).toBe(true);
@@ -177,6 +179,17 @@ describe('renderPlotly', () => {
       modeBarButtonsToRemove: ['select2d', 'lasso2d', 'autoScale2d'],
       displaylogo: false,
     });
+  });
+
+  test('the figure font follows the design-system --font-mono token', () => {
+    document.documentElement.style.setProperty('--font-mono', "'Iosevka', monospace");
+    try {
+      renderPlotly('optics', { data: [], layout: {} });
+      const [, , layout] = Plotly.react.mock.calls[0];
+      expect(layout.font.family).toBe("'Iosevka', monospace");
+    } finally {
+      document.documentElement.style.removeProperty('--font-mono');
+    }
   });
 
   test("a trace tagged meta='themed-fg-marker' gets its marker color set from the theme", () => {

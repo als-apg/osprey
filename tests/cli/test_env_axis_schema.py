@@ -262,12 +262,12 @@ def test_the_axis_does_not_claim_the_profile_level_env_block(tmp_path: Path) -> 
     profile.validate(tmp_path)
 
 
-# --- the dispatch pair carries no env of its own --------------------------
+# --- the pair declares its env once, on the dispatch block ----------------
 
 
 @pytest.mark.parametrize("half", ["event_dispatcher", "dispatch_worker"])
 def test_per_half_env_in_services_block_is_rejected(tmp_path: Path, half: str) -> None:
-    """Either half authoring its own `env:` fails, naming the env chain instead."""
+    """Either half authoring its own `env:` fails, naming `dispatch.env` instead."""
     profile = _profile(
         services={half: {"template": f"osprey.{half}", "config": {"env": ["EPICS_CA_ADDR_LIST"]}}}
     )
@@ -276,8 +276,7 @@ def test_per_half_env_in_services_block_is_rejected(tmp_path: Path, half: str) -
         f"services.{half}.env is not a per-service knob: the dispatch: block rewrites "
         f"the event dispatcher's and the workers' service config, so services.{half}.env "
         f"would be dropped before it reached a container (got ['EPICS_CA_ADDR_LIST']). "
-        f"Both halves already read the project's env chain — put the variable in .env "
-        f"and declare it under env.required instead."
+        f"Remove services.{half}.env and set dispatch.env instead — it reaches both halves."
     )
 
 
@@ -287,7 +286,27 @@ def test_per_half_env_in_config_overrides_is_rejected(tmp_path: Path, half: str)
     profile = _profile(config={f"services.{half}.env": ["EPICS_CA_ADDR_LIST"]})
     (message,) = _env_errors(profile, tmp_path)
     assert message.startswith(f"services.{half}.env is not a per-service knob")
-    assert "env.required" in message
+    assert "dispatch.env" in message
+
+
+def test_dispatch_env_names_the_axis_for_both_halves(tmp_path: Path) -> None:
+    """The pair's own spelling: one list, valid, and it validates clean.
+
+    This is what the per-half refusal above points at, so a rename that broke
+    it would leave that refusal recommending a key that does not exist.
+    """
+    profile = _profile(dispatch={"triggers": "t.yml", "env": ["EPICS_CA_ADDR_LIST"]})
+    assert profile.dispatch is not None
+    assert profile.dispatch.env == ["EPICS_CA_ADDR_LIST"]
+    assert _env_errors(profile, tmp_path) == []
+
+
+def test_a_malformed_dispatch_env_is_reported_against_its_own_key(tmp_path: Path) -> None:
+    """Held to the same name rule as every other declaration, and named as
+    `dispatch.env` — the key the author actually wrote."""
+    profile = _profile(dispatch={"triggers": "t.yml", "env": ["EPICS_CA_ADDR_LIST", "not a name"]})
+    (message,) = _env_errors(profile, tmp_path)
+    assert message.startswith("dispatch.env[1] must be an environment variable name")
 
 
 def test_per_half_env_is_rejected_with_no_dispatch_block(tmp_path: Path) -> None:

@@ -63,12 +63,6 @@
 {%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/data/**)"') -%}
 {%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/plots/**)"') -%}
 {%- set _ = allow_entries.append('"Read(' ~ agent_data_root ~ '/results/**)"') -%}
-{%- if textbooks_root -%}
-{%- set _ = allow_entries.append('"Read(' ~ textbooks_root ~ '/**)"') -%}
-{%- endif -%}
-{%- if textbooks_root_tilde -%}
-{%- set _ = allow_entries.append('"Read(' ~ textbooks_root_tilde ~ '/**)"') -%}
-{%- endif -%}
 {#- Per-server tool permissions -#}
 {%- for s in servers if s.enabled -%}
 {%- for tool in s.permissions_allow -%}

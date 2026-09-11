@@ -1,4 +1,8 @@
-"""Trigger configuration dataclasses and YAML loader for the event dispatcher."""
+"""Trigger configuration dataclasses and YAML loader for the event dispatcher.
+
+The pool limits are re-exported from :mod:`osprey.dispatch_pool_defaults`, the
+stdlib-only leaf the build profile reads them from as well.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
+
+from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
+
+__all__ = [
+    "DEFAULT_MAX_CONCURRENT_RUNS",
+    "DEFAULT_MAX_QUEUE_DEPTH",
+    "DispatcherConfig",
+    "TriggerConfig",
+    "load_triggers",
+]
 
 _DEFAULT_ON_ERROR: dict[str, Any] = {
     "action": "drop",
@@ -31,6 +45,9 @@ class TriggerConfig:
         surface_prompt: Optional free-text fragment appended to the agent's
             system prompt at run time. ``None`` when ``action.surface_prompt``
             is absent.
+        max_turns: Optional per-trigger ceiling on agentic turns. ``None`` when
+            ``action.max_turns`` is absent, in which case the worker applies
+            the deployment's own ``dispatch.max_turns``.
     """
 
     name: str
@@ -40,13 +57,14 @@ class TriggerConfig:
     source_config: dict[str, Any] = field(default_factory=dict)
     surface: str | None = None
     surface_prompt: str | None = None
+    max_turns: int | None = None
 
 
 @dataclass
 class DispatcherConfig:
     dispatch_target: str
-    max_concurrent_runs: int = 5
-    max_queue_depth: int = 100
+    max_concurrent_runs: int = DEFAULT_MAX_CONCURRENT_RUNS
+    max_queue_depth: int = DEFAULT_MAX_QUEUE_DEPTH
 
 
 def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
@@ -70,6 +88,18 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
     if surface_prompt is not None and not isinstance(surface_prompt, str):
         raise ValueError(f"Trigger '{name}' field 'action.surface_prompt' must be a string")
 
+    # The worker refuses an unusable ceiling with a 422 at dispatch time, which
+    # is the moment an event fires — long after this file was authored — so the
+    # value is typed here, where the author is still looking at it. ``bool`` is
+    # an ``int`` subclass, so ``max_turns: true`` would otherwise mean one turn.
+    max_turns = action.get("max_turns")
+    if max_turns is not None and (
+        isinstance(max_turns, bool) or not isinstance(max_turns, int) or max_turns < 1
+    ):
+        raise ValueError(
+            f"Trigger '{name}' field 'action.max_turns' must be an integer >= 1 (got {max_turns!r})"
+        )
+
     on_error_raw = raw.get("on_error")
     if on_error_raw is None:
         on_error = dict(_DEFAULT_ON_ERROR)
@@ -90,6 +120,7 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
         source_config=source_config,
         surface=surface,
         surface_prompt=surface_prompt,
+        max_turns=max_turns,
     )
 
 
@@ -109,8 +140,8 @@ def load_triggers(path: str) -> tuple[DispatcherConfig, list[TriggerConfig]]:
     dispatcher_raw = doc.get("dispatcher", {})
     dispatcher_cfg = DispatcherConfig(
         dispatch_target=dispatcher_raw.get("dispatch_target", ""),
-        max_concurrent_runs=dispatcher_raw.get("max_concurrent_runs", 5),
-        max_queue_depth=dispatcher_raw.get("max_queue_depth", 100),
+        max_concurrent_runs=dispatcher_raw.get("max_concurrent_runs", DEFAULT_MAX_CONCURRENT_RUNS),
+        max_queue_depth=dispatcher_raw.get("max_queue_depth", DEFAULT_MAX_QUEUE_DEPTH),
     )
 
     raw_triggers = doc.get("triggers") or []

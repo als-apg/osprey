@@ -16,7 +16,9 @@
 # Running the image with `--user` skips the three startup steps and says so in
 # the log rather than failing halfway through.
 #
-# Build args:
+# Build args. `osprey up` passes the site-specific ones from `config.yml` —
+# the top-level `offline` key and the `images.*` block — so a hand-run
+# `docker build` is the only place they are typed out by hand:
 #   OSPREY_PIP_SPEC     pip requirement for OSPREY (default: PyPI release;
 #                       override with a git+https URL or ==version to pin an
 #                       unreleased build). The deps layer primes this spec with
@@ -33,6 +35,12 @@
 #                       — an unpinned upstream release could silently change
 #                       agent behavior between image builds.
 #   PIP_NO_PROXY        hosts exempted from any proxy during pip install
+#   PIP_INDEX_URL       package index the deps layer resolves from, for sites
+#                       that mirror PyPI internally. It is pip's own environment
+#                       name, so the declared ARG reaches pip directly; empty
+#                       (the default) is dropped by pip, which resolves from
+#                       PyPI.
+#   PIP_EXTRA_INDEX_URL a second index consulted after the first, same handling.
 #   OSPREY_OFFLINE      "1" vendors web assets into the image (air-gapped hosts)
 #   OSPREY_SITE_CA      name of a site CA file staged in the build context, for
 #                       networks where a proxy re-signs TLS with its own CA.
@@ -43,6 +51,8 @@ ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
 ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
 ARG PIP_NO_PROXY=""
+ARG PIP_INDEX_URL=""
+ARG PIP_EXTRA_INDEX_URL=""
 ARG OSPREY_OFFLINE="0"
 ARG OSPREY_SITE_CA=""
 
@@ -152,6 +162,14 @@ COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # reaches pip's isolated build environments, where a plain requirement pin
 # would not. Drop the constraint once a fixed setuptools or setuptools_dso
 # release is out.
+#
+# The two index ARGs need no plumbing of their own: Docker hands every declared
+# ARG to this RUN as an environment variable, and PIP_INDEX_URL /
+# PIP_EXTRA_INDEX_URL are pip's own environment names, so declaring them is
+# what delivers them. An axis the site did not set arrives as the empty string,
+# which pip discards along with every other empty configuration value before it
+# parses one, so an unconfigured build resolves from PyPI exactly as it did
+# before these args existed.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
     export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
     && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \

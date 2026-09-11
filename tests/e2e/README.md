@@ -252,7 +252,7 @@ als-apg/haiku in 2026-04 — if the model or provider changes, re-tune
 E2E tests require API access. Set the appropriate environment variable:
 
 ```bash
-# For ALS-APG (CI default — AWS Bedrock proxy reachable from anywhere)
+# For ALS-APG (CI default — the ALS-APG gateway, reachable from anywhere)
 export ALS_APG_API_KEY="your-key"
 
 # For CBORG (local dev only — IP allowlist blocks GitHub Actions runners)
@@ -261,6 +261,21 @@ export CBORG_API_KEY="your-key"
 # Or for Anthropic
 export ANTHROPIC_API_KEY="your-key"
 ```
+
+### Which provider the build-and-run lanes use
+
+The lanes that `osprey init` a real deployment repo and run an agent against it
+(`test_claude_code_build_integration.py`, `test_dispatch_tutorial.py`,
+`test_dispatch_allowlist_parity.py`, `test_dispatch_overlay_visibility.py`)
+build with one provider. It is named in one place — `OSPREY_E2E_PROVIDER`,
+defaulting to the gateway this project's own runners hold a key for:
+
+```bash
+export OSPREY_E2E_PROVIDER="my-gateway"
+```
+
+The `requires_*` marker on each lane still gates on the default gateway's key,
+so a facility driving its own gateway deselects by marker or supplies both.
 
 ### Provider × model matrix (opt-in)
 

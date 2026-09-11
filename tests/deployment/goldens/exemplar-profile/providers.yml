@@ -77,7 +77,9 @@ providers:
       opus: claudeopus41
   als-apg:
     api_key: ${ALS_APG_API_KEY}
-    base_url: ${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com/v1}
+    # No default: this gateway is a deployment's own host. Export
+    # ALS_APG_BASE_URL, or replace this line with the endpoint's /v1 URL.
+    base_url: ${ALS_APG_BASE_URL}
     models:
       haiku: claude-haiku-4-5-20251001
       sonnet: claude-sonnet-4-6

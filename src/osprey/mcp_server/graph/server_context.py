@@ -66,6 +66,7 @@ from osprey.deployment.graphdb_service import (
     resolve_graphdb_connection,
     resolve_graphdb_service_config,
 )
+from osprey.mcp_server.config_values import positive_int
 from osprey.port_layout import resolve_port_base
 from osprey.utils.config import get_config_value
 from osprey.utils.workspace import load_osprey_config
@@ -102,10 +103,6 @@ DEFAULT_QUERY_MAX_ROWS = 200
 #: exists to bound the unreachable case, and an operator who raised it would be
 #: trading the one property that makes a down store legible for nothing.
 CONNECTION_TIMEOUT_S = 3.0
-
-#: Database named explicitly on every session so the driver skips the
-#: home-database lookup round-trip. Matches the seeder's ``DEFAULT_DATABASE``.
-DATABASE = "neo4j"
 
 #: Counts the corpus rather than the store's own bookkeeping: ``:Resource`` is
 #: the label neosemantics gives every imported RDF subject, and a bootstrapped
@@ -376,15 +373,17 @@ class GraphContext:
             return
 
         config = self._load_config()
-        self.query_timeout_s = _positive_int(
+        self.query_timeout_s = positive_int(
             self._setting(QUERY_TIMEOUT_CONFIG_KEY, DEFAULT_QUERY_TIMEOUT_S),
             DEFAULT_QUERY_TIMEOUT_S,
             QUERY_TIMEOUT_CONFIG_KEY,
+            logger=logger,
         )
-        self.query_max_rows = _positive_int(
+        self.query_max_rows = positive_int(
             self._setting(QUERY_MAX_ROWS_CONFIG_KEY, DEFAULT_QUERY_MAX_ROWS),
             DEFAULT_QUERY_MAX_ROWS,
             QUERY_MAX_ROWS_CONFIG_KEY,
+            logger=logger,
         )
         self._resolve_connection(config)
 
@@ -446,7 +445,13 @@ class GraphContext:
             raise GraphNotConfigured(_NOT_CONFIGURED_MESSAGE)
 
         cap = self.query_max_rows if max_rows is None else max(1, int(max_rows))
-        driver = self._driver_or_raise()
+        # The connection comes back beside the driver because the database name
+        # is named explicitly on every session, so the driver skips the
+        # home-database lookup round-trip. The name comes off the resolved
+        # connection (`services.graphdb.database`), so the store the seeder
+        # wrote to and the one this reads from cannot be two different
+        # databases.
+        driver, connection = self._driver_or_raise()
 
         from neo4j import unit_of_work
 
@@ -462,7 +467,7 @@ class GraphContext:
             return rows
 
         try:
-            with driver.session(database=DATABASE) as session:
+            with driver.session(database=connection.database) as session:
                 fetched = session.execute_read(_read)
         except Exception as exc:
             raise _map_driver_error(exc) from exc
@@ -560,23 +565,29 @@ class GraphContext:
             )
             self.configured = False
 
-    def _driver_or_raise(self) -> Any:
-        """Return the cached driver, creating it on first use.
+    def _driver_or_raise(self) -> tuple[Any, GraphdbConnection]:
+        """Return the cached driver and the connection it was opened from.
+
+        The connection travels with the driver because a caller that has a
+        driver also needs the database name to open a session on, and the two
+        must come from the same resolution.
 
         Returns:
-            An open neo4j driver. Construction does not dial the store, so a
-            store that is down surfaces on the query rather than here.
+            An open neo4j driver and its resolved connection. Construction does
+            not dial the store, so a store that is down surfaces on the query
+            rather than here.
 
         Raises:
+            GraphNotConfigured: No ``services.graphdb`` block resolved.
             GraphUnreachable: The driver could not be constructed — which for
                 this path means the resolved address is not one it can use.
         """
-        if self._driver is not None:
-            return self._driver
-
         connection = self._connection
         if connection is None:
             raise GraphNotConfigured(_NOT_CONFIGURED_MESSAGE)
+
+        if self._driver is not None:
+            return self._driver, connection
 
         from neo4j import GraphDatabase
 
@@ -591,37 +602,12 @@ class GraphContext:
             raise GraphUnreachable(
                 f"Cannot open a connection to the graph store at {connection.uri}: {_describe(exc)}"
             ) from exc
-        return self._driver
+        return self._driver, connection
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _positive_int(value: Any, default: int, key: str) -> int:
-    """Coerce a config value to a positive integer, or fall back to ``default``.
-
-    Args:
-        value: The raw value read from config.
-        default: Value to use when it is absent or unusable.
-        key: Dotted config key, named in the warning.
-
-    Returns:
-        The value when it is a positive integer, otherwise ``default``. A bad
-        value warns rather than raises: this runs at MCP-server startup, and a
-        typo in a tuning key should not leave the agent with no graph tools at
-        all. ``bool`` is rejected explicitly — it is an ``int`` subclass, so
-        ``query_max_rows: true`` would otherwise resolve to a cap of one.
-    """
-    if value is None:
-        return default
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
-        logger.warning(
-            "%s must be a positive integer, got %r — falling back to %s", key, value, default
-        )
-        return default
-    return int(value)
 
 
 def _describe(exc: Exception) -> str:

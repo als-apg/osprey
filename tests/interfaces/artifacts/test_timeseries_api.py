@@ -11,6 +11,8 @@ import math
 
 import pytest
 
+from osprey.interfaces.artifacts import app as artifacts_app
+
 
 def _write_artifact(store, workspace_root, payload, filename, title):
     """Write ``payload`` as an artifact's data file and register the entry."""
@@ -526,7 +528,9 @@ class TestDataFileResolution:
     def test_oversized_data_file_returns_413(self, app_client, monkeypatch):
         """A data file over the size cap is refused with 413 rather than
         parsed; the cap protects the gallery process, not the client."""
-        monkeypatch.setattr("osprey.interfaces.artifacts.app.MAX_TIMESERIES_FILE_BYTES", 64)
+        monkeypatch.setattr(
+            "osprey.interfaces.artifacts.app._max_timeseries_file_bytes", lambda: 64
+        )
         client, workspace = app_client
         store = client.app.state.artifact_store
         entry, _ = _make_timeseries_artifact(store, workspace, n_rows=50)
@@ -539,6 +543,46 @@ class TestDataFileResolution:
         # (no format param) still streams the file bytes.
         raw = client.get(f"/api/artifacts/{entry.id}/data")
         assert raw.status_code == 200
+
+
+class TestTheTimeseriesSizeCapIsAConfigKey:
+    """``artifact_server.max_timeseries_file_mb``: default, override, refusal.
+
+    The handler loads the whole file to build a chart or a table, so this bound
+    is about the gallery host's memory. It is a facility's to set, and the
+    reader is what decides how far a value gets.
+    """
+
+    @pytest.mark.unit
+    def test_default_when_no_config_is_primed(self, monkeypatch):
+        """A standalone gallery reads no config and still has a bound."""
+        monkeypatch.setattr(
+            "osprey.utils.config.get_config_value",
+            lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no config")),
+        )
+
+        assert (
+            artifacts_app._max_timeseries_file_bytes()
+            == artifacts_app.DEFAULT_MAX_TIMESERIES_FILE_MB * 1024 * 1024
+        )
+
+    @pytest.mark.unit
+    def test_configured_value_is_read_in_megabytes(self, monkeypatch):
+        """The key is authored in MB; the handler compares bytes."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: 500)
+
+        assert artifacts_app._max_timeseries_file_bytes() == 500 * 1024 * 1024
+
+    @pytest.mark.unit
+    @pytest.mark.parametrize("bad", [0, -1, True, "500", None])
+    def test_an_unusable_value_falls_back_to_the_default(self, monkeypatch, bad):
+        """A nonsense cap keeps the documented bound rather than removing it."""
+        monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: bad)
+
+        assert (
+            artifacts_app._max_timeseries_file_bytes()
+            == artifacts_app.DEFAULT_MAX_TIMESERIES_FILE_MB * 1024 * 1024
+        )
 
 
 class TestArtifactTablePivotRobustness:

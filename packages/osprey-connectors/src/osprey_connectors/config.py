@@ -142,10 +142,47 @@ def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -
     return resolved
 
 
+#: A string that is nothing but a single unresolved env-var placeholder, e.g.
+#: ``"${MISSING}"`` or ``"$MISSING"``. :func:`resolve_env_vars` leaves such a
+#: value verbatim when the variable is unset (there is nothing to substitute and
+#: no declared default), so every consumer that reads a config value has to know
+#: this shape to tell "not configured" from a value.
+#:
+#: The two branches are the two branches of the resolver's own pattern above,
+#: character class included: the braced form takes any name without ``}`` or
+#: ``:`` (a ``:-`` default always substitutes, so it never survives), the bare
+#: form the shell-style identifier. Narrowing either half here would fail to
+#: recognise a reference the resolver did leave verbatim.
+_LONE_PLACEHOLDER = re.compile(r"^\$\{[^}:]+\}$|^\$[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def is_unresolved_placeholder(value: object) -> bool:
+    """Whether *value* is an env-var reference :func:`resolve_env_vars` left alone.
+
+    The counterpart to :func:`resolve_env_vars`: it keeps ``${VAR}`` verbatim
+    when ``VAR`` is unset, so a consumer that treats what it reads as data sees
+    the literal string ``"${VAR}"`` where a URL or a key belongs. This is the
+    one producer of that test, so a caller never has to re-state the syntax the
+    resolver accepts.
+
+    Args:
+        value: A config value, of any type. Only a ``str`` can be a placeholder.
+
+    Returns:
+        True when the value is exactly one unsubstituted reference.
+    """
+    return isinstance(value, str) and bool(_LONE_PLACEHOLDER.match(value))
+
+
 # OSPREY runs agent Python code in exactly one backend: a subprocess on the host.
 # ``local`` is an accepted alias for that same backend; ``container`` names a
 # Jupyter kernel gateway OSPREY does not ship.
 EXECUTION_METHOD_SUBPROCESS = "subprocess"
+
+#: Wall-clock budget one agent Python execution gets when the deployment does not
+#: set ``python_executor.execution_timeout_seconds``. Defined once here and read
+#: by the executor so both ends of the timeout agree.
+DEFAULT_EXECUTION_TIMEOUT_SECONDS = 600
 
 # Module-level latch so the ``container`` deprecation is logged once per process
 # rather than on every config read (the executor resolves per tool call).
@@ -635,7 +672,7 @@ class ConfigBuilder:
 
         # Otherwise, provide sensible defaults
         return {
-            "execution_timeout_seconds": 600,
+            "execution_timeout_seconds": DEFAULT_EXECUTION_TIMEOUT_SECONDS,
         }
 
     def _build_configurable(self) -> dict[str, Any]:
@@ -1007,20 +1044,19 @@ def get_agent_dir(sub_dir: str, host_path: bool = False) -> str:
             path = project_root_path / agent_data_root / sub_dir_path
         else:
             if not project_root_path.exists():
-                container_project_roots = ["/app", "/pipelines", "/jupyter"]
-                detected_container_root = None
-
-                for container_root in container_project_roots:
-                    container_path = Path(container_root)
-                    if container_path.exists() and (container_path / agent_data_root).exists():
-                        detected_container_root = container_path
-                        break
-
-                if detected_container_root:
+                # A configured root written on the host does not exist inside a
+                # container. ``CONFIG_FILE`` names the config this process
+                # actually loaded, so its directory IS the project root here —
+                # a fact rather than the guess at a container layout this used
+                # to make.
+                config_file = os.environ.get("CONFIG_FILE")
+                anchor = Path(config_file).parent if config_file else None
+                if anchor is not None and anchor.exists():
                     logger.debug(
-                        f"Container environment detected: using {detected_container_root} instead of {project_root}"
+                        f"Configured project root {project_root} is absent; anchoring on "
+                        f"CONFIG_FILE's directory {anchor}"
                     )
-                    path = detected_container_root / agent_data_root / sub_dir_path
+                    path = anchor / agent_data_root / sub_dir_path
                 else:
                     logger.warning(f"Configured project root does not exist: {project_root}")
                     logger.warning("Falling back to relative path resolution")

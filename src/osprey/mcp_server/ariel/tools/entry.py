@@ -1,9 +1,9 @@
 """MCP tools: entry_get + entry_create — logbook entry CRUD.
 
-PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
+PROMPT-PROVIDER: Tool docstrings are static prompts visible to the agent.
   Future: source from FrameworkPromptProvider.get_logbook_search_prompt_builder()
-  Facility-customizable: shift identifiers (e.g., "Day"/"Swing"/"Owl"),
-  attachment limits, logbook name conventions
+  Facility-customizable: shift identifiers, attachment limits, logbook name
+  conventions
 """
 
 import json
@@ -15,7 +15,13 @@ from pathlib import Path
 
 from fastmcp.exceptions import ToolError
 
-from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp, serialize_entry
+from osprey.mcp_server.ariel.server import (
+    ARIEL_NATIVE_SOURCE_SYSTEM,
+    build_entry_url,
+    make_error,
+    mcp,
+    serialize_entry,
+)
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.mcp_server.http import notify_agent_activity_async
 
@@ -208,7 +214,7 @@ async def entry_create(
         details: Entry body/details (required).
         author: Author name (default: "Anonymous").
         logbook: Logbook name to file under.
-        shift: Shift identifier (e.g. "Day", "Swing", "Owl").
+        shift: Shift or run-block identifier as your facility names it (free-form).
         tags: List of tags for the entry.
         file_paths: Local file paths to attach (max 10 MB each).
         artifact_ids: Artifact IDs from the gallery to attach. HTML artifacts
@@ -358,7 +364,7 @@ async def entry_create(
 
         entry = {
             "entry_id": entry_id,
-            "source_system": "ARIEL MCP",
+            "source_system": ARIEL_NATIVE_SOURCE_SYSTEM,
             "timestamp": now,
             "author": author or "Anonymous",
             "raw_text": f"{subject}\n\n{details}",
@@ -405,7 +411,7 @@ async def entry_create(
             {
                 "entry_id": entry_id,
                 "message": f"Entry {entry_id} created successfully",
-                "source_system": "ARIEL MCP",
+                "source_system": ARIEL_NATIVE_SOURCE_SYSTEM,
                 "attachment_count": attachment_count,
             },
             default=str,

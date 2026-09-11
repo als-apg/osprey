@@ -113,7 +113,7 @@ def _dispatch_config(
         "path": "./services/event_dispatcher",
         "port": 8020,
         "facility_name": "TESTFAC",
-        "pv_strip_prefix": "TEST:",
+        "channel_strip_prefix": "TEST:",
     }
     worker: dict[str, Any] = {
         "path": "./services/dispatch_worker",

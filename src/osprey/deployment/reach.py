@@ -877,6 +877,10 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey(GRAPHDB_PORT_CONFIG_KEY, gate=_graph_store_wanted),
             ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.uri", gate=_graph_store_wanted),
             ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.username", gate=_graph_store_wanted),
+            # Which database on that store holds the corpus: the host's fact
+            # about an external store, opened by every session a persona's
+            # clients start, and meaningless without the address it sits beside.
+            ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.database", gate=_graph_store_wanted),
         ),
         credentials=(CredentialGrant(GRAPHDB_PASSWORD_ENV, config_needs_graphdb_password),),
         names_external=_graphdb_named,
@@ -906,7 +910,14 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey("services.postgresql.username", gate=_ariel_on),
             ProjectedKey("services.postgresql.database_name", gate=_ariel_on),
         ),
-        credentials=(CredentialGrant("ARIEL_DB_PASSWORD", config_needs_ariel_password),),
+        credentials=(
+            CredentialGrant("ARIEL_DB_PASSWORD", config_needs_ariel_password),
+            # The SELECT-only role the agent's raw-SQL path connects as. Same
+            # entitlement as the owner password: a container that derives an
+            # ARIEL DSN derives both rungs of it, and without this one the SQL
+            # tool falls back to the ingestion connection with a warning.
+            CredentialGrant("ARIEL_DB_READONLY_PASSWORD", config_needs_ariel_password),
+        ),
         names_external=_ariel_database_named,
         note="resolve_ariel_dsn derives the DSN from the block on loopback",
     ),

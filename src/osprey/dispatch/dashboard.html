@@ -31,7 +31,7 @@ applyEmbedded();
 // Fallback when the dashboard is served without server-side config injection
 // (e.g. opened as a static file). dashboard.py replaces the comment above with
 // a `window.__OSPREY_CONFIG__ = {...};` literal at request time.
-window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", pv_strip_prefix: "", telemetry_url: "" };
+window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", channel_strip_prefix: "", telemetry_url: "" };
 </script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1496,8 +1496,8 @@ function describeSource(t) {
   if (t.source === 'epics_ca') {
     const edge = cfg.edge || 'rising';
     const sym = edge === 'rising' ? '↑>' : edge === 'falling' ? '↓<' : '↔';
-    const pvPrefix = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.pv_strip_prefix) || '';
-    const pv = cfg.pv ? String(cfg.pv).replace(new RegExp('^' + pvPrefix, 'i'), '') : '';
+    const stripPrefix = (window.__OSPREY_CONFIG__ && window.__OSPREY_CONFIG__.channel_strip_prefix) || '';
+    const pv = cfg.pv ? String(cfg.pv).replace(new RegExp('^' + stripPrefix, 'i'), '') : '';
     return `${pv} ${sym}${cfg.threshold ?? '?'}`;
   }
   if (t.source === 'cron') return formatInterval(cfg.interval_sec);

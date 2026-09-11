@@ -22,6 +22,7 @@ import {
   contextRefusalCode,
   contextRefusalPhrase,
   contextWritable,
+  descriptor,
   lockReason,
   resolvePendingSwitch,
   switchFailureNote,
@@ -411,5 +412,16 @@ describe('switchFailureNote', () => {
 
   test('the operator reads a phrase for it, not the code', () => {
     expect(REASON_PHRASES[REASON_SWITCH_FAILED]).toBe('not applied');
+  });
+});
+
+describe('a connector the switch cannot dial', () => {
+  test('reads as unsupported, not as unauthored', () => {
+    // Its own phrase, and deliberately not one of the three "not set up" codes:
+    // the block IS authored, and the deployment is running on it.
+    expect(REASON_PHRASES.connector_not_switchable).toBe('switching not supported');
+    expect(descriptor({ reason: 'connector_not_switchable' }, 'live')).toBe(
+      'Writes move hardware'
+    );
   });
 });

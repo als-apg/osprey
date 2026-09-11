@@ -1,6 +1,8 @@
 """Tests for the public resolve_env_vars() function."""
 
-from osprey.utils.config import resolve_env_vars
+import pytest
+
+from osprey.utils.config import is_unresolved_placeholder, resolve_env_vars
 
 
 class TestResolveEnvVars:
@@ -135,3 +137,37 @@ class TestResolveEnvVarsWithEnviron:
         result = resolve_env_vars(data, environ={"SHOULD_NOT_EXPAND": "leaked", "P": "argo"})
         assert result["claude_code"]["servers"]["controls"]["env"]["KEY"] == "${SHOULD_NOT_EXPAND}"
         assert result["claude_code"]["provider"] == "argo"
+
+
+class TestIsUnresolvedPlaceholder:
+    """The recogniser and the resolver must agree on what a placeholder is.
+
+    ``is_unresolved_placeholder`` exists to answer one question — "is this what
+    :func:`resolve_env_vars` leaves behind when the variable is unset?" — so its
+    accepted syntax is the resolver's, not a narrower re-statement of it.
+    """
+
+    @pytest.mark.parametrize(
+        "reference",
+        ["${MISSING}", "$MISSING", "${SOME-VAR}", "${lowercase}", "${VAR.WITH.DOTS}"],
+    )
+    def test_what_the_resolver_leaves_verbatim_is_recognised(self, reference, monkeypatch):
+        monkeypatch.setenv("OSPREY_QUIET", "1")
+        # The premise: with nothing to substitute, the resolver hands the
+        # reference back unchanged.
+        assert resolve_env_vars(reference, environ={}) == reference
+        assert is_unresolved_placeholder(reference) is True
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "https://gateway.example.org/v1",
+            "${VAR:-https://default.example.org}",  # a default always substitutes
+            "prefix-${VAR}",  # the rest of the string is a value
+            "",
+            None,
+            42,
+        ],
+    )
+    def test_anything_that_is_not_a_lone_reference_is_not_a_placeholder(self, value):
+        assert is_unresolved_placeholder(value) is False

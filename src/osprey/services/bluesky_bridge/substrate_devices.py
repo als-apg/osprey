@@ -12,8 +12,8 @@ record a settable, each read-direction record a readable. Nothing here filters
 by ring, family, field or address grammar. Which channels exist and which way
 they point is the roster's answer, given once per build from the facility's own
 knowledge graph or channel-finder database; a second opinion at this seam is
-precisely the divergence that had a build report 144 devices for a 2908-channel
-machine.
+precisely the divergence that had a build report 144 devices for the bundled
+demo tree's 2908-channel machine.
 
 Device name == channel address
 ------------------------------

@@ -47,7 +47,7 @@ from typing import Any
 
 # Settled figures retained at once, oldest-*used* evicted first: a settled run
 # being polled stays hot, and one nobody has asked about since falls out. Sized
-# like `live_rows._MAX_RUNS` — the runs whose rows are still retained are
+# like `live_rows.max_runs()` — the runs whose rows are still retained are
 # roughly the runs whose figures are worth keeping.
 _MAX_ENTRIES = 50
 

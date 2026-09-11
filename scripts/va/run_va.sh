@@ -26,10 +26,9 @@
 # The image is linux/amd64 (see the Containerfile for why), so on an Apple
 # Silicon host it runs emulated.
 #
-# After it reports ready, point a project at it with:
-#   control_system:
-#     type: virtual_accelerator
-#     facility: simulation   # the "Local Simulation" gateway preset, localhost:5064
+# After it reports ready, point a project at it with
+# `control_system.type: virtual_accelerator` and the connector's gateway
+# address, which the shipped presets already set to localhost:5064.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

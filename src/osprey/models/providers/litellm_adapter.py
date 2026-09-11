@@ -580,6 +580,27 @@ Respond ONLY with the JSON object, no additional text."""
         ) from e
 
 
+def _requires_api_key(provider: str) -> bool:
+    """Whether *provider*'s adapter declares that it needs an API key.
+
+    Reads the provider class's own ``requires_api_key`` attribute through the
+    registry — the same declaration `models/completion.py`, `cli/web_cmd.py` and
+    the production env renderer already consult. A name tuple here instead put
+    every keyless adapter but one behind a refusal it does not deserve, and a
+    facility's own keyless adapter behind it with no way out.
+
+    An unknown name is assumed to need a key, which is what a name tuple did for
+    every name it did not list.
+    """
+    # Lazy import avoids an import cycle: provider_registry imports provider
+    # modules, which import this adapter.
+    from osprey.models.provider_registry import get_provider_registry
+
+    provider_class = get_provider_registry().get_provider(provider)
+    declared = getattr(provider_class, "requires_api_key", None)
+    return True if declared is None or declared is NotImplemented else bool(declared)
+
+
 def check_litellm_health(
     provider: str,
     api_key: str | None,
@@ -598,12 +619,33 @@ def check_litellm_health(
     :param model_id: Model to test with
     :return: (success, message) tuple
     """
-    if not api_key and provider not in ("ollama",):
-        return False, "API key not set"
+    if not api_key:
+        if _requires_api_key(provider):
+            return False, "API key not set"
+        # A keyless endpoint (an on-prem vLLM, a local Ollama) still needs a
+        # non-empty key on the wire: litellm's OpenAI client refuses to send
+        # without one. "EMPTY" is the placeholder the shipped keyless adapters
+        # already substitute by hand on the completion path; this is its one
+        # home on the health path.
+        api_key = "EMPTY"
 
     # Check for placeholder values
     if api_key and (api_key.startswith("${") or "YOUR_API_KEY" in api_key.upper()):
         return False, "API key not configured (placeholder value detected)"
+
+    if not base_url:
+        # The endpoint is checked the same way the key is. A provider that
+        # declares requires_base_url fronts a gateway with no default host and
+        # routes openai-compatible, so litellm would resolve `openai/<model>`
+        # with no api_base and send the call — carrying the gateway's key — to
+        # api.openai.com. The failure that comes back names authentication,
+        # nowhere near its cause. Lazy import: provider_registry imports the
+        # provider modules, which import this adapter.
+        from osprey.models.provider_registry import get_provider_registry
+
+        provider_class = get_provider_registry().get_provider(provider)
+        if getattr(provider_class, "requires_base_url", False):
+            return False, f"Base URL required for {provider}"
 
     if not model_id:
         return False, "Model ID required for health check"

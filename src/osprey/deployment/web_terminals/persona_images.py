@@ -153,6 +153,7 @@ def _persona_image_build_cmd(
     context: str,
     image_tag: str,
     project_label: str,
+    config: dict,
     dev_mode: bool = False,
 ) -> list[str]:
     """Construct the ``<runtime> build`` argv that produces *image_tag*.
@@ -168,6 +169,13 @@ def _persona_image_build_cmd(
     :param runtime: Base container command (``docker`` or ``podman``).
     :param context: The persona's image build context — its container repo,
         :func:`_persona_image_context` of the rendered project.
+    :param config: THIS DEPLOYMENT's facility config, for the site build args
+        (:func:`osprey.deployment.container_lifecycle.site_image_build_args`).
+        The facility config and not the persona's own, unlike
+        ``CLAUDE_CLI_VERSION`` above: a site CA, a package index and the
+        offline mode are properties of the HOST every image on it is built on,
+        so a persona catalog cannot sensibly disagree with the deployment
+        about them.
     :param image_tag: The tag to build, exactly as
         :func:`osprey.deployment.web_terminals.personas.resolve_personas`
         resolved it into the entry's ``image`` — the single derivation site
@@ -187,7 +195,7 @@ def _persona_image_build_cmd(
     # module must not import container_lifecycle at import time. _resolve_pip_spec
     # is a generic helper shared with the dispatch-worker build path, so it
     # stays in container_lifecycle.
-    from osprey.deployment.container_lifecycle import _resolve_pip_spec
+    from osprey.deployment.container_lifecycle import _resolve_pip_spec, site_image_build_args
 
     render = os.path.join(context, BUILD_DIR_NAME)
     cmd = [
@@ -206,6 +214,7 @@ def _persona_image_build_cmd(
     cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec(dev_mode=dev_mode)}"])
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    cmd.extend(site_image_build_args(config, context))
     with_plain_build_progress(cmd)
     cmd.append(context)
     return cmd
@@ -873,6 +882,7 @@ def build_persona_images(
                     persona_name,
                 )
 
+        cmd: list[str] = []
         try:
             image_tag = unit["image"]
             cmd = _persona_image_build_cmd(
@@ -880,6 +890,7 @@ def build_persona_images(
                 context,
                 image_tag,
                 project_label,
+                config,
                 dev_mode and wheel_staged,
             )
             # No "building X:" announcement: the live build region carries the
@@ -916,3 +927,7 @@ def build_persona_images(
                     artifact.unlink()
                 except OSError:
                     logger.warning("Could not remove staged dev artifact %s", artifact)
+            # Same treatment for the site CA the build args stage here.
+            from osprey.deployment.container_lifecycle import clear_staged_site_ca
+
+            clear_staged_site_ca(cmd, context)

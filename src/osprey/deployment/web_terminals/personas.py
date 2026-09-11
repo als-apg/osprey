@@ -1268,7 +1268,7 @@ def _access_principal(member: Any, entry_label: str) -> str:
             raise ValueError(
                 f"{entry_label} has an access member "
                 f"{member!r} carrying no usable identity after 'user:'. Write the value the "
-                "configured OIDC claim holds for one person, e.g. 'user:alice@lbl.gov'"
+                "configured OIDC claim holds for one person, e.g. 'user:alice@example.org'"
             )
         return member
     if prefix == "domain":
@@ -1282,7 +1282,8 @@ def _access_principal(member: Any, entry_label: str) -> str:
             raise ValueError(
                 f"{entry_label} has an access member "
                 f"{member!r} that is not a bare domain. Write the domain on its own, e.g. "
-                "'domain:lbl.gov' — an address ('domain:alice@lbl.gov') admits one person, "
+                "'domain:example.org' — an address ('domain:alice@example.org') admits one "
+                "person, "
                 "which is what 'user:' is for"
             )
         if not value.isascii():
@@ -1413,7 +1414,7 @@ def access_wire_value(principals: frozenset[str]) -> str:
       every existing roster carries, and upgrading into the principal set must
       not rewrite a deployment's compose file.
     * anything else → a compact JSON array of the members, sorted:
-      ``["domain:lbl.gov"]``, ``["self","user:carol@lbl.gov"]``. Sorted because
+      ``["domain:example.org"]``, ``["self","user:carol@example.org"]``. Sorted because
       a set has no order of its own and an unstable render would churn the
       file; compact because the value shares a line with its key. ``self`` is
       kept when it appears beside others — there it is a member of the admitted
@@ -1447,7 +1448,7 @@ def entry_is_shared(entry: dict[str, Any]) -> bool:
 
     An entry is shared exactly when :func:`resolve_access_principals` admits
     anyone beyond the entry's own user: ``access: any`` (the whole roster),
-    ``[domain:lbl.gov]``, ``[user:alice@lbl.gov]``, or any list that names more
+    ``[domain:example.org]``, ``[user:alice@example.org]``, or any list that names more
     than ``self``. ``own``, an unwritten key and ``[self]`` are the owner-only
     set, and are the only forms that answer ``False``.
 

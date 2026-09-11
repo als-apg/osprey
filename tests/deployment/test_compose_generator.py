@@ -983,6 +983,22 @@ def test_worker_template_inactivity_reflects_injected_value() -> None:
     assert 'DISPATCH_INACTIVITY_SEC: "600"' in rendered
 
 
+def test_worker_template_max_turns_defaults_to_25() -> None:
+    """With no max_turns configured the worker env pins the built-in default, so a
+    project built before the key existed still renders a number the worker reads."""
+    rendered = _render_worker_template(env_present=True)
+    assert 'DISPATCH_MAX_TURNS: "25"' in rendered
+
+
+def test_worker_template_max_turns_reflects_injected_value() -> None:
+    """A configured services.dispatch_worker.max_turns flows to DISPATCH_MAX_TURNS,
+    which is what a trigger naming no ceiling of its own is given."""
+    rendered = _render_worker_template(
+        env_present=False, project_name="p", dispatch_worker={"max_turns": 60}
+    )
+    assert 'DISPATCH_MAX_TURNS: "60"' in rendered
+
+
 def test_worker_command_unchanged() -> None:
     """The worker overrides only ``command:`` — it must still launch the
     dispatch-worker MCP server, unchanged by the image/layout repoint."""

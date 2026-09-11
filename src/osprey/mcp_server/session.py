@@ -2,16 +2,20 @@
 
 import logging
 
+from osprey.utils.identity import acting_identity
+
 logger = logging.getLogger("osprey.mcp_server.session")
 
 
 def gather_session_metadata(created_via: str) -> dict:
     """Collect session metadata for logbook entries.
 
-    Returns a dict with 8 fields, all with graceful ``None`` fallback:
-    ``session_id``, ``transcript_path``, ``session_start_time``,
-    ``git_branch``, ``git_commit_short``, ``operator``, ``model_name``,
-    ``created_via``.
+    Returns a dict with 8 fields: ``session_id``, ``transcript_path``,
+    ``session_start_time``, ``git_branch``, ``git_commit_short``,
+    ``operator``, ``model_name``, ``created_via``. All fall back gracefully to
+    ``None`` except ``operator``, which floors at
+    :data:`~osprey.utils.identity.UNKNOWN_IDENTITY` — an entry always names
+    somebody, even if only honestly.
 
     Args:
         created_via: Caller identifier (e.g. ``"ariel-mcp"``, ``"gallery-compose"``).
@@ -93,12 +97,10 @@ def gather_session_metadata(created_via: str) -> dict:
     meta["git_commit_short"] = git_commit_short
 
     # --- Operator ---
-    operator: str | None = None
-    try:
-        operator = os.environ.get("USER") or os.getlogin()
-    except Exception as exc:
-        logger.warning("Session metadata: operator lookup failed (non-fatal): %s", exc)
-    meta["operator"] = operator
+    # The same ladder the audit ledger climbs, so an entry and the records of
+    # the session that wrote it name the same person. Never raises, so there is
+    # nothing to guard.
+    meta["operator"] = acting_identity()
 
     # --- Model name ---
     model_name: str | None = None

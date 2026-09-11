@@ -177,6 +177,38 @@ def _ariel_config(config_dict: dict) -> ARIELConfig:
     return ARIELConfig.from_dict(config_dict, _postgresql_services(), base=_port_base())
 
 
+def _require_ingestion_block(config_dict: dict) -> None:
+    """Refuse a logbook-reading command whose config declares no ingestion.
+
+    ``ariel watch`` and ``ariel sync`` both read a logbook, so an ``ariel``
+    section with no ``ingestion`` block at all has not configured the thing they
+    do. Left to the parser, that shape produces a message about the block's
+    ``adapter`` field -- naming a key inside a block the operator never wrote,
+    which reads as a typo in something they have rather than as something
+    missing. Checked here, before the parse, so the refusal names the block.
+
+    A block that IS present keeps the parser's message: ``adapter`` really is
+    the missing answer then.
+
+    Args:
+        config_dict: The raw ``ariel`` section, after any CLI override that
+            mints the block has been applied.
+
+    Raises:
+        ConfigurationError: If the section carries no ``ingestion`` block.
+    """
+    if config_dict.get("ingestion"):
+        return
+
+    from osprey.services.ariel_search.exceptions import ConfigurationError
+
+    raise ConfigurationError(
+        "ariel.ingestion is not configured: `ariel watch` and `ariel sync` read "
+        "a logbook, so name the adapter and source_url under ariel.ingestion",
+        config_key="ingestion",
+    )
+
+
 def check_vocabulary(
     config_dict: dict,
     path: str | None = None,
@@ -325,6 +357,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         store has never been ingested.
     """
     from osprey.services.ariel_search import create_ariel_service
+    from osprey.services.ariel_search.config import registered_ariel_names
 
     # Computed first and unconditionally: the vocabulary line must survive a
     # database that is down and a config that will not parse.
@@ -365,15 +398,12 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                     for t in tables
                 ],
                 "enhancement_modules": {
-                    "text_embedding": config.is_enhancement_module_enabled("text_embedding"),
-                    "semantic_processor": config.is_enhancement_module_enabled(
-                        "semantic_processor"
-                    ),
+                    name: config.is_enhancement_module_enabled(name)
+                    for name in registered_ariel_names("ariel_enhancement_modules")
                 },
                 "search_modules": {
-                    "keyword": config.is_search_module_enabled("keyword"),
-                    "semantic": config.is_search_module_enabled("semantic"),
-                    "hybrid": config.is_search_module_enabled("hybrid"),
+                    name: config.is_search_module_enabled(name)
+                    for name in registered_ariel_names("ariel_search_modules")
                 },
                 "vocabulary": vocabulary,
             }
@@ -437,6 +467,7 @@ async def run_sync(
     from osprey.services.ariel_search.database.migrations import run_migrations
     from osprey.services.ariel_search.ingestion.scheduler import IngestionScheduler
 
+    _require_ingestion_block(config_dict)
     config = _ariel_config(config_dict)
 
     # Step 1: Migrate
@@ -497,13 +528,29 @@ async def run_sync(
 async def run_ingest(
     config_dict: dict,
     source: str,
-    adapter: str,
+    adapter: str | None,
     since: datetime | None,
     limit: int | None,
     dry_run: bool,
     progress: _ProgressCb = None,
 ) -> IngestResult:
-    """Ingest logbook entries from a source."""
+    """Ingest logbook entries from a source.
+
+    Args:
+        config_dict: Raw ARIEL configuration mapping.
+        source: Source file path or URL; always an override.
+        adapter: Override for ``ingestion.adapter``. ``None`` leaves the
+            configured adapter in place — the same rule ``run_watch`` follows,
+            so a project that names its adapter in config.yml does not have to
+            repeat it on every ingest.
+        since: Only ingest entries after this date.
+        limit: Maximum entries to ingest.
+        dry_run: Parse entries without storing them.
+        progress: Optional callback for human-readable progress lines.
+
+    Returns:
+        The run's counts.
+    """
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.enhancement import create_enhancers_from_config
     from osprey.services.ariel_search.ingestion import get_adapter
@@ -511,7 +558,8 @@ async def run_ingest(
     if "ingestion" not in config_dict:
         config_dict["ingestion"] = {}
     config_dict["ingestion"]["source_url"] = source
-    config_dict["ingestion"]["adapter"] = adapter
+    if adapter:
+        config_dict["ingestion"]["adapter"] = adapter
 
     config = _ariel_config(config_dict)
     adapter_instance = get_adapter(config)
@@ -653,6 +701,7 @@ async def run_watch(
         if require_initial_ingest is not None:
             ingestion.setdefault("watch", {})["require_initial_ingest"] = require_initial_ingest
 
+    _require_ingestion_block(config_dict)
     config = _ariel_config(config_dict)
 
     if not config.ingestion or not config.ingestion.source_url:
@@ -1445,7 +1494,13 @@ async def run_reembed(
         if not table_exists:
             if progress:
                 progress(f"Creating embedding table: {table_name}")
-            migration = TextEmbeddingMigration([(model, dimension)])
+            embedding_config = config.enhancement_modules.get("text_embedding")
+            migration = TextEmbeddingMigration(
+                [(model, dimension)],
+                index_lists=(
+                    embedding_config.settings.get("index_lists") if embedding_config else None
+                ),
+            )
             async with service.pool.connection() as conn:
                 await migration.up(conn)
             if progress:

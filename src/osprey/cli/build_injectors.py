@@ -493,9 +493,13 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
        both in ``deployed_services``.
     4. Print a post-build hint (dashboard URL + sample curl + image prerequisite).
 
-    The pair shares one network: ``dispatch.network`` is written into BOTH
-    service configs, since a dispatcher on the compose bridge and workers on the
-    host network could not reach each other. On the host network the addresses
+    The pair shares one network and one env passthrough: ``dispatch.network``
+    and ``dispatch.env`` are written into BOTH service configs — the first
+    because a dispatcher on the compose bridge and workers on the host network
+    could not reach each other, the second because the two halves are one
+    feature reading one deployment's environment. Neither is authorable on a
+    half: profile validation refuses that spelling, because this function
+    rewrites both blocks wholesale. On the host network the addresses
     the build emits change with it — the dispatcher reaches a worker at
     ``localhost``, not at a compose DNS name — so step 1a also rewrites the
     copied triggers file's ``dispatch_target``, and the worker's per-index port
@@ -616,12 +620,17 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         "path": "./services/event_dispatcher",
         "port": dispatch.dispatcher_port,
         "facility_name": dispatch.facility_name,
-        "pv_strip_prefix": dispatch.pv_strip_prefix,
+        "channel_strip_prefix": dispatch.channel_strip_prefix,
         # Copy the project's triggers.yml into the service build context so the
         # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
         # container runtime auto-creates an empty directory at the mount source).
         "additional_dirs": [{"src": "triggers.yml", "dst": "triggers.yml"}],
     }
+    # The env passthrough, written into both halves from the one profile knob.
+    # Written only when the profile declares names: with the axis unset,
+    # config.yml is byte-for-byte what it was before the knob existed, and the
+    # templates' macro renders nothing.
+    declared_env = [name for name in (dispatch.env or []) if isinstance(name, str)]
     worker_config: dict[str, Any] = {
         "path": "./services/dispatch_worker",
         "worker_count": dispatch.worker_count,
@@ -629,7 +638,11 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         "workspace_mode": dispatch.workspace_mode,
         "timeout_sec": dispatch.timeout_sec,
         "inactivity_sec": dispatch.inactivity_sec,
+        "max_turns": dispatch.max_turns,
     }
+    if declared_env:
+        dispatcher_config["env"] = list(declared_env)
+        worker_config["env"] = list(declared_env)
     if on_host_network:
         # One profile knob, both halves: the compose templates read the mode off
         # their own service block, so the single ``dispatch.network`` value is
@@ -721,21 +734,24 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
 
 
 #: The control-system targets a bluesky plan lane can serve, keyed by the
-#: ``control_system.type`` each is spelled with in a rendered config.yml — taken
-#: from the connector package's constants rather than respelled here, so a
-#: renamed type cannot leave this mapping silently matching nothing.
-#: ``MOCK`` and ``DOOCS`` are deliberately absent: they are not switch targets,
-#: so a deployment on one of them has no second lane to render.
+#: ``control_system.type`` each is spelled with in a rendered config.yml.
 #:
-#: ``LIVE_STANDIN`` is here because the stand-in is a control target in its own
+#: Derived rather than written out: the keys are the types the queue worker can
+#: build devices over (:data:`~osprey_connectors.types.CHANNEL_ACCESS_TYPES`)
+#: and each value is the target that type is the baseline of
+#: (:func:`~osprey_connectors.types.baseline_target`), so a type added to either
+#: upstream reaches the lane renderer without a second edit here. ``MOCK`` and
+#: ``DOOCS`` fall out for the reason they were left out by hand: a lane the
+#: worker cannot execute over is not a lane to render.
+#:
+#: ``LIVE_STANDIN`` is in because the stand-in is a control target in its own
 #: right — a soft IOC this deployment runs for itself, with its own connector
 #: block — and not a way of spelling ``live``. A deployment baselined on it
 #: gets a lane that says ``standin``, which is what keeps ``live`` meaning the
 #: facility's own machine on the very deployments that run both.
 _LANE_TARGET_BY_CONTROL_SYSTEM_TYPE = {
-    connector_types.EPICS: connector_types.TARGET_LIVE,
-    connector_types.VIRTUAL_ACCELERATOR: connector_types.TARGET_VA,
-    connector_types.LIVE_STANDIN: connector_types.TARGET_STANDIN,
+    cs_type: connector_types.baseline_target({"type": cs_type})
+    for cs_type in connector_types.CHANNEL_ACCESS_TYPES
 }
 
 #: Lane 1 always keeps the historical service key. Lane 2 is named for the
@@ -1024,6 +1040,14 @@ def _facility_plan_keys(bluesky: BlueskyConfig) -> dict[str, Any]:
         keys["excluded_plans"] = os.pathsep.join(bluesky.excluded_plans)
     if bluesky.device_page_size != BlueskyConfig.device_page_size:
         keys["device_page_size"] = bluesky.device_page_size
+    if bluesky.settle_timeout_s != BlueskyConfig.settle_timeout_s:
+        keys["settle_timeout_s"] = bluesky.settle_timeout_s
+    if bluesky.settle_tolerance != BlueskyConfig.settle_tolerance:
+        keys["settle_tolerance"] = bluesky.settle_tolerance
+    if bluesky.live_max_runs != BlueskyConfig.live_max_runs:
+        keys["live_max_runs"] = bluesky.live_max_runs
+    if bluesky.live_max_rows_per_run != BlueskyConfig.live_max_rows_per_run:
+        keys["live_max_rows_per_run"] = bluesky.live_max_rows_per_run
     return keys
 
 

@@ -35,6 +35,7 @@ from typing import Any
 
 import click
 
+from osprey.deployment.qmd_service import is_loopback_bind
 from osprey.port_layout import default_port, resolve_port_base
 from osprey.utils.workspace import STATE_DIR_NAME, agent_data_base_dir, anchored_path
 
@@ -866,6 +867,10 @@ def _resolve_web_shell_command(
     Precedence (highest first):
       1. ``--shell`` CLI flag (user-explicit; defeats the pin)
       2. ``web_terminal.shell`` config field (also defeats the pin)
+
+    Both are argv, written as a string or as a list, and both go through
+    :func:`~osprey.utils.shell_resolver.normalize_shell_command`, which resolves
+    argv[0] and passes the harness's own arguments through.
       3. ``claude_code.cli_version`` pin via ``build_claude_launch_argv()``
       4. bare ``claude`` (current default)
 
@@ -877,12 +882,12 @@ def _resolve_web_shell_command(
     consumers can unpack safely.
     """
     from osprey.utils.claude_launcher import build_claude_launch_argv
-    from osprey.utils.shell_resolver import resolve_shell_command
+    from osprey.utils.shell_resolver import normalize_shell_command, resolve_shell_command
 
     if shell_override:
-        return [resolve_shell_command(shell_override)]
+        return normalize_shell_command(shell_override)
     if wt_config.get("shell"):
-        return [resolve_shell_command(wt_config["shell"])]
+        return normalize_shell_command(wt_config["shell"])
     argv = build_claude_launch_argv(cc_config)
     if argv[0] == "claude":
         return [resolve_shell_command(argv[0]), *argv[1:]]
@@ -1050,17 +1055,19 @@ def web(
             raise SystemExit(1)
         _clear_preflight_marker()
 
+    # Above the detached return: a backgrounded server is exposed exactly the
+    # same way, and is the shape most likely to be left running.
+    if not is_loopback_bind(host):
+        output.warn(
+            f"Binding to {host or '0.0.0.0'} exposes the terminal to the network",
+            "This is a single-user tool. Add authentication before you expose it.",
+        )
+
     if detach:
         _start_detached(host, port, user_shell_override, repo_root)
         return
 
     # -- foreground (original behavior) ------------------------------------
-
-    if host == "0.0.0.0":
-        output.warn(
-            "Binding to 0.0.0.0 exposes the terminal to the network",
-            "This is a single-user tool. Add authentication before you expose it.",
-        )
 
     # Pre-flight: check if port is already in use. SO_REUSEADDR matches
     # uvicorn's own bind semantics — without it, TIME_WAIT sockets from a

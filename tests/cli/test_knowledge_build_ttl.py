@@ -18,10 +18,15 @@ Covers:
   names nothing, and an address the six-token grammar cannot read.
 - A LinkML schema handed to ``--ontology`` is pointed at ``compile-ontology``
   rather than reported as malformed JSON.
+- Section order comes from the database's own tree, ``--section-order``
+  overrides it, and a list with an empty token is refused.
+- A machine that spells its setpoints its own way gets the zero-writable
+  direction line as a warning rather than as a note.
 """
 
 from __future__ import annotations
 
+import copy
 import json
 from pathlib import Path
 from typing import Any
@@ -274,6 +279,17 @@ def _config_channel_db(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
     monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
 
 
+def _config_facility_prefix(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
+    """Make ``facility.prefix`` read as *value* for the token resolution."""
+
+    def _lookup(path: str, default: object = None, config_path: object = None) -> object:
+        if path == "facility.prefix":
+            return value
+        return default
+
+    monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
+
+
 def _config_graph_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the project read as a graph-paradigm one.
 
@@ -430,6 +446,132 @@ def test_build_ttl_facility_option_mints_the_given_token(
     assert "narad:device:xyz:SR:DIPOLE01" in text
     # A mixed-token corpus is the failure this flag exists to make impossible.
     assert "demo" not in text
+
+
+def test_build_ttl_takes_the_facility_token_from_the_project_config(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A project that already names its facility does not have to name it twice."""
+    _config_facility_prefix(monkeypatch, "ex")
+    output = tmp_path / "ex.ttl"
+    result = _build_ttl(
+        output,
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    text = output.read_text(encoding="utf-8")
+    assert 'narad_p:facility "ex"' in text
+    assert "ex_SR_DIPOLE01" in text
+    assert "demo" not in text
+
+
+def test_build_ttl_flag_wins_over_the_configured_facility_token(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The flag is the operator's override, so it outranks the config key."""
+    _config_facility_prefix(monkeypatch, "ex")
+    output = tmp_path / "xyz.ttl"
+    result = _build_ttl(
+        output,
+        "--facility",
+        "xyz",
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    assert 'narad_p:facility "xyz"' in output.read_text(encoding="utf-8")
+
+
+def test_build_ttl_refuses_a_facility_token_no_identifier_can_hold(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing enforces the key's shape upstream, so this verb checks it itself."""
+    _config_facility_prefix(monkeypatch, "example facility")
+    output = tmp_path / "bad.ttl"
+    result = _build_ttl(
+        output,
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "facility.prefix" in flat
+    assert "example facility" in flat
+    assert not output.exists()
+
+
+def test_build_ttl_reports_the_facility_token_and_the_ontology(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A corpus is identified by both, so both are on the run's closing report."""
+    _config_facility_prefix(monkeypatch, "ex")
+    output = tmp_path / "ex.ttl"
+    result = _build_ttl(
+        output,
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "Facility token: ex" in flat
+    assert "facility.prefix" in flat
+    assert str(ontology_table) in flat
+
+
+def test_build_ttl_says_when_a_foreign_machine_gets_the_demo_token(
+    channel_db: Path,
+    descriptions_db: Path,
+    readonly_limits: Path,
+    ontology_table: Path,
+    tmp_path: Path,
+) -> None:
+    """The mislabelled corpus is written, but the run does not stay quiet about it."""
+    output = tmp_path / "demo.ttl"
+    result = _build_ttl(
+        output,
+        channel_db=channel_db,
+        descriptions_db=descriptions_db,
+        readonly_limits=readonly_limits,
+        ontology_table=ontology_table,
+    )
+
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "Facility token: demo" in flat
+    assert "not the packaged demo one" in flat
 
 
 def test_build_ttl_reports_the_limits_direction_source(
@@ -799,6 +941,48 @@ def test_build_ttl_rejects_a_malformed_address(descriptions_db: Path, tmp_path: 
     assert not output.exists()
 
 
+def test_build_ttl_refuses_a_foreign_level_list_before_it_parses_addresses(
+    descriptions_db: Path, tmp_path: Path
+) -> None:
+    """A machine on another level grammar gets one refusal, not one per address.
+
+    The level list is read while the prose is resolved, which happens before
+    any address is parsed; that order is what turns a whole foreign database
+    into a single line naming the grammar this verb reads.
+    """
+    payload = _hierarchical_payload()
+    # A machine whose top level is a section rather than a ring, and whose last
+    # two levels join with '_' -- so every expanded address is five colon
+    # tokens, which is what a per-address refusal would fire on.
+    payload["hierarchy"]["levels"][0] = {"name": "section", "type": "tree"}
+    payload["hierarchy"]["naming_pattern"] = (
+        "{section}:{system}:{family}:{device}:{field}_{subfield}"
+    )
+    db_path = tmp_path / "foreign_levels.json"
+    db_path.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "out.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(db_path),
+            "--descriptions",
+            str(descriptions_db),
+        ],
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "Traceback" not in result.output
+    assert "six-token grammar: RING, SYSTEM, FAMILY, DEVICE, FIELD, SUBFIELD" in flat
+    # Not the per-address refusal: nothing was parsed before the list was checked.
+    assert "holds an address build-ttl cannot read" not in flat
+    assert not output.exists()
+
+
 def test_build_ttl_points_a_yaml_ontology_at_the_compiler(
     channel_db: Path, descriptions_db: Path, tmp_path: Path
 ) -> None:
@@ -839,3 +1023,268 @@ def test_build_ttl_points_a_yaml_ontology_at_the_compiler(
     assert "Traceback" not in result.output
     assert "compile-ontology" in flat
     assert not output.exists()
+
+
+# ---------------------------------------------------------------------------
+# Section order and the direction warning
+# ---------------------------------------------------------------------------
+
+#: The two-section machine's addresses: the fixture's storage ring, plus a
+#: booster carrying the same magnet family.
+TWO_SECTION_ADDRESSES = FIXTURE_ADDRESSES + (
+    "BR:MAG:DIPOLE:01:CURRENT:RB",
+    "BR:MAG:DIPOLE:01:CURRENT:SP",
+    "BR:MAG:DIPOLE:02:CURRENT:RB",
+    "BR:MAG:DIPOLE:02:CURRENT:SP",
+)
+
+#: The same machine spelling its setpoint and readback subfields its own way,
+#: which is the shape the PV-grammar fallback cannot read a write out of.
+NO_SETPOINT_ADDRESSES = tuple(
+    address.replace(":SP", ":SET").replace(":RB", ":MON") for address in FIXTURE_ADDRESSES
+)
+
+
+def _in_context_for(addresses: tuple[str, ...]) -> dict[str, Any]:
+    """The in-context database of a machine holding exactly *addresses*."""
+    return {
+        "_metadata": {"version": "1.0", "tier": "test", "total_channels": len(addresses)},
+        "channels": [
+            {
+                "channel": address.replace(":", "_"),
+                "address": address,
+                "description": f"Per-channel sentence for {address}.",
+            }
+            for address in addresses
+        ],
+    }
+
+
+def _two_section_payload() -> dict[str, Any]:
+    """The miniature machine with a booster added after the storage ring.
+
+    The tree lists ``SR`` before ``BR``, which is a machine order and not an
+    alphabetical one -- so a corpus that follows the tree and a corpus that
+    sorts its sections by name come out different, which is the whole point.
+    """
+    payload = _hierarchical_payload()
+    payload["tree"]["BR"] = {
+        "_description": "Booster Ring (BR).",
+        "MAG": copy.deepcopy(payload["tree"]["SR"]["MAG"]),
+    }
+    return payload
+
+
+def _no_setpoint_payload() -> dict[str, Any]:
+    """The miniature machine with ``SET``/``MON`` subfields instead of ``SP``/``RB``."""
+    payload = _hierarchical_payload()
+    current = payload["tree"]["SR"]["MAG"]["DIPOLE"]["DEVICE"]["CURRENT"]
+    current["SET"] = current.pop("SP")
+    current["MON"] = current.pop("RB")
+    return payload
+
+
+@pytest.fixture()
+def two_section_db(tmp_path: Path) -> Path:
+    """Write the two-section database and return its path."""
+    path = tmp_path / "two_section.json"
+    path.write_text(json.dumps(_two_section_payload()), encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def two_section_descriptions(tmp_path: Path) -> Path:
+    """The in-context prose of the two-section machine."""
+    path = tmp_path / "two_section_in_context.json"
+    path.write_text(json.dumps(_in_context_for(TWO_SECTION_ADDRESSES)), encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def no_setpoint_db(tmp_path: Path) -> Path:
+    """Write the database whose subfields the PV grammar knows nothing about."""
+    path = tmp_path / "no_setpoint.json"
+    path.write_text(json.dumps(_no_setpoint_payload()), encoding="utf-8")
+    return path
+
+
+@pytest.fixture()
+def no_setpoint_descriptions(tmp_path: Path) -> Path:
+    """The in-context prose of the machine with no ``:SP`` subfield."""
+    path = tmp_path / "no_setpoint_in_context.json"
+    path.write_text(json.dumps(_in_context_for(NO_SETPOINT_ADDRESSES)), encoding="utf-8")
+    return path
+
+
+def _sections_in_facility_order(ttl_path: Path) -> list[str]:
+    """The section tokens of *ttl_path*, first seen first, by facility ordinal."""
+    import rdflib
+
+    graph = _parse(ttl_path)
+    ordinals = {
+        subject: int(value)
+        for subject, _predicate, value in graph.triples(
+            (None, rdflib.URIRef(NARAD_P + "ordinalInFacility"), None)
+        )
+    }
+    sections = {
+        subject: str(value)
+        for subject, _predicate, value in graph.triples(
+            (None, rdflib.URIRef(NARAD_P + "sectionCode"), None)
+        )
+    }
+    seen: list[str] = []
+    for subject in sorted(ordinals, key=lambda device: ordinals[device]):
+        if sections[subject] not in seen:
+            seen.append(sections[subject])
+    return seen
+
+
+def test_build_ttl_orders_sections_the_way_the_database_lists_them(
+    two_section_db: Path,
+    two_section_descriptions: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The tree's key order reaches the corpus, and it is not the alphabet's."""
+    _no_config(monkeypatch)
+    output = tmp_path / "tree_order.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(two_section_db),
+            "--descriptions",
+            str(two_section_descriptions),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _sections_in_facility_order(output) == ["SR", "BR"]
+
+
+def test_build_ttl_section_order_option_overrides_the_tree(
+    two_section_db: Path,
+    two_section_descriptions: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A database whose key order carries no meaning can be given the real one."""
+    _no_config(monkeypatch)
+    output = tmp_path / "named_order.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(two_section_db),
+            "--descriptions",
+            str(two_section_descriptions),
+            "--section-order",
+            "BR, SR",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _sections_in_facility_order(output) == ["BR", "SR"]
+
+
+def test_build_ttl_refuses_a_section_order_with_an_empty_token(
+    two_section_db: Path,
+    two_section_descriptions: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stray comma would silently name a section no machine has."""
+    _no_config(monkeypatch)
+    output = tmp_path / "empty_token.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(two_section_db),
+            "--descriptions",
+            str(two_section_descriptions),
+            "--section-order",
+            "SR,,BR",
+        ],
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "Traceback" not in result.output
+    assert "--section-order" in flat
+    assert "empty one" in flat
+    assert not output.exists()
+
+
+def test_build_ttl_warns_when_the_grammar_finds_nothing_writable(
+    no_setpoint_db: Path,
+    no_setpoint_descriptions: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A corpus asserting nothing can be written is a warning, not a note.
+
+    The subfield token is the machine's, so a facility that spells setpoints
+    ``SET`` lands here with every signal read-only -- which is a finding about
+    the inputs rather than a fact about the machine, and reads as one.
+    """
+    _no_config(monkeypatch)
+    output = tmp_path / "read_only.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(no_setpoint_db),
+            "--descriptions",
+            str(no_setpoint_descriptions),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "\u26a0 direction from PV grammar" in flat
+    assert "0 of 4 signal groups matched" in flat
+    assert "nothing is writable" in flat
+    assert _predicate_count(output, "writesSignal") == 0
+
+
+def test_build_ttl_keeps_the_direction_line_a_note_when_something_writes(
+    channel_db: Path,
+    descriptions_db: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The promotion is the zero case only; an ordinary run reads as before."""
+    _no_config(monkeypatch)
+    output = tmp_path / "grammar.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(channel_db),
+            "--descriptions",
+            str(descriptions_db),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    flat = _flat(result)
+    assert "direction from PV grammar" in flat
+    assert "\u26a0 direction from PV grammar" not in flat
+    assert "signal groups matched" not in flat

@@ -64,6 +64,7 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.port_layout import default_port
 from tests.e2e._volumes import remove_project_volumes
+from tests.e2e.conftest import e2e_provider
 from tests.e2e.profile_edits import set_pairs
 
 #: This deploy's own thousand-port block — same convention as
@@ -308,7 +309,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--no-git",
             *set_pairs({"config": {"modules.web_terminals.enabled": False}}),
             "--set",
-            "provider=als-apg",
+            f"provider={e2e_provider()}",
             "--set",
             "model=haiku",
             "--set",

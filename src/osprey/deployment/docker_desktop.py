@@ -36,6 +36,7 @@ from __future__ import annotations
 import http.client
 import json
 import socket
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -195,21 +196,82 @@ def host_networking_enabled() -> bool | None:
     return _from_settings_store()
 
 
+#: Name Docker Desktop gives the context it installs on Linux. The active
+#: context is what says which engine the CLI actually talks to, which is the
+#: question here — the product's files sit on the host either way.
+_DESKTOP_LINUX_CONTEXT = "desktop-linux"
+
+#: How long the context probe waits. It is a local CLI read of a config file;
+#: anything slower than this is a CLI that is not going to answer.
+_CONTEXT_TIMEOUT_S = 5.0
+
+
+def _active_docker_context() -> str | None:
+    """The docker context this host's CLI is currently pointed at, or ``None``.
+
+    ``None`` means the question could not be asked — no CLI, a CLI that failed,
+    an empty answer — not that the answer is "not Desktop". A caller that gets
+    it falls back to the install-presence test rather than concluding either
+    way.
+    """
+    try:
+        result = subprocess.run(
+            ["docker", "context", "show"],
+            capture_output=True,
+            text=True,
+            timeout=_CONTEXT_TIMEOUT_S,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _desktop_backend_on_linux() -> bool:
+    """Whether a Linux host's docker CLI is talking to Docker Desktop's engine.
+
+    The active context decides it: Docker Desktop for Linux installs its own
+    context and the CLI runs against the bare engine until something selects it.
+    Testing for the product's files instead would answer ``True`` on a host that
+    has Desktop installed and runs its containers on the engine directly, which
+    is a real shape and the one where being wrong costs the most.
+
+    The presence test is the fallback for a host whose CLI cannot be asked at
+    all — better than assuming either answer for a question nothing answered.
+    """
+    context = _active_docker_context()
+    if context is not None:
+        return context == _DESKTOP_LINUX_CONTEXT
+    socket_path = backend_socket_path()
+    if socket_path is not None and socket_path.exists():
+        return True
+    return any(path.is_file() for path in settings_store_paths())
+
+
 def on_docker_desktop(config: dict) -> bool:
     """Whether this deployment's containers run under Docker Desktop.
 
-    Docker Desktop is the macOS and Windows product, so the platform check is
-    what distinguishes it from a Linux host running the engine directly -- where
-    ``network_mode: host`` binds on the machine itself and none of this applies.
-    Podman on macOS runs its own machine with its own port handling and is not
-    Docker Desktop, hence the runtime check as well.
+    Docker Desktop runs containers inside a VM and forwards published ports
+    into it on every platform it ships for — macOS, Windows and Linux. What
+    distinguishes it is the backend, not the operating system: a Linux host
+    running the engine directly binds ``network_mode: host`` on the machine
+    itself and none of this applies, while the same host running Docker Desktop
+    has exactly the VM and port handling this module is about. Podman is not
+    Docker Desktop anywhere, hence the runtime check.
 
-    The platform is read first so that a Linux host never invokes the runtime
-    resolver at all, which is what keeps this cheap on the hosts where the
-    answer is structurally ``False``.
+    So the runtime settles it first (a podman host is answered without asking
+    anything else), then macOS and Windows are Desktop by construction, and a
+    Linux host is decided by which engine its CLI is pointed at
+    (:func:`_desktop_backend_on_linux`). A platform Desktop does not ship for
+    short-circuits before the runtime is resolved at all.
 
     :param config: Raw deploy config, read only for which runtime it selects.
     """
-    if sys.platform not in ("darwin", "win32"):
+    if sys.platform not in ("darwin", "win32") and not sys.platform.startswith("linux"):
         return False
-    return get_runtime_command(config)[0] == "docker"
+    if get_runtime_command(config)[0] != "docker":
+        return False
+    if sys.platform in ("darwin", "win32"):
+        return True
+    return _desktop_backend_on_linux()

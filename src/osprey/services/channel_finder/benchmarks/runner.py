@@ -276,7 +276,10 @@ class BenchmarkRunner:
             services.get("graphdb"), base=resolve_port_base(config)
         )
         with graph_seeder.open_session(
-            connection.uri, connection.username, connection.password
+            connection.uri,
+            connection.username,
+            connection.password,
+            database=connection.database,
         ) as session:
             record = session.run(GRAPH_CHANNEL_COUNT_CYPHER).single()
         if record is None:

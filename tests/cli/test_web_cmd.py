@@ -130,6 +130,27 @@ class TestResolveWebShellCommand:
         assert cmd == ["/abs/custom"]
         mock_resolve.assert_called_once_with("my-shell")
 
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/harness")
+    def test_config_shell_keeps_its_arguments(self, mock_resolve):
+        """A configured argv reaches the PTY whole, not collapsed to one token."""
+        cmd = _resolve_web_shell_command({}, None, {"shell": "harness --profile ops"})
+
+        assert cmd == ["/abs/harness", "--profile", "ops"]
+        mock_resolve.assert_called_once_with("harness")
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/harness")
+    def test_config_shell_accepts_a_list(self, mock_resolve):
+        cmd = _resolve_web_shell_command({}, None, {"shell": ["harness", "--profile", "ops"]})
+
+        assert cmd == ["/abs/harness", "--profile", "ops"]
+        mock_resolve.assert_called_once_with("harness")
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/harness")
+    def test_shell_flag_keeps_its_arguments(self, mock_resolve):
+        cmd = _resolve_web_shell_command({}, "harness --profile ops", {})
+
+        assert cmd == ["/abs/harness", "--profile", "ops"]
+
 
 # -- help / backward compat ------------------------------------------------
 

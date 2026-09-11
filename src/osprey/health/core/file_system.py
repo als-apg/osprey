@@ -21,8 +21,11 @@ Rows emitted:
   is not writable or cannot be created.
 * ``env_file`` — ok when a ``.env`` file is present at the repo root (the
   deployment's single secret store), warning otherwise.
-* ``registry_file`` — emitted only when ``config.yml`` declares
-  ``registry_path``: ok when the file exists, error when configured but missing.
+* ``registry_file`` — emitted only when the config declares an application
+  registry (``registry_path``, its ``application.registry_path`` alias, or the
+  ``REGISTRY_PATH`` environment override, resolved by the loader's own
+  :func:`osprey.registry.manager.resolve_registry_path`): ok when the file
+  exists, error when configured but missing.
 * ``disk_space`` — warning when free space is below 1 GB or the filesystem is at
   least 90% full, ok otherwise; warning when disk usage cannot be read.
 
@@ -166,13 +169,15 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     # CONFIG_DEPENDENT, so the category still reports healthy with a row missing.
     try:
         if config:
-            file_config = config
+            # The same resolver the loader uses, so the row can never disagree
+            # with what actually loaded: it knows all three spellings
+            # (REGISTRY_PATH, `registry_path`, `application.registry_path`),
+            # expands `${VAR}`, and resolves a relative path against `cwd`.
+            from osprey.registry.manager import resolve_registry_path
 
-            registry_path_str = file_config.get("registry_path")
+            registry_path_str = resolve_registry_path(config, base_path=cwd)
             if registry_path_str:
-                # Resolve environment variables in path.
-                registry_path_str = os.path.expandvars(registry_path_str)
-                registry_path = cwd / registry_path_str
+                registry_path = Path(registry_path_str)
 
                 if registry_path.exists():
                     results.append(

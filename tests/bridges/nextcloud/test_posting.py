@@ -239,6 +239,19 @@ def test_answer_posts_the_channel_error_wording_for_a_failed_run():
     assert talk.texts == [ERROR_TEXT]
 
 
+def test_the_error_wording_claims_nothing_about_the_machine():
+    """A failed run is not evidence that the machine is untouched.
+
+    "error", "timeout" and "cancelled" all reach this notice, and a run can be
+    approved a write and then time out on its way to reporting it. Telling a
+    shared control-room conversation that nothing was changed would be a safety
+    assurance the bridge has no way to check — the Google adapter's notice
+    makes no such claim either.
+    """
+    assert "Nothing was changed" not in ERROR_TEXT
+    assert "nothing was changed" not in ERROR_TEXT.lower()
+
+
 def test_answer_never_leaks_the_machine_error_into_the_room():
     ops, talk = _ops()
     ops.post_answer(entry(), RESULT_ERROR)

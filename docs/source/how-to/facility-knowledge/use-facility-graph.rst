@@ -50,6 +50,16 @@ which devices share a PV.
 What the graph holds, how its names are spelled, and what each of the four
 tools returns are in :doc:`/reference/contracts/facility-graph`.
 
+.. note::
+
+   **The store's first start needs egress.** Its image ships the APOC plugin
+   inside and moves it into place, but not ``n10s`` — the entrypoint downloads
+   that jar from GitHub the first time the store comes up, and it is the
+   plugin that imports the Turtle corpus. There is no configuration key for
+   this: a disconnected site brings the store up once on a host that can reach
+   GitHub, or copies the jar into the plugins volume by hand, after which the
+   volume carries it and later starts need nothing.
+
 
 Read-Only by Construction
 =========================
@@ -164,6 +174,7 @@ channel finder does. Inside a rendered project:
    Wrote data/demo_machine.ttl.
      512 devices, 2908 channel bindings, 113 signals.
      direction from channel limits: data/channel_limits.json
+     Facility token: ca (from facility.prefix); ontology: the packaged demo table
      Load it with: osprey knowledge seed-graph data/demo_machine.ttl
 
 The shipped demo corpus is regenerated from
@@ -177,9 +188,14 @@ the first example names both:
    $ osprey knowledge build-ttl data/demo_machine.ttl \
        --channel-db data/channel_databases/tiers/tier3/hierarchical.json
 
-A corpus that is not the demo machine's wants its own facility token as well:
-``--facility <token>`` decides the token every IRI, every identifier and every
-``narad_p:facility`` value in the file carries, and it defaults to ``demo``.
+A corpus that is not the demo machine's wants its own facility token as well.
+The token every IRI, every identifier and every ``narad_p:facility`` value in
+the file carries is the project's own ``facility.prefix``, so a project that
+already names its facility does not name it twice; ``--facility <token>``
+overrides that for one run, and with neither in scope the token is ``demo``.
+The closing report names the token it minted with, and a run that falls back to
+``demo`` against a database that is not the packaged demo one says so, because
+a corpus labelled for the wrong machine is not visible from the file itself.
 
 A facility whose device database carries attributes the convention has no slot
 for — engineering units on a channel, a crate or serial identity on a device —
@@ -332,6 +348,12 @@ comment does not cover the key beside it.
 Which differences are refused and which are only reported is set out under
 :ref:`Preset drift, and osprey profile expand <profile-preset-drift>` in the
 profile reference.
+
+If the corpus lives in a database other than ``neo4j`` on that store, name it
+with ``services.graphdb.database``. The store this deployment runs is a
+Community image that serves exactly one database, so the key matters only here:
+it is what every session — the seeder's writes and the agent's reads alike — is
+opened against, so both halves reach the same corpus.
 
 Put that account's password in the project ``.env`` as ``GRAPHDB_PASSWORD``.
 Nothing mints one here — the store belongs to somebody else, so OSPREY starts

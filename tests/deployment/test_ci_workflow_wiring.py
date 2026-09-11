@@ -2072,12 +2072,20 @@ def _als_apg_probe_steps(wf: dict[str, Any]) -> list[tuple[str, str, str]]:
 def test_workflow_exports_the_als_apg_base_url_override(workflow: dict[str, Any]) -> None:
     """The workflow-level ``env:`` block is what lets a single repository
     variable retarget every LLM-touching job at once. Without it the probes
-    below would each fall back to the baked-in default and the override would
-    silently do nothing — green locally, wrong in CI."""
+    below would each need their own endpoint and the override would silently
+    do nothing — green locally, wrong in CI.
+
+    The exported value is pinned exactly, not merely searched for the
+    variable: the endpoint is repository data, and a ``|| 'https://…'`` tail
+    added beside the variable would point every fork that has not set it at
+    somebody else's gateway while still reading ``vars.``. ci.yml is outside
+    the roots the shipped-literal guard walks, so this assertion is the only
+    thing standing between that tail and a merge."""
     env = workflow.get("env") or {}
-    assert env.get(ALS_APG_BASE_URL_ENV) == "${{ vars.ALS_APG_BASE_URL }}", (
+    exported = env.get(ALS_APG_BASE_URL_ENV)
+    assert exported == "${{ vars." + ALS_APG_BASE_URL_ENV + " }}", (
         f"ci.yml must export {ALS_APG_BASE_URL_ENV} from the repository variable "
-        f"at workflow level; found {env.get(ALS_APG_BASE_URL_ENV)!r}"
+        f"at workflow level, with no fallback behind it; found {exported!r}"
     )
 
 
@@ -2085,6 +2093,17 @@ def test_workflow_exports_the_als_apg_base_url_override__mutation_drops_export()
     mutated = copy.deepcopy(_load_workflow())
     (mutated.get("env") or {}).pop(ALS_APG_BASE_URL_ENV, None)
     with pytest.raises(AssertionError, match="must export"):
+        test_workflow_exports_the_als_apg_base_url_override(mutated)
+
+
+def test_workflow_exports_the_als_apg_base_url_override__mutation_adds_a_fallback() -> None:
+    """A fallback behind the variable is the regression that matters: it reads
+    ``vars.`` and still bakes an endpoint into every fork of the workflow."""
+    mutated = copy.deepcopy(_load_workflow())
+    (mutated.get("env") or {})[ALS_APG_BASE_URL_ENV] = (
+        "${{ vars." + ALS_APG_BASE_URL_ENV + " || 'https://gateway.example.org' }}"
+    )
+    with pytest.raises(AssertionError, match="no fallback"):
         test_workflow_exports_the_als_apg_base_url_override(mutated)
 
 

@@ -71,6 +71,7 @@ from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suf
 from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 
 from .identity_headers import same_domain, same_identity
+from .methods import METHOD_OIDC, SUPPORTED_METHODS
 from .revocation import RevocationStore
 from .sessions import SessionCodec
 from .throttle import AttemptThrottle
@@ -88,14 +89,12 @@ nginx never proxies it — it exists for the container healthcheck and for
 port directly.
 """
 
-SUPPORTED_METHODS = ("password", "oidc")
-"""Methods this process can actually serve.
-
-``none`` is a supported *deployment* posture (see ``render.py``'s
-``SUPPORTED_AUTH_METHODS``) but not a supported sidecar mode: with auth off
-there is no sidecar in the compose file at all, so a sidecar that finds
-``OSPREY_AUTH_METHOD=none`` has been mis-wired and refuses everything.
-"""
+# ``SUPPORTED_METHODS`` is imported above from ``methods.py``, the leaf module
+# the recheck route shares it with. ``none`` is a supported *deployment*
+# posture (see ``render.py``'s ``SUPPORTED_AUTH_METHODS``) but not a supported
+# sidecar mode: with auth off there is no sidecar in the compose file at all,
+# so a sidecar that finds ``OSPREY_AUTH_METHOD=none`` has been mis-wired and
+# refuses everything.
 
 # --- OIDC state cookie (Starlette SessionMiddleware) -------------------------
 # Pinned, never configurable: this cookie carries only the in-flight OIDC
@@ -129,10 +128,27 @@ ENV_USERS = "OSPREY_AUTH_USERS"
 ENV_PW_HASH_PREFIX = "OSPREY_AUTH_PW_HASH_"
 """Per-user stored hash: ``OSPREY_AUTH_PW_HASH_<SUFFIX>``."""
 
+ENV_WEB_THEME = "OSPREY_WEB_THEME"
+ENV_WEB_APP_NAME = "OSPREY_WEB_APP_NAME"
+"""What the login page wears, in the deployment's own vocabulary.
+
+The two names the per-user terminals already read, deliberately reused rather
+than given ``OSPREY_AUTH_`` spellings of their own: they carry the deployment's
+``web.theme`` and facility name, not an auth setting, and a second spelling for
+one page would be a second thing to keep in step. Both are optional — unset
+leaves the login page on the framework palette and shows the wordmark alone.
+"""
+
 ENV_OIDC_ISSUER = "OSPREY_AUTH_OIDC_ISSUER"
 ENV_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID_ENV"
 ENV_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET_ENV"
 ENV_OIDC_CLAIM = "OSPREY_AUTH_OIDC_CLAIM"
+ENV_OIDC_SCOPES = "OSPREY_AUTH_OIDC_SCOPES"
+"""Space-separated scopes to request at the authorization endpoint.
+
+Set from the rendered ``modules.web_terminals.auth.oidc.scopes``. Absent means
+the sidecar's own :data:`~osprey.services.auth_sidecar.app.DEFAULT_OIDC_SCOPES`
+apply, so the default lives in one place."""
 ENV_OIDC_SUBJECT_PREFIX = "OSPREY_AUTH_OIDC_SUBJECT_"
 """Per-user expected IdP identity: ``OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX>``."""
 
@@ -157,10 +173,10 @@ principal rather than a rule of its own.
 """
 
 ACCESS_USER_PREFIX = "user:"
-"""Prefix of a principal naming one asserted identity: ``user:carol@lbl.gov``."""
+"""Prefix of a principal naming one asserted identity: ``user:carol@example.org``."""
 
 ACCESS_DOMAIN_PREFIX = "domain:"
-"""Prefix of a principal naming an identity domain: ``domain:lbl.gov``."""
+"""Prefix of a principal naming an identity domain: ``domain:example.org``."""
 
 OWNER_ONLY: frozenset[str] = frozenset({ACCESS_SELF})
 """The resolved set of an unshared card, and the reading an absent variable gets."""
@@ -189,6 +205,25 @@ _ACCESS_VALUE_LOG_LIMIT = 80
 DEFAULT_OIDC_CLIENT_ID_ENV = "OSPREY_AUTH_OIDC_CLIENT_ID"
 DEFAULT_OIDC_CLIENT_SECRET_ENV = "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 DEFAULT_OIDC_CLAIM = "sub"
+
+DEFAULT_OIDC_SCOPES = ("openid", "profile", "email")
+"""Scopes requested at the authorization endpoint when a deployment names none.
+
+``openid`` is what makes this OIDC rather than bare OAuth2 (it is also what
+makes Authlib generate and check a nonce). ``profile`` and ``email`` are asked
+for because the claim a facility maps onto a roster user is commonly
+``preferred_username`` or ``email``, and a claim that was never requested is
+simply absent from the token — which the callback reads as "deny". A facility
+whose IdP publishes the identity claim under some other scope authors the list
+it needs through ``modules.web_terminals.auth.oidc.scopes``."""
+
+REQUIRED_OIDC_SCOPE = "openid"
+"""The one scope a deployment may not drop.
+
+Without it the IdP issues no ID token, so there is nothing for the nonce and
+audience checks to run against and every identity guarantee this sidecar rests
+on is gone. A list that omits it is refused in
+:meth:`AuthSettings.missing_requirements` rather than silently repaired."""
 
 _TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
 _FALSE_VALUES = frozenset({"0", "false", "no", "off"})
@@ -387,6 +422,12 @@ class AuthSettings:
         oidc_claim: Which ID-token claim carries the identity to map onto a
             roster user.
         oidc_subjects: ``{username: expected claim value}`` from the roster.
+        web_theme: The deployment's ``web.theme`` value — a family or a
+            concrete theme id — for the login page to resolve through the design
+            system. Empty when unset, and the page then wears the framework
+            default.
+        web_app_name: The facility name shown above the login page's wordmark.
+            Empty when the deployment names none.
         roster_access: ``{username: admitted principals}`` for every roster
             user, as :func:`_access_principals` read the entry's
             ``OSPREY_AUTH_ROSTER_ACCESS_<SUFFIX>``. :data:`OWNER_ONLY` for the
@@ -410,8 +451,11 @@ class AuthSettings:
     oidc_client_id_var: str = DEFAULT_OIDC_CLIENT_ID_ENV
     oidc_client_secret_var: str = DEFAULT_OIDC_CLIENT_SECRET_ENV
     oidc_claim: str = DEFAULT_OIDC_CLAIM
+    oidc_scopes: tuple[str, ...] = DEFAULT_OIDC_SCOPES
     oidc_subjects: Mapping[str, str] = field(default_factory=dict)
     roster_access: Mapping[str, frozenset[str]] = field(default_factory=dict)
+    web_theme: str = ""
+    web_app_name: str = ""
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> AuthSettings:
@@ -438,6 +482,13 @@ class AuthSettings:
             The parsed settings.
         """
         source: Mapping[str, str] = os.environ if env is None else env
+
+        # Scopes cross the wire the way OAuth spells them: one space-separated
+        # string. An entirely blank value is "the deployment named none", which
+        # takes the sidecar's own default; a non-blank list is taken verbatim,
+        # `openid` included or not, so that `missing_requirements` can refuse a
+        # list missing it instead of this parser quietly putting it back.
+        oidc_scopes = tuple((source.get(ENV_OIDC_SCOPES) or "").split()) or DEFAULT_OIDC_SCOPES
 
         users = _roster(source.get(ENV_USERS))
         password_hashes: dict[str, str] = {}
@@ -478,8 +529,11 @@ class AuthSettings:
             oidc_client_id_var=client_id_var,
             oidc_client_secret_var=client_secret_var,
             oidc_claim=(source.get(ENV_OIDC_CLAIM) or "").strip() or DEFAULT_OIDC_CLAIM,
+            oidc_scopes=oidc_scopes,
             oidc_subjects=oidc_subjects,
             roster_access=roster_access,
+            web_theme=(source.get(ENV_WEB_THEME) or "").strip(),
+            web_app_name=(source.get(ENV_WEB_APP_NAME) or "").strip(),
         )
 
     def missing_requirements(self) -> tuple[str, ...]:
@@ -521,7 +575,7 @@ class AuthSettings:
             missing.add(ENV_SESSION_SECRET)
         if self.session_lifetime <= 0:
             missing.add(ENV_SESSION_LIFETIME)
-        if self.method == "oidc":
+        if self.method == METHOD_OIDC:
             if not self.state_secret.strip():
                 missing.add(ENV_STATE_SECRET)
             if not self.oidc_issuer:
@@ -532,6 +586,14 @@ class AuthSettings:
                 missing.add(self.oidc_client_id_var)
             if not self.oidc_client_secret:
                 missing.add(self.oidc_client_secret_var)
+            # A scope list without `openid` is not a narrower login, it is a
+            # different protocol: the IdP issues no ID token, so the nonce and
+            # audience checks this module rests on have nothing to check. It is
+            # reported here — rather than silently re-added — so the operator
+            # who removed it is told, and every login stays refused until they
+            # put it back.
+            if REQUIRED_OIDC_SCOPE not in self.oidc_scopes:
+                missing.add(ENV_OIDC_SCOPES)
         return tuple(sorted(missing))
 
     def roster_collisions(self) -> dict[str, list[str]]:

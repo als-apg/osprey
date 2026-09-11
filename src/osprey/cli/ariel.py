@@ -19,11 +19,8 @@ import click
 
 # Import get_config_value at module level for easier patching in tests
 from osprey.utils.config import get_config_value
-from osprey.utils.logger import get_logger
 
 from . import output
-
-logger = get_logger("ariel")
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -113,51 +110,55 @@ def _handle_db_error(e: Exception) -> None:
         raise SystemExit(1) from None
 
 
-def _framework_search_modes() -> tuple[str, ...]:
-    """Return the search module names the framework registers by default."""
-    from osprey.registry.builtins import FrameworkRegistryProvider
+#: Registry-config attributes behind the three ARIEL choice options. The
+#: attribute name is the whole parameter: the project registry's config and the
+#: framework's baseline config carry the same three lists, so one name reaches
+#: both the authoritative source and the fallback.
+_SEARCH_MODULES_ATTR = "ariel_search_modules"
+_ENHANCEMENT_MODULES_ATTR = "ariel_enhancement_modules"
+_INGESTION_ADAPTERS_ATTR = "ariel_ingestion_adapters"
 
-    config = FrameworkRegistryProvider().get_registry_config()
-    return tuple(registration.name for registration in config.ariel_search_modules)
 
-
-def _registered_search_modes() -> tuple[str, ...]:
-    """Return the ARIEL search module names the registry knows about.
+def _registered_names(attribute: str) -> tuple[str, ...]:
+    """Return the names the registry knows about under *attribute*.
 
     The project registry is authoritative, so a deployment that registers its
-    own search module gets it as a ``--mode`` choice without a code change.
-    Building that registry needs a project ``config.yml``; when there is none
-    (``--help`` run outside a project directory, say) the framework's own
-    baseline registrations stand in. That failure is expected here, so the
-    registry loggers are muted while it is probed — a help screen is not the
-    place to report a missing project config.
+    own search module, enhancement module or ingestion adapter gets it as a
+    CLI choice without a code change. Building that registry needs a project
+    ``config.yml``; when there is none (``--help`` run outside a project
+    directory, say) the framework's own baseline registrations stand in.
+
+    Which source answers is
+    :func:`osprey.services.ariel_search.config.registered_ariel_names`'s call to
+    make — one function owns that fallback, so ``osprey ariel status`` cannot
+    report a module that ``--module`` refuses, and the refusal a config raises
+    for a missing ``ariel.ingestion.adapter`` cannot advertise an adapter the
+    CLI would reject. What this wrapper adds is the muting: probing the registry
+    outside a project fails by design here, and a help screen is not the place
+    to report a missing project config.
+
+    Args:
+        attribute: Registry-config list attribute, e.g. ``ariel_search_modules``.
 
     Returns:
-        Search module names, in registry order.
+        Registered names, in registry order.
     """
     import logging
 
+    from osprey.services.ariel_search.config import registered_ariel_names
+
     muted = {name: logging.getLogger(name) for name in ("registry", "registry.loader")}
     previous_levels = {name: log.level for name, log in muted.items()}
+    for log in muted.values():
+        log.setLevel(logging.CRITICAL)
     try:
-        from osprey.registry import get_registry
-
-        for log in muted.values():
-            log.setLevel(logging.CRITICAL)
-        try:
-            names = tuple(module.name for module in get_registry().config.ariel_search_modules)
-        finally:
-            for name, log in muted.items():
-                log.setLevel(previous_levels[name])
-        if names:
-            return names
-    except Exception:
-        logger.debug("Registry unavailable; using framework search modules", exc_info=True)
-
-    return _framework_search_modes()
+        return tuple(registered_ariel_names(attribute))
+    finally:
+        for name, log in muted.items():
+            log.setLevel(previous_levels[name])
 
 
-class _SearchModeChoice(click.Choice):
+class _RegistryChoice(click.Choice):
     """Click choice type whose options come from the registry when parsed.
 
     ``click.Choice`` freezes its options when the decorator runs, which is
@@ -166,14 +167,19 @@ class _SearchModeChoice(click.Choice):
     parsing and help rendering.
     """
 
-    def __init__(self) -> None:
-        """Build a choice type with no fixed option list."""
+    def __init__(self, attribute: str) -> None:
+        """Build a choice type resolved from one registry-config attribute.
+
+        Args:
+            attribute: Registry-config list attribute the options come from.
+        """
+        self.attribute = attribute
         self.case_sensitive = True
 
     @property
     def choices(self) -> tuple[str, ...]:  # type: ignore[override]
-        """Registered search module names, resolved on each access."""
-        return _registered_search_modes()
+        """Registered names, resolved on each access."""
+        return _registered_names(self.attribute)
 
 
 def _handle_missing_tables(e: Exception) -> None:
@@ -361,16 +367,16 @@ def sync_command(limit: int | None, watch: bool) -> None:
 @click.option(
     "--adapter",
     "-a",
-    type=click.Choice(["als_logbook", "jlab_logbook", "ornl_logbook", "generic_json"]),
-    default="generic_json",
-    help="Adapter type",
+    type=_RegistryChoice(_INGESTION_ADAPTERS_ATTR),
+    default=None,
+    help="Adapter type (overrides config)",
 )
 @click.option("--since", type=click.DateTime(), help="Only ingest entries after this date")
 @click.option("--limit", type=int, help="Maximum entries to ingest")
 @click.option("--dry-run", is_flag=True, help="Parse entries without storing")
 def ingest_command(
     source: str,
-    adapter: str,
+    adapter: str | None,
     since: datetime | None,
     limit: int | None,
     dry_run: bool,
@@ -412,7 +418,7 @@ def ingest_command(
 @click.option(
     "--adapter",
     "-a",
-    type=click.Choice(["als_logbook", "jlab_logbook", "ornl_logbook", "generic_json"]),
+    type=_RegistryChoice(_INGESTION_ADAPTERS_ATTR),
     help="Adapter type (overrides config)",
 )
 @click.option("--once", is_flag=True, help="Run a single poll cycle and exit")
@@ -481,7 +487,7 @@ def watch_command(
 @click.option(
     "--module",
     "-m",
-    type=click.Choice(["text_embedding", "semantic_processor", "qmd_export"]),
+    type=_RegistryChoice(_ENHANCEMENT_MODULES_ATTR),
     help="Enhancement module to run",
 )
 @click.option("--force", is_flag=True, help="Re-process already enhanced entries")
@@ -530,7 +536,7 @@ def models_command() -> None:
 @click.argument("query")
 @click.option(
     "--mode",
-    type=_SearchModeChoice(),
+    type=_RegistryChoice(_SEARCH_MODULES_ATTR),
     default=None,
     help="Search module to use. Defaults to ariel.default_search_mode.",
 )

@@ -1897,3 +1897,31 @@ def test_deselecting_writes_check_keeps_the_runtime_write_tool_list(tmp_path):
 
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     assert "osprey_writes_check.py" not in json.dumps(settings["hooks"])
+
+
+def test_a_sibling_data_directory_grants_no_read_permission(tmp_path):
+    """No directory name earns the agent a Read permission by existing.
+
+    A `data/textbooks` tree beside the project used to be granted `Read(.../**)`
+    by its name alone — an undeclared convention, documented nowhere, that a
+    deployer could neither find in a profile nor revoke through one. The
+    supported seam is `claude_code.permissions.allow`.
+    """
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    textbooks = out_dir / "data" / "textbooks"
+    textbooks.mkdir(parents=True)
+
+    manager = TemplateManager()
+    project = _create_project(
+        manager,
+        project_name="hw-textbooks",
+        output_dir=out_dir,
+        data_bundle="hello_world",
+        data_root=_bundle_data_root("hello_world"),
+    )
+    _apply_preset_config(manager, project, "hello-world")
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    granted = [entry for entry in settings["permissions"]["allow"] if "textbooks" in entry]
+    assert granted == [], f"a directory name granted a Read permission: {granted}"

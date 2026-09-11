@@ -417,7 +417,12 @@ def test_audit_verbose_keeps_the_reviewer_transcript_off_the_document(
     """
     # Imported here, not at module scope: the SDK is optional to ``audit_cmd``,
     # and a missing one should cost this test alone rather than the whole file.
-    from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ResultMessage,
+        TextBlock,
+    )
 
     project = _audit_project(tmp_path)
     transcript = "reading the permission block"
@@ -440,6 +445,15 @@ def test_audit_verbose_keeps_the_reviewer_transcript_off_the_document(
     with (
         patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True),
         patch("osprey.cli.audit_cmd.query", new=_query),
+        # The real builder resolves the audited project's provider and refuses
+        # this fixture, which sets none; that wiring is TestReviewerProvider's,
+        # this test pins the streams.
+        patch(
+            "osprey.cli.audit_cmd._reviewer_options",
+            new=lambda project_dir, model, budget: ClaudeAgentOptions(
+                model=model, cwd=str(project_dir)
+            ),
+        ),
     ):
         result = runner.invoke(audit, [str(project), "--json", "-v"])
 

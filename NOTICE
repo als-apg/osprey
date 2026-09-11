@@ -43,6 +43,22 @@ copies to the public, prepare derivative works, and perform publicly and display
 publicly, and to permit others to do so.
 
 
+Third-party fonts
+-----------------
+
+Osprey Framework redistributes five font families in
+src/osprey/interfaces/shared_fonts/, which its web interfaces serve. They are
+not covered by the BSD 3-Clause License above: each is licensed under the SIL
+Open Font License, Version 1.1, whose full text and the families' copyright
+notices ship beside the binaries in that directory's OFL.txt.
+
+  Inter            Copyright 2016 The Inter Project Authors
+  Outfit           Copyright 2021 The Outfit Project Authors
+  JetBrains Mono   Copyright 2020 The JetBrains Mono Project Authors
+  DM Mono          Copyright 2020 The DM Mono Project Authors
+  Syne Mono        Copyright 2019 The Syne Project Authors
+
+
 Contact
 -------
 

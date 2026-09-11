@@ -108,8 +108,25 @@ def _leaves(node: Any, prefix: tuple[str, ...] = ()) -> Iterator[tuple[str, Any]
         yield ".".join(prefix), node
 
 
+#: Leaves the frozen renders carry that no preset states any more.
+#:
+#: The fixtures are a baseline, never re-frozen, so a key a preset has since
+#: stopped rendering stays in them forever and would read here as a rendered
+#: key with no source. These three named the OSPREY project's own mailbox,
+#: tracker and documentation site; each preset documents them as a commented
+#: example now, and the code defaults still apply, so the rendered document is
+#: simply three leaves shorter. The same three are declared in
+#: ``test_explicit_config_equivalence.CELL_DELTAS`` — that table is what pins
+#: the divergence; this set only keeps the partition reading the render as it
+#: is produced today.
+_RETIRED_SINCE_THE_FREEZE = frozenset(
+    {"web.docs_url", "web.feedback.email", "web.feedback.github_repo"}
+)
+
+
 def _render(directory: str, document: str = "root") -> dict[str, Any]:
-    return dict(_leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text())))
+    frozen = _leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text()))
+    return {key: value for key, value in frozen if key not in _RETIRED_SINCE_THE_FREEZE}
 
 
 def _preset_document(preset: str) -> dict[str, Any]:
@@ -248,10 +265,12 @@ def test_root_render_is_partitioned_between_its_sources(
     # fixtures were frozen before: hello-world gains `hooks.debug: false`,
     # which the old template shipped commented out; every preset that spells an
     # ARIEL approval policy gains `approval.tools.entry_publish`, the logbook
-    # write-through that was gated nowhere when the freeze ran; and every
-    # preset that names its approval policy tool by tool gains the three
-    # panel-rail verbs, which decide what an operator can launch at all and
-    # were likewise gated nowhere then.
+    # write-through that was gated nowhere when the freeze ran; every preset
+    # that names its approval policy tool by tool gains the three panel-rail
+    # verbs, which decide what an operator can launch at all and were likewise
+    # gated nowhere then; and every preset that carries a `channel_finder`
+    # block gains `channel_finder.query_max_rows`, the middle-layer SQL row
+    # cap, which was a number fixed in the tool.
     missing = set(config) - set(render)
     expected_gain = {"hooks.debug"} if preset == "hello-world" else set()
     if "approval.tools.entry_publish" in config:
@@ -259,6 +278,8 @@ def test_root_render_is_partitioned_between_its_sources(
     for tool in ("add_panel_to_rail", "remove_panel_from_rail", "register_panel"):
         if f"approval.tools.{tool}" in config:
             expected_gain = expected_gain | {f"approval.tools.{tool}"}
+    if "channel_finder.query_max_rows" in config:
+        expected_gain = expected_gain | {"channel_finder.query_max_rows"}
     assert missing == expected_gain, (
         f"{directory}: preset keys absent from the render: {sorted(missing)}"
     )

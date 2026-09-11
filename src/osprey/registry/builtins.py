@@ -200,19 +200,19 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     name="als_logbook",
                     module_path="osprey.services.ariel_search.ingestion.adapters.als",
                     class_name="ALSLogbookAdapter",
-                    description="ALS eLog adapter with JSONL streaming and HTTP API support",
+                    description="ALS eLog reference format: JSONL streaming and HTTP API support",
                 ),
                 ArielIngestionAdapterRegistration(
                     name="jlab_logbook",
                     module_path="osprey.services.ariel_search.ingestion.adapters.jlab",
                     class_name="JLabLogbookAdapter",
-                    description="Jefferson Lab logbook adapter",
+                    description="JLab logbook reference format",
                 ),
                 ArielIngestionAdapterRegistration(
                     name="ornl_logbook",
                     module_path="osprey.services.ariel_search.ingestion.adapters.ornl",
                     class_name="ORNLLogbookAdapter",
-                    description="Oak Ridge National Laboratory logbook adapter",
+                    description="ORNL logbook reference format",
                 ),
                 ArielIngestionAdapterRegistration(
                     name="generic_json",

@@ -387,6 +387,50 @@ def test_a_credential_that_is_nowhere_is_reported_missing(lifecycle_repo, runtim
     text = report(lifecycle_repo)
 
     assert "not found in this shell" in text
+    # Both members of the env chain, because both are read.
+    assert ".env.shared" in text
+    assert ".env" in text
+
+
+def test_a_credential_in_the_shared_file_is_found_and_flagged(lifecycle_repo, runtime, monkeypatch):
+    """The chain is `.env.shared` then `.env`, and the spec beside this row
+    expands `${VAR}` through the whole chain. Reporting only `.env` calls a
+    resolvable credential missing. It is still the wrong file for a secret —
+    `.env.shared` is committed — so the row says so instead of blessing it."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    render_build(lifecycle_repo)
+    (lifecycle_repo / ".env.shared").write_text("ANTHROPIC_API_KEY=sk-shared\n", encoding="utf-8")
+
+    text = report(lifecycle_repo)
+
+    assert "set in .env.shared" in text
+    assert "committed file" in text
+    assert "sk-shared" not in text
+
+
+def test_the_local_env_wins_over_the_shared_one(lifecycle_repo, runtime, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    render_build(lifecycle_repo)
+    (lifecycle_repo / ".env.shared").write_text("ANTHROPIC_API_KEY=sk-shared\n", encoding="utf-8")
+    (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=sk-secret\n", encoding="utf-8")
+
+    text = report(lifecycle_repo)
+
+    assert "set in .env" in text
+    assert "committed file" not in text
+
+
+def test_an_unset_provider_names_the_key_the_operator_sets(lifecycle_repo, runtime, monkeypatch):
+    """`claude_code.provider` is a rendered key the build derives; writing it
+    by hand is refused. The remedy names the profile field that sets it."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    render_build(lifecycle_repo, config="project_name: als-exemplar\n")
+
+    text = report(lifecycle_repo)
+
+    assert "not configured" in text
+    assert "in profile.yml" in text
+    assert "claude_code.provider" not in text
 
 
 def _config_with_telemetry(block: str) -> str:
@@ -716,6 +760,23 @@ def test_the_per_agent_model_table_is_opt_in(lifecycle_repo, runtime):
     assert "agent models" not in default
     assert "agent models" in with_agents
     assert "model tiers" in default
+
+
+def test_the_agent_table_lists_every_framework_agent(lifecycle_repo, runtime):
+    """The table is the agent catalog, not the subset the tier map names.
+
+    An agent absent from ``AGENT_DEFAULT_TIERS`` still runs — it takes the
+    resolver's ``sonnet`` fallback — so leaving it out of the report would make
+    status the one place its model went unsaid.
+    """
+    from osprey.registry.mcp import FRAMEWORK_AGENTS
+
+    render_build(lifecycle_repo)
+
+    text = report(lifecycle_repo, show_agents=True)
+
+    for agent_name in FRAMEWORK_AGENTS:
+        assert agent_name in text, agent_name
 
 
 # ---------------------------------------------------------------------------

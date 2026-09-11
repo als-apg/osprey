@@ -242,7 +242,12 @@ class TestRunSync:
     async def test_missing_ingestion_block_is_refused(
         self, monkeypatch, mock_repository, fake_pool
     ):
-        """A sync with nothing to ingest from is refused, naming the missing key."""
+        """A sync with nothing to ingest from is refused, naming the missing block.
+
+        Not ``ingestion.adapter``: the block is absent entirely, and a message
+        about a field inside it reads as a typo in something the operator has
+        rather than as something they never wrote.
+        """
         from osprey.services.ariel_search.exceptions import ConfigurationError
 
         _patch_pool(monkeypatch, fake_pool)
@@ -253,11 +258,27 @@ class TestRunSync:
 
         config_dict = dict(_DB)
 
-        with pytest.raises(ConfigurationError, match="ariel.ingestion.adapter is required"):
+        with pytest.raises(ConfigurationError, match="ariel.ingestion is not configured") as exc:
             await ops.run_sync(config_dict)
 
+        assert exc.value.config_key == "ingestion"
         # The synthesized block never leaks back to the caller.
         assert "ingestion" not in config_dict
+
+    async def test_a_block_without_an_adapter_keeps_the_adapter_message(
+        self, monkeypatch, mock_repository, fake_pool
+    ):
+        """The block is declared, so what is missing really is the adapter."""
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
+        _patch_pool(monkeypatch, fake_pool)
+        _patch_migrations(monkeypatch, applied=[])
+        _patch_scheduler(monkeypatch, _poll_result(added=0))
+        _patch_service(monkeypatch, _StubService(mock_repository))
+        _patch_enhancers(monkeypatch, [])
+
+        with pytest.raises(ConfigurationError, match="ariel.ingestion.adapter is required"):
+            await ops.run_sync({**_DB, "ingestion": {"source_url": _SOURCE}})
 
     async def test_up_to_date_and_incremental_poll_report_no_initial_ingest(
         self, monkeypatch, mock_repository, fake_pool

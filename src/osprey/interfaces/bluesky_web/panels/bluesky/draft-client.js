@@ -38,6 +38,7 @@
  */
 
 import { flashElement } from '/design-system/js/highlight.js';
+import { uuid4 } from '/design-system/js/uuid.js';
 
 /**
  * @typedef {object} DraftSnapshot
@@ -355,19 +356,17 @@ export function resolvePinnedRevision(flushResult, lastAppliedRevision) {
 }
 
 /**
- * A per-tab id for frame `origin`/PATCH `client_id` echo suppression. Falls
- * back to a `Math.random()`-based id when `crypto.randomUUID` is unavailable
- * (a non-secure-context deployment) so the whole panel — including the
- * always-available manual flow — degrades gracefully instead of dying on a
- * `TypeError` just because the live-draft feature can't mint a "real" UUID.
+ * A per-tab id for frame `origin`/PATCH `client_id` echo suppression.
+ *
+ * Delegates to the shared minter, which produces a v4-shaped id whether or not
+ * `crypto.randomUUID` exists — so a non-secure-context deployment gets a real
+ * id rather than a differently-shaped stand-in, and the whole panel degrades
+ * gracefully instead of dying on a `TypeError`.
  *
  * @returns {string}
  */
 export function generateClientId() {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `tab-${Math.random().toString(36).slice(2)}${Date.now()}`;
+  return uuid4();
 }
 
 /**
@@ -579,12 +578,13 @@ export function classifyQueueAddResponse(status, body) {
  * @property {string} detail  The operator-facing sentence, shown VERBATIM —
  *   it carries the flip command for a browse-only deployment.
  * @property {string|null} lane  Which plan lane answered, by its service key
- *   (`bluesky`, `bluesky_va`, `bluesky_live`). `null` when the health surface
- *   itself could not be read — no lane spoke, so naming one would be a guess.
- * @property {string|null} laneTarget  The control target that lane serves,
- *   `live` or `va`. A RENDER-TIME fact about the bridge, never the session's
- *   own target: it does not change when the session switches, so the panel
- *   must not present it as "what you are pointed at".
+ *   as `GET /lanes` reports it. `null` when the health surface itself could
+ *   not be read — no lane spoke, so naming one would be a guess.
+ * @property {string|null} laneTarget  The control target that lane serves —
+ *   the target the lane's config block declares (one of `CONTROL_TARGETS`).
+ *   A RENDER-TIME fact about the bridge, never the session's own target: it
+ *   does not change when the session switches, so the panel must not present
+ *   it as "what you are pointed at".
  */
 
 /**

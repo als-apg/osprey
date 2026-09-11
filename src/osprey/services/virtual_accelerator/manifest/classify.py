@@ -22,15 +22,49 @@ explicit rule below; everything else falls through to `static-noisy`.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
+from typing import Any
+
 from osprey.simulation.facility_spec import ALS_U_AR
 
 # Spec-derived: every magnet/corrector family declared by the facility spec
 # (excludes the BPM monitor family, which is gated separately below).
 MAG_FAMILIES = frozenset(f.name for f in ALS_U_AR.families if f.kind in ("magnet", "corrector"))
 
+# The hierarchy level names this classifier reads, and the identity keys the
+# manifest carries per channel. A hierarchical database declares its own level
+# names, and a facility whose tree is not levelled this way describes a
+# hierarchy no rule below can be evaluated against -- the caller compares the
+# declared names with these and classifies nothing rather than guessing.
+CLASSIFIER_LEVELS = ("ring", "system", "family", "device", "field", "subfield")
+
 PARTITION_PYAT_COUPLED = "pyat-coupled"
 PARTITION_SP_ECHO = "sp-echo"
 PARTITION_STATIC_NOISY = "static-noisy"
+
+# The manifest's setpoint/readback vocabulary, and the one place it is spelled.
+# A channel's ADDRESS text is free -- any facility's namespace loads through
+# `loaders.load_manifest_file` -- but the `subfield` VALUE is reserved: "SP"
+# marks the writable channel, "RB" marks its readback, and a channel carrying
+# any other token is neither written nor paired with one. Deliberately not
+# facility-configurable: a typo in a per-facility spelling would silently
+# disable every write on the machine rather than fail loudly.
+SETPOINT_SUBFIELD = "SP"
+READBACK_SUBFIELD = "RB"
+
+
+def setpoint_addresses(channels: Iterable[Mapping[str, Any]]) -> frozenset[str]:
+    """The addresses a manifest declares writable, read off its own subfields.
+
+    The one answer to "which of these channels is a setpoint", for every layer
+    that needs it: the drive-limit and value-range readers, which have to pick
+    the writable half out of a limits file holding an entry per address. Asking
+    the address text instead ties those layers to one facility's spelling.
+    """
+    return frozenset(
+        channel["address"] for channel in channels if channel["subfield"] == SETPOINT_SUBFIELD
+    )
+
 
 # SR RF/VAC fields that carry a real writable-setpoint + readback pair.
 # Pure telemetry fields in the same systems (POWER, TEMPERATURE, PRESSURE,

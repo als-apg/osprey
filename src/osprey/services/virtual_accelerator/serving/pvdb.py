@@ -22,10 +22,11 @@ is feeding.
 Four properties of the served database are contracts, not preferences:
 
 * **The channel set is closed.** One PV per manifest channel, no more, no
-  fewer: the pinned counts (348 SR magnet ``:SP`` / 348 paired ``:RB`` /
-  144 BPM readings / 2,908 channels total) are what clients, the channel
-  finder databases and the safety limits file all agree on. This module
-  adds no diagnostic or control PV of its own.
+  fewer -- whatever the manifest holds. (In the bundled demo tree: the
+  pinned counts of 348 SR magnet setpoints / 348 paired readbacks / 144 BPM
+  readings / 2,908 channels total, which its clients, its channel-finder
+  databases and its safety limits file all agree on.) This module adds no
+  diagnostic or control PV of its own.
 * **Drive limits are not alarm limits.** ``drive_limits`` becomes
   ``lolim``/``hilim`` (the CA *control/display* band, what DRVL/DRVH mean
   to a client). The alarm-limit keys (``lolo``/``low``/``high``/``hihi``)
@@ -62,17 +63,16 @@ from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
     PARTITION_STATIC_NOISY,
+    READBACK_SUBFIELD,
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_BINARY,
     RECORD_TYPE_LONG_STRING,
     RECORD_TYPE_MBB,
     RECORD_TYPE_STRING,
+    SETPOINT_SUBFIELD,
 )
 
 LOG = logging.getLogger(__name__)
-
-SETPOINT_SUBFIELD = "SP"
-READBACK_SUBFIELD = "RB"
 
 # Gateway "long string" channels are 512-byte char waveforms. The width is
 # declared explicitly (never derived from the boot value's length) so a wire
@@ -278,7 +278,7 @@ class PVRecord:
         The value taken is the Channel Access one, because that is the
         authoritative view of the machine -- the same reason a write commits
         there first. A driver that cannot answer for this address is logged
-        and skipped: 2,908 records are attached in one loop, and one of them
+        and skipped: every record is attached in one loop, and one of them
         failing must not leave the remainder unattached and the server
         half-built.
         """
@@ -324,9 +324,16 @@ class ServingRecords:
     partitions the value sources consume: ``pyat_coupled`` is what
     ``PhysicsBridge.bind()`` takes, ``static_noisy`` is what ``EngineSource``
     drives, and ``all`` is every record by address for whole-namespace
-    consumers. ``setpoint_readbacks`` maps each writable ``:SP`` address to
-    its paired ``:RB`` address, which is the echo the write path owes a
+    consumers. ``setpoint_readbacks`` maps each writable setpoint address to
+    its paired readback address, which is the echo the write path owes a
     client on an accepted write.
+
+    ``physics_setpoints`` is the pyat-coupled half of that: the addresses
+    whose manifest entry declared them setpoints (``subfield ==
+    SETPOINT_SUBFIELD``) inside the pyat-coupled partition, which is what the
+    write path routes into the lattice. It is stated by the manifest here
+    rather than re-derived from address text later, because the address text
+    is a facility's business and the subfield is the manifest's.
     """
 
     pvdb: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -334,6 +341,7 @@ class ServingRecords:
     pyat_coupled: dict[str, PVRecord] = field(default_factory=dict)
     static_noisy: dict[str, PVRecord] = field(default_factory=dict)
     setpoint_readbacks: dict[str, str] = field(default_factory=dict)
+    physics_setpoints: frozenset[str] = frozenset()
 
     def attach_driver(
         self, driver: Any, *, pva_post: Callable[[str, Any], None] | None = None
@@ -363,8 +371,8 @@ class ServingRecords:
                 # the first push onwards; this is what makes them agree from
                 # boot (see :meth:`PVRecord.reconcile_pva`). Skipped outright
                 # when there is no second view, rather than reconciled onto a
-                # publisher that discards it: that would be 2,908 driver reads
-                # at boot to produce nothing.
+                # publisher that discards it: that would be one driver read
+                # per served record at boot to produce nothing.
                 record.reconcile_pva()
 
 
@@ -431,7 +439,8 @@ def build_serving_pvdb(
 
     Returns:
         A :class:`ServingRecords` carrying the database, the per-partition
-        record shims and the setpoint->readback pairing.
+        record shims, the setpoint->readback pairing and the pyat-coupled
+        setpoint addresses.
 
     Raises:
         ManifestContractError: a channel's record_type/noise combination, or
@@ -441,6 +450,7 @@ def build_serving_pvdb(
     records = ServingRecords()
     readback_addresses: dict[tuple[str, str, str, str, str], str] = {}
     setpoint_channels: list[dict] = []
+    physics_setpoints: set[str] = set()
 
     for channel in channels:
         address = channel["address"]
@@ -478,6 +488,8 @@ def build_serving_pvdb(
             readback_addresses[_channel_key(channel)] = address
         elif channel["subfield"] == SETPOINT_SUBFIELD:
             setpoint_channels.append(channel)
+            if partition == PARTITION_PYAT_COUPLED:
+                physics_setpoints.add(address)
 
     for channel in setpoint_channels:
         readback = readback_addresses.get(_channel_key(channel))
@@ -494,6 +506,7 @@ def build_serving_pvdb(
             continue
         records.setpoint_readbacks[channel["address"]] = readback
 
+    records.physics_setpoints = frozenset(physics_setpoints)
     return records
 
 
@@ -504,8 +517,6 @@ __all__ = [
     "LONG_STRING_LENGTH",
     "MBB_ENUM_STATES",
     "MBB_STATE_COUNT",
-    "READBACK_SUBFIELD",
-    "SETPOINT_SUBFIELD",
     "STRING_LENGTH",
     "ManifestContractError",
     "PVRecord",

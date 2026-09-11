@@ -39,6 +39,7 @@
  */
 
 import { installFocusTrap, removeFocusTrap } from '/design-system/js/focus-trap.js';
+import { isMacPlatform, paletteChord } from '/design-system/js/platform.js';
 import { scopedStorageKey } from '/design-system/js/storage-scope.js';
 import { isLive } from './bar-host.js';
 import { capabilitySentence, chipRow, starterPrompts } from './first-contact.js';
@@ -55,12 +56,29 @@ const SETTLE_MS = 160;
 /* ---- Server-derived facts (applyTourConfig) ---- */
 
 /**
- * The one thing the tour reads off `GET /api/panels` for itself: when to
- * invite. Everything the cards SAY about this deployment belongs to
- * first-contact.js, which panel-manager.js hands the same payload.
- * @type {{policy: string}}
+ * What the tour reads off `GET /api/panels` for itself: when to invite, and
+ * the display labels the rail is actually wearing. Everything the cards SAY
+ * about this deployment belongs to first-contact.js, which panel-manager.js
+ * hands the same payload.
+ *
+ * `labels` covers the ENABLED built-in panels only, so every card that names
+ * one keeps a literal fallback for the deployment where that panel is off.
+ * @type {{policy: string, labels: Record<string, string>}}
  */
-let facts = { policy: 'never' };
+let facts = { policy: 'never', labels: {} };
+
+/**
+ * The label the rail is wearing for a built-in panel, or `fallback` when this
+ * deployment does not enable it (`/api/panels` reports labels for enabled
+ * panels only).
+ *
+ * @param {string} panelId
+ * @param {string} fallback
+ * @returns {string}
+ */
+function panelLabel(panelId, fallback) {
+  return facts.labels[panelId] ?? fallback;
+}
 
 /* ---- Storage ---- */
 
@@ -280,11 +298,21 @@ const STEPS = [
   {
     anchor: () => document.querySelector('#command-palette-btn'),
     title: 'Search everything',
-    body: () => [
-      'Press ',
-      strong('⌘K'),
-      ' to search settings, panels, and actions. The fastest way to find anything in this terminal.',
-    ],
+    body: () => {
+      // The chord this viewer's platform actually binds (palette-boot.js reads
+      // the same helper), never the macOS spelling on every machine.
+      const parts = [
+        'Press ',
+        strong(paletteChord()),
+        ' to search settings, panels, and actions. The fastest way to find anything in this terminal.',
+      ];
+      if (!isMacPlatform()) {
+        // Off macOS the chord is Ctrl+K, which inside the terminal stays
+        // readline's kill-line — so it is bound outside the terminal only.
+        parts.push(' It works outside the terminal; inside it, use this button.');
+      }
+      return parts;
+    },
   },
   {
     anchor: () => document.querySelector('.panel-rail-button[data-panel-id="artifacts"]'),
@@ -293,7 +321,7 @@ const STEPS = [
     title: 'Your workspace',
     body: () => [
       'Everything the agent produces — plots, data files, reports — lands in ',
-      strong('WORKSPACE'),
+      strong(panelLabel('artifacts', 'WORKSPACE')),
       ', ready to open or download.',
     ],
     foot: '＋ on the rail adds more panels.',
@@ -304,7 +332,7 @@ const STEPS = [
     extras: () => [document.querySelector('iframe[data-panel-id="okf"]')],
     title: 'Facility knowledge',
     body: () => [
-      strong('KNOWLEDGE'),
+      strong(panelLabel('okf', 'KNOWLEDGE')),
       ' holds this facility’s curated documentation, the same material the agent consults when you ask about the machine. Browse it directly here.',
     ],
   },
@@ -314,7 +342,7 @@ const STEPS = [
     extras: () => [document.querySelector('iframe[data-panel-id="ariel"]')],
     title: 'The logbook',
     body: () => [
-      strong('ARIEL'),
+      strong(panelLabel('ariel', 'ARIEL')),
       ' searches the electronic logbook. Ask the agent what happened on a shift, or search it yourself here.',
     ],
     foot: 'Tip: right-click any panel entry → “Open in a new window” for a standalone version.',
@@ -632,12 +660,16 @@ export function startTour() {
  * panel-manager calls whether or not this one returns early: what the cards
  * say must not depend on whether the tour is on offer.
  *
- * @param {{tour?: {policy?: unknown}} | null | undefined} panelsPayload
+ * @param {{tour?: {policy?: unknown}, labels?: Record<string, string>} | null | undefined} panelsPayload
  */
 export function applyTourConfig(panelsPayload) {
   const cfg = panelsPayload?.tour;
   if (!cfg) return;
-  facts = { policy: typeof cfg.policy === 'string' ? cfg.policy : 'never' };
+  const labels = panelsPayload?.labels;
+  facts = {
+    policy: typeof cfg.policy === 'string' ? cfg.policy : 'never',
+    labels: labels && typeof labels === 'object' ? labels : {},
+  };
 
   const invite =
     facts.policy === 'always' || (facts.policy === 'once' && !isDismissed());

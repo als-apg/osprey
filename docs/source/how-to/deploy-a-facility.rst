@@ -153,6 +153,17 @@ simulator, so correctors move and BPMs read through exactly the approval and
 limit layers a live machine would use. The preset ships ``mock``, which touches
 nothing.
 
+A deployment describes **one real machine**. ``control_system.type`` names it,
+or — on a simulated baseline like this one — the single non-simulated block
+under ``control_system.connector`` does, and the three control targets
+(``live``, ``va``, ``standin``) name that machine, the simulator and the
+stand-in soft IOC. A complex that operates two real machines, an injector and a
+storage ring say, runs one deployment per machine rather than one deployment
+naming both: the write posture, the limits, the approvals and the archive all
+belong to a machine, and a second non-simulated connector block here would be a
+block no target ever reaches. See
+:doc:`control-systems/switch-control-target`.
+
 ``deployed_services`` looks too short, and is not. The ``virtual_accelerator:``
 block and the ``services:`` entry you add in Step 4 each append their own
 service to this list at build time. Naming ``openobserve`` explicitly is what
@@ -213,6 +224,7 @@ line and the commented ``mcp_servers:`` example with:
        template: services/facility-mcp
        config:
          port: 10900
+         http: true
 
    mcp_servers:
      facility:
@@ -222,7 +234,13 @@ line and the commented ``mcp_servers:`` example with:
          allow: [machine_status]
 
 ``template:`` is profile-relative, so the next thing to do is write that
-directory. The port appears twice because it is the same fact told to two
+directory. ``http: true`` says this service answers HTTP on the port it
+publishes, so the deploy summary prints its address as a link rather than as a
+bare ``host:port`` — the framework recognises its own services by name and has
+no way to know what protocol sits behind yours. Leave it out for a service that
+speaks anything else; a link that cannot open is worse than no link.
+
+The port appears twice because it is the same fact told to two
 parties: the container publishes it, and the agent dials it. ``10900`` is the
 first port of the facility band, the hundred ports the framework publishes
 nothing in so that a facility's own services can claim them without ever
@@ -482,6 +500,28 @@ Step 8 — Build the project
 .. code-block:: bash
 
    osprey build
+
+.. note::
+
+   **On a restricted network, read this before you run it.** ``osprey build``
+   and the first ``osprey up`` fetch from the public internet: base images and
+   Debian packages, the agent CLI from npm, OSPREY and its dependencies from
+   PyPI, the web UI's assets from a CDN, the search sidecar's models from
+   Hugging Face, and — at the graph store's first start — a Neo4j plugin from
+   GitHub. Each has a knob or a workaround, on its own page:
+
+   * a proxy, an internal package index, and a CA for a proxy that re-signs
+     TLS: :doc:`deploy-project/project-image` (the ``images.*`` build args
+     ``osprey up`` passes) and :doc:`deploy-project/env-chain` (the proxy names
+     the containers themselves are handed);
+   * web assets bundled into the image instead of served from a CDN: the
+     top-level ``offline`` key, also on :doc:`deploy-project/project-image`;
+   * images pulled from your own registry rather than built here:
+     :ref:`deployment-prebuilt-images`;
+   * the search sidecar's models, staged on the host:
+     :ref:`deployment-qmd-prefetched-models`;
+   * the graph store's plugin, which has no knob — see
+     :doc:`facility-knowledge/use-facility-graph`.
 
 ``osprey build`` walks up to the repository's ``profile.yml`` and renders
 ``build/`` from it, from whichever directory inside the repository you run it.

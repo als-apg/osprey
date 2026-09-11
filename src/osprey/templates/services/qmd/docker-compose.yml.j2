@@ -174,12 +174,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      # Long by design, not by accident. The entrypoint refuses to open the port
-      # until the index is built and provably non-empty, and a first-boot full
-      # build measured 41 minutes at ALS scale (~135,000 documents). A shorter
-      # grace period would report a container that is working correctly as
-      # unhealthy for most of its first hour.
-      start_period: 3600s
+      # Long by design, not by accident. The entrypoint refuses to open the
+      # port until the index is built and provably non-empty, so a first boot
+      # is unhealthy for as long as the full build takes — which scales with
+      # the corpus. A grace period shorter than that build reports a container
+      # that is working correctly as unhealthy. `services.qmd.first_index_grace`
+      # is this number, in seconds, for a corpus the default does not fit.
+      start_period: {{ osprey_qmd.first_index_grace_seconds }}s
 
 volumes:
   qmd_index:

@@ -302,6 +302,29 @@ class TestCardContent:
         assert "postgres" not in card
         assert "not configured" not in card
 
+    def test_an_https_landing_row_is_not_dropped(self, repo: Path, monkeypatch) -> None:
+        """The front door is ``https://`` on the documented TLS/fqdn shape.
+
+        A scheme test that named only ``http://`` dropped the one row the card
+        exists to print, on exactly the deployments an operator most needs it
+        for.
+        """
+        from osprey.deployment import deploy_summary
+
+        monkeypatch.setattr(
+            deploy_summary,
+            "as_built_endpoint_entries",
+            lambda root: [
+                ("gateway", "web terminal", "https://terminals.example.org  (landing page)"),
+                ("dispatch", "event-dispatcher", "http://127.0.0.1:10010"),
+            ],
+        )
+
+        card = "\n".join(format_summary_card(repo, "running"))
+
+        assert "https://terminals.example.org" in card
+        assert "http://127.0.0.1:10010" in card
+
     def test_the_card_keeps_the_order_the_block_puts_the_endpoints_in(
         self, repo: Path, monkeypatch
     ) -> None:
@@ -336,7 +359,8 @@ class TestCardContent:
     ) -> None:
         """Nothing answers on them, and a URL printed under `down` reads as an
         invitation to open something that is not there."""
-        assert "http://" not in "\n".join(format_summary_card(repo, state))
+        card = "\n".join(format_summary_card(repo, state))
+        assert "http://" not in card and "https://" not in card
 
     def test_the_card_says_where_the_command_output_went(self, repo: Path) -> None:
         """The spool directory is the one thing a quiet run cannot be read back
@@ -1000,3 +1024,15 @@ class TestStaleSeededLogins:
         printed = "\n".join(recorder.lines)
         assert "alice / alice · bob / bob" in printed
         assert "passwd" not in printed
+
+
+class TestNextStepCopy:
+    """The card names the verb that opens a deployment with no containers."""
+
+    @pytest.mark.parametrize("state", ["created", "built"])
+    def test_osprey_web_is_offered_before_anything_is_up(self, repo: Path, state: str) -> None:
+        """``osprey up -d`` is not the only way in, and for a deployment that
+        runs no containers it is not a way in at all."""
+        card = "\n".join(format_summary_card(repo, state))
+
+        assert "osprey web" in card

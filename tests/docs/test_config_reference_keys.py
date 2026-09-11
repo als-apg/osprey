@@ -65,9 +65,15 @@ _MANIFEST_PATH = "src/osprey/profiles/config_key_manifest.yml"
 #: ``deployment`` earns its place for the same reason, now that the ports page
 #: documents ``deployment.port_base`` — the one knob that moves a deployment's
 #: whole thousand-port block.
+#:
+#: ``artifact_server`` and ``python_executor`` earn theirs the same way: each
+#: has a key the reference page now documents, and a section name missing from
+#: this tuple turns its keys into prose the sweep never looks at.
 _SECTIONS = (
     "facility",
     "deployment",
+    "artifact_server",
+    "python_executor",
     "health",
     "web",
     "control_system",

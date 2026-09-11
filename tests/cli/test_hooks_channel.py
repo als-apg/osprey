@@ -835,3 +835,26 @@ def test_editing_a_hook_moves_the_profile_hash(tmp_path: Path):
     before = digest()
     hook.write_text("print('guard v2')\n", encoding="utf-8")
     assert digest() != before
+
+
+def test_the_declared_hook_example_matches_a_server_the_framework_registers():
+    """The example is the only syntax a profile author sees before writing one.
+
+    It is printed from five different refusals, so a matcher naming a server
+    that does not exist teaches the wrong prefix at exactly the moment someone
+    is looking for the right one — and a hook wired to a server name nothing
+    registers never fires, silently.
+    """
+    import re
+
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    named = re.findall(r'matcher: "mcp__([A-Za-z0-9_]+?)__', claude_code._DECLARED_HOOK_EXAMPLE)
+    assert named, "the example no longer shows a tool matcher; re-derive this guard"
+
+    registered = {server.name for server in FRAMEWORK_SERVERS.values()}
+    unknown = sorted(set(named) - registered)
+    assert unknown == [], (
+        f"the declared-hook example matches tools on {unknown}, which no framework "
+        f"server registers; the registered names are {sorted(registered)}"
+    )

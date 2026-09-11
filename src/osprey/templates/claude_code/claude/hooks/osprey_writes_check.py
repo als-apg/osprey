@@ -541,7 +541,14 @@ def main():
             "The active control target could not be identified, so writes are "
             "refused unless every target this deployment could reach is armed."
         )
-    arm = "Arm them in config.yml: " + ", ".join(f"{key}: true" for key in refusal_keys)
+    # The profile, not the rendered config: `osprey build` re-renders config.yml
+    # wholesale, so an edit made there is gone at the next build. Same surface the
+    # health checks name for the settings they ask for.
+    arm = (
+        "Arm them under `config:` in profile.yml — "
+        + ", ".join(f"{key}: true" for key in refusal_keys)
+        + " — then run `osprey build`."
+    )
     output = {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",

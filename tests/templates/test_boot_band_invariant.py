@@ -17,7 +17,7 @@ and ``...manifest.loaders.load_machine_json_channels()`` -- see
 ``entrypoint.main()``'s ``build_records(drive_limits=..., boot_values=...)``
 call), rather than re-parsing channel_limits.json/machine.json independently,
 so a change to either loader's merge semantics (e.g. the ``defaults`` block
-merge, or the ``writable``/``:SP``-suffix filter in ``_load_drive_limits``)
+merge, or the ``writable``/setpoint-subfield filter in ``_load_drive_limits``)
 is exercised here too.
 """
 
@@ -26,17 +26,17 @@ from __future__ import annotations
 import pytest
 
 from osprey.services.virtual_accelerator.entrypoint import _load_drive_limits
-from osprey.services.virtual_accelerator.manifest import build_manifest
+from osprey.services.virtual_accelerator.manifest import build_manifest, setpoint_addresses
 from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
 
 
 @pytest.fixture(scope="module")
 def drive_limits() -> dict[str, tuple[float, float]]:
-    """{address: (min_value, max_value)} for every writable :SP address with
-    a numeric band -- the entrypoint's own derivation from
+    """{address: (min_value, max_value)} for every writable setpoint address
+    with a numeric band -- the entrypoint's own derivation from
     channel_limits.json (entrypoint.py's docstring/main() call this the
     build_records(drive_limits=...) input)."""
-    return _load_drive_limits()
+    return _load_drive_limits(setpoints=setpoint_addresses(build_manifest()["channels"]))
 
 
 @pytest.fixture(scope="module")

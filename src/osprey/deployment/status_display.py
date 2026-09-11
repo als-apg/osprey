@@ -362,8 +362,34 @@ def _query_containers(config):
         output.fail("Could not parse container data", str(e))
         return None
     except Exception as e:
+        if _no_runtime_and_none_needed(config):
+            output.note(
+                "this deployment declares no containerized services; no container runtime installed"
+            )
+            return None
         output.fail("Could not query container status", str(e))
         return None
+
+
+def _no_runtime_and_none_needed(config):
+    """Whether "no containers" is this deployment's declared state, not a fault.
+
+    Both halves are required. A host with no runtime that HAS declared services
+    is broken and keeps its failure; so does a host whose runtime is installed
+    but not answering, whatever it declares. Only the conjunction — nothing
+    installed and nothing declared — describes a deployment that never wanted a
+    container runtime, and reporting that as a failure leaves a permanent red
+    banner on a status that is entirely correct.
+
+    :param config: Rendered config, or ``None``
+    :return: ``True`` when a missing runtime is the declared state
+    :rtype: bool
+    """
+    from osprey.deployment.runtime_helper import no_container_runtime_installed
+
+    if (config or {}).get("deployed_services"):
+        return False
+    return no_container_runtime_installed()
 
 
 def _existing_volume_names(config):
@@ -860,27 +886,38 @@ def _print_endpoints_section(config, compose_files, repo_root=None):
 def _auth_availability(secret_env, repo_root):
     """Where this deployment's provider credential can be found, if anywhere.
 
-    Both places count, and which one it came from matters. The exported shell
-    environment is what ``osprey chat`` authenticates from; the repo's ``.env``
-    is the deployment's own secret store and what every container reads. A
-    check against ``os.environ`` alone would report "NOT FOUND" for a
-    perfectly-configured deployment whose key lives only in ``.env``.
+    Every place that carries it counts, and which one it came from matters. The
+    exported shell environment is what ``osprey chat`` authenticates from; the
+    env chain — ``.env.shared`` then ``.env``, later file wins — is the
+    deployment's own store and what every container reads. A check against
+    ``os.environ`` alone would report "NOT FOUND" for a perfectly-configured
+    deployment whose key lives only in a file, and a check against ``.env``
+    alone would do the same for one whose value the provider spec beside this
+    row resolves out of ``.env.shared``.
+
+    ``.env.shared`` is committed, so a secret found there is reported as found
+    *and* flagged: the row upholds that file's own header rather than
+    contradicting it.
 
     :return: ``(available, where)`` — *where* is a phrase, empty when not found
     """
     import os
 
-    from osprey.utils.dotenv import parse_dotenv_file
+    from osprey.utils.dotenv import ENV_LOCAL_FILENAME, chain_files, parse_dotenv_file
 
     if os.environ.get(secret_env):
         return True, "exported in this shell"
-    env_path = Path(repo_root) / ".env"
-    if env_path.is_file():
+    # Descending precedence: the file whose value actually wins is the one to
+    # name, so the operator edits the file the deployment is reading.
+    for env_path in reversed(chain_files(Path(repo_root))):
         try:
-            if parse_dotenv_file(env_path).get(secret_env):
-                return True, f"set in {env_path.name}"
+            if not parse_dotenv_file(env_path).get(secret_env):
+                continue
         except OSError:
-            pass
+            continue
+        if env_path.name == ENV_LOCAL_FILENAME:
+            return True, f"set in {env_path.name}"
+        return True, f"set in {env_path.name} — a committed file; move the secret to .env"
     return False, ""
 
 
@@ -1011,6 +1048,8 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
 
     from osprey.build.claude_code_resolver import AGENT_DEFAULT_TIERS, load_provider_spec
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
+    from osprey.registry.mcp import FRAMEWORK_AGENTS
+    from osprey.utils.dotenv import ENV_CHAIN_FILENAMES
 
     rows: list[tuple[str, object]] = []
     notes: list[str] = []
@@ -1021,7 +1060,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
     if not provider_name:
         rows.append(("provider", "not configured"))
         notes.append(
-            "Set claude_code.provider in profile.yml and rebuild to resolve models "
+            "Set `provider:` in profile.yml and rebuild to resolve models "
             "and provider environment automatically."
         )
     else:
@@ -1031,8 +1070,8 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             # durable state and never live in the disposable build zone, so a
             # custom provider's ``base_url: ${ARGO_PROD_URL}`` would otherwise
             # be reported as the literal placeholder. Same pairing as
-            # ``_auth_availability`` below, which already looks for the
-            # credential in ``repo_root/.env``.
+            # ``_auth_availability`` below, which looks for the credential in
+            # the same env chain this expansion reads.
             spec = load_provider_spec(build_dir, env_dir=repo_root)
         except ObservabilityCredentialError:
             # Ahead of the broad handler on purpose, and load-bearing: resolving
@@ -1085,7 +1124,7 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
                     (
                         "auth",
                         f"✗ ${spec.auth_secret_env} not found in this shell or in "
-                        f"{repo_root / '.env'}",
+                        f"{', '.join(ENV_CHAIN_FILENAMES)} under {repo_root}",
                     )
                 )
 
@@ -1104,11 +1143,19 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
             if show_agents:
                 rows.append(("agent models", ""))
                 agent_overrides = claude_code.get("agent_models") or {}
-                for agent_name, default_tier in sorted(AGENT_DEFAULT_TIERS.items()):
+                # Every agent this deployment could run, not only the ones the
+                # tier map happens to name: an agent missing from the map takes
+                # the resolver's sonnet fallback, and a status report that left
+                # it out would be the only place that went unsaid. `deployment`
+                # may import the registry; `osprey.build` may not, which is why
+                # the map lives there and the catalog here.
+                for agent_name in sorted(set(FRAMEWORK_AGENTS) | set(agent_overrides)):
                     if agent_name in agent_overrides:
                         origin = f"(override: {agent_overrides[agent_name]})"
+                    elif agent_name in AGENT_DEFAULT_TIERS:
+                        origin = f"({AGENT_DEFAULT_TIERS[agent_name]})"
                     else:
-                        origin = f"({default_tier})"
+                        origin = f"(default {spec.agent_tier(agent_name)})"
                     rows.append((agent_name, f"{spec.agent_model(agent_name)} {origin}"))
 
             conflicts = spec.detect_env_conflicts(dict(os.environ))

@@ -2,7 +2,7 @@
 `_tiled_run_snapshot` it windows.
 
 `get_run_data` falls back to Tiled once a run's live buffer is gone
-(post-restart, or evicted past `live_rows._MAX_RUNS`). This environment has
+(post-restart, or evicted past `live_rows.max_runs()`). This environment has
 `tiled[client]` but not `tiled[server]` (no `sqlalchemy`), so there is no
 in-process Tiled server to run against — these tests fake the client boundary
 (`tiled.client.from_uri`) instead, which is exactly the seam the read path is
