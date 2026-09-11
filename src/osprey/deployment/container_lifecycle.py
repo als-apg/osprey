@@ -199,7 +199,11 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     # can learn — the mint here is what makes the deployed panel reachable.
     "bluesky_web": ("OSPREY_TERMINAL_SECRET",),
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
-    "postgresql": ("ARIEL_DB_PASSWORD",),
+    # Two identities on one store: the owner ingestion writes with, and the
+    # SELECT-only role the agent's raw-SQL path connects as. Both are read by
+    # Postgres only while it initializes a fresh volume, and both fill the
+    # password slot of a DSN the agent derives.
+    "postgresql": ("ARIEL_DB_PASSWORD", "ARIEL_DB_READONLY_PASSWORD"),
     "mongodb": ("MONGO_ROOT_PASSWORD",),
     "graphdb": ("GRAPHDB_PASSWORD",),
 }
@@ -314,6 +318,18 @@ class VolumeInitializedStore(NamedTuple):
       ``--reuse-stores`` would then "restore" ``neo4j/<password>`` into
       ``GRAPHDB_PASSWORD``, re-composing to ``neo4j/neo4j/<password>`` and
       locking the operator out of a store that was working.
+
+    And one field that is policy rather than a name:
+
+    * ``blocking`` — whether a stale value of this credential is a reason to
+      refuse the deploy. True for a store's root credential, where a mismatch
+      means the store will not authenticate at all. False for a credential the
+      deployment is *designed* to do without: the store starts, the feature the
+      credential unlocks falls back to the behavior it had before the credential
+      existed, and the fallback says so. Refusing there would turn a documented
+      degradation into a stop whose only remedy is discarding the volume — so a
+      non-blocking credential is adopted when its store's volume is adopted, and
+      is silent otherwise.
     """
 
     service: str
@@ -321,6 +337,7 @@ class VolumeInitializedStore(NamedTuple):
     container: str
     cred_env: str
     cred_prefix: str = ""
+    blocking: bool = True
 
 
 #: Minted vars a service reads ONLY when it initializes a fresh data volume.
@@ -347,6 +364,27 @@ _VOLUME_INITIALIZED_VARS: dict[str, VolumeInitializedStore] = {
         volume="ariel_postgres_data",
         container="-ariel-postgres",
         cred_env="POSTGRES_PASSWORD",
+    ),
+    # The second identity the SAME volume is initialized with: the init script
+    # that creates the SELECT-only role runs only while the entrypoint is
+    # building a fresh data directory, so a re-minted secret beside a surviving
+    # volume is stale for exactly the reason the owner password above is.
+    #
+    # NOT blocking, and this is the entry the field exists for. A volume older
+    # than the role has no `_ro` login to mismatch: the agent's SQL tool runs on
+    # the ingestion connection it always ran on, and says so once at start-up,
+    # pointing at the how-to section that adopts the role by hand. Refusing
+    # would stop every deployment that predates the role on its next start and
+    # offer it nothing but discarding the logbook. Listed all the same, so that `--reuse-stores` restores this
+    # credential along with the owner password whenever it adopts the volume —
+    # adopting one and re-minting the other is how the role quietly stops being
+    # reachable on a stack that has it.
+    "ARIEL_DB_READONLY_PASSWORD": VolumeInitializedStore(
+        service="postgresql",
+        volume="ariel_postgres_data",
+        container="-ariel-postgres",
+        cred_env="ARIEL_DB_READONLY_PASSWORD",
+        blocking=False,
     ),
     "MONGO_ROOT_PASSWORD": VolumeInitializedStore(
         service="mongodb",
@@ -1187,15 +1225,19 @@ def _preflight_stale_store_volumes(
     probe = RuntimeProbe(get_runtime_command(config)[0], run=subprocess.run)
 
     stale, originals = _stale_store_volumes(probe, project, minted, services, env_path)
-    if not stale:
+    # Only a blocking credential can produce a refusal or make one unavoidable.
+    # A non-blocking one rides along with its store's adoption and is otherwise
+    # not the operator's problem — see VolumeInitializedStore.blocking.
+    blocking = [(var, store) for var, store in stale if store.blocking]
+    if not blocking:
         return
 
-    if reuse_stores and all(originals.values()):
+    if reuse_stores and all(originals[var] is not None for var, _ in blocking):
         _adopt_original_credentials(env_path, stale, originals)
         return
 
     raise RuntimeError(
-        _stale_store_report(project, env_path, stale, originals, reuse_stores=reuse_stores)
+        _stale_store_report(project, env_path, blocking, originals, reuse_stores=reuse_stores)
     )
 
 
@@ -1222,7 +1264,12 @@ def _adopt_original_credentials(
     absent: dict[str, str] = {}
     for var, _store in stale:
         original = originals[var]
-        if original is None:  # unreachable via the caller's `all(...)` guard
+        if original is None:
+            # Only a non-blocking credential reaches here unreadable: the
+            # caller refuses rather than adopt when a blocking one is gone.
+            # Leave the fresh mint standing — the feature it unlocks falls
+            # back and says so, which is what it does on a volume that
+            # never had the credential at all.
             continue
         if var in on_disk:
             text = re.sub(
@@ -1242,7 +1289,12 @@ def _adopt_original_credentials(
         )
 
     written = parse_dotenv_file(env_path)
-    missed = [var for var, _ in stale if written.get(var) != originals[var]]
+    # A credential the container no longer carries was skipped above rather than
+    # restored, and only a non-blocking one reaches here in that state — the
+    # caller refuses outright when a blocking credential is unrecoverable.
+    missed = [
+        var for var, _ in stale if originals[var] is not None and written.get(var) != originals[var]
+    ]
     if missed:
         raise RuntimeError(
             f"Could not restore {', '.join(sorted(missed))} in {env_path.resolve()}. "

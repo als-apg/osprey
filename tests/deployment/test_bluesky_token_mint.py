@@ -286,13 +286,15 @@ def test_var_generators_registry_is_pinned():
     """Pin the blast radius: only vars with a downstream alphabet/policy
     constraint override the default token recipe (Tiled's alphanumeric
     --api-key, OpenObserve's four-class root password, the URI-safe alphabet
-    the ARIEL Postgres and archiver Mongo passwords share, and the graph
-    store's password, which adds a no-``/`` rule because Neo4j receives it as
-    the password half of the composite ``NEO4J_AUTH``)."""
+    the ARIEL Postgres passwords -- both roles on that store -- and the
+    archiver Mongo password share, and the graph store's password, which adds a
+    no-``/`` rule because Neo4j receives it as the password half of the
+    composite ``NEO4J_AUTH``)."""
     assert set(container_lifecycle._VAR_GENERATORS) == {
         "BLUESKY_TILED_API_KEY",
         "ZO_ROOT_USER_PASSWORD",
         "ARIEL_DB_PASSWORD",
+        "ARIEL_DB_READONLY_PASSWORD",
         "MONGO_ROOT_PASSWORD",
         "GRAPHDB_PASSWORD",
     }
@@ -525,6 +527,7 @@ def test_validator_registry_keyset_is_pinned():
         "ARIEL_DSN",
         "ZO_ROOT_USER_PASSWORD",
         "ARIEL_DB_PASSWORD",
+        "ARIEL_DB_READONLY_PASSWORD",
         "MONGO_ROOT_PASSWORD",
         "GRAPHDB_PASSWORD",
     }

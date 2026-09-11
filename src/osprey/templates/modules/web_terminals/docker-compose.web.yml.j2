@@ -1163,6 +1163,16 @@ services:
          the host — an empty value would NOT, since `resolve_ariel_dsn` falls
          back only on an unset variable, never on an empty one. #}
       - ARIEL_DB_PASSWORD=${ARIEL_DB_PASSWORD:-ariel}
+      {#- The same password one rung along: the login secret of the SELECT-only
+         role the agent's raw-SQL tool connects as, which `resolve_ariel_dsn`
+         substitutes into the readonly DSN exactly as the line above is
+         substituted into the ingestion one. Without it the tool opens no
+         read-only pool and queries through the ingestion connection instead,
+         which is a superuser on a deployment that minted nothing.
+
+         Same gate, same per-user placement and the same `:-` mirror of the
+         postgresql service template's own default, for the reasons above. #}
+      - ARIEL_DB_READONLY_PASSWORD=${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}
 {%- endif %}
 {%- if svc.wants_launch_token %}
       {#- The Bluesky queue's launch token, for a persona entitled to arm a queue
