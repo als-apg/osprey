@@ -61,6 +61,7 @@ from osprey.services.channel_finder.graph_index.builder import (
     parse_corpus,
 )
 from osprey.services.channel_finder.graph_index.reader import (
+    SEARCH_FACETS,
     GraphIndex,
     GraphIndexAbsence,
     open_graph_index,
@@ -115,6 +116,15 @@ DEMO_PARSE_SECONDS = 3.0
 #: The finder redraws its page on every filter click, so this is the number the
 #: interaction is made of.
 SCALE_SEARCH_P50_SECONDS = 0.150
+
+#: How many statements one :meth:`GraphIndex.search` issues, whatever the
+#: corpus: the totals, the page, and one per facet. Derived from
+#: ``SEARCH_FACETS`` rather than restated as seven, so a facet added to the
+#: rail moves both sides together. This is the countable form of what the
+#: latency budgets only approximate -- a search that became a per-row walk
+#: would issue a different number of statements on a loaded host and an idle
+#: one alike.
+STATEMENTS_PER_SEARCH = len(SEARCH_FACETS) + 2
 
 #: The first search after opening the *demo* index -- cold caches, nothing
 #: mapped yet.
@@ -479,6 +489,43 @@ def _time_shapes(index: GraphIndex, shapes: list[dict[str, Any]]) -> list[float]
     return timings
 
 
+class _CountingCursor:
+    """A cursor that records every statement and otherwise gets out of the way.
+
+    Delegation is by ``__getattr__`` and every call returns the inner cursor's
+    own result, so ``execute(...).fetchone()`` and ``execute(...).fetchall()``
+    keep chaining exactly as the reader writes them.
+    """
+
+    def __init__(self, inner: Any, statements: list[str]) -> None:
+        self._inner = inner
+        self._statements = statements
+
+    def execute(self, sql: str, *args: Any, **kwargs: Any) -> Any:
+        self._statements.append(sql)
+        return self._inner.execute(sql, *args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+def _count_statements(index: GraphIndex) -> list[str]:
+    """Record the SQL every later search on *index* issues.
+
+    Wraps the opened index's own ``cursor`` factory, which is the single place
+    a search reaches for a connection, so nothing about the search itself has
+    to be parameterised for the count.
+    """
+    statements: list[str] = []
+    opener = index.cursor
+
+    def counting() -> Any:
+        return _CountingCursor(opener(), statements)
+
+    index.cursor = counting  # type: ignore[method-assign]
+    return statements
+
+
 def _report(label: str, timings: list[float]) -> tuple[float, float, float]:
     """Print and log ``p50``/``p95``/``max`` for *timings*, and return them."""
     ordered = sorted(timings)
@@ -558,6 +605,22 @@ class TestHundredThousandBindings:
         assert len(payload["rows"]) == 10
         assert {entry["value"] for entry in payload["facets"]["system"]} == set(SYSTEM_CODES)
         assert {entry["value"] for entry in payload["facets"]["dir"]} == {"R", "W", "RW", "none"}
+
+    def test_a_search_over_the_synthetic_index_issues_a_fixed_number_of_statements(self, built):
+        """The count is the regression guard a wall clock only approximates.
+
+        What the latency budgets exist to catch is a search that stops being a
+        fixed number of scans and becomes a per-row walk, and that is countable
+        rather than timeable: the totals, the page, and one statement per
+        facet. A host under load changes the milliseconds and not this number.
+        """
+        index_path, _, _ = built
+
+        with _open(index_path) as index:
+            statements = _count_statements(index)
+            index.search()
+
+        assert len(statements) == STATEMENTS_PER_SEARCH, statements
 
     def test_a_search_over_a_hundred_thousand_rows_stays_interactive(self, built):
         index_path, _, _ = built
@@ -661,6 +724,21 @@ class TestDemoCorpusOverTheParityMatrix:
         assert empty == DEMO_EMPTY_SHAPES, (
             f"the shapes matching nothing on the demo corpus are not the expected ones: {empty}"
         )
+
+    def test_a_search_over_the_demo_index_issues_the_same_number_of_statements(
+        self, demo_index_path: Path
+    ):
+        """And the count does not grow with the corpus.
+
+        The same expression bounds both corpora, which is the claim: a corpus
+        thirty times larger costs the same number of statements. Restating the
+        seven here instead would let the two sides drift apart in silence.
+        """
+        with _open(demo_index_path) as index:
+            statements = _count_statements(index)
+            index.search()
+
+        assert len(statements) == STATEMENTS_PER_SEARCH, statements
 
     def test_the_first_search_after_opening_answers_at_once(self, demo_index_path: Path):
         index = _open(demo_index_path)
