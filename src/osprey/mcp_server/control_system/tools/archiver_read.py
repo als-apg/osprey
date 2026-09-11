@@ -180,8 +180,9 @@ def _coverage_message(
     if overall == "gap_within_coverage":
         return (
             f"The queried window {window} lies inside archive coverage but holds no "
-            f"samples for {noun}: nothing was recorded there. A gap is recorded "
-            f"silence — the channel was not answering — not data awaiting synthesis."
+            f"samples for {noun}: nothing was recorded there. That is not data "
+            f"awaiting synthesis — whether an empty window is expected depends on "
+            f"how this deployment archives (continuously, on change, or per event)."
         )
     if overall == "coverage_unknown":
         return (
