@@ -1254,10 +1254,10 @@ dispatch:
 # (name to value) and `file` (a profile-relative path copied in as .env):
 #
 #   env:
-#     required: [EPICS_CA_ADDR_LIST]
+#     required: [DISPATCH_WORKER_TOKEN]
 #     pinned: [ARIEL_DB_PASSWORD]
 #     defaults:
-#       EPICS_CA_ADDR_LIST: 127.0.0.1
+#       OSPREY_FACILITY_NAME: "Example Facility"
 #     file: env/facility.env
 #
 # If `env:` already has children, add yours under it.

@@ -1377,11 +1377,14 @@ FRAMEWORK_WIRED_EVENTS: frozenset[str] = frozenset(
 #: OSPREY-invented one that would kill a slow facility hook mid-flight.
 _DECLARED_HOOK_TIMEOUT = 60
 
+# The matcher names a server by the name it is registered under in
+# `osprey.registry.mcp.FRAMEWORK_SERVERS` — the control system is `controls`,
+# whatever protocol its connector speaks.
 _DECLARED_HOOK_EXAMPLE = (
     "  config:\n"
     "    claude_code.hooks.PreToolUse:\n"
     "      - hook: facility_guard.py\n"
-    '        matcher: "mcp__epics__.*"\n'
+    '        matcher: "mcp__controls__.*"\n'
     "    claude_code.hooks.SessionStart:\n"
     "      - facility_banner.py"
 )

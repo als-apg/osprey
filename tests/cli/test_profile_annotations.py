@@ -41,10 +41,10 @@ _ANNOTATION_FRAGMENTS: dict[str, tuple[str, ...]] = {
     ),
     "env": (
         "#   env:",
-        "#     required: [EPICS_CA_ADDR_LIST]",
+        "#     required: [DISPATCH_WORKER_TOKEN]",
         "#     pinned: [ARIEL_DB_PASSWORD]",
         "#     defaults:",
-        "#       EPICS_CA_ADDR_LIST: 127.0.0.1",
+        '#       OSPREY_FACILITY_NAME: "Example Facility"',
         "#     file: env/facility.env",
     ),
 }
@@ -207,9 +207,9 @@ _ELOG_CONFIG_LINES = (
 _EMPTY_CASE_ADDITIONS: dict[str, set[tuple[str, ...]]] = {
     "web_panels": {("panel", "elog")},
     "env": {
-        ("required", "EPICS_CA_ADDR_LIST"),
+        ("required", "DISPATCH_WORKER_TOKEN"),
         ("pinned", "ARIEL_DB_PASSWORD"),
-        ("defaults", "EPICS_CA_ADDR_LIST", "127.0.0.1"),
+        ("defaults", "OSPREY_FACILITY_NAME", "Example Facility"),
     },
 }
 _POPULATED_CASE_ADDITIONS: dict[str, set[tuple[str, ...]]] = {
@@ -275,7 +275,7 @@ def _edit_empty_key(field: str, lines: list[str], profile_dir: Path) -> list[str
         # refuses one that is not there. Making it exist keeps the whole
         # example under test rather than trimming the line out of it.
         (profile_dir / "env").mkdir(exist_ok=True)
-        (profile_dir / "env" / "facility.env").write_text("EPICS_CA_ADDR_LIST=127.0.0.1\n")
+        (profile_dir / "env" / "facility.env").write_text("DISPATCH_WORKER_TOKEN=x\n")
     return edited
 
 
