@@ -877,6 +877,10 @@ REACH_CONTRACTS: dict[str, ReachContract] = {
             ProjectedKey(GRAPHDB_PORT_CONFIG_KEY, gate=_graph_store_wanted),
             ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.uri", gate=_graph_store_wanted),
             ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.username", gate=_graph_store_wanted),
+            # Which database on that store holds the corpus: the host's fact
+            # about an external store, opened by every session a persona's
+            # clients start, and meaningless without the address it sits beside.
+            ProjectedKey(f"services.{GRAPHDB_SERVICE_NAME}.database", gate=_graph_store_wanted),
         ),
         credentials=(CredentialGrant(GRAPHDB_PASSWORD_ENV, config_needs_graphdb_password),),
         names_external=_graphdb_named,
