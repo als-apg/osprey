@@ -58,9 +58,27 @@ services:
       # initializing a FRESH data volume; a pre-existing volume keeps its
       # original password until recreated.
       POSTGRES_PASSWORD: ${ARIEL_DB_PASSWORD:-ariel}
+      # The login secret for the SELECT-only role the initdb script below
+      # creates — the identity the agent's raw-SQL tool connects as, so a
+      # dangerous function it names is refused by the server instead of by a
+      # pattern match over the query text. Minted beside ARIEL_DB_PASSWORD by
+      # `osprey up` and read by the same derived-DSN path, one rung along. It is
+      # passed into the container rather than substituted into the mounted
+      # script because the script is rendered at build time and the secret lives
+      # in the project .env. Same fresh-volume caveat as POSTGRES_PASSWORD.
+      ARIEL_DB_READONLY_PASSWORD: ${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}
       TZ: UTC
     volumes:
       - ariel_postgres_data:/var/lib/postgresql/data
+      # INITDB-ONLY: the entrypoint runs everything under this directory once,
+      # while it initializes a fresh data volume, and never looks at it again.
+      # So the read-only role arrives with a new store and a store that predates
+      # it keeps the role it has — the agent then falls back to the ingestion
+      # identity with one warning rather than failing to start. Adopting the
+      # role on an existing volume is the one-shot command in the
+      # "Read-only role for the SQL tool" section of the standalone-deployment
+      # how-to, which runs this same file by hand.
+      - ./build/services/postgresql/10-readonly-role.sh:/docker-entrypoint-initdb.d/10-readonly-role.sh:ro
     networks:
       # The container_name above is now per-project, but the ARIEL DSN
       # (`postgresql://ariel:ariel@ariel-postgres:5432/ariel`) hosts the stable

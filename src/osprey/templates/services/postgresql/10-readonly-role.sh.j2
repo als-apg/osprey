@@ -1,0 +1,66 @@
+{#- Rendered beside this service's docker-compose.yml — the build renders any
+    .j2 sitting next to a service's compose template with the same context —
+    and mounted read-only into /docker-entrypoint-initdb.d/, where the official
+    Postgres entrypoint runs it ONCE while initializing a FRESH data volume, as
+    the superuser the image is creating. That is the same window
+    POSTGRES_PASSWORD is read in: a volume that already exists never runs this
+    file, which is why the standalone-deployment how-to carries a one-shot
+    command for an existing stack.
+
+    A .sh rather than a .sql because the role's password comes from the
+    environment: the entrypoint feeds a .sql straight to psql, which does not
+    expand ${VAR}, while a .sh runs under the entrypoint's shell first and
+    hands the value to psql as a -v variable. -#}
+{%- set pg_user = services.postgresql.username | default('ariel') -%}
+{%- set pg_db = services.postgresql.database_name | default('ariel') -%}
+#!/usr/bin/env bash
+# The agent's raw-SQL tool connects as this role rather than as the owner the
+# image creates, which is a superuser. `BEGIN READ ONLY` stops writes but not
+# server-side reads (pg_read_file) or any other superuser-only function, and no
+# allowlist over SQL text can enumerate them all, so the privileges the
+# connection has at all are the line that holds. SELECT on this schema's tables
+# is the entire grant.
+#
+# Everything below runs in a SUBSHELL so `set` cannot escape this file. A file
+# under /docker-entrypoint-initdb.d/ is EXECUTED when it carries an executable
+# bit and SOURCED otherwise, and a bind mount preserves the mode of a file the
+# build wrote without one — so the sourced path is the one taken here, and
+# options set at the top level would stay set in the entrypoint's own shell for
+# the rest of initialization. `-u` in particular is not an option the entrypoint
+# runs under, and turning it on underneath it would abort the init on the first
+# unset variable the entrypoint reads. The entrypoint's own `-e` still carries
+# a non-zero exit from this subshell.
+(
+  set -euo pipefail
+  psql -v ON_ERROR_STOP=1 \
+       --username "$POSTGRES_USER" \
+       --dbname "$POSTGRES_DB" \
+       --no-password \
+       -v owner="{{ pg_user }}" \
+       -v ro_role="{{ pg_user }}_ro" \
+       -v ro_password="${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}" \
+       -v db_name="{{ pg_db }}" <<'EOSQL'
+-- Every statement below is idempotent, so the one-shot command an existing
+-- volume is migrated with can be run against a database that already has the
+-- role — and re-run after the password in .env changes.
+SELECT format('CREATE ROLE %I LOGIN', :'ro_role')
+WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'ro_role')
+\gexec
+
+ALTER ROLE :"ro_role"
+  WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT PASSWORD :'ro_password';
+
+GRANT CONNECT ON DATABASE :"db_name" TO :"ro_role";
+GRANT USAGE ON SCHEMA public TO :"ro_role";
+
+-- enhanced_entries and the per-model text_embeddings_* tables are created
+-- later, by the migrations and by whichever enhancement modules are enabled.
+-- ON ALL TABLES covers whatever already exists (the migration path); ALTER
+-- DEFAULT PRIVILEGES covers everything the owner creates afterwards (the
+-- fresh-volume path this file normally runs on), so a table added later is
+-- readable without anyone remembering a second grant.
+GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"ro_role";
+ALTER DEFAULT PRIVILEGES FOR ROLE :"owner" IN SCHEMA public
+  GRANT SELECT ON TABLES TO :"ro_role";
+EOSQL
+)
