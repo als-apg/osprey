@@ -7,7 +7,7 @@ import {
   showHandoffPending,
   showHandoffRefused,
 } from './terminal-handoff.js';
-import { subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
+import { monoFontStack, subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 
 /** @type {any} */
 let term = null;
@@ -189,7 +189,9 @@ export function initTerminal(containerId) {
   term = new Terminal({
     scrollback: 10000,
     cursorBlink: true,
-    fontFamily: "'JetBrains Mono', monospace",
+    // xterm takes a family at construction and measures cell width from it,
+    // so the stack is read once here rather than re-read on a theme change.
+    fontFamily: monoFontStack(),
     fontSize: 14,
     lineHeight: 1.2,
     theme: xtermPalette(),

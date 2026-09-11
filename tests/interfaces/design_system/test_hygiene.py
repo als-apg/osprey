@@ -851,3 +851,93 @@ def test_ariel_scale_layer_stays_retired() -> None:
         "--radius-*/--space-*/--z-*/--duration-*)); --ariel-score-* is the only "
         "sanctioned --ariel- name:\n" + "\n".join(offenders)
     )
+
+
+# --- Check (f): no literal font stack outside the font sources --------------------
+
+#: Same shape as the color and scale markers, with its own name so a font
+#: exception cannot be mistaken for either: a line carrying it is never counted,
+#: and the ``-start``/``-end`` pair brackets a span (both boundary lines exempt).
+_ALLOW_FONT_LINE_MARKER = "hygiene-allow-font"
+_ALLOW_FONT_BLOCK_START_MARKER = "hygiene-allow-font-start"
+_ALLOW_FONT_BLOCK_END_MARKER = "hygiene-allow-font-end"
+
+#: The two files that legitimately SPELL a typeface: the ``@font-face`` source
+#: (which must name the family it is declaring) and the generated token sheet
+#: (which is where ``--font-display``/``--font-mono`` come from).
+_FONT_SOURCE_FILES = frozenset(
+    {
+        _INTERFACES_ROOT / "shared_fonts" / "fonts.css",
+        _TOKENS_CSS,
+    }
+)
+
+#: A ``font-family:`` declaration, or a custom property whose name says it holds
+#: a font stack. Both state a typeface, and a local ``--font-sans: 'Inter'`` is
+#: how one interface ended up rendering a face the token file calls retired.
+_FONT_DECLARATION_RE = re.compile(r"(font-family|--[\w-]*font[\w-]*)\s*:\s*([^;{}]+)")
+
+#: What makes a value a LITERAL stack rather than a pass-through: a quoted
+#: family name, or one of the generic/system keywords a stack ends with. A bare
+#: ``inherit``/``initial``/``unset`` names no typeface and is untouched.
+_LITERAL_FAMILY_RE = re.compile(
+    r"[\'\"]|\b(?:system-ui|ui-sans-serif|ui-monospace|ui-serif|sans-serif|serif|"
+    r"monospace|cursive|fantasy|-apple-system|BlinkMacSystemFont)\b"
+)
+
+
+def _literal_font_stacks(text: str) -> list[str]:
+    """Every non-allowlisted literal font stack in one stylesheet's text."""
+    hits: list[str] = []
+    in_allowed_block = False
+    for line in text.splitlines():
+        if _ALLOW_FONT_BLOCK_START_MARKER in line:
+            in_allowed_block = True
+            continue
+        if _ALLOW_FONT_BLOCK_END_MARKER in line:
+            in_allowed_block = False
+            continue
+        if in_allowed_block or _ALLOW_FONT_LINE_MARKER in line:
+            continue
+        for prop, raw_value in _FONT_DECLARATION_RE.findall(line):
+            value = re.sub(r"var\([^()]*\)", "", raw_value).strip()
+            if _LITERAL_FAMILY_RE.search(value):
+                hits.append(f"{prop}: {raw_value.strip()}")
+    return hits
+
+
+def test_literal_font_stack_scanner() -> None:
+    assert _literal_font_stacks("a { font-family: var(--font-mono); }") == []
+    assert _literal_font_stacks("a { font-family: inherit; }") == []
+    assert _literal_font_stacks("a { font-family: 'Inter', sans-serif; }") == [
+        "font-family: 'Inter', sans-serif"
+    ]
+    assert _literal_font_stacks(":root { --font-sans: 'Inter', -apple-system; }") == [
+        "--font-sans: 'Inter', -apple-system"
+    ]
+    assert _literal_font_stacks(":root { --font-d: var(--font-display); }") == []
+    assert _literal_font_stacks("a { font-family: monospace; /* hygiene-allow-font: x */ }") == []
+
+
+def test_no_literal_font_stacks_outside_the_font_sources() -> None:
+    """A typeface is named in two files; everywhere else reads the token.
+
+    The drift this forbids has a visible cost: a local ``--font-sans: 'Inter'``
+    renders a face the token file itself calls retired, in one surface out of
+    the fleet, and no test or reviewer sees it — the page looks fine, just not
+    like the rest of OSPREY. CSS only: the JS entry points that hand a font to
+    a canvas renderer read the token with a literal fallback, which this rule
+    would flag as a literal without being able to tell it apart from a
+    hardcoded one.
+    """
+    offenders: list[str] = []
+    for path in _in_scope_files():
+        if path.suffix != ".css" or path in _FONT_SOURCE_FILES:
+            continue
+        for hit in _literal_font_stacks(path.read_text(encoding="utf-8")):
+            offenders.append(f"{_relpath(path)}: {hit}")
+    assert not offenders, (
+        "Literal font stack(s) outside shared_fonts/fonts.css and the generated "
+        "tokens.css — use var(--font-display)/var(--font-mono), or mark a "
+        "deliberate exception with `/* hygiene-allow-font: <reason> */`:\n" + "\n".join(offenders)
+    )

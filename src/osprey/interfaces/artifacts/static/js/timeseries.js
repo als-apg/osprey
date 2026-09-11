@@ -38,7 +38,12 @@
  * @module timeseries
  */
 
-import { chartTheme, chartRelayout, chartSeries } from "/design-system/js/theme-manager.js";
+import {
+  chartTheme,
+  chartRelayout,
+  chartSeries,
+  monoFontStack,
+} from "/design-system/js/theme-manager.js";
 import { escapeHtml } from "/design-system/js/dom.js";
 import { isoToDate } from "./types.js";
 
@@ -445,7 +450,9 @@ export async function renderTimeseriesChart(el, chartData) {
   const layout = {
     paper_bgcolor: t.paper_bgcolor,
     plot_bgcolor: t.plot_bgcolor,
-    font: { family: "'JetBrains Mono', monospace", size: 11, color: t.font.color },
+    // First render only: a live re-theme goes through chartRelayout(), which
+    // sets the family from the same token.
+    font: { family: monoFontStack(), size: 11, color: t.font.color },
     margin: { t: 30, r: 20, b: 50, l: 60 },
     hovermode: "x unified",
     // zerolinecolor too: chartRelayout() sets it on a live re-theme, so the

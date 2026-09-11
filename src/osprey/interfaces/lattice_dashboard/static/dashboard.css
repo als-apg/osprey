@@ -15,7 +15,6 @@
 :root {
   --verify-accent: #a78bfa; /* hygiene-allow-color: no canonical equivalent; theme-invariant one-off */
   --baseline-accent: #06b6d4; /* hygiene-allow-color: no canonical equivalent; theme-invariant one-off */
-  --font-sans: 'Inter', -apple-system, sans-serif;
   --ld-radius-sm: 4px;
   --ld-radius-md: 6px;
 }
@@ -31,7 +30,7 @@ html, body {
   overflow: hidden;
   background: var(--bg-primary);
   color: var(--text-primary);
-  font-family: var(--font-sans);
+  font-family: var(--font-display);
   font-size: 13px;
   -webkit-font-smoothing: antialiased;
 }
@@ -921,7 +920,7 @@ body.drag-active .figure-plot {
 :root[data-ui-mode="simple"] .lattice-simple-status {
   display: inline-flex;
   align-items: center;
-  font-family: var(--font-sans);
+  font-family: var(--font-display);
   font-size: 12px;
   color: var(--text-secondary);
   white-space: nowrap;
