@@ -226,9 +226,12 @@ substitutes another provider's model IDs; a provider with no ``models``
 mapping *and* no ``default_model`` to fall back on is refused.
 
 ``base_url`` is the endpoint the agent itself talks to. ``cborg`` and
-``als-apg`` ship a built-in URL that a value here overrides; omit it to keep
-the built-in one. ``anthropic`` ships none, so omitting it sends requests to
-Anthropic's own API. Keep the trailing
+``als-apg`` front a gateway each site hosts itself and ship no built-in URL:
+name the endpoint here (or, for ``als-apg``, in ``ALS_APG_BASE_URL`` as above)
+or the provider refuses to start. ``argo``, ``stanford`` and the local runtimes
+(``ollama``, ``vllm``, ``ds4``) ship a well-known endpoint that a value here
+overrides. ``anthropic`` and ``openai`` need none, so omitting it sends
+requests to the vendor's own API. Keep the trailing
 ``/v1`` on OpenAI-compatible gateways — the translation proxy needs it, and the
 agent's own requests have it stripped automatically.
 
