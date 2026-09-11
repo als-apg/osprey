@@ -35,7 +35,7 @@ class CheckResult:
     """Result of a single health check.
 
     Attributes:
-        name: Machine-readable identifier, e.g. ``"epics.beam_current"``.
+        name: Machine-readable identifier, e.g. ``"control_system.beam_current"``.
         category: Category the check belongs to, e.g. ``"file_system"``.
         status: Outcome of the check.
         message: Human-readable one-line summary.

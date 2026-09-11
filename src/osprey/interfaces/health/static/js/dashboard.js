@@ -121,7 +121,7 @@ function buildCheckRow(ck) {
   const row = el("div", { class: "ck" });
   row.appendChild(el("span", { class: "led " + (LED_CLS[ck.status] || "led-sk") }));
   row.appendChild(
-    el("span", { class: "ck-nm" + (ck.status === "skip" ? " sk" : ""), text: fmtName(ck.name) }),
+    el("span", { class: "ck-nm" + (ck.status === "skip" ? " sk" : ""), text: fmtName(ck.name, ck.category) }),
   );
   if (ck.value) row.appendChild(el("span", { class: "ck-val", text: ck.value }));
 
