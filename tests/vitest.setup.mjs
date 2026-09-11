@@ -31,8 +31,19 @@ for (const key of ['localStorage', 'sessionStorage']) {
 // document it loaded, so the frame needs its URL and not a page: with child
 // frame navigation disabled happy-dom sets the frame's location and skips the
 // request, leaving `contentWindow` in place.
-if (globalThis.happyDOM?.settings?.navigation) {
-  globalThis.happyDOM.settings.navigation.disableChildFrameNavigation = true;
+// happy-dom's environment object is not a key of `typeof globalThis`; read it
+// once through Reflect.get, which is typed for a dynamic key, with the shape
+// the two settings below rely on.
+/**
+ * @type {{ settings?: {
+ *   navigation?: { disableChildFrameNavigation?: boolean },
+ *   fetch?: { interceptor?: unknown }
+ * } } | undefined}
+ */
+const happyDOM = Reflect.get(globalThis, 'happyDOM');
+
+if (happyDOM?.settings?.navigation) {
+  happyDOM.settings.navigation.disableChildFrameNavigation = true;
 }
 
 // Nothing serves the environment's origin (http://localhost:3000), so a module
@@ -42,13 +53,15 @@ if (globalThis.happyDOM?.settings?.navigation) {
 // unhandled tail. Answer such a request in-process instead. The caller sees a
 // failed request either way — an unreachable origin is what it would have got —
 // and the failure is now deterministic and names the URL a test has yet to stub.
-if (globalThis.happyDOM?.settings?.fetch) {
-  globalThis.happyDOM.settings.fetch.interceptor = {
+if (happyDOM?.settings?.fetch) {
+  happyDOM.settings.fetch.interceptor = {
+    /** @param {{ request: { url: string }, window: { Response: typeof Response } }} context */
     beforeAsyncRequest: async ({ request, window }) =>
       new window.Response(`no server for ${request.url} — stub fetch in the test`, {
         status: 503,
         statusText: 'Service Unavailable'
       }),
+    /** @param {{ request: { url: string } }} context */
     beforeSyncRequest: ({ request }) => ({
       status: 503,
       statusText: 'Service Unavailable',
