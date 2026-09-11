@@ -14,18 +14,18 @@ can have real-world physical consequences.
 Key Components:
     - **ExecutionMode**: Enumeration of available execution environments with
       different security and access profiles
-    - **ExecutionControlConfig**: Configuration class that determines execution
-      mode selection based on code analysis and security policies
+    - **ExecutionControlConfig**: Configuration class carrying the write
+      posture for the control target it was built for, and the config key that
+      governs that posture
     - **Configuration Utilities**: Helper functions for creating and validating
       execution control configurations
 
-The execution control system integrates with the static code analysis pipeline
-to automatically determine appropriate execution environments based on the
-operations detected in generated code, while providing override capabilities
-for manual control when needed.
+The write gate reads ``control_system_writes_enabled`` off this config and
+combines it with what static analysis found in the code: write access needs
+both the configured permission and explicit write intent in the code itself.
 
 .. note::
-   Mode selection is about control-system access in general; it reads no
+   The posture is about control-system access in general; it reads no
    protocol-specific fact and holds for every connector the deployment can
    select.
 
@@ -35,28 +35,9 @@ for manual control when needed.
    write access in production environments.
 
 Examples:
-    Basic execution control configuration::
-
-        >>> config = ExecutionControlConfig(control_system_writes_enabled=False)
-        >>> mode = config.get_execution_mode(
-        ...     has_control_system_writes=True,
-        ...     has_control_system_reads=True
-        ... )
-        >>> print(f"Selected mode: {mode}")
-        Selected mode: ExecutionMode.READ_ONLY
-
-    Enabling write operations with proper safeguards::
-
-        >>> write_config = ExecutionControlConfig(control_system_writes_enabled=True)
-        >>> mode = write_config.get_execution_mode(
-        ...     has_control_system_writes=True,
-        ...     has_control_system_reads=False
-        ... )
-        >>> print(f"Write mode: {mode}")
-        Write mode: ExecutionMode.WRITE_ACCESS
-
     Configuration validation::
 
+        >>> config = ExecutionControlConfig(control_system_writes_enabled=True)
         >>> warnings = config.validate()
         >>> if warnings:
         ...     print(f"Configuration warnings: {warnings}")
@@ -126,9 +107,9 @@ class ExecutionControlConfig:
     """Configuration class for control system execution control and security policy management.
 
     This configuration class encapsulates the security policies and settings that
-    determine how Python code execution is controlled within the system. It provides
-    the logic for automatically selecting appropriate execution environments based
-    on code analysis results and configured security policies.
+    determine how Python code execution is controlled within the system. It
+    carries the answer; the write gate that acts on it lives with the executor
+    tools.
 
     The configuration implements a conservative security approach where write
     operations are only permitted when explicitly enabled and detected in the
@@ -162,22 +143,6 @@ class ExecutionControlConfig:
     .. seealso::
        :class:`ExecutionMode` : Available execution environment modes
        :func:`get_execution_control_config` : Factory function for creating configurations
-
-    Examples:
-        Creating a read-only configuration for safe analysis::
-
-            >>> config = ExecutionControlConfig(control_system_writes_enabled=False)
-            >>> mode = config.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-            >>> print(f"Mode: {mode}")  # Always READ_ONLY when writes disabled
-            Mode: ExecutionMode.READ_ONLY
-
-        Enabling controlled write access::
-
-            >>> write_config = ExecutionControlConfig(control_system_writes_enabled=True)
-            >>> # Only grants write access when code actually contains write operations
-            >>> read_mode = write_config.get_execution_mode(has_control_system_writes=False, has_control_system_reads=True)
-            >>> write_mode = write_config.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-            >>> print(f"Read mode: {read_mode}, Write mode: {write_mode}")
     """
 
     # Control system settings
@@ -185,63 +150,6 @@ class ExecutionControlConfig:
     control_system_type: str = MOCK  # Fail-closed: never assume a live system
     active_target: str | None = None
     writes_enabled_key: str = WRITES_ENABLED_KEY
-
-    def get_execution_mode(
-        self, has_control_system_writes: bool, has_control_system_reads: bool
-    ) -> ExecutionMode:
-        """Determine appropriate execution mode based on code analysis and security policy.
-
-        Analyzes the detected operations in the code (from static analysis) and
-        applies the configured security policy to determine the most appropriate
-        execution environment. The method implements a conservative approach where
-        write access is only granted when both the code requires it and the
-        configuration permits it.
-
-        The decision logic prioritizes security by defaulting to read-only access
-        unless write operations are both detected in the code and explicitly
-        enabled in the configuration.
-
-        :param has_control_system_writes: Whether static analysis detected control-system
-            write operations in the code
-        :type has_control_system_writes: bool
-        :param has_control_system_reads: Whether static analysis detected control-system
-            read operations in the code
-        :type has_control_system_reads: bool
-        :return: Execution mode appropriate for the detected operations and security policy
-        :rtype: ExecutionMode
-
-        .. note::
-           The has_control_system_reads parameter is provided for future extensibility but
-           currently does not affect mode selection since read operations are
-           permitted in all execution modes.
-
-        Examples:
-            Mode selection with different code patterns::
-
-                >>> config = ExecutionControlConfig(control_system_writes_enabled=True)
-                >>>
-                >>> # Code with only read operations
-                >>> mode = config.get_execution_mode(has_control_system_writes=False, has_control_system_reads=True)
-                >>> print(f"Read-only code: {mode}")
-                Read-only code: ExecutionMode.READ_ONLY
-                >>>
-                >>> # Code with write operations (and writes enabled)
-                >>> mode = config.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-                >>> print(f"Write code: {mode}")
-                Write code: ExecutionMode.WRITE_ACCESS
-
-            Security policy enforcement::
-
-                >>> secure_config = ExecutionControlConfig(control_system_writes_enabled=False)
-                >>> # Write operations detected but not permitted by policy
-                >>> mode = secure_config.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-                >>> print(f"Secured mode: {mode}")  # Always READ_ONLY when writes disabled
-                Secured mode: ExecutionMode.READ_ONLY
-        """
-        if has_control_system_writes and self.control_system_writes_enabled:
-            return ExecutionMode.WRITE_ACCESS
-        else:
-            return ExecutionMode.READ_ONLY
 
     def validate(self) -> list[str]:
         """
