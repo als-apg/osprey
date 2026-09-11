@@ -175,6 +175,12 @@ def _invoke_audit(
     with (
         patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True),
         patch("osprey.cli.audit_cmd.asyncio") as mock_asyncio,
+        # The fixture project names no provider, so the real builder refuses it;
+        # these contracts pin the streams, not the reviewer's wiring.
+        patch(
+            "osprey.cli.audit_cmd._reviewer_options",
+            new=lambda project_dir, model, budget: object(),
+        ),
     ):
         mock_asyncio.run.side_effect = _run
         return runner.invoke(audit, [str(project), "--json"])
