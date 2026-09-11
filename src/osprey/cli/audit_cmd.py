@@ -78,8 +78,19 @@ def _extract_json(text: str) -> str | None:
 def _reviewer_options(project_dir: Path, model: str, budget: float):
     """Build the reviewer's SDK options from the audited project's own provider.
 
-    Separate from :func:`_run_audit` so the wiring can be read — and pinned —
-    without opening an event loop.
+    The builder resolves that provider's endpoint, auth and model ids from the
+    project's ``config.yml``, and starts the translation proxy when the
+    provider needs one. Hand-building the options left the SDK to fall through
+    to ambient ``ANTHROPIC_*`` variables, so an audit of a gateway-fronted
+    deployment ran against whatever endpoint the operator's shell happened to
+    hold — or nothing at all.
+
+    ``setting_sources=[]`` is deliberate: the reviewer reads the target, it does
+    not run as it, so the audited project's own hooks and settings stay out of
+    the reviewing agent.
+
+    Raises:
+        RuntimeError: When the project names no resolvable provider.
     """
     from osprey.agent_runner.primitives import build_agent_options
 
@@ -96,30 +107,24 @@ def _reviewer_options(project_dir: Path, model: str, budget: float):
 
 async def _run_audit(
     prompt: str,
-    model: str,
-    cwd: Path,
-    budget: float,
+    options,
     verbose: bool,
 ) -> tuple[str, float | None, int | None]:
-    """Run the audit agent and collect its output.
+    """Run the audit agent with *options* and collect its output.
 
-    The reviewer runs on the audited deployment's own provider: the options come
-    from the shared builder, which resolves that provider's endpoint, auth and
-    model ids from the project's ``config.yml`` (and starts the translation
-    proxy when the provider needs one). Hand-building the options here left the
-    SDK to fall through to ambient ``ANTHROPIC_*`` variables, so an audit of a
-    gateway-fronted deployment ran against whatever endpoint the operator's
-    shell happened to hold — or nothing at all.
+    The options are built by the caller rather than here: building them is how
+    the audited deployment's provider is resolved, and a provider that cannot
+    be resolved is a refusal the command states in its own body, not an
+    exception raised inside an event loop.
 
-    ``setting_sources=[]`` is deliberate: the reviewer reads the target, it does
-    not run as it, so the audited project's own hooks and settings stay out of
-    the reviewing agent.
+    Args:
+        prompt: The reviewer's prompt.
+        options: The SDK options from :func:`_reviewer_options`.
+        verbose: Whether to echo the reviewer's transcript as it arrives.
 
     Returns:
         Tuple of (collected_text, total_cost, num_turns).
     """
-    options = _reviewer_options(cwd, model, budget)
-
     collected_text: list[str] = []
     total_cost: float | None = None
     num_turns: int | None = None
@@ -356,10 +361,22 @@ def audit(
             file_listing = _list_files(audit_root)
             prompt = build_audit_prompt(target_type, target_dir, file_listing)
 
+            # Built here rather than inside the agent loop: the builder is what
+            # resolves the audited deployment's provider, and it is also what
+            # starts the translation proxy when that provider needs one, so a
+            # discard-the-result pre-check would leave a stray proxy behind.
+            try:
+                reviewer_options = _reviewer_options(audit_root, resolved_model, budget)
+            except RuntimeError as exc:
+                output.fail(
+                    "The reviewer has no provider to run on",
+                    str(exc),
+                    "set `provider:` in profile.yml and run `osprey build`",
+                )
+                raise SystemExit(1) from None
+
             # Run the agent
-            raw_text, cost, turns = asyncio.run(
-                _run_audit(prompt, resolved_model, audit_root, budget, verbose)
-            )
+            raw_text, cost, turns = asyncio.run(_run_audit(prompt, reviewer_options, verbose))
 
             # Parse the result
             json_str = _extract_json(raw_text)
