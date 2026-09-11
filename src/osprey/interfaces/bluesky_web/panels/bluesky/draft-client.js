@@ -578,12 +578,13 @@ export function classifyQueueAddResponse(status, body) {
  * @property {string} detail  The operator-facing sentence, shown VERBATIM —
  *   it carries the flip command for a browse-only deployment.
  * @property {string|null} lane  Which plan lane answered, by its service key
- *   (`bluesky`, `bluesky_va`, `bluesky_live`). `null` when the health surface
- *   itself could not be read — no lane spoke, so naming one would be a guess.
- * @property {string|null} laneTarget  The control target that lane serves,
- *   `live` or `va`. A RENDER-TIME fact about the bridge, never the session's
- *   own target: it does not change when the session switches, so the panel
- *   must not present it as "what you are pointed at".
+ *   as `GET /lanes` reports it. `null` when the health surface itself could
+ *   not be read — no lane spoke, so naming one would be a guess.
+ * @property {string|null} laneTarget  The control target that lane serves —
+ *   the target the lane's config block declares (one of `CONTROL_TARGETS`).
+ *   A RENDER-TIME fact about the bridge, never the session's own target: it
+ *   does not change when the session switches, so the panel must not present
+ *   it as "what you are pointed at".
  */
 
 /**
