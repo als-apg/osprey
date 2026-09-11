@@ -7,6 +7,10 @@ same-origin script/stylesheet subresource came back 4xx/5xx (the classic
 intentionally narrow by default — see the module-breakage rationale below —
 with an opt-in ``console.error`` arm and an ``allowlist`` escape hatch for
 known-benign noise.
+
+``wait_for_dock_settled`` is the other shared wait: it blocks until the dock has
+finished arranging the shell, for any suite that drives or photographs the
+web-terminal hub.
 """
 
 from __future__ import annotations
@@ -129,3 +133,63 @@ def assert_page_loads_clean(
     if surviving:
         lines = "\n".join(f"  - [{kind}] {detail}" for kind, detail in surviving)
         raise AssertionError(f"Page did not load clean at {url}:\n{lines}")
+
+
+#: Resolves once the dock has finished arranging the shell: the boot layout is
+#: announced final AND the console has held its place for a frame after it. The
+#: announcement lands in the same frame as the last re-parent, so the flag alone
+#: is the boundary rather than the far side of it.
+DOCK_SETTLED_JS = """
+async (budgetMs) => {
+  const dock = await import('/static/js/dock-workspace.js');
+  const place = () => {
+    let out = '';
+    for (let n = document.querySelector('#operator-container'); n; n = n.parentElement) {
+      out += '>' + (n.id || n.className || n.tagName);
+    }
+    return out;
+  };
+  const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  const deadline = Date.now() + budgetMs;
+  let previous = null;
+  while (Date.now() < deadline) {
+    await frame();
+    const current = place();
+    if (dock.bootLayoutSettled() && current === previous) return true;
+    previous = current;
+  }
+  return false;
+}
+"""
+
+
+def wait_for_dock_settled(page: Page, *, budget_ms: int = 10_000) -> None:
+    """Block until the dock has finished arranging the shell.
+
+    The terminal card carrying both ``#terminal-container`` and
+    ``#operator-container`` is server-rendered into ``#dock-panel-sources`` and
+    re-parented twice on the way to its tile: once when the dock adopts the
+    subtree, and again when the boot layout is applied over the default
+    arrangement. The console mounts independently of either, so its textarea is
+    on screen and actionable before the shell is still.
+
+    Typing into it there is lost rather than delayed. Playwright checks
+    actionability and then writes, and a re-parent between those two steps takes
+    focus off the element, so the text is never inserted: the box reads empty,
+    ``submit`` finds no prompt and returns, and the turn never starts. The
+    equivalent hazard for a keystroke is the event landing on whatever the
+    detached node left behind.
+
+    Both moves are boot-only, so waiting for them here puts every re-parent
+    ahead of every interaction rather than between two of them.
+
+    Call this AFTER the page's own mount check, never before. The wait reads the
+    dock's state by importing its module, and a caller that has not yet waited
+    for anything makes that a cold fetch of a module graph still being loaded --
+    which fails outright rather than waiting, and reports a fetch error in place
+    of whatever the test was doing.
+    """
+    assert page.evaluate(DOCK_SETTLED_JS, budget_ms), (
+        "the dock never settled: the boot layout was not announced final, or the "
+        "console was still being re-parented when the wait ran out"
+    )
