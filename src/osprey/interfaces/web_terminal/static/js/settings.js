@@ -52,30 +52,34 @@ const SETTINGS_WARNING_KEY_BASE = 'osprey-settings-warning-ack';
 // another. Guards against a rapid second click spawning a second dialog.
 let warningGatePending = false;
 
-// Known enum values for select dropdowns. Every `approval.tools.<tool>` key a
-// deployment can set has a row here: the panel is the surface an operator
-// changes approval posture through, so a settable policy the drawer renders as
-// a free-text box is a policy they can only get wrong.
-// tests/profiles/test_approval_tools_parity.py holds this list to the same set
-// the presets ship and the config-key manifest documents.
-/** @type {string[]} */
+// The policy vocabulary a per-tool approval entry offers. The approval hook
+// resolves a policy for ANY tool it gates, by short name, so which tools a
+// deployment states here is the deployment's business — the drawer renders the
+// select for whatever keys the config carries and never decides the roster.
 const APPROVAL_POLICIES = ['always', 'selective', 'skip'];
 
+// Every leaf under this prefix is a per-tool approval policy.
+const APPROVAL_TOOL_PREFIX = 'approval.tools.';
+
+// Known enum values for select dropdowns, keyed by the full dotted path of a
+// LEAF field. Per-tool approval policies are not here: they are the prefix
+// rule above.
 /** @type {Record<string, string[]>} */
 const ENUM_FIELDS = {
   'claude_code.effort': ['low', 'medium', 'high', 'max'],
   'approval.default_policy': APPROVAL_POLICIES,
-  'approval.tools.channel_write': APPROVAL_POLICIES,
-  'approval.tools.channel_read': APPROVAL_POLICIES,
-  'approval.tools.archiver_read': APPROVAL_POLICIES,
-  'approval.tools.execute': APPROVAL_POLICIES,
-  'approval.tools.setup_patch': APPROVAL_POLICIES,
-  'approval.tools.entry_create': APPROVAL_POLICIES,
-  'approval.tools.entry_publish': APPROVAL_POLICIES,
-  'approval.tools.add_panel_to_rail': APPROVAL_POLICIES,
-  'approval.tools.remove_panel_from_rail': APPROVAL_POLICIES,
-  'approval.tools.register_panel': APPROVAL_POLICIES,
 };
+
+/**
+ * The option list a key renders as a select over, or null for a plain input.
+ *
+ * @param {string} fullKey
+ * @returns {string[]|null}
+ */
+function enumOptionsFor(fullKey) {
+  if (fullKey.startsWith(APPROVAL_TOOL_PREFIX)) return APPROVAL_POLICIES;
+  return ENUM_FIELDS[fullKey] ?? null;
+}
 
 // Fields that should render as toggles even when the current value is null or
 // absent. A field whose value is already a boolean gets a toggle regardless
@@ -85,7 +89,6 @@ const BOOLEAN_FIELDS = new Set([
   'control_system.writes_enabled',
   'ariel.enabled',
   'artifact_server.auto_launch',
-  'screen_capture.enabled',
 ]);
 
 /**
@@ -507,11 +510,12 @@ function renderFields(container, obj, prefix, depth = 0) {
  * @returns {HTMLElement}
  */
 function createInputForValue(fullKey, value) {
-  if (ENUM_FIELDS[fullKey]) {
+  const options = enumOptionsFor(fullKey);
+  if (options) {
     const select = document.createElement('select');
     select.className = 'settings-select';
     select.dataset.key = fullKey;
-    for (const opt of ENUM_FIELDS[fullKey]) {
+    for (const opt of options) {
       const option = document.createElement('option');
       option.value = opt;
       option.textContent = opt;

@@ -276,4 +276,33 @@ describe('form mode: enum fields', () => {
       document.querySelector('[data-key="claude_code.default_model"]')?.tagName,
     ).toBe('INPUT');
   });
+
+  // Per-tool approval policies are a PREFIX rule, not a hand-list: the approval
+  // hook resolves a policy for any tool it gates, so a deployment that states a
+  // tool the drawer was never told about still gets the policy select rather
+  // than a free-text box that can spell a policy the hook does not know.
+  test('any approval.tools.* leaf renders as a policy select', async () => {
+    stubConfig({
+      approval: {
+        default_policy: 'always',
+        tools: { channel_write: 'always', queue_start: 'selective' },
+      },
+    });
+
+    /** @type {HTMLElement} */ (
+      document.getElementById('tab-config')
+    ).dispatchEvent(new Event('drawer:tab-activate'));
+
+    const selector = 'select[data-key="approval.tools.queue_start"]';
+    await vi.waitFor(() => expect(document.querySelector(selector)).not.toBeNull());
+    const select = /** @type {HTMLSelectElement} */ (document.querySelector(selector));
+
+    expect([...select.options].map((o) => o.value)).toEqual(['always', 'selective', 'skip']);
+    expect(select.value).toBe('selective');
+    expect(
+      /** @type {HTMLSelectElement} */ (
+        document.querySelector('select[data-key="approval.tools.channel_write"]')
+      ).value,
+    ).toBe('always');
+  });
 });
