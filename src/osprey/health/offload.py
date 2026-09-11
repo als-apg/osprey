@@ -129,13 +129,26 @@ async def run_sync(fn: Callable[..., T], *args: Any, timeout_s: float) -> T:
         if not future.done():
             future.set_exception(exc)
 
+    def _deliver(setter: Callable[[Any], None], value: Any) -> None:
+        # An abandoned thread may finish after the loop that started it has
+        # closed — a timed-out check at the end of a request, a test whose loop
+        # ends with the test. There is no awaiter left to hand anything to, and
+        # `call_soon_threadsafe` answers a closed loop with `RuntimeError`
+        # raised on this thread, where nothing can catch it: it surfaces as an
+        # unhandled thread exception attached to no failing caller. Silence is
+        # the honest outcome; the abandonment was already counted.
+        try:
+            loop.call_soon_threadsafe(setter, value)
+        except RuntimeError:
+            pass
+
     def _worker() -> None:
         try:
             result = fn(*args)
         except Exception as exc:  # noqa: BLE001 - forwarded verbatim to the awaiter
-            loop.call_soon_threadsafe(_set_exception, exc)
+            _deliver(_set_exception, exc)
         else:
-            loop.call_soon_threadsafe(_set_result, result)
+            _deliver(_set_result, result)
 
     thread = threading.Thread(target=_worker, daemon=True)
     thread.start()
