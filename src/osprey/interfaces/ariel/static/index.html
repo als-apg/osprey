@@ -214,21 +214,23 @@
               </div>
               <div class="input-group">
                 <label class="input-label" for="entry-logbook">Logbook</label>
-                <select id="entry-logbook" name="logbook" class="select">
-                  <option value="">Select logbook</option>
-                  <option value="Operations">Operations</option>
-                  <option value="Maintenance">Maintenance</option>
-                  <option value="Experiments">Experiments</option>
-                </select>
+                <input
+                  type="text"
+                  id="entry-logbook"
+                  name="logbook"
+                  class="input"
+                  placeholder="Logbook to file under"
+                >
               </div>
               <div class="input-group">
                 <label class="input-label" for="entry-shift">Shift</label>
-                <select id="entry-shift" name="shift" class="select">
-                  <option value="">Select shift</option>
-                  <option value="Day">Day</option>
-                  <option value="Swing">Swing</option>
-                  <option value="Night">Night</option>
-                </select>
+                <input
+                  type="text"
+                  id="entry-shift"
+                  name="shift"
+                  class="input"
+                  placeholder="Shift or run block"
+                >
               </div>
             </div>
           </div>
@@ -255,7 +257,7 @@
                 <input
                   type="text"
                   id="entry-auth-user"
-                  name="olog_user"
+                  name="auth_user"
                   class="input"
                   placeholder="Username (required to publish)"
                   autocomplete="username"
@@ -266,7 +268,7 @@
                 <input
                   type="password"
                   id="entry-auth-password"
-                  name="olog_password"
+                  name="auth_password"
                   class="input"
                   placeholder="Password"
                   autocomplete="current-password"

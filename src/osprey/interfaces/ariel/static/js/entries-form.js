@@ -48,8 +48,8 @@ export async function handleCreateEntry(e) {
       shift: formData.get('shift'),
       tags,
       metadata: draftMetadata,
-      auth_user: formData.get('olog_user') || null,
-      auth_password: formData.get('olog_password') || null,
+      auth_user: formData.get('auth_user') || null,
+      auth_password: formData.get('auth_password') || null,
     };
 
     const fileInput = /** @type {HTMLInputElement|null} */ (
@@ -57,7 +57,7 @@ export async function handleCreateEntry(e) {
     );
     const files = Array.from(fileInput?.files || []);
 
-    // Check for draft attachments (staged by Claude via artifact_ids)
+    // Check for draft attachments (staged by the agent via artifact_ids)
     const preview = document.getElementById('file-preview');
     const draftAttachmentsJson = preview?.dataset?.draftAttachments;
     if (draftAttachmentsJson) {
@@ -367,7 +367,7 @@ export async function loadDraft(draftId) {
       banner.dataset.draftId = draftId;
       banner.style.cssText =
         'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--color-accent-secondary); font-size: var(--text-xl);';
-      banner.textContent = 'Draft loaded from Claude — review and submit';
+      banner.textContent = 'Draft loaded from the OSPREY agent — review and submit';
       form.prepend(banner);
     }
 

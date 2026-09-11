@@ -413,7 +413,7 @@ class TestRepositoryAttachmentPreservation:
     """Re-ingestion must not erase ARIEL-native (web-uploaded) attachments.
 
     ARIEL-native attachments (URL ``/api/attachments/{id}``) live in ARIEL only —
-    the OLOG write API cannot accept file uploads. A background re-ingestion poll
+    the adapter write contract carries no attachments. A background re-ingestion poll
     re-fetches an already-published entry and upserts the upstream copy, which has
     *no* attachments. Without preservation, that upsert would overwrite the entry's
     attachment references to ``[]`` and orphan the stored blobs.
