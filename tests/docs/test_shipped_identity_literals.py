@@ -13,8 +13,8 @@ institution or site. Magnitudes stay — "~135,000 documents", "~41 minutes" —
 because they are facts about the software's behaviour rather than about whose
 machine produced them. Examples use the placeholder cast the roster
 documentation already uses: ``alice`` and ``carol`` at ``example.org``, a
-facility called *Example Research Facility*, a ``simulation`` gateway, a
-project at ``~/my-assistant``.
+facility called *Example Research Facility*, a gateway written as its own
+dotted keys (``gw.example.org``), a project at ``~/my-assistant``.
 
 Removing a literal is a one-line edit; keeping it removed is what needs a
 guard, because every new pull request is an opportunity to add one back and
@@ -23,15 +23,18 @@ nothing else would notice.
 **The list grows.** It starts at what has actually been swept out of the tree,
 because a pattern that fires on the current tree is not a guard, it is a
 failing test. As each remaining literal is removed, its pattern joins
-:data:`DENIED` in the same change that removes it: ``lbl.gov``,
-``\\bALS\\b`` and ``ALS-U`` outside the simulation and virtual-accelerator
-packages, ``BELLA``, ``GEECS``.
+:data:`DENIED` in the same change that removes it. ``lbl.gov``, ``ALS-U``,
+``BELLA`` and ``GEECS`` are in the table now. One name is still to come: the
+word-boundary facility abbreviation ``\\bALS\\b``, which still reads across
+dozens of files the wording sweep has not reached, and which cannot join until
+it does — an entry that exempted them all would be a list of files this guard
+does not cover rather than a guard.
 
-Three kinds of surface legitimately name an institution and will need an
-``allow`` entry rather than an edit when their patterns land: the shipped
-provider adapters for named LLM gateways, the named ingestion adapter, and the
-packaging and escalation metadata that has to spell the upstream project's own
-``owner/repo``.
+Three kinds of surface legitimately name an institution and carry an ``allow``
+entry rather than an edit: the shipped provider adapters for named LLM
+gateways, the named ingestion adapter, and the packaging and escalation
+metadata that has to spell the upstream project's own ``owner/repo`` — the
+last of these has no pattern yet.
 """
 
 from __future__ import annotations
@@ -112,6 +115,92 @@ DENIED: tuple[Denied, ...] = (
         pattern=re.compile(r"gianluca[-.]?martino", re.IGNORECASE),
         why="a maintainer's own gateway endpoint is not one another deployment can call",
         sample="  base_url: https://llm.gianluca-martino.com/v1",
+    ),
+    Denied(
+        name="institutional domain",
+        pattern=re.compile(r"lbl\.gov", re.IGNORECASE),
+        why="an institution's own domain is not an example anyone else can copy",
+        sample='"""Prefix of a principal naming an identity domain: ``domain:lbl.gov``."""',
+        # Each exemption names the gateway provider OSPREY ships an adapter
+        # for, or the reference ingestion adapter — surfaces where the
+        # institution is the subject rather than the example.
+        allow=frozenset(
+            {
+                "docs/source/getting-started/installation.rst",
+                "docs/source/how-to/llm-providers/configure-providers.rst",
+                "docs/source/how-to/llm-providers/run-open-models.rst",
+                "src/osprey/build/claude_code_resolver.py",
+                "src/osprey/models/providers/cborg.py",
+                "src/osprey/profiles/providers.yml",
+                "src/osprey/services/ariel_search/ingestion/adapters/als.py",
+                "src/osprey/services/channel_finder/benchmarks/evaluation.py",
+            }
+        ),
+    ),
+    Denied(
+        name="ring name",
+        pattern=re.compile(r"ALS-U", re.IGNORECASE),
+        why=(
+            "one laboratory's ring is the bundled demo lattice, not a machine "
+            "another deployment's prose should describe as its own"
+        ),
+        sample="# \u2500\u2500 The ALS-U Accumulator Ring instance \u2500\u2500",
+        # The demo ring ships as the simulation and virtual-accelerator
+        # packages' own subject, plus the two manifests and the preset data
+        # file that name the lattice those packages load.
+        allow=frozenset(
+            {
+                "src/osprey/profiles/config_key_manifest.yml",
+                "src/osprey/services/channel_finder/naming.py",
+                "src/osprey/services/virtual_accelerator/lattice/__init__.py",
+                "src/osprey/services/virtual_accelerator/lattice/calibration.py",
+                "src/osprey/services/virtual_accelerator/lattice/response.py",
+                "src/osprey/services/virtual_accelerator/lattice/ring.py",
+                "src/osprey/services/virtual_accelerator/lattice/strengths.py",
+                "src/osprey/services/virtual_accelerator/model/__init__.py",
+                "src/osprey/services/virtual_accelerator/model/bindings.py",
+                "src/osprey/services/virtual_accelerator/model/pyat.py",
+                "src/osprey/services/virtual_accelerator/model/variables.py",
+                "src/osprey/simulation/channel_schema.py",
+                "src/osprey/simulation/facility_spec.py",
+                "src/osprey/simulation/lattice/__init__.py",
+                "src/osprey/simulation/lattice/artifact.py",
+                "src/osprey/simulation/lattice/build.py",
+                "src/osprey/simulation/lattice/ring.py",
+                "src/osprey/templates/apps/control_assistant/data/channel_limits.json",
+            }
+        ),
+    ),
+    Denied(
+        # Case-sensitive on purpose: the acronym is always written in capitals,
+        # and a case-insensitive read matches a word inside the vendored
+        # plotly bundles, which would tie an exemption to a pinned version.
+        name="named external installation",
+        pattern=re.compile(r"BELLA"),
+        why="another site's installation is that site's own facility, not a shipped example",
+        sample="sends. Mirrors BELLA's ``runs.require_armed`` / ``launch_intent``",
+        # Both name the upstream contract these modules were generalized from.
+        allow=frozenset(
+            {
+                "src/osprey/services/bluesky_bridge/live_rows.py",
+                "src/osprey/services/bluesky_bridge/security.py",
+            }
+        ),
+    ),
+    Denied(
+        name="named external control system",
+        pattern=re.compile(r"GEECS", re.IGNORECASE),
+        why="another site's control system is that site's own stack, not a shipped example",
+        sample="parameter, so a document-shaped parameter (a GEECS ``ScanRequest``, say)",
+        # Each names the document-shaped scan parameter this code accepts, by
+        # the upstream system the shape comes from.
+        allow=frozenset(
+            {
+                "src/osprey/cli/build_profile_schema.py",
+                "src/osprey/services/bluesky_bridge/live_rows.py",
+                "src/osprey/services/bluesky_bridge/queue_backend.py",
+            }
+        ),
     ),
 )
 
@@ -202,7 +291,7 @@ def test_the_placeholder_cast_is_not_swept() -> None:
         "carol@example.org",
         "Example Research Facility",
         "~/my-assistant",
-        "epics_gateway=simulation",
+        "config.control_system.connector.epics.gateways.read_only.address=gw.example.org",
     )
     for denied in DENIED:
         for placeholder in placeholders:
