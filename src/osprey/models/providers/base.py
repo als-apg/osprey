@@ -6,6 +6,11 @@ from typing import Any
 
 from osprey_connectors.config import is_unresolved_placeholder
 
+# A keyless endpoint (an on-prem vLLM, a local Ollama) still needs a non-empty
+# key on the wire: the OpenAI-compatible clients underneath refuse to send
+# without one.
+KEYLESS_API_KEY_PLACEHOLDER = "EMPTY"
+
 
 class BaseProvider(ABC):
     """Abstract base class for AI model providers.
@@ -190,6 +195,27 @@ class BaseProvider(ABC):
         if cls.requires_base_url:
             return cls.require_effective_base_url(base_url)
         return cls.effective_base_url(base_url)
+
+    @classmethod
+    def effective_api_key(cls, api_key: str | None) -> str | None:
+        """The key to send: the placeholder when this provider declares none is needed.
+
+        An absent key is passed through untouched for a provider that requires
+        one — refusing it is the requirement gate's job, and substituting here
+        would turn "no key configured" into an authentication failure from the
+        vendor, reported nowhere near its cause.
+
+        Args:
+            api_key: The caller's value, usually from deployment config. May be
+                ``None``.
+
+        Returns:
+            The key to put on the wire, or ``None`` when there is none and this
+            provider requires one.
+        """
+        if api_key:
+            return api_key
+        return None if cls.requires_api_key else KEYLESS_API_KEY_PLACEHOLDER
 
     @abstractmethod
     def execute_completion(

@@ -1,9 +1,11 @@
 """Tests for the resolution rules :class:`BaseProvider` holds for every adapter.
 
-The rule here used to be a per-adapter opt-in: a flag each provider set to turn
-the default-endpoint fallback on. It is now derived from what a provider already
-declares, so this test sweeps the whole registry rather than naming adapters — a
-provider added later inherits the rule instead of having to remember it.
+Each rule here used to be a per-adapter opt-in or a hand-copied literal: a flag
+each provider set to turn the default-endpoint fallback on, and an ``"EMPTY"``
+string substituted in four adapter bodies. Both are now derived from what a
+provider already declares, so these tests sweep the whole registry rather than
+naming adapters — a provider added later inherits the rules instead of having to
+remember them.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from osprey.models.provider_registry import get_provider_registry
-from osprey.models.providers.base import BaseProvider
+from osprey.models.providers.base import KEYLESS_API_KEY_PLACEHOLDER, BaseProvider
 
 
 @pytest.fixture(autouse=True)
@@ -76,3 +78,38 @@ class TestDefaultBaseURLFallback:
             assert provider_class.effective_base_url("https://configured.example") == (
                 "https://configured.example"
             ), f"{name} overrode a configured base_url with its default"
+
+
+class TestKeylessAPIKeyPlaceholder:
+    """An absent key is substituted exactly for providers that declare none is needed."""
+
+    def test_a_keyless_provider_substitutes_the_placeholder(self):
+        checked = []
+        for name, provider_class in _registered_providers():
+            if provider_class.requires_api_key:
+                continue
+            checked.append(name)
+            assert provider_class.effective_api_key(None) == KEYLESS_API_KEY_PLACEHOLDER, (
+                f"{name} declares no API key is needed but sends nothing on the wire"
+            )
+        assert checked, "no registered provider declares itself keyless"
+
+    def test_a_key_requiring_provider_passes_an_absent_key_through(self):
+        """The requirement gate refuses a missing key, not the adapter.
+
+        Substituting here would turn "you forgot the key" into an
+        authentication failure from the vendor.
+        """
+        checked = []
+        for name, provider_class in _registered_providers():
+            if not provider_class.requires_api_key:
+                continue
+            checked.append(name)
+            assert provider_class.effective_api_key(None) is None, (
+                f"{name} requires an API key but invented one for an absent value"
+            )
+        assert checked, "no registered provider requires an API key"
+
+    def test_a_supplied_key_is_never_replaced(self):
+        for _name, provider_class in _registered_providers():
+            assert provider_class.effective_api_key("real-key") == "real-key"

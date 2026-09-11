@@ -68,12 +68,11 @@ class DS4ProviderAdapter(BaseProvider):
         **kwargs,
     ) -> str | Any:
         """Execute a ds4 chat completion via LiteLLM's OpenAI-compatible path."""
-        effective_api_key = api_key if api_key else "EMPTY"
         return execute_litellm_completion(
             provider=self.name,
             message=message,
             model_id=model_id,
-            api_key=effective_api_key,
+            api_key=self.effective_api_key(api_key),
             base_url=self.require_effective_base_url(base_url),
             max_tokens=max_tokens,
             temperature=temperature,
@@ -90,7 +89,7 @@ class DS4ProviderAdapter(BaseProvider):
     ) -> tuple[bool, str]:
         """Check ds4 server health, discovering a model if none is given."""
         effective_base_url = self.require_effective_base_url(base_url)
-        effective_api_key = api_key if api_key else "EMPTY"
+        effective_api_key = self.effective_api_key(api_key)
 
         if not model_id:
             try:
