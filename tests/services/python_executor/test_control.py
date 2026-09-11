@@ -66,35 +66,43 @@ class TestConfigFields:
 class TestGetExecutionMode:
     def test_write_granted_only_when_detected_and_enabled(self):
         cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        mode = cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
         assert mode is ExecutionMode.WRITE_ACCESS
 
     def test_write_detected_but_policy_disabled_stays_read_only(self):
         cfg = ExecutionControlConfig(control_system_writes_enabled=False)
-        mode = cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
         assert mode is ExecutionMode.READ_ONLY
 
     def test_default_policy_stays_read_only(self):
         # Fail-safe default (writes disabled) blocks write access.
         cfg = ExecutionControlConfig()
-        mode = cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
         assert mode is ExecutionMode.READ_ONLY
 
     def test_writes_enabled_but_no_write_ops_stays_read_only(self):
         cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        mode = cfg.get_execution_mode(has_epics_writes=False, has_epics_reads=True)
+        mode = cfg.get_execution_mode(
+            has_control_system_writes=False, has_control_system_reads=True
+        )
         assert mode is ExecutionMode.READ_ONLY
 
     def test_reads_flag_does_not_affect_mode(self):
-        # has_epics_reads is documented as inert for mode selection.
+        # has_control_system_reads is documented as inert for mode selection.
         cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        with_reads = cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
-        without_reads = cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=False)
+        with_reads = cfg.get_execution_mode(
+            has_control_system_writes=True, has_control_system_reads=True
+        )
+        without_reads = cfg.get_execution_mode(
+            has_control_system_writes=True, has_control_system_reads=False
+        )
         assert with_reads is without_reads is ExecutionMode.WRITE_ACCESS
 
     def test_no_ops_detected_stays_read_only(self):
         cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        mode = cfg.get_execution_mode(has_epics_writes=False, has_epics_reads=False)
+        mode = cfg.get_execution_mode(
+            has_control_system_writes=False, has_control_system_reads=False
+        )
         assert mode is ExecutionMode.READ_ONLY
 
 
@@ -103,12 +111,12 @@ class TestModernFieldAuthoritative:
 
     def test_modern_field_true_grants_write(self):
         cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        mode = cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
         assert mode is ExecutionMode.WRITE_ACCESS
 
     def test_modern_field_false_blocks_write(self):
         cfg = ExecutionControlConfig(control_system_writes_enabled=False)
-        mode = cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
         assert mode is ExecutionMode.READ_ONLY
 
 
@@ -133,7 +141,7 @@ class TestGetExecutionControlConfigFactory:
         assert cfg.control_system_writes_enabled is True
         assert cfg.control_system_type == "mock"
         assert (
-            cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=False)
+            cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=False)
             is ExecutionMode.WRITE_ACCESS
         )
 
@@ -158,7 +166,7 @@ class TestGetExecutionControlConfigFactory:
         assert cfg.control_system_writes_enabled is False
         assert cfg.control_system_type == control_mod.MOCK
         assert (
-            cfg.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+            cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
             is ExecutionMode.READ_ONLY
         )
 
