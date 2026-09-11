@@ -12,18 +12,20 @@ it asserts anything. What the printed lines are for is the *trend* -- a build
 that goes from forty seconds to ninety has regressed even though it never
 failed, and the run history is where that is visible.
 
-The latency budgets are held to a workstation's numbers rather than widened
-until a loaded runner fits inside them, which is why this module does not run
-in the parallel lane. Measured: a search over the hundred-thousand-row index
-takes 42 ms here and 298 ms in the shared lane, and the whole parity matrix
-over the demo corpus 5.5 ms here and 34 ms there -- the same ~7x on a corpus of
-a hundred thousand rows and on one of three thousand. A factor that does not
-move with the data is the box, not the code: four xdist workers on a four-vCPU
-runner, with DuckDB asking for cores none of them can spare. Coverage
-instrumentation was measured too and is not the cause (+6%). Budgets widened to
-survive that contention would sit twelve times above the real number and could
-no longer see a threefold regression, so the tests are taken out of the lane
-instead and the budgets left where the measurement puts them.
+The two search guards are ratios, not wall clocks. What moves between hosts is
+the whole scale and not the shape of it: a search over the hundred-thousand-row
+index takes 42 ms on a workstation and 298 ms in the shared lane, and the whole
+parity matrix over the demo corpus 5.5 ms here and 34 ms there -- the same ~7x
+on a corpus of a hundred thousand rows and on one of three thousand. A factor
+that does not move with the data is the box, not the code: four xdist workers
+on a four-vCPU runner, with DuckDB asking for cores none of them can spare
+(coverage instrumentation was measured too, and is not the cause, at +6%). So
+each search guard measures its own baseline in the same process seconds before
+the number it bounds -- the big index against the demo matrix, and the median
+matrix shape against the unfiltered scan the matrix opens with -- and host load
+divides out. The build budgets and the cold-search budget stay absolute: they
+are coarse enough that contention does not reach them, and there is no cheaper
+thing in the same process to measure them against.
 
 The whole module is therefore marked ``channel_finder_benchmark`` as well as
 ``slow``: it is deselected from CI's unit lane and runs on demand, in the
@@ -112,11 +114,6 @@ DEMO_BUILD_SECONDS = 5.0
 #: is a strict part of it.
 DEMO_PARSE_SECONDS = 3.0
 
-#: The median of twenty varied searches over the hundred-thousand-row index.
-#: The finder redraws its page on every filter click, so this is the number the
-#: interaction is made of.
-SCALE_SEARCH_P50_SECONDS = 0.150
-
 #: How many statements one :meth:`GraphIndex.search` issues, whatever the
 #: corpus: the totals, the page, and one per facet. Derived from
 #: ``SEARCH_FACETS`` rather than restated as seven, so a facet added to the
@@ -130,10 +127,22 @@ STATEMENTS_PER_SEARCH = len(SEARCH_FACETS) + 2
 #: mapped yet.
 DEMO_FIRST_SEARCH_SECONDS = 0.100
 
-#: The median of the whole parity matrix over the demo index, once warm. The
-#: measured number is around five milliseconds, so this is a generous bound
-#: whose job is to catch a change of order, not a slow afternoon.
-DEMO_WARM_P50_SECONDS = 0.030
+#: How much slower the median search over the hundred-thousand-row index may be
+#: than the median shape over the demo one, measured in the same process
+#: seconds apart. The ratio is the stable quantity: 42 ms against 5.5 ms on a
+#: workstation and 298 ms against 34 ms in the shared lane is the same factor
+#: on both, so a ceiling twice above the loaded measurement still sees a
+#: threefold regression while a contended box cancels out. Measured 6.1x-7.0x
+#: over four runs on a workstation.
+SCALE_OVER_DEMO_CEILING = 20.0
+
+#: How much slower the median shape in the parity matrix may be than the
+#: unfiltered full scan the matrix opens with. Every filter narrows the same
+#: scan, so the median shape costing more than a bounded multiple of the widest
+#: one is a filter that stopped being a predicate. Measured 0.85x-0.98x over
+#: four runs -- the median shape is a touch cheaper than the widest one, which
+#: is what a working predicate looks like.
+MATRIX_OVER_BARE_SEARCH_CEILING = 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -546,6 +555,51 @@ def _report(label: str, timings: list[float]) -> tuple[float, float, float]:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# The demo corpus, built once for the module
+# ---------------------------------------------------------------------------
+
+# Module-scoped rather than class-scoped: the scale class measures itself
+# against the demo corpus, so both classes have to reach the same build.
+
+
+@pytest.fixture(scope="module")
+def demo_build(tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, float]:
+    """The demo index, built once for the module, and how long the build took."""
+    resource = (
+        files("osprey.templates")
+        .joinpath("apps")
+        .joinpath("control_assistant")
+        .joinpath("data")
+        .joinpath("demo_machine.ttl")
+    )
+    index_path = tmp_path_factory.mktemp("demo") / "graph.duckdb"
+    with as_file(resource) as path:
+        started = time.perf_counter()
+        build_graph_index(path, index_path)
+        elapsed = time.perf_counter() - started
+    return index_path, elapsed
+
+
+@pytest.fixture(scope="module")
+def demo_index_path(demo_build: tuple[Path, float]) -> Path:
+    return demo_build[0]
+
+
+@pytest.fixture(scope="module")
+def demo_matrix_timings(demo_index_path: Path) -> list[float]:
+    """The warm parity matrix over the demo index, timed once for the module.
+
+    This is the baseline both ratio guards are measured against, and measuring
+    it here is the whole point: it is taken on the same box, in the same
+    process, within seconds of the number compared to it, so whatever the host
+    is doing to one it is doing to the other.
+    """
+    with _open(demo_index_path) as index:
+        index.search()  # Warm the page cache; the cold call is timed on its own.
+        return _time_shapes(index, PARITY_MATRIX)
+
+
 class TestHundredThousandBindings:
     """A machine two orders of magnitude past the demo, built and searched."""
 
@@ -622,7 +676,16 @@ class TestHundredThousandBindings:
 
         assert len(statements) == STATEMENTS_PER_SEARCH, statements
 
-    def test_a_search_over_a_hundred_thousand_rows_stays_interactive(self, built):
+    def test_a_search_over_a_hundred_thousand_rows_stays_interactive(
+        self, built, demo_matrix_timings: list[float]
+    ):
+        """A search over the big corpus is a bounded multiple of one over the demo.
+
+        The finder redraws its page on every filter click, so this is the number
+        the interaction is made of -- but it is a number the box owns, not the
+        code. Held against a demo-corpus median measured moments earlier in the
+        same process, host load divides out of both sides.
+        """
         index_path, _, _ = built
 
         with _open(index_path) as index:
@@ -630,9 +693,17 @@ class TestHundredThousandBindings:
             timings = _time_shapes(index, SCALE_SHAPES)
 
         p50, _, _ = _report("search over the 100k synthetic index", timings)
-        assert p50 < SCALE_SEARCH_P50_SECONDS, (
-            f"the median of {len(timings)} searches was {p50 * 1000:.1f} ms, "
-            f"budget {SCALE_SEARCH_P50_SECONDS * 1000:.0f} ms"
+        baseline = median(demo_matrix_timings)
+        ratio = p50 / baseline
+        line = (
+            f"the 100k index over the demo corpus: {ratio:.1f}x "
+            f"({p50 * 1000:.1f} ms against {baseline * 1000:.1f} ms)"
+        )
+        print(line)
+        logger.info(line)
+        assert ratio < SCALE_OVER_DEMO_CEILING, (
+            f"the median of {len(timings)} searches was {ratio:.1f}x the demo median, "
+            f"ceiling {SCALE_OVER_DEMO_CEILING:.0f}x"
         )
 
 
@@ -643,27 +714,6 @@ class TestHundredThousandBindings:
 
 class TestDemoCorpusOverTheParityMatrix:
     """The corpus a deployment actually ships, over every shape parity replays."""
-
-    @pytest.fixture(scope="class")
-    def demo_build(self, tmp_path_factory: pytest.TempPathFactory) -> tuple[Path, float]:
-        """The demo index, built once for the class, and how long the build took."""
-        resource = (
-            files("osprey.templates")
-            .joinpath("apps")
-            .joinpath("control_assistant")
-            .joinpath("data")
-            .joinpath("demo_machine.ttl")
-        )
-        index_path = tmp_path_factory.mktemp("demo") / "graph.duckdb"
-        with as_file(resource) as path:
-            started = time.perf_counter()
-            build_graph_index(path, index_path)
-            elapsed = time.perf_counter() - started
-        return index_path, elapsed
-
-    @pytest.fixture(scope="class")
-    def demo_index_path(self, demo_build: tuple[Path, float]) -> Path:
-        return demo_build[0]
 
     @pytest.fixture(scope="class")
     def demo_text(self) -> str:
@@ -758,13 +808,27 @@ class TestDemoCorpusOverTheParityMatrix:
             f"budget {DEMO_FIRST_SEARCH_SECONDS * 1000:.0f} ms"
         )
 
-    def test_the_whole_parity_matrix_stays_inside_the_warm_budget(self, demo_index_path: Path):
-        with _open(demo_index_path) as index:
-            index.search()  # Warm the page cache; the cold call is timed above.
-            timings = _time_shapes(index, PARITY_MATRIX)
+    def test_the_whole_parity_matrix_stays_inside_the_warm_budget(
+        self, demo_matrix_timings: list[float]
+    ):
+        """The median filtered shape is a bounded multiple of an unfiltered scan.
 
-        p50, _, _ = _report("the parity matrix over the demo index", timings)
-        assert p50 < DEMO_WARM_P50_SECONDS, (
-            f"the warm median over {len(timings)} shapes was {p50 * 1000:.1f} ms, "
-            f"budget {DEMO_WARM_P50_SECONDS * 1000:.0f} ms"
+        Entry 0 of the matrix is the unfiltered shape -- pinned by
+        ``test_the_parity_matrix_covers_every_filter_the_rail_offers`` -- so it
+        is the widest scan there is, measured in the same sweep as everything
+        compared to it. A filter that costs more than a small multiple of
+        scanning everything has stopped narrowing and started walking.
+        """
+        p50, _, _ = _report("the parity matrix over the demo index", demo_matrix_timings)
+        bare = demo_matrix_timings[0]
+        ratio = p50 / bare
+        line = (
+            f"the median matrix shape over the unfiltered one: {ratio:.2f}x "
+            f"({p50 * 1000:.1f} ms against {bare * 1000:.1f} ms)"
+        )
+        print(line)
+        logger.info(line)
+        assert ratio < MATRIX_OVER_BARE_SEARCH_CEILING, (
+            f"the warm median over {len(demo_matrix_timings)} shapes was {ratio:.2f}x the "
+            f"unfiltered search, ceiling {MATRIX_OVER_BARE_SEARCH_CEILING:.1f}x"
         )
