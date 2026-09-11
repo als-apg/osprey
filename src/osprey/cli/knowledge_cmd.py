@@ -737,6 +737,35 @@ def _resolve_channel_db(channel_db: Path | None) -> Path:
     return path
 
 
+def _check_level_grammar(raw: Mapping[str, Any], db_path: Path) -> None:
+    """Refuse a database whose levels are not the grammar this verb reads.
+
+    Runs on the raw document, before anything expands it. A database on
+    another machine's grammar carries that machine's naming pattern too, and
+    expansion fails on the pattern first — a sentence about a naming pattern,
+    for a file whose real problem is that it is not this verb's grammar at all.
+
+    Args:
+        raw: The parsed database payload.
+        db_path: Where it came from, for the error message.
+
+    Raises:
+        click.ClickException: When the file's levels are not the six-token
+            grammar this verb reads.
+    """
+    from osprey.services.facility_knowledge.ttl_generator.model import check_hierarchy_levels
+
+    hierarchy = raw.get("hierarchy")
+    levels = (hierarchy.get("levels") or []) if isinstance(hierarchy, Mapping) else []
+    try:
+        check_hierarchy_levels(levels)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise click.ClickException(
+            f"Cannot read the level grammar in {db_path}: {exc}\n"
+            f"build-ttl reads the six-token grammar: {_address_grammar().replace(':', ', ')}."
+        ) from exc
+
+
 def _load_channel_map(db_path: Path) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
     """Expand *db_path* into its flat address map, keeping the file's own blocks.
 
@@ -754,21 +783,33 @@ def _load_channel_map(db_path: Path) -> tuple[Mapping[str, Any], Mapping[str, An
         database payload — its ``tree`` and ``hierarchy`` blocks).
 
     Raises:
-        click.ClickException: When the file cannot be read or expanded.
+        click.ClickException: When the file cannot be read or expanded, or when
+            its levels are not the grammar this verb reads.
     """
     from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
+
+    def unreadable(exc: Exception) -> click.ClickException:
+        return click.ClickException(
+            f"Cannot read the channel database at {db_path}: {exc}\n"
+            "build-ttl expects a hierarchical database: a 'hierarchy' block naming the "
+            "levels, and a 'tree' block holding them."
+        )
 
     try:
         raw = json.loads(db_path.read_text(encoding="utf-8"))
         if not isinstance(raw, Mapping):
             raise ValueError("the file is not a JSON object")
+    except (OSError, ValueError, TypeError) as exc:
+        raise unreadable(exc) from exc
+
+    # Between reading and expanding: the level list is on the raw document, and
+    # a foreign grammar's naming pattern is what expansion would fail on first.
+    _check_level_grammar(raw, db_path)
+
+    try:
         return HierarchicalChannelDatabase(str(db_path)).channel_map, raw
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise click.ClickException(
-            f"Cannot read the channel database at {db_path}: {exc}\n"
-            "build-ttl expects a hierarchical database: a 'hierarchy' block naming the "
-            "levels, and a 'tree' block holding them."
-        ) from exc
+        raise unreadable(exc) from exc
 
 
 def _resolve_descriptions(descriptions: Path | None, db_path: Path) -> Path:

@@ -235,7 +235,7 @@ def resolve_hierarchy_descriptions(
             (RING, SYSTEM, FAMILY, DEVICE, FIELD, SUBFIELD, with DEVICE the one
             generated level).
     """
-    _check_levels(levels)
+    check_hierarchy_levels(levels)
     collected: dict[str, dict[tuple[str, ...], str]] = {
         name: {} for name, kind in _EXPECTED_LEVELS if kind == TREE_LEVEL
     }
@@ -249,8 +249,21 @@ def resolve_hierarchy_descriptions(
     )
 
 
-def _check_levels(levels: Sequence[Mapping[str, object]]) -> None:
-    """Refuse a level list that is not the grammar the five maps are named for."""
+def check_hierarchy_levels(levels: Sequence[Mapping[str, object]]) -> None:
+    """Refuse a level list that is not the grammar the five maps are named for.
+
+    Public because the check is worth running on a raw database before anything
+    expands it: a document on another machine's grammar carries another
+    machine's naming pattern too, and that fails first with a sentence about
+    the pattern rather than about the grammar.
+
+    Args:
+        levels: A database's ``hierarchy.levels`` list, each entry a mapping
+            with a ``name`` and a ``type``.
+
+    Raises:
+        ValueError: If *levels* is not the six-token grammar this module reads.
+    """
     given = tuple((str(level.get("name", "")), str(level.get("type", ""))) for level in levels)
     if given != _EXPECTED_LEVELS:
         expected = ", ".join(f"{name} ({kind})" for name, kind in _EXPECTED_LEVELS)
