@@ -551,7 +551,7 @@ def create_server() -> FastMCP:
         return HTMLResponse(
             render_dashboard_html(
                 facility_name=os.environ.get("OSPREY_FACILITY_NAME", ""),
-                pv_strip_prefix=os.environ.get("PV_STRIP_PREFIX", ""),
+                channel_strip_prefix=os.environ.get("CHANNEL_STRIP_PREFIX", ""),
                 # Set by the compose template only when the telemetry store is
                 # deployed AND agent telemetry is on, so an unset var is the
                 # honest "no telemetry to link to" signal (the dashboard then

@@ -1076,7 +1076,7 @@ def _boot_dispatch_dashboard(workspace: Path):
 
     @app.get("/", response_class=HTMLResponse)
     async def root() -> str:
-        return str(render_dashboard_html(facility_name="Demo Facility", pv_strip_prefix="SR:"))
+        return str(render_dashboard_html(facility_name="Demo Facility", channel_strip_prefix="SR:"))
 
     return run_app_server(app)
 

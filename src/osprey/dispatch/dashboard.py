@@ -10,7 +10,7 @@ _DASHBOARD_HTML = Path(__file__).parent / "dashboard.html"
 
 def render_dashboard_html(
     facility_name: str = "",
-    pv_strip_prefix: str = "",
+    channel_strip_prefix: str = "",
     telemetry_url: str = "",
 ) -> str:
     """Read dashboard.html and inject runtime config via the OSPREY_CONFIG_PLACEHOLDER sentinel.
@@ -21,7 +21,9 @@ def render_dashboard_html(
 
     Args:
         facility_name: Facility display name injected into the dashboard config.
-        pv_strip_prefix: PV prefix the dashboard strips when rendering channel names.
+        channel_strip_prefix: Leading prefix trimmed off a channel address before the
+            dashboard renders it. Applied to the sources that carry one; a trigger
+            whose source renders an interval or a bare name is unaffected.
         telemetry_url: Browser-reachable base URL of the telemetry store (e.g.
             ``http://localhost:5080``), or ``""`` when the store is not deployed
             or agent telemetry is off. Must be the address the OPERATOR's browser
@@ -36,7 +38,7 @@ def render_dashboard_html(
     config = json.dumps(
         {
             "facility_name": facility_name,
-            "pv_strip_prefix": pv_strip_prefix,
+            "channel_strip_prefix": channel_strip_prefix,
             "telemetry_url": telemetry_url,
         }
     )

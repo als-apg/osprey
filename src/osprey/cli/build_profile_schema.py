@@ -452,7 +452,19 @@ class DispatchConfig:
     ``max_turns``; this is what a trigger that names none is given."""
 
     facility_name: str = ""
-    pv_strip_prefix: str = ""
+
+    channel_strip_prefix: str = ""
+    """Leading prefix trimmed off a channel address before the dashboard shows it.
+
+    Facilities give every address the same leading segment, which carries no
+    information once the reader knows which deployment they are looking at and
+    costs horizontal room in a dense trigger list. The trim reaches the trigger
+    sources that carry a channel; a source that renders an interval or a bare
+    name has nothing to trim and is unaffected.
+
+    Spelled without a protocol noun deliberately: the key sits on the
+    protocol-neutral dispatch block beside :attr:`facility_name`, and any later
+    source that carries a channel uses this same trim."""
 
     network: NetworkMode = DEFAULT_NETWORK_MODE
     """Network attachment for the dispatcher and its workers, one of

@@ -100,7 +100,7 @@ services:
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
       TRIGGERS_YML: /app/triggers.yml
       OSPREY_FACILITY_NAME: "{{ services.event_dispatcher.facility_name | default('') }}"
-      PV_STRIP_PREFIX: "{{ services.event_dispatcher.pv_strip_prefix | default('') }}"
+      CHANNEL_STRIP_PREFIX: "{{ services.event_dispatcher.channel_strip_prefix | default('') }}"
 {#- Deployment is decided by the top-level `deployed_services` list, NOT by the
     presence of a `services.openobserve` block: a store can be fully configured
     yet left out of the deploy, and gating on the config block alone would link

@@ -47,7 +47,7 @@ services:
     path: ./services/event_dispatcher
     port: 10010
     facility_name: ALS
-    pv_strip_prefix: 'ALS:'
+    channel_strip_prefix: 'ALS:'
     additional_dirs:
       - src: triggers.yml
         dst: triggers.yml
@@ -109,7 +109,7 @@ def _dispatch(**overrides: object) -> DispatchConfig:
     base: dict = {
         "triggers": "tutorial_triggers.yml",
         "facility_name": "ALS",
-        "pv_strip_prefix": "ALS:",
+        "channel_strip_prefix": "ALS:",
     }
     base.update(overrides)
     return DispatchConfig(**base)  # type: ignore[arg-type]
@@ -224,7 +224,7 @@ class TestHostMode:
         assert dispatcher["path"] == "./services/event_dispatcher"
         assert dispatcher["port"] == 10010
         assert dispatcher["facility_name"] == "ALS"
-        assert dispatcher["pv_strip_prefix"] == "ALS:"
+        assert dispatcher["channel_strip_prefix"] == "ALS:"
         assert dispatcher["additional_dirs"] == [{"src": "triggers.yml", "dst": "triggers.yml"}]
         worker = services["dispatch_worker"]
         assert worker["path"] == "./services/dispatch_worker"
