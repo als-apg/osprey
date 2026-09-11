@@ -248,6 +248,41 @@ describe('steps', () => {
     expect(document.querySelector('.tour-card')).toBe(null);
   });
 
+  test('panel cards wear the labels the server serves, not a private copy', () => {
+    mountFullShell();
+    applyTourConfig({
+      tour: { policy: 'never' },
+      labels: { artifacts: 'FILES', okf: 'DOCS', ariel: 'LOGBOOK' },
+    });
+    startTour();
+
+    const bodies = [];
+    for (let i = 0; i < 8; i++) {
+      bodies.push(cardBody());
+      click(nextBtn());
+      vi.advanceTimersByTime(200);
+    }
+    expect(bodies[5]).toContain('FILES');
+    expect(bodies[6]).toContain('DOCS');
+    expect(bodies[7]).toContain('LOGBOOK');
+  });
+
+  test('a payload with no labels leaves the shipped names on the cards', () => {
+    mountFullShell();
+    applyTourConfig({ tour: { policy: 'never' } });
+    startTour();
+
+    const bodies = [];
+    for (let i = 0; i < 8; i++) {
+      bodies.push(cardBody());
+      click(nextBtn());
+      vi.advanceTimersByTime(200);
+    }
+    expect(bodies[5]).toContain('WORKSPACE');
+    expect(bodies[6]).toContain('KNOWLEDGE');
+    expect(bodies[7]).toContain('ARIEL');
+  });
+
   test('steps with absent anchors drop out and the count adjusts', () => {
     document.body.innerHTML = '<div class="terminal-card"></div>';
     startTour();
