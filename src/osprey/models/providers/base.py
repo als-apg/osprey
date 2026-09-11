@@ -163,6 +163,31 @@ class BaseProvider(ABC):
             raise ValueError(f"Base URL required for {cls.name}")
         return resolved
 
+    @classmethod
+    def resolve_base_url(cls, base_url: str | None) -> str | None:
+        """The endpoint to call, refusing ``None`` when this provider needs one.
+
+        Composes the two resolvers above by the provider's own
+        :attr:`requires_base_url` declaration, so a caller that just wants "the
+        endpoint, resolved correctly for whichever provider this is" does not
+        have to branch on that attribute itself.
+
+        Args:
+            base_url: The caller's value, usually from deployment config. May be
+                ``None``.
+
+        Returns:
+            The URL this provider will use, or ``None`` for a provider that
+            needs none.
+
+        Raises:
+            ValueError: When this provider requires an endpoint and no source
+                supplies one.
+        """
+        if cls.requires_base_url:
+            return cls.require_effective_base_url(base_url)
+        return cls.effective_base_url(base_url)
+
     @abstractmethod
     def execute_completion(
         self,

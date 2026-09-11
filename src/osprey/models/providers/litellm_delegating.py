@@ -35,11 +35,12 @@ class LiteLLMDelegatingProvider(BaseProvider):
     ``execute_completion`` / ``check_health`` bodies unchanged.
     """
 
-    # Resolution (env override > caller value > default fallback) is
-    # BaseProvider.effective_base_url, so the requirement check in
-    # osprey.models.completion resolves exactly what this class will delegate.
-    # A second copy here would drift, and the drift is silent: it only shows up
-    # when a provider carrying a default is asked to run with none supplied.
+    # The endpoint is resolved through BaseProvider.resolve_base_url, which
+    # refuses a provider that requires one and has no source for it. The refusal
+    # belongs here because a direct adapter call never passes through
+    # osprey.models.completion: without it such a call reached litellm with no
+    # api_base, and a gateway-fronted provider then failed with an
+    # authentication error against a host nobody configured.
 
     def execute_completion(
         self,
@@ -65,7 +66,7 @@ class LiteLLMDelegatingProvider(BaseProvider):
             message=message,
             model_id=model_id,
             api_key=api_key,
-            base_url=self.effective_base_url(base_url),
+            base_url=self.resolve_base_url(base_url),
             max_tokens=max_tokens,
             temperature=temperature,
             output_format=output_format,
@@ -88,7 +89,7 @@ class LiteLLMDelegatingProvider(BaseProvider):
         result: tuple[bool, str] = check(
             provider=self.name,
             api_key=api_key,
-            base_url=self.effective_base_url(base_url),
+            base_url=self.resolve_base_url(base_url),
             timeout=timeout,
             model_id=model_id or self.health_check_model_id,
         )
