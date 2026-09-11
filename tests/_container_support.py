@@ -312,6 +312,61 @@ def start_or_fail(
     )
 
 
+def wait_until_ready(
+    probe: Callable[[], object],
+    label: str,
+    *,
+    timeout: float = 60.0,
+    interval: float = 0.5,
+) -> None:
+    """Call *probe* until it stops raising, or fail after *timeout* seconds.
+
+    A started container is not yet a reachable one. testcontainers' own
+    readiness check runs *inside* the container, so it reports ready while the
+    host side of the published port is still being wired up; the first
+    connection from the host is then refused or reset. Waiting for the store to
+    answer a request the test itself makes is the signal the code exposes, and
+    it replaces sleeping for however long the forwarder happened to take on the
+    machine the number was measured on.
+
+    Fail-hard for the reason :func:`start_or_fail` gives: past a successful
+    ``start()`` the daemon is present, so a port that never answers is a defect
+    and a skip here would be a vacuous green.
+
+    Args:
+        probe: Zero-argument callable that raises while the subject is not
+            ready and returns anything at all once it is. Keep it short —
+            it is called repeatedly, so a client built inside it wants a
+            selection or connect timeout well under *interval*.
+        label: Human-readable name for the subject, used in the failure.
+        timeout: Seconds to keep probing before giving up.
+        interval: Seconds between attempts.
+
+    Raises:
+        AssertionError: If no call succeeded before the deadline.
+    """
+    deadline = time.monotonic() + timeout
+    started = time.monotonic()
+    last: BaseException | None = None
+    while True:
+        try:
+            probe()
+        except Exception as exc:  # noqa: BLE001 — any failure means "not ready yet"
+            last = exc
+        else:
+            return
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(interval)
+
+    elapsed = time.monotonic() - started
+    raise AssertionError(
+        f"{label}: started, but never answered in {elapsed:.1f}s — the daemon is reachable "
+        f"and the container is up, so this is a real failure, not a missing dependency.\n"
+        f"last attempt: {type(last).__name__}: {last}"
+    )
+
+
 def _skip_message(label: str, exc: BaseException, attempt: int) -> str:
     """Build a skip message naming the container, attempt count, and cause.
 
