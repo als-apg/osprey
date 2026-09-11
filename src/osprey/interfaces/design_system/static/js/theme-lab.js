@@ -16,7 +16,7 @@
  *      theme? (`slugifyThemeName`, `checkCollision`)
  *
  * DERIVATION RULES (read off the generated `static/css/tokens.css`, which is
- * the authority -- the default `osprey` family is the shape proposers riff on):
+ * the authority -- the default `main` family is the shape proposers riff on):
  *
  *   --color-accent             the chosen accent for that mode
  *   --color-accent-light       the mode's *emphasis* variant. "light" means
@@ -45,9 +45,10 @@
  *                              whichever of the scope's bg.primary /
  *                              text.primary / black / white has the highest
  *                              WCAG contrast against the chosen accent. Every
- *                              shipped theme hand-picks this value (only `dark`
- *                              happens to use its own bg.primary), so there is
- *                              no convention to mirror -- what the lab
+ *                              shipped theme hand-picks this value, and they do
+ *                              not agree -- some land on their own bg.primary,
+ *                              the rest on an ink from neither scope color --
+ *                              so there is no convention to mirror. What the lab
  *                              guarantees is that it clears the gate whenever
  *                              any candidate can, and that the value it scores
  *                              is the value it exports.
@@ -345,10 +346,9 @@ export function rgbaCss(rgb, alpha) {
  * Pure black and white, always available as `--color-on-accent` candidates.
  *
  * Nothing in the design system requires `accent.on` to be one of the scope's
- * own colors, and the shipped themes prove it: of the six, only `dark` uses
- * its own `bg.primary`. `light` and both `apex` themes reuse dark's near-black
- * ink, `high-contrast-dark` ships pure black and `high-contrast-light` pure
- * white -- none of which is that scope's own background or primary text.
+ * own colors, and the shipped themes prove it: some dark themes use their own
+ * `bg.primary`; the rest, and every light theme, reach for an ink that is
+ * neither their own background nor their primary text.
  * Offering only the two scope colors would make the lab reject accents that
  * ship fine: a mid grey reaches 4.22:1 against both of dark's primaries (a
  * FAIL) but 4.62:1 against black (a PASS).
@@ -714,11 +714,14 @@ function exportTokenTable(modeExport) {
  *   * `accent.base` / `accent.light` / `accent.on` are authored as *references*
  *     into `core.json`'s ramps (`{color.teal.300}`), not as literal hex, so a
  *     new accent needs ramp steps adding there first.
- *   * every shipped non-default family (`apex`, `high-contrast`) *inherits* the
- *     interface groups rather than authoring them, so the change set asks for
- *     `$extensions.inherits` entries -- and notes that
- *     `wt-accent-system-tint-04` therefore keeps the default value unless the
- *     author opts out of inheriting.
+ *   * an interface document either *inherits* the base groups for a family or
+ *     authors its own, and the five do not agree on which -- `retro` is
+ *     inherited everywhere it can be, `high-contrast` is authored in most of
+ *     them, and `web_terminal.json` has every family author its own. So the
+ *     change set asks the proposer to read each document's
+ *     `$extensions.inherits` rather than assume, and notes that
+ *     `wt-accent-system-tint-04` keeps the default value wherever the new ids
+ *     are inherited.
  *
  * @param {ExportInput} input
  * @returns {string} markdown.
@@ -804,25 +807,30 @@ export function buildExportMarkdown(input) {
   lines.push(
     `   \`$extensions\` to \`{"mode": "dark"|"light", "id": "${slug}-dark"|"${slug}-light",`
   );
-  lines.push(`   "label": "${label || slug}", "family": "${slug}"}\` (no \`"default": true\` —`);
-  lines.push('   that belongs to the shipped default theme).');
+  lines.push(
+    `   "label": "${label || slug}", "family": "${slug}", "family_label": "<label>"}\``
+  );
+  lines.push('   (no `"default": true` — that belongs to the shipped default theme).');
+  lines.push('   `family_label` is optional: set it when the family id does not title-case');
+  lines.push('   into the name the theme switcher should show, and drop it when it does.');
   lines.push('');
-  lines.push('3. **`tokens/interfaces/*.json`** — add the new ids to each');
-  lines.push('   `$extensions.inherits` map so the five interface documents');
-  lines.push('   (`ariel.json`, `artifacts.json`, `channel_finder.json`,');
-  lines.push('   `lattice_dashboard.json`, `web_terminal.json`) reuse the base groups:');
+  lines.push('3. **`tokens/interfaces/*.json`** — check `$extensions.inherits` in each of');
+  lines.push('   the five interface documents (`ariel.json`, `artifacts.json`,');
+  lines.push('   `channel_finder.json`, `lattice_dashboard.json`, `web_terminal.json`).');
+  lines.push('   Add the new ids wherever the same-mode base groups fit:');
   lines.push('');
   lines.push('   ```json');
   lines.push(`   "${slug}-dark": "dark",`);
   lines.push(`   "${slug}-light": "light"`);
   lines.push('   ```');
   lines.push('');
-  lines.push('   This is what `apex` already does in all five, and `high-contrast` in');
-  lines.push('   four of them (`ariel.json` authors its own high-contrast groups). Note the');
-  lines.push('   consequence: `wt-accent-system-tint-04` is authored in');
-  lines.push('   `web_terminal.json`, so inheriting keeps the default value rather than');
-  lines.push('   the accent-matched one below. Author a full `web_terminal.json` group');
-  lines.push('   for the new ids only if that tint must match the accent:');
+  lines.push('   The documents do not agree on this, so read each one: where a document');
+  lines.push('   authors its own groups for the other non-default families, author a group');
+  lines.push('   for the new ids too. Note the consequence of inheriting:');
+  lines.push('   `wt-accent-system-tint-04` is authored in `web_terminal.json`, so an');
+  lines.push('   inherited group keeps the default value rather than the accent-matched');
+  lines.push('   one below. Author a full `web_terminal.json` group for the new ids only');
+  lines.push('   if that tint must match the accent:');
   lines.push('');
   lines.push(`   - dark: \`${dark.derived['--wt-accent-system-tint-04']}\``);
   lines.push(`   - light: \`${light.derived['--wt-accent-system-tint-04']}\``);
