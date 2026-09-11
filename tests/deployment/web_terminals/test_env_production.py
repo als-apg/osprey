@@ -330,7 +330,11 @@ def test_env_production_copies_each_persona_projects_claude_code_secret(tmp_path
     ships, even when the deploy config's provider differs."""
     _write_dotenv(
         tmp_path / ".env",
-        {"ALS_APG_API_KEY": "persona-secret", "CBORG_API_KEY": "deploy-secret"},
+        {
+            "ALS_APG_API_KEY": "persona-secret",
+            "ALS_APG_BASE_URL": "https://gw.test/v1",
+            "CBORG_API_KEY": "deploy-secret",
+        },
     )
     config = _persona_config(tmp_path, {"operator": "als-apg"})
     config["claude_code"] = {"provider": "cborg"}
@@ -363,7 +367,10 @@ def test_env_production_deploy_configs_own_secret_not_required_under_catalog(tmp
     """With a persona catalog in play the per-user containers run persona
     projects, so the deploy config's own provider secret is copy-if-present
     but its absence must NOT fail the deploy."""
-    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+    )
     config = _persona_config(tmp_path, {"operator": "als-apg"})
     config["claude_code"] = {"provider": "anthropic"}  # ANTHROPIC_API_KEY not in .env
 
@@ -452,7 +459,10 @@ def test_env_production_keyless_persona_provider_secret_not_required(tmp_path):
     """A persona project running a keyless provider must not block the deploy
     when the derived var is absent from the chain, while a co-deployed
     key-requiring persona's secret stays required."""
-    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+    )
     config = _persona_config(tmp_path, {"operator": "als-apg", "local": "ollama"})
     # The keyless persona derives OLLAMA_API_KEY only when its own config
     # declares the provider under api.providers -- same rule as the resolver.
@@ -469,6 +479,198 @@ def test_env_production_keyless_persona_provider_secret_not_required(tmp_path):
 
     assert generated["ALS_APG_API_KEY"] == "persona-secret"
     assert "OLLAMA_API_KEY" not in generated
+
+
+# ---------------------------------------------------------------------------
+# Gateway endpoints -- the variable a provider with no default endpoint reads
+# its URL from. Same closed-allowlist rule as the auth secrets: a web container
+# sees only .env.users, so a provider whose endpoint is named by a variable
+# nobody copied resolves no URL and the container exits at startup.
+# ---------------------------------------------------------------------------
+
+
+def _gateway_persona_config(tmp_path, base_url="${ALS_APG_BASE_URL}"):
+    """A persona catalog whose single persona runs als-apg through a gateway.
+
+    The persona's rendered ``config.yml`` carries the provider catalog the real
+    render ships, so the endpoint reaches the resolver the same way it does in
+    a deployed container.
+    """
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    (tmp_path / "operator-proj" / "config.yml").write_text(
+        "project_name: operator-proj\n"
+        "api:\n"
+        "  providers:\n"
+        "    als-apg:\n"
+        f"      base_url: {base_url}\n"
+        "claude_code:\n  provider: als-apg\n",
+        encoding="utf-8",
+    )
+    return config
+
+
+def test_env_production_copies_the_gateway_endpoint_its_provider_needs(tmp_path):
+    """als-apg fronts a gateway with no default host, so the container resolves
+    no endpoint at all unless the variable naming it crosses into .env.users."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+    )
+    config = _gateway_persona_config(tmp_path)
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert generated["ALS_APG_BASE_URL"] == "https://gw.test/v1"
+
+
+def test_env_production_endpoint_variable_is_read_off_the_provider_catalog(tmp_path):
+    """The NAME comes from the config's own reference, never a fixed spelling:
+    a deployment that points the same provider at its own variable gets that
+    one copied."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {
+            "ALS_APG_API_KEY": "persona-secret",
+            "SITE_GATEWAY_URL": "https://site.test/v1",
+            "ALS_APG_BASE_URL": "https://unused.test/v1",
+        },
+    )
+    config = _gateway_persona_config(tmp_path, base_url="${SITE_GATEWAY_URL}")
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert generated["SITE_GATEWAY_URL"] == "https://site.test/v1"
+
+
+def test_env_production_provider_with_its_own_endpoint_adds_nothing(tmp_path):
+    """A provider that ships a working host (cborg) needs no endpoint variable,
+    so the subset is exactly what it was before endpoints were copied at all."""
+    _write_dotenv(
+        tmp_path / ".env", {"CBORG_API_KEY": "deploy-secret", "CBORG_BASE_URL": "https://gw.test"}
+    )
+    config = {
+        "facility": {},
+        "claude_code": {"provider": "cborg"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert set(generated) == {"CBORG_API_KEY", "TZ"}
+
+
+def test_env_production_missing_gateway_endpoint_refuses_the_deploy(tmp_path):
+    """Absent from the whole chain, the endpoint is a container that exits at
+    startup and restarts forever -- refused here, naming the variable."""
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
+    config = _gateway_persona_config(tmp_path)
+
+    with pytest.raises(RuntimeError, match="ALS_APG_BASE_URL") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    assert "als-apg" in str(excinfo.value)
+    assert "operator" in str(excinfo.value)
+    assert not (tmp_path / ".env.users").exists()
+
+
+def test_env_production_a_literal_endpoint_asks_nothing_of_the_chain(tmp_path):
+    """A config that names the URL outright resolves it inside the container
+    with no variable at all, so nothing is required and nothing is copied."""
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
+    config = _gateway_persona_config(tmp_path, base_url="https://literal.test/v1")
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert "ALS_APG_BASE_URL" not in generated
+
+
+def test_env_production_a_defaulted_endpoint_reference_is_not_required(tmp_path):
+    """A reference carrying its own fallback resolves on its own, so its
+    absence from the chain is no refusal -- it is copied when set, as a
+    redirect."""
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
+    config = _gateway_persona_config(tmp_path, base_url="${ALS_APG_BASE_URL:-https://fb.test/v1}")
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert "ALS_APG_BASE_URL" not in generated
+
+
+def test_env_production_endpoint_of_the_deploys_own_provider_is_required(tmp_path):
+    """The zero-migration path: no persona catalog, so the web image runs the
+    deploy config itself and its provider's endpoint is the container's."""
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "cc-secret"})
+    config = {
+        "facility": {},
+        "api": {"providers": {"als-apg": {"base_url": "${ALS_APG_BASE_URL}"}}},
+        "claude_code": {"provider": "als-apg"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    with pytest.raises(RuntimeError, match="ALS_APG_BASE_URL"):
+        env_production.ensure_env_production(config, tmp_path)
+
+
+def test_env_production_copies_the_llm_providers_endpoint_without_requiring_it(tmp_path):
+    """The llm provider serves in-container services rather than deciding
+    whether the container starts, so its endpoint is copy-if-present -- the
+    same rule llm.api_key_env_var already follows."""
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "llm-secret"})
+    config = {
+        "facility": {},
+        "api": {"providers": {"als-apg": {"base_url": "${ALS_APG_BASE_URL}"}}},
+        "llm": {"provider": "als-apg", "api_key_env_var": "ALS_APG_API_KEY"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert "ALS_APG_BASE_URL" not in generated
+
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ALS_APG_API_KEY": "llm-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+    )
+    (tmp_path / ".env.users").unlink()
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert generated["ALS_APG_BASE_URL"] == "https://gw.test/v1"
+
+
+def test_env_production_a_generated_file_without_the_endpoint_is_re_rendered(tmp_path):
+    """A file rendered before the endpoint crossed is OSPREY's own, so the next
+    deploy re-renders it in place rather than shipping terminals that cannot
+    reach their gateway."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+    )
+    config = _gateway_persona_config(tmp_path)
+    stale = env_production.render_env_users(
+        {"ALS_APG_API_KEY": "persona-secret", "TZ": "UTC"},
+    )
+    (tmp_path / ".env.users").write_text(stale, encoding="utf-8")
+
+    generated = env_production.parse_dotenv_file(
+        env_production.ensure_env_production(config, tmp_path)
+    )
+
+    assert generated["ALS_APG_BASE_URL"] == "https://gw.test/v1"
 
 
 def test_env_production_stale_existing_file_without_credentials_warns(tmp_path, caplog):
@@ -616,6 +818,7 @@ def test_env_production_never_carries_the_dispatcher_token(tmp_path):
         tmp_path / ".env",
         {
             "ALS_APG_API_KEY": "cc-secret",
+            "ALS_APG_BASE_URL": "https://gw.test/v1",
             "EVENT_DISPATCHER_TOKEN": "fire-any-trigger",
             "DISPATCH_WORKER_TOKEN": "worker",
             "BLUESKY_LAUNCH_TOKEN": "arm-the-queue",
@@ -710,7 +913,10 @@ def test_env_production_required_auth_secret_in_shared_half_does_not_raise(tmp_p
     """The refusal asks whether the MERGED chain sets the var, so a provider
     secret kept in the shared defaults produces authenticated terminals rather
     than a refused deploy."""
-    _write_dotenv(tmp_path / ".env.shared", {"ALS_APG_API_KEY": "shared-secret"})
+    _write_dotenv(
+        tmp_path / ".env.shared",
+        {"ALS_APG_API_KEY": "shared-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+    )
     _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
     config = _persona_config(tmp_path, {"operator": "als-apg"})
 

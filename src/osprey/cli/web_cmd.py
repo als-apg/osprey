@@ -638,6 +638,11 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     the launch itself) to report — this probe just skips quietly rather than
     duplicating that diagnosis.
 
+    A provider that resolves no gateway endpoint
+    (:class:`~osprey.build.claude_code_resolver.ProviderEndpointError`) is the
+    other refusal this probe reports rather than skips, and it aborts: the
+    server's own startup resolves the same spec and exits on it.
+
     The one exception is
     :class:`~osprey.build.claude_code_telemetry.ObservabilityCredentialError`:
     nothing else in pre-flight resolves telemetry credentials, so a quiet skip
@@ -646,7 +651,7 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
     going (telemetry credentials are orthogonal to whether the terminal can
     authenticate) while saying why the auth check never ran.
     """
-    from osprey.build.claude_code_resolver import load_provider_spec
+    from osprey.build.claude_code_resolver import ProviderEndpointError, load_provider_spec
     from osprey.build.claude_code_telemetry import ObservabilityCredentialError
 
     try:
@@ -669,6 +674,13 @@ def _probe_auth_secret(build_dir: Path, repo_root: Path) -> tuple[list[str], lis
             "deployment could not be resolved, so the provider was never read.\n"
             f"  {exc}"
         ]
+    except ProviderEndpointError as exc:
+        # Also ahead of the broad arm, and a FAILURE rather than a warning: the
+        # server resolves the same spec in its own startup and raises there too,
+        # so letting the launch through trades one named refusal for a process
+        # that exits seconds later with the reason buried in its log. Only
+        # names reach the message, never a value.
+        return [str(exc)], []
     except (OSError, ValueError):
         return [], []
     if spec is None or not spec.auth_secret_env:

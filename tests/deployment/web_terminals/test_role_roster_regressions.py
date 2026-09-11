@@ -503,6 +503,7 @@ def _env_project_root(tmp_path: Path) -> Path:
         )
     (root / ".env").write_text(
         "ALS_APG_API_KEY=readonly-secret\n"
+        "ALS_APG_BASE_URL=https://gw.test/v1\n"
         "ANTHROPIC_API_KEY=admin-secret\n"
         "CBORG_API_KEY=deploy-secret\n",
         encoding="utf-8",

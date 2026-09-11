@@ -60,6 +60,22 @@ RENDERED_CONFIG = textwrap.dedent(
     """
 )
 
+#: The same deployment run through a gateway provider that ships no default
+#: endpoint, so the URL is named by a variable rather than baked into the
+#: catalog entry.
+RENDERED_CONFIG_GATEWAY = RENDERED_CONFIG.replace(
+    "llm:\n  provider: cborg\n  api_key_env_var: CBORG_API_KEY\n",
+    "api:\n"
+    "  providers:\n"
+    "    als-apg:\n"
+    "      base_url: ${ALS_APG_BASE_URL}\n"
+    "llm:\n"
+    "  provider: als-apg\n"
+    "  api_key_env_var: ALS_APG_API_KEY\n"
+    "claude_code:\n"
+    "  provider: als-apg\n",
+)
+
 #: The same deployment after bob has been hand-edited off the roster — what
 #: ``prune`` sees when it goes looking for orphans.
 RENDERED_CONFIG_ALICE_ONLY = RENDERED_CONFIG.replace("      - name: bob\n        index: 1\n", "")
@@ -224,6 +240,23 @@ class TestEnvMintsTerminalSecrets:
         assert TERMINAL_SECRET_VAR_PREFIX not in result.stdout
         for value in read_env(repo_root).values():
             assert value not in result.stdout or value == "llm-secret"
+
+    def test_the_gateway_endpoint_reaches_the_rendered_file(
+        self, cli_runner, tmp_path, monkeypatch
+    ):
+        """This verb and `osprey up` render one subset, so the variable a
+        gateway provider reads its URL from crosses on this route too."""
+        root = _make_repo(tmp_path, RENDERED_CONFIG_GATEWAY)
+        monkeypatch.chdir(root)
+        (root / ENV_LOCAL_FILENAME).write_text(
+            "ALS_APG_API_KEY=llm-secret\nALS_APG_BASE_URL=https://gw.test/v1\n",
+            encoding="utf-8",
+        )
+
+        result = cli_runner.invoke(users, ["env"])
+
+        assert result.exit_code == 0
+        assert "ALS_APG_BASE_URL=https://gw.test/v1" in result.stdout
 
 
 class TestRemovePurgesTheDepartedSecret:
