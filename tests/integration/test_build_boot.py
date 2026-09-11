@@ -287,15 +287,18 @@ def test_mcp_servers_register_expected_tools(build_outputs: dict[str, Path], pre
         if "url" in entry:
             continue  # http/sse — out of scope for stdio handshake
         try:
-            # A liveness bound, not a speed one: fast failure on a broken
-            # command is the previous test's contract. This one only has to
-            # outwait a server's imports on the slowest shared runner, where
-            # the control-system server alone has taken twenty seconds to load.
+            # Time to answer, not time to exist. The clock starts when the
+            # server says it is serving, so this bounds a stuck server rather
+            # than a slow import — every stdio server reachable from here
+            # announces, the framework's through run_mcp_server and the
+            # hello-world example through its own entry. A server that
+            # announces nothing spends this budget on both, which is why it is
+            # generous rather than tight.
             tool_names = list_mcp_tools(
                 command=entry["command"],
                 args=list(entry.get("args") or []),
                 env=entry.get("env"),
-                timeout=120.0,
+                timeout=60.0,
             )
         except MCPHandshakeError as exc:
             failures.append(f"{name}: handshake failed: {exc}")
