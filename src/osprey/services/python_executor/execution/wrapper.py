@@ -315,8 +315,8 @@ if not _execution_dir.exists():
 
         # Serialize limits database to JSON
         limits_db_serialized = {}
-        for pv_name, config in self.limits_validator.limits.items():
-            limits_db_serialized[pv_name] = {
+        for channel_name, config in self.limits_validator.limits.items():
+            limits_db_serialized[channel_name] = {
                 "min_value": config.min_value,
                 "max_value": config.max_value,
                 "max_step": config.max_step,  # IMPORTANT: Include max_step for serialization
@@ -353,9 +353,9 @@ if not _execution_dir.exists():
 
                 # Reconstruct limits database
                 _limits_db = {{}}
-                for pv_name, config_dict in _limits_db_raw.items():
-                    _limits_db[pv_name] = ChannelLimitsConfig(
-                        channel_address=pv_name,
+                for channel_name, config_dict in _limits_db_raw.items():
+                    _limits_db[channel_name] = ChannelLimitsConfig(
+                        channel_address=channel_name,
                         min_value=config_dict.get('min_value'),
                         max_value=config_dict.get('max_value'),
                         max_step=config_dict.get('max_step'),  # Include max_step from serialized config

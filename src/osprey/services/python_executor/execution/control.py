@@ -1,10 +1,9 @@
 """Execution Control Configuration for Python Executor Service.
 
 This module provides specialized execution control configuration for the Python
-executor service, with particular focus on EPICS (Experimental Physics and
-Industrial Control System) integration and security policies. It defines execution
-modes that determine the level of system access and control permissions available
-to executed Python code.
+executor service, with particular focus on control-system integration and
+security policies. It defines execution modes that determine the level of system
+access and control permissions available to executed Python code.
 
 The module implements a security-conscious approach to execution control, providing
 clear separation between read-only operations (safe for automated execution) and
@@ -26,8 +25,9 @@ operations detected in generated code, while providing override capabilities
 for manual control when needed.
 
 .. note::
-   This module is specifically designed for EPICS integration but can be extended
-   for other control systems or security-sensitive environments.
+   Mode selection is about control-system access in general; it reads no
+   protocol-specific fact and holds for every connector the deployment can
+   select.
 
 .. warning::
    Write-enabled execution modes can perform system operations with real-world
@@ -39,8 +39,8 @@ Examples:
 
         >>> config = ExecutionControlConfig(control_system_writes_enabled=False)
         >>> mode = config.get_execution_mode(
-        ...     has_epics_writes=True,
-        ...     has_epics_reads=True
+        ...     has_control_system_writes=True,
+        ...     has_control_system_reads=True
         ... )
         >>> print(f"Selected mode: {mode}")
         Selected mode: ExecutionMode.READ_ONLY
@@ -49,8 +49,8 @@ Examples:
 
         >>> write_config = ExecutionControlConfig(control_system_writes_enabled=True)
         >>> mode = write_config.get_execution_mode(
-        ...     has_epics_writes=True,
-        ...     has_epics_reads=False
+        ...     has_control_system_writes=True,
+        ...     has_control_system_reads=False
         ... )
         >>> print(f"Write mode: {mode}")
         Write mode: ExecutionMode.WRITE_ACCESS
@@ -118,7 +118,7 @@ class ExecutionMode(Enum):
     """
 
     READ_ONLY = "read_only"  # Safe read-only operations only
-    WRITE_ACCESS = "write_access"  # Live EPICS write access (dangerous!)
+    WRITE_ACCESS = "write_access"  # Live control-system write access (dangerous!)
 
 
 @dataclass
@@ -167,7 +167,7 @@ class ExecutionControlConfig:
         Creating a read-only configuration for safe analysis::
 
             >>> config = ExecutionControlConfig(control_system_writes_enabled=False)
-            >>> mode = config.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+            >>> mode = config.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
             >>> print(f"Mode: {mode}")  # Always READ_ONLY when writes disabled
             Mode: ExecutionMode.READ_ONLY
 
@@ -175,8 +175,8 @@ class ExecutionControlConfig:
 
             >>> write_config = ExecutionControlConfig(control_system_writes_enabled=True)
             >>> # Only grants write access when code actually contains write operations
-            >>> read_mode = write_config.get_execution_mode(has_epics_writes=False, has_epics_reads=True)
-            >>> write_mode = write_config.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+            >>> read_mode = write_config.get_execution_mode(has_control_system_writes=False, has_control_system_reads=True)
+            >>> write_mode = write_config.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
             >>> print(f"Read mode: {read_mode}, Write mode: {write_mode}")
     """
 
@@ -186,7 +186,9 @@ class ExecutionControlConfig:
     active_target: str | None = None
     writes_enabled_key: str = WRITES_ENABLED_KEY
 
-    def get_execution_mode(self, has_epics_writes: bool, has_epics_reads: bool) -> ExecutionMode:
+    def get_execution_mode(
+        self, has_control_system_writes: bool, has_control_system_reads: bool
+    ) -> ExecutionMode:
         """Determine appropriate execution mode based on code analysis and security policy.
 
         Analyzes the detected operations in the code (from static analysis) and
@@ -199,15 +201,17 @@ class ExecutionControlConfig:
         unless write operations are both detected in the code and explicitly
         enabled in the configuration.
 
-        :param has_epics_writes: Whether static analysis detected EPICS write operations in the code
-        :type has_epics_writes: bool
-        :param has_epics_reads: Whether static analysis detected EPICS read operations in the code
-        :type has_epics_reads: bool
+        :param has_control_system_writes: Whether static analysis detected control-system
+            write operations in the code
+        :type has_control_system_writes: bool
+        :param has_control_system_reads: Whether static analysis detected control-system
+            read operations in the code
+        :type has_control_system_reads: bool
         :return: Execution mode appropriate for the detected operations and security policy
         :rtype: ExecutionMode
 
         .. note::
-           The has_epics_reads parameter is provided for future extensibility but
+           The has_control_system_reads parameter is provided for future extensibility but
            currently does not affect mode selection since read operations are
            permitted in all execution modes.
 
@@ -217,12 +221,12 @@ class ExecutionControlConfig:
                 >>> config = ExecutionControlConfig(control_system_writes_enabled=True)
                 >>>
                 >>> # Code with only read operations
-                >>> mode = config.get_execution_mode(has_epics_writes=False, has_epics_reads=True)
+                >>> mode = config.get_execution_mode(has_control_system_writes=False, has_control_system_reads=True)
                 >>> print(f"Read-only code: {mode}")
                 Read-only code: ExecutionMode.READ_ONLY
                 >>>
                 >>> # Code with write operations (and writes enabled)
-                >>> mode = config.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+                >>> mode = config.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
                 >>> print(f"Write code: {mode}")
                 Write code: ExecutionMode.WRITE_ACCESS
 
@@ -230,11 +234,11 @@ class ExecutionControlConfig:
 
                 >>> secure_config = ExecutionControlConfig(control_system_writes_enabled=False)
                 >>> # Write operations detected but not permitted by policy
-                >>> mode = secure_config.get_execution_mode(has_epics_writes=True, has_epics_reads=True)
+                >>> mode = secure_config.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
                 >>> print(f"Secured mode: {mode}")  # Always READ_ONLY when writes disabled
                 Secured mode: ExecutionMode.READ_ONLY
         """
-        if has_epics_writes and self.control_system_writes_enabled:
+        if has_control_system_writes and self.control_system_writes_enabled:
             return ExecutionMode.WRITE_ACCESS
         else:
             return ExecutionMode.READ_ONLY
