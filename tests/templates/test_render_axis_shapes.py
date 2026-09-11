@@ -167,7 +167,7 @@ def _pair_blocks(*, on_host: bool, worker_count: int = 1) -> dict[str, dict]:
     dispatcher: dict = {
         "port": dispatch.dispatcher_port,
         "facility_name": dispatch.facility_name,
-        "pv_strip_prefix": dispatch.pv_strip_prefix,
+        "channel_strip_prefix": dispatch.channel_strip_prefix,
     }
     worker: dict = {
         "worker_count": worker_count,

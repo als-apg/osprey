@@ -2178,7 +2178,7 @@ class TestEventsPanelUrlDerivation:
             "worker_port_base": 9190,
             "timeout_sec": 300,
             "facility_name": "generic-facility",
-            "pv_strip_prefix": "",
+            "channel_strip_prefix": "",
         }
         base.update(overrides)
         return DispatchConfig(**base)  # type: ignore[arg-type]

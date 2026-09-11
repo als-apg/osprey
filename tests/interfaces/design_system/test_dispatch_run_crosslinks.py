@@ -166,7 +166,7 @@ def _create_dispatch_dashboard_app(telemetry_url: str) -> FastAPI:
         return str(
             render_dashboard_html(
                 facility_name="Test Facility",
-                pv_strip_prefix="SR:",
+                channel_strip_prefix="SR:",
                 telemetry_url=telemetry_url,
             )
         )

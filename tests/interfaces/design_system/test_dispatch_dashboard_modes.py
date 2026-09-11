@@ -94,7 +94,7 @@ def _create_dispatch_dashboard_app() -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     async def root() -> str:
-        return str(render_dashboard_html(facility_name="Test Facility", pv_strip_prefix="SR:"))
+        return str(render_dashboard_html(facility_name="Test Facility", channel_strip_prefix="SR:"))
 
     return app
 

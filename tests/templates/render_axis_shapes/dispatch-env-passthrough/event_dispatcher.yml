@@ -61,7 +61,7 @@ services:
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
       TRIGGERS_YML: /app/triggers.yml
       OSPREY_FACILITY_NAME: ""
-      PV_STRIP_PREFIX: ""
+      CHANNEL_STRIP_PREFIX: ""
 
       TZ: UTC
       HTTP_PROXY: ${HTTP_PROXY}

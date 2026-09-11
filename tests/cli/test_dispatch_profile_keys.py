@@ -62,7 +62,7 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         inactivity_sec=240,
         max_turns=40,
         facility_name="ALS",
-        pv_strip_prefix="SR:",
+        channel_strip_prefix="SR:",
         network="host",
     )
     block = {f.name: getattr(spelled, f.name) for f in fields(DispatchConfig)}
@@ -183,3 +183,29 @@ def test_the_bundled_dispatch_preset_still_resolves() -> None:
 
     assert profile.dispatch is not None
     assert profile.dispatch.triggers == "tutorial_triggers.yml"
+
+
+def test_the_block_names_the_trimmed_prefix_without_a_protocol_noun() -> None:
+    """The knob sits beside ``facility_name`` on a protocol-neutral block.
+
+    It trims a leading prefix off a channel name before the dashboard renders
+    it, which is a fact about channel addresses rather than about any one
+    control protocol.
+    """
+    assert "channel_strip_prefix" in _KNOWN_DISPATCH_KEYS
+    assert "pv_strip_prefix" not in _KNOWN_DISPATCH_KEYS
+
+
+def test_the_retired_spelling_is_refused_and_points_at_the_new_one() -> None:
+    """The rename must not be a silent one.
+
+    ``dispatch:`` is a closed block, so the old spelling raises rather than
+    being dropped into a default — and the refusal has to carry the reader to
+    the key that replaced it, which is the whole reason no alias is kept.
+    """
+    with pytest.raises(BuildProfileError) as caught:
+        _parse_profile({"name": "x", "dispatch": {"pv_strip_prefix": "SR:"}})
+
+    message = str(caught.value)
+    assert "pv_strip_prefix" in message, "the refusal must name what was written"
+    assert "channel_strip_prefix" in message, "and the key that replaced it"

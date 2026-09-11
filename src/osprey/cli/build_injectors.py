@@ -620,7 +620,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         "path": "./services/event_dispatcher",
         "port": dispatch.dispatcher_port,
         "facility_name": dispatch.facility_name,
-        "pv_strip_prefix": dispatch.pv_strip_prefix,
+        "channel_strip_prefix": dispatch.channel_strip_prefix,
         # Copy the project's triggers.yml into the service build context so the
         # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
         # container runtime auto-creates an empty directory at the mount source).
