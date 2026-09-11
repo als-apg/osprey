@@ -12,7 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from osprey.services.channel_finder.core.exceptions import AddressPatternError
+from osprey.services.channel_finder.core.exceptions import (
+    AddressPatternError,
+    TemplateBuildError,
+)
 from osprey.services.channel_finder.tools.build_database import (
     build_database,
     create_template,
@@ -356,10 +359,10 @@ def test_parse_instance_range_refuses_a_backwards_range() -> None:
 def test_build_database_stops_on_an_unfillable_address_pattern(tmp_path: Path) -> None:
     """The build fails rather than writing addresses that are the pattern text.
 
-    Every other per-family failure demotes the family to standalone rows, which
-    is why this one has to be a distinct exception: a family whose pattern
-    cannot be expanded would otherwise land in the database verbatim, braces
-    and all, and the run would still report success.
+    A family whose pattern cannot be expanded would otherwise land in the
+    database verbatim, braces and all. It keeps its own exception because the
+    pattern is the fact worth naming; every other way a family fails to
+    template is a :class:`TemplateBuildError`.
     """
     csv_path = _write_csv(
         tmp_path,
@@ -369,6 +372,36 @@ def test_build_database_stops_on_an_unfillable_address_pattern(tmp_path: Path) -
     output = tmp_path / "database.json"
 
     with pytest.raises(AddressPatternError, match="cannot be filled in"):
+        build_database(csv_path=csv_path, output_path=output)
+
+    assert not output.exists()
+
+
+def test_build_database_stops_on_a_non_numeric_instance_count(tmp_path: Path) -> None:
+    """A family the builder cannot template fails the build, naming the family."""
+    csv_path = _write_csv(
+        tmp_path,
+        "address,description,family_name,instances,sub_channel\n"
+        "SR:BPM:{instance:02d}:{sub_channel},X position,BPM,many,XPOS\n",
+    )
+    output = tmp_path / "database.json"
+
+    with pytest.raises(TemplateBuildError, match="family 'BPM' cannot be built"):
+        build_database(csv_path=csv_path, output_path=output)
+
+    assert not output.exists()
+
+
+def test_build_database_stops_on_a_backwards_instance_range(tmp_path: Path) -> None:
+    """A range that ends before it starts expands to nothing, so nothing is written."""
+    csv_path = _write_csv(
+        tmp_path,
+        "address,description,family_name,instances,sub_channel\n"
+        "SR:BPM:{instance:02d}:{sub_channel},X position,BPM,11-4,XPOS\n",
+    )
+    output = tmp_path / "database.json"
+
+    with pytest.raises(TemplateBuildError, match="family 'BPM' cannot be built"):
         build_database(csv_path=csv_path, output_path=output)
 
     assert not output.exists()
