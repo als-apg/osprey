@@ -209,9 +209,18 @@ class ARIELContext:
         return self._service
 
     async def shutdown(self) -> None:
-        """Close the service's DB pool. Called on server shutdown."""
+        """Close the service's DB pools. Called on server shutdown.
+
+        Both of them: the service is built here directly rather than through
+        its async context manager, so the teardown the manager would have run
+        is this method's to run instead. The read-only pool opens at start-up
+        with a live connection of its own, so skipping it leaves the store
+        holding an idle session the process will never use again.
+        """
         if self._service is not None:
             try:
+                if self._service.readonly_pool is not None:
+                    await self._service.readonly_pool.close()
                 await self._service.pool.close()
             except Exception:
                 logger.debug("Error closing ARIEL pool (ignored)", exc_info=True)

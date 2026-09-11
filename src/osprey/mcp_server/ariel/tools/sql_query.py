@@ -70,8 +70,15 @@ async def sql_query(
         registry = get_ariel_context()
         service = await registry.service()
 
+        # The SELECT-only role, where the deployment has one. `BEGIN READ ONLY`
+        # and the statement allowlist still apply underneath; what the role adds
+        # is the half neither can cover, since a transaction mode does not stop
+        # a server-side read and no pattern over query text enumerates every
+        # dangerous function. The fallback is a store whose data volume predates
+        # the role — the service logs one warning at start-up when it takes it.
         # execute_sql_query re-validates internally
-        rows = await execute_sql_query(service.pool, sql, max_rows=max_rows)
+        pool = service.readonly_pool or service.pool
+        rows = await execute_sql_query(pool, sql, max_rows=max_rows)
 
         # Egress: rows that select an entry_id column gain a canonical entry_url
         # (config-driven). Rows without entry_id (aggregates, projections) and
