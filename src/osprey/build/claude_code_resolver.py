@@ -95,6 +95,42 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
 }
 
 
+class ProviderEndpointError(ValueError):
+    """A provider that fronts a gateway was given no endpoint to call.
+
+    Its own error type, not a bare ``ValueError``, because one caller has to
+    tell it apart: the web pre-flight skips the ordinary config faults its
+    provider read can raise (an unparseable file, an unknown provider name —
+    each already diagnosed elsewhere) and would otherwise swallow this one too,
+    leaving the operator with a silent launch and a server that exits during
+    startup. Subclasses ``ValueError`` so every caller that catches the broad
+    type keeps catching this.
+    """
+
+
+def provider_base_url_env(provider_name: str) -> str | None:
+    """Name of the env var a built-in provider reads its gateway endpoint from.
+
+    The endpoint counterpart of :func:`provider_auth_secret_env`, and the same
+    indirection: the table records WHERE a deployment keeps its gateway URL,
+    never the URL. ``None`` for a provider that declares no such variable, and
+    for one the built-in table has never heard of — a custom proxy's endpoint
+    is named by its own ``api.providers`` entry instead.
+    """
+    return (CLAUDE_CODE_PROVIDERS.get(provider_name) or {}).get("base_url_env_var")
+
+
+def provider_requires_base_url(provider_name: str) -> bool:
+    """Whether ``provider_name`` fronts a gateway that ships no default endpoint.
+
+    True means a launch that resolves no URL is refused
+    (:class:`ProviderEndpointError`) rather than falling back to a host, so
+    whatever names the endpoint has to be delivered to the process that calls
+    the gateway.
+    """
+    return bool((CLAUDE_CODE_PROVIDERS.get(provider_name) or {}).get("requires_base_url"))
+
+
 def provider_auth_secret_env(provider_name: str, api_providers: dict | None = None) -> str | None:
     """Name of the shell env var holding ``provider_name``'s auth secret.
 
@@ -875,7 +911,7 @@ class ClaudeCodeModelResolver:
             sources = f"api.providers.{provider_name}.base_url in config.yml"
             if env_var:
                 sources = f"{env_var}, or {sources}"
-            raise ValueError(
+            raise ProviderEndpointError(
                 f"Provider '{provider_name}' has no base_url. It fronts models "
                 f"through a gateway that has no default endpoint, so the URL has "
                 f"to be named: set {sources}."

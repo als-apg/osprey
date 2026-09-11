@@ -633,10 +633,128 @@ def _claude_code_auth_secret_vars(
     return required, extra, keyless
 
 
+def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
+    """``(var, required)`` for the endpoint one config's provider will call.
+
+    Two sources, in the order the launch paths read them. The config's own
+    ``api.providers.<provider>.base_url`` comes first when it holds an env
+    reference — the shipped catalog spells gateway endpoints that way
+    (``base_url: ${ALS_APG_BASE_URL}``), and a deployment that points the same
+    provider at a variable of its own is answered with that name rather than a
+    spelling this module decided. A config that names no reference falls back
+    to the variable the provider itself declares, which is the break-glass
+    redirect an already-built image can be repointed with.
+
+    ``required`` is the narrower question: whether the container resolves NO
+    endpoint without this variable. Only a provider that ships no default host
+    (:func:`~osprey.build.claude_code_resolver.provider_requires_base_url`) can
+    reach that state, and only when nothing else in the config answers for the
+    URL — a literal endpoint resolves on its own, and so does a reference
+    carrying its own ``:-default``.
+
+    :param cfg: One project's raw config — the deploy's, or a persona's.
+    :param provider: The provider name that config names.
+    :return: ``(var, required)``, or ``None`` when no variable names this
+        provider's endpoint at all.
+    """
+    from osprey.build.claude_code_resolver import (
+        provider_base_url_env,
+        provider_requires_base_url,
+    )
+
+    api_providers = (cfg.get("api") or {}).get("providers")
+    entry = api_providers.get(provider) if isinstance(api_providers, dict) else None
+    declared = entry.get("base_url") if isinstance(entry, dict) else None
+    needs_endpoint = provider_requires_base_url(provider)
+
+    reference = _env_reference(declared)
+    if reference is not None:
+        var, has_default = reference
+        return var, needs_endpoint and not has_default
+
+    var = provider_base_url_env(provider)
+    if not var:
+        return None
+    return var, needs_endpoint and not declared
+
+
+def _provider_endpoint_vars(
+    config: dict, project_root: Path
+) -> tuple[dict[str, str], dict[str, str]]:
+    """Endpoint env-var names every provider in play reads its gateway URL from.
+
+    The endpoint half of :func:`_claude_code_auth_secret_vars`, over the same
+    set of configs and for the same reason: a per-user container sees only
+    ``.env.users``, so a gateway named by a variable nobody copied is no
+    gateway. A provider with no default host then resolves nothing, the
+    interface app raises during startup, and compose restarts it forever — a
+    terminal whose health never leaves ``starting`` and says nothing about why.
+
+    Returns two ``{var: origin}`` dicts, mirroring the auth-secret split:
+
+    - **required** — an agent provider that will resolve no endpoint without
+      the variable. Absent from the chain, the deploy is refused rather than
+      generated.
+    - **extra** — worth copying when present, never worth failing over: a
+      redirect variable for a provider that already has an endpoint, and every
+      ``llm.provider`` endpoint. The llm provider backs services inside the
+      container one call at a time rather than deciding whether the container
+      starts, which is the same reason ``llm.api_key_env_var`` is copied but
+      never required.
+
+    An endpoint is a URL, not a credential: it is copied so the terminals reach
+    the gateway the rest of the deployment reaches, and it grants nothing on
+    its own.
+    """
+    required: dict[str, str] = {}
+    extra: dict[str, str] = {}
+
+    def _record(cfg: dict, source: str, *, enforce: bool) -> None:
+        for field in ("claude_code", "llm"):
+            provider = (cfg.get(field) or {}).get("provider")
+            if not isinstance(provider, str) or not provider:
+                continue
+            resolved = _provider_endpoint_var(cfg, provider)
+            if resolved is None:
+                continue
+            var, needed = resolved
+            if var in required:
+                continue
+            origin = f"{field}.provider {provider!r} {source}"
+            if needed and enforce and field == "claude_code":
+                required[var] = origin
+                extra.pop(var, None)
+            else:
+                extra.setdefault(var, origin)
+
+    catalog = ((config.get("modules") or {}).get("web_terminals") or {}).get("personas")
+    catalog = catalog if isinstance(catalog, dict) else {}
+    referenced = _referenced_persona_names(config)
+
+    for persona_name, entry in _referenced_persona_entries(config):
+        config_yml = _persona_config_yml(project_root, entry)
+        if config_yml is None or not config_yml.is_file():
+            # Silent: _claude_code_auth_secret_vars warns about the same
+            # unreadable project already, and saying it twice per deploy would
+            # read as two separate problems.
+            continue
+        persona_config = _load_config_yml(config_yml)
+        if persona_config is None:
+            continue
+        _record(persona_config, f"(persona {persona_name!r})", enforce=True)
+
+    # Under a catalog the per-user containers run persona projects, so the
+    # deploy config's own provider answers for no container and its endpoint is
+    # copy-if-present — the same carve-out the auth secrets make.
+    _record(config, "(deploy config)", enforce=not (catalog and referenced))
+    return required, extra
+
+
 def _build_env_production_subset(
     config: dict,
     dotenv: dict[str, str],
     claude_code_secret_vars: dict[str, str] | None = None,
+    provider_endpoint_vars: dict[str, str] | None = None,
 ) -> dict[str, str]:
     """Build the module-conditional subset written into ``.env.users``.
 
@@ -657,6 +775,13 @@ def _build_env_production_subset(
       in by :func:`ensure_env_production`. Same chain-presence rule as
       every other entry; whether an *absent* var is an error is
       :func:`ensure_env_production`'s call, not this function's.
+    - ``provider_endpoint_vars`` — the gateway-endpoint vars resolved by
+      :func:`_provider_endpoint_vars` (the ``base_url`` reference, or the
+      provider's own redirect variable, for every ``claude_code.provider`` and
+      ``llm.provider`` in play). A URL rather than a credential, and here for
+      the same reason the secrets are: a provider that fronts a gateway with no
+      default host resolves no endpoint without it, so the interface app raises
+      during startup and the container restarts forever.
     - ``modules.olog.{username,password}_env_var`` — the electronic-logbook
       account, only if ``modules.olog.enabled``.
     - ``modules.wiki_search.token_env_var`` — the wiki credential, only if
@@ -781,6 +906,9 @@ def _build_env_production_subset(
     for var_name in claude_code_secret_vars or {}:
         _copy_named_env_var(var_name, dotenv, subset)
 
+    for var_name in provider_endpoint_vars or {}:
+        _copy_named_env_var(var_name, dotenv, subset)
+
     modules = config.get("modules") or {}
 
     olog = modules.get("olog") or {}
@@ -839,6 +967,8 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
     :param project_root: Project root; ``.env.users`` and the env-chain files
         are resolved relative to it.
     :return: The refusal sentence, or ``None`` when generation would succeed.
+        It names the missing variables and what their absence costs — an
+        unauthenticated terminal, a provider with no endpoint, or both.
     """
     root = Path(project_root)
     users_env_path = root / USERS_ENV_FILENAME
@@ -857,6 +987,7 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
 
     dotenv = merge_chain(root)
     required_cc_vars, _extra_cc_vars, _keyless_cc_vars = _claude_code_auth_secret_vars(config, root)
+    required_url_vars, _extra_url_vars = _provider_endpoint_vars(config, root)
     # Reported, never copied: these are variables a telemetry block depends on
     # that this file is not allowed to carry, so they join the gate below and
     # nothing else. Keeping them out of the {**required, **extra} pair handed to
@@ -868,11 +999,22 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
     # sets is set.
     missing = {
         var: origin
-        for var, origin in {**telemetry_vars, **required_cc_vars}.items()
+        for var, origin in {**telemetry_vars, **required_cc_vars, **required_url_vars}.items()
         if var not in dotenv
     }
     if not missing:
         return None
+
+    # Named for what the absence actually costs, since the two halves fail
+    # differently: a secret is every terminal failing authentication on its
+    # first prompt, an endpoint is a container that exits during startup and
+    # restarts forever with its health stuck at "starting".
+    consequences = []
+    if any(var not in required_url_vars for var in missing):
+        consequences.append("unauthenticated")
+    if any(var in required_url_vars for var in missing):
+        consequences.append("without the gateway endpoint their provider has no default for")
+    consequence = " and ".join(consequences)
 
     needs = "; ".join(f"{origin} needs {var}" for var, origin in missing.items())
     # The chain on disk stays the only SOURCE (see ensure_env_production's
@@ -926,7 +1068,7 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
         )
     return (
         f"Generating {users_env_path} from {sources_desc} would leave web "
-        f"terminals unauthenticated: {needs}, set in none of them. Add the "
+        f"terminals {consequence}: {needs}, set in none of them. Add the "
         f"missing variable(s) to {env_path}, or author .env.users "
         "yourself (an existing file is never regenerated) if this deploy "
         f"authenticates another way.{telemetry_note}{shell_hint}"
@@ -1068,7 +1210,13 @@ def users_env_drift(config: dict, project_root: str | Path) -> UsersEnvDrift | N
 
     dotenv = merge_chain(root)
     required_cc_vars, extra_cc_vars, _keyless_cc_vars = _claude_code_auth_secret_vars(config, root)
-    subset = _build_env_production_subset(config, dotenv, {**required_cc_vars, **extra_cc_vars})
+    required_url_vars, extra_url_vars = _provider_endpoint_vars(config, root)
+    subset = _build_env_production_subset(
+        config,
+        dotenv,
+        {**required_cc_vars, **extra_cc_vars},
+        {**required_url_vars, **extra_url_vars},
+    )
     rendered = render_env_users(subset)
     if text == rendered:
         return None
@@ -1174,7 +1322,10 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
       authenticate another way). A telemetry password reference that carries no
       default of its own (see :func:`_telemetry_credential_requirements`) joins
       the same gate: the variable it names is reported when the chain does not
-      set it, and is never written into the generated file either way.
+      set it, and is never written into the generated file either way. So does
+      the gateway endpoint of a provider that ships no default host (see
+      :func:`_provider_endpoint_vars`), whose absence is a container that exits
+      during startup rather than one that fails on its first prompt.
     - **Local mode, absent, the whole chain absent too**: raises, before any
       compose invocation — there is nothing to generate from and no file to
       fall back on.
@@ -1269,6 +1420,7 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
 
     dotenv = merge_chain(root)
     required_cc_vars, extra_cc_vars, _keyless_cc_vars = _claude_code_auth_secret_vars(config, root)
+    required_url_vars, extra_url_vars = _provider_endpoint_vars(config, root)
 
     # Unlike every optional module var above (silently skipped when absent —
     # see _copy_named_env_var), a missing claude_code auth secret means some
@@ -1282,7 +1434,12 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     if problem is not None:
         raise RuntimeError(problem)
 
-    subset = _build_env_production_subset(config, dotenv, {**required_cc_vars, **extra_cc_vars})
+    subset = _build_env_production_subset(
+        config,
+        dotenv,
+        {**required_cc_vars, **extra_cc_vars},
+        {**required_url_vars, **extra_url_vars},
+    )
 
     # Every value above is a verbatim copy out of the operator's env chain (or,
     # for ARIEL_DSN, straight out of facility config), and this file is handed to

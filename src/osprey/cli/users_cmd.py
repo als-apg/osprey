@@ -936,6 +936,7 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
             USERS_ENV_FILENAME,
             _build_env_production_subset,
             _claude_code_auth_secret_vars,
+            _provider_endpoint_vars,
             render_env_users,
         )
         from osprey.utils.config import load_project_config
@@ -995,6 +996,7 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
         required_vars, extra_vars, _keyless_vars = _claude_code_auth_secret_vars(
             deploy_config, project_root
         )
+        required_url_vars, extra_url_vars = _provider_endpoint_vars(deploy_config, project_root)
         missing = {var: origin for var, origin in required_vars.items() if var not in dotenv}
         if missing:
             # Warn rather than refuse: whether an absent auth secret is fatal is
@@ -1007,8 +1009,26 @@ def env_production(repo: Path | None, env_file: str | None, output: str | None) 
                 "authentication unless they authenticate another way.",
             )
 
+        missing_urls = {
+            var: origin for var, origin in required_url_vars.items() if var not in dotenv
+        }
+        if missing_urls:
+            # Its own line, because the failure is a different one: a provider
+            # that fronts a gateway with no default host resolves no endpoint at
+            # all, so the container exits during startup instead of serving a
+            # terminal that fails on its first prompt.
+            needs = "; ".join(f"{origin} needs {var}" for var, origin in missing_urls.items())
+            warn(
+                f"Rendering without gateway endpoint(s) absent from {source_desc}",
+                f"{needs}. Web terminals started with this file will exit at "
+                "startup unless the endpoint reaches them another way.",
+            )
+
         subset = _build_env_production_subset(
-            deploy_config, dotenv, {**required_vars, **extra_vars}
+            deploy_config,
+            dotenv,
+            {**required_vars, **extra_vars},
+            {**required_url_vars, **extra_url_vars},
         )
         # The deploy path's own renderer (readme header + quoted lines), so a
         # file rendered here and one `osprey up` generates are byte-identical.

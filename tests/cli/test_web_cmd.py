@@ -1142,6 +1142,35 @@ class TestPreflightAuthSecret:
         assert "provider auth check skipped" not in result.stderr
         assert "nowhere" not in result.output
 
+    def test_missing_gateway_endpoint_is_reported_by_name(self, runner, monkeypatch, deployment):
+        """A provider with no endpoint is a server that exits during startup, so
+        pre-flight names the variable instead of launching into the crash."""
+        from osprey.build.claude_code_resolver import ProviderEndpointError
+
+        self._stub_launch(monkeypatch)
+        self._stub_clean_ports(monkeypatch)
+
+        def _raise(*_a, **_kw):
+            raise ProviderEndpointError(
+                "Provider 'als-apg' has no base_url. It fronts models through a "
+                "gateway that has no default endpoint, so the URL has to be "
+                "named: set ALS_APG_BASE_URL, or "
+                "api.providers.als-apg.base_url in config.yml."
+            )
+
+        monkeypatch.setattr("osprey.build.claude_code_resolver.load_provider_spec", _raise)
+        own_port = _free_port()
+
+        result = runner.invoke(
+            web,
+            ["--repo", str(deployment), "--port", str(own_port), "--shell", "true"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 1
+        assert "ALS_APG_BASE_URL" in result.output
+        assert "als-apg" in result.output
+
 
 class TestPreflightConfigValidity:
     """Probe 3: config.yml and .claude/settings.json must at least parse."""

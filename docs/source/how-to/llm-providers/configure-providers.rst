@@ -120,6 +120,13 @@ agent run — stops with::
 A direct model call and ``osprey health`` report the same thing more briefly,
 as ``Base URL required for als-apg``.
 
+On a multi-user deployment the endpoint has to be in the repository's env chain
+rather than only in your shell. Each per-user terminal runs with ``.env.users``,
+a generated file the deploy copies the provider's key and endpoint into, and it
+is copied from what is on disk — never from the environment ``osprey up`` runs
+in. A chain that sets neither is refused before any container starts, naming the
+variable.
+
 .. note::
 
    A shell export reaches a **deployment** only once, when ``osprey init``
