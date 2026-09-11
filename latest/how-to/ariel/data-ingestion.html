@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -581,7 +581,7 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 <section id="facility-adapters">
 <span id="id2"></span><h3>Facility Adapters<a class="headerlink" href="#facility-adapters" title="Link to this heading">#</a></h3>
 <p>Every logbook system has its own API, data format, and naming conventions. Facility adapters encapsulate these differences behind a uniform interface so that the rest of ARIEL — storage, enhancement, search — never needs to know where the data came from. Each adapter connects to one source system, fetches entries within an optional time range, and yields them as <code class="docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> TypedDicts that the repository can store directly. All adapters inherit from <code class="docutils literal notranslate"><span class="pre">FacilityAdapter</span></code> and implement two required members — a source-system name and an entry generator. Writing one for a logbook Osprey does not ship is a developer task: the base class, the registration and the test that pins them are the ARIEL seam in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
-<p>Adapters are discovered through Osprey’s central registry. The framework ships with the following built-in adapters:</p>
+<p>Adapters are discovered through Osprey’s central registry. The built-in ones below are the logbooks contributed so far, not a list of the systems Osprey supports — a logbook that is not here needs an adapter, not a change to ARIEL:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 20.0%" />
@@ -597,25 +597,25 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 <tbody>
 <tr class="row-even"><td><p><strong>ALS eLog</strong></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">als_logbook</span></code></p></td>
-<td><p>Production adapter for the Advanced Light Source electronic logbook. Supports JSONL file and HTTP API modes with SOCKS proxy, time-windowed chunked requests, retry with backoff, and entry deduplication.</p></td>
+<td><p>The one production adapter. Supports JSONL file and HTTP API modes with SOCKS proxy, time-windowed chunked requests, retry with backoff, and entry deduplication.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>JLab Logbook</strong></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">jlab_logbook</span></code></p></td>
-<td><p>Schema-ready prototype for Jefferson Lab. Parses JLab JSON format into the common schema but does not yet implement the facility’s native API protocol.</p></td>
+<td><p>Schema-ready prototype. Parses its logbook’s JSON format into the common schema but does not yet implement that system’s native API protocol.</p></td>
 </tr>
 <tr class="row-even"><td><p><strong>ORNL Logbook</strong></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">ornl_logbook</span></code></p></td>
-<td><p>Schema-ready prototype for Oak Ridge National Laboratory. Parses ORNL JSON format into the common schema but does not yet implement the facility’s native API protocol.</p></td>
+<td><p>Schema-ready prototype. Parses its logbook’s JSON format into the common schema but does not yet implement that system’s native API protocol.</p></td>
 </tr>
 <tr class="row-odd"><td><p><strong>Generic JSON</strong></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">generic_json</span></code></p></td>
-<td><p>Reads from a JSON file with flexible field mapping. Useful for demos, testing, and facilities without a custom API.</p></td>
+<td><p>Reads entries from a JSON file. <code class="docutils literal notranslate"><span class="pre">id</span></code>, <code class="docutils literal notranslate"><span class="pre">title</span></code>, <code class="docutils literal notranslate"><span class="pre">text</span></code>, <code class="docutils literal notranslate"><span class="pre">author</span></code>, <code class="docutils literal notranslate"><span class="pre">timestamp</span></code> and <code class="docutils literal notranslate"><span class="pre">attachments</span></code> map onto the common schema; every other top-level field is kept as entry metadata, and an explicit <code class="docutils literal notranslate"><span class="pre">metadata</span></code> object merges last and wins. Useful for demos, testing, and facilities without a custom API.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <p><strong>Using a custom adapter:</strong></p>
-<p>An adapter written and registered as described in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a> is selected the same way as a built-in one: set <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> to its registered name in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+<p>An adapter written and registered as described in <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a> is selected the same way as a built-in one: set <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter</span></code> to its registered name in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, or pass it as <code class="docutils literal notranslate"><span class="pre">--adapter</span></code> — both accept every registered name, the framework’s and your own.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Collaboration Welcome</p>
 <p>The adapters above reflect the logbook schemas we have had access to so far. If you implement an adapter for your facility and test it successfully, we encourage you to open a pull request to make it natively available in Osprey — this makes it easier for other sites running similar logbook systems to get started.</p>
@@ -655,6 +655,14 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 </div>
 <p>The default is <code class="docutils literal notranslate"><span class="pre">(&quot;metadata.json&quot;,)</span></code>. Matching is case-insensitive, and a name that never appears is simply a no-op — there is no switch to turn this off. If an entry has attachments and none of them matched, ingestion says so at debug level rather than staying silent about metadata it did not collect.</p>
 </section>
+<section id="attachment-size">
+<h4>Attachment Size<a class="headerlink" href="#attachment-size" title="Link to this heading">#</a></h4>
+<p><code class="docutils literal notranslate"><span class="pre">ariel.attachments.max_file_mb</span></code> (default 10) is the largest file one entry may
+attach; a bigger one is refused, naming the file and the limit. Attachments are
+stored as rows in the same Postgres the logbook lives in, so this number is a
+storage decision in both directions — raise it for a facility that attaches
+raw traces, lower it to keep the database small.</p>
+</section>
 </section>
 <section id="enhancement-pipeline">
 <span id="id3"></span><h3>Enhancement Pipeline<a class="headerlink" href="#enhancement-pipeline" title="Link to this heading">#</a></h3>
@@ -672,11 +680,17 @@ Text Embedding</label><div class="sd-tab-content docutils">
 <span class="w">    </span><span class="nt">text_embedding</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
+<span class="w">      </span><span class="nt">index_lists</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">224</span>
 <span class="w">      </span><span class="nt">models</span><span class="p">:</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nomic-embed-text</span>
 <span class="w">          </span><span class="nt">dimension</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">768</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">index_lists</span></code> (default 224) sizes the pgvector IVFFlat index. The rule of
+thumb is roughly one list per 1000 entries, up to about a million entries.
+It cannot be worked out for you — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code> creates the
+index before a single entry is embedded — and the value is baked in at
+creation, so changing it later means dropping the index and recreating it.</p>
 <p><strong>Requirements:</strong> Ollama (or another embedding provider) running with the specified model.</p>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
@@ -690,9 +704,31 @@ Semantic Processor</label><div class="sd-tab-content docutils">
 <span class="w">    </span><span class="nt">semantic_processor</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
+<span class="w">      </span><span class="nt">max_input_chars</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8000</span>
 <span class="w">      </span><span class="nt">model</span><span class="p">:</span>
 <span class="w">        </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-haiku</span>
 <span class="w">        </span><span class="nt">max_tokens</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">256</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">max_input_chars</span></code> (default 8000) is how much of an entry is sent. A
+longer entry is cut at that point and the cut is logged, naming the
+entry, so a summary that describes only an opening says so somewhere.
+Raise it if your entries run long and your provider’s context window has
+the room.</p>
+<p>The shipped extraction prompt asks for categories — equipment names, measured quantities, actions taken, problem types, locations — because a framework default cannot know what your site calls its equipment. <code class="docutils literal notranslate"><span class="pre">prompt_template</span></code> replaces that prompt outright, and is where your own vocabulary belongs: the device families, abbreviations and process words your operators actually write. Keep the <code class="docutils literal notranslate"><span class="pre">{text}</span></code> placeholder and the JSON schema the module parses, or enhancement fails for every entry.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">ariel</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">enhancement_modules</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">semantic_processor</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">prompt_template</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">|</span>
+<span class="w">        </span><span class="no">Extract keywords and generate a summary from this logbook entry.</span>
+
+<span class="w">        </span><span class="no">Entry text:</span>
+<span class="w">        </span><span class="no">{text}</span>
+
+<span class="w">        </span><span class="no">... your instructions here ...</span>
+
+<span class="w">        </span><span class="no">Return ONLY valid JSON matching this schema:</span>
+<span class="w">        </span><span class="no">{{&quot;keywords&quot;: [&quot;keyword1&quot;, ...], &quot;summary&quot;: &quot;...&quot;}}</span>
 </pre></div>
 </div>
 </div>
@@ -964,6 +1000,7 @@ recorded. A store that has never been ingested warns either way.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-adapters">Facility Adapters</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-your-logbook">Connecting to Your Logbook</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#sidecar-metadata">Sidecar Metadata</a></li>
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#attachment-size">Attachment Size</a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#enhancement-pipeline">Enhancement Pipeline</a></li>

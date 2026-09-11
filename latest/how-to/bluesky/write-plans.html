@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -656,6 +656,15 @@ the readback out and the device reads its own setpoint. <strong>Readables</stron
 recorded and never written. The name is what a plan and the agent refer to, and
 it is also the column heading in the run’s data, so each name may appear only
 once across both lists.</p>
+<p>When a plan drives a settable, the write is followed by a poll of the readback
+until it reaches the demand. Two profile keys bound that wait:
+<code class="docutils literal notranslate"><span class="pre">bluesky.settle_timeout_s</span></code> (default 5.0 seconds) is how long the poll runs
+before the move fails and the plan aborts, and <code class="docutils literal notranslate"><span class="pre">bluesky.settle_tolerance</span></code>
+(default <code class="docutils literal notranslate"><span class="pre">1e-9</span></code>) is how close the readback must come, as an absolute
+difference. The defaults suit a setpoint a controller echoes back exactly; a
+device that physically moves — a magnet, an insertion-device gap — needs both
+raised. Running out of budget always fails the plan: neither key can turn an
+unsettled move into a successful one.</p>
 <p>Nothing in the file is split on any character, which is the point of writing it
 this way: an address containing a comma — as some real magnet power supplies
 have — is written out plainly and needs no escaping.</p>

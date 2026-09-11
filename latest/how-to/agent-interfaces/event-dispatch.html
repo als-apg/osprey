@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -756,6 +756,7 @@ every persona follows it, and a persona that pins a different one is refused.</p
 <span class="w">      </span><span class="nt">prompt</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">&gt;-</span>
 <span class="w">        </span><span class="no">Reply with a single sentence confirming the pipeline works.</span>
 <span class="w">      </span><span class="nt">allowed_tools</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[]</span><span class="w">            </span><span class="c1"># tools this run may use</span>
+<span class="w">      </span><span class="nt">max_turns</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">25</span><span class="w">                </span><span class="c1"># optional; defaults to dispatch.max_turns</span>
 <span class="w">    </span><span class="nt">on_error</span><span class="p">:</span><span class="w">                      </span><span class="c1"># optional: retry if the worker is unreachable</span>
 <span class="w">      </span><span class="nt">action</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">retry</span>
 <span class="w">      </span><span class="nt">max_retries</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2</span>
@@ -763,6 +764,18 @@ every persona follows it, and a persona that pins a different one is refused.</p
 </pre></div>
 </div>
 <p class="sd-card-text">Each webhook trigger is reachable at <code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/webhook/&lt;name&gt;</span></code>.</p>
+<p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">max_concurrent_runs</span></code> and <code class="docutils literal notranslate"><span class="pre">max_queue_depth</span></code> are shown with their
+defaults: leave them out and the dispatcher carries two runs at once and
+holds fifty events waiting for a slot. A build writes both keys from the
+profile’s <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block, which starts at the same pair.</p>
+<p class="sd-card-text"><strong>Turn ceiling.</strong> How many agentic turns one dispatched run may take is
+<code class="docutils literal notranslate"><span class="pre">dispatch.max_turns</span></code> in the build profile (default 25) — the third budget
+beside <code class="docutils literal notranslate"><span class="pre">dispatch.timeout_sec</span></code> and <code class="docutils literal notranslate"><span class="pre">dispatch.inactivity_sec</span></code>, and the one
+about the work rather than the clock. A trigger that needs more, or less,
+than the deployment’s number states its own <code class="docutils literal notranslate"><span class="pre">max_turns:</span></code> in <code class="docutils literal notranslate"><span class="pre">action:</span></code>;
+a trigger that names none gets the deployment’s. A trigger’s own value must
+be a whole number of turns of at least one, and the dispatcher refuses the
+triggers file at load if it is not.</p>
 <p class="sd-card-text"><strong>Tool denylist (defence in depth).</strong> The worker enforces a server-side tool
 denylist regardless of what a trigger requests: <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>,
 the Playwright browser tools, and all shell tools (<code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">BashOutput</span></code>,
@@ -777,6 +790,23 @@ stack never exercises it; the behaviour is covered by
 <code class="docutils literal notranslate"><span class="pre">tests/unit/dispatch/test_server_routes.py</span></code>.</p>
 </div>
 </details></section>
+<section id="reaching-the-machine">
+<h2>Reaching the Machine<a class="headerlink" href="#reaching-the-machine" title="Link to this heading">#</a></h2>
+<p>A trigger’s <code class="docutils literal notranslate"><span class="pre">source:</span></code> decides what wakes it. <code class="docutils literal notranslate"><span class="pre">webhook</span></code> and <code class="docutils literal notranslate"><span class="pre">cron</span></code> need
+nothing from the network; <code class="docutils literal notranslate"><span class="pre">epics_ca</span></code> monitors channels and does, and on a
+site where those channels live behind a gateway the dispatcher has to be told
+where the gateway is. Both halves of the pair take that from the deployment’s
+env chain, through one profile key:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dispatch</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">triggers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_triggers.yml</span>
+<span class="w">  </span><span class="nt">env</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">EPICS_CA_ADDR_LIST</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">EPICS_CA_NAME_SERVERS</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Each name is passed through to both containers as <code class="docutils literal notranslate"><span class="pre">NAME:</span> <span class="pre">${NAME}</span></code>, so the
+values live in <code class="docutils literal notranslate"><span class="pre">.env</span></code> / <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and rotate with an edit and a restart.
+The worker gets the same list as the dispatcher: a run acting on what a trigger
+saw has to be able to see it too.</p>
+</section>
 <section id="authentication">
 <span id="event-dispatch-auth"></span><h2>Authentication<a class="headerlink" href="#authentication" title="Link to this heading">#</a></h2>
 <p>Two bearer tokens guard the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> auto-generates a strong
@@ -876,6 +906,7 @@ handoff.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authoring-triggers">Authoring Triggers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reaching-the-machine">Reaching the Machine</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication">Authentication</a></li>
 </ul>
   </nav></div>

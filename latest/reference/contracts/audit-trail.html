@@ -61,12 +61,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Ports" href="../ports.html" />
+    <link rel="next" title="The Bridge Dispatch Payload" href="bridge-dispatch.html" />
     <link rel="prev" title="Facility Graph Contracts" href="facility-graph.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -398,6 +398,7 @@
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
@@ -480,8 +481,8 @@ unless you pass <code class="docutils literal notranslate"><span class="pre">--p
 <section id="files-by-surface">
 <span id="audit-trail-files"></span><h2>Files, by surface<a class="headerlink" href="#files-by-surface" title="Link to this heading">#</a></h2>
 <p><code class="docutils literal notranslate"><span class="pre">&lt;identity&gt;</span></code> is whoever was acting, so on a multi-user deployment each
-person’s records stay in their own directory; <code class="docutils literal notranslate"><span class="pre">&lt;surface&gt;</span></code> is the layer that
-decided, so a gallery refusal and a config refusal never share a file.</p>
+person’s records stay in their own directory (<a class="reference internal" href="#audit-trail-identity-ladder"><span class="std std-ref">how it is resolved</span></a>); <code class="docutils literal notranslate"><span class="pre">&lt;surface&gt;</span></code> is the layer that decided, so a
+gallery refusal and a config refusal never share a file.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 45.0%" />
@@ -748,6 +749,61 @@ domain, and the value of the hosted-domain claim are never written to the
 trail.</p>
 </section>
 </section>
+<section id="which-directory-a-record-lands-in">
+<span id="audit-trail-identity-ladder"></span><h2>Which directory a record lands in<a class="headerlink" href="#which-directory-a-record-lands-in" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">&lt;identity&gt;</span></code> is resolved once, by one ladder, and the same answer is used
+twice: as the record’s <code class="docutils literal notranslate"><span class="pre">actor</span></code> field and as the directory the file goes in.
+Resolving those separately is how a trail starts naming one actor while filing
+under another, so there is only ever one resolution. Most specific first:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 32.0%" />
+<col style="width: 68.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Rung</p></th>
+<th class="head"><p>When it answers</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_USER</span></code></p></td>
+<td><p>A multi-user terminal container. The name is the roster entry’s, so a
+real person is behind the record.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_AUDIT_IDENTITY</span></code></p></td>
+<td><p>A container that hosts no single person: a framework service’s key, or
+<code class="docutils literal notranslate"><span class="pre">sidecar</span></code> for the login service. Rendered by the same derivation that
+names the container’s audit mount, so the writer’s path and the mounted
+path cannot diverge.</p></td>
+</tr>
+<tr class="row-even"><td><p>The local account</p></td>
+<td><p>The single-user laptop case, where the process account <em>is</em> the person.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">unknown</span></code></p></td>
+<td><p>An honest floor. A slim image often has no account entry for its uid;
+that is routine, and an unresolvable identity must never cost the
+record.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><strong>The hostname is never a rung.</strong> It looks like an identity and is not one: a
+host-network container reports the shared host’s name, so every service on the
+box would collide into one file, and a bridge-network container reports a fresh
+container id on every restart.</p>
+<p>A value carrying a path separator, or naming <code class="docutils literal notranslate"><span class="pre">.</span></code> or <code class="docutils literal notranslate"><span class="pre">..</span></code>, is not a usable
+identity and falls to the next rung — the same string becomes a directory name,
+and <code class="docutils literal notranslate"><span class="pre">../elsewhere</span></code> would file one service’s records under another’s mount.</p>
+<p><strong>These variables are the framework’s, not yours to set.</strong> The build renders
+them into each container from the roster and the service derivation. Setting
+one by hand in a shell, a compose override or an MCP server’s <code class="docutils literal notranslate"><span class="pre">env:</span></code> block
+does not relabel a record; it aims one process’s records at another’s ledger.
+That is why they are <em>stripped</em> from every MCP server spec the build renders,
+together with the session’s control-target and write-posture markers and
+<code class="docutils literal notranslate"><span class="pre">OSPREY_AUDIT_WRITER</span></code>, which names the root maintenance phase’s own ledger.
+A server spec that could set any of them could quietly repoint or shed the
+evidence of what it did.</p>
+</section>
 <section id="who-can-read-it">
 <h2>Who can read it<a class="headerlink" href="#who-can-read-it" title="Link to this heading">#</a></h2>
 <p>In a multi-user deployment the directories are the isolation. Each user’s
@@ -812,11 +868,11 @@ be the file that grows.</p>
       </div>
     </a>
     <a class="right-next"
-       href="../ports.html"
+       href="bridge-dispatch.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Ports</p>
+        <p class="prev-next-title">The Bridge Dispatch Payload</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -845,6 +901,7 @@ be the file that grows.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#why-a-login-was-refused">Why a login was refused</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-directory-a-record-lands-in">Which directory a record lands in</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#who-can-read-it">Who can read it</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-trail-is-not">What the trail is not</a></li>
 </ul>

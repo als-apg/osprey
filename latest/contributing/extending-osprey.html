@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -461,6 +461,14 @@ the tests beside them are written to be read, so the fastest route to working
 code is to hand both to a coding agent and let it draft against them.</p>
 <p>Everything on this page assumes a development checkout — see
 <a class="reference internal" href="development-setup.html"><span class="doc">Development Setup</span></a>.</p>
+<p>Each seam’s registration lives in your deployment’s own registry module, and
+the framework finds that file through the <code class="docutils literal notranslate"><span class="pre">registry_path</span></code> key in its
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — set it in your profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block, as
+<code class="docutils literal notranslate"><span class="pre">registry_path:</span> <span class="pre">project/registry.py</span></code>. <code class="docutils literal notranslate"><span class="pre">application.registry_path</span></code> is
+accepted as an alias, and the <code class="docutils literal notranslate"><span class="pre">REGISTRY_PATH</span></code> environment variable outranks
+both, as <a class="reference internal" href="../reference/configuration/environment-variables.html"><span class="doc">Environment Variables</span></a> records. Without
+one of them the framework loads only its own components, and nothing you
+register is reachable.</p>
 <section id="connector">
 <span id="extending-connector"></span><h2>Connector<a class="headerlink" href="#connector" title="Link to this heading">#</a></h2>
 <p>A connector is Osprey’s single interface to one control system. Subclass

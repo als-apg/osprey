@@ -447,7 +447,7 @@ markdown file, listed in config:
        notices:
        - data/landing/working-safely.md
        - data/landing/local-procedures.md
-       footer: "ALS control room. Questions: ext. 5555."
+       footer: "Example Research Facility control room. Questions: ext. 5555."
 
 The file's first heading (``# Working safely with the agent``) becomes the
 section label, and everything after it becomes the panel. So adding a section

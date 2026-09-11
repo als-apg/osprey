@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -686,7 +686,10 @@ connected.</p></td>
 <td><p>Verdict fail</p></td>
 <td><p>The agent ran but the outcome was unsatisfactory: a required MCP
 server was missing from the session, the agent returned an error
-result, or the run hit its cost budget (USD) or turn limit.</p></td>
+result, or the run hit its cost budget (USD) or turn limit. “Missing”
+includes a declared server that did not register in time: the run waits
+<code class="docutils literal notranslate"><span class="pre">OSPREY_MCP_READY_TIMEOUT</span></code> seconds (default 90) for every server the
+project declares, and a busy or cold host can need longer than that.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
 <td><p>Infra / usage error</p></td>

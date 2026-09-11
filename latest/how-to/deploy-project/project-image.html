@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -592,7 +592,16 @@ passed at runtime via <code class="docutils literal notranslate"><span class="pr
 </section>
 <section id="build-arguments">
 <h2>Build Arguments<a class="headerlink" href="#build-arguments" title="Link to this heading">#</a></h2>
-<p>The image exposes these knobs for site-specific builds:</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> passes these from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: the top-level <code class="docutils literal notranslate"><span class="pre">offline</span></code> key
+and the <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code>
+/ <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> block, resolved once and handed to the three
+images built from these recipes — the project image, each web-terminal persona
+image and the login sidecar. Set them there and a site network is configured in
+one place.
+The build arguments below are the same settings under the names a hand-run
+<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code> uses; each is also overridden for one shell by an environment
+variable of the same name (<code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code>, …), the same
+way <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code> overrides <code class="docutils literal notranslate"><span class="pre">images.registry</span></code>.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 22.0%" />
@@ -616,6 +625,17 @@ an unreleased build or an internal mirror.</p></td>
 <td><p>Hosts exempted from any proxy during <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code> (e.g. an
 internal GitLab serving the OSPREY package).</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>Package index the dependency layer resolves from, for a site that
+mirrors PyPI internally. It is pip’s own environment name, so the
+declared argument reaches pip directly; left empty, pip drops it and
+resolves from PyPI.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PIP_EXTRA_INDEX_URL</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>A second index, consulted after the first. Same handling.</p></td>
+</tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;0&quot;</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> vendors web assets (JS/CSS/fonts) into the image via
@@ -636,8 +656,17 @@ where a proxy re-signs TLS with its own CA — see
 </tbody>
 </table>
 </div>
-<p>(A sixth ARG, <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code>, is used internally by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span>
+<p>(One more ARG, <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code>, is used internally by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span>
 <span class="pre">--dev</span></code> to install a locally built wheel; you normally never set it by hand.)</p>
+<p>The <strong>host</strong> side of the build reads its own settings from the shell rather
+than from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> installs the project’s virtual
+environment with <code class="docutils literal notranslate"><span class="pre">uv</span></code> (or pip), so <code class="docutils literal notranslate"><span class="pre">UV_INDEX_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code> and a
+<code class="docutils literal notranslate"><span class="pre">pip.conf</span></code> on the build host all apply there and nowhere else.</p>
+<section id="building-an-image-by-hand">
+<h3>Building an image by hand<a class="headerlink" href="#building-an-image-by-hand" title="Link to this heading">#</a></h3>
+<p>Everything below is the unmanaged path — a <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code> you run yourself,
+outside <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>. Nothing reads <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> there, so every setting is
+typed out as a build argument.</p>
 <p>Example — install OSPREY from an internal mirror behind a proxy, with
 vendored assets for an air-gapped host:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span><span class="se">\</span>
@@ -653,6 +682,7 @@ Never put credentials in <code class="docutils literal notranslate"><span class=
 distribute — prefer <a class="reference external" href="https://docs.docker.com/build/building/secrets/">Docker build secrets</a> or a credential-free
 internal mirror.</p>
 </div>
+</section>
 <section id="building-behind-a-proxy">
 <h3>Building Behind a Proxy<a class="headerlink" href="#building-behind-a-proxy" title="Link to this heading">#</a></h3>
 <p>Two things have to line up for a build on a proxied network: the proxy values
@@ -693,9 +723,15 @@ re-sign it with the site’s own CA (Squid is a common example). Delivering the
 proxy values as above is then not enough — every fetch inside the build (apt,
 npm, pip, the optional <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code>) fails cert verification,
 because nothing in the image trusts that CA yet.</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code> build argument closes the gap. A Dockerfile <code class="docutils literal notranslate"><span class="pre">COPY</span></code>
-cannot reach outside the build context, so first stage a copy of the CA bundle
-beside the Dockerfile, then name it:</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code> build argument closes the gap. Point <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code>
+at the bundle on the deploy host and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> does the rest — a Dockerfile
+<code class="docutils literal notranslate"><span class="pre">COPY</span></code> cannot reach outside the build context, so the deploy stages a copy
+into each context and passes its staged name:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">images</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">site_ca</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem</span>
+</pre></div>
+</div>
+<p>Building by hand, stage the copy yourself and name it:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>build/.image/my-project
 cp<span class="w"> </span>/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem<span class="w"> </span>site-ca.pem
 docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>--build-arg<span class="w"> </span><span class="nv">OSPREY_SITE_CA</span><span class="o">=</span>site-ca.pem<span class="w"> </span><span class="se">\</span>
@@ -766,7 +802,7 @@ shell rather than from the deployment’s env files.</p>
 </section>
 </section>
 <section id="prefetched-models-for-the-search-sidecar">
-<h2>Prefetched Models for the Search Sidecar<a class="headerlink" href="#prefetched-models-for-the-search-sidecar" title="Link to this heading">#</a></h2>
+<span id="deployment-qmd-prefetched-models"></span><h2>Prefetched Models for the Search Sidecar<a class="headerlink" href="#prefetched-models-for-the-search-sidecar" title="Link to this heading">#</a></h2>
 <p>A deployment that includes the qmd search sidecar builds a second image, and
 that one downloads three model files from <code class="docutils literal notranslate"><span class="pre">huggingface.co</span></code> during its build.
 On a network with no route there, stage the files on the host once and name that
@@ -979,15 +1015,19 @@ backup every config write takes before it writes
 it lands in the same place whether the project is flat, a deployment
 repository, or this image — unless the deployment relocates
 <code class="docutils literal notranslate"><span class="pre">agent_data.base_dir</span></code>, which moves the backups with it.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> — the agent CLI’s per-user state (sessions, credentials);
-set <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code> if you want it somewhere more explicit.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> — the agent CLI’s per-user state (sessions, credentials).
+Set <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code> to this directory: it is the only variable that
+names the durable store scaffold claims are recorded in, and without it a
+claim made from the running deployment is lost when the container is
+recreated. The deployment logs a warning at startup when it is unset.</p></li>
 </ul>
 <section id="kubernetes-notes">
 <h3>Kubernetes notes<a class="headerlink" href="#kubernetes-notes" title="Link to this heading">#</a></h3>
 <ul class="simple">
-<li><p>Give each user/instance a PVC for <code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> (or
-<code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code>) and one for <code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code> — session state does
-not survive pod rescheduling otherwise.</p></li>
+<li><p>Give each user/instance a PVC for <code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> and one for
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/</span></code> — session state does not survive pod rescheduling
+otherwise. Point <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code> at that first PVC; scaffold claims are
+recorded there and nowhere else.</p></li>
 <li><p>The image has no <code class="docutils literal notranslate"><span class="pre">USER</span></code>: it starts as root and drops to uid 1000 itself
 (see <a class="reference internal" href="#the-privilege-split">The Privilege Split</a>). A <code class="docutils literal notranslate"><span class="pre">securityContext</span></code> with
 <code class="docutils literal notranslate"><span class="pre">runAsNonRoot:</span> <span class="pre">true</span></code> therefore refuses the pod, and one pinning
@@ -1161,6 +1201,7 @@ the complement to the project image on this page.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-arguments">Build Arguments</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#building-an-image-by-hand">Building an image by hand</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#building-behind-a-proxy">Building Behind a Proxy</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#tls-intercepting-proxies">TLS-Intercepting Proxies</a></li>
 </ul>

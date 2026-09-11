@@ -171,6 +171,14 @@ are.
    the minted password, remove the ``ariel_postgres_data`` volume and redeploy
    (this deletes the stored logbook data — re-ingest afterwards).
 
+   ``ARIEL_DB_READONLY_PASSWORD`` is minted beside it and has the same
+   fresh-volume caveat: it is the login secret of the SELECT-only role the
+   agent's SQL tool queries through, created by an init script the same
+   volume initialization runs. A volume that predates the role simply does not
+   have it, and the agent says so once at start-up rather than failing. See
+   :doc:`../ariel/standalone-deployment` for adopting the role on an existing
+   database.
+
 Egress through a site proxy
 ---------------------------
 
@@ -184,34 +192,37 @@ the same proxy, in ``.env`` when this one differs:
    HTTPS_PROXY=http://proxy.example.com:8080
    NO_PROXY=localhost,127.0.0.1
 
-**Spell them in uppercase.** The login service is handed exactly these three
-names and nothing else from the chain, so a lowercase ``https_proxy`` never
-reaches it. (Inside a container that does receive the whole chain, an empty
+**Spell them in uppercase.** Two containers do not read the chain wholesale and
+are handed exactly these three names instead: the login service, whose
+``env_file`` is ``.env.auth``, and each per-user terminal, whose ``env_file`` is
+the closed allowlist ``.env.users``. A lowercase ``https_proxy`` therefore never
+reaches either. (Inside a container that does receive the whole chain, an empty
 lowercase name is worse than absent — it turns the proxy off for that scheme —
 which is why only the uppercase spelling is passed through.) On a deployment
-whose login service uses OIDC, ``osprey up`` warns when the chain spells one of
+that renders web terminals, ``osprey up`` warns when the chain spells one of
 these names in lowercase with no uppercase twin, naming the file and the
 variable; the value is left as written.
 
-On a multi-user deployment the login service reads this set from the chain as
-well, and it is the one worth remembering, because it makes a call of its own:
-at the first login it fetches the identity provider's discovery document. On a
-proxied host without these names that call goes out directly, so the stack
-comes up, the health check is green, and every login fails. Nothing
-proxy-related belongs in ``.env.auth``. That file is the login service's
-credential store; proxy settings are configuration rather than secrets, and the
-chain already delivers them (see :ref:`multi-user-require-a-login`).
+Both of those containers make calls of their own, which is why they get the
+three. The login service fetches the identity provider's discovery document at
+the first login; the agent in a terminal reaches the model provider on every
+turn. On a proxied host without these names those calls go out directly, so the
+stack comes up, the health check is green, and they fail. Nothing
+proxy-related belongs in ``.env.auth`` or ``.env.users``. Those files are a
+credential store and a generated allowlist; proxy settings are configuration
+rather than secrets, and the chain already delivers them (see
+:ref:`multi-user-require-a-login`).
 
-**The trust store is not carried across.** A proxy that re-signs TLS with a
-site certificate authority needs that authority's certificate inside the
-container, and nothing puts it there yet. ``SSL_CERT_FILE`` and
-``REQUESTS_CA_BUNDLE`` in the chain do not reach the login service at all — it
-receives only the three proxy names. Uncommenting the site-CA block
-``osprey init`` writes into ``.env.shared`` therefore changes nothing for
-logins; the stack still starts and the identity-provider fetch still fails at
-TLS. (Routing a CA variable into the sidecar is not a fix either: one naming a
-path the image does not carry stops httpx from constructing a client at all.)
-Delivering a custom CA is a mount plus a variable, and separate work.
+**The trust store comes from the image, not from the chain.** A proxy that
+re-signs TLS with a site certificate authority needs that authority's
+certificate inside the container, and the chain is the wrong place to put it: a
+``SSL_CERT_FILE`` naming a path the image does not carry stops httpx from
+constructing a client at all. Set ``images.site_ca`` in ``config.yml`` instead
+and rebuild — the CA is installed into the project image, each web-terminal
+persona image and the login sidecar, and each of the three points its own tools
+at the merged bundle. The
+site-CA block ``osprey init`` writes into ``.env.shared`` is for the
+*containers* that read the whole chain, not for this.
 
 **A changed value lands at the next start.** These values are filled in when a
 container is created, so editing the chain does not reach a running stack:

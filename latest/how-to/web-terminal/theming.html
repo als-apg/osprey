@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -605,11 +605,13 @@ user somewhere else, add <code class="docutils literal notranslate"><span class=
 </pre></div>
 </div>
 <p>The value takes the same two forms as <code class="docutils literal notranslate"><span class="pre">web.theme</span></code>: a family, or a specific
-theme to also pin light or dark. It applies to that user only, and their own
-pick in the display menu still wins over it.</p>
+theme to also pin light or dark. It overrides <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> for that user’s
+terminal only, and their own pick in the display menu still wins over it.</p>
 <p>The landing page that lists everyone’s terminals uses the deployment-wide
-<code class="docutils literal notranslate"><span class="pre">web.theme</span></code>. It is shown before anyone has said who they are, so there is no
-personal setting to apply yet.</p>
+<code class="docutils literal notranslate"><span class="pre">web.theme</span></code>, and so does the sign-in page a user reaches from it, which also
+shows the facility name from <code class="docutils literal notranslate"><span class="pre">facility.name</span></code> above the OSPREY wordmark. Both
+are shown before anyone has said who they are, so there is no personal setting
+to apply yet.</p>
 </section>
 <section id="a-navy-and-teal-terminal">
 <h2>A navy-and-teal terminal<a class="headerlink" href="#a-navy-and-teal-terminal" title="Link to this heading">#</a></h2>

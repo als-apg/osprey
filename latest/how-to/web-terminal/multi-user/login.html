@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -744,17 +744,25 @@ user’s terminal:</p>
 <span class="w">        </span><span class="nt">client_id_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_ID</span><span class="w">      </span><span class="c1"># names in .env.auth</span>
 <span class="w">        </span><span class="nt">client_secret_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">OSPREY_AUTH_OIDC_CLIENT_SECRET</span>
 <span class="w">        </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sub</span>
+<span class="w">        </span><span class="nt">scopes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">openid</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">profile</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">email</span><span class="p p-Indicator">]</span>
 <span class="w">    </span><span class="nt">users</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">alice</span>
 <span class="w">        </span><span class="nt">index</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0</span>
 <span class="w">        </span><span class="nt">oidc_subject</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;8f4c1e02-...&quot;</span><span class="w">     </span><span class="c1"># alice&#39;s value of that claim</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">scopes</span></code> is what is asked for at the authorization endpoint, and it decides
+which claims the provider releases: a claim that was never requested is simply
+absent, and an absent claim is a denied login. The three above are the default,
+so a deployment whose provider publishes its identity claim under <code class="docutils literal notranslate"><span class="pre">profile</span></code>
+or <code class="docutils literal notranslate"><span class="pre">email</span></code> can leave the line out. <code class="docutils literal notranslate"><span class="pre">openid</span></code> may not be dropped — without it
+the provider issues no ID token at all, and the sidecar refuses to serve rather
+than run a login it cannot check.</p>
 <p>A login matches when the asserted claim equals the card’s <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>.
 The comparison is exact for every claim except <code class="docutils literal notranslate"><span class="pre">email</span></code>, which is compared
 case-insensitively: an address is the same mailbox in any case, and an
 identity provider is free to release the directory’s spelling
-(<code class="docutils literal notranslate"><span class="pre">THellert&#64;lbl.gov</span></code>) where the roster says <code class="docutils literal notranslate"><span class="pre">thellert&#64;lbl.gov</span></code>. <code class="docutils literal notranslate"><span class="pre">sub</span></code> is
+(<code class="docutils literal notranslate"><span class="pre">Alice&#64;example.org</span></code>) where the roster says <code class="docutils literal notranslate"><span class="pre">alice&#64;example.org</span></code>. <code class="docutils literal notranslate"><span class="pre">sub</span></code> is
 an opaque, case-sensitive identifier by specification and stays exact.</p>
 <p>Under <code class="docutils literal notranslate"><span class="pre">password</span></code> or <code class="docutils literal notranslate"><span class="pre">oidc</span></code> a small authentication service joins the stack
 and nginx asks it about every request under <code class="docutils literal notranslate"><span class="pre">/u/&lt;name&gt;/</span></code> before proxying
@@ -833,11 +841,15 @@ groups (<em>group overage</em>), which lands on a missing-claim refusal. Either
 emit only the groups assigned to this application, or define app roles and
 point <code class="docutils literal notranslate"><span class="pre">claim</span></code> at <code class="docutils literal notranslate"><span class="pre">roles</span></code>.</p>
 </div>
-<p>Behind a proxy that re-signs TLS with a site certificate authority, the
-identity-provider fetch fails inside the login service even with the site-CA
-block in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> uncommented: that service receives the three proxy
-variables and nothing else, and no site CA is mounted into its image. See
-<a class="reference internal" href="../../deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a> for what the chain delivers to which container.</p>
+<p>Behind a proxy that re-signs TLS with a site certificate authority, point
+<code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> at the bundle on the deploy host and rebuild: the CA is
+installed into the login service’s image, which is where its trust store lives.
+The site-CA block in <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> does not do this — a CA path in the chain
+names a file that image does not carry. See <a class="reference internal" href="../../deploy-project/env-chain.html#deployment-env-chain"><span class="std std-ref">Environment Variables (the .env chain)</span></a> for
+what the chain delivers to which container.</p>
+<p>This applies to the image OSPREY builds. In registry mode
+(<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.auth.image</span></code>) the login service runs a published image
+the facility built itself, so its trust store is that build’s business.</p>
 </section>
 <section id="share-a-card-with-more-than-one-person">
 <span id="multi-user-shared-card"></span><h2>Share a card with more than one person<a class="headerlink" href="#share-a-card-with-more-than-one-person" title="Link to this heading">#</a></h2>
@@ -1081,6 +1093,11 @@ it as a bare origin — scheme, host, port if non-default, no path.
 <code class="docutils literal notranslate"><span class="pre">allow_insecure_http</span></code> is not a way to postpone certificates on a reachable
 host; with nothing terminating TLS, anyone watching the traffic can become
 that user.</p>
+<p>A single-user <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> behind the same kind of TLS terminator sets
+<code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_EXTERNAL_ORIGIN</span></code> to that address instead. It is the same
+origin every terminal checks a state-changing request against, and the login
+URL <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> prints is built from it — without it the printed URL names
+the bind address, and a browser arriving from it has every write refused.</p>
 </section>
 <section id="passwords-and-where-they-live">
 <h2>Passwords, and where they live<a class="headerlink" href="#passwords-and-where-they-live" title="Link to this heading">#</a></h2>

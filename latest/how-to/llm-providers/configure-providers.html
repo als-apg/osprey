@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -606,7 +606,7 @@ This guide covers how to configure providers for both.</p>
 <td><p>Anthropic (native)</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">als-apg</span></code></p></td>
-<td><p>ALS Accelerator Physics Group AWS proxy</p></td>
+<td><p>ALS Accelerator Physics Group gateway</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">ALS_APG_API_KEY</span></code></p></td>
 <td><p>Anthropic (native)</p></td>
 </tr>
@@ -683,6 +683,22 @@ automatically starts a local translation proxy to bridge the protocols.</p></li>
 </pre></div>
 </div>
 <p>Ollama and vLLM run locally and do not require an API key.</p>
+<p><code class="docutils literal notranslate"><span class="pre">als-apg</span></code> needs one more variable: it fronts a gateway that each site hosts
+itself, so there is no endpoint to default to. Name it alongside the key, or
+put the URL straight into <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">ALS_APG_BASE_URL</span><span class="o">=</span><span class="s2">&quot;https://your-gateway.example.org/v1&quot;</span>
+</pre></div>
+</div>
+<p>Without it, every path that would place a call refuses rather than sending the
+gateway’s token to another host. A launch — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, an
+agent run — stops with:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Provider</span> <span class="s1">&#39;als-apg&#39;</span> <span class="n">has</span> <span class="n">no</span> <span class="n">base_url</span><span class="o">.</span> <span class="n">It</span> <span class="n">fronts</span> <span class="n">models</span> <span class="n">through</span> <span class="n">a</span> <span class="n">gateway</span> <span class="n">that</span>
+<span class="n">has</span> <span class="n">no</span> <span class="n">default</span> <span class="n">endpoint</span><span class="p">,</span> <span class="n">so</span> <span class="n">the</span> <span class="n">URL</span> <span class="n">has</span> <span class="n">to</span> <span class="n">be</span> <span class="n">named</span><span class="p">:</span> <span class="nb">set</span> <span class="n">ALS_APG_BASE_URL</span><span class="p">,</span>
+<span class="ow">or</span> <span class="n">api</span><span class="o">.</span><span class="n">providers</span><span class="o">.</span><span class="n">als</span><span class="o">-</span><span class="n">apg</span><span class="o">.</span><span class="n">base_url</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">yml</span><span class="o">.</span>
+</pre></div>
+</div>
+<p>A direct model call and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> report the same thing more briefly,
+as <code class="docutils literal notranslate"><span class="pre">Base</span> <span class="pre">URL</span> <span class="pre">required</span> <span class="pre">for</span> <span class="pre">als-apg</span></code>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>A shell export reaches a <strong>deployment</strong> only once, when <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
@@ -777,9 +793,12 @@ model, with a build warning naming each substitution. The framework never
 substitutes another provider’s model IDs; a provider with no <code class="docutils literal notranslate"><span class="pre">models</span></code>
 mapping <em>and</em> no <code class="docutils literal notranslate"><span class="pre">default_model</span></code> to fall back on is refused.</p>
 <p><code class="docutils literal notranslate"><span class="pre">base_url</span></code> is the endpoint the agent itself talks to. <code class="docutils literal notranslate"><span class="pre">cborg</span></code> and
-<code class="docutils literal notranslate"><span class="pre">als-apg</span></code> ship a built-in URL that a value here overrides; omit it to keep
-the built-in one. <code class="docutils literal notranslate"><span class="pre">anthropic</span></code> ships none, so omitting it sends requests to
-Anthropic’s own API. Keep the trailing
+<code class="docutils literal notranslate"><span class="pre">als-apg</span></code> front a gateway each site hosts itself and ship no built-in URL:
+name the endpoint here (or, for <code class="docutils literal notranslate"><span class="pre">als-apg</span></code>, in <code class="docutils literal notranslate"><span class="pre">ALS_APG_BASE_URL</span></code> as above)
+or the provider refuses to start. <code class="docutils literal notranslate"><span class="pre">argo</span></code>, <code class="docutils literal notranslate"><span class="pre">stanford</span></code> and the local runtimes
+(<code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">vllm</span></code>, <code class="docutils literal notranslate"><span class="pre">ds4</span></code>) ship a well-known endpoint that a value here
+overrides. <code class="docutils literal notranslate"><span class="pre">anthropic</span></code> and <code class="docutils literal notranslate"><span class="pre">openai</span></code> need none, so omitting it sends
+requests to the vendor’s own API. Keep the trailing
 <code class="docutils literal notranslate"><span class="pre">/v1</span></code> on OpenAI-compatible gateways — the translation proxy needs it, and the
 agent’s own requests have it stripped automatically.</p>
 <p><code class="docutils literal notranslate"><span class="pre">extra_body</span></code> is an optional mapping sent in the request body of every
@@ -892,8 +911,10 @@ identity onto every request instead:</p>
 LiteLLM SDK path used by MCP servers sets the same identity as the OpenAI
 <code class="docutils literal notranslate"><span class="pre">user</span></code> field. Nothing is sent to a direct vendor.</p>
 <p>The built-in <code class="docutils literal notranslate"><span class="pre">als-apg</span></code> and <code class="docutils literal notranslate"><span class="pre">cborg</span></code> providers are LiteLLM proxies and get
-this automatically. A custom gateway declares it in its <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>
-entry:</p>
+this automatically; a <code class="docutils literal notranslate"><span class="pre">gateway:</span></code> key on one of those names overrides that
+default, and <code class="docutils literal notranslate"><span class="pre">gateway:</span> <span class="pre">none</span></code> turns attribution off for an entry that points
+the name at a direct endpoint. A custom gateway declares it in its
+<code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> entry:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">providers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">my-litellm-gateway</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${MY_GATEWAY_KEY}</span>
@@ -919,8 +940,10 @@ LiteLLM ignores the headers.</p>
 <p>To add a new OpenAI-compatible provider, append an entry to <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>
 beside <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> (see
 <a class="reference internal" href="#provider-configuration"><span class="std std-ref">Provider Configuration</span></a> above) and run
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> — no code changes required. The rendered result in
-<code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>:</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> — no code changes required. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports such a
+config-only provider as <em>skipped</em>, not failed: there is no adapter class to
+probe it with, so the run says it went unverified rather than grading the
+deployment unhealthy. The rendered result in <code class="docutils literal notranslate"><span class="pre">build/config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">api</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">providers</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">my-provider</span><span class="p">:</span>
@@ -953,7 +976,10 @@ provider by <em>name</em> against the built-in table in this guide, so a
 config-only entry means nothing to them and a tool call that asks for it
 fails with <code class="docutils literal notranslate"><span class="pre">Unknown</span> <span class="pre">provider</span></code>. Giving an MCP tool server a new provider
 takes code: a provider class registered under that name through a
-<code class="docutils literal notranslate"><span class="pre">ProviderRegistration</span></code> in your application’s registry.</p>
+<code class="docutils literal notranslate"><span class="pre">ProviderRegistration</span></code> in your application’s registry. That registry file
+is the one named by <code class="docutils literal notranslate"><span class="pre">registry_path</span></code> in the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (set
+it in your profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block) or by the <code class="docutils literal notranslate"><span class="pre">REGISTRY_PATH</span></code>
+environment variable; see <a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a>.</p>
 </div>
 </section>
 </section>

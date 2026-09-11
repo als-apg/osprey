@@ -301,7 +301,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
          1. **Registry bootstrap** --- pre-creates the framework registry singleton (without an application registry path) so that ARIEL's search module discovery works even when running outside a full Osprey application.
 
-         2. **Config loading** --- searches for ``config.yml`` in four locations: the provided ``config_path``, ``/app/config.yml`` (Docker mount), the ``CONFIG_FILE`` environment variable, and the current directory. The DSN is then resolved by ``resolve_ariel_dsn``, which applies the ``ARIEL_DATABASE_HOST`` and ``ARIEL_DATABASE_PORT`` overrides for Docker networking.
+         2. **Config loading** --- searches for ``config.yml`` in four locations: the provided ``config_path``, the ``CONFIG_FILE`` environment variable, ``/app/config.yml`` (a hand-authored container mount), and the current directory. The DSN is then resolved by ``resolve_ariel_dsn``, which applies the ``ARIEL_DATABASE_HOST`` and ``ARIEL_DATABASE_PORT`` overrides for Docker networking.
 
          3. **Service creation** --- creates the ``ARIELSearchService`` from the loaded config and stores it in ``app.state.ariel_service``.
 
@@ -503,4 +503,4 @@ Migrations are run via ``osprey ariel migrate`` and managed by the ``run_migrati
 .. admonition:: Schema Evolution
    :class: outreach
 
-   The current schema was designed around three facility logbook formats (ALS, JLab, ORNL) and may not capture every field your facility needs. The ``metadata`` JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us --- the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.
+   The current schema was generalised from the logbook formats the shipped ingestion adapters read, and may not capture every field your facility needs. The ``metadata`` JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us --- the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.

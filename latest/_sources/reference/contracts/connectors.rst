@@ -264,6 +264,15 @@ layers above the connector — the ``channel_write`` tool and the limits hook �
 hold no client, so they apply every other limit and leave this one to the
 connector, which makes it on the write itself.
 
+That read is bounded: ``control_system.connector.<type>.step_read_timeout_s``
+(default 2.0 seconds) is how long it waits, beside the connector's own
+``timeout`` and for the same reason — a gateway two hops away answers more
+slowly than an IOC on the deploy host. The bound is fail-closed: a channel that
+does not answer inside it reads as "could not be measured", which refuses the
+write. Raising it buys a slow channel room, never a weaker check. The python
+executor's sandbox applies the same number, so a script's step check and the
+connector's wait the same length of time for the same channel.
+
 A refusal about an unlisted channel — and the target switch's
 ``limits_posture`` refusal — names the key that answered, the per-type one where
 a block spoke and the deployment-wide one where none did, so an operator edits

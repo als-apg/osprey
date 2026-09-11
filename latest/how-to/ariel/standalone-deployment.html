@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -718,6 +718,41 @@ regenerable artifact. See <a class="reference internal" href="../build-profiles.
 preset → profile → build model.</p>
 </section>
 </section>
+<section id="read-only-role-for-the-sql-tool">
+<h2>Read-only role for the SQL tool<a class="headerlink" href="#read-only-role-for-the-sql-tool" title="Link to this heading">#</a></h2>
+<p>The agent can run raw SQL against the logbook database. That query path
+connects as its own Postgres role — <code class="docutils literal notranslate"><span class="pre">&lt;username&gt;_ro</span></code>, derived from
+<code class="docutils literal notranslate"><span class="pre">services.postgresql.username</span></code> — which can log in, read the tables in the
+<code class="docutils literal notranslate"><span class="pre">public</span></code> schema, and do nothing else. It is not the role ingestion writes
+with, and it is not a superuser, so a query naming a server-side function such
+as <code class="docutils literal notranslate"><span class="pre">pg_read_file()</span></code> is refused by Postgres rather than by a pattern match over
+the query text.</p>
+<p>The role is created by an init script the Postgres entrypoint runs <strong>once,
+while it initializes a fresh data volume</strong>, the same window
+<code class="docutils literal notranslate"><span class="pre">POSTGRES_PASSWORD</span></code> is read in. Its password is <code class="docutils literal notranslate"><span class="pre">ARIEL_DB_READONLY_PASSWORD</span></code>
+in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>, minted by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> beside
+<code class="docutils literal notranslate"><span class="pre">ARIEL_DB_PASSWORD</span></code>. A new deployment gets all of this with no action from
+you.</p>
+<p>Tables created later are covered: the script grants <code class="docutils literal notranslate"><span class="pre">SELECT</span></code> on the schema’s
+tables and sets default privileges for the owner, so the <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code>
+table the migrations create and the per-model <code class="docutils literal notranslate"><span class="pre">text_embeddings_*</span></code> tables an
+enhancement module adds are readable without a second grant.</p>
+<section id="adopting-the-role-on-an-existing-database">
+<h3>Adopting the role on an existing database<a class="headerlink" href="#adopting-the-role-on-an-existing-database" title="Link to this heading">#</a></h3>
+<p>A data volume created before the role existed never runs the init script, so it
+has no <code class="docutils literal notranslate"><span class="pre">&lt;username&gt;_ro</span></code>. Nothing breaks: the agent notices at start-up, logs
+one warning, and runs the SQL tool on the ingestion connection as it did
+before. To adopt the role without recreating the volume, run the same script by
+hand once:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span><span class="nb">exec</span><span class="w"> </span>-e<span class="w"> </span><span class="nv">ARIEL_DB_READONLY_PASSWORD</span><span class="o">=</span><span class="s2">&quot;</span><span class="k">$(</span>grep<span class="w"> </span><span class="s1">&#39;^ARIEL_DB_READONLY_PASSWORD=&#39;</span><span class="w"> </span>.env<span class="w"> </span><span class="p">|</span><span class="w"> </span>cut<span class="w"> </span>-d<span class="o">=</span><span class="w"> </span>-f2-<span class="k">)</span><span class="s2">&quot;</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>&lt;project&gt;-ariel-postgres<span class="w"> </span>bash<span class="w"> </span>/docker-entrypoint-initdb.d/10-readonly-role.sh
+</pre></div>
+</div>
+<p>Restart the agent afterwards so it picks up the role, and the warning stops.
+The script is idempotent — running it again is how you roll the role’s password
+after changing it in <code class="docutils literal notranslate"><span class="pre">.env</span></code>.</p>
+</section>
+</section>
 </section>
 
 
@@ -770,6 +805,10 @@ preset → profile → build model.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#customizing-for-your-facility">Customizing for your facility</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-edits-one-off-tweaks">Quick edits (one-off tweaks)</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#durable-customization-a-profile-you-own">Durable customization (a profile you own)</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#read-only-role-for-the-sql-tool">Read-only role for the SQL tool</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#adopting-the-role-on-an-existing-database">Adopting the role on an existing database</a></li>
 </ul>
 </li>
 </ul>

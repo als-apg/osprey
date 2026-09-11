@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -398,6 +398,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
@@ -1198,6 +1199,130 @@ declares <code class="docutils literal notranslate"><span class="pre">network:</
 <a class="reference internal" href="../../how-to/deploy-project/networking.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a> for what host mode changes and for
 <code class="docutils literal notranslate"><span class="pre">dispatch.network</span></code>, the single knob that covers the event dispatcher and its
 workers.</p>
+<p>A second <code class="docutils literal notranslate"><span class="pre">config</span></code> key the build reads is <code class="docutils literal notranslate"><span class="pre">env</span></code>: a list of host environment
+variable NAMES the service passes through to its container, in the order you
+write them.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">typesense</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/typesense</span>
+<span class="w">    </span><span class="nt">config</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">env</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">TYPESENSE_TELEMETRY</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">HTTPS_PROXY</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Names only, never values — each becomes a <code class="docutils literal notranslate"><span class="pre">NAME:</span> <span class="pre">${NAME}</span></code> the deploy env
+chain fills in, so rotating a value is an edit to <code class="docutils literal notranslate"><span class="pre">.env</span></code> and a restart. A name
+nothing sets arrives as an empty variable rather than an absent one.</p>
+<p>The event dispatcher and its workers take the same axis as <code class="docutils literal notranslate"><span class="pre">dispatch.env</span></code>,
+one list for both halves, because the build writes both of their service blocks
+itself:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">dispatch</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">triggers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_triggers.yml</span>
+<span class="w">  </span><span class="nt">env</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">EPICS_CA_ADDR_LIST</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">EPICS_CA_NAME_SERVERS</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Writing <code class="docutils literal notranslate"><span class="pre">env:</span></code> on either half’s own service block is refused for the same
+reason <code class="docutils literal notranslate"><span class="pre">network:</span></code> there is: the build would overwrite it.</p>
+<p>A third <code class="docutils literal notranslate"><span class="pre">config</span></code> key the build reads is <code class="docutils literal notranslate"><span class="pre">http</span></code>, default false: it says the
+service answers HTTP on the port it publishes, and the deploy summary prints
+its address as a link instead of a bare <code class="docutils literal notranslate"><span class="pre">host:port</span></code>. Leave it out for a
+service that speaks any other protocol.</p>
+</section>
+<section id="the-dispatch-block">
+<span id="profile-dispatch-block"></span><h2>The <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block<a class="headerlink" href="#the-dispatch-block" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> is a closed block: every key it accepts is listed below, and an
+unrecognised one fails the build rather than being dropped into a default.
+<code class="docutils literal notranslate"><span class="pre">triggers</span></code> is the only required key — writing the block at all is what opts
+the deployment into the event dispatcher and its workers.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 26.0%" />
+<col style="width: 18.0%" />
+<col style="width: 56.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Default</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">triggers</span></code></p></td>
+<td><p><em>(required)</em></p></td>
+<td><p>Bundled trigger-file name, or a path relative to the profile.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">worker_count</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
+<td><p>How many dispatch workers the build deploys.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">workspace_mode</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">isolated</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">isolated</span></code> gives each run its own workspace; <code class="docutils literal notranslate"><span class="pre">shared</span></code> puts every run
+in one.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">max_concurrent_runs</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">2</span></code></p></td>
+<td><p>Runs a worker executes at once.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">max_queue_depth</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">50</span></code></p></td>
+<td><p>Queued runs held before the dispatcher starts refusing new ones.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">dispatcher_port</span></code></p></td>
+<td><p><em>(from the port layout)</em></p></td>
+<td><p>Host port the dispatcher publishes. Unset resolves against the
+deployment’s own <code class="docutils literal notranslate"><span class="pre">deployment.port_base</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">worker_port_base</span></code></p></td>
+<td><p><em>(from the port layout)</em></p></td>
+<td><p>Host port worker 1 publishes, in host-network mode only. Bridge-mode
+workers publish nothing on the host.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">worker_port_stride</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1</span></code></p></td>
+<td><p>Host-port spacing between consecutive workers. Widen it to leave room
+for something else of yours between them.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timeout_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">300</span></code></p></td>
+<td><p>Wall-clock ceiling on one run, as <code class="docutils literal notranslate"><span class="pre">DISPATCH_TIMEOUT_SEC</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">inactivity_sec</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">120</span></code></p></td>
+<td><p>How long a run may produce nothing before it is cut off, as
+<code class="docutils literal notranslate"><span class="pre">DISPATCH_INACTIVITY_SEC</span></code>. Raise it for slow providers; a long tool
+call is not inactivity, but a stalled one is.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">max_turns</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">25</span></code></p></td>
+<td><p>Agentic turns one dispatched run may take before the SDK stops it, as
+<code class="docutils literal notranslate"><span class="pre">DISPATCH_MAX_TURNS</span></code>; the budget about the work rather than the clock.
+A trigger may state its own <code class="docutils literal notranslate"><span class="pre">max_turns:</span></code> under <code class="docutils literal notranslate"><span class="pre">action:</span></code>; one that
+names none gets this.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">facility_name</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>Display name the dashboard shows.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_strip_prefix</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
+<td><p>Leading prefix trimmed off a channel address before the dashboard shows
+it, so a dense trigger list is not mostly the segment every address
+shares. It reaches the trigger sources that carry a channel; a source
+that renders an interval or a bare name has nothing to trim.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">network</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bridge</span></code></p></td>
+<td><p>Network attachment for the dispatcher and its workers together — see
+<a class="reference internal" href="../../how-to/deploy-project/networking.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">env</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">[]</span></code></p></td>
+<td><p>Host environment variable names passed through to both halves, in the
+order you write them. Names only, never values.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
 </section>
 <section id="graph-mode-channel-finding">
 <span id="profile-graph-mode"></span><h2>Graph-mode channel finding<a class="headerlink" href="#graph-mode-channel-finding" title="Link to this heading">#</a></h2>
@@ -1733,6 +1858,28 @@ is served a page at a time and can be narrowed by an exact name
 prefix. The same number decides when a refusal for an unknown device
 stops listing every device it does know and gives a count instead.</p></td>
 </tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">settle_timeout_s</span></code></p></td>
+<td><p>How long a plan write waits for the readback to reach its demand
+before the move fails and the plan aborts (default 5.0 seconds). Raise
+it for devices that physically move; it never turns an unsettled move
+into a successful one.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">settle_tolerance</span></code></p></td>
+<td><p>How close the readback must come to the demand to count as settled, as
+an absolute difference (default <code class="docutils literal notranslate"><span class="pre">1e-9</span></code>). The default is a float-noise
+bound, right for a setpoint a controller echoes back exactly and far
+too strict for a magnet or a gap.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">live_max_runs</span></code></p></td>
+<td><p>How many runs’ live data the bridge keeps in memory, oldest dropped
+first (default 50). This is what decides how long a finished run stays
+readable in the web panel.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">live_max_rows_per_run</span></code></p></td>
+<td><p>How many rows of one run the bridge stores (default 10000). Rows past
+the cap are still counted, so a long run reports its true length over a
+truncated buffer.</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -1804,6 +1951,7 @@ what the stack looks like when it is up.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#services">Services</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-dispatch-block">The <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-mode-channel-finding">Graph-mode channel finding</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-virtual-accelerator-block">The <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> block</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-live-stand-in">The live stand-in</a></li>

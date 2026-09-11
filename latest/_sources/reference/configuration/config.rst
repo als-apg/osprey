@@ -8,13 +8,15 @@ build`` renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: :doc:`profile` describes the
 authoring side, and this page catalogues what the rendered result means.
 
-Four parts of that file are gathered here — the facility this deployment
+Six parts of that file are gathered here — the facility this deployment
 belongs to (``facility:``), the diagnostic suite (``health:``), the browser
-UI's documentation and feedback settings (``web:``), and the deployment keys
-that decide which container image each service runs and how ``${VAR}``
-placeholders in the compose files are filled in. Settings that only ever arrive
-from the environment are in :doc:`environment-variables`. A closing note records
-the **protected set** — the files and keys no agent-side writer may touch.
+UI's documentation and feedback settings (``web:``), the artifact gallery's own
+categories (``artifact_server:``), the Python sandbox's run ceiling
+(``python_executor:``), and the deployment keys that decide which container
+image each service runs and how ``${VAR}`` placeholders in the compose files
+are filled in. Settings that only ever arrive from the environment are in
+:doc:`environment-variables`. A closing note records the **protected set** —
+the files and keys no agent-side writer may touch.
 
 .. _config-facility:
 
@@ -430,8 +432,8 @@ check still produces a row (an eligible pending check becomes an ``error``
 The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
 section. The keys below aim the rail's two utility controls, bound the feedback
-store, name the deployment, arrange the header and status bar, and size the
-Simple-mode operator-chat pool.
+store, name the deployment, decide who is offered the onboarding tour, arrange
+the header and status bar, and size the Simple-mode operator-chat pool.
 
 .. _feedback-configuration:
 
@@ -461,8 +463,10 @@ Documentation and feedback keys
      - ``owner/repo`` of one more GitHub tracker, captioned **GitHub** —
        shorthand for a ``github`` entry in ``trackers``.
    * - ``web.feedback.email``
-     - ``thellert@lbl.gov``
+     - unset (no Email channel)
      - Recipient of the prefilled mail draft the dialog's Email channel opens.
+       Nothing ships here: the draft can carry a session's scrollback, so name
+       the mailbox your operators should reach before offering the channel.
    * - ``web.feedback.max_store_bytes``
      - ``268435456`` (256 MB)
      - Ceiling on the on-disk feedback store. Over it, the oldest saved session
@@ -499,8 +503,11 @@ Documentation and feedback keys
        email: controls-support@example.org
        max_store_bytes: 268435456
 
-The last four keys are unset in every shipped template: they are read straight
-from ``config.yml`` when present and fall back to the defaults above when not.
+``docs_url``, ``trackers``, ``github_repo`` and ``email`` are unset in every
+shipped preset — each is documented there as a commented example, so nothing
+writes the project's own address into your ``profile.yml``. All four are read
+straight from ``config.yml`` when present and fall back to the defaults above
+when not.
 
 .. _feedback-trackers:
 
@@ -557,6 +564,41 @@ configuration at all.
 
 A build profile overrides any of these keys from its ``config:`` block in the
 dotted form, e.g. ``web.feedback.max_store_bytes: 536870912``.
+
+.. _config-web-tour:
+
+The onboarding tour invite
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+A first-time visitor to the terminal is offered a short guided tour of the
+screen. ``web.tour`` decides who is offered it, and how often:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 16 84
+
+   * - Value
+     - What the visitor sees
+   * - ``once``
+     - The default. The invite card appears until this browser dismisses it —
+       "Don't show this again", or finishing the tour — and then stops.
+   * - ``always``
+     - The invite appears on every load and offers no permanent dismissal.
+       This is the shared-screen posture: a wall display nobody owns should
+       still greet the next person who walks up to it.
+   * - ``never``
+     - No invite. The tour itself stays reachable from the rail's **Tour**
+       control and the command palette, so turning the invite off does not
+       take the tour away.
+
+An unrecognised value is reported in the log and treated as ``once``: a typo
+costs you the setting, never the terminal's startup.
+
+On a multi-user deployment the policy can differ per user. A roster entry's
+``tour:`` field — beside its ``theme:`` — is rendered into that user's
+container as ``OSPREY_WEB_TOUR``, and the environment variable outranks
+``web.tour`` for that container, exactly as ``OSPREY_WEB_THEME`` outranks
+``web.theme``.
 
 .. _config-bar-items:
 
@@ -634,6 +676,70 @@ error. Absent, the refusal stands exactly as before. When set, every
 closing card carries a ``dangerously_allow_bash`` row. The key belongs to
 :ref:`the protected set <config-protected-set>`, so the running agent cannot
 set it. A build profile sets it from its ``config:`` block.
+
+.. _config-artifact-server:
+
+``artifact_server:`` — the workspace gallery's own categories
+-------------------------------------------------------------
+
+Every artifact carries a **category**, and the category decides the badge the
+gallery draws on its card. OSPREY ships a general set — ``visualization``,
+``diagnostic_report``, ``lattice_analysis`` and the rest — which is a
+laboratory's vocabulary rather than yours. ``artifact_server.categories`` adds
+your own to it, from the build profile, one dotted line per category:
+
+.. code-block:: yaml
+
+   config:
+     artifact_server.categories.beam_diagnostics: {label: Beam Diagnostics, color: "#f59e0b"}
+     artifact_server.categories.rf_conditioning: {label: RF Conditioning, color: "#38bdf8"}
+
+Each entry takes a ``label`` (what the badge says) and a ``color`` (a
+``#RRGGBB`` hex value, and nothing else — a malformed entry is skipped with a
+warning rather than stopping the launch). The names are yours: nothing in
+OSPREY validates the vocabulary, and a category you do not declare here is
+simply not one the gallery knows.
+
+An artifact handed in under an undeclared category is still stored. What it
+loses is the badge — and the save logs ``Unregistered category ... declare it
+under artifact_server.categories``, which is the one place that mismatch shows
+up. The categories are read once, when the artifact server and the MCP
+workspace server start, so a new one arrives with ``osprey build`` and a
+restart.
+
+The four commented stanzas in the shipped presets have nothing to do but say
+this: a shipped value would be one facility's vocabulary handed to every other.
+
+One other key sits in this block. ``artifact_server.max_timeseries_file_mb``
+(default 200) is the largest timeseries data file the gallery will draw as a
+chart or lay out as a table. Over it, those two views refuse with a ``413`` and
+say so; the file itself stays downloadable either way. The handler reads the
+whole file into memory to build the view, so raising the number spends that
+much memory on the machine serving the gallery — which is why it is a facility's
+to set rather than a fixed bound: how big an export gets is a property of your
+archiver, and how much memory the gallery host has is a property of your site.
+
+.. _config-python-executor:
+
+``python_executor:`` — how long one agent script may run
+---------------------------------------------------------
+
+``python_executor.execution_timeout_seconds`` is the wall-clock ceiling on a
+single agent Python run. It defaults to ``600`` — ten minutes — and a run that
+reaches it is killed and reported as a **timeout**, which the response
+deliberately classes as the sandbox's decision rather than as a failure of the
+submitted script:
+
+.. code-block:: yaml
+
+   config:
+     python_executor.execution_timeout_seconds: 1800
+
+Raise it for a facility whose legitimate analyses run long — a fit over a
+day of archived data, a scan reconstruction — and lower it where a runaway
+script holding the sandbox is the worse outcome. The value is read once in
+the sandbox's MCP server process and held for that process's lifetime, so a
+change lands after ``osprey build`` and a restart of the stack.
 
 .. _config-deployment:
 

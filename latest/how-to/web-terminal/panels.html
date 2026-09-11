@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -534,6 +534,57 @@ to do.</p>
 <span class="w">    </span><span class="nt">lattice</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 </pre></div>
 </div>
+<section id="panels-that-need-a-section-as-well-as-a-tick">
+<h2>Panels that need a section as well as a tick<a class="headerlink" href="#panels-that-need-a-section-as-well-as-a-tick" title="Link to this heading">#</a></h2>
+<p>For most panels that line is the whole gesture. Three of them need a second
+one: they are tabs onto a service that has to be configured before there is
+anything to show, and OSPREY will not guess at its address. Listing the panel
+without its section leaves the tab <strong>dark</strong> — no error, one line in the log
+saying the panel is unavailable.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 24.0%" />
+<col style="width: 30.0%" />
+<col style="width: 46.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Panel</p></th>
+<th class="head"><p>Also needs</p></th>
+<th class="head"><p>What lives in that section</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lattice</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">lattice_dashboard:</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">host</span></code>, <code class="docutils literal notranslate"><span class="pre">port</span></code>, <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> for the lattice dashboard.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">channel-finder</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">channel_finder:</span></code></p></td>
+<td><p>The pipeline and the channel database behind it — see
+<a class="reference internal" href="../../reference/contracts/channel-finder.html"><span class="doc">Channel Finder Contracts</span></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">okf</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">facility_knowledge:</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">bundle_path</span></code>, the compiled knowledge bundle the KNOWLEDGE tab serves.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>So a working lattice tab is two things, not one:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">panels</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">lattice</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+
+<span class="nt">lattice_dashboard</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">127.0.0.1</span>
+<span class="w">  </span><span class="nt">auto_launch</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>The shipped <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset leaves both halves to you for the
+lattice tab — the panel is not in its <code class="docutils literal notranslate"><span class="pre">web_panels:</span></code> list and the
+<code class="docutils literal notranslate"><span class="pre">lattice_dashboard:</span></code> stanza sits beside it commented out — and supplies both
+for KNOWLEDGE and CHANNELS, which is why those two work out of the box.</p>
+</section>
 <section id="where-the-panel-rail-lives">
 <h2>Where the panel rail lives<a class="headerlink" href="#where-the-panel-rail-lives" title="Link to this heading">#</a></h2>
 <p>Open panels line up in the <strong>panel rail</strong>, which sits along the left edge by
@@ -845,6 +896,7 @@ shape of it.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-that-need-a-section-as-well-as-a-tick">Panels that need a section as well as a tick</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-panel-rail-lives">Where the panel rail lives</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panels-backed-by-a-url">Panels backed by a URL</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#theming-a-url-backed-panel">Theming a URL-backed panel</a></li>

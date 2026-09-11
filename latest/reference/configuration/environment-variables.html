@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -398,6 +398,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
@@ -466,7 +467,12 @@
                   
   <section id="environment-variables">
 <span id="reference-environment-variables"></span><h1>Environment Variables<a class="headerlink" href="#environment-variables" title="Link to this heading">#</a></h1>
-<p>The environment variables the OSPREY CLI reads, and where they belong.</p>
+<p>Most of what a deployment can be told lives in the build profile and is
+rendered into <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. What is left over — secrets, and the handful of
+choices that belong to the <em>host</em> a command runs on rather than to the
+deployment — arrives from the environment. This page is what that is.</p>
+<section id="secrets-and-env">
+<h2>Secrets, and <code class="docutils literal notranslate"><span class="pre">.env</span></code><a class="headerlink" href="#secrets-and-env" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>sk-...<span class="w">          </span><span class="c1"># Or OPENAI_API_KEY, GOOGLE_API_KEY, etc.</span>
 </pre></div>
 </div>
@@ -474,6 +480,122 @@
 there. No environment variable selects which deployment a command acts on:
 every lifecycle verb finds the repository by walking up from the working
 directory, and <code class="docutils literal notranslate"><span class="pre">--repo</span> <span class="pre">DIRECTORY</span></code> names another one.</p>
+<p><code class="docutils literal notranslate"><span class="pre">.env.example</span></code>, rendered into the repository by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>, is the
+starting point: copy it to <code class="docutils literal notranslate"><span class="pre">.env</span></code> and fill in what you need. It carries the
+variables <strong>the deployment supplies</strong> — the provider keys, whatever the
+profile’s <code class="docutils literal notranslate"><span class="pre">env.required</span></code> / <code class="docutils literal notranslate"><span class="pre">env.optional</span></code> declares, and the tokens
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> mints for the services it starts. It is not an inventory of every
+name the framework reads: the host-level knobs below are set in the environment
+of the command you run, not in a file the build renders.</p>
+</section>
+<section id="host-level-knobs">
+<h2>Host-level knobs<a class="headerlink" href="#host-level-knobs" title="Link to this heading">#</a></h2>
+<p>Each of these belongs to the machine or the invocation rather than to the
+deployment, which is why none of them is a config key.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 32.0%" />
+<col style="width: 68.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">docker</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span></code>, overriding the runtime recorded for this
+deployment for one invocation. See
+<a class="reference internal" href="../../how-to/deploy-project/index.html"><span class="doc">Container Deployment</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_REGISTRY</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_IMAGE_TAG</span></code></p></td>
+<td><p>The two image axes for one build, outranking <code class="docutils literal notranslate"><span class="pre">images.registry</span></code> /
+<code class="docutils literal notranslate"><span class="pre">images.tag</span></code> — see <a class="reference internal" href="config.html#deployment-image-overrides"><span class="std std-ref">the two image axes</span></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code>,
+<code class="docutils literal notranslate"><span class="pre">PIP_EXTRA_INDEX_URL</span></code></p></td>
+<td><p>The site’s build settings — a CA bundle for a TLS-intercepting proxy, a
+proxy bypass list, and the package indexes pip resolves from — for one
+build, outranking <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_no_proxy</span></code> /
+<code class="docutils literal notranslate"><span class="pre">images.pip_index_url</span></code> / <code class="docutils literal notranslate"><span class="pre">images.pip_extra_index_url</span></code> exactly as the
+two image axes outrank <code class="docutils literal notranslate"><span class="pre">images.registry</span></code> / <code class="docutils literal notranslate"><span class="pre">images.tag</span></code>. Whichever
+layer wins is handed to the project image, each web-terminal persona
+image and the login sidecar — see
+<a class="reference internal" href="../../how-to/deploy-project/project-image.html"><span class="doc">The Project Image</span></a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">1</span></code> switches the web interfaces from CDN-hosted libraries to the local
+bundles <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> downloads. The equivalent config key is
+<code class="docutils literal notranslate"><span class="pre">offline</span></code>; use the variable for a single run, the key for a
+deployment that is always firewalled. Whichever layer wins is also
+passed to those same three builds as the <code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code> build
+argument, which runs <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> inside the image, so the
+mode an image was built for and the mode it serves in cannot disagree.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_CA_BUNDLE</span></code></p></td>
+<td><p>Path to a CA bundle for hosts behind a TLS-intercepting proxy, so
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> verifies rather than skips. <code class="docutils literal notranslate"><span class="pre">SSL_CERT_FILE</span></code>
+works too; this one wins when both are set.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">REGISTRY_PATH</span></code></p></td>
+<td><p>Path to a facility’s own component registry module, outranking the
+<code class="docutils literal notranslate"><span class="pre">registry_path</span></code> config key. Meant for pointing a container at a
+registry mounted somewhere the config could not have named.
+<code class="docutils literal notranslate"><span class="pre">registry_path</span></code> at the top level of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is the canonical
+spelling of that key — set it in your profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block —
+and <code class="docutils literal notranslate"><span class="pre">application.registry_path</span></code> is accepted as an alias. All three
+resolve through one function, so the registry that loads is the one
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports on.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_MCP_READY_TIMEOUT</span></code></p></td>
+<td><p>Seconds a run waits for every MCP server the project declares to finish
+connecting before it goes ahead without them, default <code class="docutils literal notranslate"><span class="pre">90</span></code>. A host
+property, not a deployment one: a cold or oversubscribed machine takes
+longer to start the same servers. Too low and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> exits 1
+for a server that was still starting. The former spelling
+<code class="docutils literal notranslate"><span class="pre">OSPREY_E2E_MCP_READY_TIMEOUT</span></code> is still read and will be dropped after
+one release; the budget was never specific to tests.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TERMINAL_BIND_HOST</span></code></p></td>
+<td><p>The address <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> binds to, and <strong>authoritative over both
+``–host`` and the config</strong>. The multi-user compose sets it on every
+per-user container so the reverse proxy stays the only path in from off
+the host; a single-user <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> sets nothing and <code class="docutils literal notranslate"><span class="pre">--host</span></code> is
+honoured as given.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">OSPREY_SITE_CA</span></code> and the <code class="docutils literal notranslate"><span class="pre">PIP_*</span></code> names are host-level knobs and Docker
+<strong>build arguments</strong> at once: the Dockerfiles in
+<a class="reference internal" href="../../how-to/deploy-project/project-image.html"><span class="doc">The Project Image</span></a> declare an ARG of each name, and
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> supplies each one from the host variable, or from the
+<code class="docutils literal notranslate"><span class="pre">images.*</span></code> key behind it. One spelling for one setting, whether the build is
+managed or a hand-run <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">build</span></code>. What they configure is the build — a
+container that is already running reads nothing from them.</p>
+</section>
+<section id="names-the-framework-stamps">
+<h2>Names the framework stamps<a class="headerlink" href="#names-the-framework-stamps" title="Link to this heading">#</a></h2>
+<p>A deployment’s containers carry more OSPREY variables than the ones above, and
+they are not settings. The build renders them: which user a container serves,
+which identity its audit records are filed under, which control target and
+write posture a session is running with. Setting one by hand does not
+reconfigure anything — it detaches a process from the thing that was tracking
+it, which is why the audit-critical names are stripped from every MCP server
+spec the build renders.</p>
+<p><a class="reference internal" href="../contracts/audit-trail.html#audit-trail-identity-ladder"><span class="std std-ref">The audit identity ladder</span></a> covers that set
+and why it is closed.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="config.html"><span class="doc">Runtime Configuration — config.yml</span></a></dt><dd><p>The settings that arrive from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> rather than the environment.</p>
+</dd>
+<dt><a class="reference internal" href="../../how-to/deploy-project/env-chain.html"><span class="doc">Environment Variables (the .env chain)</span></a></dt><dd><p>Which <code class="docutils literal notranslate"><span class="pre">.env</span></code> file wins where, and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the
+compose files are resolved.</p>
+</dd>
+</dl>
+</div>
+</section>
 </section>
 
 
@@ -514,6 +636,20 @@ directory, and <code class="docutils literal notranslate"><span class="pre">--re
                 <dialog id="pst-secondary-sidebar-modal"></dialog>
                 <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
 
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#secrets-and-env">Secrets, and <code class="docutils literal notranslate"><span class="pre">.env</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#host-level-knobs">Host-level knobs</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#names-the-framework-stamps">Names the framework stamps</a></li>
+</ul>
+  </nav></div>
 
   <div class="sidebar-secondary-item">
 

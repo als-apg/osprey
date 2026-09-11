@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -398,6 +398,7 @@
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
@@ -827,7 +828,7 @@ App Internals</label><div class="sd-tab-content docutils">
 <p class="sd-card-text"><strong>Lifespan management:</strong> The app uses FastAPI’s <code class="docutils literal notranslate"><span class="pre">lifespan</span></code> context manager to initialize the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> on startup and clean it up on shutdown. During initialization:</p>
 <ol class="arabic simple">
 <li><p class="sd-card-text"><strong>Registry bootstrap</strong> — pre-creates the framework registry singleton (without an application registry path) so that ARIEL’s search module discovery works even when running outside a full Osprey application.</p></li>
-<li><p class="sd-card-text"><strong>Config loading</strong> — searches for <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in four locations: the provided <code class="docutils literal notranslate"><span class="pre">config_path</span></code>, <code class="docutils literal notranslate"><span class="pre">/app/config.yml</span></code> (Docker mount), the <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> environment variable, and the current directory. The DSN is then resolved by <code class="docutils literal notranslate"><span class="pre">resolve_ariel_dsn</span></code>, which applies the <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code> and <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_PORT</span></code> overrides for Docker networking.</p></li>
+<li><p class="sd-card-text"><strong>Config loading</strong> — searches for <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in four locations: the provided <code class="docutils literal notranslate"><span class="pre">config_path</span></code>, the <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> environment variable, <code class="docutils literal notranslate"><span class="pre">/app/config.yml</span></code> (a hand-authored container mount), and the current directory. The DSN is then resolved by <code class="docutils literal notranslate"><span class="pre">resolve_ariel_dsn</span></code>, which applies the <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code> and <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_PORT</span></code> overrides for Docker networking.</p></li>
 <li><p class="sd-card-text"><strong>Service creation</strong> — creates the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> from the loaded config and stores it in <code class="docutils literal notranslate"><span class="pre">app.state.ariel_service</span></code>.</p></li>
 <li><p class="sd-card-text"><strong>Health check</strong> — validates the database connection and logs the result.</p></li>
 </ol>
@@ -1091,7 +1092,7 @@ defined per page — they come from the shared design system’s
 <p>Migrations are run via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code> and managed by the <code class="docutils literal notranslate"><span class="pre">run_migrations()</span></code> function in <code class="docutils literal notranslate"><span class="pre">database/migrations.py</span></code>. When <code class="docutils literal notranslate"><span class="pre">text_embedding</span></code> is enabled, <code class="docutils literal notranslate"><span class="pre">migrate</span></code> creates an embedding table for each model listed in <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> (falling back to <code class="docutils literal notranslate"><span class="pre">nomic-embed-text</span></code>, 768, if none is configured); <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span></code> (re)creates and backfills a single model’s table on demand.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Schema Evolution</p>
-<p>The current schema was designed around three facility logbook formats (ALS, JLab, ORNL) and may not capture every field your facility needs. The <code class="docutils literal notranslate"><span class="pre">metadata</span></code> JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us — the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.</p>
+<p>The current schema was generalised from the logbook formats the shipped ingestion adapters read, and may not capture every field your facility needs. The <code class="docutils literal notranslate"><span class="pre">metadata</span></code> JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us — the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.</p>
 </div>
 </section>
 </section>

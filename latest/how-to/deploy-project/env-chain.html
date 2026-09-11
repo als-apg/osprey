@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -696,6 +696,13 @@ fallback — applied by the compose template and by the DSN the agent derives
 from <code class="docutils literal notranslate"><span class="pre">services.postgresql</span></code> — keeps such deployments working. To adopt
 the minted password, remove the <code class="docutils literal notranslate"><span class="pre">ariel_postgres_data</span></code> volume and redeploy
 (this deletes the stored logbook data — re-ingest afterwards).</p>
+<p><code class="docutils literal notranslate"><span class="pre">ARIEL_DB_READONLY_PASSWORD</span></code> is minted beside it and has the same
+fresh-volume caveat: it is the login secret of the SELECT-only role the
+agent’s SQL tool queries through, created by an init script the same
+volume initialization runs. A volume that predates the role simply does not
+have it, and the agent says so once at start-up rather than failing. See
+<a class="reference internal" href="../ariel/standalone-deployment.html"><span class="doc">Standalone Deployment</span></a> for adopting the role on an existing
+database.</p>
 </div>
 </section>
 <section id="egress-through-a-site-proxy">
@@ -708,32 +715,35 @@ the same proxy, in <code class="docutils literal notranslate"><span class="pre">
 <span class="nv">NO_PROXY</span><span class="o">=</span>localhost,127.0.0.1
 </pre></div>
 </div>
-<p><strong>Spell them in uppercase.</strong> The login service is handed exactly these three
-names and nothing else from the chain, so a lowercase <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> never
-reaches it. (Inside a container that does receive the whole chain, an empty
+<p><strong>Spell them in uppercase.</strong> Two containers do not read the chain wholesale and
+are handed exactly these three names instead: the login service, whose
+<code class="docutils literal notranslate"><span class="pre">env_file</span></code> is <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>, and each per-user terminal, whose <code class="docutils literal notranslate"><span class="pre">env_file</span></code> is
+the closed allowlist <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>. A lowercase <code class="docutils literal notranslate"><span class="pre">https_proxy</span></code> therefore never
+reaches either. (Inside a container that does receive the whole chain, an empty
 lowercase name is worse than absent — it turns the proxy off for that scheme —
 which is why only the uppercase spelling is passed through.) On a deployment
-whose login service uses OIDC, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns when the chain spells one of
+that renders web terminals, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> warns when the chain spells one of
 these names in lowercase with no uppercase twin, naming the file and the
 variable; the value is left as written.</p>
-<p>On a multi-user deployment the login service reads this set from the chain as
-well, and it is the one worth remembering, because it makes a call of its own:
-at the first login it fetches the identity provider’s discovery document. On a
-proxied host without these names that call goes out directly, so the stack
-comes up, the health check is green, and every login fails. Nothing
-proxy-related belongs in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code>. That file is the login service’s
-credential store; proxy settings are configuration rather than secrets, and the
-chain already delivers them (see <a class="reference internal" href="../web-terminal/multi-user/login.html#multi-user-require-a-login"><span class="std std-ref">Require a Login</span></a>).</p>
-<p><strong>The trust store is not carried across.</strong> A proxy that re-signs TLS with a
-site certificate authority needs that authority’s certificate inside the
-container, and nothing puts it there yet. <code class="docutils literal notranslate"><span class="pre">SSL_CERT_FILE</span></code> and
-<code class="docutils literal notranslate"><span class="pre">REQUESTS_CA_BUNDLE</span></code> in the chain do not reach the login service at all — it
-receives only the three proxy names. Uncommenting the site-CA block
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes into <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> therefore changes nothing for
-logins; the stack still starts and the identity-provider fetch still fails at
-TLS. (Routing a CA variable into the sidecar is not a fix either: one naming a
-path the image does not carry stops httpx from constructing a client at all.)
-Delivering a custom CA is a mount plus a variable, and separate work.</p>
+<p>Both of those containers make calls of their own, which is why they get the
+three. The login service fetches the identity provider’s discovery document at
+the first login; the agent in a terminal reaches the model provider on every
+turn. On a proxied host without these names those calls go out directly, so the
+stack comes up, the health check is green, and they fail. Nothing
+proxy-related belongs in <code class="docutils literal notranslate"><span class="pre">.env.auth</span></code> or <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>. Those files are a
+credential store and a generated allowlist; proxy settings are configuration
+rather than secrets, and the chain already delivers them (see
+<a class="reference internal" href="../web-terminal/multi-user/login.html#multi-user-require-a-login"><span class="std std-ref">Require a Login</span></a>).</p>
+<p><strong>The trust store comes from the image, not from the chain.</strong> A proxy that
+re-signs TLS with a site certificate authority needs that authority’s
+certificate inside the container, and the chain is the wrong place to put it: a
+<code class="docutils literal notranslate"><span class="pre">SSL_CERT_FILE</span></code> naming a path the image does not carry stops httpx from
+constructing a client at all. Set <code class="docutils literal notranslate"><span class="pre">images.site_ca</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> instead
+and rebuild — the CA is installed into the project image, each web-terminal
+persona image and the login sidecar, and each of the three points its own tools
+at the merged bundle. The
+site-CA block <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> writes into <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> is for the
+<em>containers</em> that read the whole chain, not for this.</p>
 <p><strong>A changed value lands at the next start.</strong> These values are filled in when a
 container is created, so editing the chain does not reach a running stack:
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> is what puts a new proxy into force. Because the value is

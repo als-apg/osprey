@@ -236,12 +236,27 @@ Authoring Triggers
             prompt: >-
               Reply with a single sentence confirming the pipeline works.
             allowed_tools: []            # tools this run may use
+            max_turns: 25                # optional; defaults to dispatch.max_turns
           on_error:                      # optional: retry if the worker is unreachable
             action: retry
             max_retries: 2
             backoff_sec: 1.0
 
    Each webhook trigger is reachable at ``POST /webhook/<name>``.
+
+   ``max_concurrent_runs`` and ``max_queue_depth`` are shown with their
+   defaults: leave them out and the dispatcher carries two runs at once and
+   holds fifty events waiting for a slot. A build writes both keys from the
+   profile's ``dispatch:`` block, which starts at the same pair.
+
+   **Turn ceiling.** How many agentic turns one dispatched run may take is
+   ``dispatch.max_turns`` in the build profile (default 25) — the third budget
+   beside ``dispatch.timeout_sec`` and ``dispatch.inactivity_sec``, and the one
+   about the work rather than the clock. A trigger that needs more, or less,
+   than the deployment's number states its own ``max_turns:`` in ``action:``;
+   a trigger that names none gets the deployment's. A trigger's own value must
+   be a whole number of turns of at least one, and the dispatcher refuses the
+   triggers file at load if it is not.
 
    **Tool denylist (defence in depth).** The worker enforces a server-side tool
    denylist regardless of what a trigger requests: ``WebFetch``, ``WebSearch``,
@@ -256,6 +271,26 @@ Authoring Triggers
    run that the agent itself ends in error, so firing a trigger against a healthy
    stack never exercises it; the behaviour is covered by
    ``tests/unit/dispatch/test_server_routes.py``.
+
+Reaching the Machine
+====================
+
+A trigger's ``source:`` decides what wakes it. ``webhook`` and ``cron`` need
+nothing from the network; ``epics_ca`` monitors channels and does, and on a
+site where those channels live behind a gateway the dispatcher has to be told
+where the gateway is. Both halves of the pair take that from the deployment's
+env chain, through one profile key:
+
+.. code-block:: yaml
+
+   dispatch:
+     triggers: my_triggers.yml
+     env: [EPICS_CA_ADDR_LIST, EPICS_CA_NAME_SERVERS]
+
+Each name is passed through to both containers as ``NAME: ${NAME}``, so the
+values live in ``.env`` / ``.env.shared`` and rotate with an edit and a restart.
+The worker gets the same list as the dispatcher: a run acting on what a trigger
+saw has to be able to see it too.
 
 .. _event-dispatch-auth:
 

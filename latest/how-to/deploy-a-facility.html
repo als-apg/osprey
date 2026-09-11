@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -656,6 +656,16 @@ are already present with a different value; some ship commented out.</p>
 simulator, so correctors move and BPMs read through exactly the approval and
 limit layers a live machine would use. The preset ships <code class="docutils literal notranslate"><span class="pre">mock</span></code>, which touches
 nothing.</p>
+<p>A deployment describes <strong>one real machine</strong>. <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> names it,
+or — on a simulated baseline like this one — the single non-simulated block
+under <code class="docutils literal notranslate"><span class="pre">control_system.connector</span></code> does, and the three control targets
+(<code class="docutils literal notranslate"><span class="pre">live</span></code>, <code class="docutils literal notranslate"><span class="pre">va</span></code>, <code class="docutils literal notranslate"><span class="pre">standin</span></code>) name that machine, the simulator and the
+stand-in soft IOC. A complex that operates two real machines, an injector and a
+storage ring say, runs one deployment per machine rather than one deployment
+naming both: the write posture, the limits, the approvals and the archive all
+belong to a machine, and a second non-simulated connector block here would be a
+block no target ever reaches. See
+<a class="reference internal" href="control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> looks too short, and is not. The <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code>
 block and the <code class="docutils literal notranslate"><span class="pre">services:</span></code> entry you add in Step 4 each append their own
 service to this list at build time. Naming <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> explicitly is what
@@ -704,6 +714,7 @@ line and the commented <code class="docutils literal notranslate"><span class="p
 <span class="w">    </span><span class="nt">template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">services/facility-mcp</span>
 <span class="w">    </span><span class="nt">config</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10900</span>
+<span class="w">      </span><span class="nt">http</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 
 <span class="nt">mcp_servers</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">facility</span><span class="p">:</span>
@@ -714,7 +725,12 @@ line and the commented <code class="docutils literal notranslate"><span class="p
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">template:</span></code> is profile-relative, so the next thing to do is write that
-directory. The port appears twice because it is the same fact told to two
+directory. <code class="docutils literal notranslate"><span class="pre">http:</span> <span class="pre">true</span></code> says this service answers HTTP on the port it
+publishes, so the deploy summary prints its address as a link rather than as a
+bare <code class="docutils literal notranslate"><span class="pre">host:port</span></code> — the framework recognises its own services by name and has
+no way to know what protocol sits behind yours. Leave it out for a service that
+speaks anything else; a link that cannot open is worse than no link.</p>
+<p>The port appears twice because it is the same fact told to two
 parties: the container publishes it, and the agent dials it. <code class="docutils literal notranslate"><span class="pre">10900</span></code> is the
 first port of the facility band, the hundred ports the framework publishes
 nothing in so that a facility’s own services can claim them without ever
@@ -940,6 +956,29 @@ redefining it under the same name. Nothing ever regenerates that file.</p>
 <h2>Step 8 — Build the project<a class="headerlink" href="#step-8-build-the-project" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
 </pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>On a restricted network, read this before you run it.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+and the first <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> fetch from the public internet: base images and
+Debian packages, the agent CLI from npm, OSPREY and its dependencies from
+PyPI, the web UI’s assets from a CDN, the search sidecar’s models from
+Hugging Face, and — at the graph store’s first start — a Neo4j plugin from
+GitHub. Each has a knob or a workaround, on its own page:</p>
+<ul class="simple">
+<li><p>a proxy, an internal package index, and a CA for a proxy that re-signs
+TLS: <a class="reference internal" href="deploy-project/project-image.html"><span class="doc">The Project Image</span></a> (the <code class="docutils literal notranslate"><span class="pre">images.*</span></code> build args
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> passes) and <a class="reference internal" href="deploy-project/env-chain.html"><span class="doc">Environment Variables (the .env chain)</span></a> (the proxy names
+the containers themselves are handed);</p></li>
+<li><p>web assets bundled into the image instead of served from a CDN: the
+top-level <code class="docutils literal notranslate"><span class="pre">offline</span></code> key, also on <a class="reference internal" href="deploy-project/project-image.html"><span class="doc">The Project Image</span></a>;</p></li>
+<li><p>images pulled from your own registry rather than built here:
+<a class="reference internal" href="deploy-project/compose-templates.html#deployment-prebuilt-images"><span class="std std-ref">Deploying Prebuilt Images</span></a>;</p></li>
+<li><p>the search sidecar’s models, staged on the host:
+<a class="reference internal" href="deploy-project/project-image.html#deployment-qmd-prefetched-models"><span class="std std-ref">Prefetched Models for the Search Sidecar</span></a>;</p></li>
+<li><p>the graph store’s plugin, which has no knob — see
+<a class="reference internal" href="facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p></li>
+</ul>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> walks up to the repository’s <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> and renders
 <code class="docutils literal notranslate"><span class="pre">build/</span></code> from it, from whichever directory inside the repository you run it.

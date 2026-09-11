@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -612,6 +612,11 @@ with its setpoint and what every partition rule reads. A tree staging the
 others without it gets an accelerator that serves no setpoints, pairs no
 readback with a setpoint, and drives every channel as static noise rather than
 physics.</p>
+<p>A channel’s <em>address</em> text is free — any facility’s namespace is served as it
+is written. Its <code class="docutils literal notranslate"><span class="pre">subfield</span></code> <em>value</em> is not: that field is a reserved
+vocabulary, where <code class="docutils literal notranslate"><span class="pre">SP</span></code> marks the writable channel and <code class="docutils literal notranslate"><span class="pre">RB</span></code> marks its
+readback, and a channel carrying any other token is neither written nor paired
+with one.</p>
 </section>
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
@@ -750,6 +755,40 @@ container runtimes, since broadcast discovery does not cross the container VM
 boundary. The project’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> connector block is configured to
 match and sets <code class="docutils literal notranslate"><span class="pre">EPICS_CA_NAME_SERVERS</span></code> itself, so no client-side EPICS
 environment setup is needed.</p>
+</section>
+<section id="what-the-ioc-serves-and-how-often">
+<h2>What the IOC serves, and how often<a class="headerlink" href="#what-the-ioc-serves-and-how-often" title="Link to this heading">#</a></h2>
+<p>Two numbers about the served values are set in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> rather
+than fixed in the image, because both are properties of the machine you are
+standing in for rather than of OSPREY:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>What it does</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">VA_POLL_INTERVAL_S</span></code></p></td>
+<td><p>Seconds between telemetry ticks — how often the IOC republishes the
+values it reads out of the simulation engine. Default <code class="docutils literal notranslate"><span class="pre">1.0</span></code>. Lower it
+for a demo that should look live; raise it on a very large namespace.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_NOISE_LEVEL</span></code></p></td>
+<td><p>Fractional noise on the synthesised channel values, default <code class="docutils literal notranslate"><span class="pre">0.01</span></code>.
+<code class="docutils literal notranslate"><span class="pre">0</span></code> serves them flat, which is what a test that compares readings
+wants.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Both are refused at boot if they are not a number, or out of range, rather than
+being clamped — so a typo shows up in <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code> instead of quietly
+changing what the machine looks like. Leave either empty and the default
+applies.</p>
 </section>
 <section id="running-from-a-source-checkout">
 <h2>Running from a source checkout<a class="headerlink" href="#running-from-a-source-checkout" title="Link to this heading">#</a></h2>
@@ -1112,6 +1151,7 @@ reporting the key as merely unset.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#rehearsing-against-a-live-target">Rehearsing against a live target</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#switching-back-to-the-mock">Switching back to the mock</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-ioc-serves-and-how-often">What the IOC serves, and how often</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-from-a-source-checkout">Running from a source checkout</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-limits">Write limits</a><ul class="visible nav section-nav flex-column">

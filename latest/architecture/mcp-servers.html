@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -596,7 +596,7 @@ lookups and validation.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">inspect_fields</span></code> – Inspect the field structure of a device family.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">validate</span></code> – Validate that channel names exist in the database.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">statistics</span></code> – Get database statistics (total channels, systems, families).</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">run_sql</span></code> – Run a read-only SQL query directly against the channel finder DuckDB database (<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">systems</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> tables).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">run_sql</span></code> – Run a read-only SQL query directly against the channel finder DuckDB database (<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">systems</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> tables). Answers are bounded by <code class="docutils literal notranslate"><span class="pre">channel_finder.query_max_rows</span></code>; a truncated reply says so and names the key, so a partial list is never presented as complete.</p></li>
 </ul>
 </section>
 <section id="channel-finder-graph">

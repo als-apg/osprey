@@ -33,6 +33,12 @@ Like every bridge, it :ref:`remembers each question and conversation
 is saved too, so messages posted while the bridge was down are picked up rather
 than missed.
 
+The **first** time the bridge sees a room is the exception: it starts from the
+room as it stands at that moment and does not answer the backlog behind it. The
+anchor is saved immediately, so "first time" means once per room and not once
+per restart. Add the bot to a busy room and it joins the conversation from
+there, rather than replying to a month of history.
+
 Enable It in a Profile
 ======================
 
@@ -131,10 +137,12 @@ Runtime settings
         - Set to ``1`` only if this host's outbound calls must go through your
           site's web proxy. Off by default, so a proxy inherited from a shell or
           a CI runner cannot quietly place itself in front of Nextcloud.
-      * - ``DEDUP_PATH``, ``HISTORY_PATH``
-        - Where the bridge keeps what it remembers. Both default to files under
-          ``/data``, its own volume; change them only if you deliberately
-          relocate that state.
+      * - ``DEDUP_PATH``, ``HISTORY_PATH``, ``OFFSETS_PATH``
+        - Where the bridge keeps what it remembers: the questions it has
+          answered, the recent exchanges, and how far it has read in each room.
+          All three default to files under ``/data``, its own volume; change
+          them only if you deliberately relocate that state, and move all three
+          together — losing ``OFFSETS_PATH`` alone replays or skips history.
       * - ``TZ``
         - Timezone, taken from your project configuration so timestamps match
           the rest of the stack.

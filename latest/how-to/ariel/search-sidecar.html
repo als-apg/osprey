@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -565,13 +565,14 @@ the internet can supply the models itself — see <a class="reference internal" 
 <span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/qmd</span>
 <span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10060</span><span class="w">     </span><span class="c1"># host port clients talk to</span>
 <span class="w">    </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30</span><span class="w">    </span><span class="c1"># fallback corpus-sweep period, seconds</span>
+<span class="w">    </span><span class="nt">first_index_grace</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">3600</span><span class="w">   </span><span class="c1"># seconds the health check waits out the first build</span>
 
 <span class="nt">deployed_services</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">qmd</span>
 </pre></div>
 </div>
-<p>Those three keys are the whole schema for a host that can reach the internet;
-a fourth, <code class="docutils literal notranslate"><span class="pre">models_dir</span></code>, covers one that cannot (see <a class="reference internal" href="#building-without-egress">Building without
+<p>Those four keys are the whole schema for a host that can reach the internet;
+a fifth, <code class="docutils literal notranslate"><span class="pre">models_dir</span></code>, covers one that cannot (see <a class="reference internal" href="#building-without-egress">Building without
 egress</a>). Notably <strong>there is no ``bind_address`` here</strong> — see <a class="reference internal" href="#where-the-sidecar-listens">Where the
 sidecar listens</a> below.</p>
 <p>Neither consumer strictly needs the sidecar — OKF search falls back to
@@ -643,11 +644,13 @@ trees, and everything that <em>writes</em> them lives outside the container.</p>
 </div>
 <p>The index itself lives in a named volume rather than a bind mount. It is
 derived data the sidecar owns end to end, it is large, and rebuilding it costs
-about <strong>41 minutes</strong> at ALS scale — which is precisely why it must survive a
-container recreate. The service’s health check allows a one-hour start period
-for the same reason: the sidecar refuses to open its port until the index is
-built and provably non-empty, and a container that is working correctly should
-not be reported unhealthy for most of its first hour.</p>
+a full index build — long on a large corpus — which is precisely why it
+must survive a container recreate. The service’s health check waits out that
+build for the same reason: the sidecar refuses to open its port until the index
+is built and provably non-empty, so until then a container that is working
+correctly would be reported unhealthy. <code class="docutils literal notranslate"><span class="pre">first_index_grace</span></code> is how long it
+waits, in seconds, and it defaults to an hour. Scale it with your corpus:
+shorter than the build and the first boot is reported as a failure.</p>
 </section>
 <section id="sharing-the-knowledge-bundle">
 <h2>Sharing the knowledge bundle<a class="headerlink" href="#sharing-the-knowledge-bundle" title="Link to this heading">#</a></h2>

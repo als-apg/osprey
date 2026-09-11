@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -398,6 +398,7 @@
 <li class="toctree-l2"><a class="reference internal" href="../contracts/channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../contracts/audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../contracts/bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
@@ -470,13 +471,15 @@
 <span class="pre">build</span></code> renders it from the build profile, so the profile is where you edit a
 setting and this file is where you look one up: <a class="reference internal" href="profile.html"><span class="doc">Build Profile — profile.yml</span></a> describes the
 authoring side, and this page catalogues what the rendered result means.</p>
-<p>Four parts of that file are gathered here — the facility this deployment
+<p>Six parts of that file are gathered here — the facility this deployment
 belongs to (<code class="docutils literal notranslate"><span class="pre">facility:</span></code>), the diagnostic suite (<code class="docutils literal notranslate"><span class="pre">health:</span></code>), the browser
-UI’s documentation and feedback settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), and the deployment keys
-that decide which container image each service runs and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code>
-placeholders in the compose files are filled in. Settings that only ever arrive
-from the environment are in <a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing note records
-the <strong>protected set</strong> — the files and keys no agent-side writer may touch.</p>
+UI’s documentation and feedback settings (<code class="docutils literal notranslate"><span class="pre">web:</span></code>), the artifact gallery’s own
+categories (<code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code>), the Python sandbox’s run ceiling
+(<code class="docutils literal notranslate"><span class="pre">python_executor:</span></code>), and the deployment keys that decide which container
+image each service runs and how <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders in the compose files
+are filled in. Settings that only ever arrive from the environment are in
+<a class="reference internal" href="environment-variables.html"><span class="doc">Environment Variables</span></a>. A closing note records the <strong>protected set</strong> —
+the files and keys no agent-side writer may touch.</p>
 <section id="facility-whose-machine-this-is">
 <span id="config-facility"></span><h2><code class="docutils literal notranslate"><span class="pre">facility:</span></code> — whose machine this is<a class="headerlink" href="#facility-whose-machine-this-is" title="Link to this heading">#</a></h2>
 <p>Three keys say which facility the deployment serves, and one of them decides
@@ -897,8 +900,8 @@ check still produces a row (an eligible pending check becomes an <code class="do
 <p>The top-level <code class="docutils literal notranslate"><span class="pre">web:</span></code> section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own <code class="docutils literal notranslate"><span class="pre">web_terminal:</span></code>
 section. The keys below aim the rail’s two utility controls, bound the feedback
-store, name the deployment, arrange the header and status bar, and size the
-Simple-mode operator-chat pool.</p>
+store, name the deployment, decide who is offered the onboarding tour, arrange
+the header and status bar, and size the Simple-mode operator-chat pool.</p>
 <section id="documentation-and-feedback-keys">
 <span id="feedback-configuration"></span><h3>Documentation and feedback keys<a class="headerlink" href="#documentation-and-feedback-keys" title="Link to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -933,8 +936,10 @@ to the kind’s name. See <a class="reference internal" href="#feedback-trackers
 shorthand for a <code class="docutils literal notranslate"><span class="pre">github</span></code> entry in <code class="docutils literal notranslate"><span class="pre">trackers</span></code>.</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.email</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">thellert&#64;lbl.gov</span></code></p></td>
-<td><p>Recipient of the prefilled mail draft the dialog’s Email channel opens.</p></td>
+<td><p>unset (no Email channel)</p></td>
+<td><p>Recipient of the prefilled mail draft the dialog’s Email channel opens.
+Nothing ships here: the draft can carry a session’s scrollback, so name
+the mailbox your operators should reach before offering the channel.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">268435456</span></code> (256 MB)</p></td>
@@ -978,8 +983,11 @@ baked config image each carry their own name.</p></td>
 <span class="w">    </span><span class="nt">max_store_bytes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">268435456</span>
 </pre></div>
 </div>
-<p>The last four keys are unset in every shipped template: they are read straight
-from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> when present and fall back to the defaults above when not.</p>
+<p><code class="docutils literal notranslate"><span class="pre">docs_url</span></code>, <code class="docutils literal notranslate"><span class="pre">trackers</span></code>, <code class="docutils literal notranslate"><span class="pre">github_repo</span></code> and <code class="docutils literal notranslate"><span class="pre">email</span></code> are unset in every
+shipped preset — each is documented there as a commented example, so nothing
+writes the project’s own address into your <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code>. All four are read
+straight from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> when present and fall back to the defaults above
+when not.</p>
 </section>
 <section id="issue-trackers">
 <span id="feedback-trackers"></span><h3>Issue trackers<a class="headerlink" href="#issue-trackers" title="Link to this heading">#</a></h3>
@@ -1030,6 +1038,46 @@ The feedback dialog’s Local channel is always available and needs no
 configuration at all.</p>
 <p>A build profile overrides any of these keys from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block in the
 dotted form, e.g. <code class="docutils literal notranslate"><span class="pre">web.feedback.max_store_bytes:</span> <span class="pre">536870912</span></code>.</p>
+</section>
+<section id="the-onboarding-tour-invite">
+<span id="config-web-tour"></span><h3>The onboarding tour invite<a class="headerlink" href="#the-onboarding-tour-invite" title="Link to this heading">#</a></h3>
+<p>A first-time visitor to the terminal is offered a short guided tour of the
+screen. <code class="docutils literal notranslate"><span class="pre">web.tour</span></code> decides who is offered it, and how often:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 16.0%" />
+<col style="width: 84.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Value</p></th>
+<th class="head"><p>What the visitor sees</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">once</span></code></p></td>
+<td><p>The default. The invite card appears until this browser dismisses it —
+“Don’t show this again”, or finishing the tour — and then stops.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">always</span></code></p></td>
+<td><p>The invite appears on every load and offers no permanent dismissal.
+This is the shared-screen posture: a wall display nobody owns should
+still greet the next person who walks up to it.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">never</span></code></p></td>
+<td><p>No invite. The tour itself stays reachable from the rail’s <strong>Tour</strong>
+control and the command palette, so turning the invite off does not
+take the tour away.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An unrecognised value is reported in the log and treated as <code class="docutils literal notranslate"><span class="pre">once</span></code>: a typo
+costs you the setting, never the terminal’s startup.</p>
+<p>On a multi-user deployment the policy can differ per user. A roster entry’s
+<code class="docutils literal notranslate"><span class="pre">tour:</span></code> field — beside its <code class="docutils literal notranslate"><span class="pre">theme:</span></code> — is rendered into that user’s
+container as <code class="docutils literal notranslate"><span class="pre">OSPREY_WEB_TOUR</span></code>, and the environment variable outranks
+<code class="docutils literal notranslate"><span class="pre">web.tour</span></code> for that container, exactly as <code class="docutils literal notranslate"><span class="pre">OSPREY_WEB_THEME</span></code> outranks
+<code class="docutils literal notranslate"><span class="pre">web.theme</span></code>.</p>
 </section>
 <section id="the-header-and-status-bar">
 <span id="config-bar-items"></span><h3>The header and status bar<a class="headerlink" href="#the-header-and-status-bar" title="Link to this heading">#</a></h3>
@@ -1097,6 +1145,57 @@ closing card carries a <code class="docutils literal notranslate"><span class="p
 <a class="reference internal" href="#config-protected-set"><span class="std std-ref">the protected set</span></a>, so the running agent cannot
 set it. A build profile sets it from its <code class="docutils literal notranslate"><span class="pre">config:</span></code> block.</p>
 </section>
+</section>
+<section id="artifact-server-the-workspace-gallery-s-own-categories">
+<span id="config-artifact-server"></span><h2><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories<a class="headerlink" href="#artifact-server-the-workspace-gallery-s-own-categories" title="Link to this heading">#</a></h2>
+<p>Every artifact carries a <strong>category</strong>, and the category decides the badge the
+gallery draws on its card. OSPREY ships a general set — <code class="docutils literal notranslate"><span class="pre">visualization</span></code>,
+<code class="docutils literal notranslate"><span class="pre">diagnostic_report</span></code>, <code class="docutils literal notranslate"><span class="pre">lattice_analysis</span></code> and the rest — which is a
+laboratory’s vocabulary rather than yours. <code class="docutils literal notranslate"><span class="pre">artifact_server.categories</span></code> adds
+your own to it, from the build profile, one dotted line per category:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">artifact_server.categories.beam_diagnostics</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">Beam Diagnostics</span><span class="p p-Indicator">,</span><span class="nt"> color</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;#f59e0b&quot;</span><span class="p p-Indicator">}</span>
+<span class="w">  </span><span class="nt">artifact_server.categories.rf_conditioning</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">label</span><span class="p">:</span><span class="w"> </span><span class="nv">RF Conditioning</span><span class="p p-Indicator">,</span><span class="nt"> color</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;#38bdf8&quot;</span><span class="p p-Indicator">}</span>
+</pre></div>
+</div>
+<p>Each entry takes a <code class="docutils literal notranslate"><span class="pre">label</span></code> (what the badge says) and a <code class="docutils literal notranslate"><span class="pre">color</span></code> (a
+<code class="docutils literal notranslate"><span class="pre">#RRGGBB</span></code> hex value, and nothing else — a malformed entry is skipped with a
+warning rather than stopping the launch). The names are yours: nothing in
+OSPREY validates the vocabulary, and a category you do not declare here is
+simply not one the gallery knows.</p>
+<p>An artifact handed in under an undeclared category is still stored. What it
+loses is the badge — and the save logs <code class="docutils literal notranslate"><span class="pre">Unregistered</span> <span class="pre">category</span> <span class="pre">...</span> <span class="pre">declare</span> <span class="pre">it</span>
+<span class="pre">under</span> <span class="pre">artifact_server.categories</span></code>, which is the one place that mismatch shows
+up. The categories are read once, when the artifact server and the MCP
+workspace server start, so a new one arrives with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a
+restart.</p>
+<p>The four commented stanzas in the shipped presets have nothing to do but say
+this: a shipped value would be one facility’s vocabulary handed to every other.</p>
+<p>One other key sits in this block. <code class="docutils literal notranslate"><span class="pre">artifact_server.max_timeseries_file_mb</span></code>
+(default 200) is the largest timeseries data file the gallery will draw as a
+chart or lay out as a table. Over it, those two views refuse with a <code class="docutils literal notranslate"><span class="pre">413</span></code> and
+say so; the file itself stays downloadable either way. The handler reads the
+whole file into memory to build the view, so raising the number spends that
+much memory on the machine serving the gallery — which is why it is a facility’s
+to set rather than a fixed bound: how big an export gets is a property of your
+archiver, and how much memory the gallery host has is a property of your site.</p>
+</section>
+<section id="python-executor-how-long-one-agent-script-may-run">
+<span id="config-python-executor"></span><h2><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run<a class="headerlink" href="#python-executor-how-long-one-agent-script-may-run" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">python_executor.execution_timeout_seconds</span></code> is the wall-clock ceiling on a
+single agent Python run. It defaults to <code class="docutils literal notranslate"><span class="pre">600</span></code> — ten minutes — and a run that
+reaches it is killed and reported as a <strong>timeout</strong>, which the response
+deliberately classes as the sandbox’s decision rather than as a failure of the
+submitted script:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">python_executor.execution_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1800</span>
+</pre></div>
+</div>
+<p>Raise it for a facility whose legitimate analyses run long — a fit over a
+day of archived data, a scan reconstruction — and lower it where a runaway
+script holding the sandbox is the worse outcome. The value is read once in
+the sandbox’s MCP server process and held for that process’s lifetime, so a
+change lands after <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> and a restart of the stack.</p>
 </section>
 <section id="deployment-service-images-and-var-interpolation">
 <span id="config-deployment"></span><h2>Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation<a class="headerlink" href="#deployment-service-images-and-var-interpolation" title="Link to this heading">#</a></h2>
@@ -1416,10 +1515,13 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#documentation-and-feedback-keys">Documentation and feedback keys</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#issue-trackers">Issue trackers</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#blank-absent-and-written-with-no-value">Blank, absent, and written-with-no-value</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-onboarding-tour-invite">The onboarding tour invite</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-header-and-status-bar">The header and status bar</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal"><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#artifact-server-the-workspace-gallery-s-own-categories"><code class="docutils literal notranslate"><span class="pre">artifact_server:</span></code> — the workspace gallery’s own categories</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#python-executor-how-long-one-agent-script-may-run"><code class="docutils literal notranslate"><span class="pre">python_executor:</span></code> — how long one agent script may run</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-service-images-and-var-interpolation">Deployment — service images and <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> interpolation</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#overriding-service-images">Overriding Service Images</a><ul class="nav section-nav flex-column">
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#the-two-image-axes">The two image axes</a></li>

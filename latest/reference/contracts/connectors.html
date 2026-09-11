@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -398,6 +398,7 @@
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
+<li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
@@ -709,6 +710,14 @@ rather than guessing: a step that cannot be measured cannot be approved. The
 layers above the connector — the <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> tool and the limits hook —
 hold no client, so they apply every other limit and leave this one to the
 connector, which makes it on the write itself.</p>
+<p>That read is bounded: <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.step_read_timeout_s</span></code>
+(default 2.0 seconds) is how long it waits, beside the connector’s own
+<code class="docutils literal notranslate"><span class="pre">timeout</span></code> and for the same reason — a gateway two hops away answers more
+slowly than an IOC on the deploy host. The bound is fail-closed: a channel that
+does not answer inside it reads as “could not be measured”, which refuses the
+write. Raising it buys a slow channel room, never a weaker check. The python
+executor’s sandbox applies the same number, so a script’s step check and the
+connector’s wait the same length of time for the same channel.</p>
 <p>A refusal about an unlisted channel — and the target switch’s
 <code class="docutils literal notranslate"><span class="pre">limits_posture</span></code> refusal — names the key that answered, the per-type one where
 a block spoke and the deployment-wide one where none did, so an operator edits

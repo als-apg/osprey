@@ -419,3 +419,12 @@ Caveats
   the store's published port (``services.openobserve.port``, 10050 by default)
   beyond the host without putting authentication and transport security in
   front of it.
+- **The dashboard's per-run telemetry link follows the deployment's origin.**
+  The event dispatcher's dashboard links each run to its own records only when
+  it can name a host a browser will resolve. On a loopback-bound store that host
+  is ``localhost``. On a store published to the network it is the host of
+  ``modules.web_terminals.external_origin`` (or ``deploy.fqdn`` when that is
+  unset). A store published to the network by a deployment that declares
+  neither gets no link at all, rather than one pointing at whichever machine the
+  operator's browser happens to be. The link is rendered at deploy time, so
+  changing either value takes effect at the next ``osprey up``.

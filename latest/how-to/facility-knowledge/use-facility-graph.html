@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -558,6 +558,16 @@ subagents, two jobs — see <a class="reference internal" href="../use-channel-f
 </div>
 </details><p>What the graph holds, how its names are spelled, and what each of the four
 tools returns are in <a class="reference internal" href="../../reference/contracts/facility-graph.html"><span class="doc">Facility Graph Contracts</span></a>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>The store’s first start needs egress.</strong> Its image ships the APOC plugin
+inside and moves it into place, but not <code class="docutils literal notranslate"><span class="pre">n10s</span></code> — the entrypoint downloads
+that jar from GitHub the first time the store comes up, and it is the
+plugin that imports the Turtle corpus. There is no configuration key for
+this: a disconnected site brings the store up once on a host that can reach
+GitHub, or copies the jar into the plugins volume by hand, after which the
+volume carries it and later starts need nothing.</p>
+</div>
 <section id="read-only-by-construction">
 <h2>Read-Only by Construction<a class="headerlink" href="#read-only-by-construction" title="Link to this heading">#</a></h2>
 <p>Nothing the agent passes can change the graph. Two independent layers say so:</p>
@@ -671,6 +681,7 @@ channel finder does. Inside a rendered project:</p>
 <span class="go">Wrote data/demo_machine.ttl.</span>
 <span class="go">  512 devices, 2908 channel bindings, 113 signals.</span>
 <span class="go">  direction from channel limits: data/channel_limits.json</span>
+<span class="go">  Facility token: ca (from facility.prefix); ontology: the packaged demo table</span>
 <span class="go">  Load it with: osprey knowledge seed-graph data/demo_machine.ttl</span>
 </pre></div>
 </div>
@@ -683,9 +694,14 @@ the first example names both:</p>
 <span class="w">    </span>--channel-db<span class="w"> </span>data/channel_databases/tiers/tier3/hierarchical.json
 </pre></div>
 </div>
-<p>A corpus that is not the demo machine’s wants its own facility token as well:
-<code class="docutils literal notranslate"><span class="pre">--facility</span> <span class="pre">&lt;token&gt;</span></code> decides the token every IRI, every identifier and every
-<code class="docutils literal notranslate"><span class="pre">narad_p:facility</span></code> value in the file carries, and it defaults to <code class="docutils literal notranslate"><span class="pre">demo</span></code>.</p>
+<p>A corpus that is not the demo machine’s wants its own facility token as well.
+The token every IRI, every identifier and every <code class="docutils literal notranslate"><span class="pre">narad_p:facility</span></code> value in
+the file carries is the project’s own <code class="docutils literal notranslate"><span class="pre">facility.prefix</span></code>, so a project that
+already names its facility does not name it twice; <code class="docutils literal notranslate"><span class="pre">--facility</span> <span class="pre">&lt;token&gt;</span></code>
+overrides that for one run, and with neither in scope the token is <code class="docutils literal notranslate"><span class="pre">demo</span></code>.
+The closing report names the token it minted with, and a run that falls back to
+<code class="docutils literal notranslate"><span class="pre">demo</span></code> against a database that is not the packaged demo one says so, because
+a corpus labelled for the wrong machine is not visible from the file itself.</p>
 <p>A facility whose device database carries attributes the convention has no slot
 for — engineering units on a channel, a crate or serial identity on a device —
 can attach them as first-class properties through the generator’s library API
@@ -814,6 +830,11 @@ comment does not cover the key beside it.</p>
 <p>Which differences are refused and which are only reported is set out under
 <a class="reference internal" href="../../reference/configuration/profile.html#profile-preset-drift"><span class="std std-ref">Preset drift, and osprey profile expand</span></a> in the
 profile reference.</p>
+<p>If the corpus lives in a database other than <code class="docutils literal notranslate"><span class="pre">neo4j</span></code> on that store, name it
+with <code class="docutils literal notranslate"><span class="pre">services.graphdb.database</span></code>. The store this deployment runs is a
+Community image that serves exactly one database, so the key matters only here:
+it is what every session — the seeder’s writes and the agent’s reads alike — is
+opened against, so both halves reach the same corpus.</p>
 <p>Put that account’s password in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code> as <code class="docutils literal notranslate"><span class="pre">GRAPHDB_PASSWORD</span></code>.
 Nothing mints one here — the store belongs to somebody else, so OSPREY starts
 nothing and bootstraps nothing, and it seeds nothing on its own: the corpus is

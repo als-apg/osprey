@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -581,6 +581,17 @@ operated like the real one, which is what makes it worth rehearsing on.</p></td>
 </tbody>
 </table>
 </div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>One real machine per deployment.</strong> <code class="docutils literal notranslate"><span class="pre">live</span></code> names one machine, and the
+connector blocks are keyed by connector type, so a second real one — the
+injector beside the ring, a second complex’s control system — cannot be
+written into this config at all. A facility that operates two runs one
+deployment per machine, each with its own targets, write posture, limits and
+archive, behind the same login origin if that is convenient. A config that
+does carry a second non-simulated connector block gets no target for it, and
+the controls server’s log names the block nothing reaches.</p>
+</div>
 <p>Two tools move between them:</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">control_target</span></code></dt><dd><p>Reports where the deployment is pointed and where else it could go — one row
@@ -654,6 +665,14 @@ procedure. Then:</p>
 <p>Moving toward the live machine is the direction with the extra gates. The switch
 checks them in this order and reports the first one that fails, so the answer
 names the nearest thing to fix rather than the whole list.</p>
+<p><strong>A control system the switch can dial</strong> (<code class="docutils literal notranslate"><span class="pre">connector_not_switchable</span></code>).
+The switch moves a session by pointing a connector host at a Channel Access
+gateway, so a deployment whose live block is on another protocol has nothing for
+it to dial. The refusal names the connector type rather than sending you to
+author a gateways table your control system has no use for. It is not a fault in
+the config and it does not touch the machine: the deployment still runs on that
+control system, and its own baseline is still where a session comes home to.
+What it cannot do is move a session onto it.</p>
 <p><strong>The gateways</strong> (<code class="docutils literal notranslate"><span class="pre">gateways_missing</span></code>).
 <code class="docutils literal notranslate"><span class="pre">control_system.connector.epics.gateways</span></code> names where the live machine is
 reached. A facility’s gateways cannot be guessed, so nothing usable ships
@@ -696,11 +715,24 @@ Clear it by stopping one of the two — take <code class="docutils literal notra
 deployment’s services, or drop <code class="docutils literal notranslate"><span class="pre">virtual_accelerator.live_standin</span></code> from the
 build profile — and rebuild. The archive belongs to the machine it records.</p>
 <p>There is one exemption. A deployment can always come <strong>home</strong> to its own
-baseline — whichever of the three that is — with neither the limits posture,
-the acknowledgment, nor the archive gate applied. The probe still runs: a target
-that cannot prove itself reachable is never switched to, in either direction.
-Stranding a deployment away from the machine it was built for is the less safe
-outcome of the two.</p>
+baseline — whichever of the three that is — with none of the gates above
+applied: not the limits posture, not the acknowledgment, not the archive gate,
+and not the gateway and probe-channel checks either. Stranding a deployment away
+from the machine it was built for is the less safe outcome of the two, and a
+baseline whose block is half authored — no gateways yet, the probe channel still
+commented out, a machine reached over something other than Channel Access —
+would otherwise be a machine a session can leave and never come back to. Where
+the baseline names a probe channel the return is proven with it like any other
+switch; where it does not, the return is made unprobed and the controls server’s
+log says so.</p>
+<p>Three things still refuse, coming home as much as going out: a target that
+resolves to no <code class="docutils literal notranslate"><span class="pre">control_system.connector</span></code> block at all, a <code class="docutils literal notranslate"><span class="pre">standin</span></code> block
+pointed at something other than the stand-in this deployment runs; and a
+baseline whose connector block derives no endpoint at all, which publishes no
+reachability row and so, while a controls server is live, is still refused as
+<code class="docutils literal notranslate"><span class="pre">reachability_unknown</span></code> — the switch gate’s reachability rung is
+direction-blind and has nothing to read. None of the three is a machine the
+switch can prove it came home to.</p>
 </section>
 <section id="coming-home">
 <h3>Coming home<a class="headerlink" href="#coming-home" title="Link to this heading">#</a></h3>
@@ -829,10 +861,11 @@ deployment whose simulator names none gets none here either.</p></td>
 </tbody>
 </table>
 </div>
-<p>A target with no <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code> is never switched to, and the roster says so
-by name. Naming the live machine’s probe channel is therefore a deliberate act
-by whoever knows the facility — the same posture as the acknowledgment key
-above.</p>
+<p>A target with no <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code> is never switched to — except the
+deployment’s own baseline, which is come home to unprobed rather than made
+unreachable — and the roster says so by name. Naming the live machine’s probe
+channel is therefore a deliberate act by whoever knows the facility — the same
+posture as the acknowledgment key above.</p>
 <p>Two more keys bound the switch itself, both under
 <code class="docutils literal notranslate"><span class="pre">control_system.target_switch:</span></code>: <code class="docutils literal notranslate"><span class="pre">drain_timeout_s</span></code> (default 5) is how long
 work already in flight gets to finish on the old target before it is torn down
@@ -973,34 +1006,40 @@ later without you.</p></td>
 <td><p>The deployment is on that target already. The active target always
 answers this, whatever else would also be true of it.</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>The target is not configured</strong></p></td>
+<tr class="row-even"><td><p><strong>Switching not supported</strong></p></td>
+<td><p>The target’s connector type is not reached over Channel Access, and the
+switch has no way to dial it. Nothing is missing from the config and the
+deployment still runs on that control system — a session simply cannot be
+moved onto it.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>The target is not configured</strong></p></td>
 <td><p>No connector block for that target, no gateways table, or no entry for
 the gateway role this deployment would select. This is a build or config
 gap, not something a switch can resolve.</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>No probe channel</strong></p></td>
+<tr class="row-even"><td><p><strong>No probe channel</strong></p></td>
 <td><p>The target names no <code class="docutils literal notranslate"><span class="pre">probe_channel</span></code>, so nothing could prove it
 reachable. For the live machine this is the shipped state — see
 <a class="reference internal" href="#what-a-deployment-needs-first">What a deployment needs first</a>.</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>The stand-in is not this deployment’s</strong></p></td>
+<tr class="row-odd"><td><p><strong>The stand-in is not this deployment’s</strong></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">standin</span></code> is refused unless the endpoint its block selects really is
 the stand-in this deployment co-deploys, on that port over loopback.
 Anything else — a tunnel, a gateway someone repointed — is a machine in
 its own right, and it must not sit behind a soft label. Use <code class="docutils literal notranslate"><span class="pre">live</span></code> for
 the machine your facility runs.</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>A simulated present with an invented past</strong></p></td>
+<tr class="row-even"><td><p><strong>A simulated present with an invented past</strong></p></td>
 <td><p>Switching to a machine this deployment stands up for itself — the virtual
 accelerator or the stand-in — is refused while the deployment’s archiver
 is the mock one, which makes history up at read time. The pairing would
 put a made-up past next to a modelled present with nothing linking them.
 See “The honesty rule” in <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a>.</p></td>
 </tr>
-<tr class="row-even"><td><p><strong>The strict limits posture is not in place</strong></p></td>
+<tr class="row-odd"><td><p><strong>The strict limits posture is not in place</strong></p></td>
 <td><p>Required toward <code class="docutils literal notranslate"><span class="pre">live</span></code> and toward <code class="docutils literal notranslate"><span class="pre">standin</span></code> alike. See <a class="reference internal" href="#go-live">Go live</a>.</p></td>
 </tr>
-<tr class="row-odd"><td><p><strong>The live machine’s gates</strong></p></td>
+<tr class="row-even"><td><p><strong>The live machine’s gates</strong></p></td>
 <td><p>The operator acknowledgment, or the archive that belongs to the stand-in.
 Both are the live machine’s alone. See <a class="reference internal" href="#go-live">Go live</a>.</p></td>
 </tr>

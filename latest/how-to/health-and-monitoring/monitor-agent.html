@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -964,6 +964,15 @@ the volume grows into.</p></li>
 the store’s published port (<code class="docutils literal notranslate"><span class="pre">services.openobserve.port</span></code>, 10050 by default)
 beyond the host without putting authentication and transport security in
 front of it.</p></li>
+<li><p><strong>The dashboard’s per-run telemetry link follows the deployment’s origin.</strong>
+The event dispatcher’s dashboard links each run to its own records only when
+it can name a host a browser will resolve. On a loopback-bound store that host
+is <code class="docutils literal notranslate"><span class="pre">localhost</span></code>. On a store published to the network it is the host of
+<code class="docutils literal notranslate"><span class="pre">modules.web_terminals.external_origin</span></code> (or <code class="docutils literal notranslate"><span class="pre">deploy.fqdn</span></code> when that is
+unset). A store published to the network by a deployment that declares
+neither gets no link at all, rather than one pointing at whichever machine the
+operator’s browser happens to be. The link is rendered at deploy time, so
+changing either value takes effect at the next <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>.</p></li>
 </ul>
 </section>
 </section>

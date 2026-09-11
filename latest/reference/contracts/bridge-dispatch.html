@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Facility Graph Contracts &#8212; Osprey Framework dev documentation</title>
+    <title>The Bridge Dispatch Payload &#8212; Osprey Framework dev documentation</title>
   
   
   
@@ -49,7 +49,7 @@
     <script src="../../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../../_static/copybutton.js?v=30646c52"></script>
     <script src="../../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/contracts/facility-graph';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'reference/contracts/bridge-dispatch';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -57,12 +57,12 @@
         DOCUMENTATION_OPTIONS.show_version_warning_banner =
             true;
         </script>
-    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/contracts/facility-graph.html" />
+    <link rel="canonical" href="https://als-apg.github.io/osprey/reference/contracts/bridge-dispatch.html" />
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Audit Trail Contract" href="audit-trail.html" />
-    <link rel="prev" title="Channel Finder Contracts" href="channel-finder.html" />
+    <link rel="next" title="Ports" href="../ports.html" />
+    <link rel="prev" title="Audit Trail Contract" href="audit-trail.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
@@ -396,9 +396,9 @@
 <li class="toctree-l2"><a class="reference internal" href="python-executor.html">Python Executor Contract</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel.html">ARIEL Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="channel-finder.html">Channel Finder Contracts</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Facility Graph Contracts</a></li>
+<li class="toctree-l2"><a class="reference internal" href="facility-graph.html">Facility Graph Contracts</a></li>
 <li class="toctree-l2"><a class="reference internal" href="audit-trail.html">Audit Trail Contract</a></li>
-<li class="toctree-l2"><a class="reference internal" href="bridge-dispatch.html">The Bridge Dispatch Payload</a></li>
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">The Bridge Dispatch Payload</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../ports.html">Ports</a></li>
@@ -448,7 +448,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">Contracts</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Facility Graph Contracts</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">The Bridge Dispatch Payload</span></li>
   </ul>
 </nav>
 </div>
@@ -465,116 +465,178 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="facility-graph-contracts">
-<span id="reference-facility-graph"></span><h1>Facility Graph Contracts<a class="headerlink" href="#facility-graph-contracts" title="Link to this heading">#</a></h1>
-<p>What the facility graph stores, how its names are spelled, and what each of the
-four <code class="docutils literal notranslate"><span class="pre">graph</span></code> MCP tools returns. For the task of searching it, see
-<a class="reference internal" href="../../how-to/facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>.</p>
-<section id="what-the-graph-holds">
-<h2>What the Graph Holds<a class="headerlink" href="#what-the-graph-holds" title="Link to this heading">#</a></h2>
-<p>The corpus is a Turtle (<code class="docutils literal notranslate"><span class="pre">.ttl</span></code>) file in the NARAD convention — facts written
-as subject-predicate-object triples — which the neosemantics plugin turns into
-the nodes and relationships a query walks. Four kinds of thing matter to a
-query:</p>
-<ul class="simple">
-<li><p><strong>Devices</strong> — one node per physical device, carrying <code class="docutils literal notranslate"><span class="pre">sourceName</span></code>,
-<code class="docutils literal notranslate"><span class="pre">sectionCode</span></code>, <code class="docutils literal notranslate"><span class="pre">system</span></code>, <code class="docutils literal notranslate"><span class="pre">sPositionM</span></code> (position along the beamline) and
-<code class="docutils literal notranslate"><span class="pre">ordinalInSection</span></code>, plus the prose for the three levels the device sits
-under: <code class="docutils literal notranslate"><span class="pre">ringDescription</span></code>, <code class="docutils literal notranslate"><span class="pre">systemDescription</span></code> and <code class="docutils literal notranslate"><span class="pre">familyDescription</span></code>.</p></li>
-<li><p><strong>Channel bindings</strong> — one node per control system address, carrying
-<code class="docutils literal notranslate"><span class="pre">fullPv</span></code>, <code class="docutils literal notranslate"><span class="pre">protocol</span></code>, <code class="docutils literal notranslate"><span class="pre">confidence</span></code> and three texts: <code class="docutils literal notranslate"><span class="pre">description</span></code> is
-the sentence written for that one channel, while <code class="docutils literal notranslate"><span class="pre">fieldDescription</span></code> and
-<code class="docutils literal notranslate"><span class="pre">subfieldDescription</span></code> say what the last two tokens of the address mean. A
-device reaches its bindings over <code class="docutils literal notranslate"><span class="pre">HASBINDING</span></code>.</p></li>
-<li><p><strong>Signals</strong> — what a binding reads or writes, reached over <code class="docutils literal notranslate"><span class="pre">READSSIGNAL</span></code> or
-<code class="docutils literal notranslate"><span class="pre">WRITESSIGNAL</span></code>. Exactly one of the two sits on every binding, so the
-direction of an address is a property of the graph rather than a guess from
-its name. That is what lets the corpus serve as the deployment’s channel
-roster: on a graph-mode build the queue server’s settables and readables are
-derived from these two predicates
-(<a class="reference internal" href="../../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a>).</p></li>
-<li><p><strong>Classes</strong> — the device ontology, linked by <code class="docutils literal notranslate"><span class="pre">SUBCLASSOF</span></code>. A device is
-typed by <code class="docutils literal notranslate"><span class="pre">TYPE</span></code>. This is what lets “every magnet” find an <code class="docutils literal notranslate"><span class="pre">HCorrector</span></code>
-without the query naming <code class="docutils literal notranslate"><span class="pre">HCorrector</span></code>. Classes also carry the synonyms an
-operator would say out loud, as <code class="docutils literal notranslate"><span class="pre">skos:altLabel</span></code>.</p></li>
-</ul>
-<p>The descriptions are what makes the graph reachable from a phrase rather than
-only from a name: “the magnets that bend the beam” matches text no address
-spells. They sit on bindings rather than on signals because an address is
-ring-qualified and a signal is not — <code class="docutils literal notranslate"><span class="pre">SR:MAG:QF:01:CURRENT:SP</span></code> and its
-booster counterpart share one signal node but are described differently.</p>
-<p>The descriptions and <code class="docutils literal notranslate"><span class="pre">system</span></code> come from the generator, so they are there in a
-corpus <code class="docutils literal notranslate"><span class="pre">build-ttl</span></code> produced — the demo machine — and not necessarily in one
-imported straight from a facility’s own export. On such a corpus the way in is
-a name, an <code class="docutils literal notranslate"><span class="pre">altLabel</span></code>, a section or a class.</p>
-<p>Three spelling rules come from neosemantics and catch out anyone writing Cypher
-from memory:</p>
-<ul class="simple">
-<li><p>Every node carries the label <code class="docutils literal notranslate"><span class="pre">Resource</span></code> plus the local name of its RDF
-class — <code class="docutils literal notranslate"><span class="pre">(b:ChannelBinding)</span></code> narrows to bindings, <code class="docutils literal notranslate"><span class="pre">(c:Class)</span></code> to ontology
-classes.</p></li>
-<li><p>Relationship types are <strong>uppercased</strong>: <code class="docutils literal notranslate"><span class="pre">HASBINDING</span></code>, not <code class="docutils literal notranslate"><span class="pre">hasBinding</span></code>.
-Property names keep their original spelling. A query naming something that
-does not exist returns zero rows rather than an error, so a guess produces a
-confident wrong answer — which is what <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> is for.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">altLabel</span></code> is a <strong>list</strong>, not a string: the store keeps every synonym
-instead of letting the last one win. Match it with
-<code class="docutils literal notranslate"><span class="pre">ANY(l</span> <span class="pre">IN</span> <span class="pre">c.altLabel</span> <span class="pre">WHERE</span> <span class="pre">l</span> <span class="pre">=</span> <span class="pre">$label)</span></code>. Comparing it to a string —
-<code class="docutils literal notranslate"><span class="pre">c.altLabel</span> <span class="pre">=</span> <span class="pre">$label</span></code> — is a list against a text and never matches, and the
-string operators do not apply to it at all.</p></li>
-</ul>
+  <section id="the-bridge-dispatch-payload">
+<span id="reference-bridge-dispatch"></span><h1>The Bridge Dispatch Payload<a class="headerlink" href="#the-bridge-dispatch-payload" title="Link to this heading">#</a></h1>
+<p>A chat bridge never runs the agent. It fires one dispatcher webhook per
+question and posts back what comes out, so everything the agent learns about
+the conversation — the previous exchanges, the message being replied to, the
+files attached to either — arrives as fields of that one JSON body.</p>
+<p>This page is that body. Read it if you are writing an adapter for a chat system
+OSPREY does not ship (<a class="reference internal" href="../../contributing/extending-osprey.html"><span class="doc">Extending Osprey</span></a> covers the seam
+itself), or if you are authoring a trigger prompt and want to know what is
+actually in front of the agent.</p>
+<section id="the-request">
+<h2>The request<a class="headerlink" href="#the-request" title="Link to this heading">#</a></h2>
+<p>The bridge <code class="docutils literal notranslate"><span class="pre">POST</span></code>s to <code class="docutils literal notranslate"><span class="pre">&lt;dispatcher&gt;/webhook/&lt;trigger&gt;</span></code> with a Bearer
+token. The body is the question plus whatever context the engine assembled:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;question&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;now plot that over 24 hours&quot;</span><span class="p">,</span>
+<span class="w">  </span><span class="nt">&quot;conversation_so_far&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">&quot;question&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;answer&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;ts&quot;</span><span class="p">:</span><span class="w"> </span><span class="mf">1757000000.0</span><span class="p">,</span>
+<span class="w">                           </span><span class="nt">&quot;run_id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;run-...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;artifacts&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]}],</span>
+<span class="w">  </span><span class="nt">&quot;reply_to&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;sender&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Alice&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;the vacuum trace from this morning&quot;</span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;input_files&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">&quot;filename&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;trace.png&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;mime&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;image/png&quot;</span><span class="p">,</span>
+<span class="w">                   </span><span class="nt">&quot;content_b64&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;ingest&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}],</span>
+<span class="w">  </span><span class="nt">&quot;skipped_attachments&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[{</span><span class="nt">&quot;filename&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;scan.h5&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;reason&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;...&quot;</span><span class="p">}]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Only <code class="docutils literal notranslate"><span class="pre">question</span></code> is always present. A text-only message in a fresh
+conversation sends that field and nothing else — the engine omits an empty
+context rather than sending empty containers, so such a dispatch is
+byte-identical to one made before any of this existed.</p>
+<p>The whole body becomes the agent’s context, exactly as it does for a webhook
+fired by hand. A trigger’s prompt does not have to name these fields for the
+agent to see them.</p>
 </section>
-<section id="the-four-tools">
-<h2>The Four Tools<a class="headerlink" href="#the-four-tools" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">graph</span></code> server exposes four tools. Used in this order they cost the
-fewest turns:</p>
-<ol class="arabic simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">example_queries</span></code> — a curated, runnable set covering the common question
-shapes: device counts by class (concrete and rolled up the ontology), every
-device of a class including its subclasses, a section walk in beam order,
-every PV of one device split by direction, the class hierarchy as a table
-and as inheritance chains, a read/write split across all bindings, and
-devices sharing one PV. Each carries its Cypher and a parameter set whose
-values are framework defaults taken from the shipped demo machine. Adapting
-one is reliable where inventing a query is guesswork.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">get_schema</span></code> — the labels, relationship types and per-label property names
-actually present in <em>this</em> graph, plus the NARAD namespace prefix map for
-reading and building <code class="docutils literal notranslate"><span class="pre">uri</span></code> values. Call it when you need a name the
-examples do not use. Property lists are sampled rather than exhaustive;
-labels and relationship types are complete.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">read_cypher</span></code> — runs one read-only query and returns
-<code class="docutils literal notranslate"><span class="pre">columns</span></code>/<code class="docutils literal notranslate"><span class="pre">rows</span></code>/<code class="docutils literal notranslate"><span class="pre">row_count</span></code>/<code class="docutils literal notranslate"><span class="pre">truncated</span></code>. Pass values through
-<code class="docutils literal notranslate"><span class="pre">params</span></code> as <code class="docutils literal notranslate"><span class="pre">$name</span></code> placeholders rather than pasting them into the query
-text; the curated examples are written that way, so an example plus its
-parameter set runs unedited.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> — the static manifest (description, tool list, operating
-notes). It does not dial the store, so a successful reply says nothing about
-whether the graph is up.</p></li>
-</ol>
-<p>In a deployed project the agent rarely needs the first two: whichever verb
-seeds or re-verifies the store — the staging step inside every <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code>,
-or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">seed-graph</span></code> — captures the live store’s schema (property
-lists complete, not sampled) together with the curated examples, and bakes them
-into the rendered <code class="docutils literal notranslate"><span class="pre">facility-knowledge-graph</span></code> agent prompt, stamped with the
-seed marker’s checksum. Each example’s parameters are marked in the block as
-captured from this corpus or as framework defaults, so the agent knows which
-values it can trust as real addresses. The block also carries the class
-vocabulary — every class’s <code class="docutils literal notranslate"><span class="pre">altLabel</span></code> synonyms — read from the same store, so
-the agent maps an operator’s word to a class without a hard-coded list, and
-goes straight to <code class="docutils literal notranslate"><span class="pre">read_cypher</span></code>. Because the writer of the snapshot is the
-writer of the store, prompt and graph cannot drift apart silently; a rebuilt
-render resets the prompt to a placeholder, and the next <code class="docutils literal notranslate"><span class="pre">up</span></code> fills it back
-in. The tools stay registered as the recovery path — a query that returns zero
-rows for a name the snapshot lists means the store changed out from under it,
-and <code class="docutils literal notranslate"><span class="pre">get_schema</span></code> is the arbiter.</p>
-<p>Results are bounded in two directions. At most
-<code class="docutils literal notranslate"><span class="pre">services.graphdb.query_max_rows</span></code> rows come back — the reply says
-<code class="docutils literal notranslate"><span class="pre">truncated:</span> <span class="pre">true</span></code> when more matched — and the store cancels a query that
-outlives <code class="docutils literal notranslate"><span class="pre">services.graphdb.query_timeout_s</span></code>. Both bound one <em>question</em>, not
-the store. Raising them spends the agent’s context window rather than the
-store’s memory: a few thousand rows crowd out the conversation long before they
-trouble Neo4j. The better answer to a truncated result is usually a narrower
-query — add a filter, bound the traversal, or aggregate.</p>
+<section id="conversation-so-far">
+<h2><code class="docutils literal notranslate"><span class="pre">conversation_so_far</span></code><a class="headerlink" href="#conversation-so-far" title="Link to this heading">#</a></h2>
+<p>The recent exchanges in this conversation, <strong>oldest first</strong>. This is what makes
+“now plot that over 24 hours” resolve its referent. Each turn:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">question</span></code></p></td>
+<td><p>What was asked.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">answer</span></code></p></td>
+<td><p>What the agent replied. A turn whose run failed carries a marker here
+instead, so the referent survives even when the answer did not.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">ts</span></code></p></td>
+<td><p>Unix timestamp of the exchange.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">run_id</span></code></p></td>
+<td><p>The dispatch run that produced the answer, or <code class="docutils literal notranslate"><span class="pre">null</span></code>.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">artifacts</span></code></p></td>
+<td><p>Descriptors for the files that run produced — round-tripped opaquely by
+the bridge, capped per turn, newest kept.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The bridge caps the list by turn count and by total serialized size, dropping
+oldest first, so the newest exchanges always survive.</p>
+<p>A descriptor may carry a <code class="docutils literal notranslate"><span class="pre">note</span></code> reading <code class="docutils literal notranslate"><span class="pre">&quot;may</span> <span class="pre">have</span> <span class="pre">expired&quot;</span></code>. That is the
+bridge saying it could not bring the artifact’s bytes back — swept, deleted, or
+too large for the budget below — so the agent should say the file is no longer
+available rather than pretend to look at it. Nothing keys on the exact wording;
+it is written to be read.</p>
+</section>
+<section id="reply-to">
+<h2><code class="docutils literal notranslate"><span class="pre">reply_to</span></code><a class="headerlink" href="#reply-to" title="Link to this heading">#</a></h2>
+<p>Present only when the message quotes or replies to another one, and only when
+the chat system has such a mechanic at all:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="nt">&quot;sender&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Alice&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;the vacuum trace from this morning&quot;</span><span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">text</span></code> is the quoted message, truncated by the adapter to its own limit. Two
+further fields appear when the <strong>quoted</strong> message had attachments:
+<code class="docutils literal notranslate"><span class="pre">attachments</span></code> (the filenames delivered from it) and <code class="docutils literal notranslate"><span class="pre">skipped_attachments</span></code>
+(the ones that were not). They live inside <code class="docutils literal notranslate"><span class="pre">reply_to</span></code> rather than beside it
+precisely so the agent can tell a file quoted from earlier apart from a file
+attached to the message in front of it.</p>
+</section>
+<section id="input-files-and-skipped-attachments">
+<h2><code class="docutils literal notranslate"><span class="pre">input_files</span></code> and <code class="docutils literal notranslate"><span class="pre">skipped_attachments</span></code><a class="headerlink" href="#input-files-and-skipped-attachments" title="Link to this heading">#</a></h2>
+<p>Files ride the payload as base64, in one list:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 78.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">filename</span></code></p></td>
+<td><p>The name the agent sees.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">mime</span></code></p></td>
+<td><p>The type the adapter fetched it as.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">content_b64</span></code></p></td>
+<td><p>The bytes, base64-encoded.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ingest</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">true</span></code> for a file attached to this message (or quoted from the one it
+replies to); <code class="docutils literal notranslate"><span class="pre">false</span></code> for a prior image the bridge replayed.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Order is fixed: this message’s own attachments, then the quoted message’s, then
+any replayed prior images. Replay exists so a follow-up about a plot can look
+at the plot again rather than only at its descriptor; replayed bytes are
+deduplicated by content against what the message already attached.</p>
+<p>Two budgets bound the list, both enforced by the bridge before anything is
+sent:</p>
+<ul class="simple">
+<li><p><strong>Fresh files</strong> — at most 5 files and 10 MiB across <code class="docutils literal notranslate"><span class="pre">ingest:</span> <span class="pre">true</span></code> entries,
+own attachments first.</p></li>
+<li><p><strong>Replayed images</strong> — at most 3 images and 8 MiB, newest first, and only
+images.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">skipped_attachments</span></code> accounts for everything that did not make it, as
+<code class="docutils literal notranslate"><span class="pre">{&quot;filename&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;reason&quot;:</span> <span class="pre">...}</span></code> notes the agent can relay. The reasons the
+engine itself writes:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 42.0%" />
+<col style="width: 58.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Reason</p></th>
+<th class="head"><p>When</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">too</span> <span class="pre">many</span> <span class="pre">attachments</span> <span class="pre">(limit</span> <span class="pre">5);</span> <span class="pre">this</span> <span class="pre">file</span> <span class="pre">was</span> <span class="pre">not</span> <span class="pre">processed</span></code></p></td>
+<td><p>The count budget was already spent.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">attachments</span> <span class="pre">exceed</span> <span class="pre">the</span> <span class="pre">total</span> <span class="pre">size</span> <span class="pre">budget;</span> <span class="pre">this</span> <span class="pre">file</span> <span class="pre">was</span> <span class="pre">not</span> <span class="pre">processed</span></code></p></td>
+<td><p>The byte budget was already spent.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">couldn't</span> <span class="pre">ingest</span> <span class="pre">(server</span> <span class="pre">too</span> <span class="pre">old)</span></code></p></td>
+<td><p>The worker on the other end does not advertise <code class="docutils literal notranslate"><span class="pre">input_files</span></code>, so the
+bytes were never sent. Nothing is silently dropped: every file gains
+this note instead.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>An adapter adds its own reasons for what it could not fetch — a download that
+failed, a type the chat system will not hand over — in the same shape.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="../../how-to/agent-interfaces/chat-bridges/index.html"><span class="doc">Chat Bridges</span></a></dt><dd><p>What a bridge is, what it remembers, and who can ask it questions.</p>
+</dd>
+<dt><a class="reference internal" href="../../how-to/agent-interfaces/event-dispatch.html"><span class="doc">Event Dispatch</span></a></dt><dd><p>The dispatcher and worker on the receiving end of this payload, and how
+to write the trigger it fires.</p>
+</dd>
+</dl>
+</div>
 </section>
 </section>
 
@@ -589,20 +651,20 @@ query — add a filter, bound the traversal, or aggregate.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="channel-finder.html"
+       href="audit-trail.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Channel Finder Contracts</p>
+        <p class="prev-next-title">Audit Trail Contract</p>
       </div>
     </a>
     <a class="right-next"
-       href="audit-trail.html"
+       href="../ports.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Audit Trail Contract</p>
+        <p class="prev-next-title">Ports</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -625,8 +687,10 @@ query — add a filter, bound the traversal, or aggregate.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-graph-holds">What the Graph Holds</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-four-tools">The Four Tools</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-request">The request</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#conversation-so-far"><code class="docutils literal notranslate"><span class="pre">conversation_so_far</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#reply-to"><code class="docutils literal notranslate"><span class="pre">reply_to</span></code></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#input-files-and-skipped-attachments"><code class="docutils literal notranslate"><span class="pre">input_files</span></code> and <code class="docutils literal notranslate"><span class="pre">skipped_attachments</span></code></a></li>
 </ul>
   </nav></div>
 
@@ -634,7 +698,7 @@ query — add a filter, bound the traversal, or aggregate.</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/contracts/facility-graph.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/reference/contracts/bridge-dispatch.rst">
       <i class="fa-solid fa-pencil"></i>
       
       

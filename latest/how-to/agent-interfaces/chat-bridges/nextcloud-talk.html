@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 10, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
   </head>
   
   
@@ -545,6 +545,11 @@ for them, making only outbound calls.</p>
 <p>Like every bridge, it <a class="reference internal" href="index.html#bridge-memory"><span class="std std-ref">remembers each question and conversation</span></a>. What is particular to Talk is that each room’s reading position
 is saved too, so messages posted while the bridge was down are picked up rather
 than missed.</p>
+<p>The <strong>first</strong> time the bridge sees a room is the exception: it starts from the
+room as it stands at that moment and does not answer the backlog behind it. The
+anchor is saved immediately, so “first time” means once per room and not once
+per restart. Add the bot to a busy room and it joins the conversation from
+there, rather than replying to a month of history.</p>
 </section>
 <section id="enable-it-in-a-profile">
 <h2>Enable It in a Profile<a class="headerlink" href="#enable-it-in-a-profile" title="Link to this heading">#</a></h2>
@@ -665,10 +670,12 @@ state (default 7 days).</p></td>
 site’s web proxy. Off by default, so a proxy inherited from a shell or
 a CI runner cannot quietly place itself in front of Nextcloud.</p></td>
 </tr>
-<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DEDUP_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">HISTORY_PATH</span></code></p></td>
-<td><p class="sd-card-text">Where the bridge keeps what it remembers. Both default to files under
-<code class="docutils literal notranslate"><span class="pre">/data</span></code>, its own volume; change them only if you deliberately
-relocate that state.</p></td>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DEDUP_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">HISTORY_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">OFFSETS_PATH</span></code></p></td>
+<td><p class="sd-card-text">Where the bridge keeps what it remembers: the questions it has
+answered, the recent exchanges, and how far it has read in each room.
+All three default to files under <code class="docutils literal notranslate"><span class="pre">/data</span></code>, its own volume; change
+them only if you deliberately relocate that state, and move all three
+together — losing <code class="docutils literal notranslate"><span class="pre">OFFSETS_PATH</span></code> alone replays or skips history.</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">TZ</span></code></p></td>
 <td><p class="sd-card-text">Timezone, taken from your project configuration so timestamps match
