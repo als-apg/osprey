@@ -97,14 +97,11 @@ class VLLMProviderAdapter(BaseProvider):
         :param kwargs: Additional arguments
         :return: Response text or structured output
         """
-        # Use placeholder API key if none provided
-        effective_api_key = api_key if api_key else "EMPTY"
-
         return execute_litellm_completion(
             provider=self.name,
             message=message,
             model_id=model_id,
-            api_key=effective_api_key,
+            api_key=self.effective_api_key(api_key),
             base_url=self.require_effective_base_url(base_url),
             max_tokens=max_tokens,
             temperature=temperature,
@@ -131,7 +128,7 @@ class VLLMProviderAdapter(BaseProvider):
         :return: (success, message) tuple
         """
         effective_base_url = self.require_effective_base_url(base_url)
-        effective_api_key = api_key if api_key else "EMPTY"
+        effective_api_key = self.effective_api_key(api_key)
 
         # First, try to get the list of models from the server
         if not model_id:
