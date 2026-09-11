@@ -116,3 +116,48 @@ def test_registry_allowlist_names_only_tools_the_server_registers(workspace_tool
     listed = set(workspace.permissions_allow) | set(workspace.permissions_ask)
     stale = sorted(listed - set(workspace_tools))
     assert stale == [], f"registry.mcp lists workspace tools that are not registered: {stale}"
+
+
+#: The three visualization tools. Each runs agent code in the same sandbox, so
+#: each must describe the same environment and the same blocked capabilities.
+VISUALIZATION_TOOLS = ("create_static_plot", "create_interactive_plot", "create_dashboard")
+
+
+def _description_prose(tool) -> str:
+    """A tool description minus its rendered package line.
+
+    The package line names whatever the environment installed; a package name
+    is not a vocabulary claim, and one of them is the ``epics`` import name.
+    """
+    from osprey.mcp_server.python_executor.tools._package_inventory import PACKAGE_LINE_PREFIX
+
+    return "\n".join(
+        line
+        for line in tool.description.splitlines()
+        if not line.strip().startswith(PACKAGE_LINE_PREFIX)
+    )
+
+
+@pytest.mark.parametrize("tool_name", VISUALIZATION_TOOLS)
+def test_visualization_tool_describes_the_live_package_set(tool_name, workspace_tools):
+    """A hardcoded package name sends the agent after an import the sandbox lacks."""
+    description = workspace_tools[tool_name].description
+
+    assert "Accelerator Toolbox" not in description, (
+        f"{tool_name} names a fixed package; the inventory is rendered from the environment"
+    )
+    assert "<<AVAILABLE_PACKAGES>>" not in description, (
+        f"{tool_name} carries the placeholder unsubstituted; "
+        f"apply @with_sandbox_packages below @mcp.tool()"
+    )
+
+
+@pytest.mark.parametrize("tool_name", VISUALIZATION_TOOLS)
+def test_visualization_tool_names_no_control_protocol(tool_name, workspace_tools):
+    """The sandbox blocks the control system whatever protocol carries it."""
+    prose = _description_prose(workspace_tools[tool_name])
+
+    assert "EPICS" not in prose, (
+        f"{tool_name} names one control protocol; the sandbox blocks the control system "
+        f"for every deployment, EPICS or not"
+    )

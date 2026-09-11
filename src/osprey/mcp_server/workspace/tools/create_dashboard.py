@@ -13,6 +13,7 @@ import logging
 
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
+from osprey.mcp_server.workspace.tools._sandbox_packages import with_sandbox_packages
 from osprey.mcp_server.workspace.tools._viz_common import (
     build_viz_response,
     collect_and_register_artifacts,
@@ -37,6 +38,7 @@ from bokeh.resources import INLINE
 
 
 @mcp.tool()
+@with_sandbox_packages
 async def create_dashboard(
     code: str,
     title: str,
@@ -49,8 +51,10 @@ async def create_dashboard(
     output — layouts are not auto-detected or auto-saved.
 
     The code has access to Bokeh imports (figure, layouts, models, palettes)
-    plus numpy and pandas. Additional packages are importable, including at
-    (Accelerator Toolbox). EPICS and network access are blocked.
+    plus numpy and pandas.
+    <<AVAILABLE_PACKAGES>>
+    Imports outside the sandbox allowlist are rejected before your code runs,
+    as are control-system access and network access.
 
     Args:
         code: Python code using Bokeh to create figures/layouts.
