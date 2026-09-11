@@ -669,14 +669,35 @@ class TestRunReembedDryRun:
 
 
 class TestRunWatch:
-    async def test_missing_source_raises_valueerror(self, monkeypatch):
-        # No source arg and no ingestion.source_url in config -> rejected before
-        # any service is created.
+    async def test_missing_ingestion_block_names_the_block(self, monkeypatch):
+        """A config with no ``ingestion`` at all has not configured what watch
+        does, so the refusal names the block rather than a field inside one the
+        operator never wrote. Rejected before any service is created."""
+        from osprey.services.ariel_search.exceptions import ConfigurationError
+
         _patch_service_raises(monkeypatch, AssertionError("service should not be created"))
 
-        with pytest.raises(ValueError, match="No ingestion source configured"):
+        with pytest.raises(ConfigurationError, match="ariel.ingestion is not configured") as exc:
             await ops.run_watch(
                 dict(_DB),
+                source=None,
+                adapter=None,
+                once=True,
+                interval=None,
+                dry_run=False,
+            )
+
+        assert exc.value.config_key == "ingestion"
+
+    async def test_a_configured_block_without_a_source_still_names_the_source(self, monkeypatch):
+        """The block is there and names its adapter; what is missing is where to
+        read from, and that is what the message says."""
+        _patch_service_raises(monkeypatch, AssertionError("service should not be created"))
+
+        config_dict = {**_DB, "ingestion": {"adapter": "generic_json"}}
+        with pytest.raises(ValueError, match="No ingestion source configured"):
+            await ops.run_watch(
+                config_dict,
                 source=None,
                 adapter=None,
                 once=True,
