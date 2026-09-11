@@ -38,6 +38,15 @@ class SemanticProcessorResult(BaseModel):
 #: Roughly two thousand tokens, which every provider OSPREY talks to serves.
 DEFAULT_MAX_INPUT_CHARS = 8000
 
+#: The extraction prompt used when the deployment names no replacement.
+#:
+#: Its examples are categories rather than devices: a framework default cannot
+#: know what a facility calls its equipment, and a machine-shaped example steers
+#: extraction toward words this logbook may never use. A facility puts its own
+#: vocabulary in front of the model through
+#: ``ariel.enhancement_modules.semantic_processor.prompt_template``, which
+#: replaces this template entirely and must keep both the ``{text}`` placeholder
+#: and the JSON schema :class:`SemanticProcessorResult` parses.
 DEFAULT_PROMPT_TEMPLATE = """Extract keywords and generate a summary from this logbook entry.
 
 Entry text:
@@ -45,11 +54,11 @@ Entry text:
 
 Instructions:
 1. Extract 5-15 keywords that capture:
-   - Equipment names (e.g., "vacuum pump VP-103", "RF cavity")
-   - Technical terms (e.g., "beam current", "temperature")
+   - Equipment names, with whatever identifier the entry gives them
+   - Measured quantities and technical terms
    - Actions taken (e.g., "replaced", "calibrated", "adjusted")
    - Problem types (e.g., "fault", "alarm", "leak")
-   - System areas (e.g., "storage ring", "injector")
+   - System areas or locations named in the entry
 
 2. Generate a 1-2 sentence summary that captures:
    - What happened

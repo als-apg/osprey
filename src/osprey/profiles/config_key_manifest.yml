@@ -1679,6 +1679,19 @@ keys:
       naming the entry; a value that is not a positive integer is refused at
       configure time.
     default: 8000
+  ariel.enhancement_modules.semantic_processor.prompt_template:
+    rendered: false
+    evidence: 'config\.get\("prompt_template"\)'
+    note: >-
+      Hidden key, unset in the four presets and documented as a commented
+      example beside the module's other settings. It replaces the extraction
+      prompt outright, which is how a facility puts its own equipment and
+      process vocabulary in front of the model without a framework default
+      having to guess at it. A replacement must keep the `{text}` placeholder
+      and the JSON schema the module parses, so this is a deliberate
+      authoring step rather than a knob with a safe arbitrary value.
+    default: derived
+    default_note: the module's own DEFAULT_PROMPT_TEMPLATE
   ariel.enhancement_modules.text_embedding: {evidence: 'text_embedding', default: {}}
   ariel.enhancement_modules.text_embedding.enabled: {covered-by: ariel.enhancement_modules.text_embedding, default: false}
   ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding, default: null}

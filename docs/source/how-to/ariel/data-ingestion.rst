@@ -180,6 +180,24 @@ The built-in enhancement modules:
       Raise it if your entries run long and your provider's context window has
       the room.
 
+      The shipped extraction prompt asks for categories --- equipment names, measured quantities, actions taken, problem types, locations --- because a framework default cannot know what your site calls its equipment. ``prompt_template`` replaces that prompt outright, and is where your own vocabulary belongs: the device families, abbreviations and process words your operators actually write. Keep the ``{text}`` placeholder and the JSON schema the module parses, or enhancement fails for every entry.
+
+      .. code-block:: yaml
+
+         ariel:
+           enhancement_modules:
+             semantic_processor:
+               prompt_template: |
+                 Extract keywords and generate a summary from this logbook entry.
+
+                 Entry text:
+                 {text}
+
+                 ... your instructions here ...
+
+                 Return ONLY valid JSON matching this schema:
+                 {{"keywords": ["keyword1", ...], "summary": "..."}}
+
    .. tab-item:: qmd Export
 
       **Module:** ``enhancement/qmd_export/`` (entry point: ``exporter.py``)

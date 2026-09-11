@@ -315,6 +315,11 @@ config:
   # cut here — the cut is logged, naming the entry — so this is what a facility
   # with long entries and a roomy context window raises.
   # ariel.enhancement_modules.semantic_processor.max_input_chars: 8000
+  # The extraction prompt. Unset means the module's own default, whose examples
+  # are categories rather than devices. Set it to put this facility's vocabulary
+  # in front of the model; the replacement must keep the {text} placeholder and
+  # the JSON schema the module parses.
+  # ariel.enhancement_modules.semantic_processor.prompt_template: |
   # Text embedding for semantic search. Degrades gracefully when Ollama or
   # pgvector is unavailable.
   ariel.enhancement_modules.text_embedding.enabled: true
