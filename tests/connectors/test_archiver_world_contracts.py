@@ -82,7 +82,12 @@ from osprey.simulation.archiver_seed import (
 )
 from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL
 from osprey.simulation.series import epoch_seconds_array
-from tests._container_support import is_docker_available, start_or_skip, stop_quietly
+from tests._container_support import (
+    is_docker_available,
+    start_or_skip,
+    stop_quietly,
+    wait_until_ready,
+)
 
 # ---------------------------------------------------------------------------
 # The world under test
@@ -272,6 +277,10 @@ def mongo():
     off by default and on only where a test asks for it. The one-second sleep is
     what makes that sweep quick when it is enabled — the shipped default is 60s,
     which is a timer, not a contract.
+
+    The store is waited for rather than assumed: testcontainers' readiness
+    check runs inside the container, so the first connection from the host on
+    the freshly published port can be reset while the port forwarder settles.
     """
     if not is_docker_available():
         pytest.skip("Docker not available — needed to seed and read a real store.")
@@ -295,10 +304,37 @@ def mongo():
         ),
         label="mongodb-world-contracts",
     )
+    host = container.get_container_host_ip()
+    port = int(container.get_exposed_port(27017))
+
+    def answers() -> None:
+        """Ask the store for a pong, raising while it is not yet answering.
+
+        The one-second selection window is what makes this a poll rather than
+        one long wait: a client left on its own default would spend the whole
+        retry budget inside a single attempt.
+        """
+        from pymongo import MongoClient
+
+        client = MongoClient(
+            host,
+            port,
+            username=username,
+            password=password,
+            authSource="admin",
+            serverSelectionTimeoutMS=1000,
+        )
+        try:
+            client.admin.command("ping")
+        finally:
+            client.close()
+
+    wait_until_ready(answers, "mongodb-world-contracts")
+
     try:
         yield {
-            "host": container.get_container_host_ip(),
-            "port": int(container.get_exposed_port(27017)),
+            "host": host,
+            "port": port,
             "username": username,
             "password": password,
             "auth_db": "admin",

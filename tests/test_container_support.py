@@ -14,7 +14,11 @@ import pytest
 import requests
 
 from tests import _container_support
-from tests._container_support import docker_cli_unavailable_reason, start_or_skip
+from tests._container_support import (
+    docker_cli_unavailable_reason,
+    start_or_skip,
+    wait_until_ready,
+)
 
 # ``docker`` is a ``dev``-extra dependency. Importing it at module scope would
 # make this file ERROR at collection wherever the extra is absent — the very
@@ -258,3 +262,60 @@ def test_docker_probe_is_silent_when_the_cli_works(monkeypatch):
     monkeypatch.setattr(_container_support.subprocess, "run", lambda argv, **kwargs: _completed(0))
 
     assert docker_cli_unavailable_reason() is None
+
+
+# ---------------------------------------------------------------------------
+# wait_until_ready
+# ---------------------------------------------------------------------------
+
+
+class CountingProbe:
+    """A probe that raises *failures* times before it starts succeeding.
+
+    ``failures=None`` never succeeds, which is the case the deadline is for.
+    Spelling it as ``None`` rather than a large count matters: a counted probe
+    with no pause between attempts exhausts any plausible count long before a
+    short deadline expires, and the test would then be asserting the success
+    path under a name that promises the failure one.
+    """
+
+    def __init__(self, failures: int | None, error: BaseException | None = None):
+        self.remaining = failures
+        self.error = error or ConnectionResetError("connection reset by peer")
+        self.calls = 0
+
+    def __call__(self) -> None:
+        self.calls += 1
+        if self.remaining is None:
+            raise self.error
+        if self.remaining > 0:
+            self.remaining -= 1
+            raise self.error
+
+
+def test_a_probe_that_answers_at_once_is_called_once():
+    probe = CountingProbe(failures=0)
+
+    wait_until_ready(probe, "mongodb", interval=0.0)
+
+    assert probe.calls == 1
+
+
+def test_a_probe_that_answers_on_the_third_try_returns_after_three_calls():
+    probe = CountingProbe(failures=2)
+
+    wait_until_ready(probe, "mongodb", interval=0.0)
+
+    assert probe.calls == 3
+
+
+def test_a_probe_that_never_answers_fails_with_the_label_and_the_last_cause():
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("port not published"))
+
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(probe, "mongodb-seed", timeout=0.05, interval=0.0)
+
+    message = str(caught.value)
+    assert "mongodb-seed" in message
+    assert "ConnectionRefusedError" in message
+    assert "port not published" in message
