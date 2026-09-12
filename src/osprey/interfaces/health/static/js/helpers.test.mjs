@@ -16,6 +16,7 @@ import {
   msCls,
   byCategory,
 } from './helpers.js';
+import { fmtName as sharedFmtName } from '/design-system/js/check-name.js';
 
 describe('esc', () => {
   test('escapes HTML metacharacters so server data cannot inject markup', () => {
@@ -124,6 +125,14 @@ describe('fmtName', () => {
 
   test('a single word is capitalized', () => {
     expect(fmtName('latency', 'network')).toBe('Latency');
+  });
+
+  // The web terminal's health bar item lists the same check names and cannot
+  // import this bundle, so the rule lives in the design system and this module
+  // re-exports it. Asserting identity — not behaviour — is what makes a future
+  // second copy a failure here rather than a quiet divergence on two surfaces.
+  test('is the design system\'s function itself, not a copy of it', () => {
+    expect(fmtName).toBe(sharedFmtName);
   });
 });
 
