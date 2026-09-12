@@ -762,21 +762,13 @@ keys:
   approval.tools.archiver_read: {evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.execute: {covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
   approval.tools.setup_patch: {evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.entry_create:
-    evidence: 'entry_create'
-    note: >-
-      Inert in hello_world: that template disables the ariel server, so the
-      tool never exists. Harmless (fail-closed either way); recorded so it is
-      not mistaken for drift.
-    default: derived
-    default_note: falls through to approval.default_policy
+  approval.tools.entry_create: {evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.entry_publish:
     evidence: 'entry_publish'
     note: >-
       The second half of the logbook write: entry_create drafts, entry_publish
       writes the entry through to the facility's logbook. Both carry the
-      approval hook, so both belong here. Inert in hello-world for the same
-      reason entry_create is.
+      approval hook, so both belong here.
     default: derived
     default_note: falls through to approval.default_policy
   # The panel-rail verbs. Spelled in exactly the three presets that ship an
