@@ -6,7 +6,12 @@
     rail-position keys, and those readers take the namespace from here rather
     than parsing the URL. Absent means single-user: keys stay unscoped. Never
     emit it empty. See resolve_storage_scope() in app.py. -#}
-<html lang="en"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}>
+{#- data-panel-labels is the registry's roster of built-in panel labels, read
+    at module load by panel-catalog.js. activity-strip.js reaches panel-manager
+    for the labels it words panel actions with, so this page needs the same
+    stamp the index carries. SINGLE-quoted because Jinja's tojson escapes '
+    (and < > &) but leaves " alone. -#}
+<html lang="en" data-panel-labels='{{ builtin_panel_labels|tojson }}'{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
