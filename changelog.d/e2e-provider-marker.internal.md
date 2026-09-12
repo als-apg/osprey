@@ -1,0 +1,1 @@
+An end-to-end run must name the provider it builds with — there is no default behind `OSPREY_E2E_PROVIDER` any more — and the lanes that build a deployment repo now skip on that provider's credential rather than one gateway's.
