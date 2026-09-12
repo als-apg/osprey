@@ -165,6 +165,11 @@ def model_to_table_name(model_name: str) -> str:
 # Migration runner
 # ---------------------------------------------------------------------------
 
+# Migrations constructed with the configured (model, dimension) pairs rather
+# than bare. Each writes per-model objects, so a name missing here would work
+# the hardcoded default table instead of the ones the deployment configured.
+MIGRATIONS_TAKING_EMBEDDING_MODELS = frozenset({"text_embedding", "text_embedding_hnsw_index"})
+
 # Format: (name, module_path, class_name, requires_module)
 # requires_module is None for core_schema (always runs), otherwise module name
 KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
@@ -196,6 +201,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "text_embedding",
         "osprey.services.ariel_search.enhancement.text_embedding.migration",
         "TextEmbeddingMigration",
+        "text_embedding",
+    ),
+    (
+        "text_embedding_hnsw_index",
+        "osprey.services.ariel_search.enhancement.text_embedding.hnsw_migration",
+        "TextEmbeddingHnswIndexMigration",
         "text_embedding",
     ),
     (
@@ -248,10 +259,10 @@ class MigrationRunner:
                 try:
                     module = importlib.import_module(module_path)
                     migration_class = getattr(module, class_name)
-                    # The text_embedding migration needs the configured
-                    # (model, dimension) pairs so `osprey ariel migrate` creates a
-                    # table per configured model, not just the hardcoded default.
-                    if name == "text_embedding":
+                    # These migrations need the configured (model, dimension)
+                    # pairs so `osprey ariel migrate` works a table per
+                    # configured model, not just the hardcoded default.
+                    if name in MIGRATIONS_TAKING_EMBEDDING_MODELS:
                         models = self._configured_embedding_models()
                         migration = migration_class(models)
                     else:

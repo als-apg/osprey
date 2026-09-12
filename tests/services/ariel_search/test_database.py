@@ -26,9 +26,14 @@ from osprey.services.ariel_search.enhancement.semantic_processor.migration impor
 from osprey.services.ariel_search.enhancement.semantic_processor.search_migration import (
     SemanticProcessorSearchMigration,
 )
+from osprey.services.ariel_search.enhancement.text_embedding.hnsw_migration import (
+    TextEmbeddingHnswIndexMigration,
+)
 from osprey.services.ariel_search.enhancement.text_embedding.migration import (
     TextEmbeddingMigration,
     create_vector_index_sql,
+    legacy_vector_index_name,
+    vector_index_name,
 )
 
 
@@ -863,6 +868,26 @@ class TestGetEnabledMigrations:
         )
         assert text_embedding._get_models() == [("nomic-embed-text", 768)]
 
+    def test_hnsw_reconcile_migration_gets_the_configured_models(self) -> None:
+        """It has to rebuild the index on the same tables the creating one made."""
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {
+                    "text_embedding": {
+                        "enabled": True,
+                        "models": [{"name": "mxbai-embed-large", "dimension": 1024}],
+                    },
+                },
+            }
+        )
+        runner = make_runner(config=config)
+
+        reconcile = next(
+            m for m in runner._get_enabled_migrations() if m.name == "text_embedding_hnsw_index"
+        )
+        assert reconcile._get_models() == [("mxbai-embed-large", 1024)]
+
 
 class TestMigrationRunnerRun:
     """Tests for MigrationRunner.run."""
@@ -1205,3 +1230,56 @@ class TestTextEmbeddingMigrationDDL:
 
         assert spelled_in == ["enhancement/text_embedding/migration.py"]
         assert "USING hnsw (embedding vector_cosine_ops)" in create_vector_index_sql("some_table")
+
+
+class TestTextEmbeddingHnswIndexMigrationDDL:
+    """Tests for TextEmbeddingHnswIndexMigration."""
+
+    def test_properties(self) -> None:
+        """It reconciles the index the creating migration made, so it follows it."""
+        migration = TextEmbeddingHnswIndexMigration()
+        assert migration.name == "text_embedding_hnsw_index"
+        assert migration.depends_on == ["text_embedding"]
+
+    async def test_up_skips_when_pgvector_is_unavailable(self, ddl_conn) -> None:
+        """A keyword-only deployment retries later instead of failing the run."""
+        with pytest.raises(MigrationSkippedError, match="pgvector"):
+            await TextEmbeddingHnswIndexMigration().up(ddl_conn)
+
+        assert len(ddl_conn.sql) == 1
+        assert "pg_available_extensions" in ddl_conn.sql[0]
+
+    async def test_up_drops_the_legacy_index_before_creating_the_hnsw_one(self, ddl_conn) -> None:
+        """Leaving the old index in place would keep both on the same column."""
+        ddl_conn.recorder.rows_for = {
+            "pg_available_extensions": [(True,)],
+            "to_regclass": [(True,)],
+        }
+
+        await TextEmbeddingHnswIndexMigration(models=[("model-a", 512)]).up(ddl_conn)
+
+        legacy = sql_index(
+            ddl_conn, f"DROP INDEX IF EXISTS {legacy_vector_index_name('text_embeddings_model_a')}"
+        )
+        created = sql_index(ddl_conn, create_vector_index_sql("text_embeddings_model_a"))
+        assert legacy < created
+
+    async def test_up_skips_a_model_whose_table_is_absent(self, ddl_conn) -> None:
+        """A model configured but never migrated has no index to reconcile."""
+        ddl_conn.recorder.rows_for = {
+            "pg_available_extensions": [(True,)],
+            "to_regclass": [(False,)],
+        }
+
+        await TextEmbeddingHnswIndexMigration(models=[("model-a", 512)]).up(ddl_conn)
+
+        assert ddl_conn.recorder.matching("DROP INDEX") == []
+        assert ddl_conn.recorder.matching("CREATE INDEX") == []
+
+    async def test_down_drops_the_hnsw_index(self, ddl_conn) -> None:
+        """Rollback removes the index this migration created, not the table."""
+        await TextEmbeddingHnswIndexMigration(models=[("model-a", 512)]).down(ddl_conn)
+
+        assert ddl_conn.sql == [
+            f"DROP INDEX IF EXISTS {vector_index_name('text_embeddings_model_a')}"
+        ]
