@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from collections.abc import Sequence
@@ -195,7 +196,7 @@ class _WorkspaceHandler(FileSystemEventHandler):
         self._listings: dict[str, dict[str, ChangeStamp]] = {}
 
     def on_any_event(self, event: FileSystemEvent) -> None:
-        src_path = Path(event.src_path)
+        src_path = Path(os.fsdecode(event.src_path))
 
         # Filter ignored paths
         if self._is_ignored(src_path):

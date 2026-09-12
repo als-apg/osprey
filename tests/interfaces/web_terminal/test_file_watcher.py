@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from pathlib import Path, PurePath
 from types import SimpleNamespace
@@ -245,6 +246,21 @@ class TestWorkspaceWatcher:
             assert len(git_events) == 0
         finally:
             watcher.stop()
+
+    def test_an_event_path_reported_as_bytes_still_reaches_the_panel(self):
+        """watchdog types ``src_path`` as ``bytes | str`` and hands on
+        whatever the platform gave it.
+
+        A bytes path built straight into a ``Path`` raises ``TypeError``
+        inside the observer thread, and the file panel stops hearing about
+        that tree for the rest of the session.
+        """
+        broadcaster = MagicMock()
+        handler = _handler((), broadcaster)
+
+        handler.on_any_event(FileCreatedEvent(os.fsencode(str(WORKSPACE / "notes.md"))))
+
+        assert _broadcast_paths(broadcaster) == ["notes.md"]
 
 
 WORKSPACE = Path("/tmp/osprey-test-watcher-workspace")
