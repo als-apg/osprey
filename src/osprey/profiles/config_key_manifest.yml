@@ -720,10 +720,18 @@ keys:
     all-templates: true
     covered-by: approval
     default: required
+    default_note: >-
+      true or false. true applies the approval hook, so every hook-wired tool
+      call follows the policies below; false applies none of them and leaves
+      those tools to the rendered settings.json permissions alone.
   approval.default_policy:
     all-templates: true
     evidence: 'default_policy'
     default: required
+    default_note: >-
+      always, skip or selective, applied to any hook-wired tool with no policy
+      of its own. selective is content-aware for `execute` and reads as always
+      everywhere else.
   approval.tools:
     covered-by: approval
     note: >-
@@ -798,6 +806,10 @@ keys:
       to state it either way — which is what makes it parity-required now,
       where under the templates it was a per-template divergence.
     default: required
+    default_note: >-
+      true or false. true logs one line per hook call to stderr and appends to
+      .claude/hooks/hook_debug.jsonl, which is what the web terminal's Safety
+      panel hook feed reads; false writes neither.
 
   # ── Control system ──────────────────────────────────────────────────
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
@@ -1443,6 +1455,9 @@ keys:
     all-templates: true
     covered-by: claude_code.telemetry
     default: required
+    default_note: >-
+      true or false. true emits the agent's OTLP logs and metrics to the
+      backend named below; false emits none and the rest of the block is inert.
   claude_code.telemetry.backend:
     evidence: 'telemetry_cfg\.get\("backend"\) == "openobserve"'
     default: null
@@ -1784,6 +1799,10 @@ keys:
   facility_knowledge.bundle_path:
     evidence: 'get_config_value\("facility_knowledge\.bundle_path", None\)'
     default: required
+    default_note: >-
+      A path to the bundle, absolute or resolved against the project directory.
+      None is derived: a facility_knowledge section naming no bundle has
+      nothing to serve, so the knowledge commands refuse rather than guess.
   artifact_server: {all-templates: true, evidence: 'config\.get\("artifact_server"\) or \{\}', default: {}}
   artifact_server.host: {all-templates: true, covered-by: artifact_server, default: 127.0.0.1}
   artifact_server.port: {covered-by: artifact_server, default: derived, default_note: the layout's artifact slot at this deployment's port base}

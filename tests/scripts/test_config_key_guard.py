@@ -775,6 +775,22 @@ def test_near_miss_sentinel_goes_red(misspelling):
     assert "cli.theme" in details(guard)
 
 
+def test_required_default_without_a_note_goes_red():
+    """`required` names no fallback, so it has to name the accepted values.
+
+    A reader holding only the ledger otherwise sees "you must set this" with
+    nowhere to learn what may be set.
+    """
+
+    def strip_the_note(manifest):
+        manifest["keys"]["control_system.type"].pop("default_note", None)
+
+    guard = make_guard(strip_the_note)
+    guard.check_defaults()
+    assert "default" in modes(guard)
+    assert "control_system.type" in details(guard)
+
+
 def test_note_on_a_required_default_stays_green():
     """`required` says no fallback exists; the note says which values are legal.
 
