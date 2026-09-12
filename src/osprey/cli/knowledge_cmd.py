@@ -901,9 +901,11 @@ def _resolve_hierarchy_descriptions(raw: Mapping[str, Any], db_path: Path) -> An
         resolve_hierarchy_descriptions,
     )
 
-    hierarchy = raw.get("hierarchy") if isinstance(raw.get("hierarchy"), Mapping) else {}
+    raw_hierarchy = raw.get("hierarchy")
+    hierarchy: Mapping[str, Any] = raw_hierarchy if isinstance(raw_hierarchy, Mapping) else {}
     levels = hierarchy.get("levels") or []
-    tree = raw.get("tree") if isinstance(raw.get("tree"), Mapping) else {}
+    raw_tree = raw.get("tree")
+    tree: Mapping[str, Any] = raw_tree if isinstance(raw_tree, Mapping) else {}
     try:
         return resolve_hierarchy_descriptions(tree, levels)
     except (ValueError, AttributeError, TypeError) as exc:
