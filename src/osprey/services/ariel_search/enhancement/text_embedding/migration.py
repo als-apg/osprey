@@ -38,6 +38,19 @@ def create_vector_index_sql(table_name: str) -> str:
     )
 
 
+async def pgvector_available(conn: "AsyncConnection") -> bool:
+    """Report whether the pgvector extension can be installed on this server.
+
+    Returns:
+        True if pgvector is available for installation
+    """
+    result = await conn.execute(
+        "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')"
+    )
+    row = await result.fetchone()
+    return bool(row and row[0])
+
+
 class TextEmbeddingMigration(BaseMigration):
     """Text embedding enhancement migration.
 
@@ -78,21 +91,9 @@ class TextEmbeddingMigration(BaseMigration):
         # Default: nomic-embed-text (most common)
         return [("nomic-embed-text", 768)]
 
-    async def _is_pgvector_available(self, conn: "AsyncConnection") -> bool:
-        """Check if the pgvector extension is available in PostgreSQL.
-
-        Returns:
-            True if pgvector is available for installation
-        """
-        result = await conn.execute(
-            "SELECT EXISTS (SELECT 1 FROM pg_available_extensions WHERE name = 'vector')"
-        )
-        row = await result.fetchone()
-        return bool(row and row[0])
-
     async def up(self, conn: "AsyncConnection") -> None:
         """Apply the text embedding migration."""
-        if not await self._is_pgvector_available(conn):
+        if not await pgvector_available(conn):
             raise MigrationSkippedError(
                 "pgvector extension is not available in this PostgreSQL installation. "
                 "Install pgvector to enable semantic search. "
