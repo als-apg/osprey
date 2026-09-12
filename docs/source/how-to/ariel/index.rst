@@ -17,10 +17,10 @@ the agent invokes ARIEL's MCP tools as part of broader workflows.
 Every layer is designed to be **facility-agnostic and extensible**. Ingestion
 adapters, search modules, and enhancement stages are all registerable --- you can
 implement your own and plug them into the full pipeline without modifying ARIEL's
-source code. Out of the box, adapters are included for facilities such as ALS,
-JLab, and ORNL, and search strategies range from fast keyword lookup to
-embedding-based semantic similarity, with multi-step reasoning over results
-delegated to the Osprey agent layer.
+source code. Out of the box, adapters are included for the reference logbook
+formats listed on :doc:`data-ingestion`, and search strategies range from fast
+keyword lookup to embedding-based semantic similarity, with multi-step
+reasoning over results delegated to the Osprey agent layer.
 
 .. figure:: /_static/resources/ariel_overview.svg
    :alt: ARIEL Logbook Search Architecture

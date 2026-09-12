@@ -185,7 +185,7 @@ view of the same mechanism.
 Disk footprint
 --------------
 
-Measured against a real 134,996-entry ALS logbook:
+Measured against a real 134,996-entry logbook:
 
 .. list-table::
    :header-rows: 1

@@ -77,7 +77,7 @@ def emit_persona_files(
         repo_root: The deployment repo the files land in. ``personas/`` is
             created under it, and only when there is something to write.
         repo_name: The repo's display name, which titles each emitted persona
-            (``"ALS Assistant (readonly)"``). The host profile's ``name``, not
+            (``"My Assistant (readonly)"``). The host profile's ``name``, not
             the directory.
         preset_name: The bundled preset whose ``modules.web_terminals.personas``
             catalog is the source. It need not be the repo's own preset — that
