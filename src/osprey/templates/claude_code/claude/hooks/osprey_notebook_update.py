@@ -23,9 +23,9 @@ stdin ──► Parse JSON
               │
               ▼
          Locate _notebook_cache/
-         {stem}_rendered.html
+         {stem}_rendered*.html
               │
-              ├──► exists? ──YES──► Delete cached HTML
+              ├──► any? ──YES──► Delete every cached render
               │
               ▼
          Under <agent-data root>/notebooks/? ──NO──► EXIT
@@ -277,14 +277,19 @@ def main():
     if not notebook_path:
         sys.exit(0)
 
-    # Invalidate cached HTML for this notebook
+    # Invalidate cached HTML for this notebook. The renderer caches one file
+    # per deployment posture (`<stem>_rendered.html`, `<stem>_rendered.offline.html`),
+    # so every spelling goes: a survivor is a stale render served the next time
+    # the deployment is in that mode.
     try:
         nb_path = Path(notebook_path)
         # Check in the artifact cache directory
         cache_dir = nb_path.parent / "_notebook_cache"
-        cached_html = cache_dir / f"{nb_path.stem}_rendered.html"
-        if cached_html.exists():
+        removed = 0
+        for cached_html in cache_dir.glob(f"{nb_path.stem}_rendered*.html"):
             cached_html.unlink()
+            removed += 1
+        if removed:
             log_hook(
                 "notebook-update", hook_input, status="invalidated", detail=f"path={notebook_path}"
             )
