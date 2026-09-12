@@ -1,7 +1,8 @@
 """Ring-facing current<->strength mapping for the ALS-U AR virtual accelerator.
 
-Owns the per-device nominal-current baseline (read from the scenario-seed
-``machine.json``, no hardcoded currents) and the current->strength formulas
+Owns the per-device nominal-current baseline -- the manifest's pyat-coupled
+setpoints, valued from the scenario-seed ``machine.json``, no hardcoded
+currents -- and the current->strength formulas
 for every magnet and corrector family in the real ring. This module is
 deliberately decoupled from the serving layer -- it never imports anything
 from :mod:`osprey.services.virtual_accelerator.ioc` or
@@ -43,6 +44,10 @@ import re
 import at
 from lume_pyat.simulator import ElementState, restore_element, snapshot_element
 
+from osprey.services.virtual_accelerator.manifest import (
+    build_manifest,
+    pyat_coupled_setpoint_addresses,
+)
 from osprey.services.virtual_accelerator.manifest.loaders import (
     load_machine_json_channels,
 )
@@ -115,11 +120,21 @@ class StrengthMap:
     write a current and update the matching element in place.
     """
 
-    def __init__(self, ring: at.Lattice) -> None:
+    def __init__(self, ring: at.Lattice, channels: list[dict] | None = None) -> None:
+        """Snapshot the baked strengths of ``ring`` and the nominal-current baseline.
+
+        Args:
+            ring: The lattice to snapshot baked strengths from.
+            channels: the manifest's ``channels`` list; ``None`` builds the
+                manifest. A caller that already has one should pass it.
+        """
+        if channels is None:
+            channels = build_manifest()["channels"]
+        machine_channels = load_machine_json_channels()
         self._i_nom_by_address: dict[str, float] = {
-            address: float(entry["value"])
-            for address, entry in load_machine_json_channels().items()
-            if address.endswith(":CURRENT:SP")
+            address: float(machine_channels[address]["value"])
+            for address in pyat_coupled_setpoint_addresses(channels)
+            if address in machine_channels
         }
         self._baked: dict[str, float] = {}
         for element in ring:
