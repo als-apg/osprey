@@ -18,7 +18,12 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from osprey.interfaces.fs_watch import ChangeStamp, ObserverFactory, one_level_listing
+from osprey.interfaces.fs_watch import (
+    ChangeStamp,
+    ObserverFactory,
+    evict_subtree,
+    one_level_listing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +228,20 @@ class _WorkspaceHandler(FileSystemEventHandler):
         if self._is_concealed(relative):
             return
 
+        # A directory that leaves by rename. One event stands for the whole
+        # subtree: the diff of the vanished source announces what it held, and
+        # the listings it leaves behind — its own and every one beneath it — go
+        # with it. A destination inside the watched tree is evicted as well, so
+        # that it is rebuilt by its next frame rather than answered from
+        # whatever stood there before.
+        if event.is_directory and event.event_type == "moved":
+            self._broadcast_directory_diff(src_path, relative)
+            evict_subtree(self._listings, src_path)
+            dest_path = getattr(event, "dest_path", "")
+            if dest_path:
+                evict_subtree(self._listings, Path(os.fsdecode(dest_path)))
+            return
+
         # A coalesced frame: FSEvents may report a burst of writes inside a
         # directory as one ``modified`` event on the directory itself, with no
         # per-file event behind it. Forwarded as-is it says a directory changed
@@ -238,10 +257,10 @@ class _WorkspaceHandler(FileSystemEventHandler):
             self._broadcast_directory_diff(src_path, relative)
             return
 
-        # A directory that is gone keeps no listing. This is the ordinary way
-        # one leaves: a deletion is delivered as its own event, and only a
-        # *frame* for a path that no longer exists is answered by the diff
-        # above. Evicting here rather than only there is what keeps the map
+        # A directory that is gone keeps no listing. It leaves two ways: by
+        # rename, where the single event above stands for the whole subtree,
+        # and by deletion, where every directory removed is announced by its
+        # own event and drops its own key here. Either way the map stays
         # bounded by the tree rather than by the watcher's lifetime.
         if event.is_directory and simple_type == "deleted":
             self._listings.pop(str(src_path), None)

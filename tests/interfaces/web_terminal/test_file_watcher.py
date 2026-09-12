@@ -14,6 +14,7 @@ import pytest
 from watchdog.events import (
     DirDeletedEvent,
     DirModifiedEvent,
+    DirMovedEvent,
     FileCreatedEvent,
     FileModifiedEvent,
 )
@@ -802,6 +803,68 @@ class TestACoalescedDirectoryFrame:
         handler.on_any_event(DirDeletedEvent(str(sub)))
 
         assert str(sub) not in handler._listings
+
+    def test_a_moved_directory_drops_its_listing_and_its_subtrees(self, tmp_path):
+        """A rename is one event for the whole subtree.
+
+        No deletion follows for the directory or for anything under it, so a
+        listing left behind here is never evicted at all.
+        """
+        sub = tmp_path / "sub"
+        nested = sub / "nested"
+        nested.mkdir(parents=True)
+        (nested / "note.txt").write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(sub)))
+        handler.on_any_event(DirModifiedEvent(str(nested)))
+        assert str(sub) in handler._listings
+        assert str(nested) in handler._listings
+        broadcaster.reset_mock()
+
+        renamed = tmp_path / "renamed"
+        sub.rename(renamed)
+        handler.on_any_event(DirMovedEvent(str(sub), str(renamed)))
+
+        assert {"type": "deleted", "path": str(Path("sub") / "nested"), "is_dir": True} in (
+            self._events(broadcaster)
+        ), "what the directory held is still announced as deleted"
+        assert str(sub) not in handler._listings
+        assert str(nested) not in handler._listings
+
+    def test_the_destination_is_rebuilt_from_disk_rather_than_from_what_stood_there(self, tmp_path):
+        """A rename into a path the map already knows must not be diffed
+        against the listing of the directory that used to hold it."""
+        destination = tmp_path / "destination"
+        destination.mkdir()
+        (destination / "stale.txt").write_text("hello")
+        source = tmp_path / "source"
+        source.mkdir()
+        (source / "carried.txt").write_text("world")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(destination)))
+
+        (destination / "stale.txt").unlink()
+        destination.rmdir()
+        source.rename(destination)
+        handler.on_any_event(DirMovedEvent(str(source), str(destination)))
+        broadcaster.reset_mock()
+        # The names the first frame announced hold their debounce slots for the
+        # window that follows, which would silence the stale deletion this case
+        # is looking for whether or not the destination listing survived.
+        handler._last_event.clear()
+        handler.on_any_event(DirModifiedEvent(str(destination)))
+
+        events = self._events(broadcaster)
+        assert {
+            "type": "created",
+            "path": str(Path("destination") / "carried.txt"),
+            "is_dir": False,
+        } in events
+        assert [e for e in events if e["path"].endswith("stale.txt")] == [], (
+            "the destination was diffed against a listing the rename replaced"
+        )
 
     def test_a_frame_inside_the_debounce_window_still_announces_what_it_carries(self, tmp_path):
         """The frames arrive as fast as the writes that produce them.
