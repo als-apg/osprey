@@ -2360,9 +2360,9 @@ CI_EXTRA_YML = """\
 #
 # .gitlab-ci.yml is emitted by `osprey scaffold ci` and will be overwritten the
 # next time it runs. This file never is — put anything facility-specific here:
-# extra tests, an IOC smoke check, a notification hook. It is included after
-# the scaffolded pipeline, so it can also override a job by redefining it under
-# the same name.
+# extra tests, an IOC smoke check, a notification hook. A job you add here runs
+# beside the scaffolded ones; reusing a scaffolded job's name merges the two and
+# the scaffolded pipeline's own keys win, so give a job of your own its own name.
 #
 # Example:
 #
@@ -2407,8 +2407,9 @@ GITLAB_CI_YML = """\
 # =============================================================================
 
 include:
-  # Facility-owned jobs, layered on top of everything below. Guarded by
-  # `exists` so a repo that deleted the file still has a valid pipeline.
+  # Facility-owned jobs. They run beside everything below and lose on every key
+  # this file sets. Guarded by `exists` so a repo that deleted the file still
+  # has a valid pipeline.
   - local: ci-extra.yml
     rules:
       - exists:

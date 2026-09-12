@@ -50,6 +50,7 @@ from osprey.cli.build_profile_schema import (
 )
 from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port
+from osprey_connectors.types import CONTROL_TARGETS
 
 #: Lane 1's bridge port at the layout's own base — what a profile that names no
 #: ``deployment.port_base`` and no ``bluesky.port`` gets. Derived rather than
@@ -736,8 +737,9 @@ def test_a_lane_target_that_names_no_control_target_is_refused(
 
     A target that does not RESOLVE is a deployment that has not described its
     machine yet, and the bridge falls back to the baseline for it. A target
-    that is not spelled ``live`` or ``va`` is a typo, and it would fall back
-    forever while the author went on believing the lane served what they wrote.
+    that is not one of :data:`~osprey_connectors.types.CONTROL_TARGETS` is a
+    typo, and it would fall back forever while the author went on believing the
+    lane served what they wrote.
     Every lane key is swept, not just the ones this build renders: a block left
     behind by a profile that once set ``second_lane`` keeps its target, and the
     bridge reads it whether or not this build wrote it.
@@ -752,7 +754,8 @@ def test_a_lane_target_that_names_no_control_target_is_refused(
     message = str(excinfo.value)
     assert f"services.{lane_key}.target" in message
     assert "'prod'" in message
-    assert "'live'" in message and "'va'" in message
+    for target in CONTROL_TARGETS:
+        assert repr(target) in message
 
 
 @pytest.mark.parametrize("target", ["live", "va", "standin"])

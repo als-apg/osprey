@@ -490,9 +490,10 @@ class Capability:
             it names the exact command that flips it.
         lane: The plan lane this bridge is — its own service key
             (``bluesky``/``bluesky_va``/``bluesky_live``).
-        lane_target: The control target that lane serves, ``live`` or ``va``.
-            Fixed at render time; see :func:`resolve_lane_identity` for why it
-            can never be the DEPLOYMENT's target.
+        lane_target: The control target that lane serves, one of
+            :data:`~osprey_connectors.types.CONTROL_TARGETS`. Fixed at render time;
+            see :func:`resolve_lane_identity` for why it can never be the
+            DEPLOYMENT's target.
         lane_degraded: ``None`` on a lane whose declared target resolves to a
             connector type this deployment configured, which is every lane that
             is fully described. Otherwise the sentence naming what the lane

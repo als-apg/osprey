@@ -93,10 +93,11 @@ services:
       BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
       # The connector-backed bridge reads control_system.type/writes_enabled
       # and control_system.limits_checking.database_path from config.yml at
-      # runtime. CWD is the image WORKDIR (/app), not the project
-      # dir, so without CONFIG_FILE this falls back to /app/config.yml and
-      # every connector lookup errors "No config.yml found" — mirrors
-      # dispatch_worker's identical CONFIG_FILE convention.
+      # runtime. CWD is the image WORKDIR (/app), not the project dir, and the
+      # image bakes no config.yml, so without CONFIG_FILE the loader finds none
+      # and every connector lookup fails with "No config.yml found in current
+      # directory: /app" — mirrors dispatch_worker's identical CONFIG_FILE
+      # convention.
       CONFIG_FILE: /app/project/config.yml
       TZ: UTC
       # ── queue control plane (client side) ────────────────────────────────

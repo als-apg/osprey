@@ -489,9 +489,10 @@ file the scaffolder did not write is reported and left alone unless you pass
 ``--force``.
 
 ``ci-extra.yml``, which ``osprey init`` created in Step 1, is the
-facility's own include point. The pipeline includes it after everything the
-scaffolder emits, so a job you add there can also override a scaffolded job by
-redefining it under the same name. Nothing ever regenerates that file.
+facility's own include point. A job you add there runs beside the scaffolded
+ones; reusing a scaffolded job's name merges the two and the scaffolded
+pipeline's own keys win, so give a job of your own its own name. Nothing ever
+regenerates that file.
 
 
 Step 8 — Build the project
