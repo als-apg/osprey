@@ -31,6 +31,37 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
  && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# Optional site CA, for building (and running) behind a TLS-intercepting proxy
+# that re-signs traffic with a site CA — the same layer, in the same place, as
+# the project image's. OSPREY_SITE_CA names a CA file (PEM) staged in the build
+# context; the compose build stages the operator's `images.site_ca` there and
+# passes the name, because a COPY cannot reach outside the context. The
+# `.dockerignore` sibling keeps the glob COPY matching when nothing is staged,
+# and with the ARG unset the RUN is a no-op. This layer sits AFTER the
+# bootstrap fetch above and before every fetch below it: the base image carries
+# no trust store for `update-ca-certificates` to extend until that plain-HTTP
+# fetch has installed one, and every fetch from here on is HTTPS.
+#
+# The ENVs point each tool family at the merged Debian bundle the install lands
+# in — NODE_EXTRA_CA_CERTS covers qmd and npm, which are what this image
+# fetches with. The Python family (PIP_CERT, SSL_CERT_FILE, REQUESTS_CA_BUNDLE)
+# restates the defaults of a toolchain this image does not fetch with: no pip
+# runs here, and node-gyp reaches python3 only as a build driver. They are set
+# unconditionally and always name the merged bundle: with no CA staged they
+# restate each tool's own default, whereas a variable naming a path that may
+# not exist crashes an httpx client at construction.
+ARG OSPREY_SITE_CA=""
+COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/
+RUN if [ -n "$OSPREY_SITE_CA" ]; then \
+        cp "/tmp/ca-ctx/${OSPREY_SITE_CA}" /usr/local/share/ca-certificates/osprey-site-ca.crt \
+        && update-ca-certificates; \
+    fi \
+ && rm -rf /tmp/ca-ctx
+ENV PIP_CERT=/etc/ssl/certs/ca-certificates.crt \
+    SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
 # With the CA bundle in place, move apt to HTTPS for the bulk fetch below
 # (plain-HTTP bulk fetches are throttled or broken by middleboxes on some
 # networks; deb.debian.org supports HTTPS).
@@ -63,7 +94,15 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # so it does not bloat the image. This also means the image is architecture-
 # specific: build it for the architecture it will run on.
 ARG QMD_VERSION=2.5.3
+# The proxy bypass list is the one site build setting this image has a use for:
+# it runs no pip, so the two index ARGs its siblings declare would be inert
+# here. Declaring it is what makes it arrive — Docker drops a --build-arg no
+# recipe declares, with a warning nobody reads — and it is mapped onto
+# NO_PROXY/no_proxy below only when it is set, since exporting it empty would
+# undo the bridge on the line above it.
+ARG PIP_NO_PROXY=""
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
+    [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
     apt-get update \
  && apt-get install -y --no-install-recommends build-essential python3 \
  && npm install -g "@tobilu/qmd@${QMD_VERSION}" \

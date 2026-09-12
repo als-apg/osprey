@@ -32,6 +32,7 @@ than listed: the proxy-delivery idiom on every apt-using RUN, and a
 non-self-excluding ``.dockerignore`` beside every service recipe.
 """
 
+import dataclasses
 import os
 import pathlib
 import re
@@ -57,6 +58,61 @@ SERVICES_DIR = TEMPLATES_DIR / "services"
 # output instead (tests/cli/test_dockerfile_template.py).
 SHIPPED_DOCKERFILES = sorted(TEMPLATES_DIR.rglob("Dockerfile"))
 SHIPPED_DOCKERFILE_IDS = [str(p.parent.relative_to(TEMPLATES_DIR)) for p in SHIPPED_DOCKERFILES]
+
+
+@dataclasses.dataclass(frozen=True)
+class SiteBuildShape:
+    """What one recipe must carry to honour a site's build settings.
+
+    Attributes:
+        trust_vars: The trust variables this image's tools read. Every tool
+            family reads a different one and none reads the system store by
+            default, so a variable missing here is a tool that keeps trusting
+            its own bundle.
+        pip_args: The site ARGs this recipe declares. A recipe that runs no pip
+            declares only the proxy-bypass list, which is the one name that is
+            not pip's own environment variable and has to be mapped by hand.
+        deps_fetch: The token selecting the RUN that installs this recipe's
+            dependencies — the one that has to carry the bypass map.
+        bootstrap_fetches: Network fetches that legitimately precede the CA
+            layer; see :func:`assert_site_ca_idiom`.
+    """
+
+    trust_vars: tuple[str, ...]
+    pip_args: tuple[str, ...]
+    deps_fetch: str
+    bootstrap_fetches: int = 0
+
+
+#: The trust variables a Python image's tools read: pip trusts only its bundled
+#: certifi without PIP_CERT, and the other two cover Python's ssl module and
+#: requests. An image that also carries Node adds NODE_EXTRA_CA_CERTS.
+_PYTHON_TRUST_VARS = ("PIP_CERT", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE")
+_NODE_TRUST_VARS = (*_PYTHON_TRUST_VARS, "NODE_EXTRA_CA_CERTS")
+
+#: The three site ARGs a pip-installing recipe declares.
+_PIP_SITE_ARGS = ("PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL")
+
+#: Per-recipe site-build shape, keyed as :data:`SHIPPED_DOCKERFILE_IDS` spells
+#: it. ``services/qmd`` is the one recipe on a base image with no trust store at
+#: all, so its CA layer necessarily follows the plain-HTTP bootstrap fetch that
+#: installs one; it installs its dependencies with npm and runs no pip.
+SITE_BUILD_SHAPE = {
+    "modules/web_terminals/auth_sidecar": SiteBuildShape(
+        _PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"
+    ),
+    "services/bluesky": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/bluesky_web": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/event_dispatcher": SiteBuildShape(_NODE_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/gchat_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/nextcloud_bridge": SiteBuildShape(_PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"),
+    "services/qmd": SiteBuildShape(
+        _NODE_TRUST_VARS, ("PIP_NO_PROXY",), "npm install", bootstrap_fetches=1
+    ),
+    "services/virtual_accelerator": SiteBuildShape(
+        _PYTHON_TRUST_VARS, _PIP_SITE_ARGS, "pip install"
+    ),
+}
 
 # The four services whose layer split is checked here, and the pinned primer
 # spec each one's deps layer installs from PyPI. Only the virtual accelerator
@@ -468,40 +524,67 @@ def test_manifest_installing_recipes_constrain_setuptools(dockerfile):
     )
 
 
-def test_auth_sidecar_carries_the_site_ca_layer():
-    """The login service is the one container that has to reach OFF the
-    deployment — to the identity provider — so a site CA it does not carry is
-    a stack that starts green and fails every login at the discovery fetch.
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_every_shipped_recipe_carries_the_site_ca_layer(dockerfile):
+    """Every image OSPREY builds accepts the site's CA before it fetches.
 
-    Scoped to the sidecar deliberately: the seven service recipes reach the
-    network at build time too and have the same gap, but nothing builds them
-    with a CA yet, so asserting it there would be a red test rather than a
-    guard.
+    A recipe without the layer is an image that verifies its build-time TLS
+    against a trust store the site's re-signing proxy is not in, so the build
+    dies at whichever fetch reaches the proxy first — and the auth sidecar,
+    which reaches the identity provider at RUN time too, would start green and
+    fail every login at the discovery fetch.
     """
-    text = (TEMPLATES_DIR / "modules/web_terminals/auth_sidecar" / "Dockerfile").read_text()
-    # No NODE_EXTRA_CA_CERTS: this image has no Node.
-    assert_site_ca_idiom(text, "auth_sidecar", ("PIP_CERT", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE"))
+    label = str(dockerfile.parent.relative_to(TEMPLATES_DIR))
+    recipe = SITE_BUILD_SHAPE[label]
+    assert_site_ca_idiom(
+        dockerfile.read_text(),
+        label,
+        recipe.trust_vars,
+        bootstrap_fetches=recipe.bootstrap_fetches,
+    )
 
 
-def test_auth_sidecar_declares_the_site_pip_args():
-    """The sidecar build is handed the whole site set, not only the CA.
+@pytest.mark.parametrize("dockerfile", SHIPPED_DOCKERFILES, ids=SHIPPED_DOCKERFILE_IDS)
+def test_every_shipped_recipe_declares_the_site_pip_args(dockerfile):
+    """Each build is handed the whole site set, not only the CA.
 
     Docker drops a ``--build-arg`` no recipe declares — with a warning nobody
-    reads — so a missing ARG here is an internal mirror that reaches the
-    project image and quietly leaves the login image resolving from PyPI.
-    PIP_INDEX_URL and PIP_EXTRA_INDEX_URL are pip's own environment names, so
-    declaring them is all it takes; PIP_NO_PROXY is not one, and has to be
-    mapped onto the proxy-bypass names the deps layer's fetches read.
+    reads — so a missing ARG here is an internal mirror configured once in
+    ``config.yml`` that reaches some images and quietly leaves this one
+    resolving from PyPI. PIP_INDEX_URL and PIP_EXTRA_INDEX_URL are pip's own
+    environment names, so declaring them is all it takes; PIP_NO_PROXY is not
+    one, and has to be mapped onto the proxy-bypass names the deps layer's
+    fetches read. A recipe that runs no pip declares only the bypass list.
     """
-    text = (TEMPLATES_DIR / "modules/web_terminals/auth_sidecar" / "Dockerfile").read_text()
-    for arg in ("PIP_NO_PROXY", "PIP_INDEX_URL", "PIP_EXTRA_INDEX_URL"):
+    label = str(dockerfile.parent.relative_to(TEMPLATES_DIR))
+    recipe = SITE_BUILD_SHAPE[label]
+    text = dockerfile.read_text()
+
+    for arg in recipe.pip_args:
         assert re.search(rf'^ARG {arg}=""$', text, flags=re.M), (
-            f"auth_sidecar declares no `ARG {arg}` — the builder passes it and Docker drops it"
+            f"{label} declares no `ARG {arg}` — the builder passes it and Docker drops it"
         )
-    deps_run = next(instr for instr in run_instructions(text) if "pip install" in instr)
-    assert 'export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"' in deps_run, (
-        f"the deps layer does not map PIP_NO_PROXY onto the names its fetches "
-        f"read, so the site's bypass list is inert here:\n{deps_run}"
+    deps_run = next(instr for instr in run_instructions(text) if recipe.deps_fetch in instr)
+    guarded_map = (
+        '[ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"'
+    )
+    assert guarded_map in deps_run, (
+        f"{label}: the deps layer does not map PIP_NO_PROXY onto the names its "
+        f"fetches read under a guard, so the site's bypass list is either inert "
+        f"here or — exported unconditionally — wipes a bypass list the build "
+        f"environment already carries:\n{deps_run}"
+    )
+
+
+def test_every_discovered_recipe_declares_its_site_build_shape():
+    """A recipe with no entry above would silently skip both guards.
+
+    The parametrization is keyed by the discovery glob, so a new Dockerfile
+    lands in it the day it is added — and a lookup that quietly defaulted
+    would cover it with the wrong trust variables rather than failing.
+    """
+    assert set(SHIPPED_DOCKERFILE_IDS) == set(SITE_BUILD_SHAPE), (
+        "shipped Dockerfiles and their declared site-build shapes have drifted apart"
     )
 
 
