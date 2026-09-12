@@ -891,6 +891,36 @@ def test_a_self_test_key_a_preset_also_spells_goes_red():
     assert "must come from the framework template" in details(guard)
 
 
+def test_a_stale_union_size_goes_red():
+    """The recorded union size is an assertion, so a wrong one has to fail.
+
+    While it was a note, two branches could each re-derive the count against a
+    different base and the merged figure agreed with neither — a number a
+    reader takes for a fact and nothing checks.
+    """
+
+    def leave_the_counter_behind(manifest):
+        actual = len(make_guard().union())
+        manifest["render_contexts"]["expected_union_size"] = actual + 1
+
+    guard = make_guard(leave_the_counter_behind)
+    guard.check_union_size()
+    assert "union-size" in modes(guard)
+    assert str(len(guard.union())) in details(guard), "the failure must print what to record"
+
+
+def test_a_missing_union_size_goes_red():
+    """An assertion with an opt-out is the informational note under a new name."""
+
+    def drop_the_counter(manifest):
+        manifest["render_contexts"].pop("expected_union_size", None)
+
+    guard = make_guard(drop_the_counter)
+    guard.check_union_size()
+    assert "union-size" in modes(guard)
+    assert str(len(guard.union())) in details(guard)
+
+
 def test_incomplete_provider_tier_map_goes_red():
     def demand_a_tier_no_provider_maps(manifest):
         manifest["keys"]["api.providers"]["key-shape"]["models-tiers"] = ["fable"]
