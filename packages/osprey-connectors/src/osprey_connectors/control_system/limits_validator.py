@@ -480,15 +480,17 @@ class LimitsValidator:
             if posture.enabled is not True:
                 return None
 
-            loaded, reason = cls.load_configured_database()
+            loaded, load_reason = cls.load_configured_database()
             if loaded is None:
                 # Same failsafe as the incomplete-block case above: a missing
                 # or unparseable database must never crash the connector (a
                 # read-only deployment needs no limits) nor silently disable
                 # checking (returning None would leave writes unchecked) -- an
                 # empty DB blocks every write with a clear refusal instead.
-                logger.warning(f"Limits checking enabled but {reason} - blocking all writes")
-                return cls({}, {}, {}, failsafe_reason=f"limits checking is enabled but {reason}")
+                logger.warning(f"Limits checking enabled but {load_reason} - blocking all writes")
+                return cls(
+                    {}, {}, {}, failsafe_reason=f"limits checking is enabled but {load_reason}"
+                )
             limits_db, raw_db = loaded
 
             # Both entries are JSON-serialisable: the python executor embeds
