@@ -973,6 +973,24 @@ keys:
   control_system.connector.epics.gateways.write_access.address: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: ''}
   control_system.connector.epics.gateways.write_access.port: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: 5064}
   control_system.connector.epics.gateways.write_access.use_name_server: {rendered: false, evidence: 'use_name_server', default: false}
+  # The DOOCS and TANGO connector blocks. No preset renders either one —
+  # `control-assistant` documents both as commented examples — so the parents
+  # and every leaf below them are `rendered: false` together.
+  control_system.connector.doocs: {rendered: false, covered-by: control_system.connector, default: n/a}
+  control_system.connector.tango: {rendered: false, covered-by: control_system.connector, default: n/a}
+  control_system.connector.tango.tango_host:
+    rendered: false
+    evidence: 'config\.get\("tango_host"\)'
+    note: >-
+      The TANGO device database this deployment speaks to, written `host:port`.
+      It is the ONE coordinate the TANGO connector takes; everything else in
+      its block is a leaf every connector type answers. DOOCS has no
+      counterpart at all, because doocs4py addresses the ENS its own
+      environment names.
+    default: derived
+    default_note: >-
+      unset leaves PyTango reading the TANGO_HOST already in the container's environment
+  control_system.connector.tango.timeout: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
   # The VA connector subclasses the EPICS one and hands its own block to
@@ -1051,6 +1069,23 @@ keys:
       No longer forward-declared: the switch's host manager reads it out of the
       resolved connector block, which is where the evidence anchors.
     default: ''
+  control_system.connector.doocs.probe_channel:
+    rendered: false
+    evidence: '"probe_channel": str\(block\.get\(PROBE_CHANNEL_KEY\)'
+    note: >-
+      The same key read through the doocs block: the host manager takes it out
+      of whichever connector block is active, so a DOOCS deployment names a
+      DOOCS property here. Commented in `control-assistant`, and an unnamed one
+      leaves that target un-switchable-to rather than falsely eligible.
+    default: ''
+  control_system.connector.tango.probe_channel:
+    rendered: false
+    evidence: '"probe_channel": str\(block\.get\(PROBE_CHANNEL_KEY\)'
+    note: >-
+      The same key read through the tango block, naming a device attribute
+      rather than a channel. Commented in `control-assistant` for the same
+      reason: which attribute answers is a facility fact.
+    default: ''
   control_system.connector.virtual_accelerator.writes_enabled:
     rendered: false
     evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
@@ -1081,6 +1116,25 @@ keys:
       decision that cannot ship pre-made, so no shipped preset ever sets this
       one true; `control-assistant-readonly` writes it false into an applied
       project's config.yml, which is the one way a build produces it.
+    default: derived
+    default_note: falls through to control_system.writes_enabled
+  control_system.connector.doocs.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      The same leaf reached through the doocs block — one type-keyed resolver
+      answers for every connector type, so the reader cited here is the reader
+      cited above. Commented in `control-assistant`: arming writes against a
+      DOOCS machine is a facility decision, so no shipped preset states it.
+    default: derived
+    default_note: falls through to control_system.writes_enabled
+  control_system.connector.tango.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      The same leaf reached through the tango block, with the same tri-state
+      reading and the same single reader. Commented in `control-assistant` for
+      the same reason the doocs one is.
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.virtual_accelerator.limits_checking:
@@ -1169,6 +1223,56 @@ keys:
       for the epics block. Setting it `true` is what makes a live target stop
       counting
       as strict, which the target-switch gate refuses by naming this key.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.doocs.limits_checking:
+    rendered: false
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      The same block reached through the doocs block, overriding whole the way
+      every per-type block does. Commented in `control-assistant`: a DOOCS
+      machine's limits posture is the facility's to state.
+    default: derived
+    default_note: falls through to control_system.limits_checking
+  control_system.connector.doocs.limits_checking.enabled:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the doocs block.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.doocs.limits_checking.allow_unlisted_channels:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      The same leaf and the same shared reader for the doocs block; the write
+      paths allow only on a literal `true`.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.tango.limits_checking:
+    rendered: false
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      The same block reached through the tango block, with the same
+      whole-block override semantics. Commented in `control-assistant` for the
+      same reason the doocs one is.
+    default: derived
+    default_note: falls through to control_system.limits_checking
+  control_system.connector.tango.limits_checking.enabled:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the tango block.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.tango.limits_checking.allow_unlisted_channels:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      The same leaf and the same shared reader for the tango block; the write
+      paths allow only on a literal `true`.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.live_standin.limits_checking:
@@ -1278,6 +1382,23 @@ keys:
     default: {}
   archiver.epics_archiver.url: {covered-by: archiver.epics_archiver, rendered: false, default: 'no-fallback', default_note: "the connector raises ValueError('archiver URL is required for EPICS archiver')"}
   archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver, rendered: false, default: 60}
+  archiver.doocs_archiver:
+    rendered: false
+    evidence: 'doocs_archiver'
+    note: >-
+      DOOCS local history. Like the DOOCS connector it takes no coordinates —
+      doocs4py reaches the ENS its own environment names — so the block holds
+      only the two optional knobs below. Commented in `control-assistant`,
+      which reads the archive it records itself.
+    default: {}
+  archiver.doocs_archiver.avg_window:
+    rendered: false
+    evidence: 'config\.get\("avg_window", None\)'
+    note: >-
+      Centered moving average, in seconds, applied to the samples a read
+      returns. Unset returns the raw samples.
+    default: null
+  archiver.doocs_archiver.timeout: {rendered: false, covered-by: archiver.doocs_archiver, default: 60}
   # The stored archive's connection block, rendered by the control_assistant
   # template and written from the profile's `va_archiver:` block at build time.
   # The mongodb_archiver connection block is `rendered: false` as a set: the
