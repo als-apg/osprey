@@ -26,17 +26,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .records import ChannelRecord
-
-#: Final address token that marks a setpoint -- the same token
-#: :mod:`osprey.channel_roster.database` derives direction from.
-WRITE_SUBFIELD = "SP"
-
-#: Final address token that marks the readback of a setpoint.
-READBACK_SUBFIELD = "RB"
-
-#: What separates an address into its tokens.
-ADDRESS_SEPARATOR = ":"
+from .records import ADDRESS_SEPARATOR, READBACK_SUBFIELD, WRITE_SUBFIELD, ChannelRecord
 
 
 def assign_readbacks(records: Sequence[ChannelRecord]) -> tuple[ChannelRecord, ...]:
