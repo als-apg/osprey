@@ -87,6 +87,13 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # children inherit the root preset and move with it; ariel-standalone and
     # hello-world carry no channel finder and stand still. Every other key this
     # change added is shipped commented, and a comment is not resolved content.
+    # The ninth move, and hello-world alone: it dropped the two ARIEL approval
+    # rows — `approval.tools.entry_create` and `approval.tools.entry_publish` —
+    # for a server it never runs, so its resolved content is two leaves shorter.
+    # Both were fail-closed either way (the tools do not exist there), so a
+    # rebuilt project behaves identically. Every other preset stands still:
+    # control-assistant's own additions in this change are commented examples,
+    # which the hash does not see.
     "ariel-standalone": ("sha256:389fad6bd826efc4b53ea263800110585867aab31c92d9931206897c75548643"),
     "channel-finder-standalone": (
         "sha256:2dfc06f64433fcb1d8393931dccf76550e75ac76dc12f5011029010e02aa9448"
@@ -112,7 +119,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     "control-assistant-va-readwrite": (
         "sha256:862dd6a5c5df3843c066ebdc26806c9283f75c9a658145fba1856b47d6e14ce1"
     ),
-    "hello-world": ("sha256:10ce4bc73c7a244debbf355189dfbcd13feb7d31007c79e83c93aec978831b65"),
+    "hello-world": ("sha256:3ce9623f1874a11a5500eb0a2b5a29bbfc324cf0e6ed95678ea13feadfefecb4"),
 }
 
 
