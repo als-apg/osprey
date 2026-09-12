@@ -54,10 +54,16 @@ services:
     ports:
       - "127.0.0.1:10071:10071"
     environment:
-      # The connector-backed sidecar reads config.yml at runtime. CWD is the
-      # image WORKDIR (/app), not the project dir, so without CONFIG_FILE this
-      # falls back to /app/config.yml — mirrors the bluesky bridge's identical
-      # CONFIG_FILE convention.
+      # Not a config-loader input here: the sidecar's own config read goes
+      # through OSPREY_CONFIG and the working directory and ignores this
+      # variable by design (osprey_connectors.workspace.resolve_config_path),
+      # tolerating a config it does not find. What this names is the mounted
+      # config whose DIRECTORY the /channels route reads the build-time
+      # channels.json out of. Without it that route resolves ./channels.json
+      # against the image WORKDIR (/app) rather than the mount under
+      # /app/project, so the sidecar still starts and every panel still
+      # serves — the channel catalog alone answers 404, and the plan form's
+      # channel fields offer no autocomplete.
       CONFIG_FILE: /app/project/config.yml
       TZ: UTC
       # Reach the co-deployed bluesky bridge by its in-network compose service
