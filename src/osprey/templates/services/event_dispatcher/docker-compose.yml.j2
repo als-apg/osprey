@@ -40,6 +40,17 @@ services:
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{#- The site's build settings — a CA for a TLS-intercepting proxy, pip's proxy
+    bypass list, and an internal package index — as the deployment's `images:`
+    block declares them, resolved once per build context by
+    compose_generator._stage_site_image_args_for_context. Rendered at BUILD
+    time off the config rather than as a `${VAR}` default at compose time, for
+    the reason the qmd fragment's own render-time gate states. A deployment
+    that declares none of them emits nothing here, so its build argv is what it
+    always was. #}
+{%- for name, value in site_image_build_args | default({}) | dictsort %}
+        {{ name }}: "{{ value }}"
+{%- endfor %}
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
