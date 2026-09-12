@@ -1,12 +1,13 @@
 """Tests for GET /api/notebooks/{id}/rendered endpoint.
 
-The gallery serves rendered notebooks inside a sandboxed iframe. In deployed
-environments there is no outbound internet access (a restrictive proxy blocks
-external hosts), so the rendered HTML must be fully self-contained: nbconvert's
+The gallery serves rendered notebooks inside a sandboxed iframe, and nbconvert's
 default template links MathJax / RequireJS / jQuery / widget / Mermaid assets
-from public CDNs, and those loads fail in production, leaving the notebook
-broken in the gallery. These tests pin the contract that the endpoint renders
-the notebook's cells AND emits no external resource references.
+from public CDNs. Whether those links may stay is the deployment's own
+``offline`` posture: on an isolated deployment the loads fail and the notebook
+renders broken, so the HTML has to be fully self-contained; on a connected one
+the same blanking silently drops inline LaTeX, interactive widgets and Mermaid
+diagrams from every notebook. These tests pin the contract that the endpoint
+renders the notebook's cells AND follows the posture in both directions.
 """
 
 import re
@@ -64,12 +65,13 @@ class TestNotebookRenderedAPI:
         assert "UNIQUE_CELL_TOKEN" in resp.text
 
     @pytest.mark.unit
-    def test_rendered_notebook_is_self_contained(self, app_client):
-        """Rendered HTML must not reference external CDN assets.
+    def test_an_offline_deployments_render_is_self_contained(self, app_client, monkeypatch):
+        """Rendered HTML must not reference external CDN assets when isolated.
 
-        In deployed (proxied, offline) environments those loads fail and the
-        notebook renders broken inside the gallery's sandboxed iframe.
+        Where external hosts are unreachable those loads fail and the notebook
+        renders broken inside the gallery's sandboxed iframe.
         """
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
         client, _ = app_client
         entry = self._save_notebook(client)
 
@@ -82,6 +84,21 @@ class TestNotebookRenderedAPI:
         # Belt-and-suspenders: the known CDN hosts must not appear anywhere.
         for host in _CDN_HOSTS:
             assert host not in html, f"rendered notebook references CDN host {host}"
+
+    @pytest.mark.unit
+    def test_a_connected_deployments_render_keeps_its_assets(self, app_client, monkeypatch):
+        """A deployment that can reach the CDNs gets the fuller document.
+
+        Blanking them here is not free: it is what makes the inline LaTeX in
+        this notebook's markdown cell render as raw ``$x^2$``.
+        """
+        monkeypatch.setenv("OSPREY_OFFLINE", "0")
+        client, _ = app_client
+        entry = self._save_notebook(client)
+
+        html = client.get(f"/api/notebooks/{entry.id}/rendered").text
+
+        assert "cdnjs.cloudflare.com" in html
 
     @pytest.mark.unit
     def test_non_notebook_returns_400(self, app_client):

@@ -1,9 +1,3 @@
-{#- The env passthrough axis — the host variables a service's `env:` key
-    names — is rendered by the shared macro rather than hand-written per
-    template, so every service hands a variable to its container the same
-    way. With none declared it emits nothing and this file renders exactly
-    as it did before the axis existed. -#}
-{%- import "services/_env_axis.j2" as hostenv -%}
 # The bluesky-web service owns the browser-facing FastAPI sidecar (see
 # src/osprey/interfaces/bluesky_web/) that serves the operator web panels and
 # same-origin read-proxies the bluesky bridge.
@@ -15,7 +9,7 @@
 
 services:
   bluesky-web:
-    image: ${OSPREY_BLUESKY_WEB_IMAGE:-{{ services.bluesky_web.image | default(osprey_images.bluesky_web) }}}
+    image: ${OSPREY_BLUESKY_WEB_IMAGE:-golden-project-bluesky-web:local}
     build:
       # EVERY relative path here resolves against the pinned compose project
       # directory — the deployment REPO ROOT (`--project-directory <repo>`, see
@@ -25,47 +19,19 @@ services:
       context: ./build/services/bluesky_web
       dockerfile: Dockerfile
       args:
-        OSPREY_VERSION: "{{ osprey_version | default('') }}"
-        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
-{#- The site's build settings — a CA for a TLS-intercepting proxy, pip's proxy
-    bypass list, and an internal package index — as the deployment's `images:`
-    block declares them, resolved once per build context by
-    compose_generator._stage_site_image_args_for_context. Rendered at BUILD
-    time off the config rather than as a `${VAR}` default at compose time, for
-    the reason the qmd fragment's own render-time gate states. A deployment
-    that declares none of them emits nothing here, so its build argv is what it
-    always was. #}
-{%- for name, value in site_image_build_args | default({}) | dictsort %}
-        {{ name }}: "{{ value }}"
-{%- endfor %}
-{% if dev_mode | default(false) %}
-        OSPREY_DEV: "1"
-{% endif %}
-{% if 'bluesky' in deployed_services %}
-    # Only when the bluesky bridge (Task 1.x) is co-deployed: order the
-    # sidecar's startup after the bridge's healthcheck, so the read-proxy and
-    # launch route don't race the bridge's own startup. A panels-only deploy
-    # (no bluesky in deployed_services) must NOT get this — compose errors on
-    # depends_on naming an undefined service.
-    depends_on:
-      bluesky-bridge:
-        condition: service_healthy
-{%- for lane_key in ['bluesky_va', 'bluesky_live'] %}
-{%- if lane_key in deployed_services %}
-      # The second plan lane's own bridge, for the same reason: the sidecar
-      # relays this lane's reads, draft and queue too, and must not race its
-      # startup either. Gated on deployed_services exactly like the lane's
-      # whole stack, so a single-lane render carries no second entry.
-      {{ lane_key | replace('_', '-') }}-bridge:
-        condition: service_healthy
-{%- endif %}
-{%- endfor %}
-{% endif %}
+        OSPREY_VERSION: "0.0.0"
+        OSPREY_PROJECT_NAME: "golden-project"
+        OSPREY_SITE_CA: "osprey-site-ca.crt"
+        PIP_EXTRA_INDEX_URL: "https://extra.example.org/simple"
+        PIP_INDEX_URL: "https://mirror.example.org/simple"
+        PIP_NO_PROXY: "internal.example.org,.example.org"
+
+
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the sidecar on one host without colliding
     # on one name. In-network consumers reach this service by its compose service
     # key `bluesky-web` — unchanged here — so this rename needs no network alias.
-    container_name: {{ osprey_labels.project_name }}-bluesky-web
+    container_name: golden-project-bluesky-web
     command:
       [
         "uvicorn",
@@ -73,12 +39,12 @@ services:
         "--host",
         "0.0.0.0",
         "--port",
-        "{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}",
+        "10071",
       ]
     labels:
-      osprey.project.name: "{{ osprey_labels.project_name }}"
-      com.osprey.repo-id: "{{ osprey_labels.repo_id }}"
-      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.project.name: "golden-project"
+      com.osprey.repo-id: "0123456789ab"
+      osprey.project.root: "/deploy/golden-project"
       # Content fingerprint of the rendered config this deploy built
       # (runtime_helper's as_built_config_digest, carried in by
       # OSPREY_CONFIG_DIGEST). The same recreate trigger as the env digest, for
@@ -90,17 +56,17 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}:{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}"
+      - "127.0.0.1:10071:10071"
     environment:
       # The connector-backed sidecar reads config.yml at runtime. CWD is the
       # image WORKDIR (/app), not the project dir, so without CONFIG_FILE this
       # falls back to /app/config.yml — mirrors the bluesky bridge's identical
       # CONFIG_FILE convention.
       CONFIG_FILE: /app/project/config.yml
-      TZ: {{ system.timezone }}
+      TZ: UTC
       # Reach the co-deployed bluesky bridge by its in-network compose service
       # key `bluesky-bridge` — never the host-published port.
-      BLUESKY_BRIDGE_URL: http://bluesky-bridge:{{ services.bluesky.port | default(osprey_ports.bluesky, true) }}
+      BLUESKY_BRIDGE_URL: http://bluesky-bridge:10080
       # No :-default — an unset token must stay EMPTY rather than booting with
       # a guessable secret (mirrors the bridge's own launch-token convention).
       # The sidecar attaches this token to every queue WRITE it relays (add,
@@ -112,21 +78,6 @@ services:
       # project .env when unset (see container_lifecycle.py's per-service
       # token-mint map).
       BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
-{%- for lane_key in ['bluesky_va', 'bluesky_live'] %}
-{%- if lane_key in deployed_services %}
-      # The SECOND plan lane, when this deployment renders one: its own
-      # bridge by its own in-network service key, and its own launch token —
-      # one token shared across two lanes would let a launch a human approved
-      # against one machine be replayed against the other. Spelled under the
-      # lane's env prefix (bluesky_bridge_connection.lane_env_prefix), the
-      # same three-way contract the mint (container_lifecycle) and the shared
-      # resolvers already speak, so the sidecar's per-lane resolution needs no
-      # new parser. Gated on deployed_services so a single-lane deployment
-      # renders byte-for-byte what it always rendered.
-      {{ lane_key | upper }}_BRIDGE_URL: http://{{ lane_key | replace('_', '-') }}-bridge:{{ services[lane_key].port }}
-      {{ lane_key | upper }}_LAUNCH_TOKEN: ${{ '{' }}{{ lane_key | upper }}_LAUNCH_TOKEN}
-{%- endif %}
-{%- endfor %}
       # The operator credential for this sidecar's own web gate
       # (WebAuthMiddleware): a browser logs in through the `?token=` exchange,
       # a non-browser client sends it as `X-Osprey-Terminal-Secret`. No
@@ -136,27 +87,6 @@ services:
       # proxies its BLUESKY tab here with ITS OWN secret, never this one —
       # see the roster grant just below.
       OSPREY_TERMINAL_SECRET: ${OSPREY_TERMINAL_SECRET}
-{%- if bluesky_panel_secret_env_vars | default([]) %}
-      # THE ROSTER GRANT. Every web-terminal user whose persona shows the
-      # BLUESKY tab proxies it here with the operator secret THEIR container
-      # holds (under the fixed OSPREY_TERMINAL_SECRET name, interpolated from
-      # their own OSPREY_TERMINAL_SECRET_<SUFFIX> in the deploy .env). Listing
-      # each of those variables here lets this sidecar's web gate accept any
-      # of them beside the deployment-wide secret above, so no user's
-      # container is ever handed that secret, and a user purged from the
-      # roster is refused here from the next `osprey build` on (the start
-      # verbs are as-built and re-render nothing). Only the entitled users
-      # are listed (compose_generator resolves them from the personas'
-      # rendered configs, which the build renders first); the others cannot
-      # reach this sidecar and get no key to it. The flag is what makes
-      # web_auth ACCEPT the roster
-      # variables it finds: every process that loads the deploy .env sees
-      # them all, and only this sidecar may treat them as its operators.
-      OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS: "1"
-{%- for var in bluesky_panel_secret_env_vars %}
-      {{ var }}: ${{ "{" }}{{ var }}:-}
-{%- endfor %}
-{%- endif %}
       # Marks the container shape for web_auth: an empty secret then refuses
       # startup naming the variable, instead of minting a value that is
       # announced only to the container log and reachable by nobody.
@@ -185,7 +115,6 @@ services:
       # writable by it), so the variable would be config nothing reads — exactly
       # why the auth sidecar omits it too.
       OSPREY_AUDIT_IDENTITY: bluesky-web
-{{- hostenv.passthrough(services.bluesky_web) }}
     volumes:
       # Bind-mount source is relative to the compose project directory
       # (build/services/), not this file's own subdir — hence the
@@ -206,21 +135,14 @@ services:
       # writer anchors the audit zone on the working directory (WORKDIR /app),
       # and mounting the project-rooted path would bind a directory nothing ever
       # writes to while the records piled up in the writable layer.
-      - {{ osprey_audit_mount_source }}/bluesky-web:{{ osprey_service_container_audit_dir }}/bluesky-web
-{% if channel_snapshot | default(false) %}
-      # Only when the build emitted a channel snapshot (channel_snapshot is
-      # true exactly when build/services/bluesky_web/channels.json was staged
-      # — see compose_generator._stage_channel_snapshot): an unconditional
-      # bind mount of a file the build never wrote would fail
-      # `docker compose up` on the missing source.
-      - ./build/services/bluesky_web/channels.json:/app/project/channels.json:ro
-{% endif %}
+      - ./var/audit/bluesky-web:/app/var/audit/bluesky-web
+
     networks:
       - osprey-network
     healthcheck:
       # curl isn't in the python:3.11-slim image — probe in-image with
       # python, matching the bridge's own healthcheck idiom.
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:10071/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5

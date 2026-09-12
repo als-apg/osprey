@@ -34,7 +34,8 @@
 #                       project's claude_code.cli_version). Bump deliberately
 #                       — an unpinned upstream release could silently change
 #                       agent behavior between image builds.
-#   PIP_NO_PROXY        hosts exempted from any proxy during pip install
+#   PIP_NO_PROXY        hosts exempted from any proxy during pip install. Unset
+#                       (the default), the build host's own NO_PROXY stands.
 #   PIP_INDEX_URL       package index the deps layer resolves from, for sites
 #                       that mirror PyPI internally. It is pip's own environment
 #                       name, so the declared ARG reaches pip directly; empty
@@ -171,8 +172,8 @@ COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # parses one, so an unconfigured build resolves from PyPI exactly as it did
 # before these args existed.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
-    export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
-    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
+    printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \

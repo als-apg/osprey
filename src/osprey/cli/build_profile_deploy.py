@@ -82,7 +82,9 @@ WEB_TERMINALS_CONFIG_PATH = "modules.web_terminals"
 #: The leaf inside it that ``deploy.image_source`` owns.
 IMAGE_SOURCE_CONFIG_KEY = f"{WEB_TERMINALS_CONFIG_PATH}.image_source"
 
-_KNOWN_DEPLOY_KEYS = frozenset({"ci", "registry", "host", "image_source", "external_projects"})
+_KNOWN_DEPLOY_KEYS = frozenset(
+    {"ci", "ci_image_prefix", "registry", "host", "image_source", "external_projects"}
+)
 _KNOWN_REGISTRY_KEYS = frozenset({"url", "token_env_var"})
 _KNOWN_HOST_KEYS = frozenset({"name", "fqdn", "user", "project_path"})
 _KNOWN_EXTERNAL_PROJECT_KEYS = frozenset({"name", "url", "image", "token_env_var"})
@@ -133,6 +135,11 @@ class DeployConfig:
     host: DeployHost
     registry: DeployRegistry | None = None
     image_source: str = "registry"
+    ci_image_prefix: str = ""
+    """Where the pipeline pulls its own base images from — the mirror that
+    stands in for Docker Hub on a runner with no route to it. Normalised to end
+    in ``/`` so the template concatenates, empty when the profile says
+    nothing."""
     external_projects: list[ExternalProject] = field(default_factory=list)
 
 
@@ -167,6 +174,7 @@ def parse_deploy_block(raw: dict[str, Any]) -> DeployConfig | None:
     _reject_unknown_deploy_keys(block, problems)
 
     ci = _parse_ci(block, problems)
+    ci_image_prefix = _parse_ci_image_prefix(block, problems)
     image_source = _parse_image_source(block, problems)
     registry = _parse_registry(block, image_source, problems)
     host = _parse_host(block, problems)
@@ -184,6 +192,7 @@ def parse_deploy_block(raw: dict[str, Any]) -> DeployConfig | None:
         host=host,
         registry=registry,
         image_source=image_source,
+        ci_image_prefix=ci_image_prefix,
         external_projects=external_projects,
     )
 
@@ -639,6 +648,31 @@ def _parse_ci(block: dict[str, Any], problems: list[str]) -> str | None:
         )
         return None
     return ci
+
+
+def _parse_ci_image_prefix(block: dict[str, Any], problems: list[str]) -> str:
+    """Read ``ci_image_prefix``, the mirror the pipeline pulls base images from.
+
+    A sibling of ``ci:`` rather than a key under it, because ``ci`` names the
+    platform as a string and refuses a mapping outright (:func:`_parse_ci`).
+
+    The value is returned already shaped as a PREFIX — trailing slash when
+    there is one, empty string when the profile declares none — so the template
+    concatenates rather than re-deriving whether a separator is needed, exactly
+    as ``images.registry`` is resolved for compose.
+    """
+    value = block.get("ci_image_prefix")
+    if value is None:
+        return ""
+    if not isinstance(value, str) or isinstance(value, bool):
+        problems.append(
+            f"'ci_image_prefix' must be a string naming a registry and path "
+            f"(got {type(value).__name__}) — it is concatenated in front of the "
+            f"pipeline's base images, so it carries no scheme and no tag."
+        )
+        return ""
+    trimmed = value.strip()
+    return f"{trimmed.rstrip('/')}/" if trimmed else ""
 
 
 def _parse_image_source(block: dict[str, Any], problems: list[str]) -> str:

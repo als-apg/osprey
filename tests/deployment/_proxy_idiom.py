@@ -131,20 +131,31 @@ SITE_CA_COPY = "COPY .dockerignore *.cr[t] *.pe[m] /tmp/ca-ctx/"
 SITE_CA_BUNDLE = "/etc/ssl/certs/ca-certificates.crt"
 
 
-def assert_site_ca_idiom(text: str, label: str, trust_vars: tuple[str, ...]) -> None:
+def assert_site_ca_idiom(
+    text: str,
+    label: str,
+    trust_vars: tuple[str, ...],
+    *,
+    bootstrap_fetches: int = 0,
+) -> None:
     """Assert *text* installs a staged site CA before it fetches anything.
 
     Three things have to hold together, and each fails silently on its own: the
     ARG has to exist for a builder to pass, the install has to precede the
-    first network fetch (a CA installed after them is a CA those fetches never
-    trusted), and each tool family has to be pointed at the merged bundle,
-    since none of them reads the system store by default.
+    first network fetch it can protect (a CA installed after a fetch is a CA
+    that fetch never trusted), and each tool family has to be pointed at the
+    merged bundle, since none of them reads the system store by default.
 
     :param text: The recipe's source.
     :param label: Names the recipe in failure messages.
     :param trust_vars: The trust variables this image's tools actually read —
         every recipe installing Node adds ``NODE_EXTRA_CA_CERTS``, and an image
         without Node has no reason to set one.
+    :param bootstrap_fetches: How many leading network fetches legitimately
+        precede the CA layer. A base image that ships no trust store at all has
+        nothing for ``update-ca-certificates`` to extend until it has fetched
+        one, so its bootstrap fetch necessarily runs first — and necessarily
+        over plain HTTP. Every fetch after that one is checked.
     """
     assert re.search(r'^ARG OSPREY_SITE_CA=""$', text, flags=re.M), (
         f'{label}: no `ARG OSPREY_SITE_CA=""` — nothing can pass a site CA in'
@@ -162,10 +173,13 @@ def assert_site_ca_idiom(text: str, label: str, trust_vars: tuple[str, ...]) -> 
     )
 
     fetches = [m.start() for m in re.finditer(r"apt-get update|pip install|npm install", text)]
-    assert fetches, f"{label}: no network fetch found — has the recipe stopped installing?"
-    assert text.index("update-ca-certificates") < min(fetches), (
-        f"{label}: the site-CA layer must precede the first network fetch — a "
-        f"CA installed after them is a CA those fetches never trusted"
+    assert len(fetches) > bootstrap_fetches, (
+        f"{label}: fewer than {bootstrap_fetches + 1} network fetches found — has "
+        f"the recipe stopped installing, or is its bootstrap count too high?"
+    )
+    assert text.index("update-ca-certificates") < fetches[bootstrap_fetches], (
+        f"{label}: the site-CA layer must precede every network fetch it can "
+        f"protect — a CA installed after one is a CA that fetch never trusted"
     )
 
     for var in trust_vars:
