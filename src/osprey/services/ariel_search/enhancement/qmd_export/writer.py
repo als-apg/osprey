@@ -16,7 +16,7 @@ body, where they are retrievable.
 **Byte-compare before write.** :func:`write_entry` reads the existing file and
 returns without touching it when the rendered bytes are identical. An exporter
 that rewrote unchanged entries would turn qmd's free "nothing changed" scan into
-a full reindex and re-embed pass on every tick — at ALS scale (~135k entries)
+a full reindex and re-embed pass on every tick — at ~135k entries
 that is tens of minutes of work per tick instead of ~12 seconds. Rendering is
 therefore fully deterministic: no wall-clock stamps, no dict-iteration order.
 

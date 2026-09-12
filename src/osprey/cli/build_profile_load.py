@@ -205,7 +205,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
 
 # Keys recognized inside the ``provenance:`` block. Closed like the others: a
 # misspelled `deviation_marker:` would silently leave the default tag in force
-# and every `# ALS-DEVIATION:` comment unread.
+# and every `# SITE-DEVIATION:` comment unread.
 _KNOWN_PROVENANCE_KEYS = frozenset({"preset", "preset_hash", "providers_hash", "deviation_marker"})
 
 

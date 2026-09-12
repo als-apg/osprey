@@ -1383,10 +1383,10 @@ keys:
     rendered: false
     evidence: 'epics_archiver'
     note: >-
-      Commented placeholder since the ALS-URL strip: a facility's Archiver
-      Appliance cannot be guessed, so authoring the block travels with the
-      flip to `type: epics_archiver`. The connector refuses to start without
-      a `url`, which keeps the unauthored state honest.
+      Commented placeholder: a facility's Archiver Appliance cannot be
+      guessed, so authoring the block travels with the flip to
+      `type: epics_archiver`. The connector refuses to start without a
+      `url`, which keeps the unauthored state honest.
     default: {}
   archiver.epics_archiver.url: {covered-by: archiver.epics_archiver, rendered: false, default: 'no-fallback', default_note: "the connector raises ValueError('archiver URL is required for EPICS archiver')"}
   archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver, rendered: false, default: 60}

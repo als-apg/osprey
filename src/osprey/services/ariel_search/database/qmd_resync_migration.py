@@ -3,7 +3,7 @@
 ``osprey ariel qmd-resync`` finds the rows it must re-export by asking for
 every ``enhanced_entries`` row whose ``updated_at`` is at or after the stored
 watermark. Without an index that predicate is a sequential scan of the whole
-table on every ingest and every watch cycle, which at ALS scale (~135k rows)
+table on every ingest and every watch cycle, which at ~135k rows
 turns a routine pre-step into the most expensive thing in the loop.
 
 The index is purely additive: it creates no column, changes no existing one,
