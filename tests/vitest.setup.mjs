@@ -10,6 +10,7 @@
 // happy-dom Storage so the suite passes on bare `npx vitest run` under
 // Node 26 without contributors having to set NODE_OPTIONS. This is a no-op on
 // Node <= 24 (CI), where happy-dom's storage is installed normally.
+import { afterAll, afterEach } from 'vitest';
 import { Storage } from 'happy-dom';
 
 for (const key of ['localStorage', 'sessionStorage']) {
@@ -46,30 +47,62 @@ if (happyDOM?.settings?.navigation) {
   happyDOM.settings.navigation.disableChildFrameNavigation = true;
 }
 
-// Nothing serves the environment's origin (http://localhost:3000), so a module
-// whose fetch a test did not stub opens a real socket that is refused. The
-// refusal lands after the test that started it has finished, where no test owns
-// it: the run reports every test passing and still exits non-zero on the
-// unhandled tail. Answer such a request in-process instead. The caller sees a
-// failed request either way — an unreachable origin is what it would have got —
-// and the failure is now deterministic and names the URL a test has yet to stub.
+// Nothing serves the environment's origin (http://localhost:3000), so a request
+// no test stubbed is a missing stub: the module under test reached for a
+// dependency its test never declared. Answering it would hide that — a failed
+// request is exactly what an unreachable origin gives, so the suite stays green
+// while its subject talks to nothing. The request is refused instead, at the
+// call site and by URL.
+//
+// A refusal on its own is not enough: most callers swallow a failed boot fetch
+// on purpose, so the refusal would vanish into the code under test. Every
+// refused URL is therefore recorded, and the record is drained after each test
+// and after the file — whatever is left in it fails the test that made the
+// request, and a request made while the module graph loads lands on the file's
+// first test rather than disappearing.
+//
+// The record is published on globalThis under this key so a test may make an
+// unstubbed request deliberately: it reads the record, clears it, and the drain
+// then finds nothing (see tests/vitest-fetch-guard.test.mjs).
+const UNSTUBBED_RECORD_KEY = '__OSPREY_UNSTUBBED_FETCHES__';
+
+/**
+ * Every request this environment refused, in the order it refused them.
+ * @type {string[]}
+ */
+const unstubbed = [];
+
+Object.defineProperty(globalThis, UNSTUBBED_RECORD_KEY, {
+  value: unstubbed,
+  configurable: true,
+  writable: true
+});
+
+/**
+ * Refuse one request and record it.
+ * @param {string} url
+ * @returns {never}
+ */
+function refuse(url) {
+  unstubbed.push(url);
+  throw new Error(`no server for ${url} — stub fetch in the test`);
+}
+
+/** Report every refusal nothing has accounted for, and forget them. */
+function drainUnstubbed() {
+  if (unstubbed.length === 0) return;
+  const urls = unstubbed.splice(0, unstubbed.length);
+  throw new Error(`no server for ${urls.join(', ')} — stub fetch in the test`);
+}
+
+afterEach(drainUnstubbed);
+afterAll(drainUnstubbed);
+
 if (happyDOM?.settings?.fetch) {
   happyDOM.settings.fetch.interceptor = {
-    /** @param {{ request: { url: string }, window: { Response: typeof Response } }} context */
-    beforeAsyncRequest: async ({ request, window }) =>
-      new window.Response(`no server for ${request.url} — stub fetch in the test`, {
-        status: 503,
-        statusText: 'Service Unavailable'
-      }),
     /** @param {{ request: { url: string } }} context */
-    beforeSyncRequest: ({ request }) => ({
-      status: 503,
-      statusText: 'Service Unavailable',
-      ok: false,
-      url: request.url,
-      redirected: false,
-      headers: {},
-      body: null
-    })
+    beforeAsyncRequest: async ({ request }) => refuse(request.url),
+    /** @param {{ request: { url: string } }} context */
+    beforeSyncRequest: ({ request }) => refuse(request.url)
   };
 }

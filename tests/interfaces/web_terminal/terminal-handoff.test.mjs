@@ -160,6 +160,14 @@ beforeEach(async () => {
   vi.stubGlobal('WebLinksAddon', { WebLinksAddon: class {} });
   vi.stubGlobal('ClipboardAddon', { ClipboardAddon: class {}, Base64: class {} });
   vi.stubGlobal('WebSocket', FakeWebSocket);
+  // api.js probes `/api/session` whenever a channel closes, to tell an expired
+  // session from a dropped connection. Nothing serves this environment, so the
+  // probe is answered here with the signed-in status every test below assumes.
+  // Any other URL is a dependency this file has not declared, and fails loudly.
+  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+    if (url !== '/api/session') throw new Error(`unstubbed fetch: ${url}`);
+    return { ok: true, status: 200, json: async () => ({}) };
+  }));
   // xtermPalette() logs a console.error when the CSS custom properties it
   // reads are absent, which they are in this bare happy-dom document.
   vi.spyOn(console, 'error').mockImplementation(() => {});

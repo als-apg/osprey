@@ -51,6 +51,50 @@ import {
 
 const JS = '../../../src/osprey/interfaces/web_terminal/static/js';
 
+/** @param {any} body */
+const jsonOk = (body) => ({ ok: true, status: 200, statusText: 'OK', json: async () => body });
+
+/**
+ * Serve the two endpoints the panel-manager import graph asks for: the panel
+ * catalog this file gates on, and the bar layout bar-sync.js GETs at import.
+ * Both are reached from every suite below that loads that graph.
+ * @param {boolean} configPanelEnabled
+ */
+function stubPanelsFetch(configPanelEnabled) {
+  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+    if (url === '/api/panels') {
+      return jsonOk({
+        enabled: [],
+        custom: [],
+        default: null,
+        visible: [],
+        active: null,
+        labels: {},
+        config_panel_enabled: configPanelEnabled,
+      });
+    }
+    if (url === '/api/bar-items') {
+      return jsonOk({
+        version: 1,
+        rev: 0,
+        header: [],
+        status: [],
+        header_visible: true,
+        status_visible: true,
+      });
+    }
+    return jsonOk({});
+  }));
+  class FakeEventSource {
+    constructor() {
+      /** @type {((e: {data: string}) => void)|null} */
+      this.onmessage = null;
+    }
+    close() {}
+  }
+  vi.stubGlobal('EventSource', FakeEventSource);
+}
+
 /** The drawer markup index.html ships: four tabs, four panels, Behavior active. */
 function renderDrawer() {
   document.body.innerHTML = `
@@ -196,35 +240,6 @@ describe('boot wiring: initPanelManager applies the gate', () => {
     }));
   }
 
-  /** @param {any} body */
-  const jsonOk = (body) => ({ ok: true, status: 200, statusText: 'OK', json: async () => body });
-
-  /** @param {boolean} configPanelEnabled */
-  function stubPanelsFetch(configPanelEnabled) {
-    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
-      if (url === '/api/panels') {
-        return jsonOk({
-          enabled: [],
-          custom: [],
-          default: null,
-          visible: [],
-          active: null,
-          labels: {},
-          config_panel_enabled: configPanelEnabled,
-        });
-      }
-      return jsonOk({});
-    }));
-    class FakeEventSource {
-      constructor() {
-        /** @type {((e: {data: string}) => void)|null} */
-        this.onmessage = null;
-      }
-      close() {}
-    }
-    vi.stubGlobal('EventSource', FakeEventSource);
-  }
-
   beforeEach(() => {
     renderDrawer();
     document.body.insertAdjacentHTML(
@@ -311,6 +326,7 @@ describe('command palette guards on the tab being gone', () => {
 
   afterEach(() => {
     for (const name of Object.keys(PALETTE_BOOT_MOCKS)) vi.doUnmock(`${JS}/${name}`);
+    vi.unstubAllGlobals();
     vi.resetModules();
   });
 
@@ -333,6 +349,9 @@ describe('command palette guards on the tab being gone', () => {
   }
 
   beforeEach(() => {
+    // palette-boot.js reaches bar-sync.js, which GETs the bar layout at import
+    // — and `openThroughTrigger` re-imports it after every resetModules().
+    stubPanelsFetch(true);
     renderDrawer();
     document.body.insertAdjacentHTML('beforeend', '<button id="command-palette-btn"></button>');
   });
