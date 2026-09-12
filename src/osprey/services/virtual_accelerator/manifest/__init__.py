@@ -3,10 +3,20 @@
 The Control Assistant Tutorial's channel-finder databases already define the
 channel namespace the virtual accelerator must serve: the tutorial ships
 three interchangeable file "paradigm" formats (in_context, hierarchical,
-middle_layer) that describe the same set of PV addresses under the grammar
-``{ring}:{system}:{family}:{device}:{field}:{subfield}``. The ``graph``
+middle_layer) that describe the same set of PV addresses. The ``graph``
 paradigm is deliberately not among them -- it answers from a seeded store
 rather than a tier file, so it contributes no manifest source.
+
+What this package fixes, and what it does not. A channel's ADDRESS text is
+free: it is carried through verbatim from whatever source declared it, and the
+bundled demo tree's six colon-separated tokens
+(``{ring}:{system}:{family}:{device}:{field}:{subfield}``) are that tree's
+spelling rather than a shape anything here requires -- a facility whose
+addresses are three parts, or slashed, loads through the same call (see
+``loaders.load_manifest_file``). What IS reserved is the ``subfield`` VALUE:
+``SETPOINT_SUBFIELD`` marks the writable channel and ``READBACK_SUBFIELD``
+marks its readback, and a channel carrying any other token is neither written
+nor paired with one.
 
 This package expands all three file formats at their build-resolved tier,
 verifies they agree, unions in the scenario-seed ``machine.json`` channels,

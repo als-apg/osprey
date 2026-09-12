@@ -9,6 +9,13 @@ from :mod:`osprey.services.virtual_accelerator.ioc` or
 :mod:`osprey.services.virtual_accelerator.serving` -- so any physics server
 can consume it identically.
 
+Scoped to one ring, and it says so. The families below, their formulas and the
+calibration constants are the AR ring's physics, not a framework contract. The
+channels they apply to are not stated here at all: which addresses carry a
+magnet current, and which device each belongs to, come from the manifest's
+pyat-coupled partition, so no address spelling -- the bundled demo tree's six
+colon-separated tokens included -- is assumed or reconstructed in this module.
+
 Apply-current semantics (per family):
 
 - ``HCM``/``VCM`` correctors: ``KickAngle[plane] = I / AMPS_PER_RADIAN_KICK``
