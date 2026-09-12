@@ -9,7 +9,7 @@ once per watcher.
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, MutableMapping
 from pathlib import Path
 
 from watchdog.observers.api import BaseObserver
@@ -53,3 +53,21 @@ def one_level_listing(directory: Path) -> dict[str, ChangeStamp]:
         except OSError:  # vanished mid-scan
             continue
     return listing
+
+
+def evict_subtree(listings: MutableMapping[str, dict[str, ChangeStamp]], directory: Path) -> None:
+    """Drop the listing for *directory* and for everything that was under it.
+
+    The invariant is that a path no longer in the tree has no listing, and
+    neither does anything that was under it: a watcher's listing map is bounded
+    by the tree that exists rather than by every tree that ever did, however
+    long the process runs.
+
+    The keys are ``str(Path)``, so a descendant is one that begins with
+    *directory* followed by the separator. The separator is part of the prefix
+    because without it ``/a/bc`` is evicted along with ``/a/b``.
+    """
+    key = str(directory)
+    prefix = key + os.sep
+    for listed in [k for k in listings if k == key or k.startswith(prefix)]:
+        del listings[listed]
