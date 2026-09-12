@@ -201,19 +201,17 @@ REQUIRED_DEFAULT_KEYS = POSTURE_FLOOR_KEYS | {"facility_knowledge.bundle_path"}
 #: ``no-fallback``  the reader supplies none: it raises, or the surface goes
 #:                  off, or nothing reads the key at all yet.
 #:
-#: ``derived`` and ``no-fallback`` say nothing on their own, so each one must
-#: carry a ``default_note:`` naming the derivation or the consequence. Without
-#: that rule the two would be an escape hatch from reading the code, which is
-#: the whole point of the column.
-#:
-#: ``required`` may carry one and need not: "no fallback exists" is a complete
-#: answer, but a key whose admissible values are a closed set has nowhere else
-#: to name them for a reader holding only the ledger. A literal default may
-#: not: the literal is the whole answer, so prose beside one is an excuse for
-#: it or a sign the sentinel is wrong.
+#: ``derived``, ``no-fallback`` and ``required`` say nothing on their own, so
+#: each one must carry a ``default_note:`` naming the derivation, the
+#: consequence, or the values the key accepts. Without that rule the three
+#: would be an escape hatch from reading the code, which is the whole point of
+#: the column: "you must set this" leaves a reader holding only the ledger with
+#: nowhere to learn what may be set. A literal default carries no note: the
+#: literal is the whole answer, so prose beside one is an excuse for it or a
+#: sign the sentinel is wrong. ``n/a`` carries none either — a ``covered-by``
+#: leaf is answered by its parent.
 DEFAULT_SENTINELS = frozenset({"required", "n/a", "derived", "no-fallback"})
-DEFAULT_SENTINELS_NEEDING_NOTE = frozenset({"derived", "no-fallback"})
-DEFAULT_SENTINELS_ALLOWING_NOTE = DEFAULT_SENTINELS_NEEDING_NOTE | {"required"}
+DEFAULT_SENTINELS_NEEDING_NOTE = frozenset({"derived", "no-fallback", "required"})
 
 
 def sentinel_lookalike(value: object) -> str | None:
@@ -695,10 +693,10 @@ class ConfigKeyGuard:
            refusal that no longer happens, and a floor key that loses
            ``required`` invites a fallback to be invented for something the
            build refuses to guess at;
-        3. ``derived`` and ``no-fallback`` carry a ``default_note:``,
-           ``required`` may carry one, a literal carries none, and a near-miss
-           spelling of a sentinel (``no_fallback``, ``Derived``) is refused
-           rather than waved through as the literal string it technically is.
+        3. ``derived``, ``no-fallback`` and ``required`` carry a
+           ``default_note:``, a literal carries none, and a near-miss spelling
+           of a sentinel (``no_fallback``, ``Derived``) is refused rather than
+           waved through as the literal string it technically is.
         """
         keys = self.manifest["keys"]
         for key, spec in keys.items():
@@ -718,22 +716,21 @@ class ConfigKeyGuard:
                 )
                 continue
             needs_note = isinstance(value, str) and value in DEFAULT_SENTINELS_NEEDING_NOTE
-            may_note = isinstance(value, str) and value in DEFAULT_SENTINELS_ALLOWING_NOTE
             has_note = bool(str(spec.get("default_note") or "").strip())
             if needs_note and not has_note:
                 self.fail(
                     "default",
                     f"{key} is {value!r} but carries no default_note naming the "
-                    f"derivation or the consequence",
+                    f"derivation, the consequence, or the values it accepts",
                 )
-            elif has_note and not may_note:
+            elif has_note and not needs_note:
                 # A note on a literal reads as an excuse for it. The literal is
                 # the whole answer, or it is the wrong sentinel.
                 self.fail(
                     "default",
                     f"{key} carries a default_note but its default is the literal "
                     f"{value!r}; a note belongs only on "
-                    f"{sorted(DEFAULT_SENTINELS_ALLOWING_NOTE)}",
+                    f"{sorted(DEFAULT_SENTINELS_NEEDING_NOTE)}",
                 )
 
         declared = {
