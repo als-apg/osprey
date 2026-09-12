@@ -391,9 +391,9 @@ def _ci_extra_text(name: str, seeded: tuple[str, ...] = (), facility_rule: bool 
 #
 # .gitlab-ci.yml is emitted by `osprey scaffold ci` and will be overwritten the
 # next time it runs. This file never is — put anything facility-specific here:
-# extra tests, an IOC smoke check, a notification hook. It is included after
-# the scaffolded pipeline, so it can also override a job by redefining it under
-# the same name.
+# extra tests, an IOC smoke check, a notification hook. A job you add here runs
+# beside the scaffolded ones; reusing a scaffolded job's name merges the two and
+# the scaffolded pipeline's own keys win, so give a job of your own its own name.
 #
 # Example:
 #

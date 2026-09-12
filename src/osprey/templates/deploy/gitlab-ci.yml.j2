@@ -47,8 +47,9 @@
 # =============================================================================
 
 include:
-  # Facility-owned jobs, layered on top of everything below. Guarded by
-  # `exists` so a repo that deleted the file still has a valid pipeline.
+  # Facility-owned jobs. They run beside everything below and lose on every key
+  # this file sets. Guarded by `exists` so a repo that deleted the file still
+  # has a valid pipeline.
   - local: ci-extra.yml
     rules:
       - exists:
