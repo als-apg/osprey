@@ -759,11 +759,6 @@ config:
   ariel.enhancement_modules.text_embedding.models:
     - name: nomic-embed-text
       dimension: 768
-  # IVFFlat `lists` for the vector index, chosen when the index is created.
-  # Rule of thumb: rows/1000 for corpora up to a million entries. It cannot be
-  # derived — `osprey ariel migrate` runs against an empty table — and changing
-  # it later needs the index dropped and recreated.
-  # ariel.enhancement_modules.text_embedding.index_lists: 224
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.
