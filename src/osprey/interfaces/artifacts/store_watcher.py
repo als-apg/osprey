@@ -138,7 +138,7 @@ class _IndexFileHandler(FileSystemEventHandler):
                 self._handle(event, path=str(directory / name))
 
     def _handle(self, event: FileSystemEvent, path: str | None = None) -> None:
-        src_path = Path(path) if path is not None else Path(event.src_path)
+        src_path = Path(path) if path is not None else Path(os.fsdecode(event.src_path))
         filename = src_path.name
 
         if filename not in self._index_configs:
