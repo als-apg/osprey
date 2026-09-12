@@ -18,19 +18,45 @@ import os
 #: patching four modules that each spelled one gateway's name inline.
 E2E_PROVIDER_ENV = "OSPREY_E2E_PROVIDER"
 
-#: The provider used when :data:`E2E_PROVIDER_ENV` names none — the gateway
-#: whose key the project's own runners carry, and the one the ``requires_*``
-#: markers on these lanes gate on.
-DEFAULT_E2E_PROVIDER = "als-apg"
-
 #: Environment variable overriding the provider of *every* project a run builds,
 #: whatever each call site pinned. The benchmark matrix sets it per cell.
 FORCE_PROVIDER_ENV = "OSPREY_E2E_FORCE_PROVIDER"
 
 
+def provider_refusal() -> str:
+    """What to tell a run that has not said which provider it builds with.
+
+    The providers are read from the registry's own key table rather than listed
+    here, so the refusal cannot name a set OSPREY does not have.
+    """
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+    known = ", ".join(sorted(PROVIDER_API_KEYS))
+    return (
+        f"This end-to-end run names no provider. Set {E2E_PROVIDER_ENV} to the provider "
+        f"whose credential this environment holds, or {FORCE_PROVIDER_ENV} to point the "
+        f"whole suite at one provider. Known providers: {known}."
+    )
+
+
 def e2e_provider() -> str:
-    """The provider these lanes build their deployment repo with."""
-    return os.environ.get(E2E_PROVIDER_ENV, "").strip() or DEFAULT_E2E_PROVIDER
+    """The provider these lanes build their deployment repo with.
+
+    No constant stands behind the two variables. A gateway is whoever runs it,
+    so a run that named none is refused by name instead of being sent somewhere
+    a default happened to point. The override is honored first: the benchmark
+    runner requires it and sets nothing else.
+
+    Raises:
+        RuntimeError: when neither variable names a provider.
+    """
+    forced = os.environ.get(FORCE_PROVIDER_ENV, "").strip()
+    if forced:
+        return forced
+    selected = os.environ.get(E2E_PROVIDER_ENV, "").strip()
+    if selected:
+        return selected
+    raise RuntimeError(provider_refusal())
 
 
 def build_provider(pinned: str) -> str:

@@ -7,10 +7,14 @@ See tests/e2e/README.md for details.
 import json
 import os
 import sys
+from pathlib import Path
 
 import pytest
 
 from osprey.registry import reset_registry
+from tests.e2e.provider import e2e_provider, provider_refusal
+
+_E2E_ROOT = Path(__file__).resolve().parent
 
 
 def _print_failure_now(report) -> None:
@@ -108,8 +112,66 @@ def pytest_collection_finish(session):
         pass
 
 
+def _run_names_a_provider() -> bool:
+    """Whether either variable told this run which provider to build with."""
+    try:
+        e2e_provider()
+    except RuntimeError:
+        return False
+    return True
+
+
+def _refusal_applies(config) -> bool:
+    """Whether this run has to name a provider before it goes any further.
+
+    A ``--collect-only`` run is exempt. It enumerates the suite instead of
+    building anything, so no gateway is reached and nothing needs a credential
+    — and enumerating is how the benchmark lane gate reads each test's lane
+    marker out of a real collection.
+    """
+    if config.getoption("collectonly", False):
+        return False
+    return not _run_names_a_provider()
+
+
+def pytest_collection_modifyitems(config, items):
+    """End the session when an e2e run has not said which provider to build with.
+
+    The lanes under this directory stand up a real deployment repo and drive an
+    agent through it, so the provider is not a detail one of them can shrug off
+    — it decides which gateway the run talks to and which credential it needs.
+    One rule for the whole directory rather than a per-module one: a module that
+    pins its own provider still builds inside a run whose provider decides the
+    rest, and a rule with exceptions is a rule nobody can read off the failure.
+
+    ``UsageError`` rather than a skip or a collection error: it ends the session
+    with the message and no traceback, which is what a misconfigured invocation
+    deserves. This hook is the refusal for an invocation that reaches these
+    tests without naming this directory, so ``pytest_configure`` below never
+    loads; the two are the same refusal, and whichever fires first states it.
+    The rest of ``tests/`` is untouched — the fast lane runs
+    ``pytest tests/ --ignore=tests/e2e`` and never loads this conftest.
+    """
+    if not _refusal_applies(config):
+        return
+    for item in items:
+        path = Path(str(getattr(item, "path", "") or item.fspath)).resolve()
+        if path == _E2E_ROOT or _E2E_ROOT in path.parents:
+            raise pytest.UsageError(provider_refusal())
+
+
 def pytest_configure(config):
-    """Register E2E markers and warn if tests are being run incorrectly."""
+    """Refuse a run that names no provider, register E2E markers, and warn if
+    tests are being run incorrectly."""
+    # The refusal belongs here as well as at collection because the e2e lanes
+    # run distributed (`-n 4 --dist loadfile`), and collection there happens
+    # inside a worker, where a UsageError reaches the operator as an
+    # INTERNALERROR traceback instead of as the message it carries. This
+    # conftest is loaded from the initial arguments, so this hook runs once in
+    # the controlling process before any worker is spawned.
+    if _refusal_applies(config):
+        raise pytest.UsageError(provider_refusal())
+
     # Register custom markers
     config.addinivalue_line("markers", "e2e: End-to-end workflow tests (requires API keys, slow)")
     config.addinivalue_line("markers", "e2e_smoke: Quick smoke tests for critical workflows")
