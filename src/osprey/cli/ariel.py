@@ -274,6 +274,18 @@ def status_command(output_json: bool) -> None:
                 active = " (active)" if table["active"] else ""
                 output.note(f"- {table['table']}: {table['entries']} entries{active}")
 
+            # Printed only when there is something to clean up: these are rows
+            # in the store that no registered module writes any more, and this
+            # is the surface an operator already reads.
+            orphaned = result.get("orphaned_enhancement_modules") or {}
+            if orphaned:
+                leftovers = ", ".join(
+                    f"{name} ({counts['complete']} complete, {counts['failed']} failed, "
+                    f"{counts['pending']} pending)"
+                    for name, counts in sorted(orphaned.items())
+                )
+                output.report(f"Rows from unregistered enhancement modules: {leftovers}")
+
 
 @ariel_group.command("migrate")
 def migrate_command() -> None:

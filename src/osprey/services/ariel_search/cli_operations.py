@@ -340,6 +340,20 @@ def vocabulary_status(config_dict: dict, config_dir: Path | None = None) -> dict
     }
 
 
+_EMPTY_MODULE_COUNTS = {"complete": 0, "failed": 0, "pending": 0}
+
+
+def _module_counts(entry: object) -> dict[str, int]:
+    """Return the ``{complete, failed, pending}`` counts carried by *entry*.
+
+    A module the store has never seen has no entry at all, and reads as zeros —
+    the count of rows it has produced, which is what "never seen" means.
+    """
+    if not isinstance(entry, dict):
+        return dict(_EMPTY_MODULE_COUNTS)
+    return {key: int(entry.get(key, 0)) for key in _EMPTY_MODULE_COUNTS}
+
+
 async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> dict:
     """Return ARIEL service status as a plain dict.
 
@@ -355,6 +369,13 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         doing. The healthy paths also carry ``last_ingestion``: the ISO-8601
         timestamp of the newest successful ingestion run, or ``None`` when the
         store has never been ingested.
+
+        On the healthy paths ``enhancement_modules`` is one table over the
+        registered modules, each carrying ``enabled`` alongside its
+        ``complete``/``failed``/``pending`` counts, and
+        ``orphaned_enhancement_modules`` carries the same counts for store keys
+        no registered module claims — rows present with nothing left to write
+        them.
     """
     from osprey.services.ariel_search import create_ariel_service
     from osprey.services.ariel_search.config import registered_ariel_names
@@ -372,6 +393,7 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
         async with service:
             healthy, message = await service.health_check()
             stats = await service.repository.get_enhancement_stats()
+            registered = registered_ariel_names("ariel_enhancement_modules")
             tables = await service.repository.get_embedding_tables()
             last_ingestion = await service.repository.get_last_ingestion()
 
@@ -398,8 +420,16 @@ async def get_status(config_dict: dict, *, config_dir: Path | None = None) -> di
                     for t in tables
                 ],
                 "enhancement_modules": {
-                    name: config.is_enhancement_module_enabled(name)
-                    for name in registered_ariel_names("ariel_enhancement_modules")
+                    name: {
+                        "enabled": config.is_enhancement_module_enabled(name),
+                        **_module_counts(stats.get(name)),
+                    }
+                    for name in registered
+                },
+                "orphaned_enhancement_modules": {
+                    key: _module_counts(counts)
+                    for key, counts in stats.items()
+                    if key != "total_entries" and key not in registered
                 },
                 "search_modules": {
                     name: config.is_search_module_enabled(name)
