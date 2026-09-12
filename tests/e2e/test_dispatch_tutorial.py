@@ -46,7 +46,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.e2e.conftest import e2e_provider
+from tests.e2e.provider import e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 
 TOKEN = "tutorial-e2e-token"  # shared dispatcher<->worker bearer for the test

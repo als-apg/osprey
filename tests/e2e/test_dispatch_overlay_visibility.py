@@ -64,8 +64,8 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.port_layout import default_port
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.conftest import e2e_provider
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.provider import e2e_provider
 
 #: This deploy's own thousand-port block — same convention as
 #: test_dispatch_deploy.py (20700) and test_web_bind.py (21000): a real

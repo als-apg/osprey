@@ -52,7 +52,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.e2e.conftest import e2e_provider
+from tests.e2e.provider import e2e_provider
 from tests.e2e.test_dispatch_tutorial import (
     HEALTH_TIMEOUT_SEC,
     _find_osprey_console_script,
