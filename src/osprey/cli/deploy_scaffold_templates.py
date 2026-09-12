@@ -235,6 +235,10 @@ class CIContext:
             configured and none is needed.
         registry_host: The half ``docker login`` takes.
         registry_token_var: Variable naming the registry credential.
+        ci_image_prefix: Registry and path the pipeline's own base images are
+            pulled from, already shaped as a prefix (trailing slash, or empty).
+            Deliberately separate from ``registry_url``: that names where this
+            deployment's images live, not where upstream ones are mirrored.
         deploy_host: Address the pipeline SSHes to.
         deploy_user: SSH user owning the checkout.
         deploy_path: The checkout's absolute path on that host.
@@ -262,6 +266,7 @@ class CIContext:
     deploy_host: str
     deploy_user: str
     deploy_path: str
+    ci_image_prefix: str = ""
     service_images: list[str] = field(default_factory=list)
     external_projects: list[dict[str, str]] = field(default_factory=list)
     environment_url: str | None = None
@@ -501,6 +506,7 @@ def build_ci_context(
         deploy_host=deploy.host.fqdn or deploy.host.name,
         deploy_user=deploy.host.user,
         deploy_path=deploy.host.project_path,
+        ci_image_prefix=deploy.ci_image_prefix,
         service_images=service_image_names(profile, profile_dir),
         external_projects=[
             {

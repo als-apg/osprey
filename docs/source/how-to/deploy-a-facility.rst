@@ -404,12 +404,18 @@ file:
        user: osprey
        project_path: /opt/demo-facility
      image_source: local
+     ci_image_prefix: mirror.example.org/dockerhub
 
 Substitute your own registry and host. ``registry.url`` carries no scheme — it
 appears verbatim inside an image name. ``host.name`` must be ssh-resolvable for
 whoever presses the deploy button, and ``host.project_path`` is where this
 repository is checked out on that server. Credentials are *named* here, never
 written here.
+
+``ci_image_prefix`` is where the pipeline pulls the images its own *jobs* run
+in — Python, Docker and Alpine — so a runner with no route to Docker Hub takes
+them from a mirror instead; leave the key out and the pipeline names the public
+images, which is what a runner with internet access wants.
 
 ``image_source: local`` says the deploy host builds the web-terminal images
 itself from the rendered persona projects, rather than pulling them from a
