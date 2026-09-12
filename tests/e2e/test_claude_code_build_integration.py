@@ -36,8 +36,8 @@ from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
-from tests.e2e.conftest import e2e_provider
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.provider import e2e_provider
 from tests.e2e.sdk_helpers import (
     agent_data_dir,
     e2e_port_base,
