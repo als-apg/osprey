@@ -1499,7 +1499,7 @@ def _migrate_legacy_curve_dir(project_dir: Path, lane_key: str) -> None:
 def _ensure_bluesky_document_plane_certs(config: dict, env_path: Path | None = None) -> None:
     """Generate the document plane's CURVE certificates into the project tree.
 
-    The bridge binds a ``bluesky.callbacks.zmq`` Proxy that the queueserver's
+    The bridge binds the document-plane forwarder that the queueserver's
     Publisher pushes run documents at. Both containers are dual-homed onto
     ``osprey-network`` (they need the Virtual Accelerator and Tiled), so
     network placement alone cannot keep a rogue container from injecting
