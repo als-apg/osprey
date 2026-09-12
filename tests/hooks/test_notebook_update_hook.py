@@ -95,6 +95,32 @@ def test_notebook_update_deletes_cache(tmp_path, run_notebook_update_hook):
 
 
 @pytest.mark.unit
+def test_notebook_update_deletes_every_mode_of_the_cache(tmp_path, run_notebook_update_hook):
+    """Both the connected and the offline render of the edited notebook go.
+
+    The renderer caches one file per deployment posture, so a hook that removed
+    only the connected spelling would leave the other one to be served, stale,
+    the next time the deployment was in that mode.
+    """
+    nb_path = tmp_path / "both_modes.ipynb"
+    nb_path.write_text("{}")
+    cache_dir = tmp_path / "_notebook_cache"
+    cache_dir.mkdir()
+    online = cache_dir / "both_modes_rendered.html"
+    online.write_text("<html>online</html>")
+    offline = cache_dir / "both_modes_rendered.offline.html"
+    offline.write_text("<html>offline</html>")
+    other = cache_dir / "other_rendered.offline.html"
+    other.write_text("<html>other</html>")
+
+    run_notebook_update_hook({"notebook_path": str(nb_path)}, cwd=tmp_path)
+
+    assert not online.exists()
+    assert not offline.exists()
+    assert other.read_text() == "<html>other</html>"
+
+
+@pytest.mark.unit
 def test_notebook_update_logs_invalidated_on_cache_hit(
     tmp_path, monkeypatch, run_notebook_update_hook
 ):

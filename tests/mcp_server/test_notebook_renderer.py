@@ -2,8 +2,8 @@
 
 Covers:
   - create_notebook_from_code: valid notebook structure
-  - render_notebook_to_html: produces HTML output
-  - get_or_render_html: caching behavior
+  - render_notebook_to_html: produces HTML output, offline-aware
+  - get_or_render_html: caching behavior, one cache file per mode
 """
 
 import time
@@ -122,12 +122,64 @@ class TestRenderNotebookToHtml:
         assert "UNIQUE_OUTPUT_MARKER" in html
 
 
+#: A URL the default nbconvert template links and an offline render cannot use.
+#: MathJax is the one that costs the most when it is missing — inline LaTeX in
+#: a notebook's markdown simply does not render.
+MATHJAX_URL = "cdnjs.cloudflare.com/ajax/libs/mathjax"
+
+
+class TestOfflineAwareRendering:
+    """Which render each deployment posture gets.
+
+    A render whose assets are fetched at view time depends on the viewer's
+    network; a render with them blanked loses MathJax, interactive widgets and
+    Mermaid. Neither is right everywhere, so the deployment's own ``offline``
+    posture decides.
+    """
+
+    @staticmethod
+    def _notebook(tmp_path, name: str = "assets"):
+        nb = create_notebook_from_code(code="x = 1", description="Asset test")
+        path = tmp_path / f"{name}.ipynb"
+        with open(path, "w") as handle:
+            nbformat.write(nb, handle)
+        return path
+
+    @pytest.mark.unit
+    def test_an_offline_render_references_no_remote_asset(self, tmp_path):
+        """Nothing to fetch: the isolated deployment's render is self-contained."""
+        html = render_notebook_to_html(self._notebook(tmp_path), offline=True)
+
+        assert MATHJAX_URL not in html
+
+    @pytest.mark.unit
+    def test_a_connected_render_keeps_the_exporters_own_assets(self, tmp_path):
+        """A deployment that can reach them gets LaTeX, widgets and Mermaid."""
+        html = render_notebook_to_html(self._notebook(tmp_path), offline=False)
+
+        assert MATHJAX_URL in html
+
+    @pytest.mark.unit
+    def test_the_mode_defaults_to_the_deployments_posture(self, tmp_path, monkeypatch):
+        """Callers that pass nothing get the posture the deployment declares."""
+        notebook = self._notebook(tmp_path)
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        assert MATHJAX_URL not in render_notebook_to_html(notebook)
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "0")
+        assert MATHJAX_URL in render_notebook_to_html(notebook)
+
+
 class TestGetOrRenderHtml:
     """Tests for get_or_render_html() caching behavior."""
 
     @pytest.mark.unit
-    def test_creates_cache_file(self, tmp_path):
+    def test_creates_cache_file(self, tmp_path, monkeypatch):
         """First call creates the cached HTML file."""
+        # The cache name carries the render mode, so the mode is pinned rather
+        # than inherited from whatever posture the ambient shell declares.
+        monkeypatch.setenv("OSPREY_OFFLINE", "0")
         nb = create_notebook_from_code(code="CACHE_TEST_MARKER_ABC123", description="Cache test")
         nb_path = tmp_path / "cached.ipynb"
         with open(nb_path, "w") as f:
@@ -179,6 +231,55 @@ class TestGetOrRenderHtml:
         html, html_path2 = get_or_render_html(nb_path, cache_dir=cache_dir)
         assert html_path2.stat().st_mtime > first_mtime
         assert "STALE_UPDATED_MARKER" in html
+
+    @pytest.mark.unit
+    def test_each_mode_caches_under_its_own_name(self, tmp_path, monkeypatch):
+        """Flipping the posture re-renders instead of serving the other document.
+
+        One cache filename for two different renders is a deployment that
+        turns ``offline`` on, restarts, and keeps serving the render that
+        fetches from the internet — for as long as the notebook is untouched.
+        """
+        nb = create_notebook_from_code(code="z = 3", description="Mode test")
+        nb_path = tmp_path / "modes.ipynb"
+        with open(nb_path, "w") as handle:
+            nbformat.write(nb, handle)
+        cache_dir = tmp_path / "cache_modes"
+
+        monkeypatch.setenv("OSPREY_OFFLINE", "0")
+        online_html, online_path = get_or_render_html(nb_path, cache_dir=cache_dir)
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        offline_html, offline_path = get_or_render_html(nb_path, cache_dir=cache_dir)
+
+        assert online_path != offline_path
+        assert online_path.name == "modes_rendered.html"
+        assert offline_path.name == "modes_rendered.offline.html"
+        assert MATHJAX_URL in online_html
+        assert MATHJAX_URL not in offline_html
+
+    @pytest.mark.unit
+    def test_a_stale_cache_is_regenerated_in_the_offline_mode_too(self, tmp_path, monkeypatch):
+        """The staleness rule is per mode, not only for the connected one."""
+        monkeypatch.setenv("OSPREY_OFFLINE", "1")
+        nb = create_notebook_from_code(code="OFFLINE_ORIGINAL_MARKER", description="Stale")
+        nb_path = tmp_path / "offline_stale.ipynb"
+        with open(nb_path, "w") as handle:
+            nbformat.write(nb, handle)
+        cache_dir = tmp_path / "cache_offline_stale"
+
+        _, html_path = get_or_render_html(nb_path, cache_dir=cache_dir)
+        first_mtime = html_path.stat().st_mtime
+
+        time.sleep(0.05)
+        nb2 = create_notebook_from_code(code="OFFLINE_UPDATED_MARKER", description="Updated")
+        with open(nb_path, "w") as handle:
+            nbformat.write(nb2, handle)
+
+        html, html_path2 = get_or_render_html(nb_path, cache_dir=cache_dir)
+
+        assert html_path2 == html_path
+        assert html_path2.stat().st_mtime > first_mtime
+        assert "OFFLINE_UPDATED_MARKER" in html
 
 
 TOKYO = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST
