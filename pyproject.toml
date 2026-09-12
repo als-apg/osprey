@@ -547,6 +547,15 @@ module = [
 ]
 ignore_missing_imports = true
 
+# Sphinx is never imported by this tree; mypy reaches it by following bokeh's
+# own property module, and bokeh ships types, so `ignore_missing_imports` does
+# not apply. Sphinx's source uses syntax newer than the `python_version` above,
+# and parsing it raises a syntax error that aborts the entire run — skipping it
+# is what keeps the check able to report on this repository.
+[[tool.mypy.overrides]]
+module = ["sphinx.*"]
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -v --tb=short --strict-markers --color=yes"

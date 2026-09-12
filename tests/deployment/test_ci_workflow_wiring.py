@@ -5404,3 +5404,59 @@ def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -
     ]
     with pytest.raises(AssertionError, match=distribution):
         test_the_type_check_declares_a_stub_for_every_stubless_import(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The type check completes: it does not follow an installed package the
+# configured Python cannot parse
+# ---------------------------------------------------------------------------
+#
+# A syntax error raised while mypy parses a followed dependency is fatal to the
+# whole run, the same way a missing stub is. Nothing in this tree imports
+# sphinx; mypy reaches it through bokeh's own property module, bokeh ships
+# types, so `ignore_missing_imports` never applies. Sphinx's source uses syntax
+# newer than the `python_version` this project targets, and that floor is the
+# point of the check — so the package mypy cannot parse is the thing that gives,
+# not the version it is parsed against.
+
+
+def _mypy_overrides(pyproject: dict[str, Any]) -> list[dict[str, Any]]:
+    return pyproject["tool"]["mypy"]["overrides"]
+
+
+def test_the_type_check_completes_over_the_declared_targets(
+    pyproject: dict[str, Any],
+) -> None:
+    """Pinned so the block cannot be dropped as mysterious: without it the run
+    ends in "errors prevented further checking" and no module is examined."""
+    skipped = [
+        override for override in _mypy_overrides(pyproject) if "sphinx.*" in override["module"]
+    ]
+    assert skipped, "[tool.mypy] must carry an override for `sphinx.*`"
+    for override in skipped:
+        assert override.get("follow_imports") == "skip", (
+            'the `sphinx.*` override must set follow_imports = "skip" — '
+            "ignore_missing_imports does not apply to a package that ships types"
+        )
+
+
+def test_the_type_check_completes__mutation_drops_the_override() -> None:
+    mutated = _load_pyproject()
+    mutated["tool"]["mypy"]["overrides"] = [
+        override for override in _mypy_overrides(mutated) if "sphinx.*" not in override["module"]
+    ]
+    with pytest.raises(AssertionError, match="sphinx"):
+        test_the_type_check_completes_over_the_declared_targets(mutated)
+
+
+def test_the_type_check_completes__mutation_weakens_the_override() -> None:
+    """Swapping the skip for `ignore_missing_imports` must fail: bokeh's
+    dependency ships types, so the import is never missing and the run still
+    follows it into syntax it cannot parse."""
+    mutated = _load_pyproject()
+    for override in _mypy_overrides(mutated):
+        if "sphinx.*" in override["module"]:
+            del override["follow_imports"]
+            override["ignore_missing_imports"] = True
+    with pytest.raises(AssertionError, match="follow_imports"):
+        test_the_type_check_completes_over_the_declared_targets(mutated)
