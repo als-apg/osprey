@@ -5512,3 +5512,50 @@ def test_the_type_check_declares_its_source_roots__mutation_drops_a_root(root: s
     )
     with pytest.raises(AssertionError, match=re.escape(root)):
         test_the_type_check_declares_its_source_roots(mutated)
+
+
+# ---------------------------------------------------------------------------
+# mypy target drift guard
+# ---------------------------------------------------------------------------
+
+MYPY_JOB = "lint"
+MYPY_STEP = "Run mypy (type checking)"
+
+
+def _mypy_targets_in_ci(wf: dict[str, Any]) -> list[str]:
+    """The trees the CI mypy step names, in the order it names them.
+
+    Read off the command rather than off a variable: a step that hardcodes a
+    third tree defines nothing new, so keying on anything but the arguments
+    themselves would miss exactly the drift this guard exists to catch.
+    """
+    run = _find_named_step(wf, MYPY_JOB, MYPY_STEP)["run"]
+    words = run.split()
+    after_mypy = words[words.index("mypy") + 1 :]
+    return [
+        word.rstrip("/")
+        for word in after_mypy
+        if not word.startswith("-") and word not in {"||", "true"}
+    ]
+
+
+def test_mypy_targets_match_the_declared_files(
+    workflow: dict[str, Any], pyproject: dict[str, Any]
+) -> None:
+    """CI and a bare local ``mypy`` check the same trees.
+
+    ``[tool.mypy] files`` is what a contributor's own run reads; the CI step
+    spells its trees out. With the two free to drift, a package checked in CI
+    can be invisible to everyone running the checker locally, and the first
+    report of an error is a review comment rather than the editor.
+    """
+    declared = [entry.rstrip("/") for entry in pyproject["tool"]["mypy"]["files"]]
+    assert _mypy_targets_in_ci(workflow) == declared
+
+
+def test_mypy_targets_match_the_declared_files__mutation_drops_a_tree() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, MYPY_JOB, MYPY_STEP)
+    step["run"] = step["run"].replace(" packages/osprey-connectors/src/", "")
+    with pytest.raises(AssertionError):
+        test_mypy_targets_match_the_declared_files(mutated, _load_pyproject())
