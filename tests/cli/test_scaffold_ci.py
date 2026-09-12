@@ -859,3 +859,116 @@ class TestEnvironmentUrl:
         ctx = self._context({"name": "d", "config": {}})
 
         assert ctx.environment_url is None
+
+
+# ── The base-image prefix ────────────────────────────────────────────────────
+
+
+#: The six upstream images the pipeline pins by name. A runner that cannot
+#: reach Docker Hub needs every one of them from somewhere else, so the prefix
+#: is checked against the whole set rather than the two the exemplar renders.
+UPSTREAM_PINS = ("python:3.12-slim", "docker:29", "docker:29-dind", "alpine:3.23")
+
+
+def _full_pipeline(ci_image_prefix: str = "") -> str:
+    """The pipeline with every stage rendered, prefix applied.
+
+    The exemplar declares no registry and no facility-owned image, so its
+    render carries only two of the six pins. Building the context directly is
+    what puts the image and external-project stages in the output, and those
+    stages are where four of the six live.
+    """
+    from osprey.cli.deploy_scaffold_templates import CI_TEMPLATES, CIContext, render
+
+    return render(
+        CI_TEMPLATES["gitlab"],
+        CIContext(
+            facility_name="demo",
+            osprey_version="0.0.0",
+            requirement="osprey-framework",
+            registry_url="registry.example.org/physics/demo",
+            registry_host="registry.example.org",
+            registry_token_var="DEMO_REGISTRY_TOKEN",
+            deploy_host="demo.example.org",
+            deploy_user="operator",
+            deploy_path="/opt/demo",
+            service_images=["facility-mcp"],
+            external_projects=[
+                {
+                    "name": "other",
+                    "url": "registry.example.org/physics/other",
+                    "image": "agent:latest",
+                    "token_env_var": "OTHER_TOKEN",
+                }
+            ],
+            ci_image_prefix=ci_image_prefix,
+        ),
+    )
+
+
+def test_every_upstream_pin_is_rendered_without_a_prefix_by_default() -> None:
+    """The key is opt-in: unset, the pipeline names the public images."""
+    pipeline = _full_pipeline()
+    named = {
+        line.strip().removeprefix("- ").removeprefix("image: ") for line in pipeline.splitlines()
+    }
+
+    assert set(UPSTREAM_PINS) <= named
+
+
+def test_a_prefix_reaches_every_upstream_pin() -> None:
+    """One mirror, all six pins — a pin left behind is the job that still
+    needs Docker Hub, and it is not the first job to run."""
+    prefix = "mirror.example.org/dockerhub/"
+    pipeline = _full_pipeline(prefix)
+
+    for pin in UPSTREAM_PINS:
+        assert f"{prefix}{pin}" in pipeline
+    for line in pipeline.splitlines():
+        stripped = line.strip().removeprefix("- ").removeprefix("image: ")
+        if stripped in UPSTREAM_PINS:
+            raise AssertionError(f"an upstream pin is still unprefixed: {line!r}")
+
+
+def test_the_prefix_is_not_applied_to_this_deployments_own_images() -> None:
+    """``images.registry`` names where THIS deployment's images live; the
+    prefix names where upstream ones are mirrored. Conflating them would push
+    the facility's own image into the mirror's namespace."""
+    pipeline = _full_pipeline("mirror.example.org/dockerhub/")
+
+    assert "mirror.example.org/dockerhub/registry.example.org" not in pipeline
+    assert "registry.example.org/physics/other/agent:latest" in pipeline
+
+
+def test_a_prefix_without_a_trailing_slash_renders_the_same(runner: CliRunner, repo: Path) -> None:
+    """The profile carries a mirror host, not a concatenation rule.
+
+    Normalizing on the way in is what lets the template concatenate without
+    re-deriving whether a separator is needed — the same shape
+    ``images.registry`` is resolved into.
+    """
+    edit_profile(repo, "  ci: gitlab\n", "  ci: gitlab\n  ci_image_prefix: mirror.example.org\n")
+    assert emit(runner, repo).exit_code == 0
+    bare = (repo / CI_PATH).read_text(encoding="utf-8")
+
+    (repo / CI_PATH).unlink()
+    edit_profile(
+        repo, "ci_image_prefix: mirror.example.org\n", "ci_image_prefix: mirror.example.org/\n"
+    )
+    assert emit(runner, repo).exit_code == 0
+
+    assert (repo / CI_PATH).read_text(encoding="utf-8") == bare
+    assert "image: mirror.example.org/python:3.12-slim" in bare
+
+
+def test_a_mapping_under_the_prefix_is_refused_by_name(runner: CliRunner, repo: Path) -> None:
+    """The key is one string. A mapping is a profile that meant something else,
+    and the message has to say which key so the author can find it."""
+    edit_profile(
+        repo, "  ci: gitlab\n", "  ci: gitlab\n  ci_image_prefix:\n    host: mirror.example.org\n"
+    )
+
+    result = emit(runner, repo)
+
+    assert result.exit_code == 1
+    assert "ci_image_prefix" in result.output
