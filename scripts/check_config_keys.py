@@ -32,6 +32,8 @@ Failure modes
                          entry with no ``default_note``
 9. ``union-size``        the manifest's record of how many paths the render
                          matrix produces is stale, or missing
+10. ``layout``           a ``default:`` line stranded below a comment block
+                         instead of sitting inside the entry it belongs to
 
 plus the manifest's own consistency checks (covered-by chains, evidence
 vacuity, governed sets, keeps, absent paths) and a self-test
@@ -1013,6 +1015,45 @@ class ConfigKeyGuard:
 
     # ── manifest self-consistency ───────────────────────────────────────
 
+    def check_manifest_layout(self) -> None:
+        """A ``default:`` line belongs inside its entry, never below a comment.
+
+        YAML binds a line that follows a comment block to whatever entry
+        precedes the comment, so a stray ``default:`` reads correctly today and
+        is one insertion away from reading wrong: an entry added between the
+        comment and the stray line silently takes the default, and
+        ``check_defaults`` then reports the wrong key as undefaulted. The fault
+        is invisible in the parsed mapping, so this check reads the ledger as
+        text.
+
+        Any comment line counts, not only a ``# ── section`` header. The
+        fragility is the comment standing between a line and its entry, not
+        which kind of comment it is.
+        """
+        path = self.root / "src" / "osprey" / "profiles" / MANIFEST_FILENAME
+        if not path.exists():
+            self.fail(
+                "layout",
+                f"no manifest file at {path}: the guard executes that ledger, so its "
+                f"absence is a fault rather than a check with nothing to read",
+            )
+            return
+        comment: tuple[int, str] | None = None
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if re.match(r"^\s*#", line):
+                comment = (number, line.strip())
+            elif not line.strip():
+                continue
+            else:
+                if comment is not None and re.match(r"^\s*default(_note)?:", line):
+                    self.fail(
+                        "layout",
+                        f"line {number} ({line.strip()!r}) follows the comment on line "
+                        f"{comment[0]} ({comment[1]!r}) instead of sitting inside its own "
+                        f"entry; an entry inserted between the two would steal it",
+                    )
+                comment = None
+
     def check_branch_self_test(self) -> None:
         """Each Jinja conditional branch must still be covered by the matrix.
 
@@ -1280,6 +1321,7 @@ class ConfigKeyGuard:
         self.check_parity()
         self.check_panel_port_markers()
         self.check_branch_self_test()
+        self.check_manifest_layout()
         self.check_provider_shape()
         self.check_governed_sets()
         self.check_keeps()
