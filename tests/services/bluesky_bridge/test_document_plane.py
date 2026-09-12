@@ -29,6 +29,7 @@ fail; it does.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -103,10 +104,9 @@ def certificates(tmp_path: Path) -> dict[str, Path]:
     }
 
 
-@pytest.fixture
-def plane(certificates: dict[str, Path]):
+def _started_plane(certificates: dict[str, Path]) -> DocumentPlane:
     """A started document plane on kernel-assigned loopback ports."""
-    started = DocumentPlane(
+    return DocumentPlane(
         DocumentPlaneConfig(
             publish_address="tcp://127.0.0.1",
             subscribe_address="tcp://127.0.0.1",
@@ -114,6 +114,12 @@ def plane(certificates: dict[str, Path]):
             client_public_keys=certificates["allowed"],
         )
     ).start()
+
+
+@pytest.fixture
+def plane(certificates: dict[str, Path]):
+    """A started document plane, stopped when the test ends."""
+    started = _started_plane(certificates)
     try:
         yield started
     finally:
@@ -412,6 +418,59 @@ def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(
     buffer = live_rows.get("worker-built-run")
     assert buffer is not None
     assert buffer["rows"] == [[4.2]]
+
+
+# ------------------------------------------------------------------- shutdown
+
+
+class TestTheDocumentPlaneSurvivesBeingRestarted:
+    """A plane is started and stopped many times in one process.
+
+    Once per process is what a deployed bridge does, but the suite starts and
+    stops planes constantly, and a shutdown path that leaves anything behind —
+    a thread, a socket, an authenticator — is cheap to miss at one cycle and
+    fatal at fifty. Each case builds its own planes rather than taking the
+    ``plane`` fixture, so the ordering between a publisher's teardown and its
+    plane's is written out here instead of being inherited: a publisher left
+    open across a plane's shutdown can abort the interpreter, which arrives as
+    a crashed worker rather than as a failing test (see ``publishers``).
+    """
+
+    _CYCLES = 50
+
+    def test_threads_return_to_their_baseline(self, certificates):
+        """Every thread a plane starts is gone once the plane is stopped."""
+        baseline = threading.active_count()
+
+        for _ in range(self._CYCLES):
+            _started_plane(certificates).stop()
+
+        settled = _wait_until(lambda: threading.active_count() <= baseline)
+        assert settled, (
+            f"threads outlived their planes (baseline {baseline}): "
+            f"{[t.name for t in threading.enumerate()]}"
+        )
+
+    def test_fifty_stops_survive_a_delivered_document(self, certificates):
+        """A plane that carried traffic still stops cleanly, fifty times over."""
+        for cycle in range(self._CYCLES):
+            # The previous cycle's link probe can land after that cycle cleared
+            # the buffers, and `_establish_link` reads a probe buffer as proof
+            # of a live link — so start each cycle from nothing, or a cycle
+            # could "establish" a link it never actually has.
+            live_rows._clear()
+            plane = _started_plane(certificates)
+            opened: list[Any] = []
+            try:
+                publisher = _publisher(opened, plane, certificates)
+                _establish_link(publisher, plane)
+                run_id = f"restart-cycle-{cycle}"
+                publisher("start", _start_doc(f"{run_id}-uid", run_id=run_id))
+                delivered = _wait_until(lambda key=run_id: live_rows.get(key) is not None)
+            finally:
+                _close_all(opened)
+                plane.stop()
+            assert delivered, f"cycle {cycle} never delivered its document"
 
 
 # --------------------------------------------------------------- configuration
