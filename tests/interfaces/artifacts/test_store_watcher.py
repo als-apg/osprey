@@ -15,7 +15,12 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
-from watchdog.events import DirDeletedEvent, DirModifiedEvent, FileModifiedEvent
+from watchdog.events import (
+    DirDeletedEvent,
+    DirModifiedEvent,
+    DirMovedEvent,
+    FileModifiedEvent,
+)
 from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
@@ -407,6 +412,31 @@ class TestACoalescedDirectoryFrame:
         handler.on_deleted(DirDeletedEvent(str(artifacts_dir)))
 
         assert str(artifacts_dir) not in handler._listings
+
+    def test_a_moved_directory_drops_its_listing_and_its_subtrees(self, tmp_path):
+        """A rename is one event for the whole subtree.
+
+        No deletion follows for the directory or for anything under it, so a
+        listing left behind here is never evicted at all.
+        """
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        nested = artifacts_dir / "nested"
+        nested.mkdir(parents=True)
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+        handler.on_modified(DirModifiedEvent(str(nested)))
+        assert str(artifacts_dir) in handler._listings
+        assert str(nested) in handler._listings
+        broadcaster.reset_mock()
+
+        renamed = tmp_path / "renamed"
+        artifacts_dir.rename(renamed)
+        handler.on_moved(DirMovedEvent(str(artifacts_dir), str(renamed)))
+
+        assert str(artifacts_dir) not in handler._listings
+        assert str(nested) not in handler._listings
+        assert broadcaster.broadcast.call_args_list == [], "a directory move is not an index write"
 
     def test_a_stale_frame_does_not_swallow_the_write_behind_it(self, tmp_path):
         """A frame that found nothing new must not spend the write's slot.
