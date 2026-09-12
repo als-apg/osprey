@@ -2584,16 +2584,15 @@ render_contexts:
     panel_presets_set: web.presets
   expected_union_size: 355
   note_union_size: >-
-    Informational, not an assertion — it moves whenever the framework template
-    or a preset gains or loses a key, and the guard reports a diff against it
-    rather than failing on it. Because it cannot fail, it is a signal only while
-    it is re-derived whenever a source's key set changes: a counter left behind
-    reads as an agreement it has not earned.
+    An assertion: the guard derives the union on every run and fails when this
+    figure disagrees with it, or when it is missing. It moves whenever the
+    framework template or a preset gains or loses a key, so the commit that
+    moves it records the new number here.
 
-    Re-derive it by running the guard and recording the number it reports, never
-    by adding an expected delta to the number already written here. The union is
-    taken over the rendered sources, so a change in what those sources are moves
-    it by an amount arithmetic on the previous figure cannot predict.
+    The failure prints the number to write down. Record that number, never a
+    delta added to the figure already written here: the union is taken over the
+    rendered sources, so a change in what those sources are moves it by an
+    amount arithmetic on the previous figure cannot predict.
 
 # ---------------------------------------------------------------------------
 # governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no

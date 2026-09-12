@@ -30,6 +30,8 @@ Failure modes
                          that is not a posture-floor key (or a posture-floor
                          key without one), or a ``derived`` / ``no-fallback``
                          entry with no ``default_note``
+9. ``union-size``        the manifest's record of how many paths the render
+                         matrix produces is stale, or missing
 
 plus the manifest's own consistency checks (covered-by chains, evidence
 vacuity, governed sets, keeps, absent paths) and a self-test
@@ -1048,14 +1050,34 @@ class ConfigKeyGuard:
                 )
 
     def check_union_size(self) -> None:
+        """The manifest's record of the union's size is an assertion.
+
+        A count nothing checks is a count two branches can each re-derive
+        against a different base, leaving a merged figure that agrees with
+        neither while still reading as a fact. Recording no count at all is the
+        same silence under another name, so it fails too: the field is not an
+        opt-out.
+
+        The failure prints the derived number first, which is the whole fix —
+        one line in the manifest, nothing to re-run.
+        """
         expected = self.manifest["render_contexts"].get("expected_union_size")
         actual = len(self.union())
-        if expected is None or expected == actual:
+        if expected == actual:
             self.note(f"rendered union: {actual} paths")
             return
-        self.note(
-            f"rendered union: {actual} paths (manifest records {expected}, "
-            f"delta {actual - expected:+d}) — informational, not a failure"
+        if expected is None:
+            self.fail(
+                "union-size",
+                f"rendered union: {actual} paths, and the manifest records none — "
+                f"write {actual} into render_contexts.expected_union_size",
+            )
+            return
+        self.fail(
+            "union-size",
+            f"rendered union: {actual} paths, but the manifest records {expected} "
+            f"(delta {actual - expected:+d}) — write {actual} into "
+            f"render_contexts.expected_union_size",
         )
 
     def check_provider_shape(self) -> None:
