@@ -252,6 +252,12 @@ dev = [
                        # CI unit lane both pass --timeout (see .github/workflows/ci.yml)
     "pytest-xdist",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
     "mypy",
+    # Stub distributions for the typeless third-party imports in src/. Without any
+    # one of them mypy stops with "errors prevented further checking" and examines
+    # no module at all.
+    "types-PyYAML",  # `yaml`
+    "types-Markdown",  # `markdown`
+    "types-aiofiles",  # `aiofiles`
     "pre-commit",
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
     # changes between minors, so an unpinned floor lets CI and the local hook

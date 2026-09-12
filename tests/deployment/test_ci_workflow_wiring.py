@@ -48,6 +48,7 @@ from typing import Any
 import pytest
 import yaml
 from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 CI_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 
@@ -5346,3 +5347,60 @@ def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the
     step["run"] = step["run"].replace("--add-label full-ci", "")
     with pytest.raises(AssertionError):
         test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The type check can run at all: the stubs its imports need are declared
+# ---------------------------------------------------------------------------
+#
+# A "Library stubs not installed" error is fatal to the whole run, not local to
+# the file that raised it: mypy stops with "errors prevented further checking"
+# and examines no module. So an import in `src/` that ships no inline types
+# needs its stub distribution in the `dev` extra, or the type check reports
+# nothing about this repository whatever else is wrong with it.
+
+
+#: Stub distributions the `dev` extra carries, keyed by the import each one
+#: serves. `ignore_missing_imports` is deliberately not the answer here: it
+#: would silence the abort by making every value from these libraries `Any`,
+#: which is the opposite of checking the modules that import them.
+STUB_DISTRIBUTIONS = {
+    "types-PyYAML": "yaml",
+    "types-Markdown": "markdown",
+    "types-aiofiles": "aiofiles",
+}
+
+
+def _dev_extra(pyproject: dict[str, Any]) -> list[str]:
+    return pyproject["project"]["optional-dependencies"]["dev"]
+
+
+def _declared_names(deps: list[str]) -> set[str]:
+    return {canonicalize_name(Requirement(dep).name) for dep in deps}
+
+
+def test_the_type_check_declares_a_stub_for_every_stubless_import(
+    pyproject: dict[str, Any],
+) -> None:
+    """Every import named here appears in `src/` and ships no types of its own,
+    so each missing stub package costs the entire run, not one file."""
+    declared = _declared_names(_dev_extra(pyproject))
+    for distribution, module in STUB_DISTRIBUTIONS.items():
+        assert canonicalize_name(distribution) in declared, (
+            f"the `dev` extra must declare {distribution} — without it mypy aborts "
+            f"on every `import {module}` in src/ and checks nothing"
+        )
+
+
+@pytest.mark.parametrize("distribution", sorted(STUB_DISTRIBUTIONS))
+def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -> None:
+    """Dropping any one of the three must fail: one absent stub aborts the run
+    exactly as thoroughly as three do."""
+    mutated = _load_pyproject()
+    mutated["project"]["optional-dependencies"]["dev"] = [
+        dep
+        for dep in _dev_extra(mutated)
+        if canonicalize_name(Requirement(dep).name) != canonicalize_name(distribution)
+    ]
+    with pytest.raises(AssertionError, match=distribution):
+        test_the_type_check_declares_a_stub_for_every_stubless_import(mutated)
