@@ -915,6 +915,22 @@ keys:
   # noisier machine authors them itself.
   control_system.connector.mock.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
   control_system.connector.mock.noise_level: {rendered: false, evidence: 'noise_level', default: 0.01}
+  control_system.connector.virtual_accelerator.noise_level:
+    rendered: false
+    evidence: 'va_block\.get\("noise_level", mock_block\.get\("noise_level"\)\)'
+    note: >-
+      Fractional noise on the readings the simulator synthesises — the one knob
+      deciding whether a reading looks alive or flat, so it is a config key and
+      not only a container variable. The build renders it as the default of the
+      compose file's `VA_NOISE_LEVEL` interpolation, which is why the evidence
+      anchors on the resolver in `deployment/compose_generator.py` rather than
+      on the entrypoint that consumes the variable: an exported VA_NOISE_LEVEL
+      still outranks it, so the variable is the carrier and this key is the
+      surface. Commented in `control-assistant`, so nothing renders it.
+    default: derived
+    default_note: >-
+      falls through to control_system.connector.mock.noise_level, and then to the
+      entrypoint's own 0.01
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics, default: 5.0}
   control_system.connector.epics.step_read_timeout_s:

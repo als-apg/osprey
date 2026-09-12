@@ -428,6 +428,11 @@ config:
   # Same machine model as the mock connector, so `osprey sim apply` stays
   # consistent whichever connector is active.
   control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
+  # Fractional noise on the synthesised readings. Unset falls through to
+  # `control_system.connector.mock.noise_level`, and then to the simulator's
+  # own 0.01; `0` serves the channels flat, which is what a comparison of two
+  # reads wants. It reaches the container as VA_NOISE_LEVEL.
+  # control_system.connector.virtual_accelerator.noise_level: 0.01
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
   # `control-assistant-va-readwrite` persona is exactly this key.

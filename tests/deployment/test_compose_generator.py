@@ -828,6 +828,53 @@ def test_va_state_mount_matches_what_the_engine_writes(
     assert (tmp_path / source).resolve() == resolve_state_dir(config, tmp_path).resolve()
 
 
+# ---------------------------------------------------------------------------
+# Virtual Accelerator noise level
+# ---------------------------------------------------------------------------
+# How noisy a synthesised reading is decides whether a demo looks alive and
+# whether a test comparing two reads can. It is a property of the simulated
+# machine, so it is a config key like the simulation file beside it — with the
+# same fall-through to the mock connector, so `osprey sim` scenarios behave the
+# same whichever connector serves them. The rendered value is the DEFAULT of
+# the compose interpolation: a deployment that exports VA_NOISE_LEVEL in its
+# .env still wins.
+
+
+def _va_noise_config(**levels: float) -> dict[str, Any]:
+    """A config naming ``noise_level`` on the connector types given."""
+    return {
+        "control_system": {
+            "connector": {name: {"noise_level": level} for name, level in levels.items()}
+        }
+    }
+
+
+def test_va_noise_level_comes_from_the_virtual_accelerator_key() -> None:
+    rendered = _render_va_template(_va_noise_config(virtual_accelerator=0.05))
+
+    assert 'VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-0.05}"' in rendered
+
+
+def test_va_noise_level_falls_through_to_the_mock_connector() -> None:
+    """One machine model, one noise level — the VA need not restate it."""
+    rendered = _render_va_template(_va_noise_config(mock=0.2))
+
+    assert 'VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-0.2}"' in rendered
+
+
+def test_va_noise_level_prefers_its_own_key_to_the_mock_one() -> None:
+    rendered = _render_va_template(_va_noise_config(mock=0.2, virtual_accelerator=0.05))
+
+    assert 'VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-0.05}"' in rendered
+
+
+def test_va_noise_level_is_empty_when_neither_key_is_set() -> None:
+    """An empty default leaves the entrypoint's own 0.01 in force."""
+    rendered = _render_va_template({})
+
+    assert 'VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-}"' in rendered
+
+
 # The worker process reads OSPREY config directly (get_facility_timezone while
 # building the agent system prompt) with CWD=/app (the image WORKDIR), so without
 # CONFIG_FILE it falls back to /app/config.yml and every dispatch errors with
