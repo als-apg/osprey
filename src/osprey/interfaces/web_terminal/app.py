@@ -60,6 +60,7 @@ from osprey.interfaces.web_terminal.routes.agent_activity import ACTIVITY_RING_M
 from osprey.interfaces.web_terminal.transcript_map import load as load_transcript_map
 from osprey.port_layout import default_port
 from osprey.profiles.web_panels import (
+    BUILTIN_PANEL_LABELS,
     BUILTIN_PANELS,
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
@@ -2684,6 +2685,11 @@ def create_app(
                 "bar_header_visible": plan.header_visible,
                 "bar_status_visible": plan.status_visible,
                 "bar_context": bar_context,
+                # The registry's own labels for the built-in panels, stamped so
+                # panel-catalog.js can read them at module load. /api/panels
+                # answers for the ENABLED panels only and resolves after that
+                # module's array is built, so it cannot seed the roster.
+                "builtin_panel_labels": BUILTIN_PANEL_LABELS,
             },
         )
 
@@ -2712,6 +2718,10 @@ def create_app(
                 "storage_scope": resolve_storage_scope(
                     getattr(request.app.state, "terminal_user", "")
                 ),
+                # activity-strip.js reaches panel-manager.js for the labels it
+                # words panel actions with, so the pop-out page carries the
+                # same roster stamp the index does.
+                "builtin_panel_labels": BUILTIN_PANEL_LABELS,
             },
         )
 

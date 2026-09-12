@@ -35,6 +35,11 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+// panel-catalog.js reads the built-in panel labels off <html> at module
+// load, so the roster has to be stamped before freshImport() reaches it —
+// otherwise every panel here is labelled by its id.
+import { stampPanelLabels } from './panel-labels-fixture.mjs';
+
 // dock-workspace.js is stubbed at the module boundary so a test can publish a
 // hand-built DockviewApi (see makeDockApi) and exercise the real placement
 // engine in dock-iframe.js / dock-sync.js. `dockState.api` stays null by
@@ -192,6 +197,7 @@ async function freshImport() {
 
 beforeEach(() => {
   delete window.__OSPREY_PREFIX__;
+  stampPanelLabels(document);
   vi.clearAllMocks();
   getDockApi.mockImplementation(() => dockState.api);
   dockState.api = null;
@@ -199,6 +205,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  document.documentElement.removeAttribute('data-panel-labels');
   document.body.innerHTML = '';
 });
 

@@ -46,6 +46,7 @@ from osprey.interfaces.web_terminal.app import (
     bar_render_plan,
     create_app,
 )
+from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS
 
 #: Ids the terminal renders on every deployment, whatever the layout says.
 _UNIVERSAL_IDS = (
@@ -752,6 +753,19 @@ def _context(body: str) -> dict:
     match = re.search(r"data-bar-context='([^']*)'", _html_tag(body))
     assert match, "the deployment context is not stamped on <html>"
     return json.loads(match.group(1))
+
+
+def test_the_builtin_panel_roster_is_stamped_on_html(plain_app):
+    """``panel-catalog.js`` reads its labels off ``<html>`` at module load.
+
+    The registry owns the built-in panel labels; ``/api/panels`` answers for
+    the ENABLED panels only, so it cannot seed the full roster the catalog
+    needs before its first render. A page rendered without this stamp shows
+    panel ids in the rail.
+    """
+    match = re.search(r"data-panel-labels='([^']*)'", _html_tag(_body(plain_app[1])))
+    assert match, "the built-in panel roster is not stamped on <html>"
+    assert json.loads(match.group(1)) == BUILTIN_PANEL_LABELS
 
 
 class TestDeploymentContextIsServerSupplied:
