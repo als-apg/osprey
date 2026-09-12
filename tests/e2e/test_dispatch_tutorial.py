@@ -1,9 +1,9 @@
 """Real-token subprocess sweep over the shipped tutorial triggers (L1).
 
 Proves the bundled ``tutorial_triggers.yml`` triggers actually work end to end
-ACROSS PROCESSES with a real Claude Agent SDK run, using the provider named by
-``OSPREY_E2E_PROVIDER`` (defaulting to the ALS-APG gateway, reachable from
-GitHub Actions runners). For each token trigger this:
+ACROSS PROCESSES with a real Claude Agent SDK run, using the provider the run
+named in ``OSPREY_E2E_PROVIDER``; the lane skips when that provider's
+credential is absent. For each token trigger this:
 
   1. Builds a real control-assistant deployment repo once (module-scoped fixture).
   2. Loads the REAL shipped ``tutorial_triggers.yml`` and overrides ONLY
@@ -57,7 +57,9 @@ HEALTH_TIMEOUT_SEC = 45.0
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.requires_als_apg,
+    # The provider comes from the run, so the credential gate has to follow it
+    # rather than name one gateway: see tests/e2e/provider.py.
+    pytest.mark.requires_e2e_provider,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.flaky(reruns=2, reruns_delay=5),
 ]

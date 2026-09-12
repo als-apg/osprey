@@ -598,6 +598,7 @@ markers = [
     "requires_google: Tests that require Google API key",
     "requires_cborg: Tests that require CBORG API key (local dev only — IP allowlist blocks GitHub Actions runners)",
     "requires_als_apg: Tests that require ALS-APG API key (the ALS-APG gateway; reachable from GitHub Actions runners)",
+    "requires_e2e_provider: Tests that build a deployment repo with the provider the run named in OSPREY_E2E_PROVIDER, and so need that provider's credential — the variable holding it comes from PROVIDER_API_KEYS, not from the test",
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
     "flaky: Rerun on failure to absorb nondeterminism outside the process — LLM sampling in e2e, OS event delivery in a couple of watcher tests (pytest-rerunfailures). Not for flaky unit tests; see tests/README.md",
