@@ -64,21 +64,16 @@ def create_notebook_from_code(
     return notebook
 
 
-# nbconvert's default HTML template links these assets from public CDNs. The
-# gallery serves a rendered notebook inside a sandboxed iframe, and a render
-# whose assets are fetched at view time is a render whose appearance depends on
-# the viewer's network: on a site that blocks external hosts those loads fail
-# and the notebook shows broken. So this renderer is deliberately
-# self-contained — every one of these is an nbconvert HTMLExporter traitlet,
-# and blanking them yields HTML that depends only on the template's inlined
-# CSS.
+# nbconvert's default HTML template links these assets from public CDNs, and
+# each is an HTMLExporter traitlet that blanking removes from the output.
 #
-# The policy is a choice, not a statement about where OSPREY runs: it is
-# applied unconditionally, on a connected deployment as much as an isolated
-# one. The cost it pays everywhere is that inline LaTeX (MathJax), interactive
-# widgets and Mermaid diagrams do not render. Making it conditional would mean
-# reading the deployment's offline posture here AND carrying the mode in the
-# cache key below, since the two renders are different documents.
+# Which of the two renders is right is the deployment's ``offline`` posture,
+# not a property of the gallery. An OFFLINE render depends on the template's
+# inlined CSS alone: nothing is fetched when a viewer opens it, which is the
+# only render that works where external hosts are unreachable, and it costs
+# inline LaTeX (MathJax), interactive widgets and Mermaid diagrams. A CONNECTED
+# render keeps all three. The two are different documents, so the cache below
+# names them differently.
 _EXTERNAL_ASSET_TRAITS = (
     "mathjax_url",
     "require_js_url",
@@ -90,16 +85,25 @@ _EXTERNAL_ASSET_TRAITS = (
 )
 
 
-def render_notebook_to_html(ipynb_path: Path) -> str:
-    """Render a .ipynb file to self-contained HTML using nbconvert.
+def _resolve_offline(offline: bool | None) -> bool:
+    """The render mode, from the caller or from the deployment's posture."""
+    if offline is not None:
+        return offline
 
-    The output references no external resources, so what it looks like does not
-    depend on what the viewer's network can reach — see
-    :data:`_EXTERNAL_ASSET_TRAITS` for what that costs and why it is
-    unconditional.
+    from osprey.interfaces.vendor import is_offline
+
+    return is_offline()
+
+
+def render_notebook_to_html(ipynb_path: Path, *, offline: bool | None = None) -> str:
+    """Render a .ipynb file to HTML using nbconvert.
 
     Args:
         ipynb_path: Path to the .ipynb file.
+        offline: Whether to produce a self-contained render. ``None`` reads the
+            deployment's own posture, which is what every caller but a test
+            wants — see :data:`_EXTERNAL_ASSET_TRAITS` for what each mode
+            gives up.
 
     Returns:
         HTML string of the rendered notebook.
@@ -110,9 +114,10 @@ def render_notebook_to_html(ipynb_path: Path) -> str:
         nb = nbformat.read(f, as_version=4)
 
     exporter = HTMLExporter(embed_images=True)
-    for trait in _EXTERNAL_ASSET_TRAITS:
-        if exporter.has_trait(trait):
-            setattr(exporter, trait, "")
+    if _resolve_offline(offline):
+        for trait in _EXTERNAL_ASSET_TRAITS:
+            if exporter.has_trait(trait):
+                setattr(exporter, trait, "")
 
     html, _ = exporter.from_notebook_node(nb)
     return html
@@ -121,9 +126,13 @@ def render_notebook_to_html(ipynb_path: Path) -> str:
 def get_or_render_html(ipynb_path: Path, cache_dir: Path | None = None) -> tuple[str, Path]:
     """Render notebook to HTML with filesystem caching.
 
-    If a cached ``{stem}_rendered.html`` exists and is newer than the
-    ``.ipynb`` file, the cache is returned.  Otherwise the notebook is
+    If a cached render for the deployment's current mode exists and is newer
+    than the ``.ipynb`` file, the cache is returned. Otherwise the notebook is
     re-rendered and the cache is updated.
+
+    The mode is part of the cache filename because the two modes are different
+    documents: without it, flipping the deployment's posture would keep serving
+    the render the other mode produced for as long as the notebook is untouched.
 
     Args:
         ipynb_path: Path to the .ipynb file.
@@ -135,7 +144,9 @@ def get_or_render_html(ipynb_path: Path, cache_dir: Path | None = None) -> tuple
     """
     cache_dir = cache_dir or ipynb_path.parent
     cache_dir.mkdir(parents=True, exist_ok=True)
-    html_path = cache_dir / f"{ipynb_path.stem}_rendered.html"
+    offline = _resolve_offline(None)
+    suffix = ".offline.html" if offline else ".html"
+    html_path = cache_dir / f"{ipynb_path.stem}_rendered{suffix}"
 
     # Use cache if it exists and is newer than the notebook
     if html_path.exists():
@@ -145,6 +156,6 @@ def get_or_render_html(ipynb_path: Path, cache_dir: Path | None = None) -> tuple
             return html_path.read_text(), html_path
 
     # Render and cache
-    html = render_notebook_to_html(ipynb_path)
+    html = render_notebook_to_html(ipynb_path, offline=offline)
     html_path.write_text(html)
     return html, html_path
