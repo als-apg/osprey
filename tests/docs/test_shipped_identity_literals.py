@@ -34,7 +34,8 @@ Three kinds of surface legitimately name an institution and carry an ``allow``
 entry rather than an edit: the shipped provider adapters for named LLM
 gateways, the named ingestion adapter, and the packaging and escalation
 metadata that has to spell the upstream project's own ``owner/repo`` — the
-last of these has no pattern yet.
+last of these is out of scope here, because a project's own address is not a
+facility's.
 """
 
 from __future__ import annotations
