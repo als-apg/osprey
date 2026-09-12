@@ -76,9 +76,10 @@ class Lane:
     Attributes:
         key: The lane's ``services.<lane>`` key — ``bluesky``, ``bluesky_va`` or
             ``bluesky_live``. This is the lane id every surface names it by.
-        target: ``live`` or ``va``. Declared by the lane's own config block on a
-            two-lane deployment; the deployment baseline on a single-lane one,
-            whose block has never had a reason to name a target.
+        target: One of :data:`~osprey_connectors.types.CONTROL_TARGETS`. Declared by
+            the lane's own config block on a two-lane deployment; the deployment
+            baseline on a single-lane one, whose block has never had a reason to
+            name a target.
     """
 
     key: str
@@ -147,7 +148,8 @@ def discover_lanes(baseline_target: str) -> tuple[Lane, ...]:
     Never raises: an unreadable config yields the single-lane answer rather than
     a half-built lane set.
 
-    :param baseline_target: The deployment baseline, ``live`` or ``va``.
+    :param baseline_target: The deployment baseline, one of
+        :data:`~osprey_connectors.types.CONTROL_TARGETS`.
     """
     try:
         from osprey.utils.workspace import load_osprey_config

@@ -931,9 +931,9 @@ def _refuse_unknown_lane_targets(config: Any) -> None:
     The one lane-target mistake no runtime signal can repair. A target that
     does not RESOLVE is a deployment that has not described its machine yet,
     and the bridge handles it by falling back to the deployment baseline — but
-    a target that is not spelled ``live`` or ``va`` is a typo, and a typo
-    resolves to the baseline forever while the author goes on believing the
-    lane serves what they wrote.
+    a target that is not one of :data:`~osprey_connectors.types.CONTROL_TARGETS`
+    is a typo, and a typo resolves to the baseline forever while the author goes
+    on believing the lane serves what they wrote.
 
     Raises:
         BuildProfileError: A lane block declares a target outside
