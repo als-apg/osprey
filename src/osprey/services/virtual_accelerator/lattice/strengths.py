@@ -61,7 +61,6 @@ __all__ = [
     "SEXTUPOLE_FAMILIES",
     "ElementState",
     "StrengthMap",
-    "current_address",
     "restore_element",
     "snapshot_element",
     "split_fam_name",
@@ -99,17 +98,6 @@ def split_fam_name(fam_name: str) -> tuple[str, str]:
     return match.group(1), match.group(2)
 
 
-def current_address(family: str, device_id: str) -> str:
-    """Return the SR machine.json ``CURRENT:SP`` address for a device.
-
-    e.g. ``current_address("QF", "01") == "SR:MAG:QF:01:CURRENT:SP"``. The
-    ``SR:MAG:`` prefix is fixed -- machine.json is a namespace shared with
-    other rings (``BR``, ``BTS``), and this map only ever addresses the
-    storage ring this service simulates.
-    """
-    return f"SR:MAG:{family}:{device_id}:CURRENT:SP"
-
-
 class StrengthMap:
     """Current<->strength mapping for every magnet/corrector in the AR ring.
 
@@ -131,10 +119,17 @@ class StrengthMap:
         if channels is None:
             channels = build_manifest()["channels"]
         machine_channels = load_machine_json_channels()
+        coupled_setpoints = pyat_coupled_setpoint_addresses(channels)
         self._i_nom_by_address: dict[str, float] = {
             address: float(machine_channels[address]["value"])
-            for address in pyat_coupled_setpoint_addresses(channels)
+            for address in coupled_setpoints
             if address in machine_channels
+        }
+        self._i_nom_by_device: dict[tuple[str, str], float] = {
+            (channel["family"], channel["device"]): self._i_nom_by_address[channel["address"]]
+            for channel in channels
+            if channel["address"] in self._i_nom_by_address
+            and channel["address"] in coupled_setpoints
         }
         self._baked: dict[str, float] = {}
         for element in ring:
@@ -155,6 +150,27 @@ class StrengthMap:
     def i_nom(self, address: str) -> float:
         """Return the machine.json nominal (baseline) current for ``address``."""
         return self._i_nom_by_address[address]
+
+    def i_nom_for(self, family: str, device_id: str) -> float:
+        """Return the nominal current of the ``family``+``device_id`` device.
+
+        The device-keyed half of :meth:`i_nom`, for the callers that hold an
+        element's family and id rather than a channel address. The pair is
+        resolved through the manifest rows the baseline itself is built from,
+        so a facility's address spelling is never reconstructed here.
+
+        Raises:
+            ValueError: the manifest declares no lattice-backed current
+                setpoint for that pair -- a device outside the partition, or
+                one the scenario seed carries no nominal current for.
+        """
+        try:
+            return self._i_nom_by_device[(family, device_id)]
+        except KeyError:
+            raise ValueError(
+                f"no nominal current for family {family!r} device {device_id!r}: the "
+                "manifest declares no lattice-backed current setpoint for that device"
+            ) from None
 
     def baked(self, fam_name: str) -> float:
         """Return the strength snapshotted at construction for ``fam_name``.
@@ -199,7 +215,7 @@ class StrengthMap:
             element.KickAngle = kick_angle
             return
 
-        i_nom = self._i_nom_by_address[current_address(family, device_id)]
+        i_nom = self.i_nom_for(family, device_id)
         fraction = current / i_nom
 
         if family in QUADRUPOLE_FAMILIES:

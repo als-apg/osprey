@@ -28,6 +28,7 @@ from osprey.services.virtual_accelerator.manifest import (
     READBACK_SUBFIELD,
     RECORD_TYPE_ANALOG,
     SETPOINT_SUBFIELD,
+    pyat_coupled_setpoint_addresses,
 )
 
 #: A magnet current setpoint spelled the way no six-token colon grammar reads:
@@ -95,3 +96,51 @@ class TestTheNominalCurrentBaselineComesFromTheManifest:
     def test_a_readback_is_not_in_the_map(self, foreign_map: StrengthMap) -> None:
         with pytest.raises(KeyError):
             foreign_map.i_nom(_RING_READBACK)
+
+
+class TestADeviceResolvesThroughTheManifestRoster:
+    """``i_nom_for`` answers "what is this device's baseline" without an address.
+
+    ``apply`` and the model's current readback hold a family and a device id,
+    never an address. Formatting one from them would put a second spelling of
+    the demo tree's grammar in the module every write goes through; the
+    manifest already carries the family and device of each channel, so the
+    device -> setpoint map is derived from the same rows the baseline is.
+    """
+
+    def test_a_device_resolves_when_no_address_grammar_names_it(
+        self, foreign_map: StrengthMap
+    ) -> None:
+        assert foreign_map.i_nom_for("QF", "01") == 137.5
+
+    def test_it_agrees_with_the_address_accessor_across_the_bundled_manifest(self) -> None:
+        from osprey.services.virtual_accelerator.manifest import build_manifest
+
+        channels = build_manifest()["channels"]
+        strength_map = StrengthMap(cast(Any, []), channels=channels)
+        coupled_setpoints = pyat_coupled_setpoint_addresses(channels)
+        by_address = {channel["address"]: channel for channel in channels}
+
+        assert coupled_setpoints
+        for address in sorted(coupled_setpoints):
+            channel = by_address[address]
+            assert strength_map.i_nom_for(channel["family"], channel["device"]) == (
+                strength_map.i_nom(address)
+            )
+
+    def test_an_unknown_pair_raises_naming_both_tokens(self, foreign_map: StrengthMap) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            foreign_map.i_nom_for("ZZ", "99")
+        assert "ZZ" in str(excinfo.value)
+        assert "99" in str(excinfo.value)
+
+    def test_a_device_outside_the_pyat_coupled_partition_does_not_resolve(
+        self, foreign_map: StrengthMap
+    ) -> None:
+        # ``_ECHO_SETPOINT`` carries the same family and device tokens as the
+        # ring's magnet; only the partition tells them apart.
+        with pytest.raises(ValueError):
+            StrengthMap(
+                cast(Any, []),
+                channels=[_channel(_ECHO_SETPOINT, SETPOINT_SUBFIELD, PARTITION_SP_ECHO)],
+            ).i_nom_for("QF", "01")
