@@ -268,6 +268,7 @@ keys:
     default: ''
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
+    default: {}
   # The bluesky bridge's plan-lane blocks are INJECTOR-written, not template-
   # rendered: `_inject_bluesky` writes `services.bluesky` (and, on a two-lane
   # deploy, its `bluesky_va`/`bluesky_live` sibling) into an already-rendered
@@ -277,7 +278,6 @@ keys:
   # on every lane of every bluesky deploy — its disappearance is therefore a
   # real signal, where the omit-when-unset neighbours (`plan_dir`,
   # `excluded_plans`) would go silent for a configuration reason.
-    default: {}
   services.bluesky.devices_file:
     rendered: false
     evidence: '\{"devices_file": bluesky\.devices_file\}'
@@ -367,6 +367,7 @@ keys:
       missing or lacks a model under its exact `hf_<org>_<basename>` cache
       name — the one operator error that would otherwise surface only as an
       unhealthy container an hour later.
+    default: null
   # `services.qmd.bind_address` is deliberately absent: the sidecar publishes on
   # the project-wide `deployment.bind_address` like every other service. See
   # deployment/qmd_service.py for why a per-service key would be a hazard.
@@ -382,7 +383,6 @@ keys:
   # The query bounds are the one pair the deploy path never sees: they shape a
   # single agent query, so the graph MCP server reads them at query time and
   # their evidence anchors there instead.
-    default: null
   services.graphdb:
     evidence: '_graphdb_block\(config\)'
     default: null
@@ -482,10 +482,10 @@ keys:
       complete one. Bounds what a question costs the AGENT's context window
       rather than what it costs the store, which is why it is a query-time key
       and not a container one.
+    default: 200
   # `services.graphdb.bind_address` is deliberately absent for the same reason
   # qmd's is — every service publishes on the project-wide
   # `deployment.bind_address`, and graphdb reuses that one reading.
-    default: 200
   services.graphdb.database:
     rendered: false
     evidence: '_text\(section\.get\("database"\), DEFAULT_DATABASE, "services\.graphdb\.database"\)'
@@ -634,6 +634,8 @@ keys:
       fragment, so the evidence anchors on that alias rather than on the dotted
       path — the alias is what a rename would have to touch. Same shape as
       `services.bluesky.image`.
+    default: derived
+    default_note: osprey_images.va
   # The live stand-in is a SECOND INSTANCE of the virtual accelerator, not a
   # service of its own. `_inject_va` writes `services.live_standin` beside
   # `services.virtual_accelerator` — same `path`, same template directory, same
@@ -653,8 +655,6 @@ keys:
   # that one key, so its disappearance is a real signal in a way the baseline
   # VA's port — read only by the generic compose machinery, and recorded here
   # no more than `services.virtual_accelerator.port` is — would not be.
-    default: derived
-    default_note: osprey_images.va
   services.live_standin:
     rendered: false
     evidence: '_LIVE_STANDIN_SERVICE_KEY = LIVE_STANDIN_PORT_KEY\.split\("\."\)\[1\]'
@@ -708,10 +708,10 @@ keys:
     rendered: false
     evidence: 'OSPREY_QMD_IMAGE:-\{\{ services\.qmd\.image'
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
-
-  # ── Safety / approval ───────────────────────────────────────────────
     default: derived
     default_note: osprey_images.qmd
+
+  # ── Safety / approval ───────────────────────────────────────────────
   approval:
     all-templates: true
     evidence: 'config\.get\("approval", \{\}\)'
@@ -797,9 +797,9 @@ keys:
       live false in hello-world. It is a posture-floor key, so every preset has
       to state it either way — which is what makes it parity-required now,
       where under the templates it was a per-template divergence.
+    default: required
 
   # ── Control system ──────────────────────────────────────────────────
-    default: required
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
   control_system.type:
     evidence: 'get_config_value\("control_system\.type", "mock"\)'
@@ -1191,10 +1191,10 @@ keys:
       the same shared reader; the shipped `control-assistant` preset writes no
       live_standin block, so a stand-in target there answers the
       deployment-wide posture and stays strict where the deployment is.
-
-  # ── Control-system target switch ────────────────────────────────────
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
+
+  # ── Control-system target switch ────────────────────────────────────
   control_system.target_switch:
     evidence: 'section\.get\("target_switch"\)'
     note: >-
@@ -1236,11 +1236,11 @@ keys:
       the eligibility gate reads it, and the evidence anchors on that gate's
       own spelling of the key rather than on the leaf the CLI writes it
       through, because the gate is what a rename would have to keep in step.
-
-  # ── Archiver ────────────────────────────────────────────────────────
     default: derived
     default_note: >-
       absent or empty means unacknowledged; presence alone is the acknowledgement, never a value comparison
+
+  # ── Archiver ────────────────────────────────────────────────────────
   archiver: {evidence: 'get_config_value\("archiver", \{\}\)', default: {}}
   # Evidenced by the factory's own diagnostic for an unset type, not by the name
   # of whichever connector happens to be the default. The literal 'mock_archiver'
@@ -1361,11 +1361,11 @@ keys:
       the key's own name, api_calls_dir, as a directory under agent_data.base_dir
   file_paths.registry_exports_dir:
     evidence: 'get_agent_dir\("registry_exports_dir"\)'
-
-  # ── API providers ───────────────────────────────────────────────────
     default: derived
     default_note: >-
       the key's own name, registry_exports_dir, as a directory under agent_data.base_dir
+
+  # ── API providers ───────────────────────────────────────────────────
   api:
     evidence: 'api_providers'
     default: {}
@@ -1386,9 +1386,9 @@ keys:
       build/claude_code_resolver.py, which is the quoted evidence. The guard
       stays stricter than the runtime on purpose — a shipped template should
       map every tier rather than lean on that fallback.
+    default: {}
 
   # ── Claude Code ─────────────────────────────────────────────────────
-    default: {}
   claude_code:
     all-templates: true
     evidence: 'get_config_value\("claude_code", \{\}\)'
@@ -1817,6 +1817,7 @@ keys:
     default: 200
   artifact_server.example_artifact:
     evidence: 'get_config_value\("artifact_server\.example_artifact"'
+    default: false
 
   # ── Health suite ────────────────────────────────────────────────────
   # The `health:` section is unset in all five templates — the built-in checks
@@ -1825,7 +1826,6 @@ keys:
   # reference names as dotted paths are carried here; the scalar suite settings
   # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`) are documented as
   # bare leaf names and read straight off the same mapping.
-    default: false
   health.categories:
     rendered: false
     evidence: 'categories_raw = health\.get\("categories"\) or \{\}'
@@ -1859,11 +1859,11 @@ keys:
       re-declare its MCP servers as probes. Only `auto.mcp.enabled` and
       `auto.mcp.url_key` are read; anything else under it is ignored by design,
       which is why the leaves carry no entries of their own.
-
-  # ── Web UI / CLI ────────────────────────────────────────────────────
     default: derived
     default_note: >-
       the default AutoMcpSettings: mcp.enabled true, url_key host_url, not explicit
+
+  # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)', default: {}}
   web.theme:
     evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'

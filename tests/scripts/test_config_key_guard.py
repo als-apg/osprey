@@ -891,6 +891,78 @@ def test_a_self_test_key_a_preset_also_spells_goes_red():
     assert "must come from the framework template" in details(guard)
 
 
+def _write_manifest(root: Path, body: str) -> Path:
+    """Put *body* where the guard looks for the ledger under *root*."""
+    path = root / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    return path
+
+
+@pytest.mark.parametrize(
+    "comment",
+    ["  # an ordinary paragraph about the block below", "  # \u2500\u2500 A section \u2500\u2500"],
+)
+def test_a_default_line_after_a_comment_goes_red(tmp_path, comment):
+    """A stranded `default:` is bound to whatever precedes the comment.
+
+    It reads correctly until someone inserts an entry between the comment and
+    the stray line, at which point the new entry silently takes the default and
+    the defaults check reports the wrong key. Both comment shapes are pinned:
+    the fragility is the comment standing in the way, not whether it happens to
+    be a section header.
+    """
+    _write_manifest(
+        tmp_path,
+        "keys:\n"
+        "  alpha:\n"
+        "    evidence: 'alpha'\n"
+        f"{comment}\n"
+        "    default: {}\n"
+        "  beta:\n"
+        "    evidence: 'beta'\n"
+        "    default: {}\n",
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_manifest_layout()
+    assert "layout" in modes(guard)
+    assert "line 5" in details(guard)
+
+
+def test_a_default_line_inside_its_entry_stays_green(tmp_path):
+    """The same two entries, with the default where it belongs."""
+    _write_manifest(
+        tmp_path,
+        "keys:\n"
+        "  alpha:\n"
+        "    evidence: 'alpha'\n"
+        "    default: {}\n"
+        "  # an ordinary paragraph about the block below\n"
+        "  beta:\n"
+        "    evidence: 'beta'\n"
+        "    default: {}\n",
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_manifest_layout()
+    assert modes(guard) == []
+
+
+def test_a_missing_manifest_file_goes_red(tmp_path):
+    """The guard executes that ledger, so its absence is a fault, not a skip."""
+    guard = make_guard(root=tmp_path)
+    guard.check_manifest_layout()
+    assert "layout" in modes(guard)
+
+
+def test_every_default_line_sits_inside_its_entry():
+    """The live ledger carries no stranded default line."""
+    guard = make_guard()
+    guard.check_manifest_layout()
+    assert guard.result.ok, details(guard)
+
+
 def test_a_stale_union_size_goes_red():
     """The recorded union size is an assertion, so a wrong one has to fail.
 
