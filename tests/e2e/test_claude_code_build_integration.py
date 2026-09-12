@@ -471,7 +471,8 @@ class TestClaudeExecutesArchiverAndPlots:
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_als_apg
+    # Builds with the provider the run named, so the gate follows that name.
+    @pytest.mark.requires_e2e_provider
     def test_claude_executes_archiver_and_plots(self, tmp_path):
         repo = init_project(tmp_path, "archiver-plot-test", provider=e2e_provider())
         disable_approval(repo)
@@ -580,7 +581,8 @@ class TestClaudeFullBpmAnalysisPipeline:
     @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_als_apg
+    # Builds with the provider the run named, so the gate follows that name.
+    @pytest.mark.requires_e2e_provider
     def test_claude_full_bpm_analysis_pipeline(self, tmp_path):
         repo = init_project(tmp_path, "bpm-pipeline-test", provider=e2e_provider())
         disable_approval(repo)

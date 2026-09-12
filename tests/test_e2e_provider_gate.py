@@ -10,12 +10,34 @@ neither needs a credential to be wrong.
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from osprey.models.provider_registry import PROVIDER_API_KEYS
+from tests.conftest import _e2e_provider_availability
 from tests.e2e import conftest as e2e_conftest
 from tests.e2e.provider import E2E_PROVIDER_ENV, FORCE_PROVIDER_ENV, build_provider, e2e_provider
+
+#: The lanes that build a deployment repo and run an agent against it. They gate
+#: on the provider the run named; every other e2e module pins a provider in its
+#: own render and keeps the gateway-specific marker.
+BUILD_AND_RUN_MODULES = (
+    "e2e/test_claude_code_build_integration.py",
+    "e2e/test_dispatch_tutorial.py",
+    "e2e/test_dispatch_allowlist_parity.py",
+    "e2e/test_dispatch_overlay_visibility.py",
+)
+
+#: A module that pins its own provider, so the gateway-specific marker is the
+#: truth for it and the swap below must not have reached it.
+PINNED_PROVIDER_MODULE = "e2e/test_preset_agentic.py"
+
+PROVIDER_MARKER = "requires_e2e_provider"
+GATEWAY_MARKER = "requires_als_apg"
+
+_TESTS_ROOT = Path(__file__).resolve().parent
 
 
 @pytest.fixture(autouse=True)
@@ -83,8 +105,6 @@ def test_the_override_wins_over_the_selection(monkeypatch: pytest.MonkeyPatch) -
 def test_a_run_that_names_no_provider_is_refused() -> None:
     """No constant stands behind the variables: a run that named nothing is
     told what to set rather than sent to whichever gateway was compiled in."""
-    from osprey.models.provider_registry import PROVIDER_API_KEYS
-
     with pytest.raises(RuntimeError) as excinfo:
         e2e_provider()
     message = str(excinfo.value)
@@ -140,3 +160,87 @@ def test_a_named_provider_lets_configure_register_its_markers(
     config = _StubConfig()
     e2e_conftest.pytest_configure(config)
     assert any(line.startswith("e2e:") for line in config.markers)
+
+
+# ---------------------------------------------------------------------------
+# The credential gate: can the lanes reach the provider they were told to use?
+# ---------------------------------------------------------------------------
+
+
+def _a_provider_needing(key: bool) -> tuple[str, str | None]:
+    """A provider from the registry's table that does (or does not) need a key."""
+    for name, key_var in sorted(PROVIDER_API_KEYS.items()):
+        if (key_var is not None) == key:
+            return name, key_var
+    raise AssertionError("PROVIDER_API_KEYS has no provider of that shape")
+
+
+def test_a_provider_whose_key_is_exported_is_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider, key_var = _a_provider_needing(key=True)
+    monkeypatch.setenv(E2E_PROVIDER_ENV, provider)
+    monkeypatch.setenv(key_var, "test-key")
+    assert _e2e_provider_availability() == (True, "")
+
+
+def test_a_provider_that_needs_no_key_is_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A local server authenticates differently or not at all; the table says
+    so with ``None``, and a gate that demanded a variable would skip a lane
+    that would have run."""
+    provider, _ = _a_provider_needing(key=False)
+    monkeypatch.setenv(E2E_PROVIDER_ENV, provider)
+    assert _e2e_provider_availability() == (True, "")
+
+
+def test_a_missing_key_names_the_provider_and_its_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider, key_var = _a_provider_needing(key=True)
+    monkeypatch.setenv(E2E_PROVIDER_ENV, provider)
+    monkeypatch.delenv(key_var, raising=False)
+    available, reason = _e2e_provider_availability()
+    assert not available
+    assert provider in reason
+    assert key_var in reason
+
+
+def test_an_unknown_provider_is_a_reason_not_a_crash(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(E2E_PROVIDER_ENV, "not-a-provider")
+    available, reason = _e2e_provider_availability()
+    assert not available
+    assert "not-a-provider" in reason
+
+
+def test_a_run_naming_no_provider_reads_as_unavailable() -> None:
+    """The collection hook owns the refusal. The gate must not raise it a
+    second time from inside a collection hook of its own — whichever hook runs
+    first would then decide what the operator reads."""
+    available, reason = _e2e_provider_availability()
+    assert not available
+    assert E2E_PROVIDER_ENV in reason
+
+
+# ---------------------------------------------------------------------------
+# Which modules carry which marker
+# ---------------------------------------------------------------------------
+
+
+def test_the_build_and_run_lanes_gate_on_the_named_provider() -> None:
+    """The four lanes that build with whatever the run named must gate on that
+    provider's credential. Gating them on one gateway's key is how a run that
+    named another provider, and held its key, skipped anyway."""
+    for relative in BUILD_AND_RUN_MODULES:
+        source = (_TESTS_ROOT / relative).read_text(encoding="utf-8")
+        assert PROVIDER_MARKER in source, f"tests/{relative} must gate on {PROVIDER_MARKER}"
+        assert GATEWAY_MARKER not in source, (
+            f"tests/{relative} builds with the provider the run named, so "
+            f"{GATEWAY_MARKER} would gate it on a gateway it may never contact"
+        )
+
+
+def test_a_module_pinning_its_own_provider_keeps_the_gateway_marker() -> None:
+    """The swap is scoped, not a retirement: for a module that passes one
+    provider to every ``init_project`` call, the gateway-specific marker names
+    exactly the credential it needs, and a neutral marker would make the gate
+    lie."""
+    source = (_TESTS_ROOT / PINNED_PROVIDER_MODULE).read_text(encoding="utf-8")
+    assert GATEWAY_MARKER in source

@@ -108,7 +108,8 @@ SURFACE_TOKEN = "SURFACE=e2e-generic-webhook"  # emitted only if surface_prompt 
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.requires_als_apg,
+    # Gates on the credential of whichever provider the run builds with.
+    pytest.mark.requires_e2e_provider,
     pytest.mark.slow,
     # dockerbuild: full dispatcher/worker image build + deploy -- runs in the
     # dedicated dispatch-overlay-e2e CI job, never the shared e2e-tests lane
