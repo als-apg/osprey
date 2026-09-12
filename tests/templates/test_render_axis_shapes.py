@@ -5,8 +5,9 @@ UNSET — the shape a deployment that never heard of them gets. This suite pins
 the shapes that appear once they are set: the dispatch pair on the host
 namespace, the chat bridges beside it, a repo carrying a shared env-chain file,
 a two-worker stack fanning out across host ports, two services passing named
-host variables through to their containers, and every OSPREY-built image moved
-onto a registry and a released tag.
+host variables through to their containers, every OSPREY-built image moved
+onto a registry and a released tag, and every image OSPREY builds handed the
+site's own CA, proxy bypass list and package index.
 
 Each scenario is a small, named delta over that same default context, rendered
 through the same context builder and the same Environment (both imported from
@@ -99,6 +100,22 @@ _AXIS_TAG = "v1.2.3"
 #: Three of them on one service so author order is observable in the golden,
 #: one on another so the single-name shape is pinned too.
 _ENV_PASSTHROUGH = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
+#: The site build args the ``site-image-args`` scenario declares — the mapping
+#: ``compose_generator._stage_site_image_args_for_context`` returns, with the CA
+#: already rewritten to the name it staged into the build context (the operator's
+#: host path never reaches a template, because ``COPY`` cannot leave the
+#: context). Declared as the render-context key rather than as ``images.*``
+#: because this suite renders templates straight through the Environment: the
+#: config-to-mapping-to-staged-file path is the subject of
+#: ``tests/deployment/test_compose_generator.py``, and what is pinned here is
+#: what each template does with the mapping once it has one.
+_SITE_IMAGE_BUILD_ARGS = {
+    "OSPREY_SITE_CA": "osprey-site-ca.crt",
+    "PIP_NO_PROXY": "internal.example.org,.example.org",
+    "PIP_INDEX_URL": "https://mirror.example.org/simple",
+    "PIP_EXTRA_INDEX_URL": "https://extra.example.org/simple",
+}
 
 #: The mirror path the ``ariel-sync-qmd-mirror`` scenario configures. Written
 #: repo-relative on purpose: an absolute value would be spelled into the golden
@@ -384,6 +401,29 @@ SCENARIOS: tuple[Scenario, ...] = (
     # store is left out and the axes unset: the only delta from the default
     # render is the mirror, so the golden shows the mount and its companion
     # `OSPREY_ARIEL_MIRROR_DIR` arriving together and nothing else moving.
+    # Every image OSPREY builds handed the site's build settings. All seven
+    # recipe-carrying templates are pinned in one scenario because the settings
+    # are stack-wide: a template left behind builds its image against the
+    # public index and the default trust store, and the failure is one image
+    # out of seven dying at whichever fetch reaches the site proxy first.
+    # Nothing else is declared — `deployed_services` stays empty, exactly as
+    # the default context leaves it — so these goldens minus the default ones
+    # are exactly what declaring the settings does.
+    Scenario(
+        name="site-image-args",
+        services={},
+        deployed=(),
+        templates=(
+            "bluesky",
+            "bluesky_web",
+            "event_dispatcher",
+            "gchat_bridge",
+            "nextcloud_bridge",
+            "qmd",
+            "virtual_accelerator",
+        ),
+        overrides={"site_image_build_args": dict(_SITE_IMAGE_BUILD_ARGS)},
+    ),
     Scenario(
         name="ariel-sync-qmd-mirror",
         services={},
@@ -695,6 +735,41 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
         assert service["env_file"] == list(scenario.expected_chain), (
             f"{scenario.name}/{name} lists a chain its repo did not carry"
         )
+
+
+def test_every_built_image_is_handed_the_whole_site_set() -> None:
+    """All seven recipe-carrying images get every declared build arg.
+
+    Docker drops a ``--build-arg`` no recipe declares and compose passes only
+    what the fragment lists, so a template that carried some of the set would
+    build one image against the public index or the default trust store while
+    its siblings honoured the site. That image fails at whichever fetch reaches
+    the proxy first, and nothing about the other six says why.
+    """
+    scenario = _scenario("site-image-args")
+    for key in scenario.templates:
+        document = yaml.safe_load(_golden_text(scenario, key))
+        for service in document["services"].values():
+            build = service.get("build")
+            if not isinstance(build, dict):
+                continue
+            args = {name: str(value) for name, value in build["args"].items()}
+            assert _SITE_IMAGE_BUILD_ARGS.items() <= args.items(), (
+                f"{key}: {service.get('container_name', key)} is missing site build args"
+            )
+
+
+def test_a_deployment_that_declares_no_site_settings_renders_no_site_args() -> None:
+    """With the mapping empty every default golden's ``args:`` block is untouched.
+
+    The loop is in seven templates that every deployment renders, so an empty
+    mapping that still emitted a line — or a blank one — would move every
+    default baseline rather than only the deployments that asked for this.
+    """
+    for key in _scenario("site-image-args").templates:
+        default = (_DEFAULTS_DIR / f"{key}.yml").read_text(encoding="utf-8")
+        for name in _SITE_IMAGE_BUILD_ARGS:
+            assert name not in default, f"{key}'s default render carries {name}"
 
 
 def test_ariel_sync_reaches_a_co_deployed_store_by_its_network_alias() -> None:
