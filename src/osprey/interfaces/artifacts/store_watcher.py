@@ -19,7 +19,12 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from osprey.interfaces.fs_watch import ChangeStamp, ObserverFactory, one_level_listing
+from osprey.interfaces.fs_watch import (
+    ChangeStamp,
+    ObserverFactory,
+    evict_subtree,
+    one_level_listing,
+)
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
 
@@ -81,15 +86,26 @@ class _IndexFileHandler(FileSystemEventHandler):
         self._handle(event)
 
     def on_deleted(self, event: FileSystemEvent) -> None:
-        # A directory that is gone keeps no listing. The rescan below evicts
-        # one only when a *frame* arrives for a path that has already gone;
-        # a directory removed the ordinary way is announced by this event and
-        # by no other, so without this the entry would outlive the directory.
+        # A directory that is gone keeps no listing. It leaves two ways: by
+        # rename, where the single event :meth:`on_moved` reads stands for the
+        # whole subtree, and by deletion, where every directory removed is
+        # announced by its own event and drops its own key here. Either way the
+        # map stays bounded by the tree rather than by the watcher's lifetime.
         if event.is_directory:
             self._listings.pop(str(Path(os.fsdecode(event.src_path))), None)
 
     def on_moved(self, event: FileSystemEvent) -> None:
         if event.is_directory:
+            # A directory that leaves by rename. Nothing is routed below: a
+            # moved directory is not an index write. Its listing goes, and so
+            # does every one beneath it, which no later event would evict. A
+            # destination inside the watched tree is evicted as well, so that
+            # it is rebuilt by its next frame rather than answered from
+            # whatever stood there before.
+            evict_subtree(self._listings, Path(os.fsdecode(event.src_path)))
+            dest_path = getattr(event, "dest_path", "")
+            if dest_path:
+                evict_subtree(self._listings, Path(os.fsdecode(dest_path)))
             return
         # Atomic index writes (tempfile + ``os.replace``) arrive as a move whose
         # destination is the index file — on Linux inotify this is the only
