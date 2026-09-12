@@ -509,6 +509,7 @@ python_version = "3.11"
 # directory the file happens to live in.
 mypy_path = "src:packages/osprey-connectors/src"
 explicit_package_bases = true
+files = ["src", "packages/osprey-connectors/src"]
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # Gradual typing
