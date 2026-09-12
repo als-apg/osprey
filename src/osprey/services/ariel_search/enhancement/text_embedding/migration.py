@@ -16,12 +16,26 @@ if TYPE_CHECKING:
     from psycopg import AsyncConnection
 
 
-#: Used when ``ariel.enhancement_modules.text_embedding.index_lists`` is unset.
-#: The IVFFlat rule of thumb is rows/1000 for corpora up to a million entries;
-#: this suits a few hundred thousand entries and is a workable index for far
-#: fewer. It cannot be derived at migration time — ``osprey ariel migrate``
-#: runs against an empty table.
-DEFAULT_INDEX_LISTS = 224
+def vector_index_name(table_name: str) -> str:
+    """Return the name of the HNSW embedding index on ``table_name``."""
+    return f"idx_{table_name}_hnsw"
+
+
+def legacy_vector_index_name(table_name: str) -> str:
+    """Return the name the superseded IVFFlat index was created under."""
+    return f"idx_{table_name}_vector"
+
+
+def create_vector_index_sql(table_name: str) -> str:
+    """Return the DDL creating the embedding index on ``table_name``.
+
+    The single producer of that statement: the creating migration and the
+    reconcile migration must write the same index, so neither spells it out.
+    """
+    return (
+        f"CREATE INDEX IF NOT EXISTS {vector_index_name(table_name)} "
+        f"ON {table_name} USING hnsw (embedding vector_cosine_ops)"
+    )
 
 
 class TextEmbeddingMigration(BaseMigration):
@@ -30,36 +44,18 @@ class TextEmbeddingMigration(BaseMigration):
     Creates:
     - pgvector extension
     - text_embeddings_<model_name> table for each configured model
-    - IVFFlat vector indexes
+    - HNSW vector indexes
     """
 
-    def __init__(
-        self,
-        models: list[tuple[str, int]] | None = None,
-        index_lists: int | None = None,
-    ) -> None:
+    def __init__(self, models: list[tuple[str, int]] | None = None) -> None:
         """Initialize the migration.
 
         Args:
             models: List of (model_name, dimension) tuples to create tables for.
                    If None, uses a default for testing.
-            index_lists: IVFFlat ``lists`` for the vector index, from
-                ``ariel.enhancement_modules.text_embedding.index_lists``. None
-                uses :data:`DEFAULT_INDEX_LISTS`.
-
-        Raises:
-            ValueError: If ``index_lists`` is not a positive integer.
         """
         super().__init__()
         self._models = models
-        if index_lists is not None and (
-            not isinstance(index_lists, int) or isinstance(index_lists, bool) or index_lists < 1
-        ):
-            raise ValueError(
-                "ariel.enhancement_modules.text_embedding.index_lists must be an "
-                f"integer >= 1 (got {index_lists!r})"
-            )
-        self._index_lists = DEFAULT_INDEX_LISTS if index_lists is None else index_lists
 
     @property
     def name(self) -> str:
@@ -121,17 +117,7 @@ class TextEmbeddingMigration(BaseMigration):
                 """  # noqa: S608
             )
 
-            index_name = f"idx_{table_name}_vector"
-            # `lists` is baked into the index at creation, so changing the key
-            # later needs the index dropped and recreated — it is not re-read.
-            await conn.execute(
-                f"""
-                CREATE INDEX IF NOT EXISTS {index_name}
-                ON {table_name}
-                USING ivfflat (embedding vector_cosine_ops)
-                WITH (lists = {self._index_lists})
-                """  # noqa: S608
-            )
+            await conn.execute(create_vector_index_sql(table_name))
 
     async def down(self, conn: "AsyncConnection") -> None:
         """Rollback the text embedding migration."""
