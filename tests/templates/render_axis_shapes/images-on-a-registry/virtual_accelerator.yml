@@ -85,6 +85,13 @@ services:
       # noise the synthesised channels carry. Empty means the entrypoint's own
       # defaults (1.0 s, 0.01); a value out of range is refused at boot rather
       # than clamped, so a typo shows up in `docker logs`.
+      #
+      # The noise level's surface is the config key
+      # `control_system.connector.virtual_accelerator.noise_level` (falling
+      # through to the mock connector's), rendered here as the interpolation's
+      # default by compose_generator's `_va_noise_level`; the variable is how
+      # that value reaches the container, and a deployment that exports it in
+      # its own .env still wins.
       VA_POLL_INTERVAL_S: "${VA_POLL_INTERVAL_S:-}"
       VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-}"
       # Facility-neutral source configuration (entrypoint.py + Dockerfile CMD

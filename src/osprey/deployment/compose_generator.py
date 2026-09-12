@@ -1283,6 +1283,31 @@ def _standin_perturbation(config, repo_root):
     return lattice, default_bpm_errors_for_lattice(lattice)
 
 
+def _va_noise_level(config):
+    """The noise the Virtual Accelerator's synthesised readings carry, as text.
+
+    A config key rather than a bare ``.env`` variable, because how noisy a
+    reading is belongs to the machine being simulated and is therefore the
+    facility's to state — and it falls through to
+    ``control_system.connector.mock.noise_level`` exactly as ``simulation_file``
+    beside it does, so a deployment describing one simulated machine describes
+    it once whichever connector serves it.
+
+    :param config: The config being rendered.
+    :return: The resolved level as the string the template interpolates, or
+        ``""`` when neither key is stated — which leaves the entrypoint's own
+        default in force.
+    :rtype: str
+    """
+    from osprey_connectors.types import MOCK, VIRTUAL_ACCELERATOR
+
+    connector = (config.get("control_system") or {}).get("connector") or {}
+    va_block = connector.get(VIRTUAL_ACCELERATOR) or {}
+    mock_block = connector.get(MOCK) or {}
+    level = va_block.get("noise_level", mock_block.get("noise_level"))
+    return "" if level is None else str(level)
+
+
 def _telemetry_link_host(config):
     """The host the dashboard's per-run telemetry link names, or ``None``.
 
@@ -1631,6 +1656,12 @@ def _inject_project_metadata(config):
     # (the template gates it on the stand-in branch), so this is inert for every
     # project that has not asked for a second instance.
     _, config_with_labels["standin_bpm_errors_default"] = _standin_perturbation(config, repo_root)
+
+    # The Virtual Accelerator's noise level, resolved here for the same reason:
+    # the template cannot follow the fall-through from the VA connector block to
+    # the mock one (:func:`_va_noise_level`), and a second copy of that rule is
+    # a second answer waiting to disagree with the first.
+    config_with_labels["va_noise_level"] = _va_noise_level(config)
 
     # The host the dispatcher dashboard's per-run telemetry link names, derived
     # from the one external-origin authority (:func:`_telemetry_link_host`).
