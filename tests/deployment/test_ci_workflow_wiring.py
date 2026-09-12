@@ -115,6 +115,7 @@ GCHAT_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 PUBSUB_FIXTURE_NAME = "pubsub_emulator"
 
 ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
+E2E_PROVIDER_ENV = "OSPREY_E2E_PROVIDER"
 PROBE_BASE_VAR = "ALS_APG_PROBE_BASE"
 PROBE_KEY_ENV = "ALS_APG_API_KEY"
 PROBE_TARGET_PATH = "/v1/messages"
@@ -2106,6 +2107,63 @@ def test_workflow_exports_the_als_apg_base_url_override__mutation_adds_a_fallbac
     )
     with pytest.raises(AssertionError, match="no fallback"):
         test_workflow_exports_the_als_apg_base_url_override(mutated)
+
+
+def _e2e_provider_overrides(wf: dict[str, Any]) -> list[str]:
+    """Every job or step that redefines the end-to-end provider, as labels."""
+    found: list[str] = []
+    for job_name, job in _jobs(wf).items():
+        if E2E_PROVIDER_ENV in (job.get("env") or {}):
+            found.append(f"job {job_name}")
+        for step in job.get("steps") or []:
+            if E2E_PROVIDER_ENV in (step.get("env") or {}):
+                found.append(f"step {job_name} / {step.get('name', '<unnamed>')}")
+    return found
+
+
+def test_the_workflow_names_the_end_to_end_provider(workflow: dict[str, Any]) -> None:
+    """Every lane that collects ``tests/e2e/`` states what it builds with.
+
+    There is no constant behind the variable any more — an e2e run that names
+    no provider is refused at collection — so the name has to be stated
+    somewhere, and workflow level is the one place that covers every lane at
+    once. A fork driving its own gateway changes this line and nothing else,
+    which is also why the value is a plain name rather than an expression: a
+    ``vars.`` lookup a fork has not set would resolve to empty and refuse every
+    e2e lane in the fork.
+
+    The second half is the one that rots quietly: a job or step that sets the
+    variable itself would build against a different gateway than the one whose
+    key the lane holds, and the failure would read as a credential problem."""
+    named = (workflow.get("env") or {}).get(E2E_PROVIDER_ENV)
+    assert isinstance(named, str) and named.strip(), (
+        f"ci.yml must name {E2E_PROVIDER_ENV} in its workflow-level env block; found {named!r}"
+    )
+    assert "${{" not in named, (
+        f"{E2E_PROVIDER_ENV} must be a plain provider name, not an expression; found {named!r}"
+    )
+    overrides = _e2e_provider_overrides(workflow)
+    assert not overrides, (
+        f"no job or step may override {E2E_PROVIDER_ENV} — one provider for every e2e "
+        f"lane; found: {', '.join(overrides)}"
+    )
+
+
+def test_the_workflow_names_the_end_to_end_provider__mutation_drops_the_name() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    (mutated.get("env") or {}).pop(E2E_PROVIDER_ENV, None)
+    with pytest.raises(AssertionError, match="must name"):
+        test_the_workflow_names_the_end_to_end_provider(mutated)
+
+
+def test_the_workflow_names_the_end_to_end_provider__mutation_overrides_it_in_a_job() -> None:
+    """The dangerous half: the workflow-level name survives, so the block still
+    reads right, while one lane quietly builds somewhere else."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[E2E_TESTS_JOB]
+    job["env"] = {**(job.get("env") or {}), E2E_PROVIDER_ENV: "somewhere-else"}
+    with pytest.raises(AssertionError, match="may override"):
+        test_the_workflow_names_the_end_to_end_provider(mutated)
 
 
 def test_every_als_apg_probe_honors_the_base_url_override(workflow: dict[str, Any]) -> None:
