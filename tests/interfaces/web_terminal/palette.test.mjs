@@ -34,6 +34,26 @@ vi.mock('../../../src/osprey/interfaces/web_terminal/static/js/feedback-modal.js
   isFeedbackModalOpen: () => feedbackModalState.open,
 }));
 
+// palette-boot.js's import graph reaches bar-sync.js, which GETs the operator's
+// bar layout at import time. Nothing serves this environment, so that request is
+// answered here, before the dynamic import below is evaluated. Any other URL is
+// a dependency this file has not declared, and fails loudly.
+vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+  if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
+  return {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      version: 1,
+      rev: 0,
+      header: [],
+      status: [],
+      header_visible: true,
+      status_visible: true,
+    }),
+  };
+}));
+
 const { initCommandPalette } = await import(
   '../../../src/osprey/interfaces/web_terminal/static/js/palette-boot.js'
 );
