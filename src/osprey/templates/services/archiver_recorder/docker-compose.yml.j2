@@ -142,8 +142,9 @@ services:
       # The recorder reads control_system.type (its own enablement), the
       # va_archiver cadence/retention knobs and the archiver connection block
       # from config.yml at runtime. CWD is the image WORKDIR (/app), not the
-      # project dir, so without CONFIG_FILE this falls back to /app/config.yml
-      # and every lookup errors "No config.yml found" — the same CONFIG_FILE
+      # project dir, so the path is named rather than discovered: the
+      # recorder's own default is this same mounted path, and CONFIG_FILE
+      # states it here rather than supplying it — the same CONFIG_FILE
       # convention the dispatch worker and bluesky bridge follow.
       CONFIG_FILE: /app/project/build/config.yml
       # In-network overrides for the archiver connection, following the
