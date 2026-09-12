@@ -3,19 +3,20 @@
 No plan runs inside this process. The RunEngine lives in the
 ``queueserver`` container (``qserver_startup.py``), which subscribes a
 ``bluesky.callbacks.zmq`` ``Publisher`` to it; this module runs the other end —
-the ``Proxy`` that Publisher connects to, plus a ``RemoteDispatcher`` that
-turns the republished stream back into rows in the existing ``live_rows``
-buffer. That is how ``GET /runs/{id}/data`` keeps serving live data for a plan
-the bridge is not executing.
+it binds the socket that Publisher connects to and forwards every document
+arriving there to a ``RemoteDispatcher``, which turns the republished stream
+back into rows in the existing ``live_rows`` buffer. That is how
+``GET /runs/{id}/data`` keeps serving live data for a plan the bridge is not
+executing.
 
-**The proxy is the binding element.** The bridge binds both sockets and the
+**The forwarder is the binding element.** The bridge binds both sockets and the
 worker connects to the in-side, which is what makes key authentication
 possible in the first place: the queueserver container is necessarily
 dual-homed (it needs the accelerator network for Channel Access and Tiled), so
-network placement alone protects nothing. CurveZMQ ``ServerCurve`` on the
-in-side, with a pinned directory of accepted client public keys, is the only
-thing standing between this socket and a rogue container injecting forged run
-documents. Consequently, a configured-but-unauthenticatable document plane
+network placement alone protects nothing. A CurveZMQ *server* socket on the
+in-side, authenticating against a pinned directory of accepted client public
+keys, is the only thing standing between this socket and a rogue container
+injecting forged run documents. Consequently, a configured-but-unauthenticatable document plane
 does NOT fall back to an unencrypted socket — it does not come up at all, and
 the bridge degrades to "no live rows" (Tiled still serves completed runs).
 
@@ -65,6 +66,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
 from typing import Any
+from uuid import uuid4
 
 from . import figure_cache, live_rows
 from .live_rows import LiveRowRecorder
@@ -322,6 +324,19 @@ class DocumentPlaneError(RuntimeError):
     """The document plane is configured but cannot be brought up safely."""
 
 
+def _bind(socket: Any, address: str) -> str:
+    """Bind *socket* to *address*; return the address it actually got.
+
+    An address naming no port asks the kernel for one, and the number has to
+    come back out: it is what the dispatcher connects to and what an operator
+    reads in the log line.
+    """
+    normalized = address if "://" in address else f"tcp://{address}"
+    if normalized.startswith("tcp://") and ":" not in normalized[len("tcp://") :]:
+        return f"{normalized}:{socket.bind_to_random_port(normalized)}"
+    return str(socket.bind(normalized).addr)
+
+
 @dataclass(frozen=True)
 class DocumentPlaneConfig:
     """Where the proxy binds and which keys authenticate its in-side.
@@ -402,12 +417,18 @@ class DocumentPlaneConfig:
 
 
 class DocumentPlane:
-    """A running 0MQ proxy plus the dispatcher that drains it into ``live_rows``.
+    """A running 0MQ forwarder plus the dispatcher that drains it into ``live_rows``.
 
-    Both halves block (``Proxy.start`` runs a 0MQ forwarder,
-    ``RemoteDispatcher.start`` runs its own event loop), so each gets a daemon
-    thread and the bridge's async lifespan only ever calls :meth:`start` and
-    :meth:`stop`.
+    Both halves block (the forwarder pumps documents from the in-side socket to
+    the out-side one, ``RemoteDispatcher.start`` runs its own event loop), so
+    each gets a daemon thread and the bridge's async lifespan only ever calls
+    :meth:`start` and :meth:`stop`.
+
+    The forwarder thread owns everything it opens: the 0MQ context, both
+    sockets, the CURVE authenticator and a control socket are created there,
+    and closed there when the forwarder returns. libzmq sockets belong to the
+    thread that made them, so this is the only arrangement in which shutdown is
+    defined — :meth:`stop` sends a command and waits rather than reaching in.
 
     Args:
         config: Where to bind and which keys to accept.
@@ -424,10 +445,18 @@ class DocumentPlane:
     ) -> None:
         self._config = config
         self._sink = sink if sink is not None else RunDocumentRouter()
-        self._proxy: Any = None
+        self._context: Any = None
         self._dispatcher: Any = None
         self._proxy_thread: threading.Thread | None = None
         self._dispatcher_thread: threading.Thread | None = None
+        self._bound = threading.Event()
+        self._forwarder_stopped = threading.Event()
+        self._publish_address: str | None = None
+        self._subscribe_address: str | None = None
+        self._startup_error: BaseException | None = None
+        # One control endpoint per plane: a process can hold several, and an
+        # ``inproc`` name is unique only within its own context.
+        self._control_address = f"inproc://osprey-doc-plane-control-{uuid4().hex}"
 
     @property
     def config(self) -> DocumentPlaneConfig:
@@ -437,40 +466,49 @@ class DocumentPlane:
     @property
     def publish_address(self) -> str | None:
         """The in-side address actually bound, once started."""
-        return None if self._proxy is None else str(self._proxy.in_port)
+        return self._publish_address
 
     @property
     def subscribe_address(self) -> str | None:
         """The out-side address actually bound, once started."""
-        return None if self._proxy is None else str(self._proxy.out_port)
+        return self._subscribe_address
 
     def start(self) -> DocumentPlane:
-        """Bind the proxy and start draining it. Returns ``self``.
+        """Bind the forwarder and start draining it. Returns ``self``.
 
         Raises:
-            DocumentPlaneError: Already started.
+            DocumentPlaneError: Already started, or the sockets could not be
+                bound — a taken port arrives here rather than on the forwarder
+                thread, where nobody could see it.
         """
-        if self._proxy is not None:
+        if self._proxy_thread is not None:
             raise DocumentPlaneError("this document plane has already been started")
 
-        from bluesky.callbacks.zmq import Proxy, RemoteDispatcher, ServerCurve
+        from bluesky.callbacks.zmq import RemoteDispatcher
 
-        curve = ServerCurve(
-            secret_path=self._config.server_secret_key,
-            client_public_keys=self._config.client_public_keys,
-            allow=None,
-        )
-        self._proxy = Proxy(
-            in_address=self._config.publish_address,
-            out_address=self._config.subscribe_address,
-            in_curve=curve,
-        )
+        self._bound.clear()
+        self._forwarder_stopped.clear()
+        self._startup_error = None
+        self._publish_address = None
+        self._subscribe_address = None
+
         self._proxy_thread = threading.Thread(
             target=self._run_proxy, name="osprey-doc-plane-proxy", daemon=True
         )
         self._proxy_thread.start()
 
-        self._dispatcher = RemoteDispatcher(self._proxy.out_port)
+        if not self._bound.wait(timeout=_DISPATCHER_START_TIMEOUT):
+            raise DocumentPlaneError(
+                f"the document plane's sockets were not bound within "
+                f"{_DISPATCHER_START_TIMEOUT:.0f}s"
+            )
+        subscribe_address = self._subscribe_address
+        if self._startup_error is not None or subscribe_address is None:
+            raise DocumentPlaneError(
+                f"could not bind the document plane on {self._config.publish_address}"
+            ) from self._startup_error
+
+        self._dispatcher = RemoteDispatcher(subscribe_address)
         self._dispatcher.subscribe(self._sink)
         self._dispatcher_thread = threading.Thread(
             target=self._run_dispatcher, name="osprey-doc-plane-dispatcher", daemon=True
@@ -479,7 +517,7 @@ class DocumentPlane:
         self._await_dispatcher_task()
 
         logger.info(
-            "document plane up: proxy in=%s out=%s, accepting client keys pinned in %s",
+            "document plane up: forwarder in=%s out=%s, accepting client keys pinned in %s",
             self.publish_address,
             self.subscribe_address,
             self._config.client_public_keys,
@@ -489,17 +527,18 @@ class DocumentPlane:
     def stop(self) -> None:
         """Tear both halves down. Safe to call on a plane that never started.
 
-        Neither upstream object has a stop hook that works from another
-        thread — ``Proxy`` has none at all and ``RemoteDispatcher.stop`` must
-        run on its own loop — so shutdown reaches for their internals: closing
-        the proxy's sockets makes its forwarder return (and its own ``finally``
-        destroy the context), and cancelling the dispatcher's polling task on
-        its own loop makes ``start()`` return and run its ``stop()``. Closing
-        the proxy's *context* from this thread instead would deadlock against
-        the CURVE authenticator thread that shares it.
+        The forwarder is *told* to stop: one word on its control socket makes
+        it return, and the thread that opened its sockets and started its
+        authenticator is the thread that closes and stops them. The only socket
+        this method touches is the one it opens itself to carry that word.
+
+        ``RemoteDispatcher`` has no stop hook that works from another thread
+        either — its ``stop`` must run on its own loop — so its polling task is
+        cancelled on that loop, which makes ``start()`` return and run the
+        dispatcher's own ``stop()``.
         """
         dispatcher, self._dispatcher = self._dispatcher, None
-        proxy, self._proxy = self._proxy, None
+        context, self._context = self._context, None
         dispatcher_thread, self._dispatcher_thread = self._dispatcher_thread, None
         proxy_thread, self._proxy_thread = self._proxy_thread, None
 
@@ -514,26 +553,124 @@ class DocumentPlane:
         if dispatcher_thread is not None:
             dispatcher_thread.join(timeout=_STOP_JOIN_TIMEOUT)
 
-        if proxy is not None:
-            for socket in (proxy._frontend, proxy._backend):
-                try:
-                    socket.close(linger=0)
-                except Exception:
-                    logger.debug("document-plane proxy socket close failed", exc_info=True)
+        if context is not None:
+            self._signal_forwarder(context)
         if proxy_thread is not None:
             proxy_thread.join(timeout=_STOP_JOIN_TIMEOUT)
+            if proxy_thread.is_alive():
+                logger.warning(
+                    "document-plane forwarder did not stop within %.0fs",
+                    _STOP_JOIN_TIMEOUT,
+                )
 
         logger.info("document plane stopped")
 
-    def _run_proxy(self) -> None:
-        """Forward documents until :meth:`stop` closes the sockets under us."""
+    def _signal_forwarder(self, context: Any) -> None:
+        """Ask the forwarder to return, over a socket owned by this thread.
+
+        The socket stays open until the forwarder reports itself back: an
+        ``inproc`` message whose sender closes before the peer has read it is
+        dropped, so closing straight after the send would leave the forwarder
+        blocked and the command spent.
+        """
+        import zmq
+
         try:
-            self._proxy.start()
+            control = context.socket(zmq.PAIR)
         except Exception:
-            # Expected at shutdown: closing the sockets is how the forwarder is
-            # made to return. A failure at any other time is a dead document
-            # plane, which degrades telemetry and nothing else.
-            logger.debug("document-plane proxy exited", exc_info=True)
+            # The context is already gone: the forwarder has stopped on its own.
+            logger.debug("document-plane forwarder was already gone", exc_info=True)
+            return
+        try:
+            control.setsockopt(zmq.LINGER, 0)
+            control.connect(self._control_address)
+            control.send(b"TERMINATE")
+            self._forwarder_stopped.wait(timeout=_STOP_JOIN_TIMEOUT)
+        except Exception:
+            logger.debug("document-plane forwarder could not be signalled", exc_info=True)
+        finally:
+            control.close()
+
+    def _run_proxy(self) -> None:
+        """Own the forwarder end to end: bind, forward, and close it all down.
+
+        Everything opened here is closed here. A libzmq socket may only be used
+        by the thread that created it, and a context may not be terminated
+        while the CURVE authenticator sharing it still runs — so the sockets,
+        the authenticator and the context all live and die on this thread, and
+        :meth:`stop` only sends it a message.
+        """
+        import zmq
+        import zmq.auth
+        from zmq.auth.thread import ThreadAuthenticator
+
+        context = zmq.Context()
+        auth: Any = None
+        sockets: list[Any] = []
+        try:
+            try:
+                auth = ThreadAuthenticator(context)
+                auth.start()
+                # The pinned directory IS the authentication: the plane admits
+                # a key, never an address, so no address allowlist is set.
+                auth.configure_curve(domain="*", location=self._config.client_public_keys)
+
+                server_public, server_secret = zmq.auth.load_certificate(
+                    self._config.server_secret_key
+                )
+                if server_secret is None:
+                    raise DocumentPlaneError(
+                        f"{self._config.server_secret_key} holds no secret key — "
+                        "refusing to bind an unauthenticated document socket"
+                    )
+
+                frontend = context.socket(zmq.SUB)
+                sockets.append(frontend)
+                frontend.setsockopt(zmq.CURVE_PUBLICKEY, server_public)
+                frontend.setsockopt(zmq.CURVE_SECRETKEY, server_secret)
+                frontend.setsockopt(zmq.CURVE_SERVER, True)
+                frontend.setsockopt_string(zmq.SUBSCRIBE, "")
+                self._publish_address = _bind(frontend, self._config.publish_address)
+
+                backend = context.socket(zmq.PUB)
+                sockets.append(backend)
+                self._subscribe_address = _bind(backend, self._config.subscribe_address)
+
+                control = context.socket(zmq.PAIR)
+                sockets.append(control)
+                control.bind(self._control_address)
+
+                self._context = context
+            except BaseException as exc:
+                # `start()` is waiting on the event and reports this; raising
+                # it on this thread would only reach the thread excepthook.
+                self._startup_error = exc
+                raise
+            finally:
+                self._bound.set()
+
+            zmq.proxy_steerable(frontend, backend, None, control)
+        except Exception:
+            # Both a bind that failed (reported through `start()`) and a
+            # forwarder that ended some other way land here, and both leave a
+            # dead document plane — which degrades telemetry and nothing else.
+            logger.debug("document-plane forwarder exited", exc_info=True)
+        finally:
+            # Reported before anything is closed: a stopping thread holds
+            # its control socket open until it hears this, and the context
+            # cannot be terminated while that socket lives.
+            self._forwarder_stopped.set()
+            for socket in reversed(sockets):
+                try:
+                    socket.close(linger=0)
+                except Exception:
+                    logger.debug("document-plane socket close failed", exc_info=True)
+            if auth is not None:
+                try:
+                    auth.stop()
+                except Exception:
+                    logger.debug("document-plane authenticator stop failed", exc_info=True)
+            context.term()
 
     def _run_dispatcher(self) -> None:
         """Drain the proxy's out-side until :meth:`stop` cancels the poll task."""
