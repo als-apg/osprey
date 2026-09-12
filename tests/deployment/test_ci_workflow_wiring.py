@@ -5460,3 +5460,55 @@ def test_the_type_check_completes__mutation_weakens_the_override() -> None:
             override["ignore_missing_imports"] = True
     with pytest.raises(AssertionError, match="follow_imports"):
         test_the_type_check_completes_over_the_declared_targets(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The type check resolves the same packages however it is invoked
+# ---------------------------------------------------------------------------
+#
+# `osprey_connectors` lives in this repository under `packages/`, but it also
+# sits in the environment as an installed wheel. Which of the two mypy resolves
+# decides whether values crossing that boundary carry their real types or
+# collapse to `Any` — and with `warn_return_any` on, the collapsed ones surface
+# as `no-any-return` at every return site that touches them. Declaring the
+# source roots is what makes a run naming a single file report the same thing a
+# whole-tree run reports.
+
+
+#: The roots `mypy_path` must carry, in the order it searches them: the
+#: framework source and the sibling package's source, not its installed wheel.
+MYPY_SOURCE_ROOTS = ("src", "packages/osprey-connectors/src")
+
+
+def test_the_type_check_declares_its_source_roots(pyproject: dict[str, Any]) -> None:
+    """`explicit_package_bases` is half the pair: without it mypy derives a
+    module's name from its own directory rather than from these roots, and the
+    roots buy nothing."""
+    mypy_config = pyproject["tool"]["mypy"]
+    assert mypy_config.get("explicit_package_bases") is True, (
+        "[tool.mypy] must set explicit_package_bases = true so module names are "
+        "derived from the declared roots"
+    )
+    declared = mypy_config.get("mypy_path", "").split(":")
+    for root in MYPY_SOURCE_ROOTS:
+        assert root in declared, (
+            f"mypy_path must name {root!r} — without it a run naming a single file "
+            "resolves less than a whole-tree run and reports errors it does not"
+        )
+
+
+def test_the_type_check_declares_its_source_roots__mutation_drops_the_bases() -> None:
+    mutated = _load_pyproject()
+    del mutated["tool"]["mypy"]["explicit_package_bases"]
+    with pytest.raises(AssertionError, match="explicit_package_bases"):
+        test_the_type_check_declares_its_source_roots(mutated)
+
+
+@pytest.mark.parametrize("root", MYPY_SOURCE_ROOTS)
+def test_the_type_check_declares_its_source_roots__mutation_drops_a_root(root: str) -> None:
+    mutated = _load_pyproject()
+    mutated["tool"]["mypy"]["mypy_path"] = ":".join(
+        entry for entry in MYPY_SOURCE_ROOTS if entry != root
+    )
+    with pytest.raises(AssertionError, match=re.escape(root)):
+        test_the_type_check_declares_its_source_roots(mutated)

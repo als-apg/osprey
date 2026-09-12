@@ -501,6 +501,14 @@ packages = ["src/osprey"]
 # Development tool configurations
 [tool.mypy]
 python_version = "3.11"
+# The source roots, searched in this order. `osprey_connectors` also sits in the
+# environment as an installed wheel; naming its source here is what makes a run
+# over a single file resolve the same packages a whole-tree run resolves, so both
+# report the same errors. `explicit_package_bases` is the half that makes the
+# roots count: it derives each module's name from them rather than from the
+# directory the file happens to live in.
+mypy_path = "src:packages/osprey-connectors/src"
+explicit_package_bases = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # Gradual typing
