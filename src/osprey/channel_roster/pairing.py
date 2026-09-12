@@ -5,21 +5,25 @@ took, not the value it was asked to take. Where the facility publishes a
 readback beside the setpoint, that is the channel to read; where it does not,
 the worker reads the setpoint back and reports what it can.
 
-The rule is one line of address grammar -- the final colon-separated token
-``SP`` becomes ``RB`` -- and one membership test: the candidate is adopted only
-when the roster already holds that address *with read direction*. The grammar
-alone would be a guess; the roster is the authority on what exists, so a
-setpoint whose sibling nobody enumerated stays unpaired rather than pointing a
-plan at an address that is not there. That test also declines a ``:RB`` sibling
-the source called settable, which is a corpus that has drifted rather than a
-readback.
+The rule is one naming convention plus one membership test. The convention is
+the bundled demo tree's, and nobody else's: a final token of
+:data:`~osprey.channel_roster.records.WRITE_SUBFIELD` becomes
+:data:`~osprey.channel_roster.records.READBACK_SUBFIELD`. The membership test
+is the authority: the candidate is adopted only when the roster already holds
+that address *with read direction*. A facility that names its readbacks some
+other way is not paired by the convention and loses nothing it had -- the
+convention alone would be a guess anywhere, so a setpoint whose sibling nobody
+enumerated stays unpaired rather than pointing a plan at an address that is not
+there. That test also declines a readback sibling the source called settable,
+which is a corpus that has drifted rather than a readback.
 
-Address grammar lives in exactly two places in this package: here, and
+The tokens the convention is spelled in have one producer,
+:mod:`osprey.channel_roster.records`, shared with
 :mod:`osprey.channel_roster.database`'s direction fallback. Membership never
-comes from grammar anywhere -- the readers enumerate it, and this module only
-consults what they returned. Hence the input is a plain sequence of records:
-pairing is one heuristic applied identically to both sources, and importing
-either reader here would tie it to one of them.
+comes from a naming convention anywhere -- the readers enumerate it, and this
+module only consults what they returned. Hence the input is a plain sequence of
+records: pairing is one heuristic applied identically to both sources, and
+importing either reader here would tie it to one of them.
 """
 
 from __future__ import annotations
