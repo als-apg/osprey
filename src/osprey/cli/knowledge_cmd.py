@@ -32,6 +32,9 @@ from typing import Any
 
 import click
 
+from osprey_connectors.config import get_config_value
+from osprey_connectors.workspace import resolve_config_path
+
 from .output import fail, note, report, warn
 
 #: Default token for ``build-ttl --facility``.  Spelled out rather than imported
@@ -89,7 +92,6 @@ def _resolve_bundle(bundle: Path | None) -> Path:
         return bundle
 
     from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
-    from osprey.utils.config import get_config_value
 
     raw = get_config_value("facility_knowledge.bundle_path", None)
     if raw is None:
@@ -318,7 +320,6 @@ def _resolve_ttl(ttl: Path | None) -> Path:
     if ttl is not None:
         return ttl
 
-    from osprey.utils.config import get_config_value
     from osprey.utils.config_paths import resolve_render_relative_path
 
     raw = get_config_value("services.graphdb.ttl_path", None)
@@ -347,8 +348,6 @@ def _graphdb_block() -> Mapping[str, Any] | None:
     on the default port has a working command, and a store that is not there
     fails later with the address it tried.
     """
-    from osprey.utils.config import get_config_value
-
     block = get_config_value("services.graphdb", None)
     return block if isinstance(block, Mapping) else None
 
@@ -367,7 +366,6 @@ def _graphdb_port_base() -> int:
         none.
     """
     from osprey.port_layout import resolve_port_base
-    from osprey.utils.config import get_config_value
 
     return resolve_port_base({"deployment": get_config_value("deployment", {})})
 
@@ -479,7 +477,6 @@ def _bake_prompt_snapshot(session: Any) -> None:
         session: The verb's open driver session.
     """
     from osprey.services.facility_knowledge.seeder import prompt_snapshot
-    from osprey.utils.workspace import resolve_config_path
 
     config_file = Path(resolve_config_path())
     if not config_file.is_file():
@@ -702,7 +699,6 @@ def _resolve_channel_db(channel_db: Path | None) -> Path:
         return channel_db
 
     from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
-    from osprey.utils.config import get_config_value
 
     if get_config_value(PIPELINE_MODE_CONFIG_KEY, None) == "graph":
         # A graph project has no hierarchical database path configured at all,
@@ -977,7 +973,6 @@ def _resolve_facility(explicit: str | None) -> tuple[str, str]:
         click.ClickException: When the token cannot be part of an identifier.
     """
     from osprey.services.facility_knowledge.ttl_generator.model import PN_LOCAL
-    from osprey.utils.config import get_config_value
 
     if explicit is not None:
         token, source = explicit, "--facility"

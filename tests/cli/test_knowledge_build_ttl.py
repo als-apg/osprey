@@ -276,7 +276,7 @@ def _config_channel_db(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
             return value
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
+    monkeypatch.setattr("osprey.cli.knowledge_cmd.get_config_value", _lookup)
 
 
 def _config_facility_prefix(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
@@ -287,7 +287,7 @@ def _config_facility_prefix(monkeypatch: pytest.MonkeyPatch, value: object) -> N
             return value
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
+    monkeypatch.setattr("osprey.cli.knowledge_cmd.get_config_value", _lookup)
 
 
 def _config_graph_mode(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -303,7 +303,7 @@ def _config_graph_mode(monkeypatch: pytest.MonkeyPatch) -> None:
             return "graph"
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
+    monkeypatch.setattr("osprey.cli.knowledge_cmd.get_config_value", _lookup)
 
 
 # ---------------------------------------------------------------------------
