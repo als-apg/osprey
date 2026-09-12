@@ -1029,6 +1029,41 @@ def test_build_ttl_refuses_a_foreign_level_list_before_it_expands(
     assert not output.exists()
 
 
+def test_build_ttl_refuses_a_hierarchy_block_that_is_not_a_mapping(
+    descriptions_db: Path, tmp_path: Path
+) -> None:
+    """A ``hierarchy`` that holds a list gets the grammar sentence too.
+
+    A block of the wrong shape carries no level list at all, which is the same
+    thing to this verb as a database that names no levels: it cannot say what
+    the addresses mean. Both reduce to an empty level list and both are refused
+    with the one sentence that names the grammar build-ttl reads.
+    """
+    payload = _hierarchical_payload()
+    payload["hierarchy"] = [{"name": "ring", "type": "tree"}]
+    db_path = tmp_path / "hierarchy_is_a_list.json"
+    db_path.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "out.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(db_path),
+            "--descriptions",
+            str(descriptions_db),
+        ],
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "Traceback" not in result.output
+    assert "six-token grammar: RING, SYSTEM, FAMILY, DEVICE, FIELD, SUBFIELD" in flat
+    assert not output.exists()
+
+
 def test_build_ttl_points_a_yaml_ontology_at_the_compiler(
     channel_db: Path, descriptions_db: Path, tmp_path: Path
 ) -> None:
