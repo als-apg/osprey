@@ -312,14 +312,33 @@ def start_or_fail(
     )
 
 
+#: Hard ceiling on a readiness wait, whatever progress the subject is making.
+#: A progress-extended wait is only safe with a ceiling above it: a subject that
+#: logs continuously and never answers would otherwise hold the run open for as
+#: long as it stayed chatty, trading one stall for another.
+READINESS_CEILING = 300.0
+
+#: Log lines read per round to tell "still booting" from "sitting there quiet".
+#: A tail rather than the whole log because this is read every *interval*
+#: seconds and a boot log runs to thousands of lines.
+_PROGRESS_TAIL_LINES = 3
+
+#: Container states from which the subject can no longer become ready. Reaching
+#: one is terminal: the remaining budget cannot help, and spending it anyway
+#: reports a dead container in the words of a slow one.
+_TERMINAL_STATES = frozenset({"exited", "dead", "removing"})
+
+
 def wait_until_ready(
     probe: Callable[[], object],
     label: str,
     *,
     timeout: float = 60.0,
     interval: float = 0.5,
+    container: object | None = None,
+    ceiling: float = READINESS_CEILING,
 ) -> None:
-    """Call *probe* until it stops raising, or fail after *timeout* seconds.
+    """Call *probe* until it stops raising, or fail once the subject stalls.
 
     A started container is not yet a reachable one. testcontainers' own
     readiness check runs *inside* the container, so it reports ready while the
@@ -333,38 +352,189 @@ def wait_until_ready(
     ``start()`` the daemon is present, so a port that never answers is a defect
     and a skip here would be a vacuous green.
 
+    **Pass *container* whenever the subject is one.** Without it the only signal
+    is the probe's raise-or-return, which cannot tell a subject still working
+    its way up from one that will never answer: both spend the whole budget and
+    are then reported in the same words. The difference is material for an image
+    whose entrypoint boots in more than one phase, because the ready signal a
+    container library reports can belong to a throwaway first phase — leaving
+    this wait to cover a startup that has not begun, on a budget measured as if
+    it had. Given the container, each round also reads its state, and the wait
+
+    * gives up **at once** once it has exited, quoting the exit code and the
+      tail of its log, instead of spending the budget and then blaming the host;
+    * treats a log that is still growing as work in progress and restarts
+      *timeout* from that moment, making *timeout* the length of silence the
+      subject is allowed rather than the length of its whole boot.
+
+    That last part is what a fixed window cannot get right, because how long a
+    boot takes is a property of the machine rather than of the subject: an image
+    that comes up in seconds on an idle laptop takes far longer on a box already
+    running two test suites and a container engine, and a window sized on the
+    first is a flake on the second. *ceiling* bounds the wait regardless.
+
+    Probe failures are classified for the *message* only, never to cut the wait
+    short. A refused connection means nothing is listening yet; any other
+    failure means something answered and would not serve the request. Both are
+    worth telling apart in a report and neither is safe to act on, since a
+    server part-way through its own initialisation legitimately rejects a
+    request it will accept a moment later.
+
     Args:
         probe: Zero-argument callable that raises while the subject is not
             ready and returns anything at all once it is. Keep it short —
             it is called repeatedly, so a client built inside it wants a
             selection or connect timeout well under *interval*.
         label: Human-readable name for the subject, used in the failure.
-        timeout: Seconds to keep probing before giving up.
+        timeout: Seconds the subject may show no progress before the wait gives
+            up. Without *container* there is no progress to see and this is a
+            plain deadline.
         interval: Seconds between attempts.
+        container: The started container being waited on, when the subject is
+            one. Supplies the liveness and progress signals above; omitted, the
+            wait is a fixed window.
+        ceiling: Seconds the whole wait may take, however much progress there is.
 
     Raises:
-        AssertionError: If no call succeeded before the deadline.
+        AssertionError: If no call succeeded before the wait ended.
     """
-    deadline = time.monotonic() + timeout
     started = time.monotonic()
+    hard_deadline = started + ceiling
+    deadline = started + timeout
     last: BaseException | None = None
+    attempts = 0
+    only_refusals = True
+    seen_tail: bytes | None = None
+    ending = ""
+
     while True:
+        attempts += 1
         try:
             probe()
         except Exception as exc:  # noqa: BLE001 — any failure means "not ready yet"
             last = exc
+            only_refusals = only_refusals and _is_refused_connection(exc)
         else:
             return
-        if time.monotonic() >= deadline:
+
+        if container is not None:
+            status, tail = _container_liveness(container)
+            if status in _TERMINAL_STATES:
+                ending = f"the container reached state {status!r}"
+                break
+            if tail is not None and tail != seen_tail:
+                if seen_tail is not None:
+                    deadline = time.monotonic() + timeout
+                seen_tail = tail
+
+        now = time.monotonic()
+        if now >= hard_deadline:
+            ending = f"it reached the {ceiling:g}s ceiling"
+            break
+        if now >= deadline:
+            ending = f"it went {timeout:g}s without visible progress"
             break
         time.sleep(interval)
 
-    elapsed = time.monotonic() - started
     raise AssertionError(
-        f"{label}: started, but never answered in {elapsed:.1f}s — the daemon is reachable "
-        f"and the container is up, so this is a real failure, not a missing dependency.\n"
-        f"last attempt: {type(last).__name__}: {last}"
+        _readiness_failure(
+            label=label,
+            elapsed=time.monotonic() - started,
+            attempts=attempts,
+            ending=ending,
+            only_refusals=only_refusals,
+            last=last,
+            container=container,
+        )
     )
+
+
+def _is_refused_connection(exc: BaseException) -> bool:
+    """Whether *exc* says nothing was listening, as opposed to answering badly.
+
+    Walks the ``__cause__``/``__context__`` chain because the client libraries
+    these probes use wrap the socket error: pymongo reports a refused port as a
+    ``ServerSelectionTimeoutError`` whose text carries the refusal, so the type
+    alone decides nothing. The rendered text is consulted for the same reason.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, ConnectionRefusedError | ConnectionResetError):
+            return True
+        current = current.__cause__ or current.__context__
+    text = str(exc).lower()
+    return "connection refused" in text or "connection reset" in text
+
+
+def _container_liveness(container: object) -> tuple[str | None, bytes | None]:
+    """Read *container*'s state and the tail of its log.
+
+    Returns ``(None, None)`` when the daemon will not answer. A readiness wait
+    that could not read the state must keep waiting on the probe alone rather
+    than treat an unreadable container as a dead one — a daemon too busy to
+    answer is exactly the condition this wait exists to sit through.
+    """
+    try:
+        wrapped = container.get_wrapped_container()  # type: ignore[attr-defined]
+        wrapped.reload()
+        status = str(wrapped.status)
+        tail = wrapped.logs(tail=_PROGRESS_TAIL_LINES)
+    except Exception as exc:  # noqa: BLE001 — an unreadable container is not a verdict
+        logger.debug("could not read container state: %s", exc)
+        return None, None
+    return status, tail if isinstance(tail, bytes) else b""
+
+
+def _container_exit_detail(container: object) -> str:
+    """The exit code and last log lines of a container that stopped, if readable."""
+    try:
+        wrapped = container.get_wrapped_container()  # type: ignore[attr-defined]
+        state = wrapped.attrs.get("State", {})
+        code = state.get("ExitCode")
+        error = str(state.get("Error") or "").strip()
+        tail = wrapped.logs(tail=20).decode("utf-8", "replace").strip()
+    except Exception as exc:  # noqa: BLE001 — diagnosis is best-effort
+        logger.debug("could not read container exit detail: %s", exc)
+        return ""
+    detail = f"\nexit code: {code}"
+    if error:
+        detail += f" ({error})"
+    if tail:
+        detail += f"\nlast log lines:\n{tail}"
+    return detail
+
+
+def _readiness_failure(
+    *,
+    label: str,
+    elapsed: float,
+    attempts: int,
+    ending: str,
+    only_refusals: bool,
+    last: BaseException | None,
+    container: object | None,
+) -> str:
+    """Compose the failure for a readiness wait that ran out.
+
+    Says which of the two shapes the run had, because they send a reader to
+    different places: a port that never opened is the subject or its image,
+    while a subject that answered and kept refusing is the request the probe
+    makes — most often its credentials.
+    """
+    if only_refusals:
+        shape = "nothing ever listened on the port"
+    else:
+        shape = "something answered but would not serve the probe"
+    message = (
+        f"{label}: started, but never answered — {ending} after {elapsed:.1f}s "
+        f"and {attempts} attempt(s), and {shape}. The daemon is reachable, so this "
+        f"is a real failure, not a missing dependency."
+    )
+    if container is not None and ending.startswith("the container reached"):
+        message += _container_exit_detail(container)
+    return f"{message}\nlast attempt: {type(last).__name__}: {last}"
 
 
 def _skip_message(label: str, exc: BaseException, attempt: int) -> str:

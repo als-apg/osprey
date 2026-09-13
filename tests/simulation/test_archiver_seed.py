@@ -124,7 +124,7 @@ def mongo_store():
         finally:
             client.close()
 
-    wait_until_ready(answers, "mongodb-seed")
+    wait_until_ready(answers, "mongodb-seed", container=container)
 
     try:
         yield {
