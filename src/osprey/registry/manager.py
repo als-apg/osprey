@@ -7,6 +7,7 @@ Provides :class:`RegistryManager` plus the global singleton helpers
 """
 
 import logging
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -344,20 +345,35 @@ def resolve_registry_path(
     3. ``application.registry_path`` — an accepted alias.
 
     ``${VAR}`` in the value is expanded against the environment, and a relative
-    path is resolved against *base_path* when one is given.
+    path is resolved against *base_path*, defaulting to the config's own
+    ``project_root``.
+
+    A relative spelling is the documented one, and the anchor it means is the
+    deployment — the same anchor ``data/``, ``plans/`` and ``health.plugins``
+    use. Falling back to ``project_root`` is what makes that true for a caller
+    with no ``base_path`` to offer: every runtime reader reaches the registry
+    through ``get_registry()`` with no config path, and anchoring on the
+    working directory instead loaded a deployment's own registry from the repo
+    root and nowhere else.
+
+    ``project_root`` is used only when it names a directory that exists here. A
+    rendered config carries the ``project_root`` of the environment it was
+    rendered for, so one read on another machine — a service's config
+    bind-mounted into a container, say — names a path that is not this one's,
+    and anchoring on it would be confidently wrong rather than merely
+    unanchored.
 
     Args:
         config: Config mapping to read. ``None`` reads through the global
             config singleton, which is what the registry factory has when it
             was handed only a config path.
-        base_path: Directory relative paths resolve against; ``None`` leaves a
-            relative path relative.
+        base_path: Directory relative paths resolve against. ``None`` falls
+            back to the config's ``project_root``, and leaves the path relative
+            when there is none.
 
     Returns:
         The resolved path, or ``None`` when no spelling names one.
     """
-    import os
-
     raw: Any = os.environ.get(REGISTRY_PATH_ENV)
     if not raw:
         if config is None:
@@ -377,9 +393,29 @@ def resolve_registry_path(
         return None
 
     expanded: str = os.path.expandvars(str(raw))
+    if base_path is None:
+        base_path = _project_root_anchor(config)
     if base_path is not None and not Path(expanded).is_absolute():
         return str((Path(base_path) / expanded).resolve())
     return expanded
+
+
+def _project_root_anchor(config: Mapping[str, Any] | None) -> Path | None:
+    """Return the config's ``project_root``, when it names a directory here.
+
+    Args:
+        config: Config mapping to read, or ``None`` to read through the global
+            config singleton.
+
+    Returns:
+        The project root as a path, or ``None`` when the config names none or
+        names one that does not exist on this machine.
+    """
+    root = get_config_value("project_root", None) if config is None else config.get("project_root")
+    if not root or not isinstance(root, (str, Path)):
+        return None
+    path = Path(os.path.expandvars(str(root)))
+    return path if path.is_dir() else None
 
 
 def _create_registry_from_config(config_path: str | None = None) -> RegistryManager:
