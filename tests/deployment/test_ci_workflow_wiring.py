@@ -113,6 +113,11 @@ GCHAT_SMOKE_FILE = "tests/e2e/fixtures/test_gchat_fixture_smoke.py"
 GCHAT_EXTRA = "gchat"
 GCHAT_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 PUBSUB_FIXTURE_NAME = "pubsub_emulator"
+TEAMS_JOB = "teams-bridge-e2e"
+TEAMS_TEST_FILE = "tests/e2e/test_teams_bridge_e2e.py"
+TEAMS_SMOKE_FILE = "tests/e2e/fixtures/test_teams_fixture_smoke.py"
+TEAMS_EXTRA = "teams"
+TEAMS_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 
 ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
 E2E_PROVIDER_ENV = "OSPREY_E2E_PROVIDER"
@@ -2045,6 +2050,253 @@ def test_all_checks_passed_needs_gchat_bridge__mutation_drops_check_pr_lane_line
     assert GCHAT_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
     with pytest.raises(AssertionError):
         test_all_checks_passed_needs_gchat_bridge(mutated)
+
+
+# ---------------------------------------------------------------------------
+# (k) teams-bridge-e2e lane
+# ---------------------------------------------------------------------------
+
+
+def test_teams_bridge_job_exists(workflow: dict[str, Any]) -> None:
+    assert TEAMS_JOB in _jobs(workflow)
+
+
+def test_teams_bridge_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][TEAMS_JOB]
+    with pytest.raises(AssertionError):
+        assert TEAMS_JOB in _jobs(mutated)
+
+
+def test_shared_lane_ignores_both_teams_files(workflow: dict[str, Any]) -> None:
+    """Neither Teams file may be left in the shared ``e2e-tests`` lane, and the
+    failure it prevents is not a slow test — it is a COLLECTION error for the
+    whole lane. Both files import ``azure.servicebus`` at module scope, and
+    that lane syncs ``--extra dev`` only, so pytest errors there before running
+    anything. Unlike the Google Chat pair the reason is the dependency, not a
+    shared container, so the two files are named rather than discovered."""
+    missing = _run_step_ignores_all(workflow, [TEAMS_SMOKE_FILE, TEAMS_TEST_FILE])
+    assert missing == [], (
+        f"Teams e2e file(s) not --ignored in the '{E2E_TESTS_JOB}' lane: {missing} — "
+        f"that lane installs no '{TEAMS_EXTRA}' extra, so collecting them errors"
+    )
+
+
+def test_shared_lane_ignores_both_teams_files__mutation_drops_module_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], TEAMS_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [TEAMS_SMOKE_FILE]) == []  # the other survives
+    with pytest.raises(AssertionError):
+        test_shared_lane_ignores_both_teams_files(mutated)
+
+
+def test_shared_lane_ignores_both_teams_files__mutation_drops_smoke_ignore() -> None:
+    """The mirror image, and the half-fix this guard exists for: the smoke file
+    imports the same stack, so leaving it behind breaks the lane just as hard."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], TEAMS_SMOKE_FILE)
+    assert _run_step_ignores_all(mutated, [TEAMS_TEST_FILE]) == []  # the other survives
+    with pytest.raises(AssertionError):
+        test_shared_lane_ignores_both_teams_files(mutated)
+
+
+#: Matches both ``uv run pytest`` and ``uv run --no-sync pytest`` so the
+#: ``--no-sync`` pin below still FINDS the step it is asserting about after the
+#: flag is mutated away — a finder keyed on the flag would silently find no
+#: steps and pass.
+_UV_PYTEST_RE = re.compile(r"uv run [^\n]*\bpytest ")
+
+
+def _teams_pytest_steps(wf: dict[str, Any]) -> list[dict[str, Any]]:
+    """The Teams job's pytest invocations, in the order Actions will run them."""
+    return [s for s in _jobs(wf)[TEAMS_JOB]["steps"] if _UV_PYTEST_RE.search(s.get("run", ""))]
+
+
+def test_teams_job_runs_both_teams_files(workflow: dict[str, Any]) -> None:
+    """Having moved both files out of the shared lane, this is the lane they
+    moved INTO — so it must actually name both. Dropping either leaves a file
+    that runs nowhere while every check stays green, which is the same
+    silent-coverage-loss shape the ``--ignore`` guard above defends from the
+    other side. How many steps they are split across is deliberately not
+    pinned: this lane starts no container and binds no host port, so nothing
+    makes one arrangement safer than another."""
+    selected = " ".join(step["run"] for step in _teams_pytest_steps(workflow))
+    missing = [f for f in (TEAMS_SMOKE_FILE, TEAMS_TEST_FILE) if f not in selected]
+    assert missing == [], f"'{TEAMS_JOB}' runs no pytest step naming: {missing}"
+
+
+def test_teams_job_runs_both_teams_files__mutation_drops_the_module() -> None:
+    """The tempting half-lane: fixtures prove the fakes answer, and the bridge
+    cells — the thing the lane exists for — quietly stop running."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _teams_pytest_steps(mutated)[0]
+    kept = [line for line in step["run"].splitlines(keepends=True) if TEAMS_TEST_FILE not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert TEAMS_SMOKE_FILE in step["run"]  # the fixture half survives
+    with pytest.raises(AssertionError):
+        test_teams_job_runs_both_teams_files(mutated)
+
+
+def _teams_install_cmd(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, TEAMS_JOB, "Install osprey")["run"]
+
+
+def test_teams_job_installs_the_teams_extra(workflow: dict[str, Any]) -> None:
+    """Load-bearing at COLLECTION time, which makes it stricter than the Google
+    Chat case: that module skips itself without its extra, this one imports
+    ``azure.servicebus`` at module scope and errors. A job that syncs only
+    ``dev`` therefore reds — but it reds with an import traceback that reads
+    like a code bug, so the requirement is pinned where the cause is named."""
+    cmd = _teams_install_cmd(workflow)
+    assert f"--extra {TEAMS_EXTRA}" in cmd, (
+        f"'{TEAMS_JOB}' must `uv sync --extra {TEAMS_EXTRA}`; got: {cmd}"
+    )
+
+
+def test_teams_job_installs_the_teams_extra__mutation_drops_extra() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TEAMS_JOB, "Install osprey")
+    step["run"] = step["run"].replace(f" --extra {TEAMS_EXTRA}", "")
+    with pytest.raises(AssertionError):
+        test_teams_job_installs_the_teams_extra(mutated)
+
+
+def test_teams_job_runs_pytest_without_resyncing(workflow: dict[str, Any]) -> None:
+    """The other half of the extra, and the half that looks like nothing: a bare
+    ``uv run pytest`` re-syncs the environment to the project's default extras
+    first, which strips ``azure-servicebus`` straight back out of the venv the
+    step above just built. The lane then fails at collection with the extra
+    plainly installed in its own log. ``--no-sync`` is what makes the install
+    step mean something."""
+    steps = _teams_pytest_steps(workflow)
+    assert steps, f"'{TEAMS_JOB}' runs no pytest step at all"
+    unsynced = [s.get("name") for s in steps if "uv run --no-sync pytest" not in s["run"]]
+    assert unsynced == [], (
+        f"pytest step(s) in '{TEAMS_JOB}' missing `--no-sync`: {unsynced} — a bare "
+        f"`uv run` re-syncs and drops the '{TEAMS_EXTRA}' extra"
+    )
+
+
+def test_teams_job_runs_pytest_without_resyncing__mutation_drops_the_flag() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _teams_pytest_steps(mutated)[0]
+    step["run"] = step["run"].replace("uv run --no-sync pytest", "uv run pytest")
+    assert _teams_pytest_steps(mutated), "the finder must still see the step it asserts about"
+    with pytest.raises(AssertionError, match="missing `--no-sync`"):
+        test_teams_job_runs_pytest_without_resyncing(mutated)
+
+
+def _teams_junit_reports(wf: dict[str, Any]) -> list[str]:
+    return [r for step in _teams_pytest_steps(wf) for r in _JUNIT_RE.findall(step["run"])]
+
+
+def test_teams_job_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    """This module declares no ``skipif`` and no runtime gate, so a skip in this
+    lane is a bug rather than an environment gap — and pytest's exit code
+    cannot express the difference between "everything passed" and "everything
+    was skipped". So the junit report is read: zero skips, and a non-zero test
+    count so an empty selection cannot pass either. Every pytest step must
+    write a report the gate actually reads; a run whose report nothing inspects
+    is back to skipping its way to green."""
+    reports = _teams_junit_reports(workflow)
+    assert len(reports) == len(_teams_pytest_steps(workflow)), (
+        f"every pytest step in '{TEAMS_JOB}' must write a --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(workflow, TEAMS_JOB, TEAMS_SKIP_GATE_STEP)["run"]
+    unread = [r for r in reports if r not in gate]
+    assert unread == [], f"'{TEAMS_SKIP_GATE_STEP}' never reads: {unread}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+
+
+def test_teams_job_fails_on_any_skipped_test__mutation_drops_the_junit_report() -> None:
+    """A pytest step that writes no report is invisible to the gate."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _teams_pytest_steps(mutated)[0]
+    step["run"] = _JUNIT_RE.sub("", step["run"])
+    with pytest.raises(AssertionError, match="must write a --junitxml report"):
+        test_teams_job_fails_on_any_skipped_test(mutated)
+
+
+def test_teams_job_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    """A gate that prints the skip count without exiting non-zero is
+    decorative: the job still reports success over a lane that ran nothing."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, TEAMS_JOB, TEAMS_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_teams_job_fails_on_any_skipped_test(mutated)
+
+
+def test_teams_bridge_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    """The Teams lane is deterministic end to end: loopback fakes for the token
+    endpoint, the Bot Connector and the queue receiver, and no agentic tier at
+    all. Handing it the gateway key would buy nothing and would move it into
+    the spend-posture classification below, where it would have to be gated by
+    label — turning a lane that can honestly run on every pull request into one
+    that runs on a few."""
+    assert not _job_declares_secret(workflow, TEAMS_JOB, SECRET_TOKEN)
+
+
+def test_teams_bridge_job_has_no_llm_secret__mutation_adds_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][TEAMS_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        test_teams_bridge_job_has_no_llm_secret(mutated)
+
+
+def test_teams_bridge_job_runs_on_every_pull_request(workflow: dict[str, Any]) -> None:
+    """The whole point of a secret-free, container-free bridge lane: no ``if:``
+    gate, so it also runs on fork and Dependabot pull requests, where every
+    label-gated lane skips. An ``if:`` added here would not fail anything —
+    the lane would simply stop running on most PRs while reporting success as a
+    skip, which is the failure mode the gated lanes accept in exchange for the
+    money they save and this one has no reason to."""
+    assert "if" not in _jobs(workflow)[TEAMS_JOB], (
+        f"'{TEAMS_JOB}' declares an `if:` gate: {_jobs(workflow)[TEAMS_JOB].get('if')!r} — "
+        f"it spends no model tokens and pulls no image, so it runs unconditionally"
+    )
+
+
+def test_teams_bridge_job_runs_on_every_pull_request__mutation_adds_label_gate() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[TEAMS_JOB]["if"] = FULL_CI_LABEL_CLAUSE
+    with pytest.raises(AssertionError, match="declares an `if:` gate"):
+        test_teams_bridge_job_runs_on_every_pull_request(mutated)
+
+
+def test_all_checks_passed_needs_teams_bridge(workflow: dict[str, Any]) -> None:
+    """``needs:`` alone is not a gate — the roll-up runs ``if: always()``, so a
+    needed job that failed still lets it start; the ``check_pr_lane`` line is
+    what turns the result into an exit code. Both halves are pinned."""
+    assert TEAMS_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{TEAMS_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_teams_bridge__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(TEAMS_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_teams_bridge(mutated)
+
+
+def test_all_checks_passed_needs_teams_bridge__mutation_drops_check_pr_lane_line() -> None:
+    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
+    job) while the line that reads its result is gone — the lane could go red
+    forever inside a green check."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if TEAMS_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert TEAMS_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_teams_bridge(mutated)
 
 
 # ---------------------------------------------------------------------------
