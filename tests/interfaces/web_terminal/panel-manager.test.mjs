@@ -35,6 +35,9 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+// The stall watchdogs below report on the real stderr; see reportStall.
+import { stderr } from 'node:process';
+
 // panel-catalog.js reads the built-in panel labels off <html> at module
 // load, so the roster has to be stamped before freshImport() reaches it —
 // otherwise every panel here is labelled by its id.
@@ -183,6 +186,79 @@ function stubEventSource() {
   };
 }
 
+/**
+ * Wait for a boot step to settle.
+ *
+ * Every condition this file waits on settles on the MICROTASK queue: a config
+ * fetch resolving into panelState, a placeholder reaching the dock, a badge
+ * being painted. None of them is driven by a timer.
+ *
+ * vi.waitFor checks once and then re-checks on a 50ms interval, so a condition
+ * that becomes true a fraction of a millisecond after that first check still
+ * costs a full 50ms tick — and this file pays that tick in nearly every one of
+ * its tests, which is the bulk of what each test spends. Re-checking at the
+ * granularity the conditions actually settle at keeps the whole boot off the
+ * test's critical path, so the budget is spent on the work rather than on
+ * waiting for a tick unrelated to it. The 1000ms bound and the failure message
+ * are vi.waitFor's own, unchanged.
+ *
+ * @param {() => unknown} check
+ * @returns {Promise<unknown>}
+ */
+const settled = (check) => vi.waitFor(check, { interval: 1 });
+
+/* ---- stall diagnostics ----------------------------------------------------
+ *
+ * Every test here rebuilds panel-manager's whole module graph (freshImport),
+ * and that await is the one in this file bounded by nothing of its own: it
+ * waits on the runner's module fetch, so a machine busy with something else
+ * can stretch it past the test budget while the test itself does nothing
+ * wrong. Every other await is a settled() poll, which fails with its own message.
+ *
+ * A test killed by the budget is reported against its opening line and says
+ * only that it timed out — neither which phase was still running nor for how
+ * long, which is the difference between a starved import and a boot step that
+ * genuinely never settles. The two watchdogs below say both, on stderr, while
+ * the run is still inside the stall rather than after it is torn down.
+ */
+
+/** What a boot phase, or a whole test, may take before it is worth reporting. */
+const STALL_BUDGET_MS = 2000;
+
+/**
+ * Say it on the real stderr. The runner's console interception does not carry
+ * a hook's output through, and a diagnostic that only prints when the test is
+ * healthy is no diagnostic at all.
+ * @param {string} text
+ */
+function reportStall(text) {
+  stderr.write(`[panel-manager stall] ${text}\n`);
+}
+
+/**
+ * Run one boot phase under a watchdog that names it if it overruns.
+ * @template T
+ * @param {string} name
+ * @param {() => Promise<T>} run
+ * @returns {Promise<T>}
+ */
+async function phase(name, run) {
+  const started = performance.now();
+  // Fires while the phase is still stuck, which is the only moment a test the
+  // runner is about to kill can still say what it was doing.
+  const watchdog = setTimeout(
+    () => reportStall(`${name}: still running after ${STALL_BUDGET_MS}ms`),
+    STALL_BUDGET_MS,
+  );
+  try {
+    return await run();
+  } finally {
+    clearTimeout(watchdog);
+    const elapsed = performance.now() - started;
+    if (elapsed > STALL_BUDGET_MS) reportStall(`${name}: finished after ${Math.round(elapsed)}ms`);
+  }
+}
+
 /** @returns {Promise<typeof import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js')>} */
 async function freshImport() {
   vi.resetModules();
@@ -192,8 +268,14 @@ async function freshImport() {
   vi.doMock(FIRST_CONTACT_PATH, () => ({
     setFacts, starterPrompts, capabilitySentence, chipRow,
   }));
-  return import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js');
+  return phase('module graph', () =>
+    import('../../../src/osprey/interfaces/web_terminal/static/js/panel-manager.js'));
 }
+
+/** The whole-test watchdog's timer, armed per test and disarmed with it. */
+let testWatchdog = /** @type {ReturnType<typeof setTimeout> | null} */ (null);
+/** When the current test's hooks started, for the overrun report. */
+let testStarted = 0;
 
 beforeEach(() => {
   delete window.__OSPREY_PREFIX__;
@@ -201,9 +283,26 @@ beforeEach(() => {
   vi.clearAllMocks();
   getDockApi.mockImplementation(() => dockState.api);
   dockState.api = null;
+
+  // Armed in the first hook and disarmed in the last, so the span it covers is
+  // the test body AND the hooks either side of it — a stall in a hook is as
+  // silent in the runner's report as one in the body.
+  testStarted = performance.now();
+  const name = expect.getState().currentTestName ?? '(unnamed)';
+  testWatchdog = setTimeout(
+    () => reportStall(`${name}: still running after ${STALL_BUDGET_MS}ms`),
+    STALL_BUDGET_MS,
+  );
 });
 
 afterEach(() => {
+  if (testWatchdog) clearTimeout(testWatchdog);
+  testWatchdog = null;
+  const elapsed = performance.now() - testStarted;
+  if (elapsed > STALL_BUDGET_MS) {
+    reportStall(`${expect.getState().currentTestName ?? '(unnamed)'}: finished after ${Math.round(elapsed)}ms`);
+  }
+
   vi.unstubAllGlobals();
   document.documentElement.removeAttribute('data-panel-labels');
   document.body.innerHTML = '';
@@ -352,20 +451,20 @@ describe('/api/panel-focus POST on a user-initiated rail switch', () => {
     await initPanelManager('panel-manager');
 
     const tab = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
-    await vi.waitFor(() => expect(tab.classList.contains('disabled')).toBe(false));
+    await settled(() => expect(tab.classList.contains('disabled')).toBe(false));
 
     // Boot surfaces the only visible panel, so its entry starts active — and a
     // click on the ACTIVE entry is the retire-tile toggle, not a switch. Retire
     // first so the click under test is a genuine activation.
-    await vi.waitFor(() => expect(tab.classList.contains('active')).toBe(true));
+    await settled(() => expect(tab.classList.contains('active')).toBe(true));
     tab.click();
-    await vi.waitFor(() => expect(tab.classList.contains('active')).toBe(false));
+    await settled(() => expect(tab.classList.contains('active')).toBe(false));
 
     // Isolate the click's own request from the config/panels fetches above.
     calls.length = 0;
     tab.click();
 
-    await vi.waitFor(() => expect(calls.some(c => c.url === expectedUrl)).toBe(true));
+    await settled(() => expect(calls.some(c => c.url === expectedUrl)).toBe(true));
     const focusCall = calls.find(c => c.url === expectedUrl);
     if (!focusCall) throw new Error('expected a panel-focus fetch call');
     expect(focusCall.opts).toMatchObject({ method: 'POST' });
@@ -398,11 +497,11 @@ describe('/api/panel-focus POST on a user-initiated rail switch', () => {
     await initPanelManager('panel-manager');
 
     const tab = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
-    await vi.waitFor(() => expect(tab.classList.contains('active')).toBe(true));
+    await settled(() => expect(tab.classList.contains('active')).toBe(true));
 
     calls.length = 0;
     tab.click();
-    await vi.waitFor(() => expect(tab.classList.contains('active')).toBe(false));
+    await settled(() => expect(tab.classList.contains('active')).toBe(false));
 
     // Retiring a tile is LOCAL layout state: nothing is sent to the server,
     // and the panel keeps its rail membership so a second click brings it back.
@@ -434,7 +533,7 @@ describe('iframe src: state.url arrives already server-prefixed (2.2) and must n
     const { initPanelManager } = await freshImport();
     await initPanelManager('panel-manager');
 
-    await vi.waitFor(() => {
+    await settled(() => {
       expect(document.querySelector('iframe[data-panel-id="artifacts"]')).not.toBeNull();
     });
     const iframe = document.querySelector('iframe[data-panel-id="artifacts"]');
@@ -512,7 +611,7 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
     await mod.initPanelManager('panel-manager');
 
     const artifacts = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
-    await vi.waitFor(() => expect(artifacts.classList.contains('disabled')).toBe(false));
+    await settled(() => expect(artifacts.classList.contains('disabled')).toBe(false));
     return { emit, mod, artifacts };
   }
 
@@ -592,7 +691,7 @@ describe('agent activity: rail badge/glow + the activity-strip seam', () => {
 
   test('getActivePanel returns the surfaced panel id', async () => {
     const { mod } = await bootWithSSE();
-    await vi.waitFor(() => expect(mod.getActivePanel()).toBe('artifacts'));
+    await settled(() => expect(mod.getActivePanel()).toBe('artifacts'));
   });
 });
 
@@ -635,7 +734,7 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
     await mod.initPanelManager('panel-manager');
 
     const entry = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
-    await vi.waitFor(() => expect(entry.classList.contains('disabled')).toBe(false));
+    await settled(() => expect(entry.classList.contains('disabled')).toBe(false));
     return { emit, mod };
   }
 
@@ -657,13 +756,13 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
 
   test('simple mode with pre-existing artifacts activates the workspace as before', async () => {
     await boot({ mode: 'simple', hasArtifacts: true });
-    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
     expect(workspaceOpen().active).toBe('artifacts');
   });
 
   test('expert mode is untouched by an empty workspace', async () => {
     await boot({ mode: 'expert', hasArtifacts: false });
-    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
     expect(workspaceOpen().active).toBe('artifacts');
   });
 
@@ -673,7 +772,7 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
 
     emit({ type: 'panel_visibility', panel: 'artifacts', visible: true, source: 'agent' });
 
-    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
     expect(workspaceOpen().active).toBe('artifacts');
   });
 
@@ -683,7 +782,7 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
 
     emit({ type: 'panel_focus', panel: 'artifacts', source: 'agent' });
 
-    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
     expect(workspaceOpen().active).toBe('artifacts');
   });
 
@@ -703,7 +802,7 @@ describe('simple-UX chat-only first boot (workspace suppression)', () => {
     document.documentElement.setAttribute('data-ui-mode', 'expert');
     mod.handleUiModeFlip('expert');
 
-    await vi.waitFor(() => expect(workspaceOpen().iframe).not.toBeNull());
+    await settled(() => expect(workspaceOpen().iframe).not.toBeNull());
     expect(workspaceOpen().active).toBe('artifacts');
   });
 });
@@ -731,7 +830,7 @@ describe('getPanelStandaloneUrl — the "Open in a new window" target (context m
     // returned promise (fire-and-forget, like the rail's disabled → enabled
     // transition other tests in this file wait on).
     const entry = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="ariel"]'));
-    await vi.waitFor(() => expect(entry.classList.contains('disabled')).toBe(false));
+    await settled(() => expect(entry.classList.contains('disabled')).toBe(false));
 
     expect(mod.getPanelStandaloneUrl('ariel')).toBe('/panel/ariel');
   });
@@ -831,14 +930,14 @@ describe('rail membership (launcher model: entry ⇔ member, never dimmed)', () 
     const { emit } = await bootMembership();
     // ariel's config resolved at init; its no-endpoint health settle may still
     // be pending — wait for artifacts' enable as the settle barrier.
-    await vi.waitFor(() =>
+    await settled(() =>
       expect(entry('artifacts')?.classList.contains('disabled')).toBe(false));
 
     emit({ type: 'panel_visibility', panel: 'ariel', visible: true });
 
     const ariel = entry('ariel');
     expect(ariel).not.toBeNull();
-    await vi.waitFor(() => expect(ariel?.classList.contains('disabled')).toBe(false));
+    await settled(() => expect(ariel?.classList.contains('disabled')).toBe(false));
   });
 
   test('a panel_visibility hide REMOVES the entry and returns it to the catalog', async () => {
@@ -1154,18 +1253,21 @@ async function bootWorkspace({ panels = ['artifacts', 'ariel'], visible, unhealt
   dockState.api = api;
 
   const mod = await freshImport();
-  await mod.initPanelManager('panel-manager');
+  await phase('initPanelManager', () => mod.initPanelManager('panel-manager'));
   // The configEndpoint fetches settle after initPanelManager's own promise: a
   // healthy panel resolves its url on that settle, an unhealthy one never does
   // (wait on the fetch itself so both land before the frame under test).
-  for (const id of panels) {
-    if (unhealthy.includes(id)) {
-      await vi.waitFor(() => expect(calls.some((c) => c.url === CONFIG_ENDPOINT[id])).toBe(true));
-    } else {
-      await vi.waitFor(() => expect(mod.getPanelStandaloneUrl(id)).toBe(`/panel/${id}`));
+  await phase('panel config', async () => {
+    for (const id of panels) {
+      if (unhealthy.includes(id)) {
+        await settled(() => expect(calls.some((c) => c.url === CONFIG_ENDPOINT[id])).toBe(true));
+      } else {
+        await settled(() => expect(mod.getPanelStandaloneUrl(id)).toBe(`/panel/${id}`));
+      }
     }
-  }
-  await vi.waitFor(() => expect(api.getPanel(`iframe:${panels[0]}`)).not.toBeNull());
+  });
+  await phase('first tile', () =>
+    settled(() => expect(api.getPanel(`iframe:${panels[0]}`)).not.toBeNull()));
   calls.length = 0;
   return { api, emit, mod, calls };
 }
@@ -1363,7 +1465,7 @@ describe("agent open_panel (panel_focus source:'agent') — focus or open BESIDE
 
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
-    await vi.waitFor(() => expect(mod.getPanelStandaloneUrl('ariel')).toBe('/panel/ariel'));
+    await settled(() => expect(mod.getPanelStandaloneUrl('ariel')).toBe('/panel/ariel'));
     calls.length = 0;
 
     emit({ type: 'panel_focus', panel: 'ariel', source: 'agent' });
@@ -1604,7 +1706,7 @@ describe('panel_arrange — the declarative whole-workspace rebuild', () => {
 
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
-    await vi.waitFor(() => expect(mod.getPanelStandaloneUrl('ariel')).toBe('/panel/ariel'));
+    await settled(() => expect(mod.getPanelStandaloneUrl('ariel')).toBe('/panel/ariel'));
     calls.length = 0;
 
     emit({ type: 'panel_arrange', tiles: ['ariel'], focus: 'ariel', prune_rail: true });
@@ -1677,7 +1779,7 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
     server.visible = ['artifacts'];
     open();
 
-    await vi.waitFor(() => expect(entry('ariel')).toBeNull());
+    await settled(() => expect(entry('ariel')).toBeNull());
     expect(mod.getHiddenPanels().map((p) => p.id)).toContain('ariel');
   });
 
@@ -1685,12 +1787,12 @@ describe('SSE reconnect resync — membership re-converges from /api/panels', ()
     const { server, open } = await bootResync();
     server.visible = ['artifacts'];
     open();
-    await vi.waitFor(() => expect(entry('ariel')).toBeNull());
+    await settled(() => expect(entry('ariel')).toBeNull());
 
     server.visible = ['artifacts', 'ariel'];
     open();
 
-    await vi.waitFor(() => expect(entry('ariel')).not.toBeNull());
+    await settled(() => expect(entry('ariel')).not.toBeNull());
   });
 
   test('an in-sync reconnect changes nothing', async () => {
@@ -1832,7 +1934,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     const mod = await freshImport();
     await mod.initPanelManager('panel-manager');
     const artifacts = /** @type {HTMLElement} */ (document.querySelector('[data-panel-id="artifacts"]'));
-    await vi.waitFor(() => expect(artifacts.classList.contains('disabled')).toBe(false));
+    await settled(() => expect(artifacts.classList.contains('disabled')).toBe(false));
     return {
       mod, ring, artifacts,
       /** @param {object} frame */
@@ -1842,7 +1944,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
       // handler that consumes it. A "no badge appeared" assertion is only
       // evidence once the restore has genuinely run.
       settle: async () => {
-        await vi.waitFor(() => expect(reads.recent).toBeGreaterThan(0));
+        await settled(() => expect(reads.recent).toBeGreaterThan(0));
         await new Promise((r) => setTimeout(r, 0));
       },
     };
@@ -1872,7 +1974,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
 
     open();
 
-    await vi.waitFor(() => expect(badged('ariel')).toBe(true));
+    await settled(() => expect(badged('ariel')).toBe(true));
   });
 
   test('a ring event at or before the ack does NOT resurrect the badge', async () => {
@@ -1898,7 +2000,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
 
     open();
 
-    await vi.waitFor(() => expect(badged('ariel')).toBe(true));
+    await settled(() => expect(badged('ariel')).toBe(true));
   });
 
   test('non-panel-kind ring rows never badge the rail', async () => {
@@ -1926,7 +2028,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     });
 
     open();
-    await vi.waitFor(() => expect(badged('artifacts')).toBe(true));
+    await settled(() => expect(badged('artifacts')).toBe(true));
     emit({ type: 'panel_focus', panel: 'artifacts' });
 
     expect(localStorage.getItem(`${ACK}artifacts`)).toBe('30');
@@ -1955,7 +2057,7 @@ describe('agent-attention badges survive a reload — acknowledged by server ts'
     ring.events = [{ type: 'agent_activity', tool: 'read_file', target: { kind: 'panel', panel: 'artifacts' }, ts: 6 }];
     open();
 
-    await vi.waitFor(() => expect(badged('artifacts')).toBe(true));
+    await settled(() => expect(badged('artifacts')).toBe(true));
   });
 });
 
@@ -2137,7 +2239,7 @@ describe('rail context menu — the entry’s verbs in words (railOptions onCont
     expect(contextMenu()?.getAttribute('aria-label')).toBe('SESSION actions');
 
     /** @type {HTMLElement} */ (menuRow('Restart terminal')).click();
-    await vi.waitFor(() => expect(startTerminal).toHaveBeenCalled());
+    await settled(() => expect(startTerminal).toHaveBeenCalled());
     // restartTerminal tears the PTY down without reconnecting — unpaired it
     // would leave the card stranded.
     expect(restartTerminal).toHaveBeenCalled();
