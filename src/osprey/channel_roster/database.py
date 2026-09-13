@@ -48,6 +48,8 @@ from osprey_connectors.control_system.limits_validator import (
 )
 
 from .records import (
+    ADDRESS_SEPARATOR,
+    WRITE_SUBFIELD,
     ChannelDirection,
     ChannelRecord,
     RosterAbsence,
@@ -57,13 +59,6 @@ from .records import (
 )
 
 logger = get_logger("channel_roster.database")
-
-
-#: Final address token the grammar fallback reads as a setpoint.
-WRITE_SUBFIELD = "SP"
-
-#: What separates an address into its tokens.
-ADDRESS_SEPARATOR = ":"
 
 
 def resolve_limits_path(config: Mapping[str, Any]) -> Path | None:

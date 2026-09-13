@@ -34,19 +34,6 @@ GUARD_PATH = REPO_ROOT / "scripts" / "check_config_keys.py"
 #: control-assistant and carry deltas, not blocks of their own.
 ROOT_PRESETS = ("control-assistant", "hello-world", "ariel-standalone", "channel-finder-standalone")
 
-#: Rows that name a tool their preset's servers do not gate, and the reason.
-#: Quoted from the manifest's own entry for these keys: "Inert in hello_world:
-#: that template disables the ariel server, so the tool never exists. Harmless
-#: (fail-closed either way); recorded so it is not mistaken for drift." The
-#: manifest is pinned to this set below, so the two cannot part company.
-_INERT_ROWS = {("hello-world", "entry_create"), ("hello-world", "entry_publish")}
-
-#: The manifest phrase that records the exemption above. Matched on the shape
-#: rather than the exact spelling: the manifest writes the preset's name both
-#: ways ("hello_world" beside "hello-world"), and which separator a note happens
-#: to use is not the fact being pinned.
-_INERT_NOTE_RE = re.compile(r"inert in hello[-_]world", re.IGNORECASE)
-
 _ROW_RE = re.compile(r"^\s*approval\.tools\.([a-z_]+):", re.MULTILINE)
 
 pytestmark = pytest.mark.unit
@@ -82,22 +69,12 @@ def _preset_rows(preset: str) -> set[str]:
 def test_no_row_names_a_tool_the_preset_does_not_gate(preset: str, guard) -> None:
     """A policy for an ungated tool is posture the deployment does not have."""
     governed = guard.governed_tools(preset)
-    unexplained = {
-        tool for tool in _preset_rows(preset) - governed if (preset, tool) not in _INERT_ROWS
-    }
+    unexplained = _preset_rows(preset) - governed
 
     assert not unexplained, (
         f"{preset}: approval.tools names {sorted(unexplained)}, which its resolved "
         f"servers do not attach the approval hook to"
     )
-
-
-def test_the_inert_rows_are_still_recorded_in_the_manifest(manifest) -> None:
-    """The exemption above is the manifest's, not this test's."""
-    keys = manifest["keys"]
-    for _preset, tool in _INERT_ROWS:
-        note = keys[f"approval.tools.{tool}"].get("note", "")
-        assert _INERT_NOTE_RE.search(note), tool
 
 
 def test_the_manifest_rows_are_the_union_of_what_the_presets_ship(manifest) -> None:

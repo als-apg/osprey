@@ -97,6 +97,12 @@ def run_audit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         return document, 0.01, 2
 
     monkeypatch.setattr("osprey.cli.audit_cmd._run_audit", _fake_run_audit)
+    # The options are built in the command body now, and this target names no
+    # provider; the flag under test is the gate, not the reviewer's wiring.
+    monkeypatch.setattr(
+        "osprey.cli.audit_cmd._reviewer_options",
+        lambda project_dir, model, budget: object(),
+    )
 
     target = tmp_path / "audited-project"
     target.mkdir()

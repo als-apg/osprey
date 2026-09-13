@@ -57,3 +57,14 @@ class AddressPatternError(ChannelFinderError):
     otherwise reach the database as channels whose address is the literal
     pattern text.  It is a defect in the input, not a family to skip.
     """
+
+
+class TemplateBuildError(ChannelFinderError):
+    """Raised when a device family cannot be turned into a template.
+
+    The rows of one family describe one template; a cell the builder cannot
+    read leaves it with no template to write.  Dropping the family to plain
+    rows instead would answer navigation queries about it with nothing while
+    the build still reported success, so the input is named and the build
+    stops.
+    """

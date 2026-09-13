@@ -52,9 +52,3 @@ class StanfordProviderAdapter(LiteLLMDelegatingProvider):
     # LiteLLM integration - Stanford is an OpenAI-compatible proxy
     is_openai_compatible = True
     supports_native_structured_output = True  # proxies to models with native json_schema support
-
-    # Stanford routes openai-compatible, so a missing base_url must resolve to its
-    # own default rather than falling through to api.openai.com;
-    # execute_completion / check_health are inherited from
-    # LiteLLMDelegatingProvider, which applies the fallback when this flag is set.
-    apply_default_base_url_fallback = True

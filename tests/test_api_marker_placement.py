@@ -8,7 +8,8 @@ exported*.
 The ``requires_<resource>`` skip-gates in ``tests/conftest.py`` are
 one-directional: each skips when its resource is *absent*, but silently
 exercises the real resource when it is *present*. For a credentialed marker
-(``requires_api`` / ``requires_als_apg`` / ``requires_anthropic``) that means a
+(``requires_api`` / ``requires_als_apg`` / ``requires_anthropic`` /
+``requires_e2e_provider``) that means a
 live LLM call — which passes on a clean machine yet fails on a blocked or
 expired key for anyone who has a key in their shell. That non-determinism is
 what this guard prevents.

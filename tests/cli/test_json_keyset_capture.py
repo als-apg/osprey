@@ -26,7 +26,10 @@ so equality is a real contract rather than a fixture artifact:
   ``enhancement_modules``, ``search_modules``. ``database`` is a literal dict
   in ``get_status``; the two module maps are keyed by what the registry
   carries, so this golden also records which modules the framework registers,
-  and a module added or renamed lands here.
+  and a module added or renamed lands here. ``enhancement_modules`` is the
+  joined table: each registered module's ``enabled`` flag alongside its store
+  counts. Its sibling ``orphaned_enhancement_modules`` is deliberately not
+  nested — those keys are store contents rather than a schema.
 * ``ariel search`` → ``entries[]`` (``_entry_summary``'s fixed projection).
 
 Deliberately **not** nested: ``health``'s ``results[]`` rows, whose ``value`` /
@@ -163,6 +166,12 @@ def audit_project(tmp_path: Path) -> Path:
 
 @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
 @patch("osprey.cli.audit_cmd.asyncio")
+# The fixture project names no provider, so the real options builder refuses it;
+# this test pins the document's key set, not the reviewer's wiring.
+@patch(
+    "osprey.cli.audit_cmd._reviewer_options",
+    new=lambda project_dir, model, budget: object(),
+)
 def test_audit_json_keyset(mock_asyncio: MagicMock, runner: CliRunner, audit_project: Path) -> None:
     """``audit --json`` emits the recorded ``AuditReport`` key set."""
     report = AuditReport(
@@ -394,7 +403,13 @@ def test_ariel_status_json_keyset(
 ) -> None:
     """``ariel status --json`` emits the recorded ``get_status`` shape."""
     repository = MagicMock()
-    repository.get_enhancement_stats = AsyncMock(return_value={"total_entries": 7})
+    repository.get_enhancement_stats = AsyncMock(
+        return_value={
+            "total_entries": 7,
+            "text_embedding": {"complete": 7, "failed": 0, "pending": 0},
+            "retired_tagger": {"complete": 2, "failed": 0, "pending": 5},
+        }
+    )
     repository.get_embedding_tables = AsyncMock(
         return_value=[
             SimpleNamespace(

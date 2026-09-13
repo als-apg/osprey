@@ -32,11 +32,6 @@ class DS4ProviderAdapter(BaseProvider):
     requires_model_id = True
     supports_proxy = True
     default_base_url = "http://127.0.0.1:8000/v1"
-    # ds4 routes openai-compatible, so without a base_url litellm would fall
-    # through to api.openai.com. The fallback also makes the local default above
-    # reachable through get_chat_completion, whose requires_base_url check would
-    # otherwise reject a config that deliberately relies on it.
-    apply_default_base_url_fallback = True
     default_model_id = "deepseek-v4-flash"
     health_check_model_id = None  # query the server for available models
 
@@ -73,12 +68,11 @@ class DS4ProviderAdapter(BaseProvider):
         **kwargs,
     ) -> str | Any:
         """Execute a ds4 chat completion via LiteLLM's OpenAI-compatible path."""
-        effective_api_key = api_key if api_key else "EMPTY"
         return execute_litellm_completion(
             provider=self.name,
             message=message,
             model_id=model_id,
-            api_key=effective_api_key,
+            api_key=self.effective_api_key(api_key),
             base_url=self.require_effective_base_url(base_url),
             max_tokens=max_tokens,
             temperature=temperature,
@@ -95,7 +89,7 @@ class DS4ProviderAdapter(BaseProvider):
     ) -> tuple[bool, str]:
         """Check ds4 server health, discovering a model if none is given."""
         effective_base_url = self.require_effective_base_url(base_url)
-        effective_api_key = api_key if api_key else "EMPTY"
+        effective_api_key = self.effective_api_key(api_key)
 
         if not model_id:
             try:

@@ -62,6 +62,8 @@ from collections import OrderedDict
 from threading import Lock
 from typing import Any
 
+from osprey.config_guards import require_positive_int_str
+
 logger = logging.getLogger(__name__)
 
 #: Env var carrying how many run buffers this bridge retains at once.
@@ -93,7 +95,7 @@ def max_runs() -> int:
             buffer the moment it was created, which is a misconfiguration
             rather than a policy.
     """
-    return _positive_int(MAX_RUNS_ENV, DEFAULT_MAX_RUNS)
+    return require_positive_int_str(os.environ.get(MAX_RUNS_ENV), DEFAULT_MAX_RUNS, MAX_RUNS_ENV)
 
 
 def max_rows_per_run() -> int:
@@ -106,24 +108,9 @@ def max_rows_per_run() -> int:
         ValueError: if the variable is set to something that is not an integer,
             or to an integer below 1.
     """
-    return _positive_int(MAX_ROWS_PER_RUN_ENV, DEFAULT_MAX_ROWS_PER_RUN)
-
-
-def _positive_int(env_var: str, default: int) -> int:
-    """Read *env_var* as an integer >= 1, falling back to *default* when unset."""
-    raw = os.environ.get(env_var)
-    if raw is None:
-        return default
-    try:
-        value = int(raw)
-    except ValueError:
-        raise ValueError(
-            f"{env_var}={raw!r} is not an integer; set it to a whole "
-            f"number >= 1 (default {default})"
-        ) from None
-    if value < 1:
-        raise ValueError(f"{env_var}={raw!r} must be >= 1")
-    return value
+    return require_positive_int_str(
+        os.environ.get(MAX_ROWS_PER_RUN_ENV), DEFAULT_MAX_ROWS_PER_RUN, MAX_ROWS_PER_RUN_ENV
+    )
 
 
 _lock = Lock()

@@ -72,15 +72,20 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
-from osprey_connectors.types import VIRTUAL_ACCELERATOR
+from osprey_connectors.types import EPICS, VIRTUAL_ACCELERATOR
 from tests._control_context_fixtures import write_control_context
 from tests.fixtures.control_context import context_for
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 REPO_PATHS = (str(REPO_ROOT / "src"), str(REPO_ROOT / "packages" / "osprey-connectors" / "src"))
 
-#: The mock connector by dotted path, so ``live`` resolves to something real.
-LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+#: The mock connector by dotted path: what lets a test *serve* ``live`` from a
+#: real child on a machine with no Channel Access, which is what nearly every
+#: test here does — hence this module's default.
+SERVED_LIVE_TYPE = "osprey_connectors.control_system.mock_connector.MockConnector"
+#: A Channel Access type, for the tests that need ``live`` to read as a real
+#: machine rather than be served by one. Nothing is spawned from it.
+CA_LIVE_TYPE = EPICS
 LIVE_PROBE = "SR:BEAM:CURRENT"
 VA_PROBE = "VA:BEAM:CURRENT"
 REFUSE_CHANNEL = "FIXTURE:REFUSE"
@@ -211,7 +216,7 @@ def raw_config(
     live_probe=LIVE_PROBE,
     va_probe=VA_PROBE,
     drain_timeout_s=None,
-    live_type=LIVE_TYPE,
+    live_type=SERVED_LIVE_TYPE,
 ):
     """A config with a servable block for each target."""
     live_block = {"response_delay_ms": 1, "noise_level": 0.0}
@@ -318,7 +323,24 @@ def state_root(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-async def make_manager(state_root):
+def live_type(request):
+    """The connector type the deployment under test names as its ``live`` target.
+
+    Defaults to :data:`SERVED_LIVE_TYPE`, because nearly every test here wants a
+    ``live`` target a real child can actually serve. Eligibility reads the
+    connector type, so a test that needs ``live`` to read as a real machine —
+    an away-switch, a Channel Access rung — must name a Channel Access type
+    instead. Ask for one by parametrising this fixture::
+
+        @pytest.mark.parametrize("live_type", [CA_LIVE_TYPE], indirect=True)
+
+    rather than by adding a second config helper beside ``raw_config``.
+    """
+    return getattr(request, "param", SERVED_LIVE_TYPE)
+
+
+@pytest.fixture
+async def make_manager(state_root, live_type):
     """Managers whose children are all reaped when the test ends."""
     created = []
 
@@ -331,7 +353,10 @@ async def make_manager(state_root):
         }
         options.update(overrides)
         manager = ConnectorHostManager(
-            MCPServerConfig(raw=raw if raw is not None else raw_config(), config_path=config_path),
+            MCPServerConfig(
+                raw=raw if raw is not None else raw_config(live_type=live_type),
+                config_path=config_path,
+            ),
             **options,
         )
         manager.spawned = []
@@ -2061,6 +2086,24 @@ class TestSwitchCapability:
         assert switch_capable({}) is False
 
 
+class TestTheLiveTypeIsAParameter:
+    """The served ``live`` type is this module's default, not its only answer."""
+
+    async def test_the_default_is_the_served_type_and_reaches_the_manager(
+        self, live_type, make_manager
+    ):
+        assert live_type == SERVED_LIVE_TYPE
+        assert make_manager()._config.raw["control_system"]["type"] == SERVED_LIVE_TYPE
+
+    @pytest.mark.parametrize("live_type", [CA_LIVE_TYPE], indirect=True)
+    async def test_a_parametrised_type_reaches_the_manager(self, live_type, make_manager):
+        assert live_type == CA_LIVE_TYPE
+        assert make_manager()._config.raw["control_system"]["type"] == CA_LIVE_TYPE
+
+    def test_a_channel_access_live_type_is_still_switch_capable(self):
+        assert switch_capable(raw_config(live_type=CA_LIVE_TYPE)) is True
+
+
 class TestServingFromTheChild:
     async def test_the_first_tool_call_brings_the_baseline_child_up(self, make_manager):
         manager = make_manager()
@@ -2099,7 +2142,7 @@ class TestServingFromTheChild:
         context = context_for(manager)
 
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(LIVE_TYPE, _NeverBuilt)
+            ConnectorFactory.register_control_system(SERVED_LIVE_TYPE, _NeverBuilt)
             ConnectorFactory.register_control_system("virtual_accelerator", _NeverBuilt)
 
             before = await context.control_system()
@@ -2143,7 +2186,7 @@ class TestServingFromTheChild:
         context = context_for(manager)
 
         with isolated_connector_registries():
-            ConnectorFactory.register_control_system(LIVE_TYPE, _NeverBuilt)
+            ConnectorFactory.register_control_system(SERVED_LIVE_TYPE, _NeverBuilt)
             ConnectorFactory.register_archiver("mongodb_archiver", _FakeArchiver)
 
             archiver = await context.archiver()

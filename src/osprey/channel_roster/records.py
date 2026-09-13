@@ -13,6 +13,11 @@ selection, no parsing. The readers (:mod:`osprey.channel_roster.graph`,
 plan-device derivation, the channel snapshot, the build's fact lines, the
 channel-finder web routes -- read them.
 
+The package's reserved address tokens are declared here for the same reason:
+the database reader derives direction from one of them and the pairing
+heuristic builds a sibling address from both, and neither may import the other
+-- pairing is applied identically to whichever reader ran.
+
 **Absence is data, not a missing return.** A roster that cannot be built is
 reported as a :class:`RosterAbsence` carrying its reason and the subjects it
 has to name (a path, the config keys that would have declared one), and every
@@ -43,6 +48,22 @@ from typing import Literal
 ChannelDirection = Literal["read", "write"]
 
 _DIRECTIONS: frozenset[str] = frozenset({"read", "write"})
+
+# The roster's setpoint/readback vocabulary, and the one place it is spelled.
+# A channel's ADDRESS text is free -- any facility's namespace enumerates
+# through the same readers -- but these two tokens are reserved: ``SP`` marks
+# the settable channel and ``RB`` marks its readback, and an address whose
+# final token is neither is read as neither. Deliberately not
+# facility-configurable: a typo in a per-facility spelling would silently
+# unsettle every channel on the machine rather than fail loudly.
+#: Final address token that marks a setpoint.
+WRITE_SUBFIELD = "SP"
+
+#: Final address token that marks the readback of a setpoint.
+READBACK_SUBFIELD = "RB"
+
+#: What separates an address into its tokens.
+ADDRESS_SEPARATOR = ":"
 
 
 class RosterSourceKind(Enum):

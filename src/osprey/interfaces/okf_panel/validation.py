@@ -6,9 +6,7 @@ OKF §9 authoring level) and dangling/malformed cross-links in document bodies
 (OKF §9 tolerates broken links, but the panel surfaces them as warnings so
 authors can fix them).
 
-Ported from the ALS ``mcp_servers/okf_panel`` service; the only change from the
-ALS original is that the OKF imports now resolve to core osprey rather than a
-vendored ``okf/`` copy.
+The OKF imports resolve to core osprey rather than a vendored ``okf/`` copy.
 
 The OKF API this builds on is intentionally narrow:
 

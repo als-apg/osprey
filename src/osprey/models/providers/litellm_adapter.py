@@ -47,6 +47,8 @@ from osprey.models.spend_attribution import (  # noqa: E402
 from osprey.utils.identity import acting_identity  # noqa: E402
 from osprey.utils.logger import get_logger  # noqa: E402
 
+from .base import KEYLESS_API_KEY_PLACEHOLDER  # noqa: E402
+
 if TYPE_CHECKING:
     from .base import BaseProvider
 
@@ -622,12 +624,9 @@ def check_litellm_health(
     if not api_key:
         if _requires_api_key(provider):
             return False, "API key not set"
-        # A keyless endpoint (an on-prem vLLM, a local Ollama) still needs a
-        # non-empty key on the wire: litellm's OpenAI client refuses to send
-        # without one. "EMPTY" is the placeholder the shipped keyless adapters
-        # already substitute by hand on the completion path; this is its one
-        # home on the health path.
-        api_key = "EMPTY"
+        # The provider declares no key is needed, but the endpoint still has to
+        # be given a non-empty one — see KEYLESS_API_KEY_PLACEHOLDER.
+        api_key = KEYLESS_API_KEY_PLACEHOLDER
 
     # Check for placeholder values
     if api_key and (api_key.startswith("${") or "YOUR_API_KEY" in api_key.upper()):

@@ -183,9 +183,6 @@ config:
   approval.tools.execute: selective
   # The agent's own config-editing tool: a config change needs approval.
   approval.tools.setup_patch: always
-  # ARIEL logbook writes. Inert here: the ariel server is off below.
-  approval.tools.entry_create: always
-  approval.tools.entry_publish: always
   # The panel rail is the operator's own view. Adding or removing a panel, and
   # registering a new one, changes what the next person sees, so each asks.
   approval.tools.add_panel_to_rail: always

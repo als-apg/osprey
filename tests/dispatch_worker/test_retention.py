@@ -302,24 +302,25 @@ def test_retention_loop_runs_one_iteration(tmp_path, monkeypatch):
     store = ArtifactStore(workspace_root=tmp_path)
 
     calls: list[float] = []
-    real_sleep = asyncio.sleep
 
     async def fake_sleep(interval):
-        # This patch replaces the PROCESS-global asyncio.sleep, and daemon
-        # threads left running by earlier tests in the same worker (uvicorn
-        # servers tick sleep(0.1), the epics-ca test loop, …) call it too.
-        # Intercept only this loop's own interval and pass everything else
-        # through, so a foreign thread's tick can neither pollute `calls`
-        # nor swallow the cancellation meant for the retention loop.
-        if interval != 123.0:
-            await real_sleep(interval)
-            return
         # Let the first sleep return so one sweep runs, then cancel the loop.
         calls.append(interval)
         if len(calls) >= 2:
             raise asyncio.CancelledError
 
-    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    # ``retention_loop`` awaits ``asyncio.sleep(...)`` through its own module-level
+    # ``asyncio`` name. Patch THAT name, never ``asyncio.sleep`` itself: the
+    # function is shared with every other event loop alive in the process, and a
+    # daemon thread left by an earlier test in the same worker would tick through
+    # the fake.
+    class _AsyncioForRetention:
+        sleep = staticmethod(fake_sleep)
+
+        def __getattr__(self, name):
+            return getattr(asyncio, name)
+
+    monkeypatch.setattr(retention, "asyncio", _AsyncioForRetention())
 
     async def drive():
         with pytest.raises(asyncio.CancelledError):
@@ -365,19 +366,21 @@ def test_retention_loop_re_resolves_a_callable_log_dir(tmp_path, monkeypatch):
         return answer
 
     calls: list[float] = []
-    real_sleep = asyncio.sleep
 
     async def fake_sleep(interval):
-        # Same passthrough as the test above: only this loop's own interval is
-        # intercepted, so a foreign thread's tick cannot drive the loop.
-        if interval != 123.0:
-            await real_sleep(interval)
-            return
         calls.append(interval)
         if len(calls) >= 3:
             raise asyncio.CancelledError
 
-    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    # Same scoped patch as the test above: the name replaced is the retention
+    # module's own, so no other event loop in the process sees the fake.
+    class _AsyncioForRetention:
+        sleep = staticmethod(fake_sleep)
+
+        def __getattr__(self, name):
+            return getattr(asyncio, name)
+
+    monkeypatch.setattr(retention, "asyncio", _AsyncioForRetention())
 
     async def drive():
         with pytest.raises(asyncio.CancelledError):

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from collections.abc import Sequence
@@ -122,6 +123,7 @@ def resolve_store_rel(store_dir: Path, workspace_dir: Path) -> PurePath | None:
     handler would drop every event and silently black out the file panel.
     There is no meaningful concealment to do in that configuration.
     """
+    store_rel: PurePath
     if store_dir.is_relative_to(workspace_dir):
         store_rel = store_dir.relative_to(workspace_dir)
     else:
@@ -195,7 +197,7 @@ class _WorkspaceHandler(FileSystemEventHandler):
         self._listings: dict[str, dict[str, ChangeStamp]] = {}
 
     def on_any_event(self, event: FileSystemEvent) -> None:
-        src_path = Path(event.src_path)
+        src_path = Path(os.fsdecode(event.src_path))
 
         # Filter ignored paths
         if self._is_ignored(src_path):

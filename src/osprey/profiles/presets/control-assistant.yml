@@ -288,6 +288,11 @@ config:
   # Same machine model as the mock connector, so `osprey sim apply` stays
   # consistent whichever connector is active.
   control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
+  # Fractional noise on the synthesised readings. Unset falls through to
+  # `control_system.connector.mock.noise_level`, and then to the simulator's
+  # own 0.01; `0` serves the channels flat, which is what a comparison of two
+  # reads wants. It reaches the container as VA_NOISE_LEVEL.
+  # control_system.connector.virtual_accelerator.noise_level: 0.01
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
   # `control-assistant-va-readwrite` persona is exactly this key.
@@ -344,6 +349,30 @@ config:
   # control_system.connector.epics.pva_channels: ["*:IMAGE*", "*:ARRAY*"]
   # control_system.connector.epics.pva_gateway.address: your-pva-gateway.example.com
   # control_system.connector.epics.pva_gateway.use_name_server: false
+  # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
+  # facility's own DOOCS environment already names, so the empty coordinate set
+  # is the point of this block rather than an omission — what is left is the
+  # four leaves every connector type answers.
+  # Write posture for the DOOCS machine. Same tri-state as the epics leaf
+  # above: stating it pins it, and only a literal true arms writes.
+  # control_system.connector.doocs.writes_enabled: false
+  # Limits posture for the DOOCS machine alone, both leaves required.
+  # control_system.connector.doocs.limits_checking.enabled: true
+  # control_system.connector.doocs.limits_checking.allow_unlisted_channels: false
+  # Property the target switch reads to prove this machine is reachable.
+  # control_system.connector.doocs.probe_channel: FACILITY/DEVICE/LOCATION/PROPERTY
+  # TANGO connector: one coordinate of its own, the device database, spelled
+  # `host:port`. Leave `tango_host` unset and PyTango reads the TANGO_HOST the
+  # environment already carries; write it to name a database that environment
+  # does not. The port is the database's own, not one of this deployment's.
+  # control_system.connector.tango.tango_host: your-tango-db.example.com:<db-port>
+  # Seconds a device call waits before it is given up on.
+  # control_system.connector.tango.timeout: 5.0
+  # The same four leaves as every other connector type, for the TANGO machine.
+  # control_system.connector.tango.writes_enabled: false
+  # control_system.connector.tango.limits_checking.enabled: true
+  # control_system.connector.tango.limits_checking.allow_unlisted_channels: false
+  # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
   # Target switch: how a running session moves between the connectors above.
   #
   # Seconds in-flight operations get to finish on the old target before it is
@@ -376,6 +405,23 @@ config:
   # `archiver.type: epics_archiver`.
   # archiver.epics_archiver.url: https://your-archiver.example.com:8443
   # archiver.epics_archiver.timeout: 60
+  # MongoDB archiver pointed at a store this deployment does NOT run. The
+  # coordinates above are derived from `va_archiver:`; spell them here instead
+  # to read an archive someone else keeps, and drop the `va_archiver:` block so
+  # this deployment does not record a second history beside it.
+  # archiver.mongodb_archiver.host: your-mongo.example.com
+  # archiver.mongodb_archiver.port: 27017
+  # archiver.mongodb_archiver.name: your-archive-database
+  # archiver.mongodb_archiver.collection: your-archive-collection
+  # archiver.mongodb_archiver.auth: your-auth-database
+  # archiver.mongodb_archiver.username: your-readonly-user
+  # archiver.mongodb_archiver.password_env: OSPREY_ARCHIVER_PASSWORD
+  # archiver.mongodb_archiver.timeout: 60
+  # DOOCS local history: like the DOOCS connector it takes no coordinates and
+  # reaches the ENS the environment names. Both knobs are optional — a centered
+  # moving average over this many seconds, and the read budget.
+  # archiver.doocs_archiver.avg_window: 20
+  # archiver.doocs_archiver.timeout: 60
 
   # ── Scan plans (Bluesky) ───────────────────────────────────────────────────
   # Both servers are off by default in OSPREY. Turn them on so the agent can
@@ -573,11 +619,6 @@ config:
   ariel.enhancement_modules.text_embedding.models:
     - name: nomic-embed-text
       dimension: 768
-  # IVFFlat `lists` for the vector index, chosen when the index is created.
-  # Rule of thumb: rows/1000 for corpora up to a million entries. It cannot be
-  # derived — `osprey ariel migrate` runs against an empty table — and changing
-  # it later needs the index dropped and recreated.
-  # ariel.enhancement_modules.text_embedding.index_lists: 224
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.

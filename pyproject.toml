@@ -252,6 +252,12 @@ dev = [
                        # CI unit lane both pass --timeout (see .github/workflows/ci.yml)
     "pytest-xdist",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
     "mypy",
+    # Stub distributions for the typeless third-party imports in src/. Without any
+    # one of them mypy stops with "errors prevented further checking" and examines
+    # no module at all.
+    "types-PyYAML",  # `yaml`
+    "types-Markdown",  # `markdown`
+    "types-aiofiles",  # `aiofiles`
     "pre-commit",
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
     # changes between minors, so an unpinned floor lets CI and the local hook
@@ -495,6 +501,15 @@ packages = ["src/osprey"]
 # Development tool configurations
 [tool.mypy]
 python_version = "3.11"
+# The source roots, searched in this order. `osprey_connectors` also sits in the
+# environment as an installed wheel; naming its source here is what makes a run
+# over a single file resolve the same packages a whole-tree run resolves, so both
+# report the same errors. `explicit_package_bases` is the half that makes the
+# roots count: it derives each module's name from them rather than from the
+# directory the file happens to live in.
+mypy_path = "src:packages/osprey-connectors/src"
+explicit_package_bases = true
+files = ["src", "packages/osprey-connectors/src"]
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # Gradual typing
@@ -541,6 +556,15 @@ module = [
 ]
 ignore_missing_imports = true
 
+# Sphinx is never imported by this tree; mypy reaches it by following bokeh's
+# own property module, and bokeh ships types, so `ignore_missing_imports` does
+# not apply. Sphinx's source uses syntax newer than the `python_version` above,
+# and parsing it raises a syntax error that aborts the entire run — skipping it
+# is what keeps the check able to report on this repository.
+[[tool.mypy.overrides]]
+module = ["sphinx.*"]
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -v --tb=short --strict-markers --color=yes"
@@ -574,6 +598,7 @@ markers = [
     "requires_google: Tests that require Google API key",
     "requires_cborg: Tests that require CBORG API key (local dev only — IP allowlist blocks GitHub Actions runners)",
     "requires_als_apg: Tests that require ALS-APG API key (the ALS-APG gateway; reachable from GitHub Actions runners)",
+    "requires_e2e_provider: Tests that build a deployment repo with the provider the run named in OSPREY_E2E_PROVIDER, and so need that provider's credential — the variable holding it comes from PROVIDER_API_KEYS, not from the test",
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
     "flaky: Rerun on failure to absorb nondeterminism outside the process — LLM sampling in e2e, OS event delivery in a couple of watcher tests (pytest-rerunfailures). Not for flaky unit tests; see tests/README.md",

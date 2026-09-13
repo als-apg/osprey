@@ -268,6 +268,7 @@ keys:
     default: ''
   services:
     evidence: 'get_config_value\("services\.postgresql", \{\}\)'
+    default: {}
   # The bluesky bridge's plan-lane blocks are INJECTOR-written, not template-
   # rendered: `_inject_bluesky` writes `services.bluesky` (and, on a two-lane
   # deploy, its `bluesky_va`/`bluesky_live` sibling) into an already-rendered
@@ -277,7 +278,6 @@ keys:
   # on every lane of every bluesky deploy — its disappearance is therefore a
   # real signal, where the omit-when-unset neighbours (`plan_dir`,
   # `excluded_plans`) would go silent for a configuration reason.
-    default: {}
   services.bluesky.devices_file:
     rendered: false
     evidence: '\{"devices_file": bluesky\.devices_file\}'
@@ -325,7 +325,7 @@ keys:
     default_note: >-
       the compose generator indexes service_config['path'] and raises when absent; the build injector writes ./services/qmd
   services.qmd.port:
-    evidence: '_positive_int\(\s*block\.get\("port"\)'
+    evidence: 'require_positive_int\(\s*block\.get\("port"\)'
     note: >-
       Defaults to the layout's `qmd` slot on the deployment's base, and
       deliberately NOT qmd's own 8181: the daemon hardcodes an IPv6-loopback
@@ -367,6 +367,7 @@ keys:
       missing or lacks a model under its exact `hf_<org>_<basename>` cache
       name — the one operator error that would otherwise surface only as an
       unhealthy container an hour later.
+    default: null
   # `services.qmd.bind_address` is deliberately absent: the sidecar publishes on
   # the project-wide `deployment.bind_address` like every other service. See
   # deployment/qmd_service.py for why a per-service key would be a hazard.
@@ -382,7 +383,6 @@ keys:
   # The query bounds are the one pair the deploy path never sees: they shape a
   # single agent query, so the graph MCP server reads them at query time and
   # their evidence anchors there instead.
-    default: null
   services.graphdb:
     evidence: '_graphdb_block\(config\)'
     default: null
@@ -482,10 +482,10 @@ keys:
       complete one. Bounds what a question costs the AGENT's context window
       rather than what it costs the store, which is why it is a query-time key
       and not a container one.
+    default: 200
   # `services.graphdb.bind_address` is deliberately absent for the same reason
   # qmd's is — every service publishes on the project-wide
   # `deployment.bind_address`, and graphdb reuses that one reading.
-    default: 200
   services.graphdb.database:
     rendered: false
     evidence: '_text\(section\.get\("database"\), DEFAULT_DATABASE, "services\.graphdb\.database"\)'
@@ -634,6 +634,8 @@ keys:
       fragment, so the evidence anchors on that alias rather than on the dotted
       path — the alias is what a rename would have to touch. Same shape as
       `services.bluesky.image`.
+    default: derived
+    default_note: osprey_images.va
   # The live stand-in is a SECOND INSTANCE of the virtual accelerator, not a
   # service of its own. `_inject_va` writes `services.live_standin` beside
   # `services.virtual_accelerator` — same `path`, same template directory, same
@@ -653,8 +655,6 @@ keys:
   # that one key, so its disappearance is a real signal in a way the baseline
   # VA's port — read only by the generic compose machinery, and recorded here
   # no more than `services.virtual_accelerator.port` is — would not be.
-    default: derived
-    default_note: osprey_images.va
   services.live_standin:
     rendered: false
     evidence: '_LIVE_STANDIN_SERVICE_KEY = LIVE_STANDIN_PORT_KEY\.split\("\."\)\[1\]'
@@ -708,10 +708,10 @@ keys:
     rendered: false
     evidence: 'OSPREY_QMD_IMAGE:-\{\{ services\.qmd\.image'
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
-
-  # ── Safety / approval ───────────────────────────────────────────────
     default: derived
     default_note: osprey_images.qmd
+
+  # ── Safety / approval ───────────────────────────────────────────────
   approval:
     all-templates: true
     evidence: 'config\.get\("approval", \{\}\)'
@@ -720,10 +720,18 @@ keys:
     all-templates: true
     covered-by: approval
     default: required
+    default_note: >-
+      true or false. true applies the approval hook, so every hook-wired tool
+      call follows the policies below; false applies none of them and leaves
+      those tools to the rendered settings.json permissions alone.
   approval.default_policy:
     all-templates: true
     evidence: 'default_policy'
     default: required
+    default_note: >-
+      always, skip or selective, applied to any hook-wired tool with no policy
+      of its own. selective is content-aware for `execute` and reads as always
+      everywhere else.
   approval.tools:
     covered-by: approval
     note: >-
@@ -754,21 +762,13 @@ keys:
   approval.tools.archiver_read: {evidence: 'archiver_read', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.execute: {covered-by: approval.tools, default: derived, default_note: falls through to approval.default_policy}
   approval.tools.setup_patch: {evidence: 'setup_patch', default: derived, default_note: falls through to approval.default_policy}
-  approval.tools.entry_create:
-    evidence: 'entry_create'
-    note: >-
-      Inert in hello_world: that template disables the ariel server, so the
-      tool never exists. Harmless (fail-closed either way); recorded so it is
-      not mistaken for drift.
-    default: derived
-    default_note: falls through to approval.default_policy
+  approval.tools.entry_create: {evidence: 'entry_create', default: derived, default_note: falls through to approval.default_policy}
   approval.tools.entry_publish:
     evidence: 'entry_publish'
     note: >-
       The second half of the logbook write: entry_create drafts, entry_publish
       writes the entry through to the facility's logbook. Both carry the
-      approval hook, so both belong here. Inert in hello-world for the same
-      reason entry_create is.
+      approval hook, so both belong here.
     default: derived
     default_note: falls through to approval.default_policy
   # The panel-rail verbs. Spelled in exactly the three presets that ship an
@@ -797,9 +797,13 @@ keys:
       live false in hello-world. It is a posture-floor key, so every preset has
       to state it either way — which is what makes it parity-required now,
       where under the templates it was a per-template divergence.
+    default: required
+    default_note: >-
+      true or false. true logs one line per hook call to stderr and appends to
+      .claude/hooks/hook_debug.jsonl, which is what the web terminal's Safety
+      panel hook feed reads; false writes neither.
 
   # ── Control system ──────────────────────────────────────────────────
-    default: required
   control_system: {evidence: 'get_config_value\("control_system", \{\}\)', default: {}}
   control_system.type:
     evidence: 'get_config_value\("control_system\.type", "mock"\)'
@@ -911,6 +915,22 @@ keys:
   # noisier machine authors them itself.
   control_system.connector.mock.response_delay_ms: {rendered: false, evidence: 'response_delay_ms', default: 10}
   control_system.connector.mock.noise_level: {rendered: false, evidence: 'noise_level', default: 0.01}
+  control_system.connector.virtual_accelerator.noise_level:
+    rendered: false
+    evidence: 'va_block\.get\("noise_level", mock_block\.get\("noise_level"\)\)'
+    note: >-
+      Fractional noise on the readings the simulator synthesises — the one knob
+      deciding whether a reading looks alive or flat, so it is a config key and
+      not only a container variable. The build renders it as the default of the
+      compose file's `VA_NOISE_LEVEL` interpolation, which is why the evidence
+      anchors on the resolver in `deployment/compose_generator.py` rather than
+      on the entrypoint that consumes the variable: an exported VA_NOISE_LEVEL
+      still outranks it, so the variable is the carrier and this key is the
+      surface. Commented in `control-assistant`, so nothing renders it.
+    default: derived
+    default_note: >-
+      falls through to control_system.connector.mock.noise_level, and then to the
+      entrypoint's own 0.01
   control_system.connector.epics: {covered-by: control_system.connector, default: n/a}
   control_system.connector.epics.timeout: {covered-by: control_system.connector.epics, default: 5.0}
   control_system.connector.epics.step_read_timeout_s:
@@ -961,6 +981,24 @@ keys:
   control_system.connector.epics.gateways.write_access.address: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: ''}
   control_system.connector.epics.gateways.write_access.port: {rendered: false, covered-by: control_system.connector.epics.gateways.write_access, default: 5064}
   control_system.connector.epics.gateways.write_access.use_name_server: {rendered: false, evidence: 'use_name_server', default: false}
+  # The DOOCS and TANGO connector blocks. No preset renders either one —
+  # `control-assistant` documents both as commented examples — so the parents
+  # and every leaf below them are `rendered: false` together.
+  control_system.connector.doocs: {rendered: false, covered-by: control_system.connector, default: n/a}
+  control_system.connector.tango: {rendered: false, covered-by: control_system.connector, default: n/a}
+  control_system.connector.tango.tango_host:
+    rendered: false
+    evidence: 'config\.get\("tango_host"\)'
+    note: >-
+      The TANGO device database this deployment speaks to, written `host:port`.
+      It is the ONE coordinate the TANGO connector takes; everything else in
+      its block is a leaf every connector type answers. DOOCS has no
+      counterpart at all, because doocs4py addresses the ENS its own
+      environment names.
+    default: derived
+    default_note: >-
+      unset leaves PyTango reading the TANGO_HOST already in the container's environment
+  control_system.connector.tango.timeout: {rendered: false, covered-by: control_system.connector.tango, default: 5.0}
   control_system.connector.virtual_accelerator: {covered-by: control_system.connector, default: n/a}
   control_system.connector.virtual_accelerator.timeout: {covered-by: control_system.connector.virtual_accelerator, default: 5.0}
   # The VA connector subclasses the EPICS one and hands its own block to
@@ -1039,6 +1077,23 @@ keys:
       No longer forward-declared: the switch's host manager reads it out of the
       resolved connector block, which is where the evidence anchors.
     default: ''
+  control_system.connector.doocs.probe_channel:
+    rendered: false
+    evidence: '"probe_channel": str\(block\.get\(PROBE_CHANNEL_KEY\)'
+    note: >-
+      The same key read through the doocs block: the host manager takes it out
+      of whichever connector block is active, so a DOOCS deployment names a
+      DOOCS property here. Commented in `control-assistant`, and an unnamed one
+      leaves that target un-switchable-to rather than falsely eligible.
+    default: ''
+  control_system.connector.tango.probe_channel:
+    rendered: false
+    evidence: '"probe_channel": str\(block\.get\(PROBE_CHANNEL_KEY\)'
+    note: >-
+      The same key read through the tango block, naming a device attribute
+      rather than a channel. Commented in `control-assistant` for the same
+      reason: which attribute answers is a facility fact.
+    default: ''
   control_system.connector.virtual_accelerator.writes_enabled:
     rendered: false
     evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
@@ -1069,6 +1124,25 @@ keys:
       decision that cannot ship pre-made, so no shipped preset ever sets this
       one true; `control-assistant-readonly` writes it false into an applied
       project's config.yml, which is the one way a build produces it.
+    default: derived
+    default_note: falls through to control_system.writes_enabled
+  control_system.connector.doocs.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      The same leaf reached through the doocs block — one type-keyed resolver
+      answers for every connector type, so the reader cited here is the reader
+      cited above. Commented in `control-assistant`: arming writes against a
+      DOOCS machine is a facility decision, so no shipped preset states it.
+    default: derived
+    default_note: falls through to control_system.writes_enabled
+  control_system.connector.tango.writes_enabled:
+    rendered: false
+    evidence: 'block\[TYPE_WRITES_ENABLED_LEAF\] is True'
+    note: >-
+      The same leaf reached through the tango block, with the same tri-state
+      reading and the same single reader. Commented in `control-assistant` for
+      the same reason the doocs one is.
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.virtual_accelerator.limits_checking:
@@ -1159,6 +1233,56 @@ keys:
       as strict, which the target-switch gate refuses by naming this key.
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.doocs.limits_checking:
+    rendered: false
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      The same block reached through the doocs block, overriding whole the way
+      every per-type block does. Commented in `control-assistant`: a DOOCS
+      machine's limits posture is the facility's to state.
+    default: derived
+    default_note: falls through to control_system.limits_checking
+  control_system.connector.doocs.limits_checking.enabled:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the doocs block.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.doocs.limits_checking.allow_unlisted_channels:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      The same leaf and the same shared reader for the doocs block; the write
+      paths allow only on a literal `true`.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.tango.limits_checking:
+    rendered: false
+    evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
+    note: >-
+      The same block reached through the tango block, with the same
+      whole-block override semantics. Commented in `control-assistant` for the
+      same reason the doocs one is.
+    default: derived
+    default_note: falls through to control_system.limits_checking
+  control_system.connector.tango.limits_checking.enabled:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(enabled_leaf\)\)'
+    note: >-
+      The same leaf, same absent/unreadable reading and the same shared reader,
+      for the tango block.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
+  control_system.connector.tango.limits_checking.allow_unlisted_channels:
+    rendered: false
+    evidence: '_limits_leaf\(block\.get\(allow_unlisted_leaf\)\)'
+    note: >-
+      The same leaf and the same shared reader for the tango block; the write
+      paths allow only on a literal `true`.
+    default: no-fallback
+    default_note: an unstated leaf is not False — the write paths fail closed
   control_system.connector.live_standin.limits_checking:
     rendered: false
     evidence: 'limits = block\[LIMITS_CHECKING_LEAF\]'
@@ -1191,10 +1315,10 @@ keys:
       the same shared reader; the shipped `control-assistant` preset writes no
       live_standin block, so a stand-in target there answers the
       deployment-wide posture and stays strict where the deployment is.
-
-  # ── Control-system target switch ────────────────────────────────────
     default: no-fallback
     default_note: an unstated leaf is not False — the write paths fail closed
+
+  # ── Control-system target switch ────────────────────────────────────
   control_system.target_switch:
     evidence: 'section\.get\("target_switch"\)'
     note: >-
@@ -1236,11 +1360,11 @@ keys:
       the eligibility gate reads it, and the evidence anchors on that gate's
       own spelling of the key rather than on the leaf the CLI writes it
       through, because the gate is what a rename would have to keep in step.
-
-  # ── Archiver ────────────────────────────────────────────────────────
     default: derived
     default_note: >-
       absent or empty means unacknowledged; presence alone is the acknowledgement, never a value comparison
+
+  # ── Archiver ────────────────────────────────────────────────────────
   archiver: {evidence: 'get_config_value\("archiver", \{\}\)', default: {}}
   # Evidenced by the factory's own diagnostic for an unset type, not by the name
   # of whichever connector happens to be the default. The literal 'mock_archiver'
@@ -1259,13 +1383,30 @@ keys:
     rendered: false
     evidence: 'epics_archiver'
     note: >-
-      Commented placeholder since the ALS-URL strip: a facility's Archiver
-      Appliance cannot be guessed, so authoring the block travels with the
-      flip to `type: epics_archiver`. The connector refuses to start without
-      a `url`, which keeps the unauthored state honest.
+      Commented placeholder: a facility's Archiver Appliance cannot be
+      guessed, so authoring the block travels with the flip to
+      `type: epics_archiver`. The connector refuses to start without a
+      `url`, which keeps the unauthored state honest.
     default: {}
   archiver.epics_archiver.url: {covered-by: archiver.epics_archiver, rendered: false, default: 'no-fallback', default_note: "the connector raises ValueError('archiver URL is required for EPICS archiver')"}
   archiver.epics_archiver.timeout: {covered-by: archiver.epics_archiver, rendered: false, default: 60}
+  archiver.doocs_archiver:
+    rendered: false
+    evidence: 'doocs_archiver'
+    note: >-
+      DOOCS local history. Like the DOOCS connector it takes no coordinates —
+      doocs4py reaches the ENS its own environment names — so the block holds
+      only the two optional knobs below. Commented in `control-assistant`,
+      which reads the archive it records itself.
+    default: {}
+  archiver.doocs_archiver.avg_window:
+    rendered: false
+    evidence: 'config\.get\("avg_window", None\)'
+    note: >-
+      Centered moving average, in seconds, applied to the samples a read
+      returns. Unset returns the raw samples.
+    default: null
+  archiver.doocs_archiver.timeout: {rendered: false, covered-by: archiver.doocs_archiver, default: 60}
   # The stored archive's connection block, rendered by the control_assistant
   # template and written from the profile's `va_archiver:` block at build time.
   # The mongodb_archiver connection block is `rendered: false` as a set: the
@@ -1361,11 +1502,11 @@ keys:
       the key's own name, api_calls_dir, as a directory under agent_data.base_dir
   file_paths.registry_exports_dir:
     evidence: 'get_agent_dir\("registry_exports_dir"\)'
-
-  # ── API providers ───────────────────────────────────────────────────
     default: derived
     default_note: >-
       the key's own name, registry_exports_dir, as a directory under agent_data.base_dir
+
+  # ── API providers ───────────────────────────────────────────────────
   api:
     evidence: 'api_providers'
     default: {}
@@ -1386,9 +1527,9 @@ keys:
       build/claude_code_resolver.py, which is the quoted evidence. The guard
       stays stricter than the runtime on purpose — a shipped template should
       map every tier rather than lean on that fallback.
+    default: {}
 
   # ── Claude Code ─────────────────────────────────────────────────────
-    default: {}
   claude_code:
     all-templates: true
     evidence: 'get_config_value\("claude_code", \{\}\)'
@@ -1443,6 +1584,9 @@ keys:
     all-templates: true
     covered-by: claude_code.telemetry
     default: required
+    default_note: >-
+      true or false. true emits the agent's OTLP logs and metrics to the
+      backend named below; false emits none and the rest of the block is inert.
   claude_code.telemetry.backend:
     evidence: 'telemetry_cfg\.get\("backend"\) == "openobserve"'
     default: null
@@ -1721,18 +1865,6 @@ keys:
   ariel.enhancement_modules.text_embedding.enabled: {covered-by: ariel.enhancement_modules.text_embedding, default: false}
   ariel.enhancement_modules.text_embedding.provider: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
   ariel.enhancement_modules.text_embedding.models: {covered-by: ariel.enhancement_modules.text_embedding, default: null}
-  ariel.enhancement_modules.text_embedding.index_lists:
-    rendered: false
-    evidence: 'module_config\.settings\.get\("index_lists"\)'
-    note: >-
-      IVFFlat `lists` for the pgvector index, fixed when the index is created.
-      Commented in the two presets that ship an `ariel:` block: the rule of
-      thumb is rows/1000, and how many entries a facility's logbook holds is
-      not something the migration can see — `osprey ariel migrate` runs against
-      an empty table. Changing it afterwards needs the index dropped and
-      recreated; a value that is not a positive integer is refused when the
-      migration is built.
-    default: 224
   # The markdown mirror the qmd sidecar indexes — one file per logbook entry,
   # written during ingestion. Paired with `ariel.search_modules.hybrid` above: the
   # export without the search mode indexes a corpus nobody queries, and the
@@ -1784,6 +1916,10 @@ keys:
   facility_knowledge.bundle_path:
     evidence: 'get_config_value\("facility_knowledge\.bundle_path", None\)'
     default: required
+    default_note: >-
+      A path to the bundle, absolute or resolved against the project directory.
+      None is derived: a facility_knowledge section naming no bundle has
+      nothing to serve, so the knowledge commands refuse rather than guess.
   artifact_server: {all-templates: true, evidence: 'config\.get\("artifact_server"\) or \{\}', default: {}}
   artifact_server.host: {all-templates: true, covered-by: artifact_server, default: 127.0.0.1}
   artifact_server.port: {covered-by: artifact_server, default: derived, default_note: the layout's artifact slot at this deployment's port base}
@@ -1817,6 +1953,7 @@ keys:
     default: 200
   artifact_server.example_artifact:
     evidence: 'get_config_value\("artifact_server\.example_artifact"'
+    default: false
 
   # ── Health suite ────────────────────────────────────────────────────
   # The `health:` section is unset in all five templates — the built-in checks
@@ -1825,7 +1962,6 @@ keys:
   # reference names as dotted paths are carried here; the scalar suite settings
   # (`suite_timeout_s`, `on_demand_timeout_s`, `interval_s`) are documented as
   # bare leaf names and read straight off the same mapping.
-    default: false
   health.categories:
     rendered: false
     evidence: 'categories_raw = health\.get\("categories"\) or \{\}'
@@ -1859,11 +1995,11 @@ keys:
       re-declare its MCP servers as probes. Only `auto.mcp.enabled` and
       `auto.mcp.url_key` are read; anything else under it is ignored by design,
       which is why the leaves carry no entries of their own.
-
-  # ── Web UI / CLI ────────────────────────────────────────────────────
     default: derived
     default_note: >-
       the default AutoMcpSettings: mcp.enabled true, url_key host_url, not explicit
+
+  # ── Web UI / CLI ────────────────────────────────────────────────────
   web: {evidence: 'config\.get\("web", \{\}\)', default: {}}
   web.theme:
     evidence: 'get_config_value\("web\.theme", DEFAULT_WEB_THEME\)'
@@ -2343,6 +2479,9 @@ deleted:
   # removed by this branch. Distinct from the dispatch-profile `facility_name`
   # field (build_profile_schema.py:166), which is a different surface and stays.
 - system.facility_name
+  # The embedding index is HNSW, which takes no list count, so there is no
+  # number left for a deployment to author.
+- ariel.enhancement_modules.text_embedding.index_lists
 
 # ---------------------------------------------------------------------------
 # deleted_commented_examples — the two keys above whose COMMENTED example in a
@@ -2584,16 +2723,15 @@ render_contexts:
     panel_presets_set: web.presets
   expected_union_size: 355
   note_union_size: >-
-    Informational, not an assertion — it moves whenever the framework template
-    or a preset gains or loses a key, and the guard reports a diff against it
-    rather than failing on it. Because it cannot fail, it is a signal only while
-    it is re-derived whenever a source's key set changes: a counter left behind
-    reads as an agreement it has not earned.
+    An assertion: the guard derives the union on every run and fails when this
+    figure disagrees with it, or when it is missing. It moves whenever the
+    framework template or a preset gains or loses a key, so the commit that
+    moves it records the new number here.
 
-    Re-derive it by running the guard and recording the number it reports, never
-    by adding an expected delta to the number already written here. The union is
-    taken over the rendered sources, so a change in what those sources are moves
-    it by an amount arithmetic on the previous figure cannot predict.
+    The failure prints the number to write down. Record that number, never a
+    delta added to the figure already written here: the union is taken over the
+    rendered sources, so a change in what those sources are moves it by an
+    amount arithmetic on the previous figure cannot predict.
 
 # ---------------------------------------------------------------------------
 # governed_sets — ADDENDUM 2. Two safety stanzas make EXHAUSTIVE claims that no

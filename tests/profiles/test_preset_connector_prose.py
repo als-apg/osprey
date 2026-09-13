@@ -11,7 +11,8 @@ introduces the key and lists its alternatives. Inside that block every
 double-quoted lower_snake token is a type name; elsewhere in the file a quoted
 token is as likely to be an approval policy or a persona id.
 
-Three rules, and the third is what keeps a partial list honest:
+Four rules. The third keeps a partial list honest; the fourth keeps the
+complete one from being a list of names with nothing behind them:
 
 1. every type name the block mentions is a type the framework actually ships —
    a renamed or deleted connector cannot be left behind in the copy;
@@ -20,7 +21,11 @@ Three rules, and the third is what keeps a partial list honest:
 3. a block that mentions only some of them points the reader at
    ``osprey config --defaults``, so a short list never reads as a complete one,
    and that ledger really does name every type — a pointer at a surface that
-   enumerates nothing is worse than the short list it excuses.
+   enumerates nothing is worse than the short list it excuses;
+4. every type the reference document names, it also SHOWS: at least one
+   ``control_system.connector.<type>.`` (or ``archiver.<type>.``) line, live or
+   commented, so a reader who picks a type off the list finds a stanza to start
+   from rather than a name and nowhere to write it.
 """
 
 from __future__ import annotations
@@ -62,6 +67,14 @@ ADVERTISED = {
     "archiver.type": frozenset(CLI_ARCHIVER_TYPES),
 }
 
+#: Where a type's own stanza is written, per key. A stanza is recognised by its
+#: dotted prefix rather than by any particular leaf: which leaves a connector
+#: takes is the connector's business, and only the presence of a block is.
+STANZA_PREFIX = {
+    "control_system.type": "control_system.connector.{name}.",
+    "archiver.type": "archiver.{name}.",
+}
+
 _QUOTED_TOKEN_RE = re.compile(r'"([a-z][a-z0-9_]*)"')
 #: The ledger writes prose, and prose quotes a name in backticks.
 _BACKTICK_TOKEN_RE = re.compile(r"`([a-z][a-z0-9_]*)`")
@@ -91,7 +104,21 @@ def _type_block(preset: str, key: str) -> tuple[set[str], str] | None:
     return None
 
 
+def _stanza_lines(preset: str, prefix: str) -> list[str]:
+    """The lines of *preset* that WRITE a *prefix*-rooted key, live or commented.
+
+    A key is written only at the head of a line, so prose that names a block in
+    passing ("its coordinates, ``archiver.mongodb_archiver.*``, are derived")
+    does not count as showing one.
+    """
+    lines = (PRESET_DIR / f"{preset}.yml").read_text().splitlines()
+    return [line for line in lines if line.strip().lstrip("#").strip().startswith(prefix)]
+
+
 _CASES = [(preset, key) for preset in ROOT_PRESETS for key in SHIPPED]
+
+#: One case per advertised type, read from the registry rather than listed here.
+_STANZA_CASES = sorted((key, name) for key in ADVERTISED for name in ADVERTISED[key])
 
 
 @pytest.mark.parametrize(("preset", "key"), _CASES)
@@ -109,6 +136,23 @@ def test_the_reference_preset_names_every_shipped_type(key: str) -> None:
     block = _type_block(REFERENCE_PRESET, key)
     assert block is not None
     assert ADVERTISED[key] <= block[0]
+
+
+@pytest.mark.parametrize(("key", "name"), _STANZA_CASES)
+def test_every_advertised_type_has_an_example_stanza(key: str, name: str) -> None:
+    """A type the reference document advertises carries a block to copy.
+
+    Naming a connector in the "the alternatives are ..." comment and then
+    showing nothing for it leaves the reader to invent the block's spelling
+    from the docs. A commented stanza counts: it is the starting point, not a
+    rendered value. A newly registered type with no stanza reds here.
+    """
+    prefix = STANZA_PREFIX[key].format(name=name)
+
+    assert _stanza_lines(REFERENCE_PRESET, prefix), (
+        f"{REFERENCE_PRESET} advertises {name!r} for {key} but shows no "
+        f"{prefix}* line to start from"
+    )
 
 
 @pytest.mark.parametrize(("preset", "key"), _CASES)

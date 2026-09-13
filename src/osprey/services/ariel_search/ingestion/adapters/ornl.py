@@ -1,7 +1,8 @@
-"""ORNL Logbook ingestion adapter.
+"""ORNL logbook reference format ingestion adapter.
 
-This module provides the adapter for Oak Ridge National Laboratory
-electronic logbook system.
+This module provides the adapter for the ORNL logbook reference format. It
+reads that format's JSON shape; a facility running such a logbook points the
+adapter at its own source URL.
 """
 
 import json
@@ -22,7 +23,7 @@ logger = get_logger("ariel")
 
 
 class ORNLLogbookAdapter(FacilityAdapter):
-    """Adapter for Oak Ridge National Laboratory electronic logbook system."""
+    """Adapter for the ORNL logbook reference format."""
 
     def __init__(self, config: "ARIELConfig") -> None:
         """Initialize the adapter."""

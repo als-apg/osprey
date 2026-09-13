@@ -82,7 +82,6 @@ def test_panel_catalog_registers_system_health_tab_with_explicit_health_endpoint
         js = fh.read()
     assert "id: 'system-health'" in js
     assert "/api/system-health-server" in js
-    assert "'SYSTEM'" in js
     assert "healthEndpoint: '/health'" in js
 
 

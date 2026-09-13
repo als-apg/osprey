@@ -204,7 +204,7 @@ Search modules are leaf-level functions that execute a single search strategy ag
 
          qmd normalises the document paths it reports: ``_`` and ``%`` both become ``-``, runs collapse, and a leading one is dropped. ARIEL rehydrates each hit from the document's title rather than the reported path, so the entries you get back are correct. But two entry IDs that differ *only* in characters qmd collapses --- ``beam_current_setpoint`` and ``beam-current-setpoint``, say --- index as one document, and one of them becomes unreachable through this mode.
 
-         Over the real 134,996-entry ALS logbook the measured collision rate is **0.0000%**: every ALS entry ID is a 4-6 digit decimal string, so no real pair can collide. This matters only for a facility whose entry IDs are not numeric.
+         Over a real 134,996-entry logbook the measured collision rate is **0.0000%**: every entry ID there is a 4-6 digit decimal string, so no real pair can collide. This matters only for a facility whose entry IDs are not numeric.
 
 **Registering a custom search module:**
 

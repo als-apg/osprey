@@ -66,6 +66,7 @@ import requests
 from fastapi import Request
 
 from osprey.agent_runner.project_paths import claude_project_dir
+from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
@@ -506,66 +507,6 @@ _PROBE_INIT_SCRIPT = """
 _DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
 
 
-#: Resolves once the dock has finished arranging the shell: the boot layout is
-#: announced final AND the console has held its place for a frame after it. The
-#: announcement lands in the same frame as the last re-parent, so the flag alone
-#: is the boundary rather than the far side of it.
-_DOCK_SETTLED_JS = """
-async (budgetMs) => {
-  const dock = await import('/static/js/dock-workspace.js');
-  const place = () => {
-    let out = '';
-    for (let n = document.querySelector('#operator-container'); n; n = n.parentElement) {
-      out += '>' + (n.id || n.className || n.tagName);
-    }
-    return out;
-  };
-  const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
-  const deadline = Date.now() + budgetMs;
-  let previous = null;
-  while (Date.now() < deadline) {
-    await frame();
-    const current = place();
-    if (dock.bootLayoutSettled() && current === previous) return true;
-    previous = current;
-  }
-  return false;
-}
-"""
-
-
-def _wait_for_dock_settled(page: Page) -> None:
-    """Block until the dock has finished arranging the shell.
-
-    The terminal card carrying both ``#terminal-container`` and
-    ``#operator-container`` is server-rendered into ``#dock-panel-sources`` and
-    re-parented twice on the way to its tile: once when the dock adopts the
-    subtree, and again when the boot layout is applied over the default
-    arrangement. The console mounts independently of either, so its textarea is
-    on screen and actionable before the shell is still.
-
-    Typing into it there is lost rather than delayed. Playwright checks
-    actionability and then writes, and a re-parent between those two steps takes
-    focus off the element, so the text is never inserted: the box reads empty,
-    ``submit`` finds no prompt and returns, and the turn never starts. The
-    equivalent hazard for a keystroke is the event landing on whatever the
-    detached node left behind.
-
-    Both moves are boot-only, so waiting for them here puts every re-parent
-    ahead of every interaction rather than between two of them.
-
-    Call this AFTER the page's own mount check, never before. The wait reads the
-    dock's state by importing its module, and a caller that has not yet waited
-    for anything makes that a cold fetch of a module graph still being loaded --
-    which fails outright rather than waiting, and reports a fetch error in place
-    of whatever the test was doing.
-    """
-    assert page.evaluate(_DOCK_SETTLED_JS, 10_000), (
-        "the dock never settled: the boot layout was not announced final, or the "
-        "console was still being re-parented when the wait ran out"
-    )
-
-
 def _open_chat_page(opener, base_url: str, query: str = "") -> Page:
     """Open a fresh page (on a browser or a context) and wait for the console."""
     page: Page = opener.new_page()
@@ -575,7 +516,7 @@ def _open_chat_page(opener, base_url: str, query: str = "") -> Page:
     # initChat builds the console on DOMContentLoaded; the input row is the
     # last thing appended, so its presence means the console is mounted.
     expect(page.locator(f"{_OP} .op-input-area textarea")).to_be_visible(timeout=10_000)
-    _wait_for_dock_settled(page)
+    wait_for_dock_settled(page)
     return page
 
 
@@ -586,7 +527,7 @@ def _open_expert_page(opener, base_url: str, query: str = "") -> Page:
     page.add_init_script(_PROBE_INIT_SCRIPT)
     page.goto(f"{base_url}{query}", wait_until="domcontentloaded")
     expect(page.locator("#terminal-container .xterm")).to_be_visible(timeout=10_000)
-    _wait_for_dock_settled(page)
+    wait_for_dock_settled(page)
     return page
 
 

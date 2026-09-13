@@ -145,6 +145,15 @@ env:
   # honest outcome — a baked-in host would instead send that fork's traffic,
   # and its API key, to somebody else's gateway.
   ALS_APG_BASE_URL: ${{ vars.ALS_APG_BASE_URL }}
+  # The provider every lane that collects tests/e2e/ builds its deployment
+  # repos with. Stated once here rather than per lane, because a run that names
+  # none is refused at collection — no constant stands behind the variable —
+  # and one name for every lane is the only way the credential a lane holds and
+  # the gateway it builds against stay the same fact. A fork driving its own
+  # gateway changes this one line. A plain name, not a vars. lookup: a fork that
+  # has not set the variable would get an empty value and refuse every e2e lane
+  # rather than run them.
+  OSPREY_E2E_PROVIDER: als-apg
 
 jobs:
   test:

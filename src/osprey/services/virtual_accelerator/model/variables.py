@@ -55,7 +55,6 @@ from osprey.services.virtual_accelerator.lattice.strengths import (
     QUADRUPOLE_FAMILIES,
     SEXTUPOLE_FAMILIES,
     StrengthMap,
-    current_address,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -209,7 +208,7 @@ class CurrentSetpointVariable(PyATWritableScalarVariable):
             fraction = field_error * float(element.Length) / float(element.BendingAngle) + 1.0
         else:
             fraction = float(element.PolynomB[2]) / self._strength_map.baked(self.element_name)
-        i_nom = self._strength_map.i_nom(current_address(self.family, self.device_id))
+        i_nom = self._strength_map.i_nom_for(self.family, self.device_id)
         return i_nom * fraction
 
 

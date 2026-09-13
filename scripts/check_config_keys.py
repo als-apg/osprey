@@ -30,6 +30,10 @@ Failure modes
                          that is not a posture-floor key (or a posture-floor
                          key without one), or a ``derived`` / ``no-fallback``
                          entry with no ``default_note``
+9. ``union-size``        the manifest's record of how many paths the render
+                         matrix produces is stale, or missing
+10. ``layout``           a ``default:`` line stranded below a comment block
+                         instead of sitting inside the entry it belongs to
 
 plus the manifest's own consistency checks (covered-by chains, evidence
 vacuity, governed sets, keeps, absent paths) and a self-test
@@ -197,19 +201,17 @@ REQUIRED_DEFAULT_KEYS = POSTURE_FLOOR_KEYS | {"facility_knowledge.bundle_path"}
 #: ``no-fallback``  the reader supplies none: it raises, or the surface goes
 #:                  off, or nothing reads the key at all yet.
 #:
-#: ``derived`` and ``no-fallback`` say nothing on their own, so each one must
-#: carry a ``default_note:`` naming the derivation or the consequence. Without
-#: that rule the two would be an escape hatch from reading the code, which is
-#: the whole point of the column.
-#:
-#: ``required`` may carry one and need not: "no fallback exists" is a complete
-#: answer, but a key whose admissible values are a closed set has nowhere else
-#: to name them for a reader holding only the ledger. A literal default may
-#: not: the literal is the whole answer, so prose beside one is an excuse for
-#: it or a sign the sentinel is wrong.
+#: ``derived``, ``no-fallback`` and ``required`` say nothing on their own, so
+#: each one must carry a ``default_note:`` naming the derivation, the
+#: consequence, or the values the key accepts. Without that rule the three
+#: would be an escape hatch from reading the code, which is the whole point of
+#: the column: "you must set this" leaves a reader holding only the ledger with
+#: nowhere to learn what may be set. A literal default carries no note: the
+#: literal is the whole answer, so prose beside one is an excuse for it or a
+#: sign the sentinel is wrong. ``n/a`` carries none either — a ``covered-by``
+#: leaf is answered by its parent.
 DEFAULT_SENTINELS = frozenset({"required", "n/a", "derived", "no-fallback"})
-DEFAULT_SENTINELS_NEEDING_NOTE = frozenset({"derived", "no-fallback"})
-DEFAULT_SENTINELS_ALLOWING_NOTE = DEFAULT_SENTINELS_NEEDING_NOTE | {"required"}
+DEFAULT_SENTINELS_NEEDING_NOTE = frozenset({"derived", "no-fallback", "required"})
 
 
 def sentinel_lookalike(value: object) -> str | None:
@@ -691,10 +693,10 @@ class ConfigKeyGuard:
            refusal that no longer happens, and a floor key that loses
            ``required`` invites a fallback to be invented for something the
            build refuses to guess at;
-        3. ``derived`` and ``no-fallback`` carry a ``default_note:``,
-           ``required`` may carry one, a literal carries none, and a near-miss
-           spelling of a sentinel (``no_fallback``, ``Derived``) is refused
-           rather than waved through as the literal string it technically is.
+        3. ``derived``, ``no-fallback`` and ``required`` carry a
+           ``default_note:``, a literal carries none, and a near-miss spelling
+           of a sentinel (``no_fallback``, ``Derived``) is refused rather than
+           waved through as the literal string it technically is.
         """
         keys = self.manifest["keys"]
         for key, spec in keys.items():
@@ -714,22 +716,21 @@ class ConfigKeyGuard:
                 )
                 continue
             needs_note = isinstance(value, str) and value in DEFAULT_SENTINELS_NEEDING_NOTE
-            may_note = isinstance(value, str) and value in DEFAULT_SENTINELS_ALLOWING_NOTE
             has_note = bool(str(spec.get("default_note") or "").strip())
             if needs_note and not has_note:
                 self.fail(
                     "default",
                     f"{key} is {value!r} but carries no default_note naming the "
-                    f"derivation or the consequence",
+                    f"derivation, the consequence, or the values it accepts",
                 )
-            elif has_note and not may_note:
+            elif has_note and not needs_note:
                 # A note on a literal reads as an excuse for it. The literal is
                 # the whole answer, or it is the wrong sentinel.
                 self.fail(
                     "default",
                     f"{key} carries a default_note but its default is the literal "
                     f"{value!r}; a note belongs only on "
-                    f"{sorted(DEFAULT_SENTINELS_ALLOWING_NOTE)}",
+                    f"{sorted(DEFAULT_SENTINELS_NEEDING_NOTE)}",
                 )
 
         declared = {
@@ -1011,6 +1012,45 @@ class ConfigKeyGuard:
 
     # ── manifest self-consistency ───────────────────────────────────────
 
+    def check_manifest_layout(self) -> None:
+        """A ``default:`` line belongs inside its entry, never below a comment.
+
+        YAML binds a line that follows a comment block to whatever entry
+        precedes the comment, so a stray ``default:`` reads correctly today and
+        is one insertion away from reading wrong: an entry added between the
+        comment and the stray line silently takes the default, and
+        ``check_defaults`` then reports the wrong key as undefaulted. The fault
+        is invisible in the parsed mapping, so this check reads the ledger as
+        text.
+
+        Any comment line counts, not only a ``# ── section`` header. The
+        fragility is the comment standing between a line and its entry, not
+        which kind of comment it is.
+        """
+        path = self.root / "src" / "osprey" / "profiles" / MANIFEST_FILENAME
+        if not path.exists():
+            self.fail(
+                "layout",
+                f"no manifest file at {path}: the guard executes that ledger, so its "
+                f"absence is a fault rather than a check with nothing to read",
+            )
+            return
+        comment: tuple[int, str] | None = None
+        for number, line in enumerate(path.read_text().splitlines(), 1):
+            if re.match(r"^\s*#", line):
+                comment = (number, line.strip())
+            elif not line.strip():
+                continue
+            else:
+                if comment is not None and re.match(r"^\s*default(_note)?:", line):
+                    self.fail(
+                        "layout",
+                        f"line {number} ({line.strip()!r}) follows the comment on line "
+                        f"{comment[0]} ({comment[1]!r}) instead of sitting inside its own "
+                        f"entry; an entry inserted between the two would steal it",
+                    )
+                comment = None
+
     def check_branch_self_test(self) -> None:
         """Each Jinja conditional branch must still be covered by the matrix.
 
@@ -1048,14 +1088,34 @@ class ConfigKeyGuard:
                 )
 
     def check_union_size(self) -> None:
+        """The manifest's record of the union's size is an assertion.
+
+        A count nothing checks is a count two branches can each re-derive
+        against a different base, leaving a merged figure that agrees with
+        neither while still reading as a fact. Recording no count at all is the
+        same silence under another name, so it fails too: the field is not an
+        opt-out.
+
+        The failure prints the derived number first, which is the whole fix —
+        one line in the manifest, nothing to re-run.
+        """
         expected = self.manifest["render_contexts"].get("expected_union_size")
         actual = len(self.union())
-        if expected is None or expected == actual:
+        if expected == actual:
             self.note(f"rendered union: {actual} paths")
             return
-        self.note(
-            f"rendered union: {actual} paths (manifest records {expected}, "
-            f"delta {actual - expected:+d}) — informational, not a failure"
+        if expected is None:
+            self.fail(
+                "union-size",
+                f"rendered union: {actual} paths, and the manifest records none — "
+                f"write {actual} into render_contexts.expected_union_size",
+            )
+            return
+        self.fail(
+            "union-size",
+            f"rendered union: {actual} paths, but the manifest records {expected} "
+            f"(delta {actual - expected:+d}) — write {actual} into "
+            f"render_contexts.expected_union_size",
         )
 
     def check_provider_shape(self) -> None:
@@ -1258,6 +1318,7 @@ class ConfigKeyGuard:
         self.check_parity()
         self.check_panel_port_markers()
         self.check_branch_self_test()
+        self.check_manifest_layout()
         self.check_provider_shape()
         self.check_governed_sets()
         self.check_keeps()

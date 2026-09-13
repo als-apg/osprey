@@ -9,6 +9,7 @@ Covers:
 """
 
 import json
+import os
 import shutil
 import time
 from unittest.mock import MagicMock
@@ -269,6 +270,32 @@ class TestStoreWatcher:
             # Should not crash — watcher logs warning and skips
         finally:
             watcher.stop()
+
+    def test_an_event_path_reported_as_bytes_still_announces_the_entry(self, tmp_path):
+        """watchdog types ``src_path`` as ``bytes | str`` and hands on
+        whatever the platform gave it.
+
+        A bytes path built straight into a ``Path`` raises ``TypeError``
+        inside the observer thread, and the gallery stops hearing about the
+        index for the rest of the session.
+        """
+        watcher, broadcaster, artifact_store = _make_watcher(tmp_path)
+        handler = _IndexFileHandler(watcher._index_configs, broadcaster)
+
+        artifact_store.save_file(
+            file_content=b"<html>bytes</html>",
+            filename="bytes.html",
+            artifact_type="plot_html",
+            title="Announced From A Bytes Path",
+            description="the platform reported the path as bytes",
+            mime_type="text/html",
+            tool_source="test",
+        )
+        index_file = tmp_path / "artifacts" / "artifacts.json"
+        handler._handle(FileModifiedEvent(os.fsencode(str(index_file))))
+
+        announced = [call.args[0] for call in broadcaster.broadcast.call_args_list]
+        assert [e for e in announced if e.get("title") == "Announced From A Bytes Path"]
 
 
 @pytest.mark.unit

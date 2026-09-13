@@ -370,7 +370,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   triggers: triggers/my-facility.yml
 #   worker_count: 1
 #   workspace_mode: isolated
-#   facility_name: ALS
+#   facility_name: Example Research Facility
 """,
     "bluesky": """
 # --- Bluesky bridge -----------------------------------------------------

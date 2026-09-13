@@ -69,7 +69,7 @@ class TestALSAPGMetadata:
         instead of asking for the deployment's own.
         """
         assert ALSAPGProviderAdapter.default_base_url is None
-        assert ALSAPGProviderAdapter.apply_default_base_url_fallback is False
+        assert ALSAPGProviderAdapter.effective_base_url(None) is None
 
     def test_default_and_health_models(self):
         assert ALSAPGProviderAdapter.default_model_id == "claude-haiku-4-5-20251001"
@@ -156,18 +156,19 @@ class TestALSAPGExecuteCompletion:
         assert kwargs["enable_thinking"] is True
         assert kwargs["budget_tokens"] == 256
 
-    def test_missing_base_url_resolves_to_nothing(self):
-        """No endpoint is invented; the requirement gate refuses the call instead.
+    def test_missing_base_url_is_refused(self):
+        """A provider that requires an endpoint and has no source for one refuses.
 
-        ``osprey.models.completion`` rejects a ``requires_base_url`` provider
-        that resolves to None, which is what makes "you have to name your
-        gateway" the error a deployer sees.
+        No endpoint is invented: the gateway is a site's own host. The refusal
+        is raised here rather than left to the model client, so a direct adapter
+        call -- which never passes the requirement gate in
+        ``osprey.models.completion`` -- still tells a deployer to name their
+        gateway instead of failing as an authentication error somewhere else.
         """
-        with patch(COMPLETION, return_value="ok") as mock_exec:
+        with pytest.raises(ValueError, match="Base URL required for als-apg"):
             ALSAPGProviderAdapter().execute_completion(
                 message="hi", model_id="m", api_key="key", base_url=None
             )
-        assert mock_exec.call_args.kwargs["base_url"] is None
 
 
 class TestALSAPGBaseURLEnvOverride:
@@ -211,14 +212,13 @@ class TestALSAPGBaseURLEnvOverride:
 
         The config resolver keeps a reference verbatim when the variable is
         unset, so without this the literal string would be handed to litellm as
-        a hostname.
+        a hostname. Resolving to nothing is the refusal, not a pass-through.
         """
         monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
-        with patch(COMPLETION, return_value="ok") as mock_exec:
+        with pytest.raises(ValueError, match="Base URL required for als-apg"):
             ALSAPGProviderAdapter().execute_completion(
                 message="hi", model_id="m", api_key="key", base_url="${ALS_APG_BASE_URL}"
             )
-        assert mock_exec.call_args.kwargs["base_url"] is None
 
     def test_env_var_redirects_check_health_too(self, monkeypatch):
         """osprey health must probe the endpoint completions actually use."""
@@ -273,10 +273,10 @@ class TestALSAPGCheckHealth:
             )
         assert mock_health.call_args.kwargs["timeout"] == 12.0
 
-    def test_missing_base_url_resolves_to_nothing(self):
-        with patch(HEALTH, return_value=(True, "ok")) as mock_health:
+    def test_missing_base_url_is_refused(self):
+        """The health probe refuses the same missing endpoint completions do."""
+        with pytest.raises(ValueError, match="Base URL required for als-apg"):
             ALSAPGProviderAdapter().check_health(api_key="key", base_url=None)
-        assert mock_health.call_args.kwargs["base_url"] is None
 
     def test_propagates_failure(self):
         with patch(HEALTH, return_value=(False, "down")):

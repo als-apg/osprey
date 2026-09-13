@@ -66,6 +66,24 @@ def setpoint_addresses(channels: Iterable[Mapping[str, Any]]) -> frozenset[str]:
     )
 
 
+def pyat_coupled_setpoint_addresses(channels: Iterable[Mapping[str, Any]]) -> frozenset[str]:
+    """The addresses a manifest declares writable AND backed by the lattice model.
+
+    The setpoint half of the pyat-coupled partition -- the magnet currents a
+    write actually steers the beam with, as opposed to the sp-echo setpoints
+    that only echo onto their readback. Read off the manifest's own
+    ``partition`` and ``subfield``, because that is where the answer is: the
+    address text is a facility's own spelling and says nothing about whether a
+    lattice element is behind it.
+    """
+    return frozenset(
+        channel["address"]
+        for channel in channels
+        if channel["partition"] == PARTITION_PYAT_COUPLED
+        and channel["subfield"] == SETPOINT_SUBFIELD
+    )
+
+
 # SR RF/VAC fields that carry a real writable-setpoint + readback pair.
 # Pure telemetry fields in the same systems (POWER, TEMPERATURE, PRESSURE,
 # ION-PUMP CURRENT) have no setpoint counterpart and stay static-noisy.

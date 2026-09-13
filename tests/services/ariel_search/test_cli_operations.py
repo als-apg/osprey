@@ -290,6 +290,50 @@ class TestGetStatus:
         assert out["status"] == "error"
         assert "boom-ingestion" in out["message"]
 
+    async def test_registered_module_with_no_rows_reports_zeros(self, monkeypatch):
+        """One table over every registered module, whether the store knows it or not."""
+        repo = _status_repo(stats={"total_entries": 3})
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["enhancement_modules"]["text_embedding"] == {
+            "enabled": False,
+            "complete": 0,
+            "failed": 0,
+            "pending": 0,
+        }
+
+    async def test_store_key_with_no_registered_module_is_reported_as_orphaned(self, monkeypatch):
+        """Rows nothing writes any more are named, not silently folded in."""
+        repo = _status_repo(
+            stats={
+                "total_entries": 3,
+                "text_embedding": {"complete": 3, "failed": 0, "pending": 0},
+                "retired_tagger": {"complete": 1, "failed": 2, "pending": 0},
+            }
+        )
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert out["orphaned_enhancement_modules"] == {
+            "retired_tagger": {"complete": 1, "failed": 2, "pending": 0}
+        }
+        assert "retired_tagger" not in out["enhancement_modules"]
+        assert out["enhancement_modules"]["text_embedding"]["complete"] == 3
+
+    async def test_total_entries_is_not_a_module_in_either_table(self, monkeypatch):
+        """It is the store's own count, and it already has its own key."""
+        repo = _status_repo(stats={"total_entries": 3})
+        _patch_service(monkeypatch, _StubService(repository=repo))
+
+        out = await ops.get_status(dict(_DB))
+
+        assert "total_entries" not in out["enhancement_modules"]
+        assert "total_entries" not in out["orphaned_enhancement_modules"]
+        assert out["entries"] == 3
+
 
 class TestGetStatusVocabulary:
     """The ``vocabulary`` block rides on every path out of ``get_status``."""

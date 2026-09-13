@@ -139,7 +139,7 @@ def test_regen_index_no_bundle_and_no_config_errors() -> None:
         "osprey.cli.knowledge_cmd.knowledge.commands",
         wraps=knowledge.commands,
     ):
-        with mock.patch("osprey.utils.config.get_config_value", return_value=None):
+        with mock.patch("osprey.cli.knowledge_cmd.get_config_value", return_value=None):
             result = runner.invoke(knowledge, ["regen-index"])
 
     # Should exit non-zero or print an error message.
@@ -545,7 +545,7 @@ def _patch_config(monkeypatch: pytest.MonkeyPatch, block: object) -> None:
             return block.get("ttl_path", default) if isinstance(block, dict) else default
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _get_config_value)
+    monkeypatch.setattr("osprey.cli.knowledge_cmd.get_config_value", _get_config_value)
 
 
 def _flat(result) -> str:

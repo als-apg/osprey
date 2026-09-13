@@ -32,6 +32,9 @@ from typing import Any
 
 import click
 
+from osprey_connectors.config import get_config_value
+from osprey_connectors.workspace import resolve_config_path
+
 from .output import fail, note, report, warn
 
 #: Default token for ``build-ttl --facility``.  Spelled out rather than imported
@@ -89,7 +92,6 @@ def _resolve_bundle(bundle: Path | None) -> Path:
         return bundle
 
     from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
-    from osprey.utils.config import get_config_value
 
     raw = get_config_value("facility_knowledge.bundle_path", None)
     if raw is None:
@@ -318,7 +320,6 @@ def _resolve_ttl(ttl: Path | None) -> Path:
     if ttl is not None:
         return ttl
 
-    from osprey.utils.config import get_config_value
     from osprey.utils.config_paths import resolve_render_relative_path
 
     raw = get_config_value("services.graphdb.ttl_path", None)
@@ -347,8 +348,6 @@ def _graphdb_block() -> Mapping[str, Any] | None:
     on the default port has a working command, and a store that is not there
     fails later with the address it tried.
     """
-    from osprey.utils.config import get_config_value
-
     block = get_config_value("services.graphdb", None)
     return block if isinstance(block, Mapping) else None
 
@@ -367,7 +366,6 @@ def _graphdb_port_base() -> int:
         none.
     """
     from osprey.port_layout import resolve_port_base
-    from osprey.utils.config import get_config_value
 
     return resolve_port_base({"deployment": get_config_value("deployment", {})})
 
@@ -479,7 +477,6 @@ def _bake_prompt_snapshot(session: Any) -> None:
         session: The verb's open driver session.
     """
     from osprey.services.facility_knowledge.seeder import prompt_snapshot
-    from osprey.utils.workspace import resolve_config_path
 
     config_file = Path(resolve_config_path())
     if not config_file.is_file():
@@ -702,7 +699,6 @@ def _resolve_channel_db(channel_db: Path | None) -> Path:
         return channel_db
 
     from osprey.services.facility_knowledge.bundle_path import resolve_bundle_path
-    from osprey.utils.config import get_config_value
 
     if get_config_value(PIPELINE_MODE_CONFIG_KEY, None) == "graph":
         # A graph project has no hierarchical database path configured at all,
@@ -737,6 +733,35 @@ def _resolve_channel_db(channel_db: Path | None) -> Path:
     return path
 
 
+def _check_level_grammar(raw: Mapping[str, Any], db_path: Path) -> None:
+    """Refuse a database whose levels are not the grammar this verb reads.
+
+    Runs on the raw document, before anything expands it. A database on
+    another machine's grammar carries that machine's naming pattern too, and
+    expansion fails on the pattern first — a sentence about a naming pattern,
+    for a file whose real problem is that it is not this verb's grammar at all.
+
+    Args:
+        raw: The parsed database payload.
+        db_path: Where it came from, for the error message.
+
+    Raises:
+        click.ClickException: When the file's levels are not the six-token
+            grammar this verb reads.
+    """
+    from osprey.services.facility_knowledge.ttl_generator.model import check_hierarchy_levels
+
+    hierarchy = raw.get("hierarchy")
+    levels = (hierarchy.get("levels") or []) if isinstance(hierarchy, Mapping) else []
+    try:
+        check_hierarchy_levels(levels)
+    except (ValueError, AttributeError, TypeError) as exc:
+        raise click.ClickException(
+            f"Cannot read the level grammar in {db_path}: {exc}\n"
+            f"build-ttl reads the six-token grammar: {_address_grammar().replace(':', ', ')}."
+        ) from exc
+
+
 def _load_channel_map(db_path: Path) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
     """Expand *db_path* into its flat address map, keeping the file's own blocks.
 
@@ -754,21 +779,33 @@ def _load_channel_map(db_path: Path) -> tuple[Mapping[str, Any], Mapping[str, An
         database payload — its ``tree`` and ``hierarchy`` blocks).
 
     Raises:
-        click.ClickException: When the file cannot be read or expanded.
+        click.ClickException: When the file cannot be read or expanded, or when
+            its levels are not the grammar this verb reads.
     """
     from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
+
+    def unreadable(exc: Exception) -> click.ClickException:
+        return click.ClickException(
+            f"Cannot read the channel database at {db_path}: {exc}\n"
+            "build-ttl expects a hierarchical database: a 'hierarchy' block naming the "
+            "levels, and a 'tree' block holding them."
+        )
 
     try:
         raw = json.loads(db_path.read_text(encoding="utf-8"))
         if not isinstance(raw, Mapping):
             raise ValueError("the file is not a JSON object")
+    except (OSError, ValueError, TypeError) as exc:
+        raise unreadable(exc) from exc
+
+    # Between reading and expanding: the level list is on the raw document, and
+    # a foreign grammar's naming pattern is what expansion would fail on first.
+    _check_level_grammar(raw, db_path)
+
+    try:
         return HierarchicalChannelDatabase(str(db_path)).channel_map, raw
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise click.ClickException(
-            f"Cannot read the channel database at {db_path}: {exc}\n"
-            "build-ttl expects a hierarchical database: a 'hierarchy' block naming the "
-            "levels, and a 'tree' block holding them."
-        ) from exc
+        raise unreadable(exc) from exc
 
 
 def _resolve_descriptions(descriptions: Path | None, db_path: Path) -> Path:
@@ -864,9 +901,11 @@ def _resolve_hierarchy_descriptions(raw: Mapping[str, Any], db_path: Path) -> An
         resolve_hierarchy_descriptions,
     )
 
-    hierarchy = raw.get("hierarchy") if isinstance(raw.get("hierarchy"), Mapping) else {}
+    raw_hierarchy = raw.get("hierarchy")
+    hierarchy: Mapping[str, Any] = raw_hierarchy if isinstance(raw_hierarchy, Mapping) else {}
     levels = hierarchy.get("levels") or []
-    tree = raw.get("tree") if isinstance(raw.get("tree"), Mapping) else {}
+    raw_tree = raw.get("tree")
+    tree: Mapping[str, Any] = raw_tree if isinstance(raw_tree, Mapping) else {}
     try:
         return resolve_hierarchy_descriptions(tree, levels)
     except (ValueError, AttributeError, TypeError) as exc:
@@ -936,7 +975,6 @@ def _resolve_facility(explicit: str | None) -> tuple[str, str]:
         click.ClickException: When the token cannot be part of an identifier.
     """
     from osprey.services.facility_knowledge.ttl_generator.model import PN_LOCAL
-    from osprey.utils.config import get_config_value
 
     if explicit is not None:
         token, source = explicit, "--facility"

@@ -48,6 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from osprey.config_guards import require_positive_int
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.port_layout import default_port, resolve_port_base
 
@@ -211,16 +212,16 @@ def resolve_qmd_service_config(config: Mapping[str, Any] | None) -> QMDServiceCo
     return QMDServiceConfig(
         # The base this config resolved, not the layout's default: a second
         # deployment on the same host publishes its sidecar in its own block.
-        port=_positive_int(
+        port=require_positive_int(
             block.get("port"),
             default_port(QMD_SERVICE_NAME, base=resolve_port_base(config)),
             PORT_CONFIG_KEY,
         ),
         bind_address=resolve_bind_address(config),
-        interval_seconds=_positive_int(
+        interval_seconds=require_positive_int(
             block.get("interval"), DEFAULT_INTERVAL_SECONDS, "services.qmd.interval"
         ),
-        first_index_grace_seconds=_positive_int(
+        first_index_grace_seconds=require_positive_int(
             block.get("first_index_grace"),
             DEFAULT_FIRST_INDEX_GRACE_SECONDS,
             "services.qmd.first_index_grace",
@@ -413,29 +414,6 @@ def _staged(path: Path) -> bool:
     that would otherwise pass a bare existence check and fail in the container.
     """
     return path.is_file() and path.stat().st_size > 0
-
-
-def _positive_int(value: Any, default: int, key: str) -> int:
-    """Coerce a config value to a positive int, or fall back to ``default``.
-
-    Args:
-        value: The raw value read from config, possibly ``None``.
-        default: Value to use when the key is absent.
-        key: Dotted config key, named in the error message.
-
-    Returns:
-        ``default`` when ``value`` is ``None``, otherwise the value itself.
-
-    Raises:
-        ValueError: If ``value`` is present but not a positive integer.
-            ``bool`` is rejected explicitly — it is an ``int`` subclass, so
-            ``port: true`` would otherwise resolve to port 1.
-    """
-    if value is None:
-        return default
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(f"{key} must be a positive integer, got {value!r}")
-    return int(value)
 
 
 def _absolute_path(value: Any, key: str) -> str | None:

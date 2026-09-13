@@ -5,6 +5,7 @@ migration logic and configuration parts that don't require database access.
 """
 
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -25,8 +26,14 @@ from osprey.services.ariel_search.enhancement.semantic_processor.migration impor
 from osprey.services.ariel_search.enhancement.semantic_processor.search_migration import (
     SemanticProcessorSearchMigration,
 )
+from osprey.services.ariel_search.enhancement.text_embedding.hnsw_migration import (
+    TextEmbeddingHnswIndexMigration,
+)
 from osprey.services.ariel_search.enhancement.text_embedding.migration import (
     TextEmbeddingMigration,
+    create_vector_index_sql,
+    legacy_vector_index_name,
+    vector_index_name,
 )
 
 
@@ -192,24 +199,6 @@ class TestBaseMigration:
         models = [("custom-model", 512), ("another-model", 1024)]
         migration = TextEmbeddingMigration(models=models)
         assert migration._get_models() == models
-
-    def test_text_embedding_index_lists_defaults(self) -> None:
-        """With no key the migration keeps the number it has always written."""
-        from osprey.services.ariel_search.enhancement.text_embedding.migration import (
-            DEFAULT_INDEX_LISTS,
-        )
-
-        assert TextEmbeddingMigration()._index_lists == DEFAULT_INDEX_LISTS
-
-    def test_text_embedding_index_lists_is_read(self) -> None:
-        """A facility sizes the IVFFlat index for the corpus it expects."""
-        assert TextEmbeddingMigration(index_lists=40)._index_lists == 40
-
-    @pytest.mark.parametrize("bad", [0, -1, True, "224", 2.5])
-    def test_text_embedding_index_lists_refuses_a_non_positive_int(self, bad) -> None:
-        """Refused where the operator can still see the line, naming the key."""
-        with pytest.raises(ValueError, match="index_lists"):
-            TextEmbeddingMigration(index_lists=bad)
 
 
 class TestMigrationTopologicalSort:
@@ -530,41 +519,6 @@ class TestMigrationRunnerLogic:
 
         text_emb = next(m for m in migrations if m.name == "text_embedding")
         assert text_emb._get_models() == [("mxbai-embed-large", 1024)]
-
-    def test_get_enabled_migrations_defaults_the_index_lists(self) -> None:
-        """An unstated `index_lists` leaves the migration's own default in force."""
-        from osprey.services.ariel_search.database.migrations import MigrationRunner
-        from osprey.services.ariel_search.enhancement.text_embedding.migration import (
-            DEFAULT_INDEX_LISTS,
-        )
-
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "enhancement_modules": {"text_embedding": {"enabled": True}},
-            }
-        )
-
-        runner = MigrationRunner(pool=None, config=config)  # type: ignore[arg-type]
-        text_emb = next(m for m in runner._get_enabled_migrations() if m.name == "text_embedding")
-
-        assert text_emb._index_lists == DEFAULT_INDEX_LISTS
-
-    def test_get_enabled_migrations_passes_the_configured_index_lists(self) -> None:
-        """A facility sizing the index for its own corpus reaches the CREATE INDEX."""
-        from osprey.services.ariel_search.database.migrations import MigrationRunner
-
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "enhancement_modules": {"text_embedding": {"enabled": True, "index_lists": 40}},
-            }
-        )
-
-        runner = MigrationRunner(pool=None, config=config)  # type: ignore[arg-type]
-        text_emb = next(m for m in runner._get_enabled_migrations() if m.name == "text_embedding")
-
-        assert text_emb._index_lists == 40
 
 
 class TestRepositoryInitialization:
@@ -914,6 +868,26 @@ class TestGetEnabledMigrations:
         )
         assert text_embedding._get_models() == [("nomic-embed-text", 768)]
 
+    def test_hnsw_reconcile_migration_gets_the_configured_models(self) -> None:
+        """It has to rebuild the index on the same tables the creating one made."""
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {
+                    "text_embedding": {
+                        "enabled": True,
+                        "models": [{"name": "mxbai-embed-large", "dimension": 1024}],
+                    },
+                },
+            }
+        )
+        runner = make_runner(config=config)
+
+        reconcile = next(
+            m for m in runner._get_enabled_migrations() if m.name == "text_embedding_hnsw_index"
+        )
+        assert reconcile._get_models() == [("mxbai-embed-large", 1024)]
+
 
 class TestMigrationRunnerRun:
     """Tests for MigrationRunner.run."""
@@ -1213,13 +1187,9 @@ class TestTextEmbeddingMigrationDDL:
             ddl_conn.sql[table_a].split()
         )
 
-        index_a = sql_index(
-            ddl_conn, "CREATE INDEX IF NOT EXISTS idx_text_embeddings_model_a_vector"
-        )
+        index_a = sql_index(ddl_conn, "CREATE INDEX IF NOT EXISTS idx_text_embeddings_model_a_hnsw")
         assert table_a < index_a
-        assert "USING ivfflat (embedding vector_cosine_ops)" in " ".join(
-            ddl_conn.sql[index_a].split()
-        )
+        assert "USING hnsw (embedding vector_cosine_ops)" in " ".join(ddl_conn.sql[index_a].split())
 
         table_b = sql_index(ddl_conn, "CREATE TABLE IF NOT EXISTS text_embeddings_model_b")
         assert "embedding vector(1024)" in " ".join(ddl_conn.sql[table_b].split())
@@ -1242,3 +1212,74 @@ class TestTextEmbeddingMigrationDDL:
             "DROP TABLE IF EXISTS text_embeddings_model_b CASCADE",
         ]
         assert ddl_conn.recorder.matching("DROP EXTENSION") == []
+
+    def test_the_index_ddl_has_exactly_one_producer(self) -> None:
+        """Both migrations write the same index because only one spells it out.
+
+        A second spelling anywhere in the package would let the created index
+        and the reconciled one drift apart without a test noticing.
+        """
+        import osprey.services.ariel_search as ariel_pkg
+
+        package_root = Path(ariel_pkg.__file__).parent
+        spelled_in = sorted(
+            path.relative_to(package_root).as_posix()
+            for path in package_root.rglob("*.py")
+            if "USING hnsw" in path.read_text()
+        )
+
+        assert spelled_in == ["enhancement/text_embedding/migration.py"]
+        assert "USING hnsw (embedding vector_cosine_ops)" in create_vector_index_sql("some_table")
+
+
+class TestTextEmbeddingHnswIndexMigrationDDL:
+    """Tests for TextEmbeddingHnswIndexMigration."""
+
+    def test_properties(self) -> None:
+        """It reconciles the index the creating migration made, so it follows it."""
+        migration = TextEmbeddingHnswIndexMigration()
+        assert migration.name == "text_embedding_hnsw_index"
+        assert migration.depends_on == ["text_embedding"]
+
+    async def test_up_skips_when_pgvector_is_unavailable(self, ddl_conn) -> None:
+        """A keyword-only deployment retries later instead of failing the run."""
+        with pytest.raises(MigrationSkippedError, match="pgvector"):
+            await TextEmbeddingHnswIndexMigration().up(ddl_conn)
+
+        assert len(ddl_conn.sql) == 1
+        assert "pg_available_extensions" in ddl_conn.sql[0]
+
+    async def test_up_drops_the_legacy_index_before_creating_the_hnsw_one(self, ddl_conn) -> None:
+        """Leaving the old index in place would keep both on the same column."""
+        ddl_conn.recorder.rows_for = {
+            "pg_available_extensions": [(True,)],
+            "to_regclass": [(True,)],
+        }
+
+        await TextEmbeddingHnswIndexMigration(models=[("model-a", 512)]).up(ddl_conn)
+
+        legacy = sql_index(
+            ddl_conn, f"DROP INDEX IF EXISTS {legacy_vector_index_name('text_embeddings_model_a')}"
+        )
+        created = sql_index(ddl_conn, create_vector_index_sql("text_embeddings_model_a"))
+        assert legacy < created
+
+    async def test_up_skips_a_model_whose_table_is_absent(self, ddl_conn) -> None:
+        """A model configured but never migrated has no index to reconcile."""
+        ddl_conn.recorder.rows_for = {
+            "pg_available_extensions": [(True,)],
+            "to_regclass": [(False,)],
+        }
+
+        await TextEmbeddingHnswIndexMigration(models=[("model-a", 512)]).up(ddl_conn)
+
+        assert ddl_conn.recorder.matching("DROP INDEX") == []
+        assert ddl_conn.recorder.matching("CREATE INDEX") == []
+
+    async def test_down_drops_the_hnsw_index(self, ddl_conn) -> None:
+        """Rollback removes the index this migration created, not the table."""
+        await TextEmbeddingHnswIndexMigration(models=[("model-a", 512)]).down(ddl_conn)
+
+        assert ddl_conn.sql == [
+            f"DROP INDEX IF EXISTS {vector_index_name('text_embeddings_model_a')}"
+        ]

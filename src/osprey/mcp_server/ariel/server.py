@@ -79,8 +79,9 @@ def build_entry_url(entry_id: str | None, source_system: str | None = None) -> "
     - ``source_system`` marks an ARIEL-native entry not yet in the facility
       logbook (``ARIEL_NATIVE_SOURCE_SYSTEM``);
     - ``entry_id`` is empty/blank;
-    - no ``ariel.entry_url_template`` is configured (non-ALS / unconfigured
-      deployments emit no ``entry_url`` and the agent shows plain IDs);
+    - no ``ariel.entry_url_template`` is configured (a deployment that
+      configures no template emits no ``entry_url`` and the agent shows
+      plain IDs);
     - the template is malformed (fail-safe — this runs per-entry on the search
       hot path, so a one-character typo in the template must degrade to "no URL",
       never crash a read).
