@@ -31,10 +31,13 @@ error, which for a long-running agent turn is a dropped answer.
 Chunking
 --------
 Chat rejects a message body over :data:`MAX_CHARS` characters, and an agent
-answer routinely exceeds it, so :func:`chunk_text` splits one answer into several
-threaded messages. It lives here, beside the call it exists to satisfy, but is a
-pure function the ops layer calls — this class never chunks on its own, because
-which chunk carries the ``cardsV2`` payload is the ops layer's decision.
+answer routinely exceeds it, so one answer travels as several threaded messages.
+The splitting itself is channel-agnostic and lives in
+:mod:`osprey.bridges.core.text`; what stays here is Chat's ceiling — :func:`chunk_text`
+is a wrapper that supplies :data:`MAX_CHARS` as the default the core function
+deliberately refuses to pick. It is a pure function the ops layer calls; this
+class never chunks on its own, because which chunk carries the ``cardsV2``
+payload is the ops layer's decision.
 
 Google imports
 --------------
@@ -51,6 +54,10 @@ import logging
 import threading
 from typing import Any
 
+# Re-exported, not used here: the helper moved to the core with the chunker, and
+# this name stays importable from the module it has always lived in.
+from ..core.text import _fence_spans as _fence_spans
+from ..core.text import chunk_text as _core_chunk_text
 from .config import GoogleChatBridgeConfig
 
 logger = logging.getLogger(__name__)
@@ -110,103 +117,27 @@ def build_chat_service(cfg: GoogleChatBridgeConfig) -> Any:
     return build("chat", "v1", credentials=credentials, cache_discovery=False)
 
 
-def _fence_spans(text: str) -> list[tuple[int, int]]:
-    """Character spans ``(start, end)`` of ``` fenced code blocks in ``text``.
-
-    A block runs from a line whose first non-space characters are ```` ``` ```` to
-    the next such line. An **unterminated** fence spans to the end of the text, so
-    :func:`chunk_text` will not bisect that either — an answer cut off mid-block is
-    exactly the case where the opening fence has no partner.
-
-    Args:
-        text: The text to scan.
-
-    Returns:
-        The spans, in order, non-overlapping. Empty when the text holds no fence.
-    """
-    spans: list[tuple[int, int]] = []
-    offset = 0
-    in_fence = False
-    start = 0
-    for line in text.split("\n"):
-        if line.lstrip().startswith("```"):
-            if in_fence:
-                spans.append((start, offset + len(line)))
-                in_fence = False
-            else:
-                in_fence = True
-                start = offset
-        offset += len(line) + 1  # +1 for the '\n' that split() consumed
-    if in_fence:
-        spans.append((start, len(text)))
-    return spans
-
-
 def chunk_text(text: str, limit: int = MAX_CHARS) -> list[str]:
-    """Split ``text`` into ``<=limit``-character chunks, preferring newline boundaries.
+    """Split ``text`` for Chat, defaulting to :data:`MAX_CHARS` per chunk.
 
-    Three properties, in priority order:
-
-    1. every chunk fits the limit — this is the one Chat enforces, so it is never
-       traded away;
-    2. a ``` fenced block is never bisected — a split landing inside one is backed
-       up to the block's opening fence, so the block travels whole in the next
-       chunk (half a code block in each of two messages renders as garbage in
-       both);
-    3. otherwise the split is taken at the last newline in the window, so prose
-       breaks between lines rather than mid-word.
-
-    A single line — or a single fence — longer than ``limit`` cannot satisfy 2 or 3
-    and is hard-split at the limit; a fence starting at offset 0 that overflows is
-    the case where backing up would make no progress at all.
+    A wrapper over :func:`osprey.bridges.core.text.chunk_text`, which owns the
+    splitting rules — the limit, the preference for newline boundaries, and keeping
+    a ``` fenced block whole. The core function requires a ``limit`` because the
+    ceiling is a property of the channel; supplying Chat's is all this adds, so the
+    ops layer can call it bare.
 
     Args:
         text: The message text, already transformed for Chat by the caller.
         limit: Maximum characters per chunk. Defaults to :data:`MAX_CHARS`.
 
     Returns:
-        The chunks in order, none of them empty — so a caller can never post an
-        empty body by following this. The list itself is empty only for input that
-        is empty or nothing but newlines, which is the same "there is no message
-        here" case and is what a caller substitutes its own placeholder for.
-        Trailing/leading newlines at the split points are stripped, so the chunks do
-        not necessarily re-join to the original text.
+        The chunks in order, none of them empty; empty for input that is empty or
+        nothing but newlines. See the core function for the full contract.
 
     Raises:
-        ValueError: If ``limit`` is not positive — a zero or negative ceiling would
-            otherwise loop forever making no progress.
+        ValueError: If ``limit`` is not positive.
     """
-    if limit <= 0:
-        raise ValueError(f"chunk limit must be > 0; got {limit}")
-    # Leading newlines are stripped up front, not only at each split: a window whose
-    # last newline falls inside a leading run would otherwise cut a first chunk that
-    # is all newlines, and rstrip would empty it — an empty body is a message Chat
-    # rejects. The lstrip at the foot of the loop maintains the same invariant for
-    # every later chunk, so no chunk can be empty.
-    remaining = text.lstrip("\n")
-    if not remaining:
-        return []
-    chunks: list[str] = []
-    while len(remaining) > limit:
-        window = remaining[:limit]
-        # Prefer a line boundary within the window; fall back to a hard cut when
-        # the window holds no newline (a single oversized line).
-        split = window.rfind("\n")
-        if split <= 0:
-            split = limit
-        for fence_start, fence_end in _fence_spans(remaining):
-            if fence_start < split < fence_end:
-                # Back the split up to the fence's start so the block stays whole.
-                # A fence starting at 0 cannot be backed up any further, so the
-                # hard split stands and that one block is bisected.
-                if fence_start > 0:
-                    split = fence_start
-                break
-        chunks.append(remaining[:split].rstrip("\n"))
-        remaining = remaining[split:].lstrip("\n")
-    if remaining:
-        chunks.append(remaining)
-    return chunks
+    return _core_chunk_text(text, limit)
 
 
 class ChatClient:
