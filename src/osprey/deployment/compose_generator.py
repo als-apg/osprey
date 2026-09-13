@@ -969,6 +969,7 @@ _OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
     "bluesky_web": "-bluesky-web",
     "gchat_bridge": "-gchat-bridge",
     "nextcloud_bridge": "-nextcloud-bridge",
+    "teams_bridge": "-teams-bridge",
 }
 
 #: Tag those images carry when nothing sets the tag axis — the one ``osprey up``

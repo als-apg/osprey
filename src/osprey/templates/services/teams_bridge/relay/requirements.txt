@@ -1,0 +1,11 @@
+# What the relay needs in the Function App, and nothing else.
+#
+# The Service Bus binding lives in the host's extension bundle, not in Python,
+# so no Azure SDK appears here: the whole worker is the Functions library and a
+# JWT reader. azure-functions is left unpinned because the host upgrades the
+# worker underneath it and a pin here is how a published app stops matching the
+# runtime it runs on.
+azure-functions
+# crypto brings the RSA backend PyJWT verifies signatures with; without it every
+# request reads as a key-source outage instead of a validated activity.
+PyJWT[crypto]>=2.8
