@@ -45,8 +45,10 @@ def _load_validation(module_name: str):
     spec = importlib.util.spec_from_file_location(module_name, _VALIDATION_PATH)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    # Registered before exec so the module-level dataclass can resolve its own
-    # ``__module__`` while it is being built.
+    # import-time required because the relay ships as a service template, not
+    # a package: validation.py is loaded by path and registered before exec so
+    # its module-level dataclass resolves ``__module__``, and the module-level
+    # load below feeds a parametrize decorator, which is evaluated at import.
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
     return module
