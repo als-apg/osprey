@@ -483,6 +483,8 @@ def _services_group(profile: BuildProfile) -> CardGroup | None:
         rows.append([[("bridge", Styles.DIM)], [("Nextcloud Talk", None)]])
     if profile.gchat_bridge is not None:
         rows.append([[("bridge", Styles.DIM)], [("Google Chat", None)]])
+    if profile.teams_bridge is not None:
+        rows.append([[("bridge", Styles.DIM)], [("Microsoft Teams", None)]])
     for name in profile.services:
         rows.append([[(name, Styles.DIM)], [("profile service", None)]])
 

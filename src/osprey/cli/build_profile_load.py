@@ -52,6 +52,7 @@ from .build_profile_schema import (
     NextcloudBridgeProfileConfig,
     ProfileProvenance,
     ServiceDef,
+    TeamsBridgeProfileConfig,
     VAConfig,
 )
 
@@ -197,6 +198,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "bluesky_web",
         "nextcloud_bridge",
         "gchat_bridge",
+        "teams_bridge",
         "va_archiver",
         "provenance",
     }
@@ -1147,6 +1149,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             trigger=gchat_bridge_raw.get("trigger", "gchat-question"),
         )
 
+    teams_bridge_raw = raw.get("teams_bridge")
+    teams_bridge = None
+    if teams_bridge_raw is not None:
+        if not isinstance(teams_bridge_raw, dict):
+            raise BuildProfileError("Profile 'teams_bridge' must be a mapping")
+        teams_bridge = TeamsBridgeProfileConfig(
+            trigger=teams_bridge_raw.get("trigger", "teams-question"),
+        )
+
     provenance_raw = raw.get("provenance")
     provenance = None
     if provenance_raw is not None:
@@ -1226,6 +1237,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         bluesky_web=bluesky_web,
         nextcloud_bridge=nextcloud_bridge,
         gchat_bridge=gchat_bridge,
+        teams_bridge=teams_bridge,
         va_archiver=parse_va_archiver_block(raw, base=port_base),
         provenance=provenance,
     )
