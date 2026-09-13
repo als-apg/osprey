@@ -62,7 +62,8 @@ Under ``network: host`` the render changes in four ways:
   ``services.event_dispatcher.bind``.
 * Addresses OSPREY writes between services become ``localhost:<port>`` instead
   of compose service names — the dispatcher's target for its workers, and the
-  Google Chat and Nextcloud bridges' URLs for the dispatch pair.
+  Nextcloud Talk, Google Chat and Microsoft Teams bridges' URLs for the dispatch
+  pair.
 
 Services that talk to each other have to be on the same side of that boundary,
 and ``osprey build`` refuses to render a deployment where they are not: a
