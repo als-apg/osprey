@@ -79,6 +79,7 @@ from .build_injectors import (
     _inject_gchat_bridge,
     _inject_nextcloud_bridge,
     _inject_profile_services,
+    _inject_teams_bridge,
     _inject_va,
     _inject_va_archiver,
     _locate_pkg_services,
@@ -133,6 +134,7 @@ __all__ = [
     "_inject_gchat_bridge",
     "_inject_nextcloud_bridge",
     "_inject_profile_services",
+    "_inject_teams_bridge",
     "_inject_va",
     "_inject_va_archiver",
     "_locate_pkg_services",
@@ -4069,6 +4071,9 @@ def _inject_services(build_profile: Any, profile_dir: Path, project_path: Path) 
     if build_profile.gchat_bridge is not None:
         _inject_gchat_bridge(build_profile.gchat_bridge, project_path)
         injected.append("Google Chat bridge")
+    if build_profile.teams_bridge is not None:
+        _inject_teams_bridge(build_profile.teams_bridge, project_path)
+        injected.append("Microsoft Teams bridge")
     if build_profile.bluesky is not None:
         # The VA block is handed over because a two-lane deploy on a live
         # baseline puts its second lane on the virtual accelerator, and
