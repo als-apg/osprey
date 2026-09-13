@@ -329,7 +329,7 @@ def mongo():
         finally:
             client.close()
 
-    wait_until_ready(answers, "mongodb-world-contracts")
+    wait_until_ready(answers, "mongodb-world-contracts", container=container)
 
     try:
         yield {

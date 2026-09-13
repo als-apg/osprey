@@ -27,9 +27,13 @@ def mongodb_container():
     Yields a dict with connection parameters. Skips the entire chain
     of dependent tests if Docker isn't available.
 
-    The store is waited for rather than assumed: testcontainers' readiness
-    check runs inside the container, so the first connection from the host on
-    the freshly published port can be reset while the port forwarder settles.
+    The store is waited for rather than assumed, and the wait is handed the
+    container. ``mongo`` boots twice when it has a root user to create — a
+    throwaway server for the init scripts, then the real one — and the log line
+    testcontainers watches for is emitted by both, so ``start()`` returns while
+    the published port is still closed. Given the container, the wait can see
+    that the boot is still progressing instead of measuring it against a window
+    sized on an idle machine.
     """
     if not is_docker_available():
         pytest.skip(
@@ -78,7 +82,7 @@ def mongodb_container():
         finally:
             client.close()
 
-    wait_until_ready(answers, "mongodb")
+    wait_until_ready(answers, "mongodb", container=container)
 
     try:
         yield {
