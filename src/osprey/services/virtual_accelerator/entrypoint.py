@@ -93,6 +93,18 @@ from osprey.services.virtual_accelerator.manifest.loaders import (
     load_manifest_file,
 )
 from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT
+
+# Fault seeds are parsed against the same bound table the model enforces, so
+# a seed that boots is a value the model accepts. The module is lattice-free.
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    BPM_ERROR_FIELD_BOUNDS as _BPM_ERROR_FIELD_BOUNDS,
+)
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    BPM_POLARITY_FIELDS as _BPM_POLARITY_FIELDS,
+)
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    MAX_CORR_GAIN_FACTOR,
+)
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
 from osprey.simulation.engine import SimulationEngine
 
@@ -117,33 +129,6 @@ def _ready_line(channel_count: int) -> str:
 
 LATTICE_BUILTIN = "builtin"
 LATTICE_NONE = "none"
-
-# FR4 fault-seed bounds -- "bound each magnitude at parse (reject absurd
-# values before construction)". Generous vs. plausible commissioning-error
-# magnitudes, so real faults always parse, but tight enough to reject a
-# fat-fingered/unit-confused entry (e.g. millimeters typed where meters were
-# meant) before it ever reaches PhysicsBridge.
-MAX_BPM_OFFSET_M = 1e-2
-MIN_BPM_GAIN = 0.1
-MAX_BPM_GAIN = 10.0
-MAX_BPM_ROLL_RAD = 0.1
-MAX_BPM_NOISE_M = 1e-2
-MAX_CORR_GAIN_FACTOR = 5.0  # |factor|=1 is polarity flip; beyond 5x is absurd
-
-# VA_BPM_ERRORS field -> (min, max) bound, checked at parse. polarity_x/y are
-# additionally required to land exactly on a bound (see _parse_bpm_errors).
-_BPM_ERROR_FIELD_BOUNDS: dict[str, tuple[float, float]] = {
-    "offset_x": (-MAX_BPM_OFFSET_M, MAX_BPM_OFFSET_M),
-    "offset_y": (-MAX_BPM_OFFSET_M, MAX_BPM_OFFSET_M),
-    "gain_x": (MIN_BPM_GAIN, MAX_BPM_GAIN),
-    "gain_y": (MIN_BPM_GAIN, MAX_BPM_GAIN),
-    "polarity_x": (-1.0, 1.0),
-    "polarity_y": (-1.0, 1.0),
-    "roll": (-MAX_BPM_ROLL_RAD, MAX_BPM_ROLL_RAD),
-    "noise_x": (0.0, MAX_BPM_NOISE_M),
-    "noise_y": (0.0, MAX_BPM_NOISE_M),
-}
-_BPM_POLARITY_FIELDS = frozenset({"polarity_x", "polarity_y"})
 
 
 def _parse_device_float_map(env_var: str, *, bound: float) -> dict[str, float]:
@@ -201,18 +186,20 @@ def _parse_bpm_errors(env_var: str = "VA_BPM_ERRORS") -> dict[str, dict[str, flo
                 raise SystemExit(
                     f"FATAL: {env_var} entry {entry!r} field {field!r} is non-numeric"
                 ) from exc
+            lo, hi = bound
             if field in _BPM_POLARITY_FIELDS:
-                if value not in (-1.0, 1.0):
+                # A polarity is a sign: only the bounds themselves, nothing
+                # between them.
+                if value not in (lo, hi):
                     raise SystemExit(
-                        f"FATAL: {env_var} entry {entry!r} field {field!r}={value} must be +1 or -1"
+                        f"FATAL: {env_var} entry {entry!r} field {field!r}={value} must be "
+                        f"exactly {lo:g} or {hi:g}"
                     )
-            else:
-                lo, hi = bound
-                if not (lo <= value <= hi):
-                    raise SystemExit(
-                        f"FATAL: {env_var} entry {entry!r} field {field!r}={value} outside bound "
-                        f"[{lo}, {hi}]"
-                    )
+            elif not (lo <= value <= hi):
+                raise SystemExit(
+                    f"FATAL: {env_var} entry {entry!r} field {field!r}={value} outside bound "
+                    f"[{lo}, {hi}]"
+                )
             fields[field] = value
         result[device] = fields
     return result
@@ -317,6 +304,25 @@ def _resolve_lattice_mode() -> str:
             f"FATAL: VA_LATTICE must be {LATTICE_BUILTIN!r} or {LATTICE_NONE!r}, got {raw!r}"
         )
     return raw
+
+
+def _resolve_model_write_token() -> str | None:
+    """Resolve ``VA_MODEL_WRITE_TOKEN`` into the secret a model RPC write must
+    present, or ``None``.
+
+    ``None`` refuses every model write, and unset resolves to it: the model
+    RPC reaches past the served namespace into the physics itself, so it is
+    armed by a deployment that says so and by nothing else. Empty counts as
+    unset because the compose passthrough sends ``""`` when the host var is
+    absent, and an empty token is one an empty credential would match.
+
+    Whitespace alone is unset for the same reason. Anything else is the
+    token exactly as given, surrounding spaces included: it is matched byte
+    for byte against what a client presents, so rewriting it here would
+    refuse the very credential the deployment configured.
+    """
+    raw = os.environ.get("VA_MODEL_WRITE_TOKEN", "")
+    return raw if raw.strip() else None
 
 
 def _channel_limits_path() -> Path:
@@ -477,21 +483,36 @@ def main() -> None:
     )
     boot_values = _load_boot_values(machine_path)
 
-    stuck_setpoints = frozenset(
-        addr.strip() for addr in os.environ.get("VA_STUCK_SETPOINTS", "").split(",") if addr.strip()
-    )
+    # The same grammar the model RPC writes the stuck set in, so the boot
+    # seed and a runtime write spell one set of addresses the same way.
+    from osprey.services.virtual_accelerator.serving.write_path import parse_stuck_setpoints
+
+    stuck_setpoints = parse_stuck_setpoints(os.environ.get("VA_STUCK_SETPOINTS", ""))
     if stuck_setpoints:
         print(f"VA apply-fault active: {sorted(stuck_setpoints)}", flush=True)
 
     bpm_errors = _parse_bpm_errors("VA_BPM_ERRORS")
-    # VA_CORR_GAIN feeds PhysicsBridge's magnet_cal, which is family-agnostic
-    # (any magnet, not just correctors) despite the "CORR" name here.
+    # VA_CORR_GAIN seeds the model's magnet calibration, which is
+    # family-agnostic (any magnet, not just correctors) despite the "CORR"
+    # name here. One number per device, and it is the multiplicative factor.
     corr_gain = _parse_device_float_map("VA_CORR_GAIN", bound=MAX_CORR_GAIN_FACTOR)
     corrector_gains = {device: {"factor": factor} for device, factor in corr_gain.items()}
     if bpm_errors:
         print(f"VA apply-fault active: bpm_errors={bpm_errors}", flush=True)
     if corrector_gains:
         print(f"VA apply-fault active: corrector_gains={corrector_gains}", flush=True)
+
+    # Whether the model RPC will accept a write is operational state, and an
+    # operator reads it out of these lines. The token behind it is a secret
+    # and never joins them: a secret printed once is leaked for as long as
+    # the logs are kept.
+    model_write_token = _resolve_model_write_token()
+    print(
+        "Model writes armed: VA_MODEL_WRITE_TOKEN set"
+        if model_write_token
+        else "Model writes disabled: VA_MODEL_WRITE_TOKEN unset",
+        flush=True,
+    )
 
     # The physics the runner serves: the ring in a lattice-backed boot, the
     # empty stub otherwise. One or the other, never both, and never none --
@@ -514,7 +535,15 @@ def main() -> None:
         # lattice; a second model would be a second lattice, silently
         # diverging from the one whose orbit the BPM readings come from.
         try:
-            model = PyATRingModel()
+            # The seeds go to the model, not to the bridge: each becomes a
+            # model variable, so a fault is readable, writable and resettable
+            # through the same surface as the physics it perturbs, and the
+            # bridge reads it back at the moment it serves a reading rather
+            # than holding a second copy that a runtime write could not move.
+            model = PyATRingModel(
+                bpm_errors=bpm_errors or None,
+                corrector_gains=corrector_gains or None,
+            )
         except OrbitSolveError as exc:
             # Ending the process is the serving layer's decision, which is
             # why the model itself never does it: this turns an opaque boot
@@ -523,11 +552,7 @@ def main() -> None:
                 f"FATAL: the SR lattice has no stable closed orbit at boot ({exc})"
             ) from exc
 
-        bridge = PhysicsBridge(
-            model=model,
-            bpm_errors=bpm_errors or None,
-            corrector_gains=corrector_gains or None,
-        )
+        bridge = PhysicsBridge(model=model)
         on_pyat_setpoint = bridge.on_setpoint
     else:
         if bpm_errors or corrector_gains:
@@ -564,7 +589,7 @@ def main() -> None:
         # Pushes the boot BPM readings into the database's specs. Before the
         # runner exists, and it has to be: these are the values the Channel
         # Access server comes up serving.
-        bridge.bind(records.pyat_coupled)
+        bridge.bind(records.pyat_coupled, physics_setpoints=records.physics_setpoints)
 
     print(f"Loading simulation engine from {machine_path} ...", flush=True)
     engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
@@ -607,8 +632,21 @@ def main() -> None:
         model,
         records,
         on_setpoint=on_pyat_setpoint,
+        # A model RPC write reaches the model and no setpoint, so the bridge is
+        # told afterwards which variables moved and re-serves what they feed;
+        # without this hook a written fault is held but never read. With no
+        # bridge nothing derives a reading from a model variable, so there is
+        # nothing to recompute and the runner's inert default stands.
+        **({"refresh": bridge.refresh} if bridge is not None else {}),
         drive_limits=drive_limits,
         stuck_setpoints=stuck_setpoints,
+        model_write_token=model_write_token,
+        # What the model RPC's ``status`` answers with. Both are boot facts
+        # nothing downstream can recover: the backend is whichever model was
+        # just built, and the lattice source is the mode this boot resolved
+        # rather than the raw env var behind it.
+        backend_name=type(model).__name__,
+        lattice_source=lattice_mode,
     )
 
     # Telemetry starts only once the driver is attached, so its first tick
