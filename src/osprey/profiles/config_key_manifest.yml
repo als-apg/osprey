@@ -2023,6 +2023,18 @@ keys:
       four presets because `once` is what a first deployment wants and a
       rendered value would only repeat the default.
     default: once
+  web.file_watch_reconcile_interval_s:
+    rendered: false
+    evidence: 'get_config_value\(\s*"web\.file_watch_reconcile_interval_s"'
+    note: >-
+      How often each interface file watcher re-reads the directories it tracks,
+      so a change the platform's notification stream never delivers is still
+      observed. Belongs to the `web:` section for the same reason `web.theme`
+      does: it is read by the web terminal and the artifact gallery alike,
+      through one resolver neither of them owns — fs_watch.reconcile_interval_seconds().
+      No template or preset writes it. A value that is not a positive number is
+      logged and the default kept; no value switches the pass off.
+    default: 2.0
   web.panels: {evidence: 'web\.panels', default: {}}
   # One pair per BUILTIN_PANELS entry. The framework template renders the block
   # for every builtin the profile's `web_panels:` selects, so the enumeration
