@@ -22,8 +22,13 @@ stability/NaN boundaries sit much closer to nominal than a toy ring's.
 from __future__ import annotations
 
 from functools import cache
+from typing import Any
 
+import numpy as np
 import pytest
+from lume.model import LUMEModel
+from lume.variables import Variable
+from lume.variables.ndvariable import NDVariable
 
 from osprey.services.virtual_accelerator.ioc.physics_bridge import (
     OrbitSolveError,
@@ -31,20 +36,166 @@ from osprey.services.virtual_accelerator.ioc.physics_bridge import (
     UnknownDeviceError,
 )
 from osprey.services.virtual_accelerator.lattice import build_ring, orbit_response
+from osprey.services.virtual_accelerator.lattice.errors import bpm_read
 from osprey.services.virtual_accelerator.lattice.strengths import StrengthMap
 from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
+from osprey.services.virtual_accelerator.model.fault_bounds import BPM_ERROR_FIELD_BOUNDS
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 from osprey.simulation.facility_spec import ALS_U_AR
 
 
 class FakeRecord:
-    """Minimal duck-typed stand-in for a softioc In record: just `.set()`."""
+    """Minimal duck-typed stand-in for a softioc record: `.set()` and `.get()`.
 
-    def __init__(self) -> None:
-        self.value: float | None = None
+    `value` is what the record currently holds -- the value it was
+    constructed with (a setpoint record's commanded current) or the last
+    value pushed into it. `writes` keeps every pushed value, so a test can
+    prove a record the bridge only reads was never written at all.
+    """
+
+    def __init__(self, value: float | None = None) -> None:
+        self.value: float | None = value
+        self.writes: list[float] = []
 
     def set(self, value: float) -> None:
         self.value = value
+        self.writes.append(value)
+
+    def get(self) -> float | None:
+        return self.value
+
+
+# Read-only outputs a richer backend carries beside the BPM positions: one
+# name outside the six-level manifest grammar, and one six-level name that
+# ends in `:X` but belongs to no BPM. Neither may be taken for a BPM reading.
+_OPTICS_SHAPE = (8,)
+_EXTRA_READ_ONLY_OUTPUTS = ("beta_x", "SR:OPTICS:TWISS:01:BETA:X")
+
+
+class ModelWithExtraOutputs(LUMEModel):
+    """A `PyATRingModel` whose catalog also carries read-only ND optics outputs.
+
+    Everything the ring owns delegates to the wrapped model's public
+    `get()`/`set()`; the extra outputs answer zeros of their declared shape.
+    `requested` records every name `_get` was asked for, so a test can prove
+    the bridge never reads a variable it does not serve; `calls` keeps the
+    names of each `_get` call apart, so a test can count the reads; `sets`
+    keeps each `_set` batch, so a test can count the writes -- and therefore
+    the closed-orbit solves, one per batch.
+    """
+
+    def __init__(self, inner: PyATRingModel) -> None:
+        self._inner = inner
+        self._extra = {
+            name: NDVariable(name=name, shape=_OPTICS_SHAPE, read_only=True)
+            for name in _EXTRA_READ_ONLY_OUTPUTS
+        }
+        self._variables: dict[str, Variable] = {**inner.supported_variables, **self._extra}
+        self.requested: list[str] = []
+        self.calls: list[tuple[str, ...]] = []
+        self.sets: list[dict[str, Any]] = []
+
+    @property
+    def supported_variables(self) -> dict[str, Variable]:
+        return self._variables
+
+    def _get(self, names: list[str]) -> dict[str, Any]:
+        self.requested.extend(names)
+        self.calls.append(tuple(names))
+        ring_names = [name for name in names if name not in self._extra]
+        values = dict(self._inner.get(ring_names)) if ring_names else {}
+        values.update({name: np.zeros(_OPTICS_SHAPE) for name in names if name in self._extra})
+        return values
+
+    def _set(self, values: dict[str, Any]) -> None:
+        self.sets.append(dict(values))
+        self._inner.set(values)
+
+    def reset(self) -> None:
+        self._inner.reset()
+
+
+class ModelWithoutFaultVariables(LUMEModel):
+    """A `PyATRingModel` whose catalog hides every fault variable.
+
+    Stands in for a backend with no fault model of its own (a surrogate, a
+    Bmad model): setpoints and BPM positions delegate to the wrapped ring,
+    and the dot-named fault variables are simply not declared. `requested`
+    records every name `_get` was asked for.
+    """
+
+    def __init__(self, inner: PyATRingModel) -> None:
+        self._inner = inner
+        self._variables: dict[str, Variable] = {
+            name: variable
+            for name, variable in inner.supported_variables.items()
+            if "." not in name
+        }
+        self.requested: list[str] = []
+
+    @property
+    def supported_variables(self) -> dict[str, Variable]:
+        return self._variables
+
+    def _get(self, names: list[str]) -> dict[str, Any]:
+        self.requested.extend(names)
+        return dict(self._inner.get(names))
+
+    def _set(self, values: dict[str, Any]) -> None:
+        self._inner.set(values)
+
+    def reset(self) -> None:
+        self._inner.reset()
+
+
+def _seeded_bridge(*, rng_seed: int | None = None, **seeds: Any) -> PhysicsBridge:
+    """A bridge over a ring whose model carries the fault `seeds`.
+
+    Fault state is model state: `bpm_errors`/`corrector_gains` seed
+    `PyATRingModel`, and the bridge reads them back from the model.
+    """
+    return PhysicsBridge(model=PyATRingModel(**seeds), rng_seed=rng_seed)
+
+
+# `bpm_read`'s fault keywords at identity. The reference reading below merges
+# a seed over these per device, so a field the seed does not name reads as if
+# the BPM were perfect.
+_REFERENCE_IDENTITY: dict[str, float] = {
+    "offset_x": 0.0,
+    "offset_y": 0.0,
+    "gain_x": 1.0,
+    "gain_y": 1.0,
+    "polarity_x": 1.0,
+    "polarity_y": 1.0,
+    "roll": 0.0,
+    "cal_x": 0.0,
+    "cal_y": 0.0,
+    "noise_x": 0.0,
+    "noise_y": 0.0,
+}
+
+
+def _reference_readings(
+    positions: dict[str, float],
+    bpm_errors: dict[str, dict[str, float]],
+    rng: np.random.Generator,
+) -> dict[str, float]:
+    """The readings `bpm_errors`, held as a plain dict, give for `positions`.
+
+    One `bpm_read` per device, in sorted device order, with the seed merged
+    over identity -- the draw order a seeded run must keep to reproduce. The
+    bridge must serve exactly these values when the same seed lives in the
+    model instead.
+    """
+    readings: dict[str, float] = {}
+    for device in sorted({address.split(":")[3] for address in positions}):
+        x_address = f"SR:DIAG:BPM:{device}:POSITION:X"
+        y_address = f"SR:DIAG:BPM:{device}:POSITION:Y"
+        state = {**_REFERENCE_IDENTITY, **bpm_errors.get(f"BPM{device}", {})}
+        readings[x_address], readings[y_address] = bpm_read(
+            positions[x_address], positions[y_address], rng=rng, **state
+        )
+    return readings
 
 
 @cache
@@ -336,7 +487,7 @@ class TestMagnetCalibration:
         # through the same code path magnet_cal + StrengthMap.apply use --
         # i.e. orbit_response at 10.0 * 2.0 = 20.0A -- which matches bit for
         # bit (measured diff == 0.0).
-        miscal = PhysicsBridge(corrector_gains={"HCM01": {"factor": 2.0}})
+        miscal = _seeded_bridge(corrector_gains={"HCM01": {"factor": 2.0}})
         miscal.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
         miscal_x = miscal.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
 
@@ -352,7 +503,7 @@ class TestMagnetCalibration:
         # The exact oracle is the *effective* post-calibration current
         # (magnet_cal(10.0, factor=-1.0) == -10.0) fed through the same code
         # path -- orbit_response(HCM01, -10.0) -- which matches bit for bit.
-        flipped = PhysicsBridge(corrector_gains={"HCM01": {"factor": -1.0}})
+        flipped = _seeded_bridge(corrector_gains={"HCM01": {"factor": -1.0}})
         flipped.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
         actual = flipped.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
 
@@ -360,7 +511,7 @@ class TestMagnetCalibration:
         assert actual == pytest.approx(expected, abs=1e-12)
 
     def test_corrector_gain_offset_biases_the_commanded_current(self):
-        offset_bridge = PhysicsBridge(corrector_gains={"HCM01": {"offset": 5.0}})
+        offset_bridge = _seeded_bridge(corrector_gains={"HCM01": {"offset": 5.0}})
         offset_bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 0.0)
         actual = offset_bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
 
@@ -368,7 +519,7 @@ class TestMagnetCalibration:
         assert actual == pytest.approx(expected, abs=1e-12)
 
     def test_uncalibrated_device_is_unaffected_by_another_devices_cal(self):
-        bridge = PhysicsBridge(corrector_gains={"HCM01": {"factor": 3.0}})
+        bridge = _seeded_bridge(corrector_gains={"HCM01": {"factor": 3.0}})
         bridge.on_setpoint("SR:MAG:VCM:05:CURRENT:SP", 10.0)
 
         actual = bridge.bpm_positions()["SR:DIAG:BPM:05:POSITION:Y"]
@@ -427,7 +578,7 @@ class TestBpmErrorSignatures:
 
     def test_bpm_offset_shifts_the_reading_but_not_the_physics_truth(self):
         rec = FakeRecord()
-        bridge = PhysicsBridge(bpm_errors={"BPM01": {"offset_x": 50e-6}})
+        bridge = _seeded_bridge(bpm_errors={"BPM01": {"offset_x": 50e-6}})
         bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
         bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 5.0)
 
@@ -440,7 +591,7 @@ class TestBpmErrorSignatures:
         # must be identical with and without the offset.
         clean_rec, offset_rec = FakeRecord(), FakeRecord()
         clean = PhysicsBridge()
-        offset = PhysicsBridge(bpm_errors={"BPM01": {"offset_x": 50e-6}})
+        offset = _seeded_bridge(bpm_errors={"BPM01": {"offset_x": 50e-6}})
         clean.bind({"SR:DIAG:BPM:01:POSITION:X": clean_rec})
         offset.bind({"SR:DIAG:BPM:01:POSITION:X": offset_rec})
 
@@ -458,7 +609,7 @@ class TestBpmErrorSignatures:
 
     def test_bpm_polarity_flip_anti_correlates_with_the_unflipped_reading(self):
         rec = FakeRecord()
-        bridge = PhysicsBridge(bpm_errors={"BPM01": {"polarity_x": -1.0}})
+        bridge = _seeded_bridge(bpm_errors={"BPM01": {"polarity_x": -1.0}})
         bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
         bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
 
@@ -472,7 +623,7 @@ class TestBpmErrorSignatures:
         # exact 2x scaling is the correct expectation here, no oracle
         # re-derivation needed.
         rec = FakeRecord()
-        bridge = PhysicsBridge(bpm_errors={"BPM01": {"gain_x": 2.0}})
+        bridge = _seeded_bridge(bpm_errors={"BPM01": {"gain_x": 2.0}})
         bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
         bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
 
@@ -481,7 +632,7 @@ class TestBpmErrorSignatures:
 
     def test_bpm_error_at_one_device_does_not_affect_another(self):
         rec = FakeRecord()
-        bridge = PhysicsBridge(bpm_errors={"BPM01": {"gain_x": 5.0}})
+        bridge = _seeded_bridge(bpm_errors={"BPM01": {"gain_x": 5.0}})
         bridge.bind({"SR:DIAG:BPM:05:POSITION:Y": rec})
         bridge.on_setpoint("SR:MAG:VCM:05:CURRENT:SP", 10.0)
 
@@ -497,13 +648,134 @@ class TestBpmErrorSignatures:
 class TestSeededNoise:
     def test_same_seed_gives_reproducible_bpm_noise(self):
         rec_a, rec_b = FakeRecord(), FakeRecord()
-        a = PhysicsBridge(bpm_errors={"BPM01": {"noise_x": 1e-6}}, rng_seed=42)
-        b = PhysicsBridge(bpm_errors={"BPM01": {"noise_x": 1e-6}}, rng_seed=42)
+        a = _seeded_bridge(bpm_errors={"BPM01": {"noise_x": 1e-6}}, rng_seed=42)
+        b = _seeded_bridge(bpm_errors={"BPM01": {"noise_x": 1e-6}}, rng_seed=42)
 
         a.bind({"SR:DIAG:BPM:01:POSITION:X": rec_a})
         b.bind({"SR:DIAG:BPM:01:POSITION:X": rec_b})
 
         assert rec_a.value == rec_b.value
+
+    # Every fault kind, noise on both axes, and BPMs at both ends of the ring
+    # and in the middle, so a reordered draw or a dropped field shows up.
+    SEQUENCE_SEEDS = {
+        "BPM01": {"offset_x": 50e-6, "noise_x": 1e-6},
+        "BPM05": {"gain_y": 1.5, "polarity_y": -1.0, "noise_y": 2e-6},
+        "BPM40": {"roll": 0.01, "offset_y": -20e-6, "noise_x": 3e-6, "noise_y": 3e-6},
+        "BPM72": {"gain_x": 0.8, "polarity_x": -1.0},
+    }
+
+    def test_model_seeds_reproduce_the_dict_seeded_reading_sequence(self):
+        # Exact equality, not approx: the model hands back the seeded floats
+        # unchanged and the bridge makes the same `bpm_read` calls in the
+        # same order off the same generator, so every served value --
+        # noise draws included -- must match bit for bit, push after push.
+        bridge = _seeded_bridge(bpm_errors=self.SEQUENCE_SEEDS, rng_seed=7)
+        records = {address: FakeRecord() for address in bridge.bpm_positions()}
+        reference_rng = np.random.default_rng(7)
+
+        def served() -> dict[str, float | None]:
+            return {address: rec.value for address, rec in records.items()}
+
+        bridge.bind(records)
+        expected = _reference_readings(bridge.bpm_positions(), self.SEQUENCE_SEEDS, reference_rng)
+        assert served() == expected
+
+        for address, current in (
+            ("SR:MAG:HCM:01:CURRENT:SP", 10.0),
+            ("SR:MAG:VCM:05:CURRENT:SP", -4.0),
+        ):
+            bridge.on_setpoint(address, current)
+            expected = _reference_readings(
+                bridge.bpm_positions(), self.SEQUENCE_SEEDS, reference_rng
+            )
+            assert served() == expected, address
+
+
+class TestFaultsReadFromTheModel:
+    """The bridge holds no fault state of its own: every push reads the
+    model's BPM fault variables and every write reads the magnet's
+    calibration, so a fault written to the model applies at once."""
+
+    BPM_FAULT_NAMES = frozenset(
+        f"BPM{index:02d}.{field}"
+        for index in range(1, ALS_U_AR.family("BPM").count + 1)
+        for field in BPM_ERROR_FIELD_BOUNDS
+    )
+
+    def test_a_bpm_fault_written_to_the_model_applies_on_the_next_push(self, bridge, model):
+        rec = FakeRecord()
+        bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
+
+        model.set({"BPM01.gain_x": 2.0})
+        bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+
+        expected = 2.0 * orbit_response("HCM01", 10.0)["BPM01"][0]
+        assert rec.value == pytest.approx(expected, abs=1e-12)
+
+    def test_a_calibration_written_to_the_model_applies_to_the_next_setpoint(self, bridge, model):
+        # Same exact oracle as TestMagnetCalibration: the effective current
+        # magnet_cal delivers (10.0 * 2.0), fed through the same code path.
+        model.set({"HCM01.cal_factor": 2.0})
+        bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+
+        expected = orbit_response("HCM01", 20.0)["BPM01"][0]
+        actual = bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
+        assert actual == pytest.approx(expected, abs=1e-12)
+
+    def test_a_fault_cleared_in_the_model_stops_perturbing_the_reading(self):
+        model = PyATRingModel(bpm_errors={"BPM01": {"offset_x": 50e-6}})
+        bridge = PhysicsBridge(model=model)
+        rec = FakeRecord()
+        bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
+
+        model.set({"BPM01.offset_x": 0.0})
+        bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 5.0)
+
+        true_position = bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
+        assert rec.value == pytest.approx(true_position, abs=1e-12)
+
+    def test_each_push_reads_every_bpm_fault_in_one_get(self):
+        model = ModelWithExtraOutputs(PyATRingModel())
+        bridge = PhysicsBridge(model=model)
+        model.calls.clear()
+
+        bridge.bind({"SR:DIAG:BPM:01:POSITION:X": FakeRecord()})
+
+        fault_reads = [names for names in model.calls if set(names) & self.BPM_FAULT_NAMES]
+        assert len(fault_reads) == 1
+        assert len(fault_reads[0]) == len(self.BPM_FAULT_NAMES) == 9 * 72
+        assert set(fault_reads[0]) == self.BPM_FAULT_NAMES
+
+    def test_a_setpoint_reads_its_calibration_once_and_the_bpm_faults_once(self):
+        model = ModelWithExtraOutputs(PyATRingModel())
+        bridge = PhysicsBridge(model=model)
+        model.calls.clear()
+
+        bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+
+        cal_names = {"HCM01.cal_factor", "HCM01.cal_offset"}
+        assert [set(names) for names in model.calls if set(names) & cal_names] == [cal_names]
+        assert len([names for names in model.calls if set(names) & self.BPM_FAULT_NAMES]) == 1
+
+    def test_a_backend_without_fault_variables_serves_the_true_orbit(self):
+        # The model's catalog decides which faults exist: faults the backend
+        # does not declare are not read, and read as identity -- here even
+        # though the hidden ring underneath carries seeded ones.
+        model = ModelWithoutFaultVariables(
+            PyATRingModel(
+                bpm_errors={"BPM01": {"offset_x": 50e-6}},
+                corrector_gains={"HCM01": {"factor": 2.0}},
+            )
+        )
+        bridge = PhysicsBridge(model=model)
+        rec = FakeRecord()
+        bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
+        bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+
+        assert not [name for name in model.requested if "." in name]
+        expected = orbit_response("HCM01", 10.0)["BPM01"][0]
+        assert rec.value == pytest.approx(expected, abs=1e-12)
 
 
 class TestSextupoleStrengthWhiteBox:
@@ -552,18 +824,123 @@ class TestSextupoleStrengthWhiteBox:
         assert response_after_change != pytest.approx(response_at_nominal)
 
 
+class TestReadingSelection:
+    """The bridge serves the model's read-only *scalar* variables as readings.
+
+    Shape, never the address text, tells a reading from a model-only output:
+    a backend whose catalog carries further read-only arrays (optics, a Bmad
+    model's own diagnostics) binds exactly as the plain ring.
+    """
+
+    BPM_COUNT = 2 * ALS_U_AR.family("BPM").count
+
+    def test_reading_selection_ignores_extra_read_only_nd_variables(self, bridge):
+        extended = PhysicsBridge(model=ModelWithExtraOutputs(PyATRingModel()))
+
+        served = sorted(extended.bpm_positions())
+        assert len(served) == self.BPM_COUNT == 144
+        assert served == sorted(bridge.bpm_positions())
+        assert not set(_EXTRA_READ_ONLY_OUTPUTS) & set(served)
+
+    def test_reading_selection_never_reads_the_extra_variables(self):
+        model = ModelWithExtraOutputs(PyATRingModel())
+        extended = PhysicsBridge(model=model)
+        x_rec = FakeRecord()
+        extended.bind({"SR:DIAG:BPM:01:POSITION:X": x_rec})
+        extended.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+
+        assert model.requested, "the bridge read nothing from the model"
+        assert not set(_EXTRA_READ_ONLY_OUTPUTS) & set(model.requested)
+        expected = orbit_response("HCM01", 10.0)["BPM01"][0]
+        assert x_rec.value == pytest.approx(expected, abs=1e-12)
+
+    def test_reading_selection_keeps_ring_order(self, bridge):
+        # Readout noise is drawn device by device in this order, so a seeded
+        # run reproduces only if the served order is the sorted address order.
+        extended = PhysicsBridge(model=ModelWithExtraOutputs(PyATRingModel()))
+        assert list(extended.bpm_positions()) == sorted(bridge.bpm_positions())
+
+
 class TestBindWiring:
     def test_bind_pushes_initial_bpm_state_into_records(self, bridge):
-        x_rec, y_rec = FakeRecord(), FakeRecord()
+        x_rec, y_rec, sp_rec = FakeRecord(), FakeRecord(), FakeRecord()
         bridge.bind(
             {
                 "SR:DIAG:BPM:01:POSITION:X": x_rec,
                 "SR:DIAG:BPM:01:POSITION:Y": y_rec,
-                "SR:MAG:HCM:01:CURRENT:SP": FakeRecord(),  # non-BPM entry, must be ignored
-            }
+                "SR:MAG:HCM:01:CURRENT:SP": sp_rec,  # retained, never pushed into
+            },
+            physics_setpoints=frozenset({"SR:MAG:HCM:01:CURRENT:SP"}),
         )
         assert x_rec.value == pytest.approx(0.0)
         assert y_rec.value == pytest.approx(0.0)
+        assert sp_rec.value is None
+
+    def test_bind_retains_the_magnet_setpoint_records_by_address(self, bridge):
+        x_rec, hcm_sp, qf_sp = FakeRecord(), FakeRecord(), FakeRecord()
+        bridge.bind(
+            {
+                "SR:DIAG:BPM:01:POSITION:X": x_rec,
+                "SR:MAG:HCM:01:CURRENT:SP": hcm_sp,
+                "SR:MAG:QF:07:CURRENT:SP": qf_sp,
+            },
+            physics_setpoints=frozenset({"SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:QF:07:CURRENT:SP"}),
+        )
+
+        assert bridge._setpoint_records == {
+            "SR:MAG:HCM:01:CURRENT:SP": hcm_sp,
+            "SR:MAG:QF:07:CURRENT:SP": qf_sp,
+        }
+        assert bridge._setpoint_records["SR:MAG:HCM:01:CURRENT:SP"] is hcm_sp
+        # Retaining the setpoints does not displace the first BPM push.
+        assert x_rec.value == pytest.approx(0.0, abs=1e-9)
+        assert hcm_sp.value is None and qf_sp.value is None
+
+    def test_bind_keeps_only_the_manifest_declared_setpoints(self, bridge):
+        # Membership in the manifest's set decides, never the address text:
+        # a readback, a BPM record whose subfield happens to read SP, and a
+        # record outside the grammar are all ignored, and so is a declared
+        # setpoint the caller handed no record for.
+        records = {
+            "SR:DIAG:BPM:01:POSITION:X": FakeRecord(),
+            "SR:DIAG:BPM:01:POSITION:Y": FakeRecord(),
+            "SR:MAG:HCM:01:CURRENT:RB": FakeRecord(),
+            "SR:DIAG:BPM:01:POSITION:SP": FakeRecord(),
+            "not-a-manifest-address": FakeRecord(),
+            "SR:MAG:VCM:05:CURRENT:SP": FakeRecord(),
+        }
+        bridge.bind(
+            records,
+            physics_setpoints=frozenset({"SR:MAG:VCM:05:CURRENT:SP", "SR:MAG:HCM:09:CURRENT:SP"}),
+        )
+        assert set(bridge._setpoint_records) == {"SR:MAG:VCM:05:CURRENT:SP"}
+
+    def test_bind_retains_no_setpoint_the_manifest_did_not_declare(self, bridge):
+        # The address ends in `:SP`, and that is not what makes it a setpoint.
+        bridge.bind({"SR:MAG:HCM:01:CURRENT:SP": FakeRecord()})
+        assert bridge._setpoint_records == {}
+
+    def test_bind_retains_a_declared_setpoint_spelled_outside_the_bundled_grammar(self, bridge):
+        # A facility's own spelling is retained as declared. Only the
+        # calibration re-apply, which maps a magnet by the bundled tree's
+        # family and device tokens, has nothing to look it up by.
+        rec = FakeRecord()
+        bridge.bind(
+            {"corrector-one-setpoint": rec}, physics_setpoints=frozenset({"corrector-one-setpoint"})
+        )
+        assert bridge._setpoint_records == {"corrector-one-setpoint": rec}
+        assert bridge._setpoint_addresses == {}
+
+    def test_setpoint_records_are_empty_until_bound(self, bridge):
+        assert bridge._setpoint_records == {}
+
+    def test_rebind_replaces_the_setpoint_records(self, bridge):
+        hcm = "SR:MAG:HCM:01:CURRENT:SP"
+        vcm = "SR:MAG:VCM:05:CURRENT:SP"
+        bridge.bind({hcm: FakeRecord()}, physics_setpoints=frozenset({hcm}))
+        second = FakeRecord()
+        bridge.bind({vcm: second}, physics_setpoints=frozenset({vcm}))
+        assert bridge._setpoint_records == {vcm: second}
 
     def test_bind_then_setpoint_pushes_updated_bpm_readings(self, bridge):
         x_rec = FakeRecord()
@@ -579,3 +956,169 @@ class TestBindWiring:
         # is the physics-only view, independent of any IOC wiring).
         bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
         assert bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"] != 0.0
+
+
+class TestRefreshAfterModelWrite:
+    """`refresh(changed)` re-serves the ring after a model-only write.
+
+    A calibration written straight to the model (through the model surface,
+    not through a served setpoint) changes what current an already-commanded
+    magnet actually delivers, so the commanded currents the served `:SP`
+    records still hold have to be pushed through the new calibration again.
+    `refresh` does that for every magnet named in `changed`, in a single
+    batch -- one closed-orbit solve however many magnets a family-wide
+    change touches -- and then refreshes and pushes the BPM readings exactly
+    once. Names it serves nothing for (BPM fault fields, model-only
+    variables such as the stuck set) cost no write at all.
+    """
+
+    CORRECTORS = (
+        "SR:MAG:HCM:01:CURRENT:SP",
+        "SR:MAG:HCM:02:CURRENT:SP",
+        "SR:MAG:HCM:03:CURRENT:SP",
+    )
+    CAL_FACTORS = ("HCM01.cal_factor", "HCM02.cal_factor", "HCM03.cal_factor")
+
+    def test_a_family_wide_calibration_refresh_applies_in_exactly_one_set(self):
+        model = ModelWithExtraOutputs(PyATRingModel())
+        bridge = PhysicsBridge(model=model)
+        records: dict[str, Any] = {address: FakeRecord(2.0) for address in self.CORRECTORS}
+        records["SR:DIAG:BPM:01:POSITION:X"] = FakeRecord()
+        bridge.bind(records, physics_setpoints=frozenset(self.CORRECTORS))
+        model.set(dict.fromkeys(self.CAL_FACTORS, 1.5))
+        model.sets.clear()
+
+        bridge.refresh(list(self.CAL_FACTORS))
+
+        # One `set` for the whole family, so one solve: the cost of a
+        # family-wide calibration change must not scale with the number of
+        # magnets it touches.
+        assert len(model.sets) == 1
+        # 2.0 A commanded through factor 1.5 is a single multiply, exact in
+        # binary floating point; abs=1e-12 only guards the address mapping.
+        assert model.sets[0] == {
+            address: pytest.approx(3.0, abs=1e-12) for address in self.CORRECTORS
+        }
+
+    def test_a_refreshed_calibration_moves_the_orbit_to_the_new_current(self, bridge, model):
+        sp_rec, x_rec = FakeRecord(10.0), FakeRecord()
+        bridge.bind(
+            {
+                "SR:MAG:HCM:01:CURRENT:SP": sp_rec,
+                "SR:DIAG:BPM:01:POSITION:X": x_rec,
+            },
+            physics_setpoints=frozenset({"SR:MAG:HCM:01:CURRENT:SP"}),
+        )
+
+        model.set({"HCM01.cal_factor": 2.0})
+        bridge.refresh(["HCM01.cal_factor"])
+
+        # Same oracle as a calibrated setpoint write: 10 A commanded through
+        # factor 2.0 delivers the orbit of a 20 A corrector, whether the
+        # calibration arrived before the setpoint or after it.
+        expected = orbit_response("HCM01", 20.0)["BPM01"][0]
+        assert bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"] == pytest.approx(
+            expected, abs=1e-12
+        )
+        assert x_rec.value == pytest.approx(expected, abs=1e-12)
+
+    def test_refresh_reads_the_setpoint_records_but_never_writes_them(self, bridge, model):
+        sp_rec = FakeRecord(10.0)
+        bridge.bind(
+            {"SR:MAG:HCM:01:CURRENT:SP": sp_rec},
+            physics_setpoints=frozenset({"SR:MAG:HCM:01:CURRENT:SP"}),
+        )
+
+        model.set({"HCM01.cal_factor": 2.0})
+        bridge.refresh(["HCM01.cal_factor"])
+
+        # The served setpoint keeps the *commanded* current: the serving
+        # write path owns that record, and a calibration change is not an
+        # operator moving the magnet. Only the model holds the 20 A the
+        # magnet now physically delivers.
+        assert sp_rec.writes == []
+        assert sp_rec.value == 10.0
+
+    def test_a_bpm_only_refresh_performs_no_set_and_still_pushes(self):
+        model = ModelWithExtraOutputs(PyATRingModel())
+        bridge = PhysicsBridge(model=model)
+        sp_rec, x_rec = FakeRecord(10.0), FakeRecord()
+        bridge.bind(
+            {
+                "SR:MAG:HCM:01:CURRENT:SP": sp_rec,
+                "SR:DIAG:BPM:01:POSITION:X": x_rec,
+            },
+            physics_setpoints=frozenset({"SR:MAG:HCM:01:CURRENT:SP"}),
+        )
+
+        model.set({"BPM01.offset_x": 50e-6})
+        model.sets.clear()
+
+        bridge.refresh(["BPM01.offset_x", "stuck_setpoints"])
+
+        # A readout error changes no magnet, so re-solving the ring for it
+        # would be pure cost; the new offset still has to reach the record.
+        assert model.sets == []
+        assert sp_rec.writes == []
+        assert x_rec.value == pytest.approx(-50e-6, abs=1e-12)
+
+    def test_an_empty_refresh_still_pushes_the_current_readings(self):
+        model = ModelWithExtraOutputs(PyATRingModel())
+        bridge = PhysicsBridge(model=model)
+        x_rec = FakeRecord()
+        bridge.bind({"SR:DIAG:BPM:01:POSITION:X": x_rec})
+
+        model.set({"BPM01.offset_x": 50e-6, "BPM01.gain_x": 2.0})
+        model.sets.clear()
+
+        bridge.refresh([])
+
+        # `bpm_read` applies gain last, after the offset: (0 - 50e-6) * 2.
+        assert model.sets == []
+        assert x_rec.value == pytest.approx(-100e-6, abs=1e-12)
+
+    def test_refresh_rewrites_only_the_magnets_whose_calibration_changed(self):
+        model = ModelWithExtraOutputs(PyATRingModel())
+        bridge = PhysicsBridge(model=model)
+        bridge.bind(
+            {address: FakeRecord(2.0) for address in self.CORRECTORS},
+            physics_setpoints=frozenset(self.CORRECTORS),
+        )
+        model.set({"HCM02.cal_offset": 1.0})
+        model.sets.clear()
+
+        bridge.refresh(["HCM02.cal_offset"])
+
+        assert len(model.sets) == 1
+        assert set(model.sets[0]) == {"SR:MAG:HCM:02:CURRENT:SP"}
+        assert model.sets[0]["SR:MAG:HCM:02:CURRENT:SP"] == pytest.approx(3.0, abs=1e-12)
+
+    def test_refresh_writes_nothing_for_a_magnet_with_no_bound_setpoint(self):
+        # No `bind()` at all: there is no commanded current to re-apply, so
+        # the calibration simply waits for the next setpoint write.
+        model = ModelWithExtraOutputs(PyATRingModel())
+        bridge = PhysicsBridge(model=model)
+        model.set({"HCM01.cal_factor": 2.0})
+        model.sets.clear()
+
+        bridge.refresh(["HCM01.cal_factor"])
+
+        assert model.sets == []
+        assert bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"] == pytest.approx(0.0, abs=1e-9)
+
+    def test_refresh_pushes_the_seeded_readings_exactly_once(self):
+        # Each `bpm_read` draws both noise axes whether or not the BPM is
+        # noisy, so a refresh that pushed twice would run the generator past
+        # the reference stream and every served value would diverge.
+        seeds = {"BPM01": {"noise_x": 1e-6}, "BPM40": {"noise_y": 3e-6}}
+        bridge = _seeded_bridge(bpm_errors=seeds, rng_seed=7)
+        records = {address: FakeRecord() for address in bridge.bpm_positions()}
+        reference_rng = np.random.default_rng(7)
+
+        bridge.bind(records)
+        expected = _reference_readings(bridge.bpm_positions(), seeds, reference_rng)
+        assert {address: rec.value for address, rec in records.items()} == expected
+
+        bridge.refresh(["BPM01.noise_x"])
+        expected = _reference_readings(bridge.bpm_positions(), seeds, reference_rng)
+        assert {address: rec.value for address, rec in records.items()} == expected
