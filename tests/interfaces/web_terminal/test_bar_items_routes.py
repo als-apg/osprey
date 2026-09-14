@@ -695,19 +695,34 @@ def _broadcast_paths(
     the test that requires the save to be seen waits under the store and pokes
     with the save itself.
 
-    *poke* re-applies the stimulus, and it is what makes the wait converge
-    rather than expire. A watchdog observer is not delivering the moment the
-    lifespan's ``start()`` returns; a write made while its stream is still
-    arming is delivered late or not at all, and waiting longer cannot recover a
-    stimulus the stream never saw — see ``tests/interfaces/fsevents_wait.py``,
-    which also owns the trailing drain that catches a coalesced frame arriving
-    a beat behind the sentinel.
+    *poke* re-applies the stimulus. A watchdog observer is not delivering the
+    moment the lifespan's ``start()`` returns; a write made while its stream is
+    still arming is delivered late or not at all, waiting longer cannot recover
+    a stimulus the stream never saw, and a poke re-applied into that window is
+    lost with it. What makes the wait terminate is the watcher's own
+    reconciliation pass, which re-reads the tracked directories on an interval
+    and announces what the stream did not; the poke keeps a stimulus of the
+    right class on offer for whenever delivery resumes — see
+    ``tests/interfaces/fsevents_wait.py``, which also owns the trailing drain
+    that catches a coalesced frame arriving a beat behind the sentinel.
 
     Rewriting an ordinary workspace note can only add more of the frames these
     tests require to be *present*. It cannot manufacture one they require to be
     absent, so the absence assertions below keep their full strength.
     """
     return collect_paths(queue, until=until, until_under=until_under, poke=poke)
+
+
+#: Where the arming probe's note is written, relative to the watched workspace.
+#:
+#: One level down, and that is the whole point. The watcher has two triggers,
+#: and only one of them is the platform's notification stream: the
+#: reconciliation pass re-reads the watch root on an interval, so a note written
+#: *in* the root is announced whether or not the stream is delivering anything
+#: at all. The pass does not recurse — it visits the roots and the directories a
+#: frame has already named — so a note inside a subdirectory nothing has
+#: mentioned yet can be announced by the stream and by nothing else.
+_ARM_NOTE_REL = Path("settle-dir") / "settle-note.txt"
 
 
 def _arm(queue, workspace) -> None:
@@ -721,13 +736,20 @@ def _arm(queue, workspace) -> None:
     live stream instead of possibly into the arming window, where nothing is
     broadcast whether the route conceals the store or not.
 
+    The note goes one level down (:data:`_ARM_NOTE_REL`) so that the frame it
+    waits for can only have come from the stream. The save these tests protect
+    lands in the store's own subdirectory, which nothing has named yet either,
+    and a probe the reconciliation pass could answer would therefore clear a
+    save the stream is in no position to report.
+
     That is what keeps the absence assertions from going vacuous: a save whose
     frames were lost while arming would satisfy them for the wrong reason, and
     no later poke can re-issue a save to find out.
     """
-    note = workspace / "settle-note.txt"
+    note = workspace / _ARM_NOTE_REL
+    note.parent.mkdir(parents=True, exist_ok=True)
     note.write_text("first")
-    _broadcast_paths(queue, until="settle-note.txt", poke=lambda: note.write_text("first"))
+    _broadcast_paths(queue, until=str(_ARM_NOTE_REL), poke=lambda: note.write_text("first"))
 
 
 @pytest.mark.real_workspace_watcher

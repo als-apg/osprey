@@ -219,8 +219,10 @@ class TestWorkspaceWatcher:
 
             # The observer's stream can still be arming when the write lands,
             # and a stimulus applied inside that window is delivered late or not
-            # at all — so re-apply the write until its frame arrives rather than
-            # waiting a fixed span for an event the stream may never have seen.
+            # at all — a poke re-applied into that window is lost with it. What
+            # ends the wait when the stream stays quiet is the watcher's own
+            # reconciliation pass, which re-reads the directory on an interval;
+            # the poke keeps a stimulus of the right class on offer meanwhile.
             #
             # The subject here is *creation*, so the poke removes the file and
             # creates it again: rewriting a file that already exists would
