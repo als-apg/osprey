@@ -619,6 +619,25 @@ class TestAReconciliationPass:
 
         assert broadcaster.broadcast.call_count == 0
 
+    def test_a_pass_does_not_read_below_a_watch_directory(self, tmp_path):
+        """There is nothing below a watch directory for a pass to find: every
+        index file this handler routes lives in one by construction, and the
+        observer behind it was never asked about a subdirectory either."""
+        broadcaster = MagicMock()
+        handler = _index_handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        nested = artifacts_dir / "nested"
+        nested.mkdir(parents=True, exist_ok=True)
+        handler.reconcile((artifacts_dir,))
+        broadcaster.reset_mock()
+
+        (nested / "artifacts.json").write_text('{"artifacts": []}')
+        for _ in range(3):
+            handler.reconcile((artifacts_dir,))
+
+        assert broadcaster.broadcast.call_count == 0
+        assert str(nested) not in handler._listings
+
     def test_a_name_that_is_not_an_index_file_is_not_routed(self, tmp_path):
         broadcaster = MagicMock()
         handler = _index_handler(tmp_path, broadcaster)
