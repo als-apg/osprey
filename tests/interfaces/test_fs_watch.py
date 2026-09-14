@@ -16,6 +16,7 @@ from osprey.interfaces.fs_watch import (
     evict_subtree,
     one_level_listing,
     reconcile_interval_seconds,
+    reconcile_targets,
 )
 
 _STAMP: ChangeStamp = (False, 0, 0)
@@ -194,3 +195,60 @@ class TestTheConfiguredInterval:
             assert reconcile_interval_seconds() == DEFAULT_RECONCILE_SECONDS
 
         assert "web.file_watch_reconcile_interval_s" in caplog.text
+
+
+@pytest.mark.unit
+class TestTheDirectoriesAPassVisits:
+    """What one pass owes a frame to, decided in one place for both watchers.
+
+    Three sources in one order — the watch roots, what is already tracked, and
+    what a previous pass found changed one level below something tracked — each
+    directory named once however many of them hold it.
+    """
+
+    def test_the_roots_come_first(self, tmp_path):
+        root = tmp_path / "root"
+        tracked = tmp_path / "tracked"
+
+        targets = reconcile_targets((root,), {str(tracked): {}})
+
+        assert targets == [root, tracked]
+
+    def test_a_tracked_directory_is_visited(self, tmp_path):
+        tracked = tmp_path / "tracked"
+
+        assert reconcile_targets((), {str(tracked): {}}) == [tracked]
+
+    def test_a_root_that_is_also_tracked_is_returned_once(self, tmp_path):
+        targets = reconcile_targets((tmp_path,), {str(tmp_path): {}})
+
+        assert targets == [tmp_path]
+
+    def test_a_pending_path_is_visited_after_the_tracked_ones(self, tmp_path):
+        tracked = tmp_path / "tracked"
+        scheduled = tmp_path / "scheduled"
+
+        targets = reconcile_targets((tmp_path,), {str(tracked): {}}, {str(scheduled)})
+
+        assert targets == [tmp_path, tracked, scheduled]
+
+    def test_a_pending_path_that_is_already_tracked_is_not_visited_twice(self, tmp_path):
+        tracked = tmp_path / "tracked"
+
+        targets = reconcile_targets((tmp_path,), {str(tracked): {}}, {str(tracked)})
+
+        assert targets == [tmp_path, tracked]
+
+    def test_the_pending_set_is_drained_whether_or_not_it_was_used(self, tmp_path):
+        used: set[str] = {str(tmp_path / "scheduled")}
+        reconcile_targets((), {}, used)
+        assert used == set()
+
+        unused: set[str] = {str(tmp_path)}
+        reconcile_targets((tmp_path,), {}, unused)
+        assert unused == set()
+
+    def test_no_pending_set_returns_the_roots_and_the_tracked_directories_alone(self, tmp_path):
+        tracked = tmp_path / "tracked"
+
+        assert reconcile_targets((tmp_path,), {str(tracked): {}}, None) == [tmp_path, tracked]
