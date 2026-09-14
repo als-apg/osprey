@@ -26,6 +26,7 @@ from osprey.interfaces.fs_watch import (
     evict_subtree,
     one_level_listing,
     reconcile_interval_seconds,
+    reconcile_targets,
 )
 
 logger = logging.getLogger(__name__)
@@ -203,6 +204,10 @@ class _WorkspaceHandler(FileSystemEventHandler):
         self._last_event: dict[str, float] = {}
         self._debounce_seconds = 0.1
         self._listings: dict[str, dict[str, ChangeStamp]] = {}
+        # The directories a diff found changed one level below a tracked one.
+        # Each is owed a frame of its own, and the next pass drains the set by
+        # reading them.
+        self._pending_descent: set[str] = set()
         # The listing map has two writers: the observer's emitter thread and the
         # reconciliation thread. A dispatch reads a listing, scans the
         # directory, writes it back and then announces the difference, and two
@@ -344,18 +349,18 @@ class _WorkspaceHandler(FileSystemEventHandler):
         delivered one can.
 
         The bound is the map, not the tree: one listing per directory already
-        tracked, plus the roots, once per pass. No pass recurses and no pass
-        adds a key a delivered frame would not have added, so a churning
-        workspace can grow neither the map nor the cost of a pass. What that
-        leaves out is a subtree the stream has never mentioned: the pass
-        announces that its top directory exists, and expanding it lists it over
-        HTTP.
+        tracked, plus the roots, plus one level of descent for the directories a
+        previous pass found changed — once each per pass. No pass recurses and
+        no pass adds a key a delivered frame would not have added, so a churning
+        workspace can grow neither the map nor the cost of a pass. A subtree the
+        stream has never mentioned is picked up one level per pass from the
+        nearest tracked ancestor, so the panel converges on it rather than
+        stopping at its name.
 
-        The keys are snapshotted first because dispatching mutates the map.
+        The sequence is built first because dispatching mutates the map.
         """
         with self._dispatch_lock:
-            directories = [*roots, *(Path(key) for key in list(self._listings))]
-            for directory in directories:
+            for directory in reconcile_targets(roots, self._listings, self._pending_descent):
                 self.on_any_event(DirModifiedEvent(str(directory)))
 
     def _is_ignored(self, path: Path) -> bool:
@@ -385,7 +390,10 @@ class _WorkspaceHandler(FileSystemEventHandler):
         against, so its contents are announced as ``created``. A file panel
         converges on what is there either way, and re-announcing a file that
         was already listed costs a redundant frame — where staying silent
-        would lose the change the frame was reporting.
+        would lose the change the frame was reporting. That first listing is a
+        baseline rather than a report of change, so what it holds is announced
+        but not descended into, and whatever afterwards moves in it is
+        scheduled by the next diff.
 
         One listing is kept per directory that still exists: a directory whose
         frame finds it already gone is dropped after its contents are announced
@@ -408,15 +416,24 @@ class _WorkspaceHandler(FileSystemEventHandler):
 
         for name, stamp in current.items():
             if name not in previous:
-                self._broadcast_child(directory, relative, name, "created", stamp[0])
+                announced = self._broadcast_child(directory, relative, name, "created", stamp[0])
             elif previous[name] != stamp:
-                self._broadcast_child(directory, relative, name, "modified", stamp[0])
+                announced = self._broadcast_child(directory, relative, name, "modified", stamp[0])
+            else:
+                continue
+            # One frame for a parent says only that a child directory exists, so
+            # a child whose stamp moved is owed a frame of its own. Both guards
+            # are what bound the descent and keep it out of a concealed store:
+            # the stamp moved against a listing that existed, and the child is
+            # one this handler may speak about at all.
+            if announced and stamp[0]:
+                self._pending_descent.add(str(directory / name))
         for name in sorted(previous.keys() - current.keys()):
             self._broadcast_child(directory, relative, name, "deleted", previous[name][0])
 
     def _broadcast_child(
         self, directory: Path, relative: Path, name: str, simple_type: str, is_dir: bool
-    ) -> None:
+    ) -> bool:
         """Broadcast one child of a rescanned directory, ignore rules applied.
 
         The rescan reaches children the per-file path never filtered, so the
@@ -426,18 +443,26 @@ class _WorkspaceHandler(FileSystemEventHandler):
         The child shares one debounce slot with its own per-file event: a write
         delivers both that event and a frame for the parent directory, and
         whichever arrives first is the one that announces the change.
+
+        Returns:
+            Whether the child is one this handler may speak about at all:
+            ``False`` only when the ignore list or concealment dropped it. A
+            claimed debounce slot answers ``True``, because it says another
+            trigger has already announced this change — not that the child is
+            invisible.
         """
         child = directory / name
         if self._is_ignored(child):
-            return
+            return False
         child_relative = relative / name
         if self._is_concealed(child_relative):
-            return
+            return False
         if not self._claim_debounce_slot(str(child)):
-            return
+            return True
         self._broadcaster.broadcast(
             {"type": simple_type, "path": str(child_relative), "is_dir": is_dir}
         )
+        return True
 
     def _claim_debounce_slot(self, key: str) -> bool:
         """Whether *key* may be announced now, claiming its slot if so.

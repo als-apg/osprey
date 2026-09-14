@@ -677,9 +677,12 @@ long a change can stay invisible.
 
 The default is ``2.0``. What the number costs is one directory listing per
 tracked directory per interval — and a directory is tracked once something in it
-has changed, never the whole workspace up front — so a deployment whose
-workspace is very large or very busy can raise it, trading a longer worst-case
-delay for fewer listings. Lowering it does the opposite. A value that is not a
+has changed, never the whole workspace up front. A directory the notifications
+never announced is picked up one level per interval from the nearest tracked
+ancestor, so a deep tree costs one further listing per interval while it is
+being discovered and nothing once it is. A deployment whose workspace is very
+large or very busy can raise the interval, trading a longer worst-case delay for
+fewer listings. Lowering it does the opposite. A value that is not a
 positive number is reported in the log and the default is used; there is no
 value that switches the pass off, because a watcher with only one trigger is a
 watcher that can go blind without saying so.
