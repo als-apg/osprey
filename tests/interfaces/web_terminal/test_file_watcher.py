@@ -16,6 +16,7 @@ from watchdog.events import (
     DirModifiedEvent,
     DirMovedEvent,
     FileCreatedEvent,
+    FileDeletedEvent,
     FileModifiedEvent,
 )
 from watchdog.observers.polling import PollingObserver
@@ -117,6 +118,39 @@ class TestWorkspaceWatcher:
         watcher.stop()
         # Should not raise on double stop
         watcher.stop()
+
+    def test_start_primes_the_root_so_the_first_pass_announces_nothing(self, tmp_path):
+        """What is already in the workspace when the watcher starts is not a
+        change, so the baseline is taken before the observer is even armed."""
+        (tmp_path / "already_here.txt").write_text("hello")
+        broadcaster = MagicMock()
+        watcher = WorkspaceWatcher(tmp_path, broadcaster, observer_factory=MagicMock)
+        watcher.start()
+        try:
+            watcher._reconciler.stop()  # drive the pass by hand, not by the clock
+            broadcaster.broadcast.reset_mock()
+
+            watcher._reconciler._pass_once()
+
+            assert broadcaster.broadcast.call_args_list == []
+        finally:
+            watcher.stop()
+
+    def test_start_builds_a_reconciler_on_the_configured_interval(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "osprey.interfaces.web_terminal.file_watcher.reconcile_interval_seconds",
+            lambda: 0.25,
+        )
+        watcher = WorkspaceWatcher(tmp_path, MagicMock(), observer_factory=MagicMock)
+        watcher.start()
+        thread = watcher._reconciler._thread
+        assert watcher._reconciler.interval == 0.25
+
+        watcher.stop()
+
+        assert not thread.is_alive()
+        assert watcher._reconciler is None
+        watcher.stop()  # still idempotent
 
     def test_the_observer_backend_is_injectable(self, tmp_path):
         """The seam every routing test below stands on.
@@ -889,3 +923,144 @@ class TestACoalescedDirectoryFrame:
         assert {"type": "created", "path": "new_file.txt", "is_dir": False} in self._events(
             broadcaster
         )
+
+
+class TestAReconciliationPass:
+    """The trigger that stands on the filesystem rather than on a notification.
+
+    A notification stream can stop delivering to an already-armed watch, and a
+    watcher whose only trigger is that stream reports nothing for as long as the
+    window lasts. The pass re-lists the directories the handler already tracks
+    and dispatches the directory frame the stream owes it, through the handler's
+    own door — so what reaches the panel is indistinguishable from a delivered
+    frame, and the listing diff is what keeps a change the stream *did* deliver
+    from being announced twice.
+    """
+
+    def _handler(self, root: Path, broadcaster: MagicMock, **kwargs) -> _WorkspaceHandler:
+        handler = _WorkspaceHandler(root, broadcaster, **kwargs)
+        # The 100 ms debounce keys on the path, and these tests deliver an event
+        # and the pass behind it back to back on purpose: the de-duplication
+        # under test is the listing diff, not the clock.
+        handler._debounce_seconds = 0
+        handler.prime(root)
+        return handler
+
+    def _events(self, broadcaster: MagicMock) -> list[dict]:
+        return [call.args[0] for call in broadcaster.broadcast.call_args_list]
+
+    def test_a_file_the_stream_never_mentioned_is_announced_created(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        (tmp_path / "unannounced.txt").write_text("hello")
+        handler.reconcile((tmp_path,))
+
+        assert {"type": "created", "path": "unannounced.txt", "is_dir": False} in self._events(
+            broadcaster
+        )
+
+    def test_a_file_its_own_event_announced_is_not_announced_again(self, tmp_path):
+        """The de-duplication: the per-path branch records what it announced in
+        its parent's listing, so the pass diffs against a listing that already
+        knows about the change."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        child = tmp_path / "note.txt"
+        child.write_text("hello")
+        handler.on_any_event(FileCreatedEvent(str(child)))
+        assert self._events(broadcaster) == [
+            {"type": "created", "path": "note.txt", "is_dir": False}
+        ]
+        broadcaster.reset_mock()
+
+        handler.reconcile((tmp_path,))
+
+        assert self._events(broadcaster) == []
+
+    def test_a_file_removed_that_way_is_announced_deleted_once(self, tmp_path):
+        child = tmp_path / "note.txt"
+        child.write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        child.unlink()
+        handler.on_any_event(FileDeletedEvent(str(child)))
+        handler.reconcile((tmp_path,))
+
+        assert self._events(broadcaster) == [
+            {"type": "deleted", "path": "note.txt", "is_dir": False}
+        ]
+
+    def test_ignored_children_stay_ignored(self, tmp_path):
+        """The pass is not a way around the ignore list."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        (tmp_path / "__pycache__").mkdir()
+        (tmp_path / "module.pyc").write_bytes(b"\x00")
+        handler.reconcile((tmp_path,))
+
+        assert self._events(broadcaster) == []
+
+    def test_concealed_children_stay_concealed(self, tmp_path):
+        """Nor around concealment: a store is a store however its change was
+        observed."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster, concealed=(PurePath("feedback"),))
+
+        (tmp_path / "feedback").mkdir()
+        handler.reconcile((tmp_path,))
+
+        assert self._events(broadcaster) == []
+
+    def test_a_pass_over_a_directory_that_is_gone_drops_its_key(self, tmp_path):
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "note.txt").write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(sub)))
+        assert str(sub) in handler._listings
+        broadcaster.reset_mock()
+
+        (sub / "note.txt").unlink()
+        sub.rmdir()
+        handler.reconcile((tmp_path,))
+
+        assert str(sub) not in handler._listings
+
+    def test_the_pass_visits_the_roots_and_the_tracked_directories_and_nothing_else(self, tmp_path):
+        """The bound is the map, not the tree: a subtree the stream has never
+        mentioned is not recursed into — what the panel learns is that its top
+        directory exists."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        untracked = tmp_path / "sub"
+        untracked.mkdir()
+        (untracked / "deep.txt").write_text("hello")
+        handler.reconcile((tmp_path,))
+
+        events = self._events(broadcaster)
+        assert {"type": "created", "path": "sub", "is_dir": True} in events
+        assert [e for e in events if "deep.txt" in e["path"]] == []
+
+    def test_a_tracked_subdirectory_is_visited(self, tmp_path):
+        """Once a frame has named a directory the pass re-reads it, so a change
+        the stream drops there is still announced."""
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(sub)))
+        broadcaster.reset_mock()
+
+        (sub / "deep.txt").write_text("hello")
+        handler.reconcile((tmp_path,))
+
+        assert {
+            "type": "created",
+            "path": str(Path("sub") / "deep.txt"),
+            "is_dir": False,
+        } in self._events(broadcaster)

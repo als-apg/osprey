@@ -14,15 +14,18 @@ import time
 from collections.abc import Sequence
 from pathlib import Path, PurePath
 
-from watchdog.events import FileSystemEvent, FileSystemEventHandler
+from watchdog.events import DirModifiedEvent, FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
 from osprey.interfaces.fs_watch import (
     ChangeStamp,
     ObserverFactory,
+    Reconciler,
+    entry_stamp,
     evict_subtree,
     one_level_listing,
+    reconcile_interval_seconds,
 )
 
 logger = logging.getLogger(__name__)
@@ -200,8 +203,19 @@ class _WorkspaceHandler(FileSystemEventHandler):
         self._last_event: dict[str, float] = {}
         self._debounce_seconds = 0.1
         self._listings: dict[str, dict[str, ChangeStamp]] = {}
+        # The listing map has two writers: the observer's emitter thread and the
+        # reconciliation thread. A dispatch reads a listing, scans the
+        # directory, writes it back and then announces the difference, and two
+        # of those interleaved would announce a change against a listing that
+        # already holds it. Re-entrant because a reconciliation pass enters this
+        # handler through :meth:`on_any_event` and so takes the lock twice.
+        self._dispatch_lock = threading.RLock()
 
     def on_any_event(self, event: FileSystemEvent) -> None:
+        with self._dispatch_lock:
+            self._dispatch(event)
+
+    def _dispatch(self, event: FileSystemEvent) -> None:
         src_path = Path(os.fsdecode(event.src_path))
 
         # Filter ignored paths
@@ -276,6 +290,73 @@ class _WorkspaceHandler(FileSystemEventHandler):
                 "is_dir": event.is_directory,
             }
         )
+        self._record_in_parent(src_path, simple_type)
+
+    def _record_in_parent(self, path: Path, simple_type: str) -> None:
+        """Write what was just announced about *path* into its parent's listing.
+
+        Only where the parent has a listing at all — an untracked directory has
+        nothing to diff against and gains nothing from a single name.
+
+        This is what stops a reconciliation pass from announcing a change the
+        stream already delivered: the pass diffs the directory against this
+        listing, and a change recorded here is no longer a difference. It is
+        written *after* the broadcast rather than consulted before it, so it can
+        only suppress a second announcement, never a first.
+
+        A frame the stream delivers late, after a pass announced the same
+        change, is still a duplicate the panel absorbs — the same duplicate the
+        per-file event and its parent's coalesced frame already produce outside
+        the debounce window.
+        """
+        listing = self._listings.get(str(path.parent))
+        if listing is None:
+            return
+        stamp = None if simple_type == "deleted" else entry_stamp(path)
+        if stamp is None:
+            listing.pop(path.name, None)
+        else:
+            listing[path.name] = stamp
+
+    def prime(self, directory: Path) -> None:
+        """Take *directory*'s listing into the map without announcing anything.
+
+        What is already in the workspace when the watcher starts is not a
+        change. Without this the first reconciliation pass would have no listing
+        to diff against and would announce every entry of the workspace root as
+        ``created``.
+        """
+        with self._dispatch_lock:
+            if directory.is_dir():
+                self._listings[str(directory)] = one_level_listing(directory)
+
+    def reconcile(self, roots: Sequence[Path]) -> None:
+        """Re-read what this handler tracks and announce what the stream did not.
+
+        The notification stream is the fast trigger and the only one that can go
+        quiet. This is the slow one: each directory in *roots*, then every
+        directory the handler already holds a listing for, is dispatched as the
+        coalesced directory frame the stream owes it — through
+        :meth:`on_any_event`, so ``_is_ignored``, the workspace-relative guard
+        and ``_is_concealed`` run for the directory exactly as they do for a
+        delivered frame, and ``_broadcast_child`` re-applies both for every
+        child. A reconciled frame can no more reach a concealed store than a
+        delivered one can.
+
+        The bound is the map, not the tree: one listing per directory already
+        tracked, plus the roots, once per pass. No pass recurses and no pass
+        adds a key a delivered frame would not have added, so a churning
+        workspace can grow neither the map nor the cost of a pass. What that
+        leaves out is a subtree the stream has never mentioned: the pass
+        announces that its top directory exists, and expanding it lists it over
+        HTTP.
+
+        The keys are snapshotted first because dispatching mutates the map.
+        """
+        with self._dispatch_lock:
+            directories = [*roots, *(Path(key) for key in list(self._listings))]
+            for directory in directories:
+                self.on_any_event(DirModifiedEvent(str(directory)))
 
     def _is_ignored(self, path: Path) -> bool:
         """Whether *path* is one of the paths the file panel never shows."""
@@ -403,23 +484,43 @@ class WorkspaceWatcher:
         self._concealed = tuple(concealed)
         self._observer_factory = observer_factory
         self._observer: BaseObserver | None = None
+        self._handler: _WorkspaceHandler | None = None
+        self._reconciler: Reconciler | None = None
 
     def start(self) -> None:
-        """Start watching the workspace directory."""
+        """Start watching the workspace directory.
+
+        Two triggers: the observer, and the reconciliation pass that re-reads
+        the tracked directories on an interval so a frame the notification
+        stream never delivers still reaches the panel.
+        """
         if not self._workspace_dir.exists():
             self._workspace_dir.mkdir(parents=True, exist_ok=True)
 
         handler = _WorkspaceHandler(
             self._workspace_dir, self._broadcaster, concealed=self._concealed
         )
+        self._handler = handler
+        # Before the observer is armed, so that nothing which happens after the
+        # baseline can fall between the two.
+        handler.prime(self._workspace_dir)
         self._observer = self._observer_factory()
         self._observer.schedule(handler, str(self._workspace_dir), recursive=True)
         self._observer.daemon = True
         self._observer.start()
+        self._reconciler = Reconciler(
+            reconcile_interval_seconds(),
+            lambda: handler.reconcile((self._workspace_dir,)),
+        )
+        self._reconciler.start()
 
     def stop(self) -> None:
         """Stop the file watcher."""
+        if self._reconciler is not None:
+            self._reconciler.stop()
+            self._reconciler = None
         if self._observer is not None:
             self._observer.stop()
             self._observer.join(timeout=5)
             self._observer = None
+        self._handler = None
