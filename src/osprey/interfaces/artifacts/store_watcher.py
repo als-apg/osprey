@@ -28,6 +28,7 @@ from osprey.interfaces.fs_watch import (
     evict_subtree,
     one_level_listing,
     reconcile_interval_seconds,
+    reconcile_targets,
 )
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
@@ -151,11 +152,17 @@ class _IndexFileHandler(FileSystemEventHandler):
         also what makes a pass harmless after the stream has delivered an index
         write: the ids match, so nothing is broadcast twice.
 
-        The keys are snapshotted first because dispatching mutates the map.
+        A pass reads no directory below a watch directory, and there is nothing
+        there for it to find: this handler routes only the index filenames it
+        was given, and each of those lives in a watch directory by
+        construction. A pass that listed a subdirectory would be reading a
+        directory this watcher's own observer was never asked about, and would
+        spend a listing per interval on it for as long as it kept changing.
+
+        The sequence is built first because dispatching mutates the map.
         """
         with self._dispatch_lock:
-            directories = [*roots, *(Path(key) for key in list(self._listings))]
-            for directory in directories:
+            for directory in reconcile_targets(roots, self._listings):
                 self.on_modified(DirModifiedEvent(str(directory)))
 
     def _rescan_directory(self, event: FileSystemEvent) -> None:
