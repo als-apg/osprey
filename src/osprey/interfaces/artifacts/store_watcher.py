@@ -11,19 +11,23 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from watchdog.events import FileSystemEvent, FileSystemEventHandler
+from watchdog.events import DirModifiedEvent, FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
 from osprey.interfaces.fs_watch import (
     ChangeStamp,
     ObserverFactory,
+    Reconciler,
     evict_subtree,
     one_level_listing,
+    reconcile_interval_seconds,
 )
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
@@ -67,6 +71,13 @@ class _IndexFileHandler(FileSystemEventHandler):
         self._last_stamp: dict[str, tuple[int, int] | None] = {}
         self._debounce_seconds = 0.1
         self._listings: dict[str, dict[str, ChangeStamp]] = {}
+        # The listing map has two writers: the observer's emitter thread and the
+        # reconciliation thread. :meth:`_rescan_directory` reads a listing,
+        # scans the directory and writes it back before routing what differs,
+        # and two of those interleaved would route a change against a listing
+        # that already holds it. Re-entrant because a reconciliation pass enters
+        # this handler through :meth:`on_modified` and so takes the lock twice.
+        self._dispatch_lock = threading.RLock()
         # Snapshot known entry IDs per store
         self._known_ids: dict[str, set] = {}
         for filename, cfg in index_configs.items():
@@ -75,15 +86,17 @@ class _IndexFileHandler(FileSystemEventHandler):
             self._known_ids[filename] = {getattr(e, id_attr) for e in store._entries}
 
     def on_modified(self, event: FileSystemEvent) -> None:
-        if event.is_directory:
-            self._rescan_directory(event)
-            return
-        self._handle(event)
+        with self._dispatch_lock:
+            if event.is_directory:
+                self._rescan_directory(event)
+                return
+            self._handle(event)
 
     def on_created(self, event: FileSystemEvent) -> None:
-        if event.is_directory:
-            return
-        self._handle(event)
+        with self._dispatch_lock:
+            if event.is_directory:
+                return
+            self._handle(event)
 
     def on_deleted(self, event: FileSystemEvent) -> None:
         # A directory that is gone keeps no listing. It leaves two ways: by
@@ -91,10 +104,15 @@ class _IndexFileHandler(FileSystemEventHandler):
         # whole subtree, and by deletion, where every directory removed is
         # announced by its own event and drops its own key here. Either way the
         # map stays bounded by the tree rather than by the watcher's lifetime.
-        if event.is_directory:
-            self._listings.pop(str(Path(os.fsdecode(event.src_path))), None)
+        with self._dispatch_lock:
+            if event.is_directory:
+                self._listings.pop(str(Path(os.fsdecode(event.src_path))), None)
 
     def on_moved(self, event: FileSystemEvent) -> None:
+        with self._dispatch_lock:
+            self._dispatch_move(event)
+
+    def _dispatch_move(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             # A directory that leaves by rename. Nothing is routed below: a
             # moved directory is not an index write. Its listing goes, and so
@@ -113,6 +131,32 @@ class _IndexFileHandler(FileSystemEventHandler):
         # destination path.
         dest_path = getattr(event, "dest_path", "")
         self._handle(event, path=str(dest_path) if dest_path else None)
+
+    def reconcile(self, roots: Sequence[Path]) -> None:
+        """Re-read the watched directories and route what the stream did not.
+
+        The notification stream is the fast trigger and the only one that can go
+        quiet. This is the slow one: each directory in *roots*, then every
+        directory this handler already holds a listing for, is dispatched as the
+        coalesced directory frame the stream owes it — through
+        :meth:`on_modified`, so the pass is read as exactly the frame
+        :meth:`_rescan_directory` already documents and can route nothing a
+        per-file event would not have routed.
+
+        Nothing is primed first, and nothing needs to be: this handler's
+        baseline is the entry-id snapshot ``__init__`` takes from each store, and
+        :meth:`_handle` broadcasts only ids that differ from it. A first pass
+        that re-reads an unchanged index therefore announces nothing, which is
+        the same reason a same-process save is already silent. That id diff is
+        also what makes a pass harmless after the stream has delivered an index
+        write: the ids match, so nothing is broadcast twice.
+
+        The keys are snapshotted first because dispatching mutates the map.
+        """
+        with self._dispatch_lock:
+            directories = [*roots, *(Path(key) for key in list(self._listings))]
+            for directory in directories:
+                self.on_modified(DirModifiedEvent(str(directory)))
 
     def _rescan_directory(self, event: FileSystemEvent) -> None:
         """Read a directory frame as the index write it stands for.
@@ -243,6 +287,8 @@ class StoreIndexWatcher:
         self._broadcaster = broadcaster
         self._observer_factory = observer_factory
         self._observer: BaseObserver | None = None
+        self._handler: _IndexFileHandler | None = None
+        self._reconciler: Reconciler | None = None
 
         self._index_configs: dict[str, dict[str, Any]] = {
             "artifacts.json": {
@@ -259,8 +305,14 @@ class StoreIndexWatcher:
         }
 
     def start(self) -> None:
-        """Start watching index files for changes."""
+        """Start watching index files for changes.
+
+        Two triggers: the observer, and the reconciliation pass that re-reads
+        the watched directories on an interval so an index write the
+        notification stream never delivers still reaches the gallery.
+        """
         handler = _IndexFileHandler(self._index_configs, self._broadcaster)
+        self._handler = handler
         self._observer = self._observer_factory()
 
         # Schedule a watch on each directory that contains an index file
@@ -275,9 +327,19 @@ class StoreIndexWatcher:
         self._observer.daemon = True
         self._observer.start()
 
+        roots = tuple(Path(dir_str) for dir_str in sorted(watched))
+        self._reconciler = Reconciler(
+            reconcile_interval_seconds(), lambda: handler.reconcile(roots)
+        )
+        self._reconciler.start()
+
     def stop(self) -> None:
         """Stop the file watcher."""
+        if self._reconciler is not None:
+            self._reconciler.stop()
+            self._reconciler = None
         if self._observer is not None:
             self._observer.stop()
             self._observer.join(timeout=5)
             self._observer = None
+        self._handler = None

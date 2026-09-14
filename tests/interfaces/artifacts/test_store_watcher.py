@@ -96,6 +96,23 @@ def _wait_for_broadcast(broadcaster, external_store, expected_calls=1, *, what):
     )
 
 
+def _index_handler(tmp_path, broadcaster):
+    """An ``_IndexFileHandler`` wired to a real store, with no observer behind it.
+
+    The 100 ms debounce keys on the path; the classes below deliver frames back
+    to back on purpose, because what has to keep a repeat quiet is the listing
+    diff and the entry-id snapshot rather than the clock.
+    """
+    watcher = StoreIndexWatcher(
+        workspace_root=tmp_path,
+        broadcaster=broadcaster,
+        artifact_store=ArtifactStore(workspace_root=tmp_path),
+    )
+    handler = _IndexFileHandler(watcher._index_configs, broadcaster)
+    handler._debounce_seconds = 0
+    return handler
+
+
 @pytest.mark.unit
 class TestStoreWatcher:
     """Tests for StoreIndexWatcher."""
@@ -119,6 +136,30 @@ class TestStoreWatcher:
             assert built == [watcher._observer]
         finally:
             watcher.stop()
+
+    def test_start_builds_a_reconciler_over_the_watch_directories(self, tmp_path, monkeypatch):
+        """The pass re-reads the directories the index files live in, on the
+        interval the deployment configured."""
+        monkeypatch.setattr(
+            "osprey.interfaces.artifacts.store_watcher.reconcile_interval_seconds",
+            lambda: 0.25,
+        )
+        watcher, _, _ = _make_watcher(tmp_path, observer_factory=MagicMock)
+        watcher.start()
+        thread = watcher._reconciler._thread
+        try:
+            assert watcher._reconciler.interval == 0.25
+            watcher._reconciler.stop()  # drive the pass by hand, not by the clock
+
+            watcher._reconciler._pass_once()
+
+            assert str(tmp_path / "artifacts") in watcher._handler._listings
+        finally:
+            watcher.stop()
+
+        assert not thread.is_alive()
+        assert watcher._reconciler is None
+        watcher.stop()  # still idempotent
 
     def test_detects_new_artifact_entry(self, tmp_path):
         """External write to artifacts.json triggers SSE broadcast."""
@@ -316,16 +357,7 @@ class TestACoalescedDirectoryFrame:
     """
 
     def _handler(self, tmp_path, broadcaster):
-        watcher = StoreIndexWatcher(
-            workspace_root=tmp_path,
-            broadcaster=broadcaster,
-            artifact_store=ArtifactStore(workspace_root=tmp_path),
-        )
-        handler = _IndexFileHandler(watcher._index_configs, broadcaster)
-        # The 100 ms debounce keys on the path; these tests deliver frames back
-        # to back on purpose.
-        handler._debounce_seconds = 0
-        return handler
+        return _index_handler(tmp_path, broadcaster)
 
     def test_a_bare_directory_frame_announces_the_new_entry(self, tmp_path):
         broadcaster = MagicMock()
@@ -488,3 +520,109 @@ class TestACoalescedDirectoryFrame:
 
         announced = [call.args[0] for call in broadcaster.broadcast.call_args_list]
         assert [e for e in announced if e.get("title") == "Behind A Stale Frame"]
+
+
+@pytest.mark.unit
+class TestAReconciliationPass:
+    """The trigger that stands on the filesystem rather than on a notification.
+
+    A notification stream can stop delivering to an already-armed watch, and a
+    watcher whose only trigger is that stream never learns about the index write
+    it missed. The pass re-reads the watch directories on an interval and routes
+    what differs through the same door a delivered frame takes.
+
+    Nothing is primed here, and nothing needs to be: this handler's baseline is
+    the entry-id snapshot it takes from each store at construction, and only ids
+    that differ from it are broadcast. A first pass over an unchanged index
+    therefore announces nothing — the same reason a same-process save is already
+    silent — and that id diff is also what keeps a pass quiet after the stream
+    has delivered the write itself.
+    """
+
+    def _announced(self, broadcaster):
+        return [call.args[0] for call in broadcaster.broadcast.call_args_list]
+
+    def test_an_index_the_stream_never_mentioned_is_broadcast(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = _index_handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+
+        ArtifactStore(workspace_root=tmp_path).save_file(
+            file_content=b"<html>unannounced</html>",
+            filename="unannounced.html",
+            artifact_type="plot_html",
+            title="Written While The Stream Was Quiet",
+            description="no event was ever delivered",
+            mime_type="text/html",
+            tool_source="test",
+        )
+        handler.reconcile((artifacts_dir,))
+
+        assert [
+            e
+            for e in self._announced(broadcaster)
+            if e.get("title") == "Written While The Stream Was Quiet"
+        ]
+
+    def test_a_second_pass_over_the_same_index_broadcasts_nothing(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = _index_handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        ArtifactStore(workspace_root=tmp_path).save_file(
+            file_content=b"<html>once</html>",
+            filename="once.html",
+            artifact_type="plot_html",
+            title="Announced Exactly Once",
+            description="the pass must not repeat itself",
+            mime_type="text/html",
+            tool_source="test",
+        )
+        handler.reconcile((artifacts_dir,))
+        broadcaster.reset_mock()
+
+        handler.reconcile((artifacts_dir,))
+
+        assert broadcaster.broadcast.call_count == 0
+
+    def test_an_entry_removed_from_the_index_is_broadcast_as_a_deletion(self, tmp_path):
+        pre_store = ArtifactStore(workspace_root=tmp_path)
+        entry = pre_store.save_file(
+            file_content=b"<html>delete me</html>",
+            filename="delete.html",
+            artifact_type="plot_html",
+            title="To Delete",
+            description="will be deleted",
+            mime_type="text/html",
+            tool_source="test",
+        )
+        broadcaster = MagicMock()
+        handler = _index_handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+
+        ArtifactStore(workspace_root=tmp_path).delete_entry(entry.id)
+        handler.reconcile((artifacts_dir,))
+
+        assert {"type": "artifact_deleted", "id": entry.id} in self._announced(broadcaster)
+
+    def test_a_pass_over_a_watch_root_that_is_gone_is_survivable(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = _index_handler(tmp_path, broadcaster)
+
+        handler.reconcile((tmp_path / "never_existed",))
+
+        assert broadcaster.broadcast.call_count == 0
+
+    def test_a_name_that_is_not_an_index_file_is_not_routed(self, tmp_path):
+        broadcaster = MagicMock()
+        handler = _index_handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        handler.reconcile((artifacts_dir,))
+        broadcaster.reset_mock()
+
+        (artifacts_dir / "random_file.json").write_text('{"data": "test"}')
+        handler.reconcile((artifacts_dir,))
+
+        assert broadcaster.broadcast.call_count == 0
