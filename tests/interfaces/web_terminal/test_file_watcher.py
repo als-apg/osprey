@@ -936,7 +936,8 @@ class TestAReconciliationPass:
     and dispatches the directory frame the stream owes it, through the handler's
     own door — so what reaches the panel is indistinguishable from a delivered
     frame, and the listing diff is what keeps a change the stream *did* deliver
-    from being announced twice.
+    from being announced twice. The pass also follows a change one level below
+    what it tracks, which is how it reaches a directory no frame ever named.
     """
 
     def _handler(self, root: Path, broadcaster: MagicMock, **kwargs) -> _WorkspaceHandler:
@@ -1033,9 +1034,9 @@ class TestAReconciliationPass:
         assert str(sub) not in handler._listings
 
     def test_the_pass_visits_the_roots_and_the_tracked_directories_and_nothing_else(self, tmp_path):
-        """The bound is the map, not the tree: a subtree the stream has never
-        mentioned is not recursed into — what the panel learns is that its top
-        directory exists."""
+        """One pass visits the roots, the directories already tracked, and the
+        directories a previous pass found changed below them — so a directory
+        that has only just appeared is announced now and read next time."""
         broadcaster = MagicMock()
         handler = self._handler(tmp_path, broadcaster)
 
@@ -1066,3 +1067,76 @@ class TestAReconciliationPass:
             "path": str(Path("sub") / "deep.txt"),
             "is_dir": False,
         } in self._events(broadcaster)
+
+    def test_a_directory_that_appeared_is_read_on_the_next_pass(self, tmp_path):
+        """The whole descent in one case: tracked after one pass, contents after
+        the next."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "note.txt").write_text("hello")
+        handler.reconcile((tmp_path,))
+
+        first = self._events(broadcaster)
+        assert {"type": "created", "path": "sub", "is_dir": True} in first
+        assert [e for e in first if "note.txt" in e["path"]] == []
+        broadcaster.reset_mock()
+
+        handler.reconcile((tmp_path,))
+
+        assert {
+            "type": "created",
+            "path": str(Path("sub") / "note.txt"),
+            "is_dir": False,
+        } in self._events(broadcaster)
+
+    def test_a_directory_the_stream_announced_is_not_read_twice(self, tmp_path):
+        """The target list holds a directory once, however many sources name
+        it."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        (sub / "deep.txt").write_text("hello")
+        handler.on_any_event(DirModifiedEvent(str(tmp_path)))
+        handler.on_any_event(DirModifiedEvent(str(sub)))
+        broadcaster.reset_mock()
+
+        handler.reconcile((tmp_path,))
+
+        assert self._events(broadcaster) == []
+
+    def test_the_descent_stops_one_level_below_a_tracked_directory(self, tmp_path):
+        """A baseline is not a report of change: ``b`` was announced from the
+        first listing of ``a``, so nothing schedules it."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+
+        deep = tmp_path / "a" / "b"
+        deep.mkdir(parents=True)
+        (deep / "deep.txt").write_text("hello")
+
+        # The first schedules ``a``, the second lists it and announces ``b``,
+        # and the third has nothing left to visit.
+        for _ in range(3):
+            handler.reconcile((tmp_path,))
+
+        assert str(tmp_path / "a") in handler._listings
+        assert str(deep) not in handler._listings
+        assert [e for e in self._events(broadcaster) if "deep.txt" in e["path"]] == []
+
+    def test_a_concealed_directory_is_never_descended_into(self, tmp_path):
+        """Scheduling is gated on the call that applies the predicates, so a
+        store cannot be scheduled and cannot be read."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster, concealed=(PurePath("feedback"),))
+
+        (tmp_path / "feedback").mkdir()
+        (tmp_path / "feedback" / "record.json").write_text("{}")
+        for _ in range(3):
+            handler.reconcile((tmp_path,))
+
+        assert handler._pending_descent == set()
+        assert self._events(broadcaster) == []
