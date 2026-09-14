@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable, Mapping, MutableMapping, MutableSet, Sequence
 from pathlib import Path
 
 from watchdog.observers.api import BaseObserver
@@ -82,6 +82,53 @@ def entry_stamp(path: Path) -> ChangeStamp | None:
     except OSError:
         return None
     return (path.is_dir(), stat.st_mtime_ns, stat.st_size)
+
+
+def reconcile_targets(
+    roots: Sequence[Path],
+    listings: Mapping[str, dict[str, ChangeStamp]],
+    pending: MutableSet[str] | None = None,
+) -> list[Path]:
+    """The directories one reconciliation pass owes a frame to.
+
+    Three invariants, and they are what both watchers would otherwise come to
+    disagree about:
+
+    A pass dispatches a frame for a directory at most once, however many of the
+    three sources name it — the watch roots, the directories already tracked,
+    and the directories a previous pass found changed one level below a tracked
+    one — because a second dispatch would only diff a listing the first one has
+    just refreshed.
+
+    The descent is one level below what is already tracked, and it is scheduled
+    only for a name whose stamp moved. A tree nothing writes to schedules none
+    at all, so the map stays bounded by the directories that have changed since
+    the watcher started — the same population the notification stream would
+    have sent frames for.
+
+    A scheduled path that has since gone away is still returned: a frame for a
+    directory that is not there announces nothing and drops no key that was not
+    already dropped.
+
+    Args:
+        roots: The directories the watcher was armed on.
+        listings: The map of what the watcher already tracks, keyed by path.
+        pending: The descent a previous pass scheduled, drained here — a
+            directory is descended into once and read as an ordinary tracked
+            directory from then on. ``None`` for a handler with nothing below
+            its watch to find.
+    """
+    seen: set[str] = set()
+    targets: list[Path] = []
+    for keys in ([str(root) for root in roots], list(listings), sorted(pending or ())):
+        for key in keys:
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append(Path(key))
+    if pending is not None:
+        pending.clear()
+    return targets
 
 
 #: Seconds between two reconciliation passes when the deployment says nothing.
