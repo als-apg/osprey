@@ -16,10 +16,18 @@ tax every green run pays. So nothing here waits longer.
 the same filesystem change without altering what the test asserts about —
 rewriting a control note with the same bytes, re-saving an index through the
 store's own atomic write — and it is called once per interval until the expected
-delivery is observed. Whichever way the arming window bit (an event lost
-outright, or an event merely slow), a poke issued after the stream is live is
-delivered, so the wait converges instead of expiring. A poke that changes what
-is under test is a bug in the caller, not a licence this module grants.
+delivery is observed. A poke is not what makes the wait terminate. Re-applied
+into a lossy window it is lost along with everything else in that window: the
+stream is armed and past ``add_watch``, and the daemon is simply delivering
+nothing to it. Flushing does not recover such a window either — delivery is no
+likelier with ``FSEventStreamFlushSync`` (``_watchdog_fsevents.flush_events``)
+than without it. So the loop below bounds how long the observer may stay silent;
+it does not guarantee convergence. What converges is the watcher itself: both
+watchers run a reconciliation pass that re-reads the tree on an interval and
+announces what the stream did not, so the poke's remaining job is to keep a
+stimulus of the right event class available for whenever delivery resumes. A
+poke that changes what is under test is a bug in the caller, not a licence this
+module grants.
 
 **A poke must reproduce the event CLASS, not merely the path.** Every handler
 here dispatches on kind — ``created``/``modified``/``deleted`` in the workspace

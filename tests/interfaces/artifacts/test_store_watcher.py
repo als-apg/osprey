@@ -66,10 +66,15 @@ def _wait_for_broadcast(broadcaster, external_store, expected_calls=1, *, what):
 
     Not a longer timeout. The observer's stream can still be arming when the
     external write lands, and a change made inside that window is delivered late
-    or not at all — no ceiling recovers an event the stream never saw. So this
-    re-applies the stimulus by calling ``_save_index()`` on the store that made
-    it: the same tempfile-plus-``os.replace`` the real save and delete go
-    through, writing the identical index the test already produced.
+    or not at all — no ceiling recovers an event the stream never saw. Two
+    mechanisms answer that, and the wait needs both. This one re-applies the
+    stimulus by calling ``_save_index()`` on the store that made it: the same
+    tempfile-plus-``os.replace`` the real save and delete go through, writing the
+    identical index the test already produced, so a stimulus in the class under
+    test is on offer for whenever delivery resumes. What makes the wait
+    *terminate* when the daemon has gone quiet is the watcher's own
+    reconciliation pass, which re-reads the watched directory on an interval and
+    routes the index write the stream never mentioned.
 
     The write path matters more than the file does. An atomic replace is
     delivered by Linux inotify as ``on_moved`` and nothing else — that is why
