@@ -543,14 +543,14 @@ and both appear in <code class="docutils literal notranslate"><span class="pre">
 <p>If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.</p>
 </section>
-<section id="model-spending-lanes-nightly-on-main-full-ci-on-a-pr">
-<h2>Model-Spending Lanes: Nightly on <code class="docutils literal notranslate"><span class="pre">main</span></code>, <code class="docutils literal notranslate"><span class="pre">full-ci</span></code> on a PR<a class="headerlink" href="#model-spending-lanes-nightly-on-main-full-ci-on-a-pr" title="Link to this heading">#</a></h2>
+<section id="model-spending-lanes-full-ci-on-a-pr-on-demand-on-main">
+<h2>Model-Spending Lanes: <code class="docutils literal notranslate"><span class="pre">full-ci</span></code> on a PR, On Demand on <code class="docutils literal notranslate"><span class="pre">main</span></code><a class="headerlink" href="#model-spending-lanes-full-ci-on-a-pr-on-demand-on-main" title="Link to this heading">#</a></h2>
 <p>Eight CI lanes drive real agent sessions against a live model endpoint: the
 agentic per-preset flows, the E2E suite, the two dispatch stacks, the scan-stack
 and control-target-switch agentic lanes, and the two chat bridges. Together they
 cost about $15 per run — and they used to run on every push of every pull
 request, which at this repository’s pace was the group’s whole model bill.</p>
-<p>They now run on exactly three events:</p>
+<p>They now run on exactly two events:</p>
 <ul>
 <li><p><strong>A pull request carrying the ``full-ci`` label.</strong> Opt in per PR, for a change
 that touches what these lanes cover:</p>
@@ -562,14 +562,20 @@ subscribes to the <code class="docutils literal notranslate"><span class="pre">l
 The <code class="docutils literal notranslate"><span class="pre">All</span> <span class="pre">CI</span> <span class="pre">Checks</span> <span class="pre">Passed</span></code> run summary of every unlabeled PR names the
 lanes that skipped and prints this command.</p>
 </li>
-<li><p><strong>The nightly schedule on ``main``</strong> (07:00 UTC). This is the standing
-coverage: a regression that slipped through an unlabeled PR shows up the next
-morning and bisects over one day’s merges. <strong>A red nightly is a red
-``main``</strong> — fix it forward like any other, and pin the last nightly-green
-sha rather than raw head if you consume <code class="docutils literal notranslate"><span class="pre">main</span></code> directly.</p></li>
-<li><p><strong>The ``revalidate_secret_lanes`` dispatch</strong> against any ref, the maintainer
-path described under Dependency Update Pull Requests below.</p></li>
+<li><p><strong>The ``revalidate_secret_lanes`` dispatch</strong> against any ref: the maintainer
+path described under Dependency Update Pull Requests below, and the way the
+lanes run against <code class="docutils literal notranslate"><span class="pre">main</span></code> at all:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>gh<span class="w"> </span>workflow<span class="w"> </span>run<span class="w"> </span>ci.yml<span class="w"> </span>--ref<span class="w"> </span>main<span class="w"> </span>-f<span class="w"> </span><span class="nv">revalidate_secret_lanes</span><span class="o">=</span><span class="nb">true</span>
+</pre></div>
+</div>
+</li>
 </ul>
+<p>A release-notes pull request always carries <code class="docutils literal notranslate"><span class="pre">full-ci</span></code>: these lanes are the
+only proof the agentic paths work on the tree about to be tagged.</p>
+<p>There is deliberately no schedule. A scheduled run spends model tokens with
+nobody watching, and its red reaches nobody; a lane that only runs when someone
+asked for it has a person waiting on the result. If you consume <code class="docutils literal notranslate"><span class="pre">main</span></code>
+directly, pin a sha a full run was green on rather than raw head.</p>
 <p>Everything else on a PR is unchanged: the unit, lint, docs and package lanes and
 every secret-free e2e lane (build-and-boot, deploy, bluesky, auth, podman) still
 run on every push. Those cost runner minutes, not tokens, and the deploy lanes
@@ -673,7 +679,7 @@ on <a class="reference internal" href="agent-skills.html"><span class="doc">Agen
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#commit-message-format">Commit Message Format</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#pull-request-process">Pull Request Process</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#branch-protection-on-main">Branch Protection on <code class="docutils literal notranslate"><span class="pre">main</span></code></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-spending-lanes-nightly-on-main-full-ci-on-a-pr">Model-Spending Lanes: Nightly on <code class="docutils literal notranslate"><span class="pre">main</span></code>, <code class="docutils literal notranslate"><span class="pre">full-ci</span></code> on a PR</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#model-spending-lanes-full-ci-on-a-pr-on-demand-on-main">Model-Spending Lanes: <code class="docutils literal notranslate"><span class="pre">full-ci</span></code> on a PR, On Demand on <code class="docutils literal notranslate"><span class="pre">main</span></code></a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#dependency-update-pull-requests">Dependency Update Pull Requests</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-workflow-skill">Osprey Agent Workflow Skill</a></li>
 </ul>

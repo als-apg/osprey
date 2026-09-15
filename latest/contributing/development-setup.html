@@ -568,8 +568,12 @@ uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </sp
 <span class="c1"># Single test function</span>
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/path/to/test_file.py::test_function_name<span class="w"> </span>-v
 
-<span class="c1"># E2E tests (requires API keys) -- MUST use path, NOT marker</span>
-uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/e2e/<span class="w"> </span>-v
+<span class="c1"># E2E tests (requires API keys) -- MUST use path, NOT marker.</span>
+<span class="c1"># Name the provider: a run that names none is refused before the first test.</span>
+<span class="c1"># Sync the extras the suite reaches for too -- the chat-bridge modules skip</span>
+<span class="c1"># themselves without theirs, which looks like a pass.</span>
+uv<span class="w"> </span>sync<span class="w"> </span>--extra<span class="w"> </span>dev<span class="w"> </span>--extra<span class="w"> </span>teams<span class="w"> </span>--extra<span class="w"> </span>gchat<span class="w"> </span>--extra<span class="w"> </span>virtual-accelerator
+<span class="nv">OSPREY_E2E_PROVIDER</span><span class="o">=</span>als-apg<span class="w"> </span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/e2e/<span class="w"> </span>-v
 
 <span class="c1"># Browser smokes (Playwright + Chromium; skips if the browser is absent)</span>
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/interfaces/<span class="w"> </span>-m<span class="w"> </span>browser<span class="w"> </span>-v

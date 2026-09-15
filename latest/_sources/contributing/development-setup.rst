@@ -133,8 +133,12 @@ All new functionality must include tests.
    # Single test function
    uv run pytest tests/path/to/test_file.py::test_function_name -v
 
-   # E2E tests (requires API keys) -- MUST use path, NOT marker
-   uv run pytest tests/e2e/ -v
+   # E2E tests (requires API keys) -- MUST use path, NOT marker.
+   # Name the provider: a run that names none is refused before the first test.
+   # Sync the extras the suite reaches for too -- the chat-bridge modules skip
+   # themselves without theirs, which looks like a pass.
+   uv sync --extra dev --extra teams --extra gchat --extra virtual-accelerator
+   OSPREY_E2E_PROVIDER=als-apg uv run pytest tests/e2e/ -v
 
    # Browser smokes (Playwright + Chromium; skips if the browser is absent)
    uv run pytest tests/interfaces/ -m browser -v
