@@ -643,6 +643,79 @@ def test_guard_is_silent_when_optional_libraries_are_absent(capsys, monkeypatch)
     assert capsys.readouterr().out == ""
 
 
+# ---------------------------------------------------------------------------
+# pyepics loading libca for osprey.runtime
+#
+# A readonly run reads through ``osprey.runtime``, whose EPICS connector is
+# pyepics — and pyepics reaches Channel Access by loading ``libca`` through
+# ``ctypes``. The load pyepics makes for itself is the one shared-library load
+# a readonly run permits; the handle it gets back has its put entry points
+# refused, so the raw route through it is closed as every other spelling is.
+# ---------------------------------------------------------------------------
+
+
+def _install_fake_pyepics_loader(monkeypatch):
+    """A stand-in ``epics.ca`` whose ``initialize_libca`` loads a library as pyepics does."""
+    ca = ModuleType("epics.ca")
+
+    def initialize_libca():
+        import ctypes
+
+        return ctypes.cdll.LoadLibrary(None)
+
+    ca.initialize_libca = initialize_libca
+    package = ModuleType("epics")
+    package.ca = ca
+    monkeypatch.setitem(sys.modules, "epics", package)
+    monkeypatch.setitem(sys.modules, "epics.ca", ca)
+    return ca
+
+
+def test_readonly_lets_pyepics_load_libca(monkeypatch):
+    ca = _install_fake_pyepics_loader(monkeypatch)
+    _run_guard("readonly")
+
+    handle = ca.initialize_libca()
+
+    assert handle is not None
+
+
+def test_readonly_refuses_the_put_symbols_on_the_handle_pyepics_loaded(monkeypatch):
+    ca = _install_fake_pyepics_loader(monkeypatch)
+    _run_guard("readonly")
+    handle = ca.initialize_libca()
+
+    for symbol in ("ca_array_put", "ca_array_put_callback"):
+        with pytest.raises(RuntimeError, match=_REFUSAL):
+            getattr(handle, symbol)(0, 1, object(), object())
+
+
+def test_readonly_refuses_an_impostor_initialize_libca(monkeypatch):
+    """The permit is for pyepics' own function, not for a function of that name."""
+    _install_fake_pyepics_loader(monkeypatch)
+    _run_guard("readonly")
+
+    def initialize_libca():
+        import ctypes
+
+        return ctypes.cdll.LoadLibrary(None)
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        initialize_libca()
+
+
+def test_readonly_refuses_user_loads_while_pyepics_is_present(monkeypatch):
+    """Having pyepics importable opens nothing for the user code's own loads."""
+    _install_fake_pyepics_loader(monkeypatch)
+    _run_guard("readonly")
+    import ctypes
+
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        ctypes.CDLL(None)
+    with pytest.raises(RuntimeError, match=_REFUSAL):
+        ctypes.cdll.LoadLibrary(None)
+
+
 # The defining module both tests below use. It must stay OUT of the table: a
 # row naming it would patch it directly, and the assertions would then observe
 # the row instead of the generic defining-module step they exist to pin down.
