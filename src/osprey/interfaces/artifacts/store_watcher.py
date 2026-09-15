@@ -100,14 +100,14 @@ class _IndexFileHandler(FileSystemEventHandler):
             self._handle(event)
 
     def on_deleted(self, event: FileSystemEvent) -> None:
-        # A directory that is gone keeps no listing. It leaves two ways: by
-        # rename, where the single event :meth:`on_moved` reads stands for the
-        # whole subtree, and by deletion, where every directory removed is
-        # announced by its own event and drops its own key here. Either way the
-        # map stays bounded by the tree rather than by the watcher's lifetime.
+        # A directory that is gone keeps no listing, and neither does anything
+        # that was under it — whether it left by rename, which :meth:`on_moved`
+        # reads, or by deletion. What the map holds is decided by the tree
+        # rather than by how finely the removal was reported, so it stays
+        # bounded by the tree rather than by the watcher's lifetime.
         with self._dispatch_lock:
             if event.is_directory:
-                self._listings.pop(str(Path(os.fsdecode(event.src_path))), None)
+                evict_subtree(self._listings, Path(os.fsdecode(event.src_path)))
 
     def on_moved(self, event: FileSystemEvent) -> None:
         with self._dispatch_lock:

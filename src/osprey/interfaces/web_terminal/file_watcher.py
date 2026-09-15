@@ -277,13 +277,14 @@ class _WorkspaceHandler(FileSystemEventHandler):
             self._broadcast_directory_diff(src_path, relative)
             return
 
-        # A directory that is gone keeps no listing. It leaves two ways: by
-        # rename, where the single event above stands for the whole subtree,
-        # and by deletion, where every directory removed is announced by its
-        # own event and drops its own key here. Either way the map stays
-        # bounded by the tree rather than by the watcher's lifetime.
+        # A directory that is gone keeps no listing, and neither does anything
+        # that was under it — whether it left by rename, which the single event
+        # above stands for, or by deletion. What the map holds is decided by the
+        # tree rather than by how finely the removal was reported, so it stays
+        # bounded by the tree rather than by the watcher's lifetime. The
+        # deletion itself is still announced by the broadcast below.
         if event.is_directory and simple_type == "deleted":
-            self._listings.pop(str(src_path), None)
+            evict_subtree(self._listings, src_path)
 
         # Debounce: skip duplicate events for the same path within 100ms
         if not self._claim_debounce_slot(str(src_path)):
