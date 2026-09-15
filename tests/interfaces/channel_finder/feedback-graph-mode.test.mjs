@@ -115,7 +115,7 @@ test('an available store still lists entries and offers promotion', async () => 
     '/api/feedback/status': { available: true, paradigm: 'hierarchical', entry_count: 1, store_path: '/tmp/fb.json' },
     '/api/feedback': {
       entries: [{
-        key: 'k1', query: 'bpms', facility: 'ALS',
+        key: 'k1', query: 'bpms', facility: 'ERF',
         success_count: 3, failure_count: 1, last_activity: '2026-08-27T10:00:00Z',
       }],
     },

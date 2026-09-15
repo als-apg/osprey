@@ -49,7 +49,7 @@ def test_approve_without_a_feedback_store_says_why_under_graph(pending_review_cl
     pending_review_client.app.state.feedback_store = None
     pending_review_client.app.state.pipeline_type = "graph"
     store = pending_review_client.app.state.pending_review_store
-    item_id = store.capture({"query": "correctors", "facility": "ALS"})
+    item_id = store.capture({"query": "correctors", "facility": "ERF"})
 
     resp = pending_review_client.post(f"/api/pending-reviews/{item_id}/approve")
     assert resp.status_code == 404
@@ -74,8 +74,8 @@ def test_list_empty(pending_review_client):
 def test_list_returns_items(pending_review_client):
     # Capture some items directly via store
     store = pending_review_client.app.state.pending_review_store
-    store.capture({"query": "magnets", "facility": "ALS", "channel_count": 10})
-    store.capture({"query": "bpms", "facility": "ALS", "channel_count": 5})
+    store.capture({"query": "magnets", "facility": "ERF", "channel_count": 10})
+    store.capture({"query": "bpms", "facility": "ERF", "channel_count": 5})
 
     resp = pending_review_client.get("/api/pending-reviews")
     assert resp.status_code == 200
@@ -92,7 +92,7 @@ def test_list_returns_items(pending_review_client):
 
 def test_get_existing_item(pending_review_client):
     store = pending_review_client.app.state.pending_review_store
-    item_id = store.capture({"query": "magnets", "facility": "ALS"})
+    item_id = store.capture({"query": "magnets", "facility": "ERF"})
 
     resp = pending_review_client.get(f"/api/pending-reviews/{item_id}")
     assert resp.status_code == 200
@@ -114,7 +114,7 @@ def test_approve_promotes_to_feedback(pending_review_client):
     item_id = store.capture(
         {
             "query": "show me magnets",
-            "facility": "ALS",
+            "facility": "ERF",
             "channel_count": 42,
             "selections": {"system": "MAG"},
         }
@@ -131,7 +131,7 @@ def test_approve_promotes_to_feedback(pending_review_client):
 
     # Item should exist in feedback store
     fb_store = pending_review_client.app.state.feedback_store
-    hints = fb_store.get_hints("show me magnets", "ALS")
+    hints = fb_store.get_hints("show me magnets", "ERF")
     assert len(hints) == 1
     assert hints[0]["selections"] == {"system": "MAG"}
     assert hints[0]["channel_count"] == 42
@@ -142,7 +142,7 @@ def test_approve_with_overrides(pending_review_client):
     item_id = store.capture(
         {
             "query": "magnets",
-            "facility": "ALS",
+            "facility": "ERF",
             "channel_count": 10,
             "selections": {},
         }
@@ -174,7 +174,7 @@ def test_approve_uses_agent_task_as_query(pending_review_client):
             "agent_task": "Find all corrector magnets for the storage ring",
             "selections": {"system": "MAG"},
             "channel_count": 5,
-            "facility": "ALS",
+            "facility": "ERF",
         }
     )
 
@@ -182,7 +182,7 @@ def test_approve_uses_agent_task_as_query(pending_review_client):
     assert resp.status_code == 200
 
     fb_store = pending_review_client.app.state.feedback_store
-    hints = fb_store.get_hints("Find all corrector magnets for the storage ring", "ALS")
+    hints = fb_store.get_hints("Find all corrector magnets for the storage ring", "ERF")
     assert len(hints) == 1
 
 
@@ -219,7 +219,7 @@ def test_approve_missing_item(pending_review_client):
 
 def test_dismiss_deletes_item(pending_review_client):
     store = pending_review_client.app.state.pending_review_store
-    item_id = store.capture({"query": "magnets", "facility": "ALS"})
+    item_id = store.capture({"query": "magnets", "facility": "ERF"})
 
     resp = pending_review_client.delete(f"/api/pending-reviews/{item_id}")
     assert resp.status_code == 200
@@ -246,8 +246,8 @@ def test_clear_requires_confirm(pending_review_client):
 
 def test_clear_removes_all(pending_review_client):
     store = pending_review_client.app.state.pending_review_store
-    store.capture({"query": "q1", "facility": "ALS"})
-    store.capture({"query": "q2", "facility": "ALS"})
+    store.capture({"query": "q1", "facility": "ERF"})
+    store.capture({"query": "q2", "facility": "ERF"})
 
     resp = pending_review_client.delete("/api/pending-reviews?confirm=true")
     assert resp.status_code == 200
@@ -342,7 +342,7 @@ def test_list_enriches_with_artifact(pending_review_client, tmp_path, monkeypatc
     store = pending_review_client.app.state.pending_review_store
     tool_resp = json.dumps({"channels": [{"name": c} for c in channels], "total": 3})
     store.capture(
-        {"query": "bpms", "facility": "ALS", "channel_count": 3, "tool_response": tool_resp}
+        {"query": "bpms", "facility": "ERF", "channel_count": 3, "tool_response": tool_resp}
     )
 
     resp = pending_review_client.get("/api/pending-reviews")
@@ -365,7 +365,7 @@ def test_detail_enriches_with_artifact(pending_review_client, tmp_path, monkeypa
     store = pending_review_client.app.state.pending_review_store
     tool_resp = json.dumps({"channels": [{"name": c} for c in channels], "total": 2})
     item_id = store.capture(
-        {"query": "magnets", "facility": "ALS", "channel_count": 2, "tool_response": tool_resp}
+        {"query": "magnets", "facility": "ERF", "channel_count": 2, "tool_response": tool_resp}
     )
 
     resp = pending_review_client.get(f"/api/pending-reviews/{item_id}")
@@ -384,7 +384,7 @@ def test_no_artifact_when_no_overlap(pending_review_client, tmp_path, monkeypatc
     store = pending_review_client.app.state.pending_review_store
     tool_resp = json.dumps({"channels": [{"name": "OTHER:01"}], "total": 1})
     store.capture(
-        {"query": "other", "facility": "ALS", "channel_count": 1, "tool_response": tool_resp}
+        {"query": "other", "facility": "ERF", "channel_count": 1, "tool_response": tool_resp}
     )
 
     resp = pending_review_client.get("/api/pending-reviews")
@@ -403,7 +403,7 @@ def test_no_artifact_when_file_missing(pending_review_client, tmp_path, monkeypa
     _write_decoy(project_cwd)
 
     store = pending_review_client.app.state.pending_review_store
-    store.capture({"query": "bpms", "facility": "ALS", "channel_count": 1})
+    store.capture({"query": "bpms", "facility": "ERF", "channel_count": 1})
 
     resp = pending_review_client.get("/api/pending-reviews")
     items = resp.json()["items"]
@@ -465,7 +465,7 @@ def test_artifact_resolves_and_serves_from_the_store_root(
     store = pending_review_client.app.state.pending_review_store
     tool_resp = json.dumps({"channels": [{"name": c} for c in channels], "total": 2})
     item_id = store.capture(
-        {"query": "bpms", "facility": "ALS", "channel_count": 2, "tool_response": tool_resp}
+        {"query": "bpms", "facility": "ERF", "channel_count": 2, "tool_response": tool_resp}
     )
 
     detail = pending_review_client.get(f"/api/pending-reviews/{item_id}")

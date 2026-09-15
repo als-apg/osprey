@@ -37,9 +37,9 @@ def test_registry_facility_name_default(tmp_path, monkeypatch):
 def test_registry_facility_name_from_config(tmp_path, monkeypatch):
     """Facility name loaded from config."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text('facility:\n  name: "ALS"')
+    (tmp_path / "config.yml").write_text('facility:\n  name: "ERF"')
     initialize_cf_ml_context()
-    assert get_cf_ml_context().facility_name == "ALS"
+    assert get_cf_ml_context().facility_name == "ERF"
 
 
 @pytest.mark.unit
