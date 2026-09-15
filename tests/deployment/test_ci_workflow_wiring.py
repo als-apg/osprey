@@ -1380,7 +1380,7 @@ def test_every_dockerbuild_marked_file_is_ignored__mutation_new_marked_file() ->
 
 # ---------------------------------------------------------------------------
 # (f) e2e-lane slimming: orm-roundtrip-e2e + dispatch-overlay-e2e extractions,
-# the nightly channel-finder benchmarks, and the no-advisory-tier gate
+# the on-demand channel-finder benchmarks, and the no-advisory-tier gate
 # ---------------------------------------------------------------------------
 
 
@@ -5468,18 +5468,18 @@ def test_full_chain_auth_lane_outbudgets_the_single_build_lanes__mutation_back_t
 
 
 # ---------------------------------------------------------------------------
-# Model-spending lanes: nightly on main, `full-ci` on a pull request
+# Model-spending lanes: `full-ci` on a pull request, on demand on main
 # ---------------------------------------------------------------------------
 #
 # Eight jobs drive real Claude sessions through the gateway. Measured on its
 # ledger for the week of 2026-09-01, the set cost about $15 per run and ran on
 # every push of every same-repo PR (~150 a week, on pace for $10k a month).
-# The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR, on the
-# nightly schedule against main, or on the revalidation dispatch — and on
-# nothing else. Every arm is pinned below, because the one that goes missing
-# quietly is the one that either restores the bill (label clause dropped: the
-# lane is back on every push) or removes the standing coverage (schedule arm
-# dropped: main never gets its agentic proof at all).
+# The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
+# the revalidation dispatch — and on nothing else. Both arms are pinned
+# below, and so is the absence of a third: a schedule arm (or a `schedule`
+# trigger on the workflow) spends model tokens with nobody watching and
+# turns red where nobody reads it. Dropping the label clause is the other
+# regression — the lane is back on every push, and so is the bill.
 
 SPENDING_LANES = frozenset(
     {
@@ -5513,7 +5513,7 @@ def _secret_bearing_jobs(wf: dict[str, Any]) -> set[str]:
 
 def test_every_secret_bearing_lane_declares_its_spend_posture(workflow: dict[str, Any]) -> None:
     """A lane that holds the gateway key is either a spending lane (label /
-    nightly / revalidation) or listed as secret-free. No third category: a new
+    revalidation) or listed as secret-free. No third category: a new
     agentic lane that nobody classifies would run on every push by default,
     which is exactly how the bill got where it was."""
     unclassified = _secret_bearing_jobs(workflow) - SPENDING_LANES - SECRET_FREE_LANES
@@ -5534,13 +5534,13 @@ def test_every_secret_bearing_lane_declares_its_spend_posture__mutation_adds_unc
 
 
 @pytest.mark.parametrize("lane", sorted(SPENDING_LANES))
-def test_spending_lane_runs_only_under_label_nightly_or_revalidation(
+def test_spending_lane_runs_only_under_label_or_revalidation(
     workflow: dict[str, Any], lane: str
 ) -> None:
-    """All three arms, and the label INSIDE the pull-request arm."""
+    """Both arms, no schedule arm, and the label INSIDE the pull-request arm."""
     condition = _jobs(workflow)[lane]["if"]
     assert FULL_CI_LABEL_CLAUSE in condition, f"{lane}: no full-ci label clause"
-    assert SCHEDULE_ARM in condition, f"{lane}: no nightly schedule arm"
+    assert SCHEDULE_ARM not in condition, f"{lane}: schedule arm — an unattended run"
     assert _DEPENDABOT_GUARD in condition, f"{lane}: Dependabot guard dropped"
     assert "workflow_dispatch" in condition, f"{lane}: dispatch arm dropped"
     assert _UNLABELED_PR_ARM_CLOSE not in condition, (
@@ -5556,9 +5556,7 @@ def test_spending_lane_gating__mutation_drops_the_label_clause() -> None:
     job["if"] = job["if"].replace(f"\n  && {FULL_CI_LABEL_CLAUSE}", "")
     assert FULL_CI_LABEL_CLAUSE not in job["if"], "mutation is stale"
     with pytest.raises(AssertionError, match="label clause|closes before"):
-        test_spending_lane_runs_only_under_label_nightly_or_revalidation(
-            mutated, "scan-agentic-e2e"
-        )
+        test_spending_lane_runs_only_under_label_or_revalidation(mutated, "scan-agentic-e2e")
 
 
 def test_spending_lane_gating__mutation_ors_the_label_beside_the_pr_arm() -> None:
@@ -5572,22 +5570,32 @@ def test_spending_lane_gating__mutation_ors_the_label_beside_the_pr_arm() -> Non
     )
     assert _UNLABELED_PR_ARM_CLOSE in job["if"], "mutation is stale"
     with pytest.raises(AssertionError, match="closes before the label clause"):
-        test_spending_lane_runs_only_under_label_nightly_or_revalidation(
-            mutated, "scan-agentic-e2e"
-        )
+        test_spending_lane_runs_only_under_label_or_revalidation(mutated, "scan-agentic-e2e")
 
 
-def test_spending_lane_gating__mutation_drops_the_schedule_arm() -> None:
-    """The other failure: gated on the label alone, main never gets the lanes."""
+def test_spending_lane_gating__mutation_adds_a_schedule_arm() -> None:
+    """The other failure: a lane that runs unattended."""
     mutated = copy.deepcopy(_load_workflow())
     job = _jobs(mutated)["agentic-per-preset"]
-    # `>-` folds the two base-indented `||` lines onto one line with a space.
-    job["if"] = job["if"].replace(f"|| {SCHEDULE_ARM} ", "")
-    assert SCHEDULE_ARM not in job["if"], "mutation is stale"
+    job["if"] = job["if"] + f" || {SCHEDULE_ARM}"
     with pytest.raises(AssertionError, match="schedule arm"):
-        test_spending_lane_runs_only_under_label_nightly_or_revalidation(
-            mutated, "agentic-per-preset"
-        )
+        test_spending_lane_runs_only_under_label_or_revalidation(mutated, "agentic-per-preset")
+
+
+def test_workflow_has_no_schedule_trigger(workflow: dict[str, Any]) -> None:
+    """No cron at all: every run of this workflow is one somebody asked for
+    (a push, a pull request, a dispatch), so every red has a reader. A
+    schedule would also be the only trigger that can spend model tokens with
+    nobody in the loop; the lane `if:` checks above pin the arm, this pins
+    the event."""
+    assert "schedule" not in workflow[True], "workflow declares a schedule trigger"
+
+
+def test_workflow_has_no_schedule_trigger__mutation_adds_a_cron() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated[True]["schedule"] = [{"cron": "0 7 * * *"}]
+    with pytest.raises(AssertionError, match="schedule trigger"):
+        test_workflow_has_no_schedule_trigger(mutated)
 
 
 def test_secret_free_lanes_keep_the_per_pr_shape(workflow: dict[str, Any]) -> None:

@@ -107,8 +107,8 @@ and both appear in ``main``'s history.
 If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.
 
-Model-Spending Lanes: Nightly on ``main``, ``full-ci`` on a PR
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Model-Spending Lanes: ``full-ci`` on a PR, On Demand on ``main``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Eight CI lanes drive real agent sessions against a live model endpoint: the
 agentic per-preset flows, the E2E suite, the two dispatch stacks, the scan-stack
@@ -116,7 +116,7 @@ and control-target-switch agentic lanes, and the two chat bridges. Together they
 cost about $15 per run — and they used to run on every push of every pull
 request, which at this repository's pace was the group's whole model bill.
 
-They now run on exactly three events:
+They now run on exactly two events:
 
 - **A pull request carrying the ``full-ci`` label.** Opt in per PR, for a change
   that touches what these lanes cover:
@@ -129,13 +129,18 @@ They now run on exactly three events:
   subscribes to the ``labeled`` activity); the superseded run is cancelled.
   The ``All CI Checks Passed`` run summary of every unlabeled PR names the
   lanes that skipped and prints this command.
-- **The nightly schedule on ``main``** (07:00 UTC). This is the standing
-  coverage: a regression that slipped through an unlabeled PR shows up the next
-  morning and bisects over one day's merges. **A red nightly is a red
-  ``main``** — fix it forward like any other, and pin the last nightly-green
-  sha rather than raw head if you consume ``main`` directly.
-- **The ``revalidate_secret_lanes`` dispatch** against any ref, the maintainer
-  path described under Dependency Update Pull Requests below.
+- **The ``revalidate_secret_lanes`` dispatch** against any ref: the maintainer
+  path described under Dependency Update Pull Requests below, and the way the
+  lanes run against ``main`` at all:
+
+  .. code-block:: bash
+
+     gh workflow run ci.yml --ref main -f revalidate_secret_lanes=true
+
+There is deliberately no schedule. A scheduled run spends model tokens with
+nobody watching, and its red reaches nobody; a lane that only runs when someone
+asked for it has a person waiting on the result. If you consume ``main``
+directly, pin a sha a full run was green on rather than raw head.
 
 Everything else on a PR is unchanged: the unit, lint, docs and package lanes and
 every secret-free e2e lane (build-and-boot, deploy, bluesky, auth, podman) still
