@@ -5,7 +5,7 @@ from) a real EPICS beamline (PROPOSAL.md's Risk-1/Station-2 gate).
 One module-scoped init + build + ``osprey up -d --dev`` co-deploys the
 Virtual Accelerator (task 4.1) and the Bluesky bridge (task 2.9) wired to the
 EPICS substrate scanner (task 2.3), with one sp-echo ``:SP`` pre-faulted
-(task 3.1's ``VA_STUCK_SETPOINTS``) via task 4.2's env passthrough. Five
+(task 3.1's ``VA_STUCK_SETPOINTS``) via task 4.2's env passthrough. Six
 proofs then exercise the whole stack end to end:
 
   P1 co-deploy:     containers up, healthy, loopback-only, depends_on ordering held.
@@ -19,6 +19,11 @@ proofs then exercise the whole stack end to end:
                      always latches its own readback), but an independent read
                      of the sibling ``:RB`` proves it never moved — and both
                      CA clients (host + bridge) agree on that frozen value.
+  P6 model RPC:     a host PVAccess client reaches the model surface over the
+                     published port, is refused a write that carries no token
+                     (and moves nothing), and is taken for one that carries the
+                     token — the served reading then sitting exactly the written
+                     offset away from the model's own truth.
 
 Plans reach the hardware through the bridge's QUEUE, not a direct-execute
 route: P3/P4 stage the plan in the shared draft, enqueue that exact revision,
@@ -50,15 +55,16 @@ slow (minutes) on a cold image cache. Lives in ``tests/e2e/`` (never
 collected by the fast lane, see ``ci_check.sh``/ci.yml).
 
 Markers: ``pytest.mark.flaky(reruns=1, only_rerun=[AssertionError])`` is
-applied PER-FUNCTION to P1-P4 only, never at module level — P5 is the safety
-proof and must stay strict (mirrors ``test_bluesky_write_refused_e2e``'s
-strictness). A module-level ``flaky`` would silently sweep P5 into lenient
+applied PER-FUNCTION to P1-P4 only, never at module level — P5 and P6 are the
+safety proofs and must stay strict (mirrors ``test_bluesky_write_refused_e2e``'s
+strictness). A module-level ``flaky`` would silently sweep them into lenient
 reruns, which is exactly the bug this convention exists to prevent.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -77,7 +83,11 @@ import yaml
 
 from osprey.deployment.compose_generator import resolve_project_name
 from tests.e2e import _orm_stack, _queue_drive
-from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
+from tests.e2e._deploy_diagnostics import (
+    container_logs,
+    dead_container_logs,
+    queue_stack_logs,
+)
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -141,13 +151,43 @@ P5_DETECTOR = "p5_det"
 # and never has to read it back out of the repo's .env.
 LAUNCH_TOKEN = "e2e-substrate-equivalence-launch-token"
 
+# The credential the VA's model RPC checks before it takes a write into the
+# model (P6). Supplied by this suite for the same reason LAUNCH_TOKEN is:
+# nothing mints one, the compose passes ``${VA_MODEL_WRITE_TOKEN:-}`` straight
+# through from the repo's .env to the virtual_accelerator instance, and an
+# unset value disables model writes outright — under which P6's refusal check
+# would pass for the wrong reason (hence its explicit WRITES_DISABLED guard).
+MODEL_WRITE_TOKEN = "e2e-substrate-equivalence-model-write-token"
+
+# What a model write refused for want of a token says back, spelled out rather
+# than imported: it is the wire text an operator's client is shown, and P6 is
+# one of those clients — the point of the check is that the sentence itself has
+# not changed. (The one it must NOT be, ``WRITES_DISABLED``, IS imported: there
+# the identity of the string is irrelevant, only that the two differ.)
+MODEL_NO_TOKEN_REFUSAL = "model write refused: no write token was presented"
+
+# How far the served reading may sit from the model's truth and still count as
+# agreeing with it. The offset P6 writes is ~5e-4 m, so this is some five orders
+# of magnitude below the effect being measured and far above float noise on it.
+MODEL_DIFF_TOL = 1e-9
+# The floor for "this other address moved too". Deliberately looser than the
+# tolerance above: re-solving the closed orbit for the write reproduces every
+# other reading, but to the solver's convergence rather than to the bit. Still
+# ~5000x below the written offset, so a second address genuinely carrying it
+# could not hide under here.
+MODEL_QUIET_TOL = 1e-7
+
 # Identifies this suite as the draft's writer on every PATCH /draft frame. The
 # draft is a single shared document, so a client id that names the writer is
 # what makes a stray edit attributable.
 _QUEUE_CLIENT_ID = "va-substrate-equivalence-e2e"
 
 BUILD_TIMEOUT_SEC = 300
-DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
+# The VA image is a linux/amd64 build by its own Dockerfile's constant
+# --platform, so on an arm64 host it is emulated, and the fixture below forces
+# it from scratch every run. That build alone runs tens of minutes there; a
+# native x86_64 host finishes far inside this.
+DEPLOY_UP_TIMEOUT_SEC = 3600
 HEALTH_TIMEOUT_SEC = 300.0
 SWEEP_TIMEOUT_SEC = 120.0  # sweep()'s own connect deadline defaults to 45s
 SCAN_TIMEOUT_SEC = 60.0
@@ -318,9 +358,10 @@ def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
     ``.env`` is the deployment's whole secret store, and ``up`` aborts when it
     is missing.
 
-    Only two values, and neither is a device: the plan devices moved out of the
-    environment and into the mounted device file (``_write_devices_file``), so
-    what is left here is the launch token and the VA's stuck-channel fault.
+    Only three values, and none of them is a device: the plan devices moved out
+    of the environment and into the mounted device file (``_write_devices_file``),
+    so what is left here is two credentials -- the bridge's launch token and the
+    VA's model-write token -- and the VA's stuck-channel fault.
     """
     _p5_sp, _p5_rb = pairs["p5"]
 
@@ -328,6 +369,11 @@ def _write_env(repo: Path, pairs: dict[str, tuple[str, str]]) -> None:
         # Supply the launch token ourselves — the preset's local-exec+writes
         # config gates auto-minting off (see LAUNCH_TOKEN above).
         "BLUESKY_LAUNCH_TOKEN": LAUNCH_TOKEN,
+        # The whole of P6's wiring: the compose renders
+        # ``VA_MODEL_WRITE_TOKEN: "${VA_MODEL_WRITE_TOKEN:-}"`` on the
+        # virtual_accelerator instance, and the entrypoint reads an unset or
+        # blank value as "this deployment takes no model writes at all".
+        "VA_MODEL_WRITE_TOKEN": MODEL_WRITE_TOKEN,
         "VA_STUCK_SETPOINTS": _p5_sp,
     }
 
@@ -566,6 +612,52 @@ def _docker_inspect(container: str, fmt: str) -> str:
     )
     assert proc.returncode == 0, f"docker inspect {container} failed: {proc.stderr}"
     return proc.stdout.strip()
+
+
+def _published_pva_endpoint() -> str:
+    """``127.0.0.1:<port>`` for the VA's PVAccess server, read off the running
+    deployment rather than assumed.
+
+    Both halves are derived: the container's serving port from its own
+    environment (``EPICS_PVAS_SERVER_PORT``, which the compose template sets on
+    every VA instance) and the host binding from ``docker port``, the P1
+    precedent for "what was actually published".
+
+    Unlike ``VA_CA_PORT`` and ``BRIDGE_PORT`` this module cannot pin the value:
+    the deployment surface carries no ``virtual_accelerator.pva_port`` field, so
+    the template's own default is what gets published and a second VA (or a
+    stray PVA server) on this host takes the same host port. Reading it back and
+    failing loudly here turns that collision into a sentence instead of an RPC
+    timeout thirty seconds later.
+    """
+    env = _docker_inspect(VA_CONTAINER, "{{range .Config.Env}}{{println .}}{{end}}")
+    ports = [
+        line.split("=", 1)[1].strip()
+        for line in env.splitlines()
+        if line.startswith("EPICS_PVAS_SERVER_PORT=")
+    ]
+    assert ports and ports[0], (
+        f"{VA_CONTAINER} declares no EPICS_PVAS_SERVER_PORT, so there is no port to "
+        f"reach its model RPC on:\n{env}"
+    )
+    container_port = ports[0]
+
+    proc = subprocess.run(
+        ["docker", "port", VA_CONTAINER, f"{container_port}/tcp"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    binding = proc.stdout.strip().splitlines()[0].strip() if proc.stdout.strip() else ""
+    assert proc.returncode == 0 and binding, (
+        f"{VA_CONTAINER} serves PVAccess on {container_port} but publishes no host binding "
+        f"for it (rc={proc.returncode}, stderr={proc.stderr!r}) — only the first VA instance "
+        f"publishes its PVA port, and the model RPC is reachable from the host only through it"
+    )
+    assert binding.startswith("127.0.0.1:"), (
+        f"the VA's PVAccess port must never leave loopback: {binding!r}"
+    )
+    return binding
 
 
 async def _run_scan(
@@ -1023,3 +1115,201 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
         f"host (pyepics) read of frozen {rb} = {host_rb} != bridge (ophyd-async) "
         f"read = {bridge_rb} — the two CA clients disagree on the stuck readback"
     )
+
+
+# ---------------------------------------------------------------------------
+# P6: the model RPC from a host PVAccess client — a refused write, then an
+#     accepted one (STRICT — no flaky mark; this is the second safety proof)
+# ---------------------------------------------------------------------------
+
+
+def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
+    deployed_stack: DeployedStack, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The model surface, reached the way an operator's client reaches it.
+
+    Every other PVAccess conversation this stack has happens inside the VA
+    container; this one crosses the published port, in name-server mode,
+    against the shipped wire contract rather than a second hand-rolled copy of
+    it — so a change to that contract reaches this proof instead of drifting
+    past it.
+
+    Nothing here can pass vacuously:
+
+      * the refusal must be the no-token sentence and specifically NOT
+        ``WRITES_DISABLED``, so a container that never received
+        ``VA_MODEL_WRITE_TOKEN`` cannot satisfy it;
+      * the refused call is followed by a ``get`` and a ``diff``, so "refused"
+        also means "wrote nothing";
+      * the served reading and the model's truth must AGREE before the accepted
+        write and disagree by exactly the written offset after it, so neither
+        half can be satisfied by a divergence that was already there.
+
+    No address is hardcoded, as everywhere else in this module: the fault to
+    write is discovered from ``info`` (a writable model-only ``.offset_x``) and
+    the address it is measured on is whichever served one the write actually
+    moves — which is also the blast-radius check, since a BPM reading error is
+    a diagnostic fault and must perturb that BPM and nothing else.
+    """
+    # Imported inside the test, the way `_minted_token` imports its parser: the
+    # serving stack is an optional extra, and this module must still COLLECT on
+    # a checkout that has docker but not the virtual-accelerator dependencies.
+    from p4p.client.thread import Context
+
+    from osprey.services.virtual_accelerator.serving.model_rpc import (
+        RPC_PV,
+        RPC_TIMEOUT_S,
+        ModelRpcError,
+        build_request,
+        parse_reply,
+    )
+    from osprey.services.virtual_accelerator.serving.model_surface import (
+        SURFACE_MODEL_ONLY,
+        WRITES_DISABLED,
+    )
+
+    endpoint = _published_pva_endpoint()
+    # Name-server (TCP) discovery straight at the published port — the one
+    # host<->container arrangement proven to work across container runtimes, and
+    # the same one this module's CA side uses (`_VA_GATEWAY`). p4p reads these
+    # at Context construction, so they must be in place before the line below;
+    # monkeypatch puts the host's own EPICS environment back afterwards.
+    monkeypatch.setenv("EPICS_PVA_NAME_SERVERS", endpoint)
+    monkeypatch.setenv("EPICS_PVA_AUTO_ADDR_LIST", "NO")
+    monkeypatch.setenv("EPICS_PVA_ADDR_LIST", "")
+
+    ctx = Context("pva")
+
+    def call(verb: str, **kwargs: Any) -> Any:
+        """The verb's result, or ModelRpcError carrying the server's own refusal."""
+        return parse_reply(ctx.rpc(RPC_PV, build_request(verb, **kwargs), timeout=RPC_TIMEOUT_S))
+
+    try:
+        info = call("info")
+        # A writable model-only BPM offset: model-only because the surface
+        # refuses a write to a served address on principle, so this is what a
+        # write it can accept looks like; and one carrying a declared range, so
+        # the magnitude below is the model's own number rather than this test's.
+        faults = [
+            var
+            for var in info["variables"]
+            if var["surface"] == SURFACE_MODEL_ONLY
+            and not var["read_only"]
+            and var["name"].endswith(".offset_x")
+            and var["value_range"]
+        ]
+        assert faults, (
+            f"the deployed model declares no writable model-only '.offset_x' variable, so "
+            f"there is no fault to write (backend={info['backend']!r}, "
+            f"lattice_source={info['lattice_source']!r} — the reading errors exist only on a "
+            f"lattice-backed boot, which is what VA_LATTICE=builtin in the repo's .env buys)"
+        )
+        fault = faults[0]["name"]
+        _lo, hi = (float(v) for v in faults[0]["value_range"])
+        # A twentieth of the offset the model itself says is the most a BPM can
+        # plausibly be out by: unmistakable against every reading in this stack,
+        # and comfortably inside the band, so what is under test is the write
+        # path rather than the bound check on the far side of it.
+        offset = 0.05 * hi
+        assert offset > MODEL_QUIET_TOL, f"{fault} declares a range too small to write into: {hi}"
+
+        before = call("diff")
+        assert before, (
+            "diff reports no served model variable at all, so there is nowhere to observe "
+            f"a model write (backend={info['backend']!r})"
+        )
+        gaps_before = {
+            address: float(entry["served"]) - float(entry["truth"])
+            for address, entry in before.items()
+        }
+
+        held_before = call("get", names=[fault])[fault]
+
+        with pytest.raises(ModelRpcError) as refused:
+            call("set", values={fault: offset})
+        refusal = str(refused.value)
+        assert refusal.strip(), f"the token-less set was refused with an empty message: {refusal!r}"
+        assert refusal != WRITES_DISABLED, (
+            "the token-less set was refused because model writes are disabled outright, which "
+            "says nothing about the token: VA_MODEL_WRITE_TOKEN never reached the container "
+            f"(the .env line _write_env appends is the whole wiring).\n"
+            f"--- {VA_CONTAINER} ---\n{container_logs(VA_CONTAINER)}"
+        )
+        assert refusal == MODEL_NO_TOKEN_REFUSAL, (
+            f"expected a set carrying no token to be refused with "
+            f"{MODEL_NO_TOKEN_REFUSAL!r}, got {refusal!r}"
+        )
+
+        held_after = call("get", names=[fault])[fault]
+        assert held_after == held_before, (
+            f"the refused write still moved {fault} from {held_before!r} to {held_after!r}"
+        )
+        gaps_refused = {
+            address: float(entry["served"]) - float(entry["truth"])
+            for address, entry in call("diff").items()
+        }
+        assert gaps_refused.keys() == gaps_before.keys(), (
+            f"diff changed which addresses it reports across a REFUSED write: "
+            f"{sorted(gaps_refused.keys() ^ gaps_before.keys())}"
+        )
+        moved_by_refusal = {
+            address: (gaps_before[address], gap)
+            for address, gap in gaps_refused.items()
+            if abs(gap - gaps_before[address]) > MODEL_QUIET_TOL
+        }
+        assert not moved_by_refusal, (
+            f"a set that was refused still moved the served/truth gap on "
+            f"{moved_by_refusal} — the refusal must reach the model at all"
+        )
+
+        try:
+            written = call("set", values={fault: offset}, token=MODEL_WRITE_TOKEN)
+            assert written == [fault], (
+                f"the accepted set reports writing {written!r}, not [{fault!r}]"
+            )
+
+            after = call("diff")
+            gaps_after = {
+                address: float(entry["served"]) - float(entry["truth"])
+                for address, entry in after.items()
+            }
+            moved = sorted(
+                address
+                for address, gap in gaps_after.items()
+                if abs(gap - gaps_before[address]) > MODEL_QUIET_TOL
+            )
+            # A BPM reading error sits between the ring and the client, never in
+            # the ring: it must perturb the one BPM's served reading and leave
+            # every other served value where the physics put it.
+            assert len(moved) == 1, (
+                f"writing {fault}={offset:g} should shift exactly one served reading away from "
+                f"the model's truth; it shifted {moved!r}"
+            )
+            address = moved[0]
+            assert abs(gaps_before[address]) <= MODEL_DIFF_TOL, (
+                f"{address} already read {gaps_before[address]:.3g} away from the model's truth "
+                f"before anything was written, so the disagreement after the write proves nothing"
+            )
+            # ``bpm_read`` subtracts the offset from the true position, so the
+            # served reading sits exactly that far BELOW the truth.
+            assert abs(gaps_after[address] + offset) <= MODEL_DIFF_TOL, (
+                f"{fault} was written to {offset:g}, so {address} should serve that far below "
+                f"the model's truth (served={after[address]['served']!r}, "
+                f"truth={after[address]['truth']!r}, gap={gaps_after[address]:.6g})"
+            )
+
+            restored = call("set", values={fault: 0.0}, token=MODEL_WRITE_TOKEN)
+            assert restored == [fault], f"the restoring set reports writing {restored!r}"
+            back = call("diff")
+            gap_restored = float(back[address]["served"]) - float(back[address]["truth"])
+            assert abs(gap_restored) <= MODEL_DIFF_TOL, (
+                f"{fault} did not go back to 0: {address} still reads {gap_restored:.3g} away "
+                f"from the model's truth"
+            )
+        finally:
+            # The fixture is module-scoped, so a failure above must not hand the
+            # next proof (or a rerun under `-p no:randomly`) a faulted ring.
+            with contextlib.suppress(Exception):
+                call("set", values={fault: 0.0}, token=MODEL_WRITE_TOKEN)
+    finally:
+        ctx.close()

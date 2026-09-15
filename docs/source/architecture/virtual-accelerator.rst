@@ -69,8 +69,13 @@ hand-off, and is committed on both views — a write on either transport moves
 both, a refused write moves neither. Only the completion differs, forced by
 the protocols: CA put-completion carries no status, so a refusal withholds the
 echo and raises an alarm; a PVAccess put completes with the model's error
-string. Only the Channel Access port (``5064/tcp``) is published from the
-container.
+string. The ``virtual_accelerator`` instance publishes two ports from its
+container: Channel Access (``5064/tcp``) and pvAccess (``5075/tcp``), the
+second of them for the model surface described below. A pvAccess client
+reaches that port by name server (``EPICS_PVA_NAME_SERVERS=<host>:5075``),
+which is TCP, so TCP is all that is published — there is no UDP search to
+answer. A stand-in instance publishes its Channel Access port alone: the model
+surface belongs to the ``virtual_accelerator`` instance.
 
 Physics is optional
 ===================
@@ -104,9 +109,15 @@ still settling:
        multi-variable writes, one solve per batch, rollback on a lost closed
        orbit.
    * - ``lume-pva-apg[ca,pva]``
-     - ``0.1.2``
+     - ``0.1.4``
      - The serving stack ``runner.py`` subclasses --- ``pcaspy`` for Channel
-       Access, ``p4p`` for PVAccess.
+       Access, ``p4p`` for PVAccess. 0.1.3 adds the two hooks the model
+       surface is built on: ``_enqueue(..., jobs=)``, which runs a callable on
+       the run loop's own thread batched with the writes already queued there,
+       and ``_cycle_output_names()``, which lets a subclass narrow the set of
+       variables re-read after each cycle. 0.1.4 makes the model info the
+       server announces follow the configuration it was given, so a variable
+       held back from the channel namespace is not advertised as one.
 
 ``lume-pva-apg`` and ``pcaspy`` publish wheels for linux-x86_64 only and are
 marked accordingly, so ``serving/runner.py`` alone is unimportable off that
@@ -129,6 +140,39 @@ serving layer changing. Model variables are keyed by their full channel
 address and resolved before the backend sees them, so a backend parses no
 channel names. The seam, its floor (``NullModel``) and its ceiling are written
 up under :ref:`extending-lume-model`.
+
+Served and model-only variables
+-------------------------------
+
+A model usually declares more variables than the facility serves as channels.
+The line between the two is drawn once, at boot, and by name alone: a variable
+is **served** when its name is an address the channel manifest already serves,
+and **model-only** when it is not. Served variables are read and written like
+any other channel, on either transport. Model-only variables sit on no channel
+at all; the model RPC is the only way to reach them.
+
+That RPC is one pvAccess channel, ``model_rpc``, and it takes six verbs.
+``info`` lists the model's variables and says which side of the line each one
+is on; ``get`` reads what the model holds for any of them, served side
+included; ``diff`` puts the value the control system serves beside the model's
+own for each served variable; ``status`` reports on the server itself. ``set``
+writes model-only variables, and ``reset`` returns them to the values they
+were seeded with at boot.
+
+Those two write verbs ask for an administrative token. The container reads it
+from ``VA_MODEL_WRITE_TOKEN`` at startup and compares what a caller presents
+against it; a call carrying no token, or a token that does not match, is
+refused before any model is touched, and a container started without the
+variable set refuses model writes outright. The read verbs are not gated.
+
+For the bundled demo lattice the model-only roster is the simulated imperfections:
+nine reading-error fields on every BPM, and a calibration factor and offset on
+every magnet — 1,344 writables. Their names use a dot grammar
+(``BPM01.offset_x``, ``QF07.cal_factor``), so no fault name parses as a channel
+address. Writing one changes what the model holds, and the served BPM
+readings derived from it are recomputed as the write lands — so ``diff`` is
+where the fault becomes visible, as a served reading that has parted from the
+model's own value.
 
 .. seealso::
 

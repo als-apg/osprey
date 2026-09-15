@@ -12,6 +12,10 @@ The load-bearing assertions are the equivalence ones: writing through
 :class:`CurrentSetpointVariable` must leave the lattice bit-identical to
 what ``StrengthMap.apply`` -- the call the model has always made -- leaves
 behind. Everything else here guards a binding or an error path.
+
+:class:`PyATWritableEnumVariable` is tested against the same ring: it binds a
+discrete value (a BPM polarity) to an element attribute the test seeds
+itself, since no pyAT element carries a fault attribute until one is set.
 """
 
 from __future__ import annotations
@@ -19,6 +23,8 @@ from __future__ import annotations
 import at
 import numpy as np
 import pytest
+from lume.actions import WritableActionMixin
+from lume.variables import EnumVariable
 from lume_pyat.exceptions import UnknownElementError
 from lume_pyat.simulator import PyATSimulator
 from pydantic import ValidationError
@@ -34,6 +40,7 @@ from osprey.services.virtual_accelerator.lattice.strengths import (
 from osprey.services.virtual_accelerator.model.variables import (
     DECLARED_ATTRIBUTE,
     CurrentSetpointVariable,
+    PyATWritableEnumVariable,
 )
 
 N_CELLS = 8
@@ -275,3 +282,85 @@ class TestGet:
         variable.family = "ZZ"
         with pytest.raises(UnknownElementError, match="not pyat-coupled"):
             variable._get(simulator)
+
+
+POLARITY_OPTIONS = [-1.0, 1.0]
+ENUM_ELEMENT = "QF01"
+ENUM_ATTRIBUTE = "bpm_polarity_x"
+
+
+def make_enum_variable(**overrides) -> PyATWritableEnumVariable:
+    """A polarity-shaped enum writable bound to ``QF01``'s seeded attribute."""
+    fields = {
+        "name": f"{ENUM_ELEMENT}.polarity_x",
+        "element_name": ENUM_ELEMENT,
+        "attribute": ENUM_ATTRIBUTE,
+        "default_value": 1.0,
+        "options": POLARITY_OPTIONS,
+        "default_validation_config": "error",
+    }
+    return PyATWritableEnumVariable(**{**fields, **overrides})
+
+
+@pytest.fixture
+def seeded_element(ring) -> at.Element:
+    """``QF01`` of the per-test ring, carrying the attribute the enum binds."""
+    element = next(el for el in ring if el.FamName == ENUM_ELEMENT)
+    setattr(element, ENUM_ATTRIBUTE, 1.0)
+    return element
+
+
+class TestWritableEnumVariable:
+    def test_is_a_writable_enum(self):
+        """LUMEPyATModel treats any WritableActionMixin as a settable input."""
+        variable = make_enum_variable()
+        assert isinstance(variable, EnumVariable)
+        assert isinstance(variable, WritableActionMixin)
+        assert variable.read_only is False
+
+    def test_default_value_is_required(self):
+        """reset() writes the default back to the lattice."""
+        with pytest.raises(ValidationError, match="default_value"):
+            make_enum_variable(default_value=None)
+
+    def test_default_outside_the_options_fails_at_definition(self):
+        with pytest.raises(ValidationError, match="allowed options"):
+            make_enum_variable(default_value=0.5)
+
+    @pytest.mark.parametrize("value", [0.0, 0.5, 2.0])
+    def test_a_value_outside_the_options_is_refused(self, value):
+        with pytest.raises(ValueError, match="allowed options"):
+            make_enum_variable().validate_value(value)
+
+    @pytest.mark.parametrize("value", [-1.0, 1.0, -1])
+    def test_every_option_validates(self, value):
+        make_enum_variable().validate_value(value)
+
+    def test_set_writes_the_bound_attribute(self, simulator, seeded_element):
+        make_enum_variable()._set(simulator, -1.0)
+        assert getattr(seeded_element, ENUM_ATTRIBUTE) == -1.0
+
+    def test_get_reads_the_bound_attribute_as_a_float(self, simulator, seeded_element):
+        setattr(seeded_element, ENUM_ATTRIBUTE, -1)
+        value = make_enum_variable()._get(simulator)
+        assert value == -1.0
+        assert isinstance(value, float)
+
+    def test_indexed_binding_reads_and_writes_one_position(self, simulator, seeded_element):
+        seeded_element.bpm_polarity = [1.0, 1.0]
+        variable = make_enum_variable(attribute="bpm_polarity", index=1)
+        variable._set(simulator, -1.0)
+        assert list(seeded_element.bpm_polarity) == [1.0, -1.0]
+        assert variable._get(simulator) == -1.0
+
+    def test_set_refuses_an_attribute_the_element_lacks(self, simulator):
+        """pyAT accepts any setattr, so writing an unseeded attribute would
+        be a dead write the solve ignores and a read returns intact."""
+        with pytest.raises(AttributeError, match=ENUM_ATTRIBUTE):
+            make_enum_variable()._set(simulator, -1.0)
+        element = next(el for el in simulator.lattice if el.FamName == ENUM_ELEMENT)
+        assert not hasattr(element, ENUM_ATTRIBUTE)
+
+    def test_unknown_element_raises_unknown_element(self, simulator):
+        with pytest.raises(UnknownElementError, match="BPM99"):
+            make_enum_variable(element_name="BPM99")._get(simulator)

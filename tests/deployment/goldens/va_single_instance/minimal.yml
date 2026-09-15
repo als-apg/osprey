@@ -65,12 +65,22 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:5064:5064/tcp"
+      # pvAccess, for the model surface. Clients reach it by name server
+      # (EPICS_PVA_NAME_SERVERS=<host>:<port>), which is TCP, so TCP is all
+      # that is published: there is no UDP search to answer.
+      - "127.0.0.1:5075:5075/tcp"
     environment:
       # EPICS_CA_SERVER_PORT is the standard EPICS server-side CA port
       # override, read directly by the CA library at iocInit — no
       # entrypoint.py change needed to make services.virtual_accelerator.port
       # actually control what the IOC binds to.
       EPICS_CA_SERVER_PORT: "5064"
+      # EPICS_PVAS_SERVER_PORT is the standard server-side pvAccess port
+      # override: the port this IOC's PVA server binds.
+      EPICS_PVAS_SERVER_PORT: "5075"
+      # The credential a model write must present. Passthrough from the project
+      # .env: compose resolves it, so the secret is never written into this file.
+      VA_MODEL_WRITE_TOKEN: "${VA_MODEL_WRITE_TOKEN:-}"
       # Build-time stuck-readback apply fault (entrypoint.py reads it): a
       # comma-separated list of :SP addresses whose readback is frozen (SP still
       # latches, RB never follows). Passthrough from the project .env; unset →
