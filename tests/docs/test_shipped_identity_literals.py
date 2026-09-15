@@ -27,12 +27,13 @@ change that removes it from the shipped tree, and an entry's ``roots`` widen
 to :data:`REPO_ROOTS` in the change that clears it from the repository's own
 tests and scripts as well.
 
-Four kinds of surface legitimately name an institution and carry an ``allow``
+Five kinds of surface legitimately name an institution and carry an ``allow``
 entry rather than an edit: the shipped provider adapters for named LLM
 gateways, the named ingestion adapter, a case that asserts the literal's
-absence and so has to spell it, and the packaging and escalation metadata that
-has to spell the upstream project's own ``owner/repo`` — the last of these is
-out of scope here, because a project's own address is not a facility's.
+absence and so has to spell it, the project's own packaging metadata, and the
+packaging and escalation metadata that has to spell the upstream project's own
+``owner/repo`` — the last of these is out of scope here, because a project's
+own address is not a facility's.
 """
 
 from __future__ import annotations
@@ -187,6 +188,7 @@ DENIED: tuple[Denied, ...] = (
             "another deployment's prose should describe as its own"
         ),
         sample="# \u2500\u2500 The ALS-U Accumulator Ring instance \u2500\u2500",
+        roots=REPO_ROOTS,
         # The demo ring ships as the simulation and virtual-accelerator
         # packages' own subject, plus the two manifests and the preset data
         # file that name the lattice those packages load.
@@ -209,6 +211,27 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/simulation/lattice/build.py",
                 "src/osprey/simulation/lattice/ring.py",
                 "src/osprey/templates/apps/control_assistant/data/channel_limits.json",
+                # The suites that exercise those packages, and the two scripts that
+                # derive data from the same lattice: the ring is what they are a
+                # test of.
+                "scripts/va/derive_bands.py",
+                "scripts/va/pyat_model_demo.py",
+                "tests/simulation/matlab_reference.py",
+                "tests/simulation/test_artifact.py",
+                "tests/simulation/test_facility_spec.py",
+                "tests/simulation/test_fidelity.py",
+                "tests/simulation/test_lattice.py",
+                "tests/simulation/test_orbit_closure.py",
+                "tests/templates/test_channel_limits_va.py",
+                "tests/templates/test_machine_json_lattice.py",
+                "tests/va/e2e/test_orbit_response.py",
+                "tests/va/test_bindings_parity.py",
+                "tests/va/test_errors.py",
+                "tests/va/test_lattice.py",
+                "tests/va/test_model_variables.py",
+                "tests/va/test_physics_bridge.py",
+                "tests/va/test_physics_bridge_unknown_bpm.py",
+                "tests/va/test_pyat_ring_model.py",
             }
         ),
     ),
@@ -223,6 +246,7 @@ DENIED: tuple[Denied, ...] = (
             "facility wherever the prose ships"
         ),
         sample="#   facility_name: ALS",
+        roots=REPO_ROOTS,
         # The bundled demo ring, whose own name this is, in the simulation and
         # virtual-accelerator packages plus the two files that name the lattice
         # they load.
@@ -259,6 +283,43 @@ DENIED: tuple[Denied, ...] = (
                 "docs/source/how-to/llm-providers/configure-providers.rst",
                 "src/osprey/models/providers/als_apg.py",
                 "src/osprey/services/channel_finder/benchmarks/evaluation.py",
+                # The suites that exercise the bundled demo ring, whose name carries
+                # the abbreviation.
+                "scripts/va/derive_bands.py",
+                "scripts/va/pyat_model_demo.py",
+                "tests/simulation/matlab_reference.py",
+                "tests/simulation/test_artifact.py",
+                "tests/simulation/test_facility_spec.py",
+                "tests/simulation/test_fidelity.py",
+                "tests/simulation/test_lattice.py",
+                "tests/simulation/test_orbit_closure.py",
+                "tests/templates/test_channel_limits_va.py",
+                "tests/templates/test_machine_json_lattice.py",
+                "tests/va/e2e/test_orbit_response.py",
+                "tests/va/test_bindings_parity.py",
+                "tests/va/test_errors.py",
+                "tests/va/test_lattice.py",
+                "tests/va/test_model_variables.py",
+                "tests/va/test_physics_bridge.py",
+                "tests/va/test_physics_bridge_unknown_bpm.py",
+                "tests/va/test_pyat_ring_model.py",
+                # The suites for the shipped reference ingestion adapter, which
+                # returns "ALS eLog": an expectation spelled any other way would
+                # assert a value no adapter produces.
+                "tests/services/ariel_search/conftest.py",
+                "tests/services/ariel_search/integration/test_cli.py",
+                "tests/services/ariel_search/integration/test_ingestion.py",
+                "tests/services/ariel_search/test_ingestion.py",
+                "tests/services/ariel_search/test_ingestion_branches.py",
+                # The shipped named-gateway adapter's own suite, which asserts on
+                # the adapter's description.
+                "tests/models/test_providers_als_apg.py",
+                # Cases that assert the literal's absence, and so have to spell it.
+                "tests/registry/test_pyat_specialist_agent.py",
+                "tests/unit/dispatch/test_dashboard_config_injection.py",
+                # A byte-faithful copy of the shipped plugin manifest, whose author
+                # field is the project's own.
+                "tests/scripts/test_plugin_version.py",
             }
         ),
     ),
