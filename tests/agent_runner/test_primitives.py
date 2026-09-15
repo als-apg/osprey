@@ -70,6 +70,55 @@ def test_provider_override_propagates_raw_secret(
 
 
 # ---------------------------------------------------------------------------
+# Raw-endpoint propagation (gateway providers that ship no default base_url)
+# ---------------------------------------------------------------------------
+
+
+def test_gateway_provider_propagates_raw_base_url_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The raw endpoint var travels beside the raw secret.
+
+    ``ANTHROPIC_BASE_URL`` is the CLI's variable and carries the endpoint with
+    its ``/v1`` stripped, so it cannot stand in for the gateway's own. The MCP
+    subprocess expands ``base_url: ${ALS_APG_BASE_URL}`` from config.yml against
+    its own environment; without the variable the provider refuses the call for
+    a missing endpoint.
+    """
+    _write_config(tmp_path, "als-apg")
+    monkeypatch.setenv("ALS_APG_API_KEY", "sk-als-secret")
+    monkeypatch.setenv("ALS_APG_BASE_URL", "https://gw.test/v1")
+
+    env = provider_env_for_project(tmp_path)
+
+    assert env["ALS_APG_BASE_URL"] == "https://gw.test/v1"
+
+
+def test_in_context_backend_env_carries_the_gateway_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The benchmark's direct backend hands that variable to the subprocess.
+
+    ``mcp.client.stdio`` replaces the parent environment with
+    ``{**get_default_environment(), **env}`` — a six-name safe-list plus what
+    the caller passes — so a variable absent from this dict is absent from the
+    server, whatever the shell exported.
+    """
+    from osprey.services.channel_finder.benchmarks.backends.in_context_backend import (
+        InContextBackend,
+    )
+
+    _write_config(tmp_path, "als-apg")
+    monkeypatch.setenv("ALS_APG_API_KEY", "sk-als-secret")
+    monkeypatch.setenv("ALS_APG_BASE_URL", "https://gw.test/v1")
+
+    backend = InContextBackend(tmp_path, "als-apg/claude-haiku-4-5-20251001")
+
+    assert backend._env["ALS_APG_BASE_URL"] == "https://gw.test/v1"
+    assert backend._env["ALS_APG_API_KEY"] == "sk-als-secret"
+
+
+# ---------------------------------------------------------------------------
 # Direct provider: auth_env_var == auth_secret_env (anthropic)
 # ---------------------------------------------------------------------------
 
