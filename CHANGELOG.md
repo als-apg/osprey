@@ -336,6 +336,9 @@ this one with
 
 ### Fixed
 
+- `osprey channel-finder benchmark` hands the provider's gateway URL to the
+  channel-finder server it spawns, so an `als-apg` project no longer fails
+  every in-context query with `Base URL required for als-apg`.
 - `osprey up` from a pre-release install no longer fails every image build
   with `No matching distribution found for osprey-connectors`. A beta
   framework exists only beside a beta `osprey-connectors`, which plain `pip`
