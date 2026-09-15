@@ -8,6 +8,9 @@ the database is actually reachable.
 Every test drives the REAL lifespan through ``TestClient(app)`` (the pattern of
 ``test_app.py::test_app_with_lifespan``) with only ``create_ariel_service``
 patched, so the classification under test is the one the panel really performs.
+
+The registry the panel reads is part of the configuration lifecycle, because
+which one it can build follows from which config it found.
 """
 
 from __future__ import annotations
@@ -42,11 +45,42 @@ def service_double():
     return service
 
 
-def _write_config(tmp_path: Path, ariel_section: dict) -> Path:
+def _write_config(tmp_path: Path, ariel_section: dict, extra: dict | None = None) -> Path:
     """Write a real config.yml carrying the given ``ariel`` section."""
     config_file = tmp_path / "config.yml"
-    config_file.write_text(yaml.dump({"ariel": ariel_section}))
+    config_file.write_text(yaml.dump({"ariel": ariel_section, **(extra or {})}))
     return config_file
+
+
+def _write_registry(tmp_path: Path) -> Path:
+    """Write an application registry that adds one adapter to the framework's."""
+    registry_file = tmp_path / "registry.py"
+    registry_file.write_text(
+        """
+from osprey.registry import (
+    ArielIngestionAdapterRegistration,
+    RegistryConfigProvider,
+    extend_framework_registry,
+)
+
+
+class ProjectRegistryProvider(RegistryConfigProvider):
+    '''Adds one deployment adapter on top of the framework components.'''
+
+    def get_registry_config(self):
+        return extend_framework_registry(
+            ariel_ingestion_adapters=[
+                ArielIngestionAdapterRegistration(
+                    name="project_logbook",
+                    module_path="osprey.services.ariel_search.ingestion.adapters.generic",
+                    class_name="GenericJSONAdapter",
+                    description="Project logbook",
+                ),
+            ],
+        )
+"""
+    )
+    return registry_file
 
 
 def _banner(caplog: pytest.LogCaptureFixture, needle: str) -> str:
@@ -255,6 +289,56 @@ def test_database_down_with_clean_config(tmp_path: Path, caplog):
     assert "DEGRADED MODE" in banner
     assert "connection refused" in banner
     _assert_no_banner(caplog, "CONFIGURATION INVALID")
+
+
+def test_a_deployment_registry_survives_the_panel_lifespan(tmp_path: Path, service_double, caplog):
+    """The panel reads the registry its own configuration names."""
+    from osprey.registry import get_registry
+
+    registry_file = _write_registry(tmp_path)
+    config_file = _write_config(
+        tmp_path,
+        {"database": {"uri": DSN}},
+        extra={"registry_path": str(registry_file), "project_root": str(tmp_path)},
+    )
+
+    _start(config_file, AsyncMock(return_value=service_double), caplog)
+
+    assert get_registry().registry_path == str(registry_file)
+    assert "project_logbook" in get_registry().list_ariel_ingestion_adapters()
+
+
+def test_the_panel_keeps_the_registry_the_process_already_built(
+    tmp_path: Path, service_double, caplog
+):
+    """A panel that shares a process does not take that process's registry away."""
+    from osprey.registry import get_registry
+
+    config_file = _write_config(tmp_path, {"database": {"uri": DSN}})
+    primed = get_registry(config_path=str(config_file))
+    primed.initialize(silent=True)
+
+    _start(config_file, AsyncMock(return_value=service_double), caplog)
+
+    assert get_registry() is primed
+
+
+def test_a_panel_with_no_config_builds_no_registry(tmp_path: Path, monkeypatch, caplog):
+    """A panel with no config has no service.
+
+    Every route that resolves a component refuses before it reads a registry, so
+    there is nothing to build one from and nothing that wants one.
+    """
+    import osprey.registry.manager
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CONFIG_FILE", raising=False)
+
+    app = _start(None, AsyncMock(), caplog)
+
+    assert app.state.ariel_service is None
+    assert osprey.registry.manager._registry is None
+    _banner(caplog, "Skipping registry initialization")
 
 
 def test_load_ariel_config_with_path_returns_the_resolved_file(tmp_path: Path):
