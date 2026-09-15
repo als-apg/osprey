@@ -56,7 +56,7 @@ def _lint_rejection(tmp_path: Path, build_profile: str) -> str:
                             "build_profile": build_profile,
                         }
                     },
-                    "users": [{"name": "thellert", "index": 0}],
+                    "users": [{"name": "alice", "index": 0}],
                 }
             }
         }
