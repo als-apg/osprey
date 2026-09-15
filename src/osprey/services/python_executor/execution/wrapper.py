@@ -1905,7 +1905,26 @@ if not _execution_dir.exists():
 """
 
     def _get_cleanup_and_export(self) -> str:
-        """Get cleanup and results export code."""
+        """Generate the tail of the script: cleanup, persistence, and the exit.
+
+        The ``except``/``finally`` of the output-capture block come first —
+        the failure record, the restored streams, the captured output echoed
+        to the real pipes, and the guards taken off. The persistence section
+        then runs at module level: ``results.json``, the figures, and last of
+        all ``execution_metadata.json``, the record the executor reads the
+        run's outcome from.
+
+        The process then leaves with :func:`os._exit`, the way
+        ``osprey_connectors.ipc.host`` does, rather than through interpreter
+        shutdown. A control-system client holds native state whose shutdown
+        hooks can block or crash the process — pyepics' ``finalize_libca``
+        wedges once Channel Access was used from a worker thread, which the
+        EPICS connector always does — and a child that will not exit is
+        reported by the executor as a timeout long after its script finished.
+        Everything the executor reads is on disk or already flushed to the
+        pipes by then, so the abrupt exit costs nothing; the exit code stays 0
+        because the outcome is read from the record, not from the status.
+        """
 
         # Output captured content so the host process can see it
         host_output_section = textwrap.dedent(
@@ -2053,23 +2072,42 @@ if not _execution_dir.exists():
         """
         ).strip()
 
-        # Combine all parts properly (4-space indent to sit inside the finally block)
-        indented_host_section = "\n".join(
-            "    " + line if line.strip() else line for line in host_output_section.split("\n")
-        )
-        indented_guard_restore = "\n".join(
-            "    " + line if line.strip() else line for line in guard_restore_section.split("\n")
-        )
-        indented_error_handling = "\n".join(
-            "    " + line if line.strip() else line for line in metadata_error_handling.split("\n")
-        )
+        # The exit wraps the whole persistence section so that every path
+        # through the tail ends here: a record written, a record that could
+        # not be written, or a persistence step that raised before the record
+        # was reached. The last case is the one the interpreter would
+        # otherwise report through a non-zero status, so it keeps that status
+        # — with the traceback printed first, since ``os._exit`` prints
+        # nothing.
+        exit_section = textwrap.dedent(
+            """
+            except BaseException:
+                traceback.print_exc()
+                _osprey_exit_status = 1
+            finally:
+                # Leave without interpreter shutdown: a control-system client's
+                # shutdown hooks can block or crash the process, and everything
+                # the executor reads is persisted or flushed by now.
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os._exit(_osprey_exit_status)
+        """
+        ).strip()
+
+        def indent(block: str, spaces: int) -> str:
+            pad = " " * spaces
+            return "\n".join(pad + line if line.strip() else line for line in block.split("\n"))
 
         return "\n".join(
             [
                 base_cleanup,
-                indented_host_section,
-                indented_guard_restore,
-                file_persistence_section,
-                indented_error_handling,
+                # 4-space indent to sit inside the finally block
+                indent(host_output_section, 4),
+                indent(guard_restore_section, 4),
+                "_osprey_exit_status = 0",
+                "try:",
+                indent(file_persistence_section, 4),
+                indent(metadata_error_handling, 8),
+                exit_section,
             ]
         )
