@@ -1,9 +1,9 @@
 """Tests for the config-driven ARIEL entry_url egress transform.
 
 Covers ``build_entry_url`` and the ``entry_url`` injection into ``serialize_entry``.
-Facility-neutral: uses a GENERIC template and generic ids only — never ALS
-hosts/strings (OSPREY core stays facility-agnostic; the ALS value lives in
-als-profiles config).
+The template is a configuration value with no shipped default, so these cases
+use a generic one and generic ids: a host baked in here would be a host no
+deployment has.
 """
 
 import json
@@ -15,7 +15,7 @@ from osprey.mcp_server.ariel import server
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 
-# A generic, non-ALS template. The real ALS value lives in als-profiles config.
+# A generic template; each deployment supplies its own in configuration.
 GENERIC_TEMPLATE = "https://logbook.example/olog.php?id={entry_id}"
 
 

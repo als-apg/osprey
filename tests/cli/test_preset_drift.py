@@ -280,7 +280,7 @@ def test_marker_tag_is_configurable(repo: Path) -> None:
     _edit(
         profile,
         "  preset: control-assistant\n",
-        "  preset: control-assistant\n  deviation_marker: ALS-DEVIATION\n",
+        "  preset: control-assistant\n  deviation_marker: SITE-DEVIATION\n",
     )
     _edit(
         profile,
@@ -290,7 +290,9 @@ def test_marker_tag_is_configurable(repo: Path) -> None:
 
     assert [f.subject for f in _report(profile).unmarked] == ["config.web.theme"]
 
-    _edit(profile, "  # DEVIATION: facility — wrong tag", "  # ALS-DEVIATION: facility — right tag")
+    _edit(
+        profile, "  # DEVIATION: facility — wrong tag", "  # SITE-DEVIATION: facility — right tag"
+    )
 
     assert _report(profile).unmarked == []
 
