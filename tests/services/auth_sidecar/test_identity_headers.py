@@ -70,10 +70,10 @@ def test_only_email_is_matched_without_regard_to_case() -> None:
 @pytest.mark.parametrize(
     ("asserted", "configured"),
     [
-        ("THellert@lbl.gov", "thellert@lbl.gov"),
-        ("thellert@lbl.gov", "THellert@lbl.gov"),
-        ("Tom_Scarvie@LBL.GOV", "tom_scarvie@lbl.gov"),
-        ("thellert@lbl.gov", "thellert@lbl.gov"),
+        ("ALice@example.com", "alice@example.com"),
+        ("alice@example.com", "ALice@example.com"),
+        ("Carol_Ops@EXAMPLE.COM", "carol_ops@example.com"),
+        ("alice@example.com", "alice@example.com"),
     ],
 )
 def test_an_email_claim_matches_the_same_mailbox_in_any_case(
@@ -83,8 +83,8 @@ def test_an_email_claim_matches_the_same_mailbox_in_any_case(
 
 
 def test_an_email_claim_still_refuses_a_different_mailbox() -> None:
-    assert same_identity("thellert@lbl.gov", "thellert@lbl.org", claim="email") is False
-    assert same_identity("t.hellert@lbl.gov", "thellert@lbl.gov", claim="email") is False
+    assert same_identity("alice@example.com", "alice@example.org", claim="email") is False
+    assert same_identity("a.lice@example.com", "alice@example.com", claim="email") is False
 
 
 @pytest.mark.parametrize("claim", ["sub", "preferred_username", "uid"])
@@ -104,16 +104,16 @@ def test_same_identity_compares_non_ascii_instead_of_raising() -> None:
 
 
 def test_an_address_in_the_domain_matches() -> None:
-    assert same_domain("alice@lbl.gov", "lbl.gov") is True
+    assert same_domain("alice@example.com", "example.com") is True
 
 
 @pytest.mark.parametrize(
     ("identity", "domain"),
     [
-        ("alice@LBL.GOV", "lbl.gov"),
-        ("alice@Lbl.Gov", "lbl.gov"),
-        ("alice@lbl.gov", "LBL.GOV"),
-        ("alice@LBL.gov", "lbl.GOV"),
+        ("alice@EXAMPLE.COM", "example.com"),
+        ("alice@Example.Com", "example.com"),
+        ("alice@example.com", "EXAMPLE.COM"),
+        ("alice@Example.com", "example.Com"),
     ],
 )
 def test_the_domain_is_matched_without_regard_to_case(identity: str, domain: str) -> None:
@@ -125,10 +125,10 @@ def test_the_domain_is_matched_without_regard_to_case(identity: str, domain: str
 @pytest.mark.parametrize(
     ("identity", "domain"),
     [
-        ("alice@als.lbl.gov", "lbl.gov"),
-        ("alice@lbl.gov", "als.lbl.gov"),
-        ("alice@notlbl.gov", "lbl.gov"),
-        ("alice@lbl.gov.example.org", "lbl.gov"),
+        ("alice@lab.example.com", "example.com"),
+        ("alice@example.com", "lab.example.com"),
+        ("alice@notexample.com", "example.com"),
+        ("alice@example.com.example.org", "example.com"),
     ],
 )
 def test_only_the_exact_domain_matches(identity: str, domain: str) -> None:
@@ -138,29 +138,31 @@ def test_only_the_exact_domain_matches(identity: str, domain: str) -> None:
     assert same_domain(identity, domain) is False
 
 
-@pytest.mark.parametrize("identity", ["Alice@lbl.gov", "ALICE@lbl.gov", "a.LICE@lbl.gov"])
+@pytest.mark.parametrize(
+    "identity", ["Alice@example.com", "ALICE@example.com", "a.LICE@example.com"]
+)
 def test_the_local_part_case_changes_nothing(identity: str) -> None:
     """RFC 5321 leaves the local part to the destination host, so this
     comparator neither folds it nor lets it affect the answer."""
-    assert same_domain(identity, "lbl.gov") is True
+    assert same_domain(identity, "example.com") is True
 
 
 def test_the_last_at_sign_separates() -> None:
     """A quoted local part may contain ``@``; mail reads the last one as the
     separator, and so does this."""
-    assert same_domain('"a@b"@lbl.gov', "lbl.gov") is True
-    assert same_domain('"a@b"@lbl.gov', "b") is False
+    assert same_domain('"a@b"@example.com', "example.com") is True
+    assert same_domain('"a@b"@example.com', "b") is False
 
 
 @pytest.mark.parametrize(
     ("identity", "domain"),
     [
-        ("alice", "lbl.gov"),
-        ("lbl.gov", "lbl.gov"),
-        ("alice@", "lbl.gov"),
-        ("@lbl.gov", "lbl.gov"),
-        ("", "lbl.gov"),
-        ("alice@lbl.gov", ""),
+        ("alice", "example.com"),
+        ("example.com", "example.com"),
+        ("alice@", "example.com"),
+        ("@example.com", "example.com"),
+        ("", "example.com"),
+        ("alice@example.com", ""),
         ("", ""),
     ],
 )
@@ -173,9 +175,9 @@ def test_anything_that_names_no_mailbox_in_a_domain_is_refused(identity: str, do
 @pytest.mark.parametrize(
     ("identity", "domain"),
     [
-        ("alice@lbl.gov.", "lbl.gov"),
-        ("alice@lbl.gov", "lbl.gov."),
-        ("alice@.lbl.gov", "lbl.gov"),
+        ("alice@example.com.", "example.com"),
+        ("alice@example.com", "example.com."),
+        ("alice@.example.com", "example.com"),
     ],
 )
 def test_a_trailing_or_leading_dot_is_a_different_domain(identity: str, domain: str) -> None:
@@ -223,13 +225,13 @@ def test_same_value_compares_a_lone_surrogate(left: str, right: str, expected: b
 
 @pytest.mark.parametrize("claim", ["email", "sub"])
 def test_same_identity_compares_a_lone_surrogate(claim: str) -> None:
-    assert same_identity(_SURROGATE, "alice@lbl.gov", claim=claim) is False
-    assert same_identity("alice@lbl.gov", _SURROGATE, claim=claim) is False
+    assert same_identity(_SURROGATE, "alice@example.com", claim=claim) is False
+    assert same_identity("alice@example.com", _SURROGATE, claim=claim) is False
 
 
 def test_same_domain_compares_a_lone_surrogate() -> None:
-    assert same_domain(f"alice@{_SURROGATE}", "lbl.gov") is False
-    assert same_domain("alice@lbl.gov", _SURROGATE) is False
+    assert same_domain(f"alice@{_SURROGATE}", "example.com") is False
+    assert same_domain("alice@example.com", _SURROGATE) is False
 
 
 # --- the module's declared surface -------------------------------------------
