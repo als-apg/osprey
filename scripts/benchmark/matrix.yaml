@@ -28,7 +28,7 @@ providers:
     judge: { via: cborg, model: google/claude-haiku-4-5 }
 
   als-apg:
-    # Native als-apg endpoint (the ALS-APG gateway, NO /v1 — the Anthropic SDK
+    # Native als-apg endpoint (NO /v1 — the Anthropic SDK
     # appends /v1/messages). Same base_url backs both SUT routing and the judge.
     # The gateway is a deployment's own host and has no default: set
     # ALS_APG_BASE_URL, or write the endpoint here.

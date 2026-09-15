@@ -27,7 +27,7 @@ from osprey.cli.init_cmd import init
 
 # Facility-specific *source identifiers* that must never leak into the shared,
 # facility-agnostic core prompts (SC7). ``concept_id`` / ``texkey`` are literal
-# ALS source-idiom tokens; the third pattern catches a hard-coded PV / channel
+# source-idiom tokens; the third pattern catches a hard-coded PV / channel
 # address like ``SR:C01-MG:PS1`` (uppercase run, colon, more address). Generic
 # English ("a channel address", "an entry ID") intentionally does NOT match.
 _FACILITY_ID_PATTERNS = (

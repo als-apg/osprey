@@ -68,7 +68,7 @@ _TEST_CHANNELS = [
     },
 ]
 
-# Provider preference: als-apg first (the ALS-APG gateway — IP-unrestricted, works
+# Provider preference: als-apg first (IP-unrestricted, works
 # in CI and off-VPN), then CBORG (LBLnet-gated, faster locally), then anthropic
 # direct. Matches the CI auth choice in commit 5d0dcd72.
 _ALS_APG_KEY = os.environ.get("ALS_APG_API_KEY", "")
