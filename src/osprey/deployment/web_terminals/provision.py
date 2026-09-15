@@ -71,7 +71,7 @@ from osprey.deployment.web_terminals.auth_credentials import (
 from osprey.deployment.web_terminals.env_production import (
     ensure_env_production,
     users_env_drift_problem,
-    users_env_generation_problem,
+    users_env_required_problem,
 )
 from osprey.deployment.web_terminals.lint import lint_web_terminals
 from osprey.deployment.web_terminals.persona_images import (
@@ -422,7 +422,12 @@ def web_terminal_preflight_report(
     # render here" where that is the actual problem.
     if open_missing := open_mode_missing_by_persona(config, root):
         findings.append((str(OpenModeEgressError(open_missing)), ""))
-    if (problem := users_env_generation_problem(config, root)) is not None:
+    # The broader of the two .env.users questions, not the generate-path one:
+    # it covers the render this deploy would refuse to generate AND the file
+    # already on disk that the chain can no longer support. Asking both would
+    # report the same missing variable twice whenever the file is absent, since
+    # the generate-path probe answers with this one's sentence there.
+    if (problem := users_env_required_problem(config, root)) is not None:
         findings.append((problem, ""))
     # The same file's other failure: it exists, but a provider secret in it no
     # longer matches the chain. A file OSPREY rendered is re-rendered by the

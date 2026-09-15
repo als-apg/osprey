@@ -782,16 +782,30 @@ def test_a_pre_rename_secrets_file_is_migrated_before_the_pass_reads_it(
     tmp_path, stubbed_start, monkeypatch
 ):
     """The pass's other upper constraint. ``migrate_users_env`` carries a
-    pre-rename ``.env.production`` onto ``.env.users``; the pass reads that file
-    one step later, so a repo whose secrets are sitting there under the old name
-    is not refused for not having them."""
+    pre-rename ``.env.production`` onto ``.env.users``, and the pass reads that
+    file one step later -- so what is inside it decides what the pass says.
+
+    Pinned by a finding only the migrated file can produce. The file holds a
+    provider key the chain has since moved away from, which is drift, and drift
+    is a question about a file that exists: left under the old name there is
+    nothing to compare and this start would go on to build. Nothing the file
+    holds can answer for the chain, though -- a required variable is required of
+    ``.env`` whoever else has a copy -- so the chain here carries what the
+    deploy needs and the file carries only the staleness.
+    """
     (tmp_path / ".env.shared").write_text("SHARED_DEFAULT=1\n", encoding="utf-8")
-    (tmp_path / ".env.production").write_text("OBS_PASSWORD=carried\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "OBS_PASSWORD=carried\nCBORG_API_KEY=sk-fresh\n", encoding="utf-8"
+    )
+    (tmp_path / ".env.production").write_text("CBORG_API_KEY=sk-stale\n", encoding="utf-8")
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    config = _mint_dependent_config()
+    config["claude_code"]["provider"] = "cborg"
 
-    container_lifecycle._start_stack(_mint_dependent_config(), [], tmp_path, detached=True)
+    with pytest.raises(UnmetPreconditionsError, match="CBORG_API_KEY"):
+        container_lifecycle._start_stack(config, [], tmp_path, detached=True)
 
-    assert stubbed_start == ["build_image"]
+    assert stubbed_start == []  # nothing was built
     assert (tmp_path / ".env.users").is_file()
 
 
