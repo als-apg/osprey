@@ -583,11 +583,11 @@ describe('state matrix', () => {
     await boot(
       viewOf({
         targets: [
-          rowOf({ ...KINDS.live, display_name: 'ALS storage ring', active: true }),
+          rowOf({ ...KINDS.live, display_name: 'Example storage ring', active: true }),
         ],
       })
     );
-    expect(shortText()).toBe('ALS storage ring');
+    expect(shortText()).toBe('Example storage ring');
     expect(chipEl()?.dataset.targetKind).toBe('live');
   });
 

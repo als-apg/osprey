@@ -61,7 +61,7 @@ def test_every_valid_key_is_accepted_and_read() -> None:
         timeout_sec=600,
         inactivity_sec=240,
         max_turns=40,
-        facility_name="ALS",
+        facility_name="ERF",
         channel_strip_prefix="SR:",
         network="host",
     )

@@ -1032,7 +1032,7 @@ def test_web_stack_nginx_mounts_name_the_files_the_writer_writes(tmp_path: Path)
     root-owned.
     """
     config = {
-        "facility": {"prefix": "als", "name": "ALS"},
+        "facility": {"prefix": "als", "name": "ERF"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {

@@ -1,6 +1,6 @@
 """Unit tests for okf_panel.helpers (make_snippet, group_concepts, structure md).
 
-Mirrors the ALS ``mcp_servers/okf_panel/tests/test_helpers.py`` style, adapted
+Mirrors the upstream panel's ``test_helpers.py`` style, adapted
 to the core import paths and the facility-neutral structure title.
 """
 
@@ -129,7 +129,7 @@ def test_group_concepts_groups_by_first_segment():
     entries = [
         ConceptEntry(concept_id="devices/bpm", title="BPM"),
         ConceptEntry(concept_id="devices/rf-system", title="RF System"),
-        ConceptEntry(concept_id="references/als-terminology", title="ALS Terminology"),
+        ConceptEntry(concept_id="references/site-terminology", title="Site Terminology"),
     ]
     payload = group_concepts(entries)
 
@@ -197,7 +197,7 @@ def test_build_structure_markdown_shape():
     grouped = group_concepts(entries)
     md = build_structure_markdown(grouped)
 
-    # Facility-neutral title (deviation from ALS original, which hardcoded "ALS").
+    # The structure title is facility-neutral rather than one site's name.
     assert md.startswith("# Facility Knowledge Base")
     assert "_3 concepts across 2 groups._" in md
 

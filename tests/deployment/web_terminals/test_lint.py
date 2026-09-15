@@ -1677,7 +1677,7 @@ def test_lint_local_mode_unreferenced_persona_project_path_is_not_checked(tmp_pa
             "image_source": "local",
             "personas": {
                 "assistant": {"project": "als-assistant", "project_path": str(project_dir)},
-                "unused": {"project": "als-unused", "project_path": "/nonexistent"},
+                "unused": {"project": "draft-unused", "project_path": "/nonexistent"},
             },
         }
     )
