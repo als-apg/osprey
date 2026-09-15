@@ -255,7 +255,7 @@ class TestPartitionShape:
 # ---------------------------------------------------------------------------
 
 BACKEND = "pyat"
-LATTICE_SOURCE = "als-u-ar (built in)"
+LATTICE_SOURCE = "example-ring (built in)"
 INSTANCE = "va-test"
 ENDPOINT = "localhost:5075"
 
