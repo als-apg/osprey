@@ -61,7 +61,7 @@ def make_entry(**overrides):
     """
     entry = {
         "entry_id": "12345",
-        "source_system": "ALS eLog",
+        "source_system": "Example eLog",
         "timestamp": datetime(2024, 5, 17, 13, 45, 9, tzinfo=UTC),
         "author": "jdoe",
         "raw_text": "Beam lost at 13:45. Recovered after RF trip reset.",
@@ -235,7 +235,7 @@ class TestRender:
         assert not document.startswith("---")
         assert "jdoe" in document
         assert "2024-05-17 13:45:09 UTC" in document
-        assert "ALS eLog" in document
+        assert "Example eLog" in document
         assert "Beam lost at 13:45." in document
 
     def test_scalar_metadata_rendered_sorted(self):
@@ -297,7 +297,7 @@ class TestRender:
         assert len(document.encode("utf-8")) <= BODY_CAP_BYTES
 
     def test_realistic_entry_is_not_capped(self):
-        """Real ALS entries are ~184 bytes; the cap is a tail guard only."""
+        """Real entries are ~184 bytes; the cap is a tail guard only."""
         document = render_entry(make_entry())
         assert TRUNCATION_MARKER not in document
         assert len(document.encode("utf-8")) < 1024

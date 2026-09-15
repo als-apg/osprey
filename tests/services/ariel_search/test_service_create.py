@@ -125,10 +125,10 @@ async def test_create_entry_sync_status_local_only():
 
 @pytest.mark.asyncio
 async def test_create_entry_sync_status_pending():
-    """Non-local adapter (ALS) gets PENDING_SYNC when re-ingestion doesn't find entry."""
+    """A non-local adapter gets PENDING_SYNC when re-ingestion doesn't find the entry."""
     service, mock_adapter, _mock_repository = _make_mock_service(
         adapter_supports_write=True,
-        source_system="ALS eLog",
+        source_system="Example eLog",
     )
 
     request = FacilityEntryCreateRequest(subject="Test", details="Details")
@@ -140,7 +140,7 @@ async def test_create_entry_sync_status_pending():
         result = await service.create_entry(request)
 
     assert result.sync_status == SyncStatus.PENDING_SYNC
-    assert result.source_system == "ALS eLog"
+    assert result.source_system == "Example eLog"
 
 
 @pytest.mark.asyncio
@@ -148,13 +148,13 @@ async def test_create_entry_sync_status_synced():
     """Non-local adapter gets SYNCED when re-ingestion finds the entry."""
     service, mock_adapter, mock_repository = _make_mock_service(
         adapter_supports_write=True,
-        source_system="ALS eLog",
+        source_system="Example eLog",
     )
 
     # Mock fetch_entries to return the newly created entry
     fetched_entry = {
         "entry_id": "test-entry-001",
-        "source_system": "ALS eLog",
+        "source_system": "Example eLog",
         "timestamp": None,
         "author": "tester",
         "raw_text": "Test entry\n\nTest details",
@@ -192,7 +192,7 @@ async def test_create_entry_reingestion_failure_is_warned_not_raised(caplog):
     """
     service, mock_adapter, mock_repository = _make_mock_service(
         adapter_supports_write=True,
-        source_system="ALS eLog",
+        source_system="Example eLog",
     )
 
     async def failing_fetch(**kwargs):
