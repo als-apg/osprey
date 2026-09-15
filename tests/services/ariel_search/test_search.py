@@ -483,7 +483,7 @@ class TestKeywordSearchWithResults:
             (
                 {
                     "entry_id": "entry-001",
-                    "source_system": "ALS eLog",
+                    "source_system": "Example eLog",
                     "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
                     "author": "jsmith",
                     "raw_text": "Beam current stabilized at 500mA.",
@@ -1500,13 +1500,13 @@ class TestKeywordSearchFilterParameters:
             "beam",
             mock_repository,
             mock_config,
-            source_system="ALS eLog",
+            source_system="Example eLog",
             fuzzy_fallback=False,
         )
 
         kwargs = mock_repository.keyword_search.call_args.kwargs
         assert "source_system = %s" in kwargs["where_clauses"]
-        assert "ALS eLog" in kwargs["params"]
+        assert "Example eLog" in kwargs["params"]
 
 
 class TestSemanticSearchDiagnostics:

@@ -172,7 +172,7 @@ async def test_filter_options_source_systems(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
-    mock_service.repository.get_distinct_source_systems.return_value = ["ALS eLog", "ARIEL Web"]
+    mock_service.repository.get_distinct_source_systems.return_value = ["Example eLog", "ARIEL Web"]
 
     with patch(
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
@@ -183,7 +183,7 @@ async def test_filter_options_source_systems(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["field"] == "source_systems"
-    assert "ALS eLog" in data["options"]
+    assert "Example eLog" in data["options"]
 
 
 @pytest.mark.unit

@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 TEST_DATA_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_logbook_entries.jsonl"
 
 # Path to config file for LLM access (RAG tests need this)
-# Uses minimal test config with ALS-APG API access (gateway)
+# Uses minimal test config with als-apg gateway access
 CONFIG_FILE_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_config.yml"
 
 # Dev database URL - uses port 5432 (ariel-postgres container)
@@ -205,7 +205,7 @@ def e2e_config_file():
     """Module-scoped config file setup (used during data seeding).
 
     Required for RAG tests which call get_chat_completion.
-    Uses my-control-assistant config which has ALS-APG configured.
+    Uses my-control-assistant config which has als-apg configured.
     """
     if not CONFIG_FILE_PATH.exists():
         pytest.skip(f"Config file not found: {CONFIG_FILE_PATH}")
@@ -658,7 +658,7 @@ async def vocabulary_seeded_entry(seeded_ariel_db):
     repository = seeded_ariel_db["repository"]
     entry = {
         "entry_id": VOCAB_ENTRY_ID,
-        "source_system": "ALS eLog",
+        "source_system": "Example eLog",
         "timestamp": datetime(2024, 1, 20, 8, 15, tzinfo=UTC),
         "author": "oper_vocab",
         "raw_text": VOCAB_ENTRY_TEXT,

@@ -290,7 +290,7 @@ class TestSearchQueryStructure:
             entry_id="search-source-001",
             source_system="als_logbook",
             timestamp=now,
-            raw_text="Test entry from ALS logbook",
+            raw_text="Test entry from the logbook",
         )
         await repository.upsert_entry(entry)
 

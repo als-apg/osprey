@@ -109,11 +109,11 @@ async def test_hybrid_search_forwards_author_and_source_filters(tmp_path, monkey
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_hybrid_search()
-        await fn(query="test", author="chen", source_system="ALS eLog")
+        await fn(query="test", author="chen", source_system="Example eLog")
 
     adv = mock_service.search.call_args.kwargs["advanced_params"]
     assert adv["author"] == "chen"
-    assert adv["source_system"] == "ALS eLog"
+    assert adv["source_system"] == "Example eLog"
 
 
 @pytest.mark.unit

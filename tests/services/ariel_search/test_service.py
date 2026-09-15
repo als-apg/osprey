@@ -76,7 +76,7 @@ class TestFormatKeywordResult:
         """Formats basic keyword search result."""
         entry = {
             "entry_id": "entry-001",
-            "source_system": "ALS eLog",
+            "source_system": "Example eLog",
             "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
             "author": "jsmith",
             "raw_text": "Beam current stabilized at 500mA.",
@@ -97,7 +97,7 @@ class TestFormatKeywordResult:
         long_text = "x" * 1000
         entry = {
             "entry_id": "entry-002",
-            "source_system": "ALS eLog",
+            "source_system": "Example eLog",
             "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
             "author": "jsmith",
             "raw_text": long_text,
@@ -117,7 +117,7 @@ class TestFormatSemanticResult:
         """Formats basic semantic search result."""
         entry = {
             "entry_id": "entry-003",
-            "source_system": "ALS eLog",
+            "source_system": "Example eLog",
             "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
             "author": "jdoe",
             "raw_text": "RF cavity tuning completed.",
@@ -352,7 +352,7 @@ class TestServiceRouting:
 
         mock_entry = {
             "entry_id": "entry-hl-001",
-            "source_system": "ALS eLog",
+            "source_system": "Example eLog",
             "timestamp": datetime(2024, 1, 15, 10, 30, 0, tzinfo=UTC),
             "author": "jsmith",
             "raw_text": "Beam alignment completed successfully.",

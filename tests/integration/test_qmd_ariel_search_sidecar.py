@@ -15,7 +15,7 @@ collapsing runs and dropping a leading one.
 *Face one — dropped hits*, now **fixed**. ``a%252%46b.md`` on disk came back as
 ``a-252-46b.md``, which inverted to a key no row had, so the hit was dropped in
 silence; any uppercase letter was enough to make an entry unfindable, covering
-identifiers as ordinary as ``ALS-2003-0001``. ``search/qmd.py`` no longer
+identifiers as ordinary as ``EX-2003-0001``. ``search/qmd.py`` no longer
 inverts the reported path — it reads the identifier from the document's own
 ``# Entry <id>`` heading, which qmd reports unchanged — so every identifier in
 this file now survives the round trip and none of these cases is xfailed.
@@ -31,7 +31,7 @@ one is ever indexed. Title-based hydration fixed *which row the survivor maps
 to*; it cannot conjure back the document the index never took. That remainder is
 a mirror-writer problem — the encoding is not injective under slugification —
 and fixing it invalidates existing mirrors. Measured collision rate over the
-real 134,996-entry ALS corpus: **0.0000%**, because every ALS ``entry_id`` is a
+measured 134,996-entry corpus: **0.0000%**, because every real ``entry_id`` is a
 4-6 digit decimal string.
 
 The other load-bearing property is that **qmd ranks and Postgres answers**. A hit
@@ -104,13 +104,13 @@ HOSTILE_NEEDLE = "quixotry"
 #: Entries whose ``entry_id`` needs no encoding, spread across authors, source
 #: systems and years so every post-filter has rows on both sides of it.
 SAFE_ROWS: list[tuple[str, str, str, datetime]] = [
-    ("olog-2003-0001", "Ada Lovelace", "ALS OLOG", datetime(2003, 1, 15, 12, 0, tzinfo=UTC)),
-    ("olog-2003-0002", "Grace Hopper", "ALS OLOG", datetime(2003, 2, 15, 12, 0, tzinfo=UTC)),
+    ("olog-2003-0001", "Ada Lovelace", "Example OLOG", datetime(2003, 1, 15, 12, 0, tzinfo=UTC)),
+    ("olog-2003-0002", "Grace Hopper", "Example OLOG", datetime(2003, 2, 15, 12, 0, tzinfo=UTC)),
     ("web-2003-0003", "Ada Lovelace", "ARIEL Web", datetime(2003, 3, 15, 12, 0, tzinfo=UTC)),
-    ("olog-2004-0004", "Kathleen Booth", "ALS OLOG", datetime(2004, 1, 15, 12, 0, tzinfo=UTC)),
+    ("olog-2004-0004", "Kathleen Booth", "Example OLOG", datetime(2004, 1, 15, 12, 0, tzinfo=UTC)),
     ("web-2004-0005", "Grace Hopper", "ARIEL Web", datetime(2004, 2, 15, 12, 0, tzinfo=UTC)),
-    ("olog-2004-0006", "Ada Lovelace", "ALS OLOG", datetime(2004, 3, 15, 12, 0, tzinfo=UTC)),
-    ("olog-2005-0007", "Grace Hopper", "ALS OLOG", datetime(2005, 1, 15, 12, 0, tzinfo=UTC)),
+    ("olog-2004-0006", "Ada Lovelace", "Example OLOG", datetime(2004, 3, 15, 12, 0, tzinfo=UTC)),
+    ("olog-2005-0007", "Grace Hopper", "Example OLOG", datetime(2005, 1, 15, 12, 0, tzinfo=UTC)),
 ]
 
 #: Identifiers chosen to break a different assumption each:
@@ -137,7 +137,7 @@ HOSTILE_IDS: dict[str, str] = {
     "collection_prefix": f"{ARIEL_COLLECTION}/2003/0007",
     "dot_dot": "../escape-attempt",
     "unicode": "Ünïcode-Ω-entry",
-    "uppercase": "ALS-CAPS-0002",
+    "uppercase": "EX-CAPS-0002",
     "leading_dot": ".hidden-entry",
     "clean": "pathological-content",
 }
@@ -179,7 +179,7 @@ COLLISION_XFAIL = (
     "slugification (escape with ~ instead of %, drop _ and - from the literal "
     "set), which invalidates every existing mirror and needs a "
     "'qmd-resync --rebuild'. Measured collision rate over the real 134,996-entry "
-    "ALS corpus: 0.0000% — every ALS entry_id is a 4-6 digit decimal string, so "
+    "corpus: 0.0000% — every real entry_id is a 4-6 digit decimal string, so "
     "no real pair can collide. Pinned in TestUnderscoreCollision."
 )
 
@@ -270,7 +270,7 @@ def _seed_rows() -> list[dict[str, Any]]:
             _entry(
                 HOSTILE_IDS[label],
                 author="Ada Lovelace",
-                source_system="ALS OLOG",
+                source_system="Example OLOG",
                 timestamp=datetime(2006, 1, 15, 12, 0, tzinfo=UTC),
                 raw_text=text,
             )
@@ -283,7 +283,7 @@ def _seed_rows() -> list[dict[str, Any]]:
         _entry(
             HOSTILE_IDS["clean"],
             author="Kathleen Booth",
-            source_system="ALS OLOG",
+            source_system="Example OLOG",
             timestamp=datetime(2006, 2, 15, 12, 0, tzinfo=UTC),
             raw_text=(
                 f"Gnarly {HOSTILE_NEEDLE} entry{CONTROL_CHARS} with embedded controls.\r\n"
@@ -302,7 +302,7 @@ def _seed_rows() -> list[dict[str, Any]]:
             _entry(
                 entry_id,
                 author=AUTHORITY_AUTHOR,
-                source_system="ALS OLOG",
+                source_system="Example OLOG",
                 timestamp=datetime(2008, 1, 15, 12, 0, tzinfo=UTC),
                 raw_text=f"The {COLLISION_TOKEN} reading for {entry_id} was nominal.",
             )
@@ -312,7 +312,7 @@ def _seed_rows() -> list[dict[str, Any]]:
         _entry(
             AUTHORITY_ID,
             author=AUTHORITY_AUTHOR,
-            source_system="ALS OLOG",
+            source_system="Example OLOG",
             timestamp=datetime(2007, 1, 15, 12, 0, tzinfo=UTC),
             raw_text=f"The {AUTHORITY_TOKEN} interlock was reset by the floor operator.",
         )

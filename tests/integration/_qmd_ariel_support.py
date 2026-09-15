@@ -627,7 +627,7 @@ VOCABULARY_DISTRACTOR_ROWS: list[tuple[str, str]] = [
 #: An author of its own, and a year no date filter in the module spans, so these
 #: rows cannot land inside a post-filter expectation.
 VOCABULARY_AUTHOR = "Vocabulary Probe"
-VOCABULARY_SOURCE_SYSTEM = "ALS OLOG"
+VOCABULARY_SOURCE_SYSTEM = "Example OLOG"
 VOCABULARY_TIMESTAMP = datetime(2009, 5, 12, 12, 0, tzinfo=UTC)
 
 

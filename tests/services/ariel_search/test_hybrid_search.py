@@ -118,7 +118,7 @@ def make_entry(
     entry_id: str,
     *,
     author: str = "operator",
-    source_system: str = "ALS eLog",
+    source_system: str = "Example eLog",
     timestamp: datetime | None = None,
 ) -> dict[str, Any]:
     """Build one hydrated ``enhanced_entries`` row."""
@@ -349,13 +349,13 @@ class TestIdentityRecovery:
             "12345",
             "a/b",
             "..",
-            "ALS-2024",
+            "EX-2024",
             "entry with spaces",
             "übung",
             ".hidden",
             "%2F",
             "beam_current_setpoint",
-            "ALS-2003-0001",
+            "EX-2003-0001",
         ],
     )
     async def test_hostile_ids_survive_a_slugifying_daemon(self, entry_id):
@@ -469,9 +469,9 @@ class TestIdentityRecovery:
         from osprey.services.ariel_search.enhancement.qmd_export.writer import render_entry
         from osprey.services.ariel_search.search.qmd import TITLE_ENTRY_PREFIX
 
-        heading = render_entry(make_entry("ALS-2003-0001")).splitlines()[0]
+        heading = render_entry(make_entry("EX-2003-0001")).splitlines()[0]
 
-        assert heading == f"# {TITLE_ENTRY_PREFIX}ALS-2003-0001"
+        assert heading == f"# {TITLE_ENTRY_PREFIX}EX-2003-0001"
 
     @pytest.mark.asyncio
     async def test_hit_without_a_row_is_dropped(self):
@@ -587,7 +587,7 @@ class TestFiltersAndOverfetch:
             make_config(),
             client=client,
             max_results=50,
-            source_system="ALS eLog",
+            source_system="Example eLog",
         )
         assert client.calls[0]["limit"] == MAX_FETCH_LIMIT
 
@@ -623,7 +623,7 @@ class TestFiltersAndOverfetch:
     async def test_source_system_filter_is_exact(self):
         hits = [make_hit("1"), make_hit("2", score=0.5)]
         entries = [
-            make_entry("1", source_system="ALS eLog"),
+            make_entry("1", source_system="Example eLog"),
             make_entry("2", source_system="JLab Logbook"),
         ]
 

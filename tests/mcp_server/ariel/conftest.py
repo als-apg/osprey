@@ -27,7 +27,7 @@ def _reset_registry(tmp_path):
 
 def make_mock_entry(
     entry_id="test-001",
-    source_system="ALS eLog",
+    source_system="Example eLog",
     author="Test User",
     raw_text="Test entry content",
     summary=None,
