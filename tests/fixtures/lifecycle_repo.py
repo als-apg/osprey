@@ -2150,6 +2150,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 # ARGO_API_KEY=your-argo-api-key-here
 # STANFORD_API_KEY=your-stanford-api-key-here
 # ALS_APG_API_KEY=your-als-apg-api-key-here
+# ASKSAGE_API_KEY=your-asksage-api-key-here
 
 # Gateway endpoints. These providers front a gateway that is your own host, so
 # OSPREY ships no default: switch to one of them and it will not start until

@@ -44,7 +44,7 @@ PROVIDER_API_KEYS: dict[str, str | None] = {
     "stanford": "STANFORD_API_KEY",
     "als-apg": "ALS_APG_API_KEY",
     "ollama": None,
-    "asksage": None,  # uses different auth
+    "asksage": "ASKSAGE_API_KEY",
     "vllm": None,  # local, no key
     "ds4": None,  # local DwarfStar server, no key
 }

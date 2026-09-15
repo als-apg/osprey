@@ -130,6 +130,23 @@ class TestProviderRegistry:
         assert PROVIDER_API_KEYS.get("ds4", "MISSING") is None
 
     @pytest.mark.unit
+    def test_the_key_table_agrees_with_every_adapter(self):
+        """A provider that authenticates names the variable its key arrives in.
+
+        And the converse: a provider that names a variable authenticates. The
+        credential gate reads the table while the launch path reads the
+        adapter, so a disagreement makes a run read as ready and then fail
+        inside the build.
+        """
+        from osprey.models.provider_registry import PROVIDER_API_KEYS
+
+        reg = ProviderRegistry()
+        for name, key_var in sorted(PROVIDER_API_KEYS.items()):
+            cls = reg.get_provider(name)
+            assert cls is not None, name
+            assert (key_var is not None) == cls.requires_api_key, name
+
+    @pytest.mark.unit
     def test_register_override_evicts_cache(self):
         """Overwriting an existing entry clears the cache for that name."""
         reg = ProviderRegistry()
