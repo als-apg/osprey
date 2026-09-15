@@ -95,13 +95,16 @@ and a pin would collide with a developer's own running stack), and the two fakes
 ----------------------------------------------------------------------------
 Gating: there is none, and that is the point
 ----------------------------------------------------------------------------
-No container runtime, no image, no credential and no provider key, so this module has no
-``skipif`` at all and a skip here is a bug rather than an environment. What it does need
-is the ``teams`` extra: :func:`~osprey.bridges.teams.receiver.make_receiver` is called
-for real by the construct-only proof at the foot of this file, and ``azure.servicebus``
-is imported plainly at module scope rather than behind ``importorskip`` — so a lane that
-forgot ``uv sync --extra dev --extra teams`` fails at collection, loudly, instead of
-skipping its way to a green that proves nothing.
+No container runtime, no image, no credential and no provider key, so no test here
+carries a ``skipif``. The one thing the module needs is the ``teams`` extra:
+:func:`~osprey.bridges.teams.receiver.make_receiver` is called for real by the
+construct-only proof at the foot of this file, against the real ``azure.servicebus``
+classes. That extra is guarded with ``importorskip`` at the top of the imports, so an
+environment without it skips this module instead of killing collection for every other
+module selected in the same run — which matters to anyone running ``pytest tests/e2e/``
+by path. In CI the skip is still a failure: the lane installs the extra and then reads
+its own junit report, failing on any skip and on an empty selection, so nothing greens
+by not running.
 """
 
 from __future__ import annotations
@@ -121,10 +124,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import azure.servicebus
 import httpx
 import pytest
 import yaml
+
+# The ``teams`` extra carries ``azure-servicebus``. Without it this module has nothing
+# to prove, and a bare import would end collection for the whole run.
+pytest.importorskip("azure.servicebus")
+
+import azure.servicebus
 from azure.servicebus import AutoLockRenewer, ServiceBusClient, ServiceBusReceiveMode
 
 from osprey.bridges.teams.__main__ import Wiring, build_wiring, config_from_env, run

@@ -77,8 +77,11 @@ PORT_BASE = 21100
 DISPATCHER_URL = f"http://localhost:{default_port('dispatcher', base=PORT_BASE)}"
 TOKEN = "dev-token"  # matches the .env tokens written below
 
-# Container image build (Node + Claude CLI install) is slow on a cold cache.
-DEPLOY_UP_TIMEOUT_SEC = 900
+# Container image builds (Node + Claude CLI install; the project image and the
+# qmd sidecar, several GB each) run cold on every CI runner: about a quarter of
+# an hour on four cores before the first container exists. Same budget as the
+# identical command in test_dispatch_deploy.py.
+DEPLOY_UP_TIMEOUT_SEC = 1800
 HEALTH_TIMEOUT_SEC = 180.0
 RUN_TIMEOUT_SEC = 300.0
 
