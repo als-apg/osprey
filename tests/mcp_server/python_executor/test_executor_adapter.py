@@ -4,6 +4,7 @@ Tests the adapter module in isolation with mocked executors.
 Pattern: monkeypatch.chdir(tmp_path) -> write config.yml -> mock deps -> call adapter.
 """
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -632,3 +633,76 @@ async def test_wrapper_built_with_execution_mode(tmp_path, monkeypatch):
         await execute_code("print(42)", "readonly", "test")
 
     assert seen.get("execution_mode") == "readonly"
+
+
+# ---------------------------------------------------------------------------
+# A sandbox that finished its script but never exited
+# ---------------------------------------------------------------------------
+#
+# The wrapper persists the execution record before the interpreter shuts down.
+# A child that then wedges in a library's shutdown hook is killed at the
+# timeout — but its script ran, and may have written to the machine. That run
+# is reported from its record, never as an empty-handed timeout.
+
+
+def _hanging_proc():
+    async def never_returns():
+        await asyncio.sleep(3600)
+
+    proc = AsyncMock()
+    proc.communicate = AsyncMock(side_effect=never_returns)
+    proc.returncode = None
+    return proc
+
+
+@pytest.mark.unit
+async def test_completed_script_is_reported_when_the_sandbox_fails_to_exit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, {"python_executor": {"execution_timeout_seconds": 1}})
+    folder = tmp_path / "exec"
+    folder.mkdir()
+    monkeypatch.setattr(
+        "osprey.mcp_server.python_executor.executor._create_execution_folder", lambda: folder
+    )
+    (folder / "execution_metadata.json").write_text(
+        json.dumps({"success": True, "stdout": "Before: 0.0\nAfter: 0.1\n", "stderr": ""})
+    )
+
+    proc = _hanging_proc()
+    with patch(
+        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
+        new_callable=AsyncMock,
+        return_value=proc,
+    ):
+        result = await execute_code("print('x')", "readwrite", "test")
+
+    proc.kill.assert_called_once()
+    assert result.success is True
+    assert result.failure_kind is None
+    assert result.stdout == "Before: 0.0\nAfter: 0.1\n"
+    assert "did not exit" in result.stderr
+
+
+@pytest.mark.unit
+async def test_a_script_still_running_at_the_timeout_is_a_timeout(tmp_path, monkeypatch):
+    """No record on disk means the script itself never finished: the kill is the verdict."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, {"python_executor": {"execution_timeout_seconds": 1}})
+    folder = tmp_path / "exec"
+    folder.mkdir()
+    monkeypatch.setattr(
+        "osprey.mcp_server.python_executor.executor._create_execution_folder", lambda: folder
+    )
+
+    proc = _hanging_proc()
+    with patch(
+        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
+        new_callable=AsyncMock,
+        return_value=proc,
+    ):
+        result = await execute_code("while True: pass", "readonly", "test")
+
+    proc.kill.assert_called_once()
+    assert result.success is False
+    assert result.failure_kind == "timeout"
+    assert result.stdout == ""

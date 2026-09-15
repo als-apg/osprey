@@ -427,6 +427,50 @@ def test_auth_sidecar_build_carries_the_site_build_args(monkeypatch, tmp_path, r
     assert cmd[-1] == str(context)
 
 
+def _auth_sidecar_build_args(monkeypatch, tmp_path, reporter, pin_version: str) -> dict:
+    """Build the sidecar under a stubbed framework pin; return its --build-args."""
+    monkeypatch.chdir(tmp_path)
+    context = tmp_path / "build" / "auth"
+    context.mkdir(parents=True)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker"])
+    monkeypatch.setattr(
+        provision,
+        "_materialize_auth_build_context",
+        lambda repo_root, dev_mode: (context, dev_mode),
+    )
+    monkeypatch.setattr("osprey.version.get_image_pin_version", lambda dev: pin_version)
+    recorder = RunRecorder()
+    monkeypatch.setattr(provision, "run_captured", recorder)
+    config = {
+        "project_name": "demo",
+        "modules": {"web_terminals": {"image_source": "local", "auth": {"method": "password"}}},
+    }
+
+    provision.build_auth_sidecar_image(config, False, {})
+
+    cmd = recorder.by_spool("build-auth-sidecar")["cmd"]
+    return dict(
+        arg.split("=", 1) for flag, arg in zip(cmd, cmd[1:], strict=False) if flag == "--build-arg"
+    )
+
+
+def test_auth_sidecar_build_admits_prereleases_for_a_prerelease_pin(
+    monkeypatch, tmp_path, reporter
+):
+    """A beta framework pin exists only beside a beta connectors, which plain
+    pip never picks unasked — so the sidecar build says so with the same arg
+    every other framework-primed image takes."""
+    args = _auth_sidecar_build_args(monkeypatch, tmp_path, reporter, "2026.9.0b2")
+    assert args["OSPREY_VERSION"] == "2026.9.0b2"
+    assert args["OSPREY_PIP_PRE"] == "1"
+
+
+def test_auth_sidecar_build_keeps_a_stable_pin_strict(monkeypatch, tmp_path, reporter):
+    args = _auth_sidecar_build_args(monkeypatch, tmp_path, reporter, "2026.9.0")
+    assert args["OSPREY_VERSION"] == "2026.9.0"
+    assert "OSPREY_PIP_PRE" not in args
+
+
 def test_auth_sidecar_build_omits_plain_progress_on_podman(monkeypatch, tmp_path, reporter):
     """`podman build` has no `--progress`; passing it would fail the deploy."""
     recorder, _ = _sidecar_build(monkeypatch, tmp_path, "podman")

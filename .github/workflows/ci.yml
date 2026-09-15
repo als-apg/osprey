@@ -45,20 +45,14 @@ on:
           its pull requests. After reading the dependency diff, a maintainer
           revalidates the branch with:
           gh workflow run ci.yml --ref <branch> -f revalidate_secret_lanes=true
+          The same dispatch is how these lanes run against main: nothing
+          runs them on a schedule, so main gets its agentic coverage from a
+          labeled pull request or from this command with --ref main.
         required: false
         type: boolean
         default: false
-  schedule:
-    # Nightly at 07:00 UTC (midnight Pacific): the always-on jobs (test,
-    # lint, docs, ...; no `if:`) PLUS the model-spending lanes, which take
-    # `github.event_name == 'schedule'` as one of their three arms. This is
-    # where main gets its full agentic coverage now -- once a day against
-    # the merged tree, not on every push of every PR. The secret-free e2e
-    # lanes stay PR-gated (they cost runner minutes, not model tokens) and
-    # the benchmark lane stays dispatch-only.
-    - cron: '0 7 * * *'
 
-# Model-spending lanes: nightly on main, `full-ci` on a pull request.
+# Model-spending lanes: `full-ci` on a pull request, on demand on main.
 #
 # Eight jobs drive real Claude sessions through the ALS-APG gateway
 # (agentic-per-preset x2, e2e-tests, dispatch-deploy-e2e, dispatch-overlay-e2e,
@@ -72,17 +66,18 @@ on:
 # turns), and volume -- ~10 PRs a day at ~2.2 pushes each.
 #
 # So the lever is WHEN, not WHAT. Each of these lanes now runs on exactly
-# three events, spelled out in its `if:` in this order:
+# two events, spelled out in its `if:` in this order:
 #
 #   1. a same-repo, non-Dependabot pull request carrying the `full-ci`
 #      label -- opt-in per PR, for the change that touches what these lanes
 #      cover (`gh pr edit <n> --add-label full-ci`; the roll-up gate prints
 #      that command in the run summary of every unlabeled PR);
-#   2. the nightly `schedule` on main -- the standing coverage: a regression
-#      that slipped through an unlabeled PR shows up the next morning, and
-#      bisects over one day's merges;
-#   3. a maintainer's `revalidate_secret_lanes` dispatch against any ref
-#      (the Dependabot path, unchanged).
+#   2. a maintainer's `revalidate_secret_lanes` dispatch against any ref --
+#      the Dependabot path, and the way main gets the lanes at all.
+#
+# There is deliberately no schedule. A scheduled run spends model tokens
+# with nobody watching, and its red reaches nobody: a lane that only runs
+# when someone asked for it has a person waiting on the result.
 #
 # Path filtering was measured and rejected: over the 161 PRs merged in the
 # two weeks before this landed, 86-91% touched something under src/ that
@@ -91,9 +86,9 @@ on:
 # whole mechanism.
 #
 # What this trades: an unlabeled PR merges on the always-on lanes plus the
-# secret-free e2e lanes, and its agentic proof arrives with the nightly. A
-# nightly red is a main red -- treat it as one. Consumers that pin osprey
-# main (the ALS deployment) pin the last nightly-green sha, not raw head.
+# secret-free e2e lanes, and its agentic proof is whichever labeled PR or
+# dispatch last ran against a tree containing it. Consumers that pin osprey
+# main (the ALS deployment) pin a sha a full run was green on, not raw head.
 # The stop-loss behind all of this is on the gateway key itself
 # (`osprey-github-ci`: a daily budget; the CI goes red, not the invoice).
 
@@ -111,9 +106,8 @@ on:
 #                    supersedes it. main is a fast-forward sequence, so the
 #                    newer run tests a tree that contains the older one; a red
 #                    the older merge introduced still shows in the newer run.
-#   schedule, dispatch  one group per run — never cancelled, because the
-#                    nightly and a hand-triggered lane are signals nothing
-#                    else reproduces.
+#   dispatch         one group per run — never cancelled, because a
+#                    hand-triggered lane is a signal nothing else reproduces.
 concurrency:
   group: ci-${{ github.workflow }}-${{ (github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number)) || (github.event_name == 'push' && github.ref) || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
@@ -882,7 +876,7 @@ jobs:
       #
       # Unlike the two-shape lane's identical step, this one DEGRADES rather
       # than fails when podman is absent. This job carries no `if:` — it gates
-      # every push, schedule and fork PR — so a future runner image dropping
+      # every push and fork PR — so a future runner image dropping
       # podman must not red the thing that gates everything for a reason
       # unrelated to what it gates. The coverage is not silently revocable
       # either way: the two-shape lane is not guarded, so podman disappearing
@@ -1302,8 +1296,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     # Model-spending lane (see the workflow-level note): runs on a same-repo
-    # PR only under the `full-ci` label, nightly on main, and on the
-    # revalidation dispatch. Fork PRs never see ALS_APG_API_KEY.
+    # PR only under the `full-ci` label and on the revalidation dispatch.
+    # Fork PRs never see ALS_APG_API_KEY.
     # Gating (no continue-on-error): a red Tier 3 flow blocks the merge like
     # every other e2e lane — the house rule is full green, no advisory tiers.
     # Secret-dependent lane: skips on Dependabot PRs, which get no Actions
@@ -1313,7 +1307,6 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     strategy:
       fail-fast: false
@@ -1416,7 +1409,8 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     # Model-spending lane (see the workflow-level note): a same-repo PR runs
-    # it only under the `full-ci` label; main gets it nightly. Fork PRs never
+    # it only under the `full-ci` label; main gets it on the revalidation
+    # dispatch. Fork PRs never
     # see the secret. Also runs on manual workflow_dispatch to enable scoped
     # reruns via the e2e_filter input — unless that dispatch asked for the
     # benchmark lanes instead (run_benchmarks).
@@ -1427,11 +1421,10 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
     # The lane's healthy runtime is ~20-25min (real-LLM SDK/CLI pipelines —
     # every full-stack docker deploy now lives in its own dedicated job, and
-    # the channel-finder benchmarks moved to the nightly schedule); a run past
+    # the channel-finder benchmarks live on the benchmark dispatch); a run past
     # the cap means a test is wedged on a dead endpoint or a leaked container
     # stack, and the useful signal is the timeout itself, not more runner time.
     # The cap also has to fit @flaky reruns stacking on one slow test: an
@@ -1507,7 +1500,7 @@ jobs:
       # the moment it happens so a kill can no longer erase it (#824).
       timeout-minutes: 45
       # E2E_FILTER comes from workflow_dispatch `inputs.e2e_filter` and is
-      # empty on push/PR/schedule triggers, so the full-suite command runs
+      # empty on push/PR triggers, so the full-suite command runs
       # by default. The filter is a debug-only convenience for scoped CI
       # reruns — PR merge gate always exercises the full suite. Workflow
       # inputs require repo write access; treat as trusted (same level as
@@ -1837,7 +1830,6 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
 
     steps:
@@ -1925,12 +1917,14 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Build + deploy + one real agent turn healthily fits well under 20min
     # (~11min when it ran in-lane, including the web-terminal image builds
     # its fixture has since dropped); past the cap it's wedged, not slow.
-    timeout-minutes: 30
+    # Same budget as dispatch-deploy-e2e: the test's `osprey up --dev` builds
+    # the project image and the qmd sidecar cold on every runner, about a
+    # quarter of an hour on four cores before the first container exists.
+    timeout-minutes: 60
 
     steps:
     - name: Checkout repository
@@ -1988,7 +1982,7 @@ jobs:
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
       # that takes the container logs with it.
-      timeout-minutes: 25
+      timeout-minutes: 55
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
         EVENT_DISPATCHER_TOKEN: dev-token
@@ -2347,7 +2341,6 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # One pytest invocation covers the whole module: the offline floor/judge
     # checks plus the two live agent runs, which share a single module-scoped
@@ -2754,7 +2747,6 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so `contents: read` is restated alongside the
@@ -2873,7 +2865,6 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # A job-level `permissions:` block REPLACES the default token scopes rather
     # than extending them, so the one scope this lane needs is stated in full.
@@ -3067,9 +3058,9 @@ jobs:
 
     - name: Install osprey
       # `--extra teams` is load-bearing at COLLECTION time, not tidiness: the
-      # e2e module imports `azure.servicebus` at module scope, so a job that
-      # syncs only `dev` errors before a single test runs. The zero-skip gate
-      # at the bottom of this job is the backstop; this is the fix.
+      # e2e module needs `azure.servicebus` and skips itself without it, so a
+      # job that syncs only `dev` collects nothing here. The zero-skip gate at
+      # the bottom of this job is the backstop; this is the fix.
       run: uv sync --extra dev --extra teams
 
     - name: Run Microsoft Teams bridge E2E
@@ -4964,7 +4955,6 @@ jobs:
         && github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(github.event.pull_request.labels.*.name, 'full-ci'))
-      || github.event_name == 'schedule'
       || (github.event_name == 'workflow_dispatch' && inputs.revalidate_secret_lanes)
     # Composed from measured pieces, not guessed, and not re-measured by
     # re-running the LLM gate. All three figures come off the same Apple
@@ -5285,7 +5275,7 @@ jobs:
       #     the gate, including "skipped".
       #   * Conditionally-run jobs (every e2e/deploy lane; `if:` limits them
       #     to same-repo PRs, and the lifecycle pair to PRs based on main):
-      #     "skipped" is a legitimate result on push/schedule/fork-PR/epic
+      #     "skipped" is a legitimate result on push/fork-PR/epic
       #     -phase runs and passes the gate; any OTHER non-success result
       #     (failure, cancelled) fails it. Corollary: on fork PRs the secret
       #     -gated lanes don't run at all — the gate can't vouch for them
@@ -5430,15 +5420,16 @@ jobs:
 
         # The same shape for the everyday case: a same-repo PR without the
         # `full-ci` label. Its model-spending lanes skipped by design (the
-        # workflow-level note), and the nightly on main is where they run —
-        # say so, and print the one command that runs them here instead.
+        # workflow-level note), and a labeled PR or a maintainer's dispatch is
+        # where they run — say so, and print the one command that runs them
+        # here instead.
         # Advisory like the block above; it can never turn a passing gate red.
         if [ "$EVENT_NAME" = "pull_request" ] && [ "$ACTOR" != "dependabot[bot]" ] \
            && [ "$HAS_FULL_CI" != "true" ] && [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
           {
             echo "### ℹ️ Model-spending lanes did not run (no \`full-ci\` label)"
             echo
-            echo "These lanes drive real agent sessions and run nightly on \`main\`, not on"
+            echo "These lanes drive real agent sessions and run only when asked for, not on"
             echo "every pull request push. They skipped here:"
             echo
             echo "- Tier 3 — Agentic flow (both presets)"
@@ -5454,5 +5445,5 @@ jobs:
             echo "gh pr edit $PR_NUMBER --add-label full-ci"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          echo "ℹ️  Model-spending lanes skipped (no full-ci label; nightly covers main) — see run summary."
+          echo "ℹ️  Model-spending lanes skipped (no full-ci label) — see run summary."
         fi

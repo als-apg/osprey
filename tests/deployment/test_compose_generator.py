@@ -3114,6 +3114,34 @@ def test_service_build_args_carry_project_name_and_dev_flag(
     assert dev_args["OSPREY_DEV"] == "1"
 
 
+@pytest.mark.parametrize(
+    ("rel_path", "service_key", "env_var", "suffix"), _PREFIXED_IMAGE_SERVICES, ids=_PREFIXED_IDS
+)
+def test_service_build_args_carry_the_prerelease_flag_only_for_a_prerelease_pin(
+    rel_path: str, service_key: str, env_var: str, suffix: str
+) -> None:
+    """A beta pin renders ``OSPREY_PIP_PRE: "1"`` beside ``OSPREY_VERSION`` so
+    the recipe's pip resolve admits the paired connectors beta; a stable pin
+    renders nothing, keeping the resolve strict. The context key comes from
+    ``_inject_project_metadata`` (see :class:`TestImagePinVersion`)."""
+    beta = yaml.safe_load(
+        _render_service_template(
+            rel_path, "proj-a", osprey_version="2026.9.0b2", osprey_pip_pre=True
+        )
+    )["services"][service_key]
+    assert beta["build"]["args"]["OSPREY_PIP_PRE"] == "1"
+
+    stable = yaml.safe_load(
+        _render_service_template(
+            rel_path, "proj-a", osprey_version="2026.9.0", osprey_pip_pre=False
+        )
+    )["services"][service_key]
+    assert "OSPREY_PIP_PRE" not in stable["build"]["args"]
+
+    unset = yaml.safe_load(_render_service_template(rel_path, "proj-a"))["services"][service_key]
+    assert "OSPREY_PIP_PRE" not in unset["build"]["args"]
+
+
 def test_tiled_external_image_stays_unprefixed() -> None:
     """The Tiled service pulls an external upstream image — it is never built
     locally, so it must NOT get a project-prefixed tag (or any build block)."""
@@ -5251,7 +5279,10 @@ def test_gchat_bridge_image_installs_the_gchat_extra_on_both_install_lines() -> 
         .joinpath("templates/services/gchat_bridge/Dockerfile")
         .read_text(encoding="utf-8")
     )
-    assert 'pip install --no-cache-dir "osprey-framework[gchat]==$OSPREY_VERSION"' in dockerfile
+    assert (
+        "pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "
+        '"osprey-framework[gchat]==$OSPREY_VERSION"'
+    ) in dockerfile
     assert 'pip install --no-cache-dir "osprey-framework[gchat]"' in dockerfile
     # A bare (extra-less) framework install anywhere would silently win or waste
     # a layer depending on order, so neither spelling may survive.
@@ -6019,7 +6050,10 @@ def test_teams_bridge_image_installs_the_teams_extra_on_all_three_install_lines(
         .joinpath("templates/services/teams_bridge/Dockerfile")
         .read_text(encoding="utf-8")
     )
-    assert 'pip install --no-cache-dir "osprey-framework[teams]==$OSPREY_VERSION"' in dockerfile
+    assert (
+        "pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "
+        '"osprey-framework[teams]==$OSPREY_VERSION"'
+    ) in dockerfile
     assert 'pip install --no-cache-dir "osprey-framework[teams]"' in dockerfile
     assert 'pip install --no-cache-dir "${whl}[teams]"' in dockerfile
     # A bare (extra-less) framework or wheel install anywhere would silently win
@@ -8741,6 +8775,23 @@ class TestImagePinVersion:
 
         out = _inject_project_metadata({"project_name": "p", "dev_mode": True})
         assert out["osprey_version"] == get_release_version()
+
+    def test_a_prerelease_pin_asks_the_recipes_to_admit_prereleases(self, monkeypatch):
+        # The framework and its connectors ship as a pair from one tag, so a
+        # beta pin resolves only when the recipe's pip admits pre-releases.
+        from osprey.deployment.compose_generator import _inject_project_metadata
+
+        monkeypatch.setattr("osprey.version.get_image_pin_version", lambda dev: "2026.9.0b2")
+        out = _inject_project_metadata({"project_name": "p"})
+        assert out["osprey_version"] == "2026.9.0b2"
+        assert out["osprey_pip_pre"] is True
+
+    def test_a_stable_pin_keeps_the_recipes_strict(self, monkeypatch):
+        from osprey.deployment.compose_generator import _inject_project_metadata
+
+        monkeypatch.setattr("osprey.version.get_image_pin_version", lambda dev: "2026.9.0")
+        out = _inject_project_metadata({"project_name": "p"})
+        assert out["osprey_pip_pre"] is False
 
     def test_failed_wheel_staging_keeps_the_fail_loud_running_pin(self):
         # setup_build_dir writes dev_mode into the context as (flag AND wheel

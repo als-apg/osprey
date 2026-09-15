@@ -27,6 +27,7 @@ import re
 import subprocess
 import sys
 import types
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -87,11 +88,13 @@ BOOT_VALUES = {MAG1_SP: 1.0, MAG1_RB: 1.0, MAG2_SP: 2.0, MAG2_RB: 2.0}
 #: these tests assemble.
 VA_ENV_VARS = (
     "VA_DATA_DIR",
+    "VA_STATE_DIR",
     "VA_CHANNELS_FILE",
     "VA_LATTICE",
     "VA_STUCK_SETPOINTS",
     "VA_BPM_ERRORS",
     "VA_CORR_GAIN",
+    "VA_MODEL_WRITE_TOKEN",
 )
 
 
@@ -271,6 +274,19 @@ class FakeEngineSource:
 
 
 @dataclass
+class FakeRingModel:
+    """``PyATRingModel``, minus the ring.
+
+    The fault seeds are the model's now -- it declares a variable per seeded
+    field and the bridge reads them back through ``get`` -- so what the
+    entrypoint owes it is the parsed seeds, and that is what is recorded.
+    """
+
+    bpm_errors: Any
+    corrector_gains: Any
+
+
+@dataclass
 class FakeBridge:
     """``PhysicsBridge``, minus the lattice.
 
@@ -281,16 +297,26 @@ class FakeBridge:
 
     journal: list[tuple[str, Any]]
     model: Any
-    bpm_errors: Any = None
-    corrector_gains: Any = None
     bound: dict[str, Any] | None = None
+    bound_setpoints: frozenset[str] | None = None
 
-    def bind(self, records: dict[str, Any]) -> None:
+    def bind(
+        self, records: dict[str, Any], *, physics_setpoints: frozenset[str] = frozenset()
+    ) -> None:
         self.bound = records
+        self.bound_setpoints = physics_setpoints
         self.journal.append(("bind", records))
 
     def on_setpoint(self, address: str, value: float) -> None:  # pragma: no cover - identity only
         """Never called here: the fake runner enqueues nothing."""
+
+    def refresh(self, changed: Iterable[str]) -> None:  # pragma: no cover - identity only
+        """Never called here: the fake runner serves no model RPC.
+
+        Present because the entrypoint reads it off the bridge to hand the
+        runner its post-model-write hook, so a fake without it would fail the
+        boot rather than the assertion under test.
+        """
 
 
 @dataclass
@@ -412,20 +438,15 @@ def _install_fake_physics(
     from osprey.services.virtual_accelerator.ioc import physics_bridge as bridge_module
     from osprey.services.virtual_accelerator.model import pyat as pyat_module
 
-    def ring_model() -> Any:
+    def ring_model(*, bpm_errors: Any, corrector_gains: Any) -> Any:
         if orbit_solve_error:
             raise bridge_module.OrbitSolveError("no stable closed orbit")
-        model = NullModel()
+        model = FakeRingModel(bpm_errors=bpm_errors, corrector_gains=corrector_gains)
         boot.journal.append(("model", model))
         return model
 
-    def physics_bridge(*, model: Any, bpm_errors: Any, corrector_gains: Any) -> FakeBridge:
-        bridge = FakeBridge(
-            journal=boot.journal,
-            model=model,
-            bpm_errors=bpm_errors,
-            corrector_gains=corrector_gains,
-        )
+    def physics_bridge(*, model: Any) -> FakeBridge:
+        bridge = FakeBridge(journal=boot.journal, model=model)
         boot.journal.append(("bridge", bridge))
         return bridge
 
@@ -665,6 +686,92 @@ class TestRunnerHandoff:
         assert attached == []
 
 
+class TestModelRpcHandoff:
+    """What the runner is told about the model it serves over the model RPC.
+
+    Three facts the endpoint cannot derive for itself: the token a write must
+    present, the backend behind the variables, and where its lattice came
+    from. All three are resolved at boot and handed over once.
+    """
+
+    def test_a_configured_token_reaches_the_runner(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(monkeypatch, facility, env={"VA_MODEL_WRITE_TOKEN": "s3cret"})
+        assert boot.runner.kwargs["model_write_token"] == "s3cret"
+
+    def test_an_unset_token_disables_model_writes(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """``None``, not an empty string: the endpoint refuses every write
+        when there is no token, and an empty credential must not match."""
+        boot = _boot(monkeypatch, facility)
+        assert boot.runner.kwargs["model_write_token"] is None
+
+    def test_an_empty_token_is_an_unset_one(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Which is the shape the compose passthrough sends when the host var
+        is absent."""
+        boot = _boot(monkeypatch, facility, env={"VA_MODEL_WRITE_TOKEN": ""})
+        assert boot.runner.kwargs["model_write_token"] is None
+
+    def test_the_backend_is_named_by_the_model_being_served(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
+        assert boot.runner.kwargs["backend_name"] == "NullModel"
+        assert boot.runner.kwargs["backend_name"] == type(boot.runner.model).__name__
+
+    def test_a_lattice_backed_boot_names_its_own_backend(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The name comes off the model the entrypoint built, so the two
+        branches cannot report the same backend."""
+        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
+        assert boot.runner.kwargs["backend_name"] == type(boot.one("model")).__name__
+        assert boot.runner.kwargs["backend_name"] != "NullModel"
+
+    @pytest.mark.parametrize("lattice", [None, ep.LATTICE_NONE, ep.LATTICE_BUILTIN])
+    def test_the_lattice_source_is_the_mode_that_was_resolved(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path, lattice: str | None
+    ) -> None:
+        """Including the default: what ``status`` reports is what this boot
+        resolved, never the raw env var."""
+        boot = _boot(monkeypatch, facility, lattice=lattice)
+        expected = ep.LATTICE_NONE if lattice is None else lattice
+        assert boot.runner.kwargs["lattice_source"] == expected
+
+
+class TestModelWriteTokenBootLine:
+    """The boot line that says whether model writes are armed.
+
+    Whether they are armed is operational state an operator has to be able to
+    read out of ``docker logs``; the token itself is a secret, and a secret
+    printed once is a secret leaked for as long as the logs are kept.
+    """
+
+    def test_a_configured_token_is_reported_as_armed(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _boot(monkeypatch, facility, env={"VA_MODEL_WRITE_TOKEN": "s3cret"})
+        assert "Model writes armed" in capsys.readouterr().out
+
+    def test_the_token_itself_is_never_printed(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _boot(monkeypatch, facility, env={"VA_MODEL_WRITE_TOKEN": "s3cret"})
+        assert "s3cret" not in capsys.readouterr().out
+
+    def test_no_token_is_reported_as_disabled(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _boot(monkeypatch, facility)
+        out = capsys.readouterr().out
+        assert "Model writes disabled" in out
+        assert "Model writes armed" not in out
+
+
 class TestNullLatticeBoot:
     """A boot whose facility has channels but no physics in this process."""
 
@@ -766,6 +873,10 @@ class TestLatticeBoot:
     ) -> None:
         boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
         assert boot.one("bridge").bound is boot.runner.records.pyat_coupled
+        # The manifest says which of those records are setpoints; the bridge
+        # is told, never left to read it off the address text.
+        assert boot.one("bridge").bound_setpoints == boot.runner.records.physics_setpoints
+        assert boot.runner.records.physics_setpoints
 
     def test_setpoints_are_not_also_synced_into_the_engine(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
@@ -775,26 +886,45 @@ class TestLatticeBoot:
         boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
         assert boot.engine_source.setpoint_echo_records is None
 
-    def test_the_fault_seeds_reach_the_bridge(
+    def test_the_fault_seeds_reach_the_model(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
+        """The model holds the faults, as variables the bridge reads back at
+        the moment it serves a reading -- so a seed goes to the model and the
+        bridge is given nothing but the model."""
         boot = _boot(
             monkeypatch,
             facility,
             lattice=ep.LATTICE_BUILTIN,
             env={"VA_BPM_ERRORS": "BPM01:offset_x=1e-4", "VA_CORR_GAIN": "HCM01=1.5"},
         )
-        bridge = boot.one("bridge")
-        assert bridge.bpm_errors == {"BPM01": {"offset_x": 1e-4}}
-        assert bridge.corrector_gains == {"HCM01": {"factor": 1.5}}
+        model = boot.one("model")
+        assert model.bpm_errors == {"BPM01": {"offset_x": 1e-4}}
+        assert model.corrector_gains == {"HCM01": {"factor": 1.5}}
+
+    def test_the_corrector_gain_map_reaches_the_model_field_shaped(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """VA_CORR_GAIN names one number per device; the model takes a field
+        map, and ``factor`` is the field that number is."""
+        boot = _boot(
+            monkeypatch,
+            facility,
+            lattice=ep.LATTICE_BUILTIN,
+            env={"VA_CORR_GAIN": "HCM01=1.5,QF07=0.8"},
+        )
+        assert boot.one("model").corrector_gains == {
+            "HCM01": {"factor": 1.5},
+            "QF07": {"factor": 0.8},
+        }
 
     def test_no_faults_are_passed_as_none_rather_than_an_empty_map(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
         boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
-        bridge = boot.one("bridge")
-        assert bridge.bpm_errors is None
-        assert bridge.corrector_gains is None
+        model = boot.one("model")
+        assert model.bpm_errors is None
+        assert model.corrector_gains is None
 
     def test_a_lattice_with_no_stable_orbit_ends_the_boot(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path

@@ -41,6 +41,7 @@ import subprocess
 import pytest
 
 import osprey
+from tests.deployment._pip_probe import primer_pip_argv
 from tests.deployment._proxy_idiom import (
     assert_apt_runs_carry_proxy_idiom,
     assert_site_ca_idiom,
@@ -203,7 +204,7 @@ class TestLayerSplit:
     def test_pinned_primer_spec_present(self, service):
         deps = _deps_body(service)
         spec = PRIMER_SPEC[service]
-        assert f'pip install --no-cache-dir "{spec}"' in deps, (
+        assert f'pip install --no-cache-dir ${{OSPREY_PIP_PRE:+--pre}} "{spec}"' in deps, (
             f"{service}: pinned primer spec {spec!r} missing from deps layer"
         )
 
@@ -346,6 +347,64 @@ def _probe_wheel_body(body: str, tmp_path, *, with_wheel: bool):
         env=env,
     )
     return result, ctx
+
+
+# ── Pre-release pins ─────────────────────────────────────────────────────────
+#
+# Every recipe that installs the framework by version, discovered by the ARG it
+# reads rather than listed, so a new framework-primed recipe is covered the day
+# it lands. osprey-framework and osprey-connectors ship as a pair from one tag,
+# so a beta framework exists only beside a beta connectors — and plain pip
+# never picks a pre-release for a requirement that names none, which the
+# framework's own connectors requirement does not. The deps layer therefore
+# takes an `OSPREY_PIP_PRE` build arg and, when it is set, resolves with `--pre`.
+
+FRAMEWORK_PINNED_DOCKERFILES = [
+    p for p in SHIPPED_DOCKERFILES if "$OSPREY_VERSION" in p.read_text(encoding="utf-8")
+]
+FRAMEWORK_PINNED_IDS = [
+    str(p.parent.relative_to(TEMPLATES_DIR)) for p in FRAMEWORK_PINNED_DOCKERFILES
+]
+
+
+def _version_pinned_deps_body(dockerfile: pathlib.Path) -> str:
+    """The deps-layer RUN body: the one installing ``osprey-framework`` by version."""
+    text = dockerfile.read_text(encoding="utf-8")
+    bodies = [b for b in _run_bodies(text) if "osprey-framework" in b and "$OSPREY_VERSION" in b]
+    assert len(bodies) == 1, f"{dockerfile}: expected exactly one deps RUN, got {len(bodies)}"
+    return bodies[0]
+
+
+@pytest.mark.parametrize("dockerfile", FRAMEWORK_PINNED_DOCKERFILES, ids=FRAMEWORK_PINNED_IDS)
+class TestPrereleasePin:
+    def test_covers_every_framework_primed_recipe(self, dockerfile):
+        # The discovery above must find the recipes the layer-split contract
+        # names — a recipe that pins the framework some other way would slip
+        # past both.
+        assert {p.parent.name for p in FRAMEWORK_PINNED_DOCKERFILES} >= set(SERVICES)
+
+    def test_declares_the_prerelease_arg(self, dockerfile):
+        text = dockerfile.read_text(encoding="utf-8")
+        assert re.search(r'^ARG OSPREY_PIP_PRE=""$', text, flags=re.MULTILINE), (
+            f"{dockerfile}: missing the OSPREY_PIP_PRE build arg"
+        )
+
+    def test_primer_admits_prereleases_when_the_pin_is_one(self, dockerfile, tmp_path):
+        argv = primer_pip_argv(
+            _version_pinned_deps_body(dockerfile),
+            tmp_path,
+            {"OSPREY_VERSION": "2026.9.0b2", "OSPREY_PIP_PRE": "1"},
+        )
+        assert "--pre" in argv, argv
+        assert any(a.endswith("==2026.9.0b2") for a in argv), argv
+
+    def test_primer_stays_strict_for_a_stable_pin(self, dockerfile, tmp_path):
+        argv = primer_pip_argv(
+            _version_pinned_deps_body(dockerfile),
+            tmp_path,
+            {"OSPREY_VERSION": "2026.9.0", "OSPREY_PIP_PRE": ""},
+        )
+        assert "--pre" not in argv, argv
 
 
 def _probe_deps_body(body: str, tmp_path, *, with_manifest: bool):

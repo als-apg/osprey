@@ -7,6 +7,7 @@ Refactored from existing EPICS integration code.
 """
 
 import asyncio
+import atexit
 import fnmatch
 import os
 import threading
@@ -373,6 +374,18 @@ class EPICSConnector(ControlSystemConnector):
             raise ImportError(
                 "pyepics is required for EPICS connector. Install with: pip install pyepics"
             ) from None
+
+        # pyepics registers ``finalize_libca`` with ``atexit`` the first time
+        # libca loads. Once Channel Access has been used from a worker thread —
+        # which this connector always does, via ``asyncio.to_thread`` — that
+        # finalizer wedges or crashes the interpreter on the way out, and a
+        # process that cannot exit is worse than one that skips the hook: the
+        # OS reclaims the sockets, and nothing is lost. Switched off here,
+        # before the first CA call below loads libca and would register it; a
+        # process whose libca loaded earlier already carries the hook, so it
+        # is taken out as well.
+        epics.ca.AUTO_CLEANUP = False
+        atexit.unregister(epics.ca.finalize_libca)
 
         # Select the CA gateway. EPICS uses one process-wide context, so the
         # connector points at a single gateway. A read-only gateway rejects

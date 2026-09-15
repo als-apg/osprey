@@ -34,6 +34,7 @@ import pytest
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
 from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
 from osprey.services.virtual_accelerator.lattice import inventory, orbit_response
+from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 
 # Symmetric sweep parameters, matching the real `orm` plan's contract
 # (`plans_core/orm.py`'s `build_plan`): a sweep centred on each corrector's
@@ -203,7 +204,9 @@ def test_seeded_bpm_offset_leaves_measured_orm_unchanged():
     clean_rows = _measure_rows(clean_bridge, correctors, bpms, SPAN_A, NUM_POINTS)
     clean_matrix = build_response_matrix(clean_rows, correctors, readbacks)
 
-    offset_bridge = PhysicsBridge(bpm_errors={offset_bpm: {"offset_x": 50e-6, "offset_y": 30e-6}})
+    offset_bridge = PhysicsBridge(
+        model=PyATRingModel(bpm_errors={offset_bpm: {"offset_x": 50e-6, "offset_y": 30e-6}})
+    )
     offset_rows = _measure_rows(offset_bridge, correctors, bpms, SPAN_A, NUM_POINTS)
     offset_matrix = build_response_matrix(offset_rows, correctors, readbacks)
 

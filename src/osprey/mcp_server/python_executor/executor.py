@@ -4,6 +4,13 @@ Agent-authored Python runs in exactly one place: a host subprocess wrapped by
 :class:`~osprey.services.python_executor.execution.wrapper.ExecutionWrapper`,
 which adds the limits monkeypatch, process isolation, and a timeout.
 
+The outcome of a run is read from the record the wrapper persists
+(``execution_metadata.json``) rather than from the child's exit status or its
+pipes. That record is also what tells a timeout apart from a sandbox that ran
+its script and then failed to exit: a killed child that left a record ran to
+completion — and may have written to the machine — so it is reported from the
+record, and only a child with no record is reported as a timeout.
+
 The interpreter for that subprocess follows the *project venv* convention (see
 :func:`resolve_agent_interpreter`), which is deliberately different from how
 OSPREY-runtime processes (MCP servers, hooks) pick their interpreter: those
@@ -931,6 +938,33 @@ async def _execute_via_local(
             proc.kill()
             await proc.wait()
             elapsed = time.time() - start_time
+            # A record on disk means the script ran to completion and the
+            # sandbox then failed to exit — a library's shutdown hook wedged
+            # on the way out. That run may have written to the machine, so it
+            # is reported from its record; the pipes were never drained, so
+            # the record is the only account of its output. No record means
+            # the script itself was still running: that is the timeout.
+            metadata = _read_execution_metadata(execution_folder)
+            if metadata is not None:
+                notice = (
+                    f"The sandbox did not exit within {timeout} seconds after the script "
+                    "finished and was killed; the outcome above is the script's own record."
+                )
+                logger.warning(
+                    "Sandbox %s finished its script but did not exit within %ss; killed",
+                    execution_folder.name,
+                    timeout,
+                )
+                return _result_from_run(
+                    execution_folder,
+                    metadata,
+                    stdout_text="",
+                    stderr_text="",
+                    returncode=proc.returncode,
+                    elapsed=elapsed,
+                    control_target=control_target,
+                    stderr_notice=notice,
+                )
             return ExecutionResult(
                 success=False,
                 stdout="",
@@ -942,24 +976,53 @@ async def _execute_via_local(
                 failure_kind=FAILURE_KIND_TIMEOUT,
             )
 
-    elapsed = time.time() - start_time
+    return _result_from_run(
+        execution_folder,
+        _read_execution_metadata(execution_folder),
+        stdout_text=stdout_text,
+        stderr_text=stderr_text,
+        returncode=proc.returncode,
+        elapsed=time.time() - start_time,
+        control_target=control_target,
+    )
 
-    # Prefer metadata from the execution folder (more accurate than pipes
-    # since the wrapper captures output internally)
-    metadata = _read_execution_metadata(execution_folder)
+
+def _result_from_run(
+    execution_folder: Path,
+    metadata: dict | None,
+    *,
+    stdout_text: str,
+    stderr_text: str,
+    returncode: int | None,
+    elapsed: float,
+    control_target: str,
+    stderr_notice: str | None = None,
+) -> ExecutionResult:
+    """Build the result of a run that ran its script, from its record.
+
+    The record the wrapper persists is preferred over the pipes and the exit
+    status: the wrapper captures the script's output internally, and its
+    ``success`` is the script's own outcome. The pipes and status are the
+    fallback for a child that left no record at all. *stderr_notice*, when
+    given, is appended to the reported stderr — a fact about the sandbox
+    (it had to be killed) rather than about the script.
+    """
     figures = _collect_figures(execution_folder)
     artifacts = collect_artifacts(execution_folder)
 
     if metadata:
         final_stdout = metadata.get("stdout", stdout_text)
         final_stderr = metadata.get("stderr", stderr_text)
-        success = metadata.get("success", proc.returncode == 0)
+        success = metadata.get("success", returncode == 0)
         error_msg = metadata.get("error")
     else:
         final_stdout = stdout_text
         final_stderr = stderr_text
-        success = proc.returncode == 0
+        success = returncode == 0
         error_msg = stderr_text if not success else None
+
+    if stderr_notice:
+        final_stderr = f"{final_stderr.rstrip()}\n{stderr_notice}".lstrip()
 
     return ExecutionResult(
         success=success,
