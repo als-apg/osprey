@@ -23,19 +23,19 @@ def _make_store_with_entries(tmp_path):
     store = FeedbackStore(tmp_path / "feedback.json")
     store.record_success(
         query="show me magnets",
-        facility="ALS",
+        facility="ERF",
         selections={"system": "MAG", "device": "QF1"},
         channel_count=42,
     )
     store.record_failure(
         query="show me magnets",
-        facility="ALS",
+        facility="ERF",
         partial_selections={"system": "RF"},
         reason="no options at family level",
     )
     store.record_success(
         query="find BPM positions",
-        facility="ALS",
+        facility="ERF",
         selections={"system": "BPM", "field": "X"},
         channel_count=10,
     )
@@ -133,7 +133,7 @@ def test_view_examples_with_exact_query_returns_hints(tmp_path, monkeypatch):
             "osprey.mcp_server.channel_finder_hierarchical.server_context."
             "ChannelFinderHierContext.facility_name",
             new_callable=PropertyMock,
-            return_value="ALS",
+            return_value="ERF",
         ),
     ):
         from osprey.mcp_server.channel_finder_hierarchical.tools.view_examples import (
