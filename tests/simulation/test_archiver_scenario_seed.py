@@ -52,7 +52,8 @@ from osprey.simulation.archiver_seed import (
     SeedKnobs,
     seed_base,
 )
-from tests._container_support import is_docker_available, start_or_skip, stop_quietly
+from tests._container_support import is_docker_available
+from tests._mongo_container import started_mongo
 
 PRESSURE = "SR:VAC:IP07:PRESSURE"
 TEMPERATURE = "SR:RF:CAV01:TEMP:BODY"
@@ -158,30 +159,20 @@ def _machine() -> dict:
 
 @pytest.fixture(scope="module")
 def mongo_store():
-    """A MongoDB container for this module."""
+    """A MongoDB container for this module, waited for until it answers before being yielded."""
     if not is_docker_available():
         pytest.skip("Docker not available — needed to rewrite a real store.")
-    try:
-        from testcontainers.mongodb import MongoDbContainer
-    except ImportError:
-        pytest.skip("testcontainers[mongodb] not installed")
 
     username, password = "rewriteuser", "rewritepass123"
-    container = start_or_skip(
-        lambda: MongoDbContainer("mongo:7", username=username, password=password),
-        label="mongodb-rewrite",
-    )
-    try:
+    with started_mongo("mongodb-rewrite", username=username, password=password) as (host, port):
         yield {
-            "host": container.get_container_host_ip(),
-            "port": int(container.get_exposed_port(27017)),
+            "host": host,
+            "port": port,
             "username": username,
             "password": password,
             "database": "rewrite_db",
             "collection": "pv_history",
         }
-    finally:
-        stop_quietly(container)
 
 
 def _write_project(root: Path, store: dict | None, *, password: str | None) -> Path:
