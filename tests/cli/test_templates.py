@@ -13,9 +13,9 @@ import pytest
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest
 from osprey.cli.templates.manager import TemplateManager
-from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
+from tests._config_render_context import MINIMAL_CONFIG_CONTEXT
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -689,15 +689,10 @@ class TestBuiltinPanelRegistryDrift:
         profile does NOT list (``ariel``) does not."""
         import yaml
 
-        from osprey.profiles.web_panels import BUILTIN_PANELS
-
         manager = TemplateManager()
         template = manager.jinja_env.get_template(template_path)
         rendered = template.render(
-            builtin_panels=sorted(BUILTIN_PANELS),
-            selected_web_panels=["okf", "channel-finder"],
-            port_base=DEFAULT_PORT_BASE,
-            osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+            **{**MINIMAL_CONFIG_CONTEXT, "selected_web_panels": ["okf", "channel-finder"]}
         )
         panels = yaml.safe_load(rendered)["web"]["panels"]
 
@@ -725,11 +720,12 @@ class TestBuiltinPanelRegistryDrift:
         manager = TemplateManager()
         template = manager.jinja_env.get_template(template_path)
 
+        without_registry = {
+            key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "builtin_panels"
+        }
         with pytest.raises(TemplateRuntimeError, match="builtin_panels"):
             template.render(
-                selected_web_panels=["okf", "channel-finder"],
-                port_base=DEFAULT_PORT_BASE,
-                osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+                **{**without_registry, "selected_web_panels": ["okf", "channel-finder"]}
             )
 
     def test_create_project_enables_okf_builtin_panel(self, tmp_path):
