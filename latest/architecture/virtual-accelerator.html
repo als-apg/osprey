@@ -556,8 +556,13 @@ hand-off, and is committed on both views — a write on either transport moves
 both, a refused write moves neither. Only the completion differs, forced by
 the protocols: CA put-completion carries no status, so a refusal withholds the
 echo and raises an alarm; a PVAccess put completes with the model’s error
-string. Only the Channel Access port (<code class="docutils literal notranslate"><span class="pre">5064/tcp</span></code>) is published from the
-container.</p>
+string. The <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> instance publishes two ports from its
+container: Channel Access (<code class="docutils literal notranslate"><span class="pre">5064/tcp</span></code>) and pvAccess (<code class="docutils literal notranslate"><span class="pre">5075/tcp</span></code>), the
+second of them for the model surface described below. A pvAccess client
+reaches that port by name server (<code class="docutils literal notranslate"><span class="pre">EPICS_PVA_NAME_SERVERS=&lt;host&gt;:5075</span></code>),
+which is TCP, so TCP is all that is published — there is no UDP search to
+answer. A stand-in instance publishes its Channel Access port alone: the model
+surface belongs to the <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> instance.</p>
 </section>
 <section id="physics-is-optional">
 <h2>Physics is optional<a class="headerlink" href="#physics-is-optional" title="Link to this heading">#</a></h2>
@@ -596,9 +601,15 @@ multi-variable writes, one solve per batch, rollback on a lost closed
 orbit.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">lume-pva-apg[ca,pva]</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">0.1.2</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0.1.4</span></code></p></td>
 <td><p>The serving stack <code class="docutils literal notranslate"><span class="pre">runner.py</span></code> subclasses — <code class="docutils literal notranslate"><span class="pre">pcaspy</span></code> for Channel
-Access, <code class="docutils literal notranslate"><span class="pre">p4p</span></code> for PVAccess.</p></td>
+Access, <code class="docutils literal notranslate"><span class="pre">p4p</span></code> for PVAccess. 0.1.3 adds the two hooks the model
+surface is built on: <code class="docutils literal notranslate"><span class="pre">_enqueue(...,</span> <span class="pre">jobs=)</span></code>, which runs a callable on
+the run loop’s own thread batched with the writes already queued there,
+and <code class="docutils literal notranslate"><span class="pre">_cycle_output_names()</span></code>, which lets a subclass narrow the set of
+variables re-read after each cycle. 0.1.4 makes the model info the
+server announces follow the configuration it was given, so a variable
+held back from the channel namespace is not advertised as one.</p></td>
 </tr>
 </tbody>
 </table>
@@ -622,6 +633,34 @@ serving layer changing. Model variables are keyed by their full channel
 address and resolved before the backend sees them, so a backend parses no
 channel names. The seam, its floor (<code class="docutils literal notranslate"><span class="pre">NullModel</span></code>) and its ceiling are written
 up under <a class="reference internal" href="../contributing/extending-osprey.html#extending-lume-model"><span class="std std-ref">LUME model</span></a>.</p>
+<section id="served-and-model-only-variables">
+<h3>Served and model-only variables<a class="headerlink" href="#served-and-model-only-variables" title="Link to this heading">#</a></h3>
+<p>A model usually declares more variables than the facility serves as channels.
+The line between the two is drawn once, at boot, and by name alone: a variable
+is <strong>served</strong> when its name is an address the channel manifest already serves,
+and <strong>model-only</strong> when it is not. Served variables are read and written like
+any other channel, on either transport. Model-only variables sit on no channel
+at all; the model RPC is the only way to reach them.</p>
+<p>That RPC is one pvAccess channel, <code class="docutils literal notranslate"><span class="pre">model_rpc</span></code>, and it takes six verbs.
+<code class="docutils literal notranslate"><span class="pre">info</span></code> lists the model’s variables and says which side of the line each one
+is on; <code class="docutils literal notranslate"><span class="pre">get</span></code> reads what the model holds for any of them, served side
+included; <code class="docutils literal notranslate"><span class="pre">diff</span></code> puts the value the control system serves beside the model’s
+own for each served variable; <code class="docutils literal notranslate"><span class="pre">status</span></code> reports on the server itself. <code class="docutils literal notranslate"><span class="pre">set</span></code>
+writes model-only variables, and <code class="docutils literal notranslate"><span class="pre">reset</span></code> returns them to the values they
+were seeded with at boot.</p>
+<p>Those two write verbs ask for an administrative token. The container reads it
+from <code class="docutils literal notranslate"><span class="pre">VA_MODEL_WRITE_TOKEN</span></code> at startup and compares what a caller presents
+against it; a call carrying no token, or a token that does not match, is
+refused before any model is touched, and a container started without the
+variable set refuses model writes outright. The read verbs are not gated.</p>
+<p>For the bundled demo lattice the model-only roster is the simulated imperfections:
+nine reading-error fields on every BPM, and a calibration factor and offset on
+every magnet — 1,344 writables. Their names use a dot grammar
+(<code class="docutils literal notranslate"><span class="pre">BPM01.offset_x</span></code>, <code class="docutils literal notranslate"><span class="pre">QF07.cal_factor</span></code>), so no fault name parses as a channel
+address. Writing one changes what the model holds, and the served BPM
+readings derived from it are recomputed as the write lands — so <code class="docutils literal notranslate"><span class="pre">diff</span></code> is
+where the fault becomes visible, as a served reading that has parted from the
+model’s own value.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -633,6 +672,7 @@ up under <a class="reference internal" href="../contributing/extending-osprey.ht
 </dd>
 </dl>
 </div>
+</section>
 </section>
 </section>
 
@@ -688,7 +728,10 @@ up under <a class="reference internal" href="../contributing/extending-osprey.ht
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-transports-one-write-path">Two transports, one write path</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#physics-is-optional">Physics is optional</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-lume-stack-and-its-pins">The LUME stack and its pins</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bringing-your-own-model">Bringing your own model</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bringing-your-own-model">Bringing your own model</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#served-and-model-only-variables">Served and model-only variables</a></li>
+</ul>
+</li>
 </ul>
   </nav></div>
 
