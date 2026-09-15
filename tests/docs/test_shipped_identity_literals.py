@@ -20,34 +20,42 @@ Removing a literal is a one-line edit; keeping it removed is what needs a
 guard, because every new pull request is an opportunity to add one back and
 nothing else would notice.
 
-**The list grows.** It starts at what has actually been swept out of the tree,
-because a pattern that fires on the current tree is not a guard, it is a
-failing test. As each remaining literal is removed, its pattern joins
-:data:`DENIED` in the same change that removes it. ``lbl.gov``, ``ALS-U``,
-``\\bALS\\b``, ``BELLA`` and ``GEECS`` are in the table now.
+**The table grows, and so does each entry's reach.** An entry starts at what
+has actually been swept, because a pattern that fires on the current tree is
+not a guard, it is a failing test: a literal joins :data:`DENIED` in the
+change that removes it from the shipped tree, and an entry's ``roots`` widen
+to :data:`REPO_ROOTS` in the change that clears it from the repository's own
+tests and scripts as well.
 
-Three kinds of surface legitimately name an institution and carry an ``allow``
+Four kinds of surface legitimately name an institution and carry an ``allow``
 entry rather than an edit: the shipped provider adapters for named LLM
-gateways, the named ingestion adapter, and the packaging and escalation
-metadata that has to spell the upstream project's own ``owner/repo`` — the
-last of these is out of scope here, because a project's own address is not a
-facility's.
+gateways, the named ingestion adapter, a case that asserts the literal's
+absence and so has to spell it, and the packaging and escalation metadata that
+has to spell the upstream project's own ``owner/repo`` — the last of these is
+out of scope here, because a project's own address is not a facility's.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_THIS_FILE = Path(__file__).resolve()
 
 #: Everything OSPREY ships that a deployer or operator can read. Code and
 #: comments as much as documentation: a rendered template's comment reaches a
 #: deployment, and a docstring reaches the API reference.
-ROOTS = ("src/osprey", "docs/source")
+SHIPPED_ROOTS = ("src/osprey", "docs/source")
+
+#: The trees that describe what ships without shipping themselves. An identity
+#: reaches them once the repo is clean of it there, so a sweep stays swept
+#: rather than merely performed.
+REPO_ROOTS = SHIPPED_ROOTS + ("tests", "scripts")
 
 SCAN_SUFFIXES = (
     ".py",
@@ -83,13 +91,16 @@ class Denied:
     """A line this pattern must match, so a broken pattern cannot read as a
     clean tree."""
 
+    roots: tuple[str, ...] = SHIPPED_ROOTS
+    """The trees this identity may not appear in."""
+
     allow: frozenset[str] = frozenset()
     """Repo-relative paths that may keep it, each for a stated reason."""
 
 
-#: The identities already swept out of ``src/osprey`` and ``docs/source``.
-#: Each entry is here because the tree is clean of it *now*; see the module
-#: docstring for the ones still to come.
+#: Each identity the guard holds out of the trees its ``roots`` name. An entry
+#: is here because those trees are clean of it, and its ``why`` is what is
+#: wrong with putting it back.
 DENIED: tuple[Denied, ...] = (
     Denied(
         name="maintainer account",
@@ -106,12 +117,16 @@ DENIED: tuple[Denied, ...] = (
             "ships in an example"
         ),
         sample="  epics_gateway: cagw-alsdmz.example-site.org:5064",
+        roots=REPO_ROOTS,
+        # A case that asserts the literal's absence has to spell it.
+        allow=frozenset({"tests/mcp_server/test_phoebus_plt_generator.py"}),
     ),
     Denied(
         name="maintainers' gateway host",
         pattern=re.compile(r"gianluca[-.]?martino", re.IGNORECASE),
         why="a maintainer's own gateway endpoint is not one another deployment can call",
         sample="  base_url: https://llm.gianluca-martino.com/v1",
+        roots=REPO_ROOTS,
     ),
     Denied(
         name="institutional domain",
@@ -225,6 +240,7 @@ DENIED: tuple[Denied, ...] = (
         pattern=re.compile(r"BELLA"),
         why="another site's installation is that site's own facility, not a shipped example",
         sample="sends. Mirrors BELLA's ``runs.require_armed`` / ``launch_intent``",
+        roots=REPO_ROOTS,
         # Both name the upstream contract these modules were generalized from.
         allow=frozenset(
             {
@@ -251,25 +267,34 @@ DENIED: tuple[Denied, ...] = (
 )
 
 
-def _shipped_sources() -> list[Path]:
+@cache
+def _sources(repo_root: Path, roots: tuple[str, ...]) -> tuple[Path, ...]:
+    """Every scannable file under *roots*, minus this module.
+
+    This module is the table itself — it spells every pattern and a sample
+    line for each — so scanning it would report the rule as its own
+    violation. The cache is keyed on the root as well as the tuple, so a
+    test that repoints :data:`_REPO_ROOT` at a fixture tree gets its own
+    listing rather than the repository's.
+    """
     files: list[Path] = []
-    for root in ROOTS:
-        base = _REPO_ROOT / root
+    for root in roots:
+        base = repo_root / root
         if not base.exists():
             continue
         for path in base.rglob("*"):
             if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
                 continue
-            if "__pycache__" in path.parts:
+            if "__pycache__" in path.parts or path == _THIS_FILE:
                 continue
             files.append(path)
-    return files
+    return tuple(files)
 
 
 def _hits(denied: Denied) -> list[tuple[str, int, str]]:
     """Every ``(repo-relative path, line number, stripped line)`` naming it."""
     found: list[tuple[str, int, str]] = []
-    for path in _shipped_sources():
+    for path in _sources(_REPO_ROOT, denied.roots):
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:  # pragma: no cover - defensive
@@ -353,10 +378,37 @@ def test_the_sweep_reaches_shipped_templates_and_docs() -> None:
     identity survives review, and both would be missed by a rule written for
     ``.py`` alone.
     """
-    scanned = {str(path.relative_to(_REPO_ROOT)) for path in _shipped_sources()}
+    scanned = {str(path.relative_to(_REPO_ROOT)) for path in _sources(_REPO_ROOT, SHIPPED_ROOTS)}
     for required in (
         "src/osprey/templates/modules/web_terminals/docker-compose.web.yml.j2",
         "src/osprey/profiles/presets/control-assistant.yml",
         "docs/source/how-to/web-terminal/multi-user/login.rst",
     ):
         assert required in scanned, f"{required} is shipped but the sweep cannot see it"
+
+
+def test_the_table_is_not_scanned_as_prose() -> None:
+    """This module spells every pattern and a sample line for each.
+
+    Scanned alongside the trees it guards, it would report the rule as its
+    own violation, and each entry would need an exemption for the table
+    that defines it.
+    """
+    assert _THIS_FILE not in _sources(_REPO_ROOT, REPO_ROOTS)
+
+
+def test_an_entry_on_the_repo_roots_reaches_them() -> None:
+    """A widened entry has to scan the trees it widened onto.
+
+    Dropping ``tests`` or ``scripts`` from the tuple would read exactly like
+    a clean repository rather than like a guard that stopped looking.
+    """
+    assert any(denied.roots == REPO_ROOTS for denied in DENIED)
+
+    scanned = {str(path.relative_to(_REPO_ROOT)) for path in _sources(_REPO_ROOT, REPO_ROOTS)}
+    for required in (
+        "tests/services/bluesky_bridge/test_live_rows.py",
+        "tests/mcp_server/test_phoebus_plt_generator.py",
+        "scripts/qmd_probe/export_corpus.py",
+    ):
+        assert required in scanned, f"{required} is in the repo but the sweep cannot see it"
