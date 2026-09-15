@@ -64,6 +64,17 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{#- The site's build settings — a CA for a TLS-intercepting proxy, pip's proxy
+    bypass list, and an internal package index — as the deployment's `images:`
+    block declares them, resolved once per build context by
+    compose_generator._stage_site_image_args_for_context. Rendered at BUILD
+    time off the config rather than as a `${VAR}` default at compose time, for
+    the reason the qmd fragment's own render-time gate states. A deployment
+    that declares none of them emits nothing here, so its build argv is what it
+    always was. #}
+{%- for name, value in site_image_build_args | default({}) | dictsort %}
+        {{ name }}: "{{ value }}"
+{%- endfor %}
 {%- if services.qmd.models_dir %}
         # Pre-staged models: the operator named a host directory that already
         # holds the three GGUF files, so the build must not fetch them. Without
@@ -129,8 +140,8 @@ services:
     volumes:
       # The index. A named volume rather than a bind: it is derived data the
       # sidecar owns end to end, it is large, and rebuilding it from scratch
-      # costs ~41 minutes at ALS scale — which is exactly why it must survive a
-      # container recreate.
+      # costs ~41 minutes — which is exactly why it must survive a container
+      # recreate.
       - qmd_index:{{ state_dir }}
       - ./build/services/qmd/index.yml:{{ index_config }}:ro
 {%- if services.qmd.models_dir %}

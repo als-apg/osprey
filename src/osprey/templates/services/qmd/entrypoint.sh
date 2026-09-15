@@ -394,7 +394,7 @@ decide_build_mode() {
 announce_full_build() {
     log "FULL REINDEX required: $BUILD_REASON"
     log "  Every document will be re-scanned and every embedding recomputed."
-    log "  This is slow by nature: at ALS scale (~135,000 documents) it measured"
+    log "  This is slow by nature: at ~135,000 documents it measured"
     log "  41 minutes -- 17 for the keyword index, 24 for the embeddings."
     log "  The search endpoint on port $PORT stays CLOSED until it finishes."
     log "  That is deliberate, not a hang: serving a half-built index would"

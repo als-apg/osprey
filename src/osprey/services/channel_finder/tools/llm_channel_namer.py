@@ -39,8 +39,8 @@ class LLMChannelNamer:
         """Initialize the LLM channel namer.
 
         Args:
-            provider: LLM provider (keyword-only, required — one of
-                'als-apg', 'cborg', 'amsc-i2', 'anthropic', 'argo', 'openai')
+            provider: LLM provider (keyword-only, required — any name the
+                provider registry carries, configured under ``api.providers``)
             model_id: Model identifier
             max_tokens: Maximum tokens per request
             batch_size: Number of channels to process per batch
@@ -345,10 +345,16 @@ def create_namer_from_config(config_path: str | None = None) -> LLMChannelNamer:
     llm_config = name_gen_config.get("llm_model", {})
     provider = llm_config.get("provider")
     if not provider:
+        # The registry is what a provider name may be: naming one it does not
+        # carry reaches no adapter at all. Listing it here keeps the refusal in
+        # step with a deployment that excluded a provider or added its own.
+        from osprey.models.provider_registry import get_provider_registry
+
+        known = ", ".join(sorted(get_provider_registry().list_providers()))
         raise ValueError(
             "channel_finder.channel_name_generation.llm_model.provider is "
-            "required in config.yml (must be one of "
-            "als-apg|cborg|amsc-i2|anthropic|argo|openai)."
+            f"required in config.yml. Name one of {known}, and configure it "
+            "under api.providers so its endpoint and key are resolvable."
         )
 
     api_config = config.get("api", {}).get("providers", {}).get(provider, {})

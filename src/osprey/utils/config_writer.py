@@ -1122,30 +1122,3 @@ def set_control_system_type(
     preview = "\n".join(preview_lines)
 
     return updated_content, preview
-
-
-# =============================================================================
-# EPICS Gateway Configuration
-# =============================================================================
-
-
-def get_epics_gateway_config(config_path: Path) -> dict | None:
-    """Get current EPICS gateway configuration from config.yml.
-
-    Args:
-        config_path: Path to config.yml
-
-    Returns:
-        Dict with gateway configuration or None if not found
-    """
-    try:
-        data = load_config_document(config_path)
-
-        gateways = (
-            data.get("control_system", {}).get("connector", {}).get("epics", {}).get("gateways")
-        )
-        return gateways
-    except Exception:
-        pass  # Config read/parse failed; return default below
-
-    return None

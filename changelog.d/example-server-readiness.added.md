@@ -1,0 +1,1 @@
+The hello-world preset's example MCP server now prints a startup-timing line to stderr when it is ready to serve, matching the framework's own servers, so a launcher can tell a slow start from a stuck one.

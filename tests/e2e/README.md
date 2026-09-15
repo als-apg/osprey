@@ -267,15 +267,22 @@ export ANTHROPIC_API_KEY="your-key"
 The lanes that `osprey init` a real deployment repo and run an agent against it
 (`test_claude_code_build_integration.py`, `test_dispatch_tutorial.py`,
 `test_dispatch_allowlist_parity.py`, `test_dispatch_overlay_visibility.py`)
-build with one provider. It is named in one place — `OSPREY_E2E_PROVIDER`,
-defaulting to the gateway this project's own runners hold a key for:
+build with one provider, and you say which — `OSPREY_E2E_PROVIDER` is required:
 
 ```bash
 export OSPREY_E2E_PROVIDER="my-gateway"
 ```
 
-The `requires_*` marker on each lane still gates on the default gateway's key,
-so a facility driving its own gateway deselects by marker or supplies both.
+Nothing stands behind it. A run under `tests/e2e/` that sets neither it nor the
+benchmark override `OSPREY_E2E_FORCE_PROVIDER` stops before it runs a test, with
+a message naming both variables and the providers OSPREY registers — a gateway
+belongs to whoever runs it, so an unnamed run is refused rather than sent to
+whichever one a default happened to point at. CI names it once, at workflow
+level in `ci.yml`.
+
+Each of these lanes then skips only when the provider it was told to build with
+has no credential, and the skip reason names that provider and the environment
+variable holding its key.
 
 ### Provider × model matrix (opt-in)
 
@@ -357,7 +364,11 @@ async def test_my_workflow(e2e_project_factory):
    dry-verify both halves offline — the floor against hand-built traces, the
    judge against one passing conclusion plus one failing control per criterion —
    before you spend a live run. See `test_plan_stack_agentic.py`.
-3. **Mark appropriately** - use `@pytest.mark.e2e`, `@pytest.mark.slow`, `@pytest.mark.requires_*`
+3. **Mark appropriately** - use `@pytest.mark.e2e`, `@pytest.mark.slow`, `@pytest.mark.requires_*`.
+   Which credential marker depends on what the test builds with: `requires_e2e_provider`
+   when it builds with `e2e_provider()` and therefore follows the run, the
+   gateway-specific marker (`requires_als_apg`, `requires_cborg`, …) when the test
+   pins a provider itself.
 4. **Clean validation** - verify actual outputs (files, code content) not just LLM responses
 
 ## CI/CD Integration

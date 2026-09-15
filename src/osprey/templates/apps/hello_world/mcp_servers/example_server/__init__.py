@@ -6,6 +6,11 @@ the first time ``osprey init`` runs with the hello-world preset. From there
 profile's ``mcp_servers:`` entry launches it as ``python -m example_server`` with
 ``build/_mcp_servers`` on ``PYTHONPATH``.
 
+Stdio is split between the two streams and the split is a contract: stdout
+carries protocol frames and nothing else, and a server announces on stderr
+once it is ready to serve. Printing anything else to stdout corrupts the
+session.
+
 It depends on nothing but ``fastmcp`` — deliberately, so that it runs standalone
 and stays readable as a starting point. Copy the directory, rename it, and
 replace :func:`example_server.server.example_status` with tools that talk to your

@@ -7,6 +7,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -942,6 +943,49 @@ def _has_cborg_api_key() -> bool:
     return bool(_os.environ.get("CBORG_API_KEY"))
 
 
+def _e2e_provider_availability() -> tuple[bool, str]:
+    """Whether the credential of the provider this run builds with is present.
+
+    Two facts meet here and neither is authored: which provider the run was
+    told to build with (``tests.e2e.provider``) and which variable holds that
+    provider's key (``PROVIDER_API_KEYS``, whose own comment calls it the single
+    source of truth). Gating on one gateway's key instead is what let a run
+    naming another provider, and holding its credential, skip anyway.
+
+    A run that named no provider reads as unavailable carrying the refusal's own
+    message rather than raising: the e2e collection hook owns ending such a
+    session, and keeping this predicate out of that business leaves the two free
+    of any hook ordering.
+    """
+    import os as _os
+
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from tests.e2e.provider import E2E_PROVIDER_ENV, e2e_provider
+
+    try:
+        provider = e2e_provider()
+    except RuntimeError as exc:
+        return False, str(exc)
+    if provider not in PROVIDER_API_KEYS:
+        known = ", ".join(sorted(PROVIDER_API_KEYS))
+        return False, (
+            f"{E2E_PROVIDER_ENV} names {provider!r}, which is not a provider OSPREY "
+            f"registers (known: {known})"
+        )
+    key_var = PROVIDER_API_KEYS[provider]
+    if key_var is None or _os.environ.get(key_var):
+        return True, ""
+    return False, f"{key_var} not set — the provider this run builds with is {provider!r}"
+
+
+def _has_e2e_provider_key() -> bool:
+    return _e2e_provider_availability()[0]
+
+
+def _e2e_provider_reason() -> str:
+    return _e2e_provider_availability()[1]
+
+
 def _is_ollama_available() -> bool:
     """True if a local Ollama server responds at localhost:11434."""
     try:
@@ -952,7 +996,10 @@ def _is_ollama_available() -> bool:
         return False
 
 
-_RESOURCE_CHECKS: dict[str, tuple[callable, str]] = {
+# The second element is the skip reason: a fixed string, or a zero-arg callable
+# for a resource whose absence has more than one explanation to report.
+_RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] = {
+    "requires_e2e_provider": (_has_e2e_provider_key, _e2e_provider_reason),
     "requires_als_apg": (_has_als_apg_api_key, "ALS_APG_API_KEY not set"),
     "requires_anthropic": (_has_anthropic_api_key, "ANTHROPIC_API_KEY not set"),
     "requires_api": (
@@ -974,17 +1021,19 @@ def pytest_collection_modifyitems(config, items):
     missing resource adds a real `pytest.mark.skip(reason=...)`; satisfied
     markers are no-ops.
     """
-    cache: dict[str, bool] = {}
+    cache: dict[str, tuple[bool, str]] = {}
     for item in items:
         for marker_name, (predicate, reason) in _RESOURCE_CHECKS.items():
             if marker_name not in item.keywords:
                 continue
-            available = cache.get(marker_name)
-            if available is None:
+            resolved = cache.get(marker_name)
+            if resolved is None:
                 available = predicate()
-                cache[marker_name] = available
-            if not available:
-                item.add_marker(pytest.mark.skip(reason=reason))
+                text = "" if available else (reason() if callable(reason) else reason)
+                resolved = (available, text)
+                cache[marker_name] = resolved
+            if not resolved[0]:
+                item.add_marker(pytest.mark.skip(reason=resolved[1]))
 
 
 # ===================================================================

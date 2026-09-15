@@ -1,5 +1,5 @@
 {
-  "name": "ALS-style storage ring demo machine",
+  "name": "Storage ring demo machine",
   "description": "Demo machine model for the control-assistant preset: 12-sector vacuum system, DCCT beam-current monitor, and a two-cavity RF system with klystrons. Drives the mock control-system connector and mock archiver via the simulation engine.",
   "channels": {
     "SR:VAC:GAUGE:SR01:PRESSURE:RB": {

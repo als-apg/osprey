@@ -29,6 +29,7 @@ functions are pure (they take the log dir, an ``ArtifactStore``, and an injected
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -275,8 +276,6 @@ async def retention_loop(
     A failing sweep is logged and the loop continues — retention must never take
     the worker down. Returns only on cancellation.
     """
-    import asyncio
-
     logger.info(
         "Retention sweep enabled: deleting records older than %d day(s), every %.0fs",
         retention_days,

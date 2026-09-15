@@ -10,6 +10,7 @@ near-identical LiteLLM adapters into one data-driven class.
 
 from unittest.mock import patch
 
+import pytest
 from pydantic import BaseModel
 
 from osprey.models.providers.amsc_i2 import AMSCI2ProviderAdapter
@@ -122,15 +123,18 @@ class TestAMSCI2ExecuteCompletion:
         assert kwargs["enable_thinking"] is True
         assert kwargs["budget_tokens"] == 256
 
-    def test_missing_base_url_is_forwarded_as_none(self):
-        """AMSC i2 does NOT substitute a default base_url; None passes through
-        (unlike stanford). A dedup applying ``base_url or default`` to every
-        adapter would regress this."""
-        with patch(COMPLETION, return_value="ok") as mock_exec:
+    def test_missing_base_url_is_refused(self):
+        """A provider that requires an endpoint and has no source for one refuses.
+
+        No default is invented -- amsc-i2 fronts a gateway that is a site's own
+        host -- and the refusal is raised here rather than left to the model
+        client, so a direct adapter call fails for the reason a deployer can act
+        on instead of as an authentication error against someone else's API.
+        """
+        with pytest.raises(ValueError, match="Base URL required for amsc-i2"):
             AMSCI2ProviderAdapter().execute_completion(
                 message="hi", model_id="m", api_key="key", base_url=None
             )
-        assert mock_exec.call_args.kwargs["base_url"] is None
 
 
 class TestAMSCI2CheckHealth:
@@ -170,10 +174,10 @@ class TestAMSCI2CheckHealth:
             )
         assert mock_health.call_args.kwargs["timeout"] == 12.0
 
-    def test_missing_base_url_is_forwarded_as_none(self):
-        with patch(HEALTH, return_value=(True, "ok")) as mock_health:
+    def test_missing_base_url_is_refused(self):
+        """The health probe refuses the same missing endpoint completions do."""
+        with pytest.raises(ValueError, match="Base URL required for amsc-i2"):
             AMSCI2ProviderAdapter().check_health(api_key="key", base_url=None)
-        assert mock_health.call_args.kwargs["base_url"] is None
 
     def test_propagates_failure(self):
         with patch(HEALTH, return_value=(False, "down")):

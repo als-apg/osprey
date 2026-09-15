@@ -84,8 +84,8 @@ services:
     volumes:
       # The index. A named volume rather than a bind: it is derived data the
       # sidecar owns end to end, it is large, and rebuilding it from scratch
-      # costs ~41 minutes at ALS scale — which is exactly why it must survive a
-      # container recreate.
+      # costs ~41 minutes — which is exactly why it must survive a container
+      # recreate.
       - qmd_index:/var/lib/qmd
       - ./build/services/qmd/index.yml:/etc/qmd/index.yml:ro
     networks:

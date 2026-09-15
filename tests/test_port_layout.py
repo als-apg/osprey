@@ -116,14 +116,35 @@ def _registry_port_families() -> set[str]:
     }
 
 
-def _fresh_import_modules() -> list[str]:
+def _child_env(*, without_git: bool) -> dict[str, str]:
+    """The environment for the child interpreter that measures the import."""
+    env = dict(os.environ, PYTHONPATH=_SRC)
+    if without_git:
+        env["PATH"] = ""
+    return env
+
+
+def _fresh_import_modules(*, without_git: bool = False) -> list[str]:
     """Return the non-stdlib modules a fresh import of ``port_layout`` pulls in.
 
     Runs in a child interpreter, because this session imported the module long
-    ago and its own ``sys.modules`` no longer shows what the import costs. The
-    parent package ``__init__`` runs for any submodule import and pulls in
-    ``osprey`` and ``osprey.version``; those two and the module itself are the
-    only ``osprey`` names an import is allowed to add.
+    ago and its own ``sys.modules`` no longer shows what the import costs.
+
+    The parent package ``__init__`` runs for any submodule import and resolves
+    the running version, so ``osprey``, ``osprey.version`` and the build stamp
+    ``osprey._version`` are the parent's cost rather than this module's, and are
+    allowed alongside the module itself. The stamp is on that list because
+    whether it is read is not a property of any importer: ``osprey.version``
+    asks git first and falls back to the stamp, so a checkout whose ``git
+    describe`` does not answer -- no git binary, or the two-second probe
+    expiring on a loaded machine -- resolves through the stamp instead. It is
+    generated, stdlib-only and dependency-free, so reaching it changes nothing
+    about whether ``port_layout`` is the leaf this asserts it is.
+
+    Args:
+        without_git: Run the child with no ``git`` on its ``PATH``, so the
+            version resolves through the build stamp. Stands in for the loaded
+            machine on which the probe expires rather than answering.
 
     Returns:
         The offending module names, sorted — empty when the module is the
@@ -136,7 +157,8 @@ def _fresh_import_modules() -> list[str]:
         "import json, sys;"
         "before = set(sys.modules);"
         "import osprey.port_layout;"
-        "allowed = {'osprey', 'osprey.version', 'osprey.port_layout'};"
+        "allowed = {'osprey', 'osprey.version', 'osprey._version', "
+        "'osprey.port_layout'};"
         "delta = set(sys.modules) - before - allowed;"
         "print(json.dumps(sorted("
         "m for m in delta if m.split('.')[0] not in sys.stdlib_module_names)))"
@@ -145,7 +167,7 @@ def _fresh_import_modules() -> list[str]:
         [sys.executable, "-c", code],
         capture_output=True,
         text=True,
-        env=dict(os.environ, PYTHONPATH=_SRC),
+        env=_child_env(without_git=without_git),
         check=False,
     )
     assert result.returncode == 0, f"fresh import of osprey.port_layout failed:\n{result.stderr}"
@@ -367,4 +389,19 @@ class TestImportPurity:
             "osprey.port_layout is imported by the registry, the template manager, "
             "the build, the preflight and the docs extension, so it must import "
             f"nothing but the stdlib. A fresh import pulled in: {offenders}"
+        )
+
+    def test_port_layout_imports_only_stdlib_when_git_cannot_answer(self):
+        """The leaf property must not depend on how the parent resolves its version.
+
+        With no git to describe the checkout, ``osprey.version`` reads the build
+        stamp instead — the same branch a machine too busy to answer the probe
+        inside its timeout takes. Either way the import must stay a leaf, so the
+        two resolutions are asserted apart rather than left to whichever one the
+        host happens to take.
+        """
+        offenders = _fresh_import_modules(without_git=True)
+        assert offenders == [], (
+            "osprey.port_layout must import nothing but the stdlib however the "
+            f"parent package resolves its version. A fresh import pulled in: {offenders}"
         )

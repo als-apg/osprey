@@ -12,7 +12,12 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from tests._container_support import is_docker_available, start_or_skip, stop_quietly
+from tests._container_support import (
+    is_docker_available,
+    start_or_skip,
+    stop_quietly,
+    wait_until_ready,
+)
 
 
 @pytest.fixture(scope="session")
@@ -21,6 +26,14 @@ def mongodb_container():
 
     Yields a dict with connection parameters. Skips the entire chain
     of dependent tests if Docker isn't available.
+
+    The store is waited for rather than assumed, and the wait is handed the
+    container. ``mongo`` boots twice when it has a root user to create — a
+    throwaway server for the init scripts, then the real one — and the log line
+    testcontainers watches for is emitted by both, so ``start()`` returns while
+    the published port is still closed. Given the container, the wait can see
+    that the boot is still progressing instead of measuring it against a window
+    sized on an idle machine.
     """
     if not is_docker_available():
         pytest.skip(
@@ -46,6 +59,30 @@ def mongodb_container():
 
     host = container.get_container_host_ip()
     port = int(container.get_exposed_port(27017))
+
+    def answers() -> None:
+        """Ask the store for a pong, raising while it is not yet answering.
+
+        The one-second selection window is what makes this a poll rather than
+        one long wait: a client left on its own default would spend the whole
+        retry budget inside a single attempt.
+        """
+        from pymongo import MongoClient
+
+        client = MongoClient(
+            host,
+            port,
+            username=username,
+            password=password,
+            authSource=auth_db,
+            serverSelectionTimeoutMS=1000,
+        )
+        try:
+            client.admin.command("ping")
+        finally:
+            client.close()
+
+    wait_until_ready(answers, "mongodb", container=container)
 
     try:
         yield {

@@ -329,6 +329,22 @@ class TestDockerfileContent:
         assert "pip install --no-cache-dir osprey-framework" in deps
         assert "exit 1" in deps
 
+    def test_deps_run_maps_the_bypass_list_only_when_it_is_set(self, hello_project):
+        """An unset ``PIP_NO_PROXY`` leaves an inherited bypass list alone.
+
+        The RUN opens by bridging the uppercase proxy names onto the lowercase
+        ones apt reads, and the site's bypass list is layered on top of that.
+        Exporting it unguarded writes an empty ``NO_PROXY``/``no_proxy`` over
+        the bridge whenever the deployment declares no list — which is every
+        build that did not ask for one, and the failure is an apt fetch that
+        goes through a proxy the build host meant it to bypass.
+        """
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        assert (
+            '[ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"'
+            in deps
+        ), f"the bypass-list export is not gated on the ARG being set:\n{deps}"
+
     def test_wheel_run_force_reinstalls_and_checks(self, hello_project):
         """The wheel RUN reinstalls osprey from the staged wheel with
         ``--no-deps --force-reinstall`` and validates with ``pip check``."""

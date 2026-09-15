@@ -67,6 +67,7 @@ raw_config = switch_suite.raw_config
 # parameter does not read as a shadowed import.
 child_environment = switch_suite.child_environment
 fixture_dir = switch_suite.fixture_dir
+live_type = switch_suite.live_type
 make_manager = switch_suite.make_manager
 state_root = switch_suite.state_root
 

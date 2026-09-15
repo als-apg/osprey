@@ -1,14 +1,15 @@
 """Unit tests for :mod:`osprey.services.python_executor.execution.control`.
 
 This module is part of the write-safety surface: ``ExecutionControlConfig``
-decides whether generated code runs in a read-only or write-enabled sandbox, so
-its gating logic is pinned strictly here rather than sampled.
+carries the posture that decides whether generated code runs in a read-only or
+write-enabled sandbox, so its field set and its factory are pinned strictly here
+rather than sampled.
 
 ``control_system_writes_enabled`` is the single authoritative write-gating field.
 Its default is ``False`` (fail-safe: writes disabled unless explicitly enabled),
-and :meth:`ExecutionControlConfig.get_execution_mode` grants write access only
-when that field is ``True`` *and* the analysed code actually contains write
-operations. The legacy write-gating field has been removed entirely; the exact
+and write access is granted only when that field is ``True`` *and* the analysed
+code actually contains write operations — the gate itself reads the field
+directly. The legacy write-gating field has been removed entirely; the exact
 field set is pinned below so a reintroduction is a deliberate, reviewed change.
 """
 
@@ -63,63 +64,6 @@ class TestConfigFields:
         assert cfg.writes_enabled_key == "control_system.writes_enabled"
 
 
-class TestGetExecutionMode:
-    def test_write_granted_only_when_detected_and_enabled(self):
-        cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-        assert mode is ExecutionMode.WRITE_ACCESS
-
-    def test_write_detected_but_policy_disabled_stays_read_only(self):
-        cfg = ExecutionControlConfig(control_system_writes_enabled=False)
-        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-        assert mode is ExecutionMode.READ_ONLY
-
-    def test_default_policy_stays_read_only(self):
-        # Fail-safe default (writes disabled) blocks write access.
-        cfg = ExecutionControlConfig()
-        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-        assert mode is ExecutionMode.READ_ONLY
-
-    def test_writes_enabled_but_no_write_ops_stays_read_only(self):
-        cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        mode = cfg.get_execution_mode(
-            has_control_system_writes=False, has_control_system_reads=True
-        )
-        assert mode is ExecutionMode.READ_ONLY
-
-    def test_reads_flag_does_not_affect_mode(self):
-        # has_control_system_reads is documented as inert for mode selection.
-        cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        with_reads = cfg.get_execution_mode(
-            has_control_system_writes=True, has_control_system_reads=True
-        )
-        without_reads = cfg.get_execution_mode(
-            has_control_system_writes=True, has_control_system_reads=False
-        )
-        assert with_reads is without_reads is ExecutionMode.WRITE_ACCESS
-
-    def test_no_ops_detected_stays_read_only(self):
-        cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        mode = cfg.get_execution_mode(
-            has_control_system_writes=False, has_control_system_reads=False
-        )
-        assert mode is ExecutionMode.READ_ONLY
-
-
-class TestModernFieldAuthoritative:
-    """The modern field alone governs get_execution_mode; there is no other gate."""
-
-    def test_modern_field_true_grants_write(self):
-        cfg = ExecutionControlConfig(control_system_writes_enabled=True)
-        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-        assert mode is ExecutionMode.WRITE_ACCESS
-
-    def test_modern_field_false_blocks_write(self):
-        cfg = ExecutionControlConfig(control_system_writes_enabled=False)
-        mode = cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-        assert mode is ExecutionMode.READ_ONLY
-
-
 class TestValidate:
     def test_no_warning_when_writes_disabled(self):
         assert ExecutionControlConfig(control_system_writes_enabled=False).validate() == []
@@ -140,10 +84,6 @@ class TestGetExecutionControlConfigFactory:
         cfg = get_execution_control_config()
         assert cfg.control_system_writes_enabled is True
         assert cfg.control_system_type == "mock"
-        assert (
-            cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=False)
-            is ExecutionMode.WRITE_ACCESS
-        )
 
     def test_defaults_when_writes_key_missing(self, monkeypatch):
         monkeypatch.setattr(
@@ -165,10 +105,6 @@ class TestGetExecutionControlConfigFactory:
         # non-live control system.
         assert cfg.control_system_writes_enabled is False
         assert cfg.control_system_type == control_mod.MOCK
-        assert (
-            cfg.get_execution_mode(has_control_system_writes=True, has_control_system_reads=True)
-            is ExecutionMode.READ_ONLY
-        )
 
 
 class TestPerTargetPosture:

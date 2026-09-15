@@ -404,12 +404,18 @@ file:
        user: osprey
        project_path: /opt/demo-facility
      image_source: local
+     ci_image_prefix: mirror.example.org/dockerhub
 
 Substitute your own registry and host. ``registry.url`` carries no scheme — it
 appears verbatim inside an image name. ``host.name`` must be ssh-resolvable for
 whoever presses the deploy button, and ``host.project_path`` is where this
 repository is checked out on that server. Credentials are *named* here, never
 written here.
+
+``ci_image_prefix`` is where the pipeline pulls the images its own *jobs* run
+in — Python, Docker and Alpine — so a runner with no route to Docker Hub takes
+them from a mirror instead; leave the key out and the pipeline names the public
+images, which is what a runner with internet access wants.
 
 ``image_source: local`` says the deploy host builds the web-terminal images
 itself from the rendered persona projects, rather than pulling them from a
@@ -489,9 +495,10 @@ file the scaffolder did not write is reported and left alone unless you pass
 ``--force``.
 
 ``ci-extra.yml``, which ``osprey init`` created in Step 1, is the
-facility's own include point. The pipeline includes it after everything the
-scaffolder emits, so a job you add there can also override a scaffolded job by
-redefining it under the same name. Nothing ever regenerates that file.
+facility's own include point. A job you add there runs beside the scaffolded
+ones; reusing a scaffolded job's name merges the two and the scaffolded
+pipeline's own keys win, so give a job of your own its own name. Nothing ever
+regenerates that file.
 
 
 Step 8 — Build the project

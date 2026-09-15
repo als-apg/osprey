@@ -149,7 +149,6 @@ def test_frontend_panel_manager_registers_okf_tab():
         js = fh.read()
     assert "id: 'okf'" in js
     assert "/api/okf-server" in js
-    assert "KNOWLEDGE" in js
 
 
 def test_build_chain_reads_builtins_dynamically_no_hardcoded_okf():

@@ -264,6 +264,34 @@ class TestCreateNamerFromConfig:
         with pytest.raises(ValueError, match="provider is"):
             create_namer_from_config()
 
+    def test_missing_provider_names_the_registry(self, monkeypatch):
+        """The refusal lists providers that exist here, not a frozen roster.
+
+        A hand-written list goes stale in both directions: it keeps offering a
+        provider a deployment has excluded, and it hides one the deployment
+        added.
+        """
+        import osprey.utils.config as config_mod
+        from osprey.models.provider_registry import get_provider_registry
+
+        monkeypatch.setattr(
+            config_mod,
+            "load_config",
+            lambda *a, **k: {"channel_finder": {"channel_name_generation": {"llm_model": {}}}},
+        )
+        registered = get_provider_registry().list_providers()
+        assert registered, "the provider registry is empty; the rest of this test is vacuous"
+
+        with pytest.raises(ValueError) as excinfo:
+            create_namer_from_config()
+        message = str(excinfo.value)
+
+        for name in registered:
+            assert name in message, f"{name} is registered but the refusal does not offer it"
+        assert "api.providers" in message
+        for absent in ("sonnet-gateway", "not-a-provider"):
+            assert absent not in message
+
     def test_builds_namer_from_config_values(self, monkeypatch):
         import osprey.models.tiers as tiers_mod
         import osprey.utils.config as config_mod

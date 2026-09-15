@@ -4,15 +4,23 @@ Both the workspace watcher behind the file panel and the artifacts store-index
 watcher run on the same backend and read a coalesced directory frame the same
 way, so the observer seam and the listing they diff live here once rather than
 once per watcher.
+
+The second trigger lives here for the same reason: a notification stream can go
+quiet, and the timer that makes each watcher re-read what it tracks is one
+mechanism on one setting rather than one per watcher.
 """
 
 from __future__ import annotations
 
+import logging
 import os
-from collections.abc import Callable
+import threading
+from collections.abc import Callable, Mapping, MutableMapping, MutableSet, Sequence
 from pathlib import Path
 
 from watchdog.observers.api import BaseObserver
+
+logger = logging.getLogger(__name__)
 
 #: Builds the watchdog observer a watcher runs on.
 #:
@@ -53,3 +61,190 @@ def one_level_listing(directory: Path) -> dict[str, ChangeStamp]:
         except OSError:  # vanished mid-scan
             continue
     return listing
+
+
+def entry_stamp(path: Path) -> ChangeStamp | None:
+    """*path* as the single entry a listing of its parent would hold for it.
+
+    ``None`` when the path is not there. Otherwise the same
+    ``(is_dir, mtime_ns, size)`` tuple :func:`one_level_listing` builds for a
+    name in a directory, which is what makes it useful: a stamp taken here and
+    a stamp taken by a listing of the parent describe the same file
+    identically, so a change recorded through one can be diffed against the
+    other without the two disagreeing about what "unchanged" means.
+
+    Both follow symlinks — ``os.scandir``'s ``entry.is_dir()`` and
+    ``entry.stat()`` do, and so do :meth:`Path.is_dir` and :meth:`Path.stat`
+    here — which is why they agree about a name that is one.
+    """
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return (path.is_dir(), stat.st_mtime_ns, stat.st_size)
+
+
+def reconcile_targets(
+    roots: Sequence[Path],
+    listings: Mapping[str, dict[str, ChangeStamp]],
+    pending: MutableSet[str] | None = None,
+) -> list[Path]:
+    """The directories one reconciliation pass owes a frame to.
+
+    Three invariants, and they are what both watchers would otherwise come to
+    disagree about:
+
+    A pass dispatches a frame for a directory at most once, however many of the
+    three sources name it — the watch roots, the directories already tracked,
+    and the directories a previous pass found changed one level below a tracked
+    one — because a second dispatch would only diff a listing the first one has
+    just refreshed.
+
+    The descent is one level below what is already tracked, and it is scheduled
+    only for a name whose stamp moved. A tree nothing writes to schedules none
+    at all, so the map stays bounded by the directories that have changed since
+    the watcher started — the same population the notification stream would
+    have sent frames for.
+
+    A scheduled path that has since gone away is still returned: a frame for a
+    directory that is not there announces nothing and drops no key that was not
+    already dropped.
+
+    Args:
+        roots: The directories the watcher was armed on.
+        listings: The map of what the watcher already tracks, keyed by path.
+        pending: The descent a previous pass scheduled, drained here — a
+            directory is descended into once and read as an ordinary tracked
+            directory from then on. ``None`` for a handler with nothing below
+            its watch to find.
+    """
+    seen: set[str] = set()
+    targets: list[Path] = []
+    for keys in ([str(root) for root in roots], list(listings), sorted(pending or ())):
+        for key in keys:
+            if key in seen:
+                continue
+            seen.add(key)
+            targets.append(Path(key))
+    if pending is not None:
+        pending.clear()
+    return targets
+
+
+#: Seconds between two reconciliation passes when the deployment says nothing.
+#:
+#: Short enough that a change lost by a notification stream reaches the browser
+#: while the operator is still looking at what they did, long enough that a
+#: directory listing per tracked directory is not a load anyone measures.
+DEFAULT_RECONCILE_SECONDS = 2.0
+
+
+def reconcile_interval_seconds() -> float:
+    """Seconds between the reconciliation passes both interface watchers run.
+
+    One setting for both, read here because this is the one module they already
+    share. The config import is local, so importing a watcher does not pull in
+    the config machinery, and a read with no config primed falls back to the
+    default rather than raising — a watcher must start whether or not a
+    deployment config is in front of it.
+
+    A value that is not a positive number is logged and the default kept. No
+    value disables the pass: an off switch here is the blind watcher back under
+    another name.
+
+    Read on every call — never cached at import — so a test and a re-primed
+    process see the value their config declares.
+    """
+    try:
+        from osprey.utils.config import get_config_value
+
+        configured = get_config_value(
+            "web.file_watch_reconcile_interval_s", DEFAULT_RECONCILE_SECONDS
+        )
+    except Exception:
+        logger.debug("No config available for web.file_watch_reconcile_interval_s", exc_info=True)
+        configured = None
+
+    if isinstance(configured, (int, float)) and not isinstance(configured, bool) and configured > 0:
+        return float(configured)
+    if configured is not None and configured != DEFAULT_RECONCILE_SECONDS:
+        logger.warning(
+            "web.file_watch_reconcile_interval_s must be a positive number (got %r); using %s s",
+            configured,
+            DEFAULT_RECONCILE_SECONDS,
+        )
+    return DEFAULT_RECONCILE_SECONDS
+
+
+class Reconciler:
+    """The trigger a watcher keeps when its notification stream goes quiet.
+
+    A watcher whose only trigger is the platform's notification stream reports
+    nothing for as long as that stream delivers nothing, and never learns what
+    it missed: the stream is the fast trigger and the only one that can fall
+    silent. This is the second trigger, and it stands on the filesystem rather
+    than on a notification — one pass every *interval*, whatever the stream is
+    doing — so the watcher's silence is bounded rather than open-ended.
+
+    The loop waits on an event rather than sleeping, so :meth:`stop` returns
+    without waiting out an interval. An exception from the pass is logged and
+    the loop continues: a watcher must not fall silent because one directory
+    listing raised.
+    """
+
+    def __init__(self, interval: float, pass_once: Callable[[], None]) -> None:
+        """
+        Args:
+            interval: Seconds between two passes.
+            pass_once: Re-reads what the watcher tracks and dispatches whatever
+                the stream did not.
+        """
+        self._interval = interval
+        self._pass_once = pass_once
+        self._stopping = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    @property
+    def interval(self) -> float:
+        """Seconds between two passes."""
+        return self._interval
+
+    def start(self) -> None:
+        """Run the pass on its interval until :meth:`stop`."""
+        if self._thread is not None:
+            return
+        self._stopping.clear()
+        self._thread = threading.Thread(target=self._loop, name="osprey-fs-reconcile", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        """End the loop and wait briefly for its thread; safe to call twice."""
+        self._stopping.set()
+        thread, self._thread = self._thread, None
+        if thread is not None:
+            thread.join(timeout=5)
+
+    def _loop(self) -> None:
+        while not self._stopping.wait(self._interval):
+            try:
+                self._pass_once()
+            except Exception:
+                logger.warning("A filesystem reconciliation pass failed", exc_info=True)
+
+
+def evict_subtree(listings: MutableMapping[str, dict[str, ChangeStamp]], directory: Path) -> None:
+    """Drop the listing for *directory* and for everything that was under it.
+
+    The invariant is that a path no longer in the tree has no listing, and
+    neither does anything that was under it: a watcher's listing map is bounded
+    by the tree that exists rather than by every tree that ever did, however
+    long the process runs.
+
+    The keys are ``str(Path)``, so a descendant is one that begins with
+    *directory* followed by the separator. The separator is part of the prefix
+    because without it ``/a/bc`` is evicted along with ``/a/b``.
+    """
+    key = str(directory)
+    prefix = key + os.sep
+    for listed in [k for k in listings if k == key or k.startswith(prefix)]:
+        del listings[listed]

@@ -47,8 +47,9 @@
 # =============================================================================
 
 include:
-  # Facility-owned jobs, layered on top of everything below. Guarded by
-  # `exists` so a repo that deleted the file still has a valid pipeline.
+  # Facility-owned jobs. They run beside everything below and lose on every key
+  # this file sets. Guarded by `exists` so a repo that deleted the file still
+  # has a valid pipeline.
   - local: ci-extra.yml
     rules:
       - exists:
@@ -81,7 +82,7 @@ variables:
 # -----------------------------------------------------------------------------
 render-build:
   stage: validate
-  image: python:3.12-slim
+  image: {{ ctx.ci_image_prefix }}python:3.12-slim
   before_script:
     # The floor the profile itself declares (requires_osprey_version), so the
     # pipeline can never run an OSPREY that does not understand it.
@@ -106,9 +107,9 @@ render-build:
 # -----------------------------------------------------------------------------
 .service-image:
   stage: images
-  image: docker:29
+  image: {{ ctx.ci_image_prefix }}docker:29
   services:
-    - docker:29-dind
+    - {{ ctx.ci_image_prefix }}docker:29-dind
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "${{ ctx.registry_token_var }}" "$REGISTRY_HOST"
   script:
@@ -143,9 +144,9 @@ image:{{ service }}:
 
 external:{{ project.name }}:
   stage: images
-  image: docker:29
+  image: {{ ctx.ci_image_prefix }}docker:29
   services:
-    - docker:29-dind
+    - {{ ctx.ci_image_prefix }}docker:29-dind
   script:
 {% if project.token_env_var %}
     - docker login -u "$CI_REGISTRY_USER" -p "${{ project.token_env_var }}" "{{ project.url.split('/')[0] }}"
@@ -191,7 +192,7 @@ external:{{ project.name }}:
 # -----------------------------------------------------------------------------
 deploy:
   stage: deploy
-  image: alpine:3.23
+  image: {{ ctx.ci_image_prefix }}alpine:3.23
   needs:
     - render-build
   before_script:

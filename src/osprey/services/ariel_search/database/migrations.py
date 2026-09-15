@@ -165,6 +165,11 @@ def model_to_table_name(model_name: str) -> str:
 # Migration runner
 # ---------------------------------------------------------------------------
 
+# Migrations constructed with the configured (model, dimension) pairs rather
+# than bare. Each writes per-model objects, so a name missing here would work
+# the hardcoded default table instead of the ones the deployment configured.
+MIGRATIONS_TAKING_EMBEDDING_MODELS = frozenset({"text_embedding", "text_embedding_hnsw_index"})
+
 # Format: (name, module_path, class_name, requires_module)
 # requires_module is None for core_schema (always runs), otherwise module name
 KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
@@ -196,6 +201,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "text_embedding",
         "osprey.services.ariel_search.enhancement.text_embedding.migration",
         "TextEmbeddingMigration",
+        "text_embedding",
+    ),
+    (
+        "text_embedding_hnsw_index",
+        "osprey.services.ariel_search.enhancement.text_embedding.hnsw_migration",
+        "TextEmbeddingHnswIndexMigration",
         "text_embedding",
     ),
     (
@@ -248,14 +259,12 @@ class MigrationRunner:
                 try:
                     module = importlib.import_module(module_path)
                     migration_class = getattr(module, class_name)
-                    # The text_embedding migration needs the configured
-                    # (model, dimension) pairs so `osprey ariel migrate` creates a
-                    # table per configured model, not just the hardcoded default.
-                    if name == "text_embedding":
+                    # These migrations need the configured (model, dimension)
+                    # pairs so `osprey ariel migrate` works a table per
+                    # configured model, not just the hardcoded default.
+                    if name in MIGRATIONS_TAKING_EMBEDDING_MODELS:
                         models = self._configured_embedding_models()
-                        migration = migration_class(
-                            models, index_lists=self._configured_index_lists()
-                        )
+                        migration = migration_class(models)
                     else:
                         migration = migration_class()
                     migrations.append(migration)
@@ -275,17 +284,6 @@ class MigrationRunner:
         if module_config and module_config.models:
             return [(m.name, m.dimension) for m in module_config.models]
         return None
-
-    def _configured_index_lists(self) -> int | None:
-        """Read ``text_embedding.index_lists``, or None to take the default.
-
-        Cannot be derived here: `osprey ariel migrate` creates the index before
-        any entry is embedded, so there is no row count to size it from.
-        """
-        module_config = self.config.enhancement_modules.get("text_embedding")
-        if module_config is None:
-            return None
-        return module_config.settings.get("index_lists")
 
     def _topological_sort(self, migrations: list[BaseMigration]) -> list[BaseMigration]:
         """Sort migrations by dependencies using topological sort.

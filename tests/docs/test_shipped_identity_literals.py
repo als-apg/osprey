@@ -24,17 +24,14 @@ nothing else would notice.
 because a pattern that fires on the current tree is not a guard, it is a
 failing test. As each remaining literal is removed, its pattern joins
 :data:`DENIED` in the same change that removes it. ``lbl.gov``, ``ALS-U``,
-``BELLA`` and ``GEECS`` are in the table now. One name is still to come: the
-word-boundary facility abbreviation ``\\bALS\\b``, which still reads across
-dozens of files the wording sweep has not reached, and which cannot join until
-it does — an entry that exempted them all would be a list of files this guard
-does not cover rather than a guard.
+``\\bALS\\b``, ``BELLA`` and ``GEECS`` are in the table now.
 
 Three kinds of surface legitimately name an institution and carry an ``allow``
 entry rather than an edit: the shipped provider adapters for named LLM
 gateways, the named ingestion adapter, and the packaging and escalation
 metadata that has to spell the upstream project's own ``owner/repo`` — the
-last of these has no pattern yet.
+last of these is out of scope here, because a project's own address is not a
+facility's.
 """
 
 from __future__ import annotations
@@ -150,7 +147,6 @@ DENIED: tuple[Denied, ...] = (
         # file that name the lattice those packages load.
         allow=frozenset(
             {
-                "src/osprey/profiles/config_key_manifest.yml",
                 "src/osprey/services/channel_finder/naming.py",
                 "src/osprey/services/virtual_accelerator/lattice/__init__.py",
                 "src/osprey/services/virtual_accelerator/lattice/calibration.py",
@@ -168,6 +164,56 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/simulation/lattice/build.py",
                 "src/osprey/simulation/lattice/ring.py",
                 "src/osprey/templates/apps/control_assistant/data/channel_limits.json",
+            }
+        ),
+    ),
+    Denied(
+        # Case-sensitive on purpose: the acronym is always capitalised, while
+        # a case-insensitive read also matches the project's own ``als-apg``
+        # slug and the ``als-assistant`` example paths across the shipped tree.
+        name="facility abbreviation",
+        pattern=re.compile(r"\bALS\b"),
+        why=(
+            "one laboratory's abbreviation reads as this deployment's own "
+            "facility wherever the prose ships"
+        ),
+        sample="#   facility_name: ALS",
+        # The bundled demo ring, whose own name this is, in the simulation and
+        # virtual-accelerator packages plus the two files that name the lattice
+        # they load.
+        allow=frozenset(
+            {
+                "src/osprey/services/channel_finder/naming.py",
+                "src/osprey/services/virtual_accelerator/lattice/__init__.py",
+                "src/osprey/services/virtual_accelerator/lattice/calibration.py",
+                "src/osprey/services/virtual_accelerator/lattice/response.py",
+                "src/osprey/services/virtual_accelerator/lattice/ring.py",
+                "src/osprey/services/virtual_accelerator/lattice/strengths.py",
+                "src/osprey/services/virtual_accelerator/model/__init__.py",
+                "src/osprey/services/virtual_accelerator/model/bindings.py",
+                "src/osprey/services/virtual_accelerator/model/pyat.py",
+                "src/osprey/services/virtual_accelerator/model/variables.py",
+                "src/osprey/simulation/channel_schema.py",
+                "src/osprey/simulation/facility_spec.py",
+                "src/osprey/simulation/lattice/__init__.py",
+                "src/osprey/simulation/lattice/artifact.py",
+                "src/osprey/simulation/lattice/build.py",
+                "src/osprey/simulation/lattice/ring.py",
+                "src/osprey/templates/apps/control_assistant/data/channel_limits.json",
+                # The shipped reference ingestion format, and the places that
+                # quote the ``source_system`` values its adapter returns —
+                # rewriting those would name a value no adapter produces.
+                "docs/source/how-to/ariel/data-ingestion.rst",
+                "docs/source/reference/contracts/ariel.rst",
+                "src/osprey/registry/builtins.py",
+                "src/osprey/services/ariel_search/ingestion/adapters/als.py",
+                "src/osprey/services/ariel_search/ingestion/base.py",
+                "src/osprey/services/ariel_search/models.py",
+                # The shipped named-gateway provider adapter, and the two
+                # surfaces that name the gateway it fronts.
+                "docs/source/how-to/llm-providers/configure-providers.rst",
+                "src/osprey/models/providers/als_apg.py",
+                "src/osprey/services/channel_finder/benchmarks/evaluation.py",
             }
         ),
     ),

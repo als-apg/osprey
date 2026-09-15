@@ -53,6 +53,7 @@ started_on = switch_suite.started_on
 # test_control_target_set.py for why they are rebound rather than imported.
 child_environment = switch_suite.child_environment
 fixture_dir = switch_suite.fixture_dir
+live_type = switch_suite.live_type
 make_manager = switch_suite.make_manager
 state_root = switch_suite.state_root
 # The agent-data root the endpoint cases narrow under, stamped and cleared the way

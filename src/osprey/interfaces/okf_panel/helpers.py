@@ -4,10 +4,8 @@ Small, dependency-free helpers used by the panel backend (grouping, structure
 overview, search snippets). Functions here stay self-contained so they can be
 unit-tested without importing the rest of the package.
 
-Ported from the ALS ``mcp_servers/okf_panel`` service during its promotion to a
-native OSPREY builtin. The only intentional change from the ALS original is that
-:func:`build_structure_markdown` renders a facility-neutral title (this panel now
-serves any profile's bundle, not just ALS).
+:func:`build_structure_markdown` renders a facility-neutral title, so the panel
+serves any profile's bundle.
 """
 
 from __future__ import annotations

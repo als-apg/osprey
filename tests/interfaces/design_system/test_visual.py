@@ -48,6 +48,7 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 import osprey.interfaces.design_system as design_system_pkg
+from tests.interfaces._browser import wait_for_dock_settled
 from tests.interfaces._panel_launch import publish_artifact_url
 from tests.interfaces.conftest import (
     _apply_all,
@@ -252,8 +253,9 @@ class VisualTarget:
     # The web-terminal hub now boots a dockview workspace (dock-workspace.js)
     # whose default artifacts panel docks as an overlay iframe (dock-iframe.js).
     # Unlike the pre-dock split, the grid and its overlay settle a beat after the
-    # rail renders, so ``dock_shell`` targets wait for the dockview grid AND the
-    # auto-docked artifacts overlay iframe to be on screen before the screenshot —
+    # rail renders, so ``dock_shell`` targets wait for the dock's own settled
+    # signal — ``bootLayoutSettled()``, latched once the boot layout is final —
+    # AND the auto-docked artifacts overlay iframe, before the screenshot;
     # otherwise the baseline can capture a half-built (empty) grid.
     dock_shell: bool = False
     # UI-mode axis. Mode-aware surfaces capture the full theme x mode matrix
@@ -537,10 +539,11 @@ def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytes
                     if target.wait_selector:
                         expect(page.locator(target.wait_selector)).to_be_attached(timeout=10_000)
                     if target.dock_shell:
-                        # The dockview grid settles a beat after the rail renders;
-                        # wait for it so the baseline captures the built layout,
-                        # not a half-constructed (empty) grid.
-                        expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
+                        # The dock latches ``bootLayoutSettled()`` once the boot
+                        # layout is the final arrangement, so the baseline
+                        # captures the built layout rather than a mid-restore
+                        # grid the restore may still replace.
+                        wait_for_dock_settled(page)
                         # The auto-docked service overlay is expert-only. Simple
                         # mode over an empty agent workspace boots chat-only by
                         # design (panel-manager.js's `workspaceSuppressed`: simple
@@ -561,8 +564,9 @@ def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytes
                         # grid. A capture before it lands would pin the wrong
                         # state and flake against a frame that includes it.
                         expect(page.locator(".op-messages .op-empty")).to_be_visible(timeout=10_000)
-                    # Let async init (panel health polling, SSE-driven layout,
-                    # font swaps) settle before the screenshot.
+                    # The layout is known by here; this is the paint budget
+                    # on top of it — font swaps, panel health polling and the
+                    # first render of whatever they change.
                     page.wait_for_timeout(600)
 
                     applied_theme = page.evaluate(

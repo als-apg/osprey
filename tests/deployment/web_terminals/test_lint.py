@@ -2625,6 +2625,7 @@ _AUTH_CODES = frozenset(
         "web_terminals.auth_oidc_missing_issuer",
         "web_terminals.auth_oidc_invalid_client_env",
         "web_terminals.auth_oidc_invalid_scopes",
+        "web_terminals.auth_oidc_blank_scope",
         "web_terminals.auth_oidc_unresolvable_origin",
         "web_terminals.auth_oidc_subject_unsafe",
         "web_terminals.auth_credential_collision",
@@ -3250,6 +3251,29 @@ def test_lint_auth_oidc_unreadable_scopes_are_an_error(scopes: object) -> None:
     errors = _errors(findings)
     assert any(f.code == "web_terminals.auth_oidc_invalid_scopes" for f in errors)
     assert any("auth.oidc.scopes" in f.message for f in errors)
+
+
+def test_lint_auth_oidc_blank_scope_entry_is_an_error() -> None:
+    """One slip, reported once, with the entry named.
+
+    A blank entry has no legitimate reading, so the finding points at the index
+    rather than restating the whole list as unreadable.
+    """
+    # Arrange
+    config = _auth_config(
+        {
+            "method": "oidc",
+            "oidc": {"issuer": "https://idp.example.org", "scopes": ["openid", "  "]},
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _auth_findings(_errors(findings))
+    assert [f.code for f in errors] == ["web_terminals.auth_oidc_blank_scope"]
+    assert "modules.web_terminals.auth.oidc.scopes[1]" in errors[0].message
 
 
 @pytest.mark.parametrize(

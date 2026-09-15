@@ -262,9 +262,9 @@ environment setup is needed.
 What the IOC serves, and how often
 ==================================
 
-Two numbers about the served values are set in the deployment's ``.env`` rather
-than fixed in the image, because both are properties of the machine you are
-standing in for rather than of OSPREY:
+Two numbers about the served values reach the container through the
+deployment's ``.env`` rather than being fixed in the image, because both are
+properties of the machine you are standing in for rather than of OSPREY:
 
 .. list-table::
    :header-rows: 1
@@ -279,12 +279,19 @@ standing in for rather than of OSPREY:
    * - ``VA_NOISE_LEVEL``
      - Fractional noise on the synthesised channel values, default ``0.01``.
        ``0`` serves them flat, which is what a test that compares readings
-       wants.
+       wants. Write the value as
+       ``control_system.connector.virtual_accelerator.noise_level`` in your
+       configuration --- unset, it falls through to
+       ``control_system.connector.mock.noise_level``, so one simulated machine
+       is described once --- and ``osprey build`` renders it as this variable's
+       default.
 
 Both are refused at boot if they are not a number, or out of range, rather than
 being clamped --- so a typo shows up in ``docker logs`` instead of quietly
 changing what the machine looks like. Leave either empty and the default
-applies.
+applies. A variable exported in the deployment's own ``.env`` outranks the
+rendered default, so a single run can be made noisier or quieter without
+editing the configuration.
 
 Running from a source checkout
 ==============================

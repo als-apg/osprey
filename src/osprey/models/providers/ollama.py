@@ -25,11 +25,6 @@ class OllamaProviderAdapter(BaseProvider):
     requires_model_id = True
     supports_proxy = False
     default_base_url = "http://localhost:11434"
-    # A local Ollama on the default port is the normal case, so a config that
-    # omits base_url means "the default" rather than "unconfigured". Without the
-    # fallback the requires_base_url check in get_chat_completion rejects such a
-    # config, and this adapter's own URL probing is handed None.
-    apply_default_base_url_fallback = True
     default_model_id = "mistral:7b"  # Mistral 7B as recommended default
     health_check_model_id = "mistral:7b"  # Same for health check (local, no cost)
     available_models = ["mistral:7b", "gpt-oss:20b", "gpt-oss:120b"]

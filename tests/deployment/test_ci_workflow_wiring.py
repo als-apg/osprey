@@ -48,6 +48,7 @@ from typing import Any
 import pytest
 import yaml
 from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
 
 CI_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml"
 
@@ -114,6 +115,7 @@ GCHAT_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 PUBSUB_FIXTURE_NAME = "pubsub_emulator"
 
 ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
+E2E_PROVIDER_ENV = "OSPREY_E2E_PROVIDER"
 PROBE_BASE_VAR = "ALS_APG_PROBE_BASE"
 PROBE_KEY_ENV = "ALS_APG_API_KEY"
 PROBE_TARGET_PATH = "/v1/messages"
@@ -2105,6 +2107,63 @@ def test_workflow_exports_the_als_apg_base_url_override__mutation_adds_a_fallbac
     )
     with pytest.raises(AssertionError, match="no fallback"):
         test_workflow_exports_the_als_apg_base_url_override(mutated)
+
+
+def _e2e_provider_overrides(wf: dict[str, Any]) -> list[str]:
+    """Every job or step that redefines the end-to-end provider, as labels."""
+    found: list[str] = []
+    for job_name, job in _jobs(wf).items():
+        if E2E_PROVIDER_ENV in (job.get("env") or {}):
+            found.append(f"job {job_name}")
+        for step in job.get("steps") or []:
+            if E2E_PROVIDER_ENV in (step.get("env") or {}):
+                found.append(f"step {job_name} / {step.get('name', '<unnamed>')}")
+    return found
+
+
+def test_the_workflow_names_the_end_to_end_provider(workflow: dict[str, Any]) -> None:
+    """Every lane that collects ``tests/e2e/`` states what it builds with.
+
+    There is no constant behind the variable any more — an e2e run that names
+    no provider is refused at collection — so the name has to be stated
+    somewhere, and workflow level is the one place that covers every lane at
+    once. A fork driving its own gateway changes this line and nothing else,
+    which is also why the value is a plain name rather than an expression: a
+    ``vars.`` lookup a fork has not set would resolve to empty and refuse every
+    e2e lane in the fork.
+
+    The second half is the one that rots quietly: a job or step that sets the
+    variable itself would build against a different gateway than the one whose
+    key the lane holds, and the failure would read as a credential problem."""
+    named = (workflow.get("env") or {}).get(E2E_PROVIDER_ENV)
+    assert isinstance(named, str) and named.strip(), (
+        f"ci.yml must name {E2E_PROVIDER_ENV} in its workflow-level env block; found {named!r}"
+    )
+    assert "${{" not in named, (
+        f"{E2E_PROVIDER_ENV} must be a plain provider name, not an expression; found {named!r}"
+    )
+    overrides = _e2e_provider_overrides(workflow)
+    assert not overrides, (
+        f"no job or step may override {E2E_PROVIDER_ENV} — one provider for every e2e "
+        f"lane; found: {', '.join(overrides)}"
+    )
+
+
+def test_the_workflow_names_the_end_to_end_provider__mutation_drops_the_name() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    (mutated.get("env") or {}).pop(E2E_PROVIDER_ENV, None)
+    with pytest.raises(AssertionError, match="must name"):
+        test_the_workflow_names_the_end_to_end_provider(mutated)
+
+
+def test_the_workflow_names_the_end_to_end_provider__mutation_overrides_it_in_a_job() -> None:
+    """The dangerous half: the workflow-level name survives, so the block still
+    reads right, while one lane quietly builds somewhere else."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[E2E_TESTS_JOB]
+    job["env"] = {**(job.get("env") or {}), E2E_PROVIDER_ENV: "somewhere-else"}
+    with pytest.raises(AssertionError, match="may override"):
+        test_the_workflow_names_the_end_to_end_provider(mutated)
 
 
 def test_every_als_apg_probe_honors_the_base_url_override(workflow: dict[str, Any]) -> None:
@@ -5346,3 +5405,215 @@ def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the
     step["run"] = step["run"].replace("--add-label full-ci", "")
     with pytest.raises(AssertionError):
         test_gate_summary_tells_an_unlabeled_pr_what_did_not_run(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The type check can run at all: the stubs its imports need are declared
+# ---------------------------------------------------------------------------
+#
+# A "Library stubs not installed" error is fatal to the whole run, not local to
+# the file that raised it: mypy stops with "errors prevented further checking"
+# and examines no module. So an import in `src/` that ships no inline types
+# needs its stub distribution in the `dev` extra, or the type check reports
+# nothing about this repository whatever else is wrong with it.
+
+
+#: Stub distributions the `dev` extra carries, keyed by the import each one
+#: serves. `ignore_missing_imports` is deliberately not the answer here: it
+#: would silence the abort by making every value from these libraries `Any`,
+#: which is the opposite of checking the modules that import them.
+STUB_DISTRIBUTIONS = {
+    "types-PyYAML": "yaml",
+    "types-Markdown": "markdown",
+    "types-aiofiles": "aiofiles",
+}
+
+
+def _dev_extra(pyproject: dict[str, Any]) -> list[str]:
+    return pyproject["project"]["optional-dependencies"]["dev"]
+
+
+def _declared_names(deps: list[str]) -> set[str]:
+    return {canonicalize_name(Requirement(dep).name) for dep in deps}
+
+
+def test_the_type_check_declares_a_stub_for_every_stubless_import(
+    pyproject: dict[str, Any],
+) -> None:
+    """Every import named here appears in `src/` and ships no types of its own,
+    so each missing stub package costs the entire run, not one file."""
+    declared = _declared_names(_dev_extra(pyproject))
+    for distribution, module in STUB_DISTRIBUTIONS.items():
+        assert canonicalize_name(distribution) in declared, (
+            f"the `dev` extra must declare {distribution} — without it mypy aborts "
+            f"on every `import {module}` in src/ and checks nothing"
+        )
+
+
+@pytest.mark.parametrize("distribution", sorted(STUB_DISTRIBUTIONS))
+def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -> None:
+    """Dropping any one of the three must fail: one absent stub aborts the run
+    exactly as thoroughly as three do."""
+    mutated = _load_pyproject()
+    mutated["project"]["optional-dependencies"]["dev"] = [
+        dep
+        for dep in _dev_extra(mutated)
+        if canonicalize_name(Requirement(dep).name) != canonicalize_name(distribution)
+    ]
+    with pytest.raises(AssertionError, match=distribution):
+        test_the_type_check_declares_a_stub_for_every_stubless_import(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The type check completes: it does not follow an installed package the
+# configured Python cannot parse
+# ---------------------------------------------------------------------------
+#
+# A syntax error raised while mypy parses a followed dependency is fatal to the
+# whole run, the same way a missing stub is. Nothing in this tree imports
+# sphinx; mypy reaches it through bokeh's own property module, bokeh ships
+# types, so `ignore_missing_imports` never applies. Sphinx's source uses syntax
+# newer than the `python_version` this project targets, and that floor is the
+# point of the check — so the package mypy cannot parse is the thing that gives,
+# not the version it is parsed against.
+
+
+def _mypy_overrides(pyproject: dict[str, Any]) -> list[dict[str, Any]]:
+    return pyproject["tool"]["mypy"]["overrides"]
+
+
+def test_the_type_check_completes_over_the_declared_targets(
+    pyproject: dict[str, Any],
+) -> None:
+    """Pinned so the block cannot be dropped as mysterious: without it the run
+    ends in "errors prevented further checking" and no module is examined."""
+    skipped = [
+        override for override in _mypy_overrides(pyproject) if "sphinx.*" in override["module"]
+    ]
+    assert skipped, "[tool.mypy] must carry an override for `sphinx.*`"
+    for override in skipped:
+        assert override.get("follow_imports") == "skip", (
+            'the `sphinx.*` override must set follow_imports = "skip" — '
+            "ignore_missing_imports does not apply to a package that ships types"
+        )
+
+
+def test_the_type_check_completes__mutation_drops_the_override() -> None:
+    mutated = _load_pyproject()
+    mutated["tool"]["mypy"]["overrides"] = [
+        override for override in _mypy_overrides(mutated) if "sphinx.*" not in override["module"]
+    ]
+    with pytest.raises(AssertionError, match="sphinx"):
+        test_the_type_check_completes_over_the_declared_targets(mutated)
+
+
+def test_the_type_check_completes__mutation_weakens_the_override() -> None:
+    """Swapping the skip for `ignore_missing_imports` must fail: bokeh's
+    dependency ships types, so the import is never missing and the run still
+    follows it into syntax it cannot parse."""
+    mutated = _load_pyproject()
+    for override in _mypy_overrides(mutated):
+        if "sphinx.*" in override["module"]:
+            del override["follow_imports"]
+            override["ignore_missing_imports"] = True
+    with pytest.raises(AssertionError, match="follow_imports"):
+        test_the_type_check_completes_over_the_declared_targets(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The type check resolves the same packages however it is invoked
+# ---------------------------------------------------------------------------
+#
+# `osprey_connectors` lives in this repository under `packages/`, but it also
+# sits in the environment as an installed wheel. Which of the two mypy resolves
+# decides whether values crossing that boundary carry their real types or
+# collapse to `Any` — and with `warn_return_any` on, the collapsed ones surface
+# as `no-any-return` at every return site that touches them. Declaring the
+# source roots is what makes a run naming a single file report the same thing a
+# whole-tree run reports.
+
+
+#: The roots `mypy_path` must carry, in the order it searches them: the
+#: framework source and the sibling package's source, not its installed wheel.
+MYPY_SOURCE_ROOTS = ("src", "packages/osprey-connectors/src")
+
+
+def test_the_type_check_declares_its_source_roots(pyproject: dict[str, Any]) -> None:
+    """`explicit_package_bases` is half the pair: without it mypy derives a
+    module's name from its own directory rather than from these roots, and the
+    roots buy nothing."""
+    mypy_config = pyproject["tool"]["mypy"]
+    assert mypy_config.get("explicit_package_bases") is True, (
+        "[tool.mypy] must set explicit_package_bases = true so module names are "
+        "derived from the declared roots"
+    )
+    declared = mypy_config.get("mypy_path", "").split(":")
+    for root in MYPY_SOURCE_ROOTS:
+        assert root in declared, (
+            f"mypy_path must name {root!r} — without it a run naming a single file "
+            "resolves less than a whole-tree run and reports errors it does not"
+        )
+
+
+def test_the_type_check_declares_its_source_roots__mutation_drops_the_bases() -> None:
+    mutated = _load_pyproject()
+    del mutated["tool"]["mypy"]["explicit_package_bases"]
+    with pytest.raises(AssertionError, match="explicit_package_bases"):
+        test_the_type_check_declares_its_source_roots(mutated)
+
+
+@pytest.mark.parametrize("root", MYPY_SOURCE_ROOTS)
+def test_the_type_check_declares_its_source_roots__mutation_drops_a_root(root: str) -> None:
+    mutated = _load_pyproject()
+    mutated["tool"]["mypy"]["mypy_path"] = ":".join(
+        entry for entry in MYPY_SOURCE_ROOTS if entry != root
+    )
+    with pytest.raises(AssertionError, match=re.escape(root)):
+        test_the_type_check_declares_its_source_roots(mutated)
+
+
+# ---------------------------------------------------------------------------
+# mypy target drift guard
+# ---------------------------------------------------------------------------
+
+MYPY_JOB = "lint"
+MYPY_STEP = "Run mypy (type checking)"
+
+
+def _mypy_targets_in_ci(wf: dict[str, Any]) -> list[str]:
+    """The trees the CI mypy step names, in the order it names them.
+
+    Read off the command rather than off a variable: a step that hardcodes a
+    third tree defines nothing new, so keying on anything but the arguments
+    themselves would miss exactly the drift this guard exists to catch.
+    """
+    run = _find_named_step(wf, MYPY_JOB, MYPY_STEP)["run"]
+    words = run.split()
+    after_mypy = words[words.index("mypy") + 1 :]
+    return [
+        word.rstrip("/")
+        for word in after_mypy
+        if not word.startswith("-") and word not in {"||", "true"}
+    ]
+
+
+def test_mypy_targets_match_the_declared_files(
+    workflow: dict[str, Any], pyproject: dict[str, Any]
+) -> None:
+    """CI and a bare local ``mypy`` check the same trees.
+
+    ``[tool.mypy] files`` is what a contributor's own run reads; the CI step
+    spells its trees out. With the two free to drift, a package checked in CI
+    can be invisible to everyone running the checker locally, and the first
+    report of an error is a review comment rather than the editor.
+    """
+    declared = [entry.rstrip("/") for entry in pyproject["tool"]["mypy"]["files"]]
+    assert _mypy_targets_in_ci(workflow) == declared
+
+
+def test_mypy_targets_match_the_declared_files__mutation_drops_a_tree() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, MYPY_JOB, MYPY_STEP)
+    step["run"] = step["run"].replace(" packages/osprey-connectors/src/", "")
+    with pytest.raises(AssertionError):
+        test_mypy_targets_match_the_declared_files(mutated, _load_pyproject())

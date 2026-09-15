@@ -124,12 +124,14 @@ class TestTemplatesRenderTheDeclaration:
     #: The port table and panel registry the real render builds in
     #: TemplateManager._project_context. These tests reach the
     #: environment directly, so they carry them themselves. The template
-    #: refuses a render with no ``builtin_panels``, deliberately: it has no
-    #: other source for what a selected tab may name.
+    #: refuses a render with no ``builtin_panels`` or no ``selected_web_panels``,
+    #: deliberately: both are wiring the manager sets on every context, and an
+    #: empty selection is a profile that chose no builtin, not a missing input.
     PORTS = {
         "port_base": DEFAULT_PORT_BASE,
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
         "builtin_panels": sorted(BUILTIN_PANELS),
+        "selected_web_panels": [],
     }
 
     @pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)

@@ -14,6 +14,7 @@
   "entries",
   "last_ingestion",
   "message",
+  "orphaned_enhancement_modules",
   "search_modules",
   "search_modules.hybrid",
   "search_modules.keyword",

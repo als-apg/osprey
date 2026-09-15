@@ -10,6 +10,8 @@
  * type has a builder before the first reconcile asks for one.
  */
 
+import { fmtName } from '/design-system/js/check-name.js';
+
 import { withPrefix } from './api.js';
 import { registerBarPopover } from './bar-host.js';
 import { defineBarItem } from './bar-items.js';
@@ -246,18 +248,6 @@ function readHealth(snap) {
 }
 
 /**
- * Humanize a check name: drop the leading `category.` and title-case the
- * rest, so `epics.beam_current` reads `Beam Current`. The dashboard's rule.
- * @param {string} name
- * @returns {string}
- */
-function checkTitle(name) {
-  const dot = name.indexOf('.');
-  const bare = dot > -1 ? name.slice(dot + 1) : name;
-  return bare.replace(/_/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase());
-}
-
-/**
  * The checks grouped by category, first-seen order kept.
  * @param {readonly HealthCheck[]} checks
  * @returns {Map<string, HealthCheck[]>}
@@ -408,7 +398,7 @@ function buildSystemHealth(ctx) {
           rows.appendChild(
             row(
               toneOf(check.status),
-              checkTitle(String(check.name ?? '')),
+              fmtName(String(check.name ?? ''), String(check.category ?? '')),
               '',
               typeof check.value === 'string' && check.value ? check.value : String(check.message ?? '')
             )

@@ -1,7 +1,16 @@
 """ARIEL Search E2E Tests.
 
-Tests the full ARIEL pipeline: ingest -> enhance -> search.
-Requires Ollama with nomic-embed-text (skips if unavailable).
+Two groups of tests live here, with different prerequisites:
+
+Pipeline
+    The full ARIEL pipeline: ingest -> enhance -> search. Needs Ollama with
+    ``nomic-embed-text``, and skips without it.
+
+The read-only role, against a live server
+    The privileges the read-only database role actually holds. Needs a
+    reachable PostgreSQL server -- ``ARIEL_TEST_DATABASE_URL``, a running dev
+    database, or Docker for a test container -- plus ``psql`` to run the init
+    script the entrypoint runs. Skips when either is missing.
 
 Run with:
     pytest tests/e2e/test_ariel_search.py -v

@@ -116,7 +116,7 @@ class ChannelFinderHierContext:
 
     @property
     def facility_name(self) -> str:
-        """Facility name from config (e.g. 'ALS')."""
+        """Facility name from config (e.g. 'Example Research Facility')."""
         return self._facility_name
 
     @property

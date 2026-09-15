@@ -14,7 +14,11 @@ import pytest
 import requests
 
 from tests import _container_support
-from tests._container_support import docker_cli_unavailable_reason, start_or_skip
+from tests._container_support import (
+    docker_cli_unavailable_reason,
+    start_or_skip,
+    wait_until_ready,
+)
 
 # ``docker`` is a ``dev``-extra dependency. Importing it at module scope would
 # make this file ERROR at collection wherever the extra is absent — the very
@@ -258,3 +262,189 @@ def test_docker_probe_is_silent_when_the_cli_works(monkeypatch):
     monkeypatch.setattr(_container_support.subprocess, "run", lambda argv, **kwargs: _completed(0))
 
     assert docker_cli_unavailable_reason() is None
+
+
+# ---------------------------------------------------------------------------
+# wait_until_ready
+# ---------------------------------------------------------------------------
+
+
+class CountingProbe:
+    """A probe that raises *failures* times before it starts succeeding.
+
+    ``failures=None`` never succeeds, which is the case the deadline is for.
+    Spelling it as ``None`` rather than a large count matters: a counted probe
+    with no pause between attempts exhausts any plausible count long before a
+    short deadline expires, and the test would then be asserting the success
+    path under a name that promises the failure one.
+    """
+
+    def __init__(self, failures: int | None, error: BaseException | None = None):
+        self.remaining = failures
+        self.error = error or ConnectionResetError("connection reset by peer")
+        self.calls = 0
+
+    def __call__(self) -> None:
+        self.calls += 1
+        if self.remaining is None:
+            raise self.error
+        if self.remaining > 0:
+            self.remaining -= 1
+            raise self.error
+
+
+def test_a_probe_that_answers_at_once_is_called_once():
+    probe = CountingProbe(failures=0)
+
+    wait_until_ready(probe, "mongodb", interval=0.0)
+
+    assert probe.calls == 1
+
+
+def test_a_probe_that_answers_on_the_third_try_returns_after_three_calls():
+    probe = CountingProbe(failures=2)
+
+    wait_until_ready(probe, "mongodb", interval=0.0)
+
+    assert probe.calls == 3
+
+
+def test_a_probe_that_never_answers_fails_with_the_label_and_the_last_cause():
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("port not published"))
+
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(probe, "mongodb-seed", timeout=0.05, interval=0.0)
+
+    message = str(caught.value)
+    assert "mongodb-seed" in message
+    assert "ConnectionRefusedError" in message
+    assert "port not published" in message
+
+
+# ---------------------------------------------------------------------------
+# wait_until_ready — liveness and progress
+# ---------------------------------------------------------------------------
+
+
+class FakeStartedContainer:
+    """A stand-in for a started container, driven line by line by the test.
+
+    ``log_lines`` is consumed one entry per read, so a test spells out exactly
+    what the subject was doing while the wait watched it: a new line is a boot
+    still making progress, a repeat is a subject sitting there quiet. ``status``
+    is read the same way and can be changed mid-run to stop the container.
+    """
+
+    def __init__(self, log_lines: list[bytes], status: str = "running"):
+        self.log_lines = list(log_lines)
+        self.status = status
+        self.attrs = {"State": {"ExitCode": 137, "Error": ""}}
+        self.reads = 0
+        self.last_tail: bytes = b""
+
+    # -- the docker-py surface ``_container_liveness`` uses ------------------
+
+    def reload(self) -> None:
+        self.reads += 1
+
+    def logs(self, tail: int = 0) -> bytes:
+        if self.log_lines:
+            self.last_tail = self.log_lines.pop(0)
+        return self.last_tail
+
+    # -- the testcontainers surface ----------------------------------------
+
+    def get_wrapped_container(self) -> "FakeStartedContainer":
+        return self
+
+
+def test_a_container_that_keeps_logging_outlives_the_quiet_budget():
+    """The regression this whole signal exists for.
+
+    The probe fails for far more rounds than ``timeout`` alone would allow, but
+    the container is visibly still booting the whole time, so the wait stays
+    with it and sees the subject come up. Measured as a fixed window this run
+    would have failed on a slow machine while the subject was still working.
+    """
+    probe = CountingProbe(failures=10, error=ConnectionRefusedError("connection refused"))
+    container = FakeStartedContainer([f"line {n}".encode() for n in range(20)])
+
+    wait_until_ready(probe, "mongodb", timeout=0.05, interval=0.0, container=container)
+
+    assert probe.calls == 11
+
+
+def test_a_quiet_container_still_gives_up_after_the_quiet_budget():
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
+    container = FakeStartedContainer([b"the one and only line"])
+
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(probe, "mongodb", timeout=0.05, interval=0.0, container=container)
+
+    assert "without visible progress" in str(caught.value)
+
+
+def test_a_container_that_exited_fails_at_once_with_its_exit_code():
+    """A dead subject must not be reported in the words of a slow one."""
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
+    container = FakeStartedContainer([b"crashing"], status="exited")
+
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(probe, "mongodb", timeout=30.0, interval=0.0, container=container)
+
+    message = str(caught.value)
+    assert "'exited'" in message
+    assert "exit code: 137" in message
+    assert probe.calls == 1
+
+
+def test_a_chatty_container_that_never_answers_still_hits_the_ceiling():
+    """Progress may extend the wait, never remove its end."""
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
+    container = FakeStartedContainer([f"line {n}".encode() for n in range(10_000)])
+
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(
+            probe, "mongodb", timeout=30.0, interval=0.0, container=container, ceiling=0.05
+        )
+
+    assert "ceiling" in str(caught.value)
+
+
+def test_a_port_that_never_opened_is_reported_apart_from_one_that_refused_the_probe():
+    refused = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(refused, "mongodb", timeout=0.05, interval=0.0)
+    assert "nothing ever listened on the port" in str(caught.value)
+
+    rejected = CountingProbe(failures=None, error=RuntimeError("auth failed"))
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(rejected, "mongodb", timeout=0.05, interval=0.0)
+    assert "would not serve the probe" in str(caught.value)
+
+
+def test_a_wrapped_refusal_is_still_read_as_a_port_that_never_opened():
+    """pymongo reports a refused port as a selection timeout, not as a refusal."""
+    wrapped = RuntimeError(
+        "localhost:56557: [Errno 61] Connection refused (configured timeouts: ...)"
+    )
+    probe = CountingProbe(failures=None, error=wrapped)
+
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(probe, "mongodb", timeout=0.05, interval=0.0)
+
+    assert "nothing ever listened on the port" in str(caught.value)
+
+
+def test_an_unreadable_container_leaves_the_wait_on_the_probe_alone():
+    """A daemon too busy to answer is the condition this wait sits through."""
+
+    class UnreadableContainer:
+        def get_wrapped_container(self):
+            raise RuntimeError("daemon busy")
+
+    probe = CountingProbe(failures=2)
+
+    wait_until_ready(probe, "mongodb", timeout=30.0, interval=0.0, container=UnreadableContainer())
+
+    assert probe.calls == 3

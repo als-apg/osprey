@@ -169,10 +169,10 @@ The first part names the machine this deployment stands on, by what it **is**:
 - **Demo** --- mock data. Nothing moves.
 
 A deployment can put its own names on its machines
-(``control_system.target_display_names`` in ``config.yml`` --- *ALS storage
-ring* rather than *Real machine*); what the machine is stays behind the small
-ⓘ beside its name either way, and that tooltip also keeps the controls
-server's own technical label.
+(``control_system.target_display_names`` in ``config.yml`` --- *Example
+Research Facility storage ring* rather than *Real machine*); what the machine
+is stays behind the small ⓘ beside its name either way, and that tooltip
+also keeps the controls server's own technical label.
 
 The second part is the write state **on that machine**, for the whole
 deployment:

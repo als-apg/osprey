@@ -276,7 +276,7 @@ def _config_channel_db(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
             return value
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
+    monkeypatch.setattr("osprey.cli.knowledge_cmd.get_config_value", _lookup)
 
 
 def _config_facility_prefix(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
@@ -287,7 +287,7 @@ def _config_facility_prefix(monkeypatch: pytest.MonkeyPatch, value: object) -> N
             return value
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
+    monkeypatch.setattr("osprey.cli.knowledge_cmd.get_config_value", _lookup)
 
 
 def _config_graph_mode(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -303,7 +303,7 @@ def _config_graph_mode(monkeypatch: pytest.MonkeyPatch) -> None:
             return "graph"
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _lookup)
+    monkeypatch.setattr("osprey.cli.knowledge_cmd.get_config_value", _lookup)
 
 
 # ---------------------------------------------------------------------------
@@ -946,9 +946,9 @@ def test_build_ttl_refuses_a_foreign_level_list_before_it_parses_addresses(
 ) -> None:
     """A machine on another level grammar gets one refusal, not one per address.
 
-    The level list is read while the prose is resolved, which happens before
-    any address is parsed; that order is what turns a whole foreign database
-    into a single line naming the grammar this verb reads.
+    The level list is read when the file is, before anything is expanded; that
+    order is what turns a whole foreign database into a single line naming the
+    grammar this verb reads.
     """
     payload = _hierarchical_payload()
     # A machine whose top level is a section rather than a ring, and whose last
@@ -980,6 +980,87 @@ def test_build_ttl_refuses_a_foreign_level_list_before_it_parses_addresses(
     assert "six-token grammar: RING, SYSTEM, FAMILY, DEVICE, FIELD, SUBFIELD" in flat
     # Not the per-address refusal: nothing was parsed before the list was checked.
     assert "holds an address build-ttl cannot read" not in flat
+    assert not output.exists()
+
+
+def test_build_ttl_refuses_a_foreign_level_list_before_it_expands(
+    descriptions_db: Path, tmp_path: Path
+) -> None:
+    """A database the expander cannot even open still gets the grammar sentence.
+
+    A foreign machine's level list comes with a foreign naming pattern, and a
+    pattern naming a level that list does not carry fails in expansion -- which
+    is a sentence about the naming pattern, not about the grammar this verb
+    reads. The level list is on the raw document, so nothing has to expand for
+    the check that names the grammar to run.
+    """
+    payload = _hierarchical_payload()
+    # Another machine's levels: five of them, none of them a ring, and a
+    # pattern that names one the list does not carry.
+    payload["hierarchy"]["levels"] = [
+        {"name": "system", "type": "tree"},
+        {"name": "family", "type": "tree"},
+        {"name": "sector", "type": "tree"},
+        {"name": "device", "type": "tree"},
+        {"name": "pv", "type": "tree"},
+    ]
+    payload["hierarchy"]["naming_pattern"] = "{ring}:{pv}"
+    db_path = tmp_path / "foreign_grammar.json"
+    db_path.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "out.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(db_path),
+            "--descriptions",
+            str(descriptions_db),
+        ],
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "Traceback" not in result.output
+    assert "six-token grammar: RING, SYSTEM, FAMILY, DEVICE, FIELD, SUBFIELD" in flat
+    assert "Cannot read the channel database" not in flat
+    assert not output.exists()
+
+
+def test_build_ttl_refuses_a_hierarchy_block_that_is_not_a_mapping(
+    descriptions_db: Path, tmp_path: Path
+) -> None:
+    """A ``hierarchy`` that holds a list gets the grammar sentence too.
+
+    A block of the wrong shape carries no level list at all, which is the same
+    thing to this verb as a database that names no levels: it cannot say what
+    the addresses mean. Both reduce to an empty level list and both are refused
+    with the one sentence that names the grammar build-ttl reads.
+    """
+    payload = _hierarchical_payload()
+    payload["hierarchy"] = [{"name": "ring", "type": "tree"}]
+    db_path = tmp_path / "hierarchy_is_a_list.json"
+    db_path.write_text(json.dumps(payload), encoding="utf-8")
+    output = tmp_path / "out.ttl"
+
+    result = CliRunner().invoke(
+        knowledge,
+        [
+            "build-ttl",
+            str(output),
+            "--channel-db",
+            str(db_path),
+            "--descriptions",
+            str(descriptions_db),
+        ],
+    )
+
+    assert result.exit_code != 0
+    flat = _flat(result)
+    assert "Traceback" not in result.output
+    assert "six-token grammar: RING, SYSTEM, FAMILY, DEVICE, FIELD, SUBFIELD" in flat
     assert not output.exists()
 
 

@@ -1,9 +1,9 @@
 """Tests for the LLM-naming and error-recovery branches of ``build_database``.
 
-Covers the three arms that the plain (no-LLM) path never reaches: successful
-LLM naming, degradation to addresses when the namer cannot be constructed, and
-the per-family fallthrough that turns a template-creation failure into
-standalone entries instead of aborting the whole build.
+Covers the arms that the plain (no-LLM) path never reaches: successful LLM
+naming, and degradation to addresses when the namer cannot be constructed. A
+family whose template cannot be built is not one of them -- that stops the
+build, so nothing downstream of it runs.
 
 ``build_database`` imports ``create_namer_from_config`` *inside* the function
 body, so the name is never bound on ``build_database``'s module globals.
@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.services.channel_finder.core.exceptions import TemplateBuildError
 from osprey.services.channel_finder.tools.build_database import build_database
 
 NAMER_FACTORY = "osprey.services.channel_finder.tools.llm_channel_namer.create_namer_from_config"
@@ -149,15 +150,20 @@ def test_llm_naming_failure_degrades_to_addresses(tmp_path, monkeypatch):
     assert on_disk == db
 
 
-def test_template_failure_falls_through_to_standalone(tmp_path):
-    """A family whose template cannot be built becomes standalone entries."""
+def test_template_failure_stops_the_build(tmp_path):
+    """A family whose template cannot be built fails the build, naming it.
+
+    Degrading it to standalone rows wrote a database that was missing the
+    family's device navigation while the run still reported success, so the
+    file the well-formed families would have gone into is not written either.
+    """
     csv_path = _write_csv(
         tmp_path,
         [
             # instances="abc" makes create_template's int() raise ValueError.
             "BPM01:X,BPM horizontal position,BPM,abc,:X",
             "BPM01:Y,BPM vertical position,BPM,abc,:Y",
-            # A well-formed family must still make it into the database.
+            # A well-formed family is no reason to write half a database.
             "COR01:SP,Corrector setpoint,COR,4,:SP",
             "COR01:RB,Corrector readback,COR,4,:RB",
             "SR:TEMP,Ring temperature,,,",
@@ -165,31 +171,10 @@ def test_template_failure_falls_through_to_standalone(tmp_path):
     )
     output_path = tmp_path / "db.json"
 
-    db = build_database(csv_path, output_path)
+    with pytest.raises(TemplateBuildError, match="family 'BPM' cannot be built"):
+        build_database(csv_path, output_path)
 
-    templates = _templates(db)
-    assert [t["base_name"] for t in templates] == ["COR"]
-
-    # The two BPM rows fell through to standalone, appended after the genuine
-    # standalone row, and are named by address.
-    entries = _standalone(db)
-    assert [e["address"] for e in entries] == ["SR:TEMP", "BPM01:X", "BPM01:Y"]
-    assert [e["channel"] for e in entries] == ["SR:TEMP", "BPM01:X", "BPM01:Y"]
-    assert [e["description"] for e in entries] == [
-        "Ring temperature",
-        "BPM horizontal position",
-        "BPM vertical position",
-    ]
-
-    stats = db["_metadata"]["stats"]
-    assert stats == {
-        "template_entries": 1,
-        "standalone_entries": 3,
-        "total_entries": 4,
-    }
-
-    on_disk = json.loads(output_path.read_text(encoding="utf-8"))
-    assert on_disk == db
+    assert not output_path.exists()
 
 
 def test_patch_target_is_the_owning_module():

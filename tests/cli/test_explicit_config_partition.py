@@ -123,10 +123,25 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
     {"web.docs_url", "web.feedback.email", "web.feedback.github_repo"}
 )
 
+#: The same, for a leaf one cell alone retired, keyed by fixture directory.
+#:
+#: ``hello-world`` gates the two ARIEL logbook tools while disabling the server
+#: that serves them, so both rows were inert; dropping them leaves the frozen
+#: render carrying an ``entry_create`` the preset no longer states. The other
+#: presets that spell an ARIEL approval policy still render both rows, which is
+#: why this retirement is per cell rather than global — subtracting the leaf
+#: from every render would read as those presets stating a key that never
+#: arrives. The same difference is declared in
+#: ``test_explicit_config_equivalence.CELL_DELTAS``.
+_RETIRED_PER_CELL: Mapping[str, frozenset[str]] = {
+    "hello-world/unset": frozenset({"approval.tools.entry_create"}),
+}
+
 
 def _render(directory: str, document: str = "root") -> dict[str, Any]:
+    retired = _RETIRED_SINCE_THE_FREEZE | _RETIRED_PER_CELL.get(directory, frozenset())
     frozen = _leaves(yaml.safe_load((FIXTURE_ROOT / directory / f"{document}.yml").read_text()))
-    return {key: value for key, value in frozen if key not in _RETIRED_SINCE_THE_FREEZE}
+    return {key: value for key, value in frozen if key not in retired}
 
 
 def _preset_document(preset: str) -> dict[str, Any]:

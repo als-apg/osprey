@@ -178,3 +178,54 @@ async def test_event_loop_not_blocked_during_offload() -> None:
 
     assert result == "ok"
     assert ticks == 5
+
+
+def test_an_abandoned_thread_finishing_after_the_loop_closed_says_nothing() -> None:
+    """A timed-out check's thread outliving its loop is silent, not an exception.
+
+    Abandoning the thread is the design: it keeps running, and it may well
+    outlive the loop that started it — a health check timing out at the end of
+    a request, or a test whose loop closes when the test ends. Handing a result
+    to a closed loop raises ``RuntimeError('Event loop is closed')`` on the
+    worker thread, where nothing can catch it: it surfaces as an unhandled
+    thread exception with no failing test attached to it, and under a parallel
+    runner it is noise on a worker that did nothing wrong. There is no awaiter
+    left to deliver to, so there is nothing to report.
+    """
+    release = threading.Event()
+    finished = threading.Event()
+    thread_errors: list[BaseException] = []
+
+    def hook(args) -> None:
+        thread_errors.append(args.exc_value)
+
+    def blocks() -> str:
+        release.wait(5.0)
+        return "late"
+
+    async def abandon() -> None:
+        with pytest.raises(TimeoutError):
+            await offload.run_sync(blocks, timeout_s=0.05)
+
+    previous = threading.excepthook
+    threading.excepthook = hook
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(abandon())
+        finally:
+            loop.close()
+
+        # The loop is gone; now let the abandoned thread finish into it.
+        release.set()
+        for _ in range(500):
+            if not any(
+                t.name.startswith("Thread-") and t.is_alive() for t in threading.enumerate()
+            ):
+                break
+            time.sleep(0.01)
+        finished.wait(0.2)
+    finally:
+        threading.excepthook = previous
+
+    assert thread_errors == [], thread_errors

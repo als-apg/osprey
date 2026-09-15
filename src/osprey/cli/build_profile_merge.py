@@ -414,9 +414,9 @@ def _resolve_extends(
         return raw
 
     # Try a bundled preset by name first; fall through to filesystem-path
-    # resolution. Path-shaped values like ``als-base.yml`` correctly miss the
-    # preset probe (it looks up ``als-base.yml.yml``) and resolve as paths,
-    # preserving the sibling-file semantics ALS-style profiles depend on.
+    # resolution. Path-shaped values like ``site-base.yml`` correctly miss the
+    # preset probe (it looks up ``site-base.yml.yml``) and resolve as paths, so
+    # a profile that extends a sibling file keeps those semantics.
     preset_path = _preset_exists(extends_value)
     if preset_path is not None:
         base_path = preset_path

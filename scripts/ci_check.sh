@@ -40,7 +40,7 @@ fi
 echo ""
 
 echo "→ Running mypy (type checking)..."
-if ! uv run mypy src/ --no-error-summary; then
+if ! uv run mypy --no-error-summary; then
     echo "⚠️  Mypy found type issues (not blocking)"
 else
     echo "✅ Mypy passed"

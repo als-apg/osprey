@@ -775,6 +775,22 @@ def test_near_miss_sentinel_goes_red(misspelling):
     assert "cli.theme" in details(guard)
 
 
+def test_required_default_without_a_note_goes_red():
+    """`required` names no fallback, so it has to name the accepted values.
+
+    A reader holding only the ledger otherwise sees "you must set this" with
+    nowhere to learn what may be set.
+    """
+
+    def strip_the_note(manifest):
+        manifest["keys"]["control_system.type"].pop("default_note", None)
+
+    guard = make_guard(strip_the_note)
+    guard.check_defaults()
+    assert "default" in modes(guard)
+    assert "control_system.type" in details(guard)
+
+
 def test_note_on_a_required_default_stays_green():
     """`required` says no fallback exists; the note says which values are legal.
 
@@ -889,6 +905,108 @@ def test_a_self_test_key_a_preset_also_spells_goes_red():
     guard.check_branch_self_test()
     assert "branch-self-test" in modes(guard)
     assert "must come from the framework template" in details(guard)
+
+
+def _write_manifest(root: Path, body: str) -> Path:
+    """Put *body* where the guard looks for the ledger under *root*."""
+    path = root / "src" / "osprey" / "profiles" / "config_key_manifest.yml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    return path
+
+
+@pytest.mark.parametrize(
+    "comment",
+    ["  # an ordinary paragraph about the block below", "  # \u2500\u2500 A section \u2500\u2500"],
+)
+def test_a_default_line_after_a_comment_goes_red(tmp_path, comment):
+    """A stranded `default:` is bound to whatever precedes the comment.
+
+    It reads correctly until someone inserts an entry between the comment and
+    the stray line, at which point the new entry silently takes the default and
+    the defaults check reports the wrong key. Both comment shapes are pinned:
+    the fragility is the comment standing in the way, not whether it happens to
+    be a section header.
+    """
+    _write_manifest(
+        tmp_path,
+        "keys:\n"
+        "  alpha:\n"
+        "    evidence: 'alpha'\n"
+        f"{comment}\n"
+        "    default: {}\n"
+        "  beta:\n"
+        "    evidence: 'beta'\n"
+        "    default: {}\n",
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_manifest_layout()
+    assert "layout" in modes(guard)
+    assert "line 5" in details(guard)
+
+
+def test_a_default_line_inside_its_entry_stays_green(tmp_path):
+    """The same two entries, with the default where it belongs."""
+    _write_manifest(
+        tmp_path,
+        "keys:\n"
+        "  alpha:\n"
+        "    evidence: 'alpha'\n"
+        "    default: {}\n"
+        "  # an ordinary paragraph about the block below\n"
+        "  beta:\n"
+        "    evidence: 'beta'\n"
+        "    default: {}\n",
+    )
+
+    guard = make_guard(root=tmp_path)
+    guard.check_manifest_layout()
+    assert modes(guard) == []
+
+
+def test_a_missing_manifest_file_goes_red(tmp_path):
+    """The guard executes that ledger, so its absence is a fault, not a skip."""
+    guard = make_guard(root=tmp_path)
+    guard.check_manifest_layout()
+    assert "layout" in modes(guard)
+
+
+def test_every_default_line_sits_inside_its_entry():
+    """The live ledger carries no stranded default line."""
+    guard = make_guard()
+    guard.check_manifest_layout()
+    assert guard.result.ok, details(guard)
+
+
+def test_a_stale_union_size_goes_red():
+    """The recorded union size is an assertion, so a wrong one has to fail.
+
+    While it was a note, two branches could each re-derive the count against a
+    different base and the merged figure agreed with neither — a number a
+    reader takes for a fact and nothing checks.
+    """
+
+    def leave_the_counter_behind(manifest):
+        actual = len(make_guard().union())
+        manifest["render_contexts"]["expected_union_size"] = actual + 1
+
+    guard = make_guard(leave_the_counter_behind)
+    guard.check_union_size()
+    assert "union-size" in modes(guard)
+    assert str(len(guard.union())) in details(guard), "the failure must print what to record"
+
+
+def test_a_missing_union_size_goes_red():
+    """An assertion with an opt-out is the informational note under a new name."""
+
+    def drop_the_counter(manifest):
+        manifest["render_contexts"].pop("expected_union_size", None)
+
+    guard = make_guard(drop_the_counter)
+    guard.check_union_size()
+    assert "union-size" in modes(guard)
+    assert str(len(guard.union())) in details(guard)
 
 
 def test_incomplete_provider_tier_map_goes_red():

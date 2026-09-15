@@ -1633,3 +1633,42 @@ def test_a_recorded_narrowing_defers_and_writes_check_denies(
         "the narrowing is refused by writes_check, so the prompt must defer to that deny"
     )
     assert run("osprey_writes_check.py") == "deny"
+
+
+@pytest.mark.unit
+def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
+    tmp_path, hook_module, monkeypatch
+):
+    """The review notebook lands in the store; no gallery server is started for it.
+
+    The hook is a one-shot process. A server thread started from it dies with
+    the process a few milliseconds later, so it can serve nobody, and its
+    teardown races the interpreter's exit. A gallery that is already running
+    picks the notebook up from the shared store; one that is not cannot be
+    started from here.
+    """
+    import osprey.infrastructure.server_launcher as launcher
+    from osprey.stores.artifact_store import ArtifactStore
+    from osprey_connectors.workspace import reset_config_cache, resolve_shared_data_root
+
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+    monkeypatch.setenv("CONFIG_FILE", str(config_path))
+    reset_config_cache()
+
+    launches: list[str] = []
+    monkeypatch.setattr(launcher, "ensure_artifact_server", lambda: launches.append("artifact"))
+    monkeypatch.setattr(launcher, "ensure_web_server", lambda key: launches.append(key))
+
+    hook = hook_module("osprey_approval")
+    hook._create_pre_execution_notebook("epics.caput('PV', 1.0)", "readonly", {})
+
+    saved = [
+        entry
+        for entry in ArtifactStore(workspace_root=resolve_shared_data_root()).list_entries()
+        if entry.tool_source == "osprey_approval"
+    ]
+    assert len(saved) == 1, "the review notebook was not saved"
+    assert saved[0].artifact_type == "notebook"
+    assert launches == []

@@ -300,6 +300,38 @@ describe('system-health item: the card', () => {
     ]);
   });
 
+  // A check name is free-form and a dot in it is not a category marker: only
+  // the prefix the row's OWN category spells is dropped. Cutting at the first
+  // dot instead renames every check whose name carries one.
+  test('a dotted check name keeps everything past its own category prefix', async () => {
+    answer = () =>
+      envelope([
+        {
+          name: 'control_system.beam.current',
+          category: 'control_system',
+          status: 'ok',
+          value: '498 mA',
+        },
+      ]);
+    seedDom('', shellMarkup({ detail: 'checks' }));
+    host.hydrate();
+    await settle();
+
+    chip().click();
+    expect(rows().map((r) => r.name)).toEqual(['Beam.Current']);
+  });
+
+  test('a name that does not start with its category keeps its leading word', async () => {
+    answer = () =>
+      envelope([{ name: 'epics.gateway', category: 'services', status: 'ok', message: 'up' }]);
+    seedDom('', shellMarkup({ detail: 'checks' }));
+    host.hydrate();
+    await settle();
+
+    chip().click();
+    expect(rows().map((r) => r.name)).toEqual(['Epics.Gateway']);
+  });
+
   test('the card closes on Escape, on a click elsewhere, and on the chip again', async () => {
     seedDom('', shellMarkup());
     host.hydrate();

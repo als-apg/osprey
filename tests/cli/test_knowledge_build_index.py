@@ -57,7 +57,7 @@ def _patch_config(monkeypatch: pytest.MonkeyPatch, block: object) -> None:
             return block.get("ttl_path", default) if isinstance(block, dict) else default
         return default
 
-    monkeypatch.setattr("osprey.utils.config.get_config_value", _get_config_value)
+    monkeypatch.setattr("osprey.cli.knowledge_cmd.get_config_value", _get_config_value)
 
 
 def _flat(result: object) -> str:

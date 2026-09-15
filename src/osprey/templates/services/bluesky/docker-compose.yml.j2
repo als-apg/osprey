@@ -99,6 +99,17 @@ services:
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{#- The site's build settings — a CA for a TLS-intercepting proxy, pip's proxy
+    bypass list, and an internal package index — as the deployment's `images:`
+    block declares them, resolved once per build context by
+    compose_generator._stage_site_image_args_for_context. Rendered at BUILD
+    time off the config rather than as a `${VAR}` default at compose time, for
+    the reason the qmd fragment's own render-time gate states. A deployment
+    that declares none of them emits nothing here, so its build argv is what it
+    always was. #}
+{%- for name, value in site_image_build_args | default({}) | dictsort %}
+        {{ name }}: "{{ value }}"
+{%- endfor %}
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
@@ -205,10 +216,11 @@ services:
       BLUESKY_LAUNCH_TOKEN: {{ launch_token_ref }}
       # The connector-backed bridge reads control_system.type/writes_enabled
       # and control_system.limits_checking.database_path from config.yml at
-      # runtime. CWD is the image WORKDIR (/app), not the project
-      # dir, so without CONFIG_FILE this falls back to /app/config.yml and
-      # every connector lookup errors "No config.yml found" — mirrors
-      # dispatch_worker's identical CONFIG_FILE convention.
+      # runtime. CWD is the image WORKDIR (/app), not the project dir, and the
+      # image bakes no config.yml, so without CONFIG_FILE the loader finds none
+      # and every connector lookup fails with "No config.yml found in current
+      # directory: /app" — mirrors dispatch_worker's identical CONFIG_FILE
+      # convention.
       CONFIG_FILE: /app/project/config.yml
       TZ: {{ system.timezone }}
 {%- if svc.target %}
@@ -295,7 +307,7 @@ services:
       QSERVER_ZMQ_CONTROL_ADDRESS: "tcp://{{ qserver }}:60615"
       QSERVER_ZMQ_PUBLIC_KEY: {{ qserver_public_ref }}
       # ── document plane (bridge owns the binding element) ─────────────────
-      # The bridge runs `bluesky.callbacks.zmq.Proxy` at lifespan start and
+      # The bridge runs its document-plane forwarder at lifespan start and
       # binds BOTH of its sockets, so both addresses are bind specs here:
       # PUBLISH is the in-side the queueserver's Publisher connects to (same
       # variable name over there, connect form — "the proxy's in-side, as seen
@@ -307,12 +319,13 @@ services:
       # CurveZMQ for the document plane — a SECOND keypair, independent of the
       # control channel's, so a leak on one plane does not authenticate on the
       # other. These are certificate PATHS, not key strings: pyzmq's CURVE
-      # helpers load `.key`/`.key_secret` files, and `bluesky.callbacks.zmq`'s
-      # ServerCurve/ClientCurve take paths straight through.
+      # helpers load `.key`/`.key_secret` files, the bridge's authenticator
+      # loads the accepted-client directory, and `bluesky.callbacks.zmq`'s
+      # ClientCurve takes paths straight through.
       #
       # The bridge binds the proxy, so it holds the SERVER half: its own secret
       # certificate, plus a directory of the client public keys it will accept
-      # (ServerCurve.client_public_keys is a folder, not a file). Pinning that
+      # (the accepted-client directory is a folder, not a file). Pinning that
       # folder — rather than allowing any syntactically valid key — is what
       # stops a rogue container on osprey-network from injecting forged run
       # documents, which matters because the queueserver must be dual-homed.

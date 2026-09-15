@@ -1922,6 +1922,35 @@ def test_auth_context_oidc_credential_env_var_names_have_defaults() -> None:
     assert context["auth_oidc_client_secret_env"] == "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 
 
+@pytest.mark.parametrize(
+    "bad_lifetime",
+    [0, -1, True, "12h"],
+    ids=["zero", "negative", "bool", "string"],
+)
+def test_bad_session_lifetime_renders_the_default_and_lint_is_what_reports_it(
+    bad_lifetime: object,
+) -> None:
+    """An unusable `auth.session_lifetime` renders as the default rather than refusing,
+    and lint carries the diagnostic. Both surfaces read the same positive-integer
+    predicate, so the finding's claim that the render silently falls back stays true —
+    this reader falls back precisely because the refusing surface is that finding."""
+    # Arrange
+    from osprey.deployment.web_terminals.lint import _check_auth_session_lifetime
+
+    web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+    web_terminals["auth"] = {"session_lifetime": bad_lifetime}
+
+    # Act
+    context = _auth_tls_context(web_terminals)
+    findings = _check_auth_session_lifetime(web_terminals)
+
+    # Assert
+    assert context["auth_session_lifetime"] == 12 * 60 * 60
+    assert [(f.severity, f.code) for f in findings] == [
+        ("error", "web_terminals.invalid_session_lifetime")
+    ]
+
+
 def test_auth_context_unknown_method_raises_value_error() -> None:
     """An `auth.method` naming a method no sidecar implements is a hard error, not a
     forward-compatible passthrough: rendering it would emit an `auth_request` seam
@@ -3663,6 +3692,7 @@ def test_auth_context_reads_the_oidc_scopes_and_leaves_them_none_when_unusable()
         == "openid groups"
     )
     assert _auth_tls_context(_with({"scopes": []}))["auth_oidc_scopes"] is None
+    assert _auth_tls_context(_with({"scopes": ["openid", "  "]}))["auth_oidc_scopes"] is None
     assert _auth_tls_context(_with({"scopes": {"openid": True}}))["auth_oidc_scopes"] is None
     assert _auth_tls_context(_with({}))["auth_oidc_scopes"] is None
 

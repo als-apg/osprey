@@ -23,7 +23,10 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-from osprey.services.channel_finder.core.exceptions import AddressPatternError
+from osprey.services.channel_finder.core.exceptions import (
+    AddressPatternError,
+    TemplateBuildError,
+)
 
 
 def load_csv(csv_path: Path, delimiter: str = ",") -> list[dict]:
@@ -289,9 +292,10 @@ def build_database(
 
     Raises:
         AddressPatternError: When a family's address pattern cannot be
-            expanded. Every other per-family failure demotes that family to
-            standalone rows; this one would write addresses that are the
-            literal pattern, so the build stops instead.
+            expanded.
+        TemplateBuildError: When a family cannot be turned into a template for
+            any other reason. Either way the build stops with the family named
+            rather than writing a database that is missing it.
     """
     print("=" * 80)
     print("Channel Database Builder")
@@ -314,13 +318,18 @@ def build_database(
         try:
             template = create_template(family_name, family_channels)
         except AddressPatternError:
-            # Not a family to skip: every address it would contribute is the
-            # literal pattern text, so degrading it to standalone rows writes a
-            # database nothing can resolve. The input is wrong; say so and stop.
+            # Already names the family, and says which pattern it could not
+            # fill in; re-wrapping would only bury that.
             raise
-        except Exception as e:
-            print(f"  \u2717 {family_name}: ERROR - {e}")
-            standalone.extend(family_channels)
+        except Exception as exc:
+            # Not a family to skip: a family that reaches the database as plain
+            # rows, or not at all, answers navigation queries about it with
+            # nothing while the run still reports success. The input is wrong;
+            # say which family and stop.
+            raise TemplateBuildError(
+                f"family {family_name!r} cannot be built into a template ({exc}); "
+                "fix the family's rows in the input"
+            ) from exc
         else:
             templates.append(template)
             print(f"  \u2713 {family_name}: {len(family_channels)} channels \u2192 template")

@@ -52,7 +52,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.e2e.conftest import e2e_provider
+from tests.e2e.provider import e2e_provider
 from tests.e2e.test_dispatch_tutorial import (
     HEALTH_TIMEOUT_SEC,
     _find_osprey_console_script,
@@ -66,7 +66,8 @@ RUN_TIMEOUT_SEC = 320.0  # worker's own DISPATCH_TIMEOUT (300s) + polling slack
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.requires_als_apg,
+    # Gates on the credential of whichever provider the run builds with.
+    pytest.mark.requires_e2e_provider,
     pytest.mark.flaky(reruns=2, reruns_delay=5),  # agentic-e2e convention
 ]
 

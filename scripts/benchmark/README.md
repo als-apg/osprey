@@ -22,7 +22,8 @@ them by hand.
 
 | Env var | Effect | Read in |
 | --- | --- | --- |
-| `OSPREY_E2E_FORCE_PROVIDER` | build every project with this provider | `sdk_helpers.init_project` |
+| `OSPREY_E2E_PROVIDER` | name the provider the run builds with; required — a run naming none is refused before it runs | `e2e.provider.e2e_provider` |
+| `OSPREY_E2E_FORCE_PROVIDER` | build every project with this provider | `e2e.provider` |
 | `OSPREY_E2E_FORCE_MODEL` | collapse all tiers (haiku/sonnet/opus) → this id | `sdk_helpers._apply_e2e_overrides` |
 | `OSPREY_E2E_PROXY_UPSTREAM` | (open models) start the translation proxy + rewrite base URL | `conftest._e2e_translation_proxy` |
 | `OSPREY_E2E_PROXY_KEY` | upstream auth for the proxy (`""` for keyless local servers — honored by presence, not truthiness) | `conftest._e2e_translation_proxy` |

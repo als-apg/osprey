@@ -1,15 +1,17 @@
 """The LUME variable catalog for the pyat-coupled channel partition.
 
-Every variable is keyed and named by its full six-level channel address
-(``{ring}:{system}:{family}:{device}:{field}:{subfield}``) so there is no
-address translation anywhere between the manifest, the IOC and the model.
-The catalog is derived -- from the manifest, ``machine.json`` and
-``channel_limits.json`` -- never hand-listed: the databases fix the model,
-not vice versa.
+Every variable is keyed and named by its channel address exactly as the
+manifest carries it, so there is no address translation anywhere between the
+manifest, the IOC and the model -- whatever a facility's addresses look like
+(the bundled demo tree spells them as six colon-separated tokens,
+``{ring}:{system}:{family}:{device}:{field}:{subfield}``). The catalog is
+derived -- from the manifest, ``machine.json`` and ``channel_limits.json`` --
+never hand-listed: the databases fix the model, not vice versa.
 
-The ``:RB`` setpoint echo is deliberately excluded. It is a serving-layer
-concern (the IOC mirrors each ``:SP`` write back onto its ``:RB`` record),
-not model state, so it is not a model variable.
+The setpoint echo is deliberately excluded, selected by the manifest's
+reserved ``READBACK_SUBFIELD`` rather than by anything in the address text. It
+is a serving-layer concern (the IOC mirrors each setpoint write back onto its
+readback record), not model state, so it is not a model variable.
 
 **Declared ranges are metadata, not enforcement.** Inputs carry
 ``default_validation_config='none'``, so ``LUMEModel.set()`` neither

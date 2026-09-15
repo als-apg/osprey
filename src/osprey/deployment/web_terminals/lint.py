@@ -27,6 +27,7 @@ from typing import Any, Literal, cast
 
 import yaml
 
+from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import DISPATCH_WORKER_SERVICE_PREFIX
 from osprey.deployment.web_terminals.persona_images import persona_build_profile_shape_problem
 from osprey.deployment.web_terminals.personas import (
@@ -64,6 +65,7 @@ from osprey.deployment.web_terminals.render import (
     TLS_LISTEN_PORT,
     _auth_tls_context,
     _authorization_context,
+    _blank_scope_index,
     _configured_external_origin,
     _external_origin,
     _port_int,
@@ -2896,10 +2898,11 @@ def _check_auth_session_lifetime(web_terminals: dict[str, Any]) -> list[Finding]
     lifetime = auth_raw["session_lifetime"]
     if lifetime is None:
         return []
-    # `bool` is excluded for render's reason (see `render._positive_int`): it
-    # passes `isinstance(..., int)`, and `session_lifetime: true` becoming a
+    # The same predicate the render reads, so this rule and the fall-back it
+    # describes cannot drift: `bool` is excluded there because it passes
+    # `isinstance(..., int)`, and `session_lifetime: true` becoming a
     # one-second session would be a baffling deployment.
-    if isinstance(lifetime, int) and not isinstance(lifetime, bool) and lifetime > 0:
+    if is_positive_int(lifetime):
         return []
     return [
         Finding(
@@ -2962,10 +2965,12 @@ def _check_listener_ports(root: dict[str, Any], web_terminals: dict[str, Any]) -
         port = stanza["port"]
         if port is None:
             continue
-        # `bool` is excluded for render's reason (see `render._positive_int`):
-        # it passes `isinstance(..., int)`, and `tls.port: true` becoming a
-        # listener on port 1 would be a baffling deployment.
-        if isinstance(port, int) and not isinstance(port, bool) and 0 < port <= _MAX_PORT:
+        # The same predicate the render reads (see
+        # :func:`osprey.config_guards.is_positive_int`), bounded above by the
+        # highest port there is: `bool` is excluded because it passes
+        # `isinstance(..., int)`, and `tls.port: true` becoming a listener on
+        # port 1 would be a baffling deployment.
+        if is_positive_int(port) and port <= _MAX_PORT:
             continue
         findings.append(
             Finding(
@@ -3055,9 +3060,9 @@ def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> lis
       restores the default, so the sidecar would read a variable the operator
       never set.
     * **Scopes.** ``auth.oidc.scopes`` is a list of scope strings (or one
-      space-separated string). Any other shape renders no scopes line at all,
-      so the sidecar's default applies and the authored scopes are gone
-      without a trace.
+      space-separated string). Any other shape — including a list carrying an
+      entry that is blank — renders no scopes line at all, so the sidecar's
+      default applies and the authored scopes are gone without a trace.
     * **External origin.** The OIDC ``redirect_uri`` is built from the
       deployment's one external origin, which needs ``deploy.fqdn``. An IdP
       rejects a callback whose ``redirect_uri`` isn't character-for-character
@@ -3105,14 +3110,30 @@ def _check_auth_oidc(root: dict[str, Any], web_terminals: dict[str, Any]) -> lis
 
     # `scopes` is read the same way and fails the same way: render joins a list
     # of strings (or an already-joined string) into the env line and treats
-    # every other shape as unset, so a wrong-typed value renders nothing and
-    # the sidecar's own default applies — the authored scopes are gone with no
-    # trace. Only the SHAPE is checked here; the sidecar refuses a list without
-    # `openid` at startup, where it also knows what the IdP was asked for.
+    # every other shape — including a list with a blank entry — as unset, so an
+    # unusable value renders nothing and the sidecar's own default applies — the
+    # authored scopes are gone with no trace. A blank entry gets its own finding
+    # because the index is the whole repair, and reporting it as an unreadable
+    # list would name everything except the one entry to fix. Only the SHAPE is
+    # checked here; the sidecar refuses a list without `openid` at startup,
+    # where it also knows what the IdP was asked for.
     if "scopes" in oidc:
         scopes = oidc.get("scopes")
-        joined = _scope_list(scopes)
-        if joined is None:
+        blank_index = _blank_scope_index(scopes)
+        if blank_index is not None:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.auth_oidc_blank_scope",
+                    message=(
+                        f"modules.web_terminals.auth.oidc.scopes[{blank_index}] is blank "
+                        "where a scope was meant to go; render would emit no scopes line "
+                        "and the sidecar would fall back to its own default, silently "
+                        "dropping what was authored"
+                    ),
+                )
+            )
+        elif _scope_list(scopes) is None:
             findings.append(
                 Finding(
                     severity="error",

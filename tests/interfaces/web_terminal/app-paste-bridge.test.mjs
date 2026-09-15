@@ -24,6 +24,29 @@
 
 import { afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 
+// The host-chrome import graph below reaches bar-sync.js, which GETs the
+// operator's bar layout at import time. Nothing serves this environment, so
+// that request is answered here — from `vi.hoisted`, which runs before the
+// static imports are evaluated and therefore before the GET is made. Any other
+// URL is a dependency this file has not declared, and fails loudly.
+vi.hoisted(() => {
+  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+    if (url !== '/api/bar-items') throw new Error(`unstubbed fetch: ${url}`);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        version: 1,
+        rev: 0,
+        header: [],
+        status: [],
+        header_visible: true,
+        status_visible: true,
+      }),
+    };
+  }));
+});
+
 /** Mutable stand-in for terminal.js, reachable from the hoisted vi.mock factory. */
 const term = vi.hoisted(() => ({
   paste: vi.fn(),

@@ -28,6 +28,7 @@ from typing import Any
 
 import pytest
 import yaml
+from jinja2 import TemplateRuntimeError
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_cmd import _ariel_server_enabled
@@ -370,6 +371,29 @@ def test_web_renders_an_explicit_empty_panels_map_when_a_field_opens_it():
     """
     config = _config(panel_presets={"Empty": ["artifacts"]})
     assert config["web"]["panels"] == {}
+
+
+def test_a_render_without_the_panel_selection_refuses():
+    """The selection is wiring, not a profile field, so an absent one is a fault.
+
+    Defaulting it to `[]` would render `panels: {}` — a tab strip with every
+    selected tab silently missing — and nothing downstream could tell that
+    apart from a profile that selected no builtin.
+    """
+    context = {key: value for key, value in _MINIMAL_CTX.items() if key != "selected_web_panels"}
+    with pytest.raises(TemplateRuntimeError, match="selected_web_panels"):
+        TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
+
+
+def test_a_render_without_the_builtin_panel_registry_refuses():
+    """The registry the selection is filtered against is wiring too.
+
+    Without it every selected builtin filters away, so the same `panels: {}`
+    comes out — an absent registry is a wiring fault, not an empty one.
+    """
+    context = {key: value for key, value in _MINIMAL_CTX.items() if key != "builtin_panels"}
+    with pytest.raises(TemplateRuntimeError, match="builtin_panels"):
+        TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
 
 
 # ── The ARIEL gate ───────────────────────────────────────────────────────────

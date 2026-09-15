@@ -115,6 +115,18 @@ describe('renderPreview: empty state', () => {
 });
 
 describe('renderPreview: per-type viewport dispatch', () => {
+  // The markdown and json viewports fetch the artifact's file to fill the
+  // container renderPreview just created. Nothing serves this environment, so
+  // that read is answered here; the rows below assert on the container, not on
+  // what lands inside it. Any other URL is a dependency these cases have not
+  // declared, and fails loudly.
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url !== '/files/a1/beam_profile.png') throw new Error(`unstubbed fetch: ${url}`);
+      return { ok: true, status: 200, text: async () => '', json: async () => ({}) };
+    }));
+  });
+
   test.each([
     ['plot_html', 'iframe.preview-iframe-light'],
     ['table_html', 'iframe.preview-iframe-light'],

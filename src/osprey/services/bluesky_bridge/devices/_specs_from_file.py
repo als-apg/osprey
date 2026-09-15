@@ -20,8 +20,9 @@ The document has exactly two top-level keys, both optional::
 
 ``yaml.safe_load`` parses it, so a ``.json`` file is read by the same code
 path. Nothing here splits a value on any character, which is the point of the
-format: EPICS PV names may contain commas (16 of ALS's BTS quadrupoles do),
-and the env-var channel this replaced used commas as its entry separator.
+format: EPICS PV names may contain commas (16 of the bundled demo tree's BTS
+quadrupoles do), and the env-var channel this replaced used commas as its
+entry separator.
 
 Parsing is **fail-soft**. A malformed entry is skipped with a warning rather
 than raised on — one typo must not cost every other device in a 13k-entry file

@@ -27,6 +27,17 @@ services:
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{#- The site's build settings — a CA for a TLS-intercepting proxy, pip's proxy
+    bypass list, and an internal package index — as the deployment's `images:`
+    block declares them, resolved once per build context by
+    compose_generator._stage_site_image_args_for_context. Rendered at BUILD
+    time off the config rather than as a `${VAR}` default at compose time, for
+    the reason the qmd fragment's own render-time gate states. A deployment
+    that declares none of them emits nothing here, so its build argv is what it
+    always was. #}
+{%- for name, value in site_image_build_args | default({}) | dictsort %}
+        {{ name }}: "{{ value }}"
+{%- endfor %}
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
@@ -81,10 +92,16 @@ services:
     ports:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}:{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}"
     environment:
-      # The connector-backed sidecar reads config.yml at runtime. CWD is the
-      # image WORKDIR (/app), not the project dir, so without CONFIG_FILE this
-      # falls back to /app/config.yml — mirrors the bluesky bridge's identical
-      # CONFIG_FILE convention.
+      # Not a config-loader input here: the sidecar's own config read goes
+      # through OSPREY_CONFIG and the working directory and ignores this
+      # variable by design (osprey_connectors.workspace.resolve_config_path),
+      # tolerating a config it does not find. What this names is the mounted
+      # config whose DIRECTORY the /channels route reads the build-time
+      # channels.json out of. Without it that route resolves ./channels.json
+      # against the image WORKDIR (/app) rather than the mount under
+      # /app/project, so the sidecar still starts and every panel still
+      # serves — the channel catalog alone answers 404, and the plan form's
+      # channel fields offer no autocomplete.
       CONFIG_FILE: /app/project/config.yml
       TZ: {{ system.timezone }}
       # Reach the co-deployed bluesky bridge by its in-network compose service

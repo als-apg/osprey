@@ -8,8 +8,8 @@ let those three share them:
 
 * The module is a stdlib-only leaf. The profile schema is imported by every
   ``osprey build`` / ``osprey config`` / ``osprey init`` invocation, and the
-  numbers must reach it without dragging :mod:`osprey.dispatch` (and its HTTP
-  worker client) into the profile import graph.
+  numbers must reach it without dragging :mod:`osprey.dispatch` into the
+  profile import graph at all.
 * :mod:`osprey.dispatch.trigger_config` re-exports them, so code reading the
   defaults from the runtime package sees the same pair.
 
@@ -85,10 +85,12 @@ def test_the_leaf_imports_nothing_from_osprey():
 def test_the_profile_schema_keeps_the_dispatch_package_out_of_its_import_graph():
     """The CLI reads the numbers from the leaf, not through ``osprey.dispatch``.
 
-    Every ``build``, ``config`` and ``init`` invocation imports the schema,
-    while ``osprey.dispatch`` pulls in the HTTP worker client the CLI never
-    calls. The profile's own trigger check imports the package on demand, and
-    the pool defaults must not undo that.
+    Every ``build``, ``config`` and ``init`` invocation imports the schema, and
+    the dispatcher package has no place in that import graph at all: the
+    profile's own trigger check imports it on demand, and the pool defaults
+    must not undo that. This is a stronger guarantee than the package's own
+    lazy exports, which say only that importing the package is cheap, and it
+    must not be relaxed into it.
     """
     fresh = _fresh_import_modules("osprey.cli.build_profile_schema", set())
     assert not [name for name in fresh if name.split(".")[:2] == ["osprey", "dispatch"]]

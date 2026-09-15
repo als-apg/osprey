@@ -45,7 +45,10 @@ def test_every_resource_check_is_a_declared_marker() -> None:
 
 
 def test_resource_checks_are_predicate_reason_pairs() -> None:
+    """A reason may be computed rather than fixed — a resource whose absence has
+    more than one explanation says which one — but it must be one of the two: a
+    bare ``None`` or an empty string would skip the test with nothing to read."""
     for name, entry in _RESOURCE_CHECKS.items():
         predicate, reason = entry
         assert callable(predicate), name
-        assert isinstance(reason, str) and reason, name
+        assert callable(reason) or (isinstance(reason, str) and reason), name
