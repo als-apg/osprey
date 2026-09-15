@@ -670,9 +670,10 @@ services:
       QSERVER_ZMQ_PUBLIC_KEY: {{ qserver_public_ref }}
       # ── document plane (publisher side) ──────────────────────────────────
       # Connect form of the bridge's in-side bind: the startup module's
-      # `bluesky.callbacks.zmq` Publisher pushes run documents at the Proxy
-      # the bridge binds, authenticating with the CLIENT half of the document
-      # plane's keypair (its own secret certificate + the bridge's public one).
+      # `bluesky.callbacks.zmq` Publisher pushes run documents at the
+      # document-plane forwarder the bridge binds, authenticating with the
+      # CLIENT half of the document plane's keypair (its own secret
+      # certificate + the bridge's public one).
       # Certificate paths, fixed by the mount below — see the bridge's copy of
       # this block for why they are paths and not `.env` passthroughs.
       #
