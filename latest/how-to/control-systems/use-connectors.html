@@ -795,8 +795,13 @@ EPICS</label><div class="sd-tab-content docutils">
 <span class="w">  </span><span class="nt">epics_archiver</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://archiver.facility.edu:8443</span><span class="w">   </span><span class="c1"># required</span>
 <span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">                                </span><span class="c1"># seconds, default 60</span>
+<span class="w">    </span><span class="nt">retrieval_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/retrieval</span><span class="w">                 </span><span class="c1"># default; a reverse proxy may rename it</span>
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">url</span></code> is the appliance’s root (or the reverse proxy’s). The connector
+reads through the appliance’s retrieval servlet, mounted at <code class="docutils literal notranslate"><span class="pre">/retrieval</span></code>
+on a bare appliance; when a proxy in front of the appliance publishes that
+servlet under a different prefix, name the prefix with <code class="docutils literal notranslate"><span class="pre">retrieval_path</span></code>.</p>
 </div>
 <input id="sd-tab-item-8" name="sd-tab-set-1" type="radio">
 <label class="sd-tab-label" data-sync-group="cs" data-sync-id="doocs" for="sd-tab-item-8">
