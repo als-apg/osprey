@@ -83,8 +83,8 @@ def detect_provider_credentials(
     deployment carries, and reporting it as a found credential described the
     build host rather than the deployment.
 
-    Keyless providers (ollama, vllm, ds4, asksage) are excluded — they have no
-    API-key env var to report on.
+    Keyless providers (ollama, vllm, ds4) are excluded — they have no API-key
+    env var to report on.
 
     Args:
         project_path: The build zone, whose own ``.env`` is source 1.
