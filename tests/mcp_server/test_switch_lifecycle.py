@@ -72,6 +72,11 @@ from tests.mcp_server._switch_harness import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _child_harness(child_environment, state_root):
+    """Every test here runs a child against a scratch state root."""
+
+
 async def mixed_session(factory, va_armed_project):
     """A started session whose 'va' block arms writes and whose 'live' does not.
 
