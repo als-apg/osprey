@@ -76,3 +76,33 @@ def test_row_never_raises_on_an_unresolvable_config(tmp_path: Path) -> None:
         Status.OK,
         Status.WARNING,
     )
+
+
+_GATEWAY_CONFIG = {
+    "facility": {"timezone": "UTC"},
+    "claude_code": {"provider": "als-apg"},
+    "modules": {"web_terminals": {"enabled": True, "image_source": "local"}},
+}
+
+
+def test_existing_file_missing_a_required_endpoint_is_an_error(tmp_path: Path) -> None:
+    """A deployment rendered before its provider required a gateway endpoint:
+    .env and .env.users agree, both lack it, and every terminal restarts
+    forever. Agreement with the chain is not health here -- the row names the
+    variable and the remedy."""
+    _dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "k"})
+    _dotenv(tmp_path / ".env.users", {"ALS_APG_API_KEY": "k"})
+
+    row = _run(_GATEWAY_CONFIG, tmp_path)["users_env"]
+
+    assert row.status is Status.ERROR
+    assert "ALS_APG_BASE_URL" in row.message
+    assert "als-apg" in row.message
+
+
+def test_existing_file_with_the_required_endpoint_is_ok(tmp_path: Path) -> None:
+    both = {"ALS_APG_API_KEY": "k", "ALS_APG_BASE_URL": "https://gw.test/v1"}
+    _dotenv(tmp_path / ".env", both)
+    _dotenv(tmp_path / ".env.users", both)
+
+    assert _run(_GATEWAY_CONFIG, tmp_path)["users_env"].status is Status.OK

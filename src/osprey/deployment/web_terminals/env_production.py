@@ -678,6 +678,31 @@ def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
     return var, needs_endpoint and not declared
 
 
+def required_provider_endpoint_var(cfg: dict) -> str | None:
+    """The endpoint variable one config's own agent provider cannot start without.
+
+    :func:`_provider_endpoint_var`'s narrower half, for a caller that is
+    PREPARING the env chain rather than reading it — ``osprey up``'s offer to
+    seed a missing ``.env`` out of the operator's shell. That seed asks here
+    instead of deriving a name of its own so that it and the gate further down
+    the same deploy resolve the identical variable: a seed that harvested a
+    different spelling would answer one prompt and earn the refusal anyway.
+
+    :param cfg: One project's raw config.
+    :return: The variable name, or ``None`` when this config names no
+        ``claude_code`` provider, or names one that resolves an endpoint
+        without help from the environment.
+    """
+    provider = (cfg.get("claude_code") or {}).get("provider")
+    if not isinstance(provider, str) or not provider:
+        return None
+    resolved = _provider_endpoint_var(cfg, provider)
+    if resolved is None:
+        return None
+    var, required = resolved
+    return var if required else None
+
+
 def _provider_endpoint_vars(
     config: dict, project_root: Path
 ) -> tuple[dict[str, str], dict[str, str]]:
@@ -936,105 +961,126 @@ def _build_env_production_subset(
     return subset
 
 
-def users_env_generation_problem(config: dict, project_root: str | Path) -> str | None:
-    """Whether generating ``.env.users`` would leave web terminals unauthenticated.
+@dataclass(frozen=True)
+class _MissingRequiredVars:
+    """Variables the web terminals cannot run without that the env chain does not set.
 
-    The gate :func:`ensure_env_production` raises on, expressed as a question so
-    it can also be ASKED — by the collect-all preflight, which reports every
-    cheaply checkable refusal at once instead of costing the operator a deploy
-    attempt per finding. One function rather than two, so the probe and the
-    writer can never disagree about which variables are required or about how
-    the refusal is worded.
+    Attributes:
+        missing: ``{var: origin}``, origin being a human-readable description
+            of the config key and the persona asking for it.
+        endpoints: The subset of ``missing`` naming a gateway endpoint — a
+            provider that resolves no URL without it, so the container exits
+            during startup and compose restarts it forever.
+        telemetry: The subset of ``missing`` naming an observability-store
+            credential, which the chain must carry and ``.env.users`` may not
+            (see :func:`_telemetry_credential_requirements`).
+    """
 
-    Answers ``None`` — nothing to report — for the three cases that are not this
-    refusal, in the order :func:`ensure_env_production` settles them:
+    missing: dict[str, str]
+    endpoints: frozenset[str]
+    telemetry: frozenset[str]
 
-    * ``.env.users`` already on disk. An existing file is never regenerated, so
-      there is no generation to have a problem with (whether its CONTENTS are
-      adequate is :func:`_warn_if_env_production_lacks_credentials`' warning,
-      not a refusal).
-    * Registry mode. Nothing is generated there at all.
-    * No env-chain file. There is nothing to generate FROM, which is its own
-      refusal with its own remedy and not this one.
 
-    Pure: it parses the env chain and each referenced persona's rendered
-    ``config.yml``, and writes nothing anywhere. The ambient environment is read
-    only for the presence check behind the shell hint — never for a value, and
-    never as a source (see :func:`ensure_env_production` on why the chain on
-    disk is the whole source).
+def _required_vars_missing_from_chain(config: dict, project_root: Path) -> _MissingRequiredVars:
+    """Which variables this deploy requires that the merged env chain does not set.
+
+    THE derivation of "required", asked by every surface that reports on this
+    file: the deploy gate, the collect-all preflight and ``osprey health``'s
+    ``users_env`` row. One function rather than three, so no two of them can
+    disagree about which variables a deployment cannot run without.
+
+    "Missing" means missing from the MERGED chain: a variable only
+    ``.env.shared`` sets is set. The ambient process environment is not a
+    source here — that rule belongs to the generated file's determinism (see
+    :func:`ensure_env_production`) — though :func:`_required_vars_refusal`
+    reads it for a presence check behind its shell hint.
+
+    Pure: parses the env chain and each referenced persona's rendered
+    ``config.yml``, and writes nothing.
 
     :param config: Raw deploy config.
-    :param project_root: Project root; ``.env.users`` and the env-chain files
-        are resolved relative to it.
-    :return: The refusal sentence, or ``None`` when generation would succeed.
-        It names the missing variables and what their absence costs — an
-        unauthenticated terminal, a provider with no endpoint, or both.
+    :param project_root: Project root the chain and the persona projects are
+        resolved against.
+    :return: The gap, classified by what each absence costs.
     """
-    root = Path(project_root)
-    users_env_path = root / USERS_ENV_FILENAME
-    if users_env_path.is_file():
-        return None
-
-    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    if effective_image_source(web_terminals) != "local":
-        return None
-
-    sources = chain_files(root)
-    if not sources:
-        return None
-    sources_desc = " + ".join(str(path) for path in sources)
-    env_path = root / ENV_LOCAL_FILENAME
-
-    dotenv = merge_chain(root)
-    required_cc_vars, _extra_cc_vars, _keyless_cc_vars = _claude_code_auth_secret_vars(config, root)
-    required_url_vars, _extra_url_vars = _provider_endpoint_vars(config, root)
+    dotenv = merge_chain(project_root)
+    required_cc_vars, _extra_cc_vars, _keyless_cc_vars = _claude_code_auth_secret_vars(
+        config, project_root
+    )
+    required_url_vars, _extra_url_vars = _provider_endpoint_vars(config, project_root)
     # Reported, never copied: these are variables a telemetry block depends on
-    # that this file is not allowed to carry, so they join the gate below and
-    # nothing else. Keeping them out of the {**required, **extra} pair handed to
+    # that this file is not allowed to carry, so they join the gate and nothing
+    # else. Keeping them out of the {**required, **extra} pair handed to
     # _build_env_production_subset is what stops the store's admin password from
     # being written into a file every persona reads.
-    telemetry_vars = _telemetry_credential_requirements(config, root)
+    telemetry_vars = _telemetry_credential_requirements(config, project_root)
 
-    # "Missing" means missing from the MERGED chain: a var only .env.shared
-    # sets is set.
     missing = {
         var: origin
         for var, origin in {**telemetry_vars, **required_cc_vars, **required_url_vars}.items()
         if var not in dotenv
     }
-    if not missing:
-        return None
+    return _MissingRequiredVars(
+        missing=missing,
+        endpoints=frozenset(var for var in missing if var in required_url_vars),
+        telemetry=frozenset(var for var in missing if var in telemetry_vars),
+    )
+
+
+def _required_vars_refusal(
+    gap: _MissingRequiredVars,
+    users_env_path: Path,
+    sources: list[Path],
+    env_path: Path,
+    *,
+    existing: bool,
+) -> str:
+    """The sentence a chain missing a required variable is refused with.
+
+    THE wording, shared by the writer, the probes, the preflight and the health
+    row, so an operator meets the same variable names, the same consequence and
+    the same remedy wherever the gap is reported. Only the opening clause turns
+    on whether ``.env.users`` is already on disk, because only the remedy
+    differs: a file that does not exist yet is about to be generated from the
+    chain, while one that does is never regenerated and has to be re-rendered.
+
+    Names only. No value out of the chain, the file or the shell ever enters
+    the sentence — the shell hint below is a presence check, and the copy-in
+    command it prints expands the variable in the operator's own shell.
+
+    :param gap: The missing variables and what each absence costs.
+    :param users_env_path: The file the terminals run with.
+    :param sources: The env-chain files, in merge order.
+    :param env_path: The chain file an operator adds a missing variable to.
+    :param existing: Whether ``users_env_path`` is already on disk.
+    :return: The refusal sentence.
+    """
+    sources_desc = " + ".join(str(path) for path in sources)
 
     # Named for what the absence actually costs, since the two halves fail
     # differently: a secret is every terminal failing authentication on its
     # first prompt, an endpoint is a container that exits during startup and
     # restarts forever with its health stuck at "starting".
     consequences = []
-    if any(var not in required_url_vars for var in missing):
+    if any(var not in gap.endpoints for var in gap.missing):
         consequences.append("unauthenticated")
-    if any(var in required_url_vars for var in missing):
+    if gap.endpoints:
         consequences.append("without the gateway endpoint their provider has no default for")
     consequence = " and ".join(consequences)
 
-    needs = "; ".join(f"{origin} needs {var}" for var, origin in missing.items())
+    needs = "; ".join(f"{origin} needs {var}" for var, origin in gap.missing.items())
     # The chain on disk stays the only SOURCE (see ensure_env_production's
     # determinism note) — but when a missing var is sitting right there in the
     # shell, say so and hand over the exact copy-in command instead of leaving
     # the operator to discover the .env-only rule by archaeology. Presence
     # check only; the value itself is never read into the message.
-    exported = [var for var in missing if os.environ.get(var)]
+    exported = [var for var in gap.missing if os.environ.get(var)]
     shell_hint = ""
     if exported:
         # One store, one command. ``env_path`` is the deployment repo's own
-        # ``.env`` at the repo root — source, not render — so appending to
-        # it IS the durable write; there is no second, profile-side copy to
-        # name and no rebuild needed to carry the value anywhere. (This
-        # replaced a two-.env model where the project's ``.env`` was
-        # derived from the profile's and a write to the wrong one was
-        # dropped by the next build. Under the four-zone layout the
-        # profile and the secret store share a root, so that distinction no
-        # longer exists — and telling an operator their write will be
-        # dropped would now be false.)
+        # ``.env`` at the repo root — source, not render — so appending to it
+        # IS the durable write; there is no second, profile-side copy to name
+        # and no rebuild needed to carry the value anywhere.
         names = ", ".join(exported)
         verb = "are" if len(exported) > 1 else "is"
         copy_cmds = " && ".join(f'echo "{var}=${var}" >> {env_path}' for var in exported)
@@ -1044,13 +1090,13 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
             "(generation never reads the ambient environment). Copy it in "
             f"with: {copy_cmds}"
         )
-    # Named separately because the remedy is only half the usual one: the
-    # chain is where these belong, but this file will still not carry them,
-    # so an operator who adds one and expects it to reach the terminals has
-    # to be told what actually happens instead.
-    telemetry_missing = [var for var in missing if var in telemetry_vars]
+    # Named separately because the remedy is only half the usual one: the chain
+    # is where these belong, but this file will still not carry them, so an
+    # operator who adds one and expects it to reach the terminals has to be
+    # told what actually happens instead.
     telemetry_note = ""
-    if telemetry_missing:
+    if gap.telemetry:
+        telemetry_missing = [var for var in gap.missing if var in gap.telemetry]
         telemetry_names = ", ".join(telemetry_missing)
         telemetry_verb = "are" if len(telemetry_missing) > 1 else "is"
         telemetry_note = (
@@ -1066,13 +1112,112 @@ def users_env_generation_problem(config: dict, project_root: str | Path) -> str 
             "telemetry block that names its own fallback (${VAR:-default}) is "
             "not asked for here at all."
         )
-    return (
-        f"Generating {users_env_path} from {sources_desc} would leave web "
-        f"terminals {consequence}: {needs}, set in none of them. Add the "
-        f"missing variable(s) to {env_path}, or author .env.users "
-        "yourself (an existing file is never regenerated) if this deploy "
-        f"authenticates another way.{telemetry_note}{shell_hint}"
+
+    if existing:
+        opening = (
+            f"{users_env_path} exists, but {sources_desc} would leave its web "
+            f"terminals {consequence}: {needs}, set in none of them. A variable "
+            "neither the file nor the chain sets is one they agree on, and an "
+            f"existing {USERS_ENV_FILENAME} is never regenerated, so nothing "
+            "else in this deploy would report it. Add the missing variable(s) "
+            f"to {env_path} and re-render with `osprey users env --output "
+            f"{USERS_ENV_FILENAME}`, or add them to {USERS_ENV_FILENAME} "
+            "yourself when that file is an operator's to keep."
+        )
+    else:
+        opening = (
+            f"Generating {users_env_path} from {sources_desc} would leave web "
+            f"terminals {consequence}: {needs}, set in none of them. Add the "
+            f"missing variable(s) to {env_path}, or author .env.users "
+            "yourself (an existing file is never regenerated) if this deploy "
+            "authenticates another way."
+        )
+    return f"{opening}{telemetry_note}{shell_hint}"
+
+
+def users_env_required_problem(config: dict, project_root: str | Path) -> str | None:
+    """Whether the env chain lacks a variable the web terminals cannot run without.
+
+    The question asked on EVERY deploy, whether or not ``.env.users`` is
+    already on disk — which is what separates it from
+    :func:`users_env_generation_problem`, and the whole reason it exists.
+    Comparing the file with the chain (:func:`users_env_drift`) cannot answer
+    it: a variable neither of them sets is one they agree on, so the comparison
+    is silent while every container restarts forever. That is the state a
+    deployment whose file was rendered before its provider gained a required
+    endpoint is left in, and it resolves only when the chain gains the
+    variable.
+
+    Answers ``None`` — nothing to report — for the two cases that are not this
+    refusal:
+
+    * Registry mode. The file was rendered elsewhere, from secrets this host
+      never sees, so the local chain answers for nothing.
+    * No env-chain file. There is nothing to require anything OF, which is its
+      own refusal with its own remedy and not this one.
+
+    Pure: parses the env chain and each referenced persona's rendered
+    ``config.yml``, and writes nothing anywhere. The ambient environment is
+    read only for the presence check behind the shell hint — never for a value,
+    and never as a source.
+
+    :param config: Raw deploy config.
+    :param project_root: Project root; ``.env.users`` and the env-chain files
+        are resolved relative to it.
+    :return: The refusal sentence, or ``None`` when the chain sets everything
+        required. It names each missing variable, the provider and persona
+        asking for it, what the absence costs and how to resolve it — never a
+        value.
+    """
+    root = Path(project_root)
+
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    if effective_image_source(web_terminals) != "local":
+        return None
+
+    sources = chain_files(root)
+    if not sources:
+        return None
+
+    gap = _required_vars_missing_from_chain(config, root)
+    if not gap.missing:
+        return None
+
+    users_env_path = root / USERS_ENV_FILENAME
+    return _required_vars_refusal(
+        gap,
+        users_env_path,
+        sources,
+        root / ENV_LOCAL_FILENAME,
+        existing=users_env_path.is_file(),
     )
+
+
+def users_env_generation_problem(config: dict, project_root: str | Path) -> str | None:
+    """Whether GENERATING ``.env.users`` would leave web terminals unauthenticated.
+
+    The generate path's half of :func:`users_env_required_problem`: the same
+    requirement, asked only when there is a file to generate. An existing
+    ``.env.users`` is never regenerated, so there is no generation to have a
+    problem with — whether a deployment that HAS one can run is the broader
+    probe's question, and whether the file's contents have gone stale is
+    :func:`users_env_drift_problem`'s.
+
+    It keeps a name of its own because the generate branch of
+    :func:`ensure_env_production` asks exactly this and nothing wider: that
+    branch runs only after the existing-file branch has returned, and a refusal
+    phrased for a file already on disk would be describing a file that is not
+    there.
+
+    :param config: Raw deploy config.
+    :param project_root: Project root; ``.env.users`` and the env-chain files
+        are resolved relative to it.
+    :return: The refusal sentence, or ``None`` when generation would succeed.
+    """
+    root = Path(project_root)
+    if (root / USERS_ENV_FILENAME).is_file():
+        return None
+    return users_env_required_problem(config, root)
 
 
 def render_env_users(subset: dict[str, str]) -> str:
@@ -1290,15 +1435,20 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     front, with different rules per ``modules.web_terminals.image_source``
     (default ``"registry"``):
 
-    - **Already present** (either mode): compared with what the env chain
-      renders now (:func:`users_env_drift`). A file OSPREY rendered — banner,
-      nothing added by hand — that the chain has moved away from is
-      re-rendered in place, so a key rotated in ``.env`` reaches the terminals
-      on the next ``up``. A file an operator authored or edited is never
-      rewritten; it is returned as-is unless a provider secret in it disagrees
-      with the chain, which raises (every terminal would fail authentication
-      on its first prompt, and ``.env`` would look fine). When such a file
-      contains *none* of the credentials the config declares
+    - **Already present** (either mode): first asked the same thing a fresh
+      render is asked — does the env chain set every variable these terminals
+      cannot run without (:func:`users_env_required_problem`)? It raises when
+      one is absent, whoever wrote the file and without touching it, because
+      the comparison below cannot see that case: a variable neither the file
+      nor the chain sets is one they agree on. Otherwise the file is compared
+      with what the chain renders now (:func:`users_env_drift`). A file OSPREY
+      rendered — banner, nothing added by hand — that the chain has moved away
+      from is re-rendered in place, so a key rotated in ``.env`` reaches the
+      terminals on the next ``up``. A file an operator authored or edited is
+      never rewritten; it is returned as-is unless a provider secret in it
+      disagrees with the chain, which raises (every terminal would fail
+      authentication on its first prompt, and ``.env`` would look fine). When
+      such a file contains *none* of the credentials the config declares
       (``llm.api_key_env_var`` or any ``claude_code.provider`` in play — see
       :func:`_claude_code_auth_secret_vars`), a warning names the missing
       var(s) instead.
@@ -1348,6 +1498,17 @@ def ensure_env_production(config: dict, project_root: str | Path) -> Path:
     root = Path(project_root)
     users_env_path = root / USERS_ENV_FILENAME
     if users_env_path.is_file():
+        # Asked of the CHAIN, ahead of comparing the file with anything and
+        # whoever wrote the file. A required variable neither of them sets is a
+        # variable they agree on, so the drift check below reports nothing
+        # while every container exits during startup and restarts forever —
+        # the state a deployment whose file predates its provider's endpoint
+        # requirement sits in. The file is left untouched: the remedy is a
+        # write to the chain, not to this artifact.
+        problem = users_env_required_problem(config, root)
+        if problem is not None:
+            raise RuntimeError(problem)
+
         # The file the terminals RUN with versus the chain it was rendered
         # from. A file OSPREY rendered is OSPREY's to re-render when the chain
         # has moved; an operator's file is never rewritten, but a provider
