@@ -241,7 +241,7 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
     # shell exports; strictly a superset of reading os.environ alone. Uses the
     # shared overlay helper (no circular import: resolver never imports primitives),
     # against the repo's secrets zone rather than the render — see _secrets_dir.
-    from osprey.build.claude_code_resolver import _env_lookup
+    from osprey.build.claude_code_resolver import _env_lookup, provider_base_url_env
 
     lookup: dict[str, str] = _env_lookup(_secrets_dir(project_dir))
 
@@ -252,6 +252,18 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
                 env[spec.auth_env_var] = secret
             # Raw secret for the MCP-subprocess ${SECRET} expansion (see Notes).
             env[spec.auth_secret_env] = secret
+
+    # Endpoint counterpart of the raw-secret carry-through. A gateway provider's
+    # catalog entry spells its endpoint ``base_url: ${ALS_APG_BASE_URL}``, which
+    # the MCP subprocess expands against its own environment; ANTHROPIC_BASE_URL
+    # in the env block does not stand in for it, being the CLI's own variable and
+    # stripped of its ``/v1``. Unset, the placeholder resolves to nothing and the
+    # provider refuses the call for a missing endpoint.
+    base_url_var = provider_base_url_env(spec.provider)
+    if base_url_var:
+        base_url = lookup.get(base_url_var)
+        if base_url:
+            env[base_url_var] = base_url
 
     # Spend attribution on a LiteLLM-fronted provider (mirrors inject_provider_env).
     from osprey.models.spend_attribution import apply_attribution_env
