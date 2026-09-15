@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 15, 2026"/>
   </head>
   
   
@@ -732,7 +732,7 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <div class="note admonition">
 <p class="admonition-title">Known limitation — entry IDs that are not numeric</p>
 <p>qmd normalises the document paths it reports: <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">%</span></code> both become <code class="docutils literal notranslate"><span class="pre">-</span></code>, runs collapse, and a leading one is dropped. ARIEL rehydrates each hit from the document’s title rather than the reported path, so the entries you get back are correct. But two entry IDs that differ <em>only</em> in characters qmd collapses — <code class="docutils literal notranslate"><span class="pre">beam_current_setpoint</span></code> and <code class="docutils literal notranslate"><span class="pre">beam-current-setpoint</span></code>, say — index as one document, and one of them becomes unreachable through this mode.</p>
-<p>Over the real 134,996-entry ALS logbook the measured collision rate is <strong>0.0000%</strong>: every ALS entry ID is a 4-6 digit decimal string, so no real pair can collide. This matters only for a facility whose entry IDs are not numeric.</p>
+<p>Over a real 134,996-entry logbook the measured collision rate is <strong>0.0000%</strong>: every entry ID there is a 4-6 digit decimal string, so no real pair can collide. This matters only for a facility whose entry IDs are not numeric.</p>
 </div>
 </div>
 </div>

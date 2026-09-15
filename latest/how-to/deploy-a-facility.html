@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 15, 2026"/>
   </head>
   
   
@@ -878,6 +878,7 @@ file:</p>
 <span class="w">    </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey</span>
 <span class="w">    </span><span class="nt">project_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/opt/demo-facility</span>
 <span class="w">  </span><span class="nt">image_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<span class="w">  </span><span class="nt">ci_image_prefix</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mirror.example.org/dockerhub</span>
 </pre></div>
 </div>
 <p>Substitute your own registry and host. <code class="docutils literal notranslate"><span class="pre">registry.url</span></code> carries no scheme — it
@@ -885,6 +886,10 @@ appears verbatim inside an image name. <code class="docutils literal notranslate
 whoever presses the deploy button, and <code class="docutils literal notranslate"><span class="pre">host.project_path</span></code> is where this
 repository is checked out on that server. Credentials are <em>named</em> here, never
 written here.</p>
+<p><code class="docutils literal notranslate"><span class="pre">ci_image_prefix</span></code> is where the pipeline pulls the images its own <em>jobs</em> run
+in — Python, Docker and Alpine — so a runner with no route to Docker Hub takes
+them from a mirror instead; leave the key out and the pipeline names the public
+images, which is what a runner with internet access wants.</p>
 <p><code class="docutils literal notranslate"><span class="pre">image_source:</span> <span class="pre">local</span></code> says the deploy host builds the web-terminal images
 itself from the rendered persona projects, rather than pulling them from a
 registry.</p>
@@ -948,9 +953,10 @@ safe to re-run: a file whose content already matches is left untouched, and a
 file the scaffolder did not write is reported and left alone unless you pass
 <code class="docutils literal notranslate"><span class="pre">--force</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">ci-extra.yml</span></code>, which <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code> created in Step 1, is the
-facility’s own include point. The pipeline includes it after everything the
-scaffolder emits, so a job you add there can also override a scaffolded job by
-redefining it under the same name. Nothing ever regenerates that file.</p>
+facility’s own include point. A job you add there runs beside the scaffolded
+ones; reusing a scaffolded job’s name merges the two and the scaffolded
+pipeline’s own keys win, so give a job of your own its own name. Nothing ever
+regenerates that file.</p>
 </section>
 <section id="step-8-build-the-project">
 <h2>Step 8 — Build the project<a class="headerlink" href="#step-8-build-the-project" title="Link to this heading">#</a></h2>

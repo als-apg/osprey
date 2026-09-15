@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 15, 2026"/>
   </head>
   
   
@@ -758,9 +758,9 @@ environment setup is needed.</p>
 </section>
 <section id="what-the-ioc-serves-and-how-often">
 <h2>What the IOC serves, and how often<a class="headerlink" href="#what-the-ioc-serves-and-how-often" title="Link to this heading">#</a></h2>
-<p>Two numbers about the served values are set in the deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> rather
-than fixed in the image, because both are properties of the machine you are
-standing in for rather than of OSPREY:</p>
+<p>Two numbers about the served values reach the container through the
+deployment’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> rather than being fixed in the image, because both are
+properties of the machine you are standing in for rather than of OSPREY:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 30.0%" />
@@ -780,7 +780,12 @@ for a demo that should look live; raise it on a very large namespace.</p></td>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">VA_NOISE_LEVEL</span></code></p></td>
 <td><p>Fractional noise on the synthesised channel values, default <code class="docutils literal notranslate"><span class="pre">0.01</span></code>.
 <code class="docutils literal notranslate"><span class="pre">0</span></code> serves them flat, which is what a test that compares readings
-wants.</p></td>
+wants. Write the value as
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.virtual_accelerator.noise_level</span></code> in your
+configuration — unset, it falls through to
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.mock.noise_level</span></code>, so one simulated machine
+is described once — and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> renders it as this variable’s
+default.</p></td>
 </tr>
 </tbody>
 </table>
@@ -788,7 +793,9 @@ wants.</p></td>
 <p>Both are refused at boot if they are not a number, or out of range, rather than
 being clamped — so a typo shows up in <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span></code> instead of quietly
 changing what the machine looks like. Leave either empty and the default
-applies.</p>
+applies. A variable exported in the deployment’s own <code class="docutils literal notranslate"><span class="pre">.env</span></code> outranks the
+rendered default, so a single run can be made noisier or quieter without
+editing the configuration.</p>
 </section>
 <section id="running-from-a-source-checkout">
 <h2>Running from a source checkout<a class="headerlink" href="#running-from-a-source-checkout" title="Link to this heading">#</a></h2>

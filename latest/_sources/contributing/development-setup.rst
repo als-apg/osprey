@@ -88,7 +88,12 @@ Linting and Formatting
    uv run ruff check --fix src/ tests/
 
    # Type checking
-   uv run mypy src/
+   uv run mypy
+
+The type check's targets are declared in ``pyproject.toml``: it covers the
+framework source and the connectors package together. A run that names a single
+file is for a quick look only — it resolves less than the full run and reports
+errors the full run does not.
 
 Testing
 ^^^^^^^

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 15, 2026"/>
   </head>
   
   
@@ -680,17 +680,13 @@ Text Embedding</label><div class="sd-tab-content docutils">
 <span class="w">    </span><span class="nt">text_embedding</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">      </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ollama</span>
-<span class="w">      </span><span class="nt">index_lists</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">224</span>
 <span class="w">      </span><span class="nt">models</span><span class="p">:</span>
 <span class="w">        </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">nomic-embed-text</span>
 <span class="w">          </span><span class="nt">dimension</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">768</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">index_lists</span></code> (default 224) sizes the pgvector IVFFlat index. The rule of
-thumb is roughly one list per 1000 entries, up to about a million entries.
-It cannot be worked out for you — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code> creates the
-index before a single entry is embedded — and the value is baked in at
-creation, so changing it later means dropping the index and recreating it.</p>
+<p>The vector index over those tables is an HNSW index. It takes no sizing
+parameter, so there is nothing about it to author per deployment.</p>
 <p><strong>Requirements:</strong> Ollama (or another embedding provider) running with the specified model.</p>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">

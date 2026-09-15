@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 11, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 15, 2026"/>
   </head>
   
   
@@ -901,7 +901,8 @@ check still produces a row (an eligible pending check becomes an <code class="do
 renders — not the terminal process itself, which has its own <code class="docutils literal notranslate"><span class="pre">web_terminal:</span></code>
 section. The keys below aim the rail’s two utility controls, bound the feedback
 store, name the deployment, decide who is offered the onboarding tour, arrange
-the header and status bar, and size the Simple-mode operator-chat pool.</p>
+the header and status bar, size the Simple-mode operator-chat pool, and set how
+often the file watchers re-read the tree.</p>
 <section id="documentation-and-feedback-keys">
 <span id="feedback-configuration"></span><h3>Documentation and feedback keys<a class="headerlink" href="#documentation-and-feedback-keys" title="Link to this heading">#</a></h3>
 <div class="pst-scrollable-table-container"><table class="table">
@@ -1127,6 +1128,32 @@ not know, a second copy of an item that can only appear once (everything but <co
 and <code class="docutils literal notranslate"><span class="pre">separator</span></code>), or a line that is not an item at all is reported in the log
 and skipped; the rest of the bar is rendered. Twenty items per bar is the
 ceiling, and extras past it are dropped.</p>
+</section>
+<section id="how-often-the-file-watchers-re-read-the-tree">
+<span id="config-file-watch-reconcile"></span><h3>How often the file watchers re-read the tree<a class="headerlink" href="#how-often-the-file-watchers-re-read-the-tree" title="Link to this heading">#</a></h3>
+<p>The file panel and the artifact gallery both learn about a change from the
+operating system’s own change notifications. Those notifications can go quiet —
+the watch is live, and the system simply stops delivering to it for a while —
+and for as long as that lasts, neither surface hears about anything and neither
+one knows it. <code class="docutils literal notranslate"><span class="pre">web.file_watch_reconcile_interval_s</span></code> is the second trigger:
+on that interval, each watcher re-reads the directories it is tracking and
+announces whatever the notifications did not. It is therefore the ceiling on how
+long a change can stay invisible.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">file_watch_reconcile_interval_s</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2.0</span>
+</pre></div>
+</div>
+<p>The default is <code class="docutils literal notranslate"><span class="pre">2.0</span></code>. What the number costs is one directory listing per
+tracked directory per interval — and a directory is tracked once something in it
+has changed, never the whole workspace up front. A directory the notifications
+never announced is picked up one level per interval from the nearest tracked
+ancestor, so a deep tree costs one further listing per interval while it is
+being discovered and nothing once it is. A deployment whose workspace is very
+large or very busy can raise the interval, trading a longer worst-case delay for
+fewer listings. Lowering it does the opposite. A value that is not a
+positive number is reported in the log and the default is used; there is no
+value that switches the pass off, because a watcher with only one trigger is a
+watcher that can go blind without saying so.</p>
 </section>
 <section id="dangerously-allow-bash-waiving-the-bash-launch-token-refusal">
 <span id="config-dangerously-allow-bash"></span><h3><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal<a class="headerlink" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal" title="Link to this heading">#</a></h3>
@@ -1517,6 +1544,7 @@ recorded in <a class="reference internal" href="../contracts/audit-trail.html#re
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#blank-absent-and-written-with-no-value">Blank, absent, and written-with-no-value</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-onboarding-tour-invite">The onboarding tour invite</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-header-and-status-bar">The header and status bar</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-often-the-file-watchers-re-read-the-tree">How often the file watchers re-read the tree</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#dangerously-allow-bash-waiving-the-bash-launch-token-refusal"><code class="docutils literal notranslate"><span class="pre">dangerously_allow_bash</span></code> — waiving the Bash/launch-token refusal</a></li>
 </ul>
 </li>

@@ -433,7 +433,8 @@ The top-level ``web:`` section configures the browser UI the Web Terminal
 renders — not the terminal process itself, which has its own ``web_terminal:``
 section. The keys below aim the rail's two utility controls, bound the feedback
 store, name the deployment, decide who is offered the onboarding tour, arrange
-the header and status bar, and size the Simple-mode operator-chat pool.
+the header and status bar, size the Simple-mode operator-chat pool, and set how
+often the file watchers re-read the tree.
 
 .. _feedback-configuration:
 
@@ -654,6 +655,37 @@ not know, a second copy of an item that can only appear once (everything but ``c
 and ``separator``), or a line that is not an item at all is reported in the log
 and skipped; the rest of the bar is rendered. Twenty items per bar is the
 ceiling, and extras past it are dropped.
+
+.. _config-file-watch-reconcile:
+
+How often the file watchers re-read the tree
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The file panel and the artifact gallery both learn about a change from the
+operating system's own change notifications. Those notifications can go quiet —
+the watch is live, and the system simply stops delivering to it for a while —
+and for as long as that lasts, neither surface hears about anything and neither
+one knows it. ``web.file_watch_reconcile_interval_s`` is the second trigger:
+on that interval, each watcher re-reads the directories it is tracking and
+announces whatever the notifications did not. It is therefore the ceiling on how
+long a change can stay invisible.
+
+.. code-block:: yaml
+
+   web:
+     file_watch_reconcile_interval_s: 2.0
+
+The default is ``2.0``. What the number costs is one directory listing per
+tracked directory per interval — and a directory is tracked once something in it
+has changed, never the whole workspace up front. A directory the notifications
+never announced is picked up one level per interval from the nearest tracked
+ancestor, so a deep tree costs one further listing per interval while it is
+being discovered and nothing once it is. A deployment whose workspace is very
+large or very busy can raise the interval, trading a longer worst-case delay for
+fewer listings. Lowering it does the opposite. A value that is not a
+positive number is reported in the log and the default is used; there is no
+value that switches the pass off, because a watcher with only one trigger is a
+watcher that can go blind without saying so.
 
 .. _config-dangerously-allow-bash:
 
