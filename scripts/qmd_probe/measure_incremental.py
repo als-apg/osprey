@@ -80,7 +80,7 @@ def write_entry(mirror: Path, tag: str) -> Path:
     path.write_text(
         f"# Probe entry {tag}\n\n"
         f"Logged by qmd-probe on {now:%Y-%m-%d %H:%M:%S} UTC.\n"
-        "Category: Operations. Level: Info. Source: ALS logbook.\n\n"
+        "Category: Operations. Level: Info. Source: logbook.\n\n"
         f"Synthetic entry {tag} written by the qmd scale probe to measure "
         "incremental reindex latency. Mentions a distinctive token "
         f"zzprobetoken{tag} so it can be retrieved unambiguously.\n",

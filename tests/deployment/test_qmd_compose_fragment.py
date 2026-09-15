@@ -26,7 +26,7 @@ Four further properties carry the design and each has its own test:
   endpoint is unauthenticated, so it must not be possible to expose it on an
   interface the rest of the stack is not on.
 * **The index survives a recreate.** It is a named volume, not a bind and not
-  container-local: rebuilding it costs ~41 minutes at ALS scale.
+  container-local: rebuilding it costs ~41 minutes at 135,000 documents.
 * **Pre-staged models are two edits or none.** ``services.qmd.models_dir`` gates
   a build arg (which tells the image build to skip the 2.1 GB of downloads) and
   a read-only bind mount (which supplies those same files at runtime). One
@@ -495,8 +495,8 @@ def test_health_probe_goes_through_the_forwarder():
 
 def test_health_start_period_outlasts_a_first_boot_full_build():
     """The entrypoint refuses to open the port until the index is built, and a
-    full build measured 41 minutes at ALS scale. A shorter grace period reports
-    a container that is working correctly as unhealthy."""
+    full build measured 41 minutes at 135,000 documents. A shorter grace period
+    reports a container that is working correctly as unhealthy."""
     assert compose_service()["healthcheck"]["start_period"] == "3600s"
 
 
