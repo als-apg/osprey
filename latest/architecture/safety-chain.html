@@ -523,7 +523,13 @@ its own inherits. Applies to both <code class="docutils literal notranslate"><sp
 <li><p><strong>osprey_limits</strong> — Validates the setpoint against the channel limits database
 (min, max, step size, writable flag). Only applies to <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>.</p></li>
 <li><p><strong>osprey_approval</strong> — Human approval gate. Per-tool policy dispatch: <code class="docutils literal notranslate"><span class="pre">always</span></code> (require
-approval every time), <code class="docutils literal notranslate"><span class="pre">selective</span></code> (ask the Osprey agent to decide), or <code class="docutils literal notranslate"><span class="pre">skip</span></code>.</p></li>
+approval every time), <code class="docutils literal notranslate"><span class="pre">selective</span></code>, or <code class="docutils literal notranslate"><span class="pre">skip</span></code>. Under <code class="docutils literal notranslate"><span class="pre">selective</span></code> the hook itself
+inspects the call and prompts only when an <code class="docutils literal notranslate"><span class="pre">execute</span></code> request is <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> or its
+code contains a control-system write pattern; a <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> is prompted for every
+time. An <code class="docutils literal notranslate"><span class="pre">execute</span></code> that needs approval has its code saved as a <strong>Pre-Execution Review</strong>
+notebook in the artifact gallery, linked from the prompt, so the operator reviews the
+exact code that will run. The approval is the terminal prompt; the gallery only shows
+the code.</p></li>
 </ol>
 </section>
 

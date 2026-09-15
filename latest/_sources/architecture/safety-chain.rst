@@ -22,4 +22,10 @@ is part of the trust boundary. The chain for ``channel_write`` — the most safe
    (min, max, step size, writable flag). Only applies to ``channel_write``.
 
 3. **osprey_approval** — Human approval gate. Per-tool policy dispatch: ``always`` (require
-   approval every time), ``selective`` (ask the Osprey agent to decide), or ``skip``.
+   approval every time), ``selective``, or ``skip``. Under ``selective`` the hook itself
+   inspects the call and prompts only when an ``execute`` request is ``readwrite`` or its
+   code contains a control-system write pattern; a ``channel_write`` is prompted for every
+   time. An ``execute`` that needs approval has its code saved as a **Pre-Execution Review**
+   notebook in the artifact gallery, linked from the prompt, so the operator reviews the
+   exact code that will run. The approval is the terminal prompt; the gallery only shows
+   the code.
