@@ -22,15 +22,25 @@ __all__ = [
     "run_health_suite",
 ]
 
+#: Public name -> the submodule of this package that defines it. Entries are
+#: resolved on first attribute access, never at import.
+_LAZY_EXPORTS: dict[str, str] = {
+    "run_health_suite": ".runner",
+    "HealthRuntime": ".runtime",
+}
+
 
 def __getattr__(name: str) -> Any:
-    """Lazily resolve the runner and runtime symbols (PEP 562)."""
-    if name == "run_health_suite":
-        from .runner import run_health_suite
+    """Resolve a public name from its defining module on first access."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from importlib import import_module
 
-        return run_health_suite
-    if name == "HealthRuntime":
-        from .runtime import HealthRuntime
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
 
-        return HealthRuntime
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_LAZY_EXPORTS})
