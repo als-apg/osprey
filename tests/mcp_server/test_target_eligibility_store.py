@@ -45,12 +45,13 @@ from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
 from tests._control_context_fixtures import write_control_context
 
-# The live-child half runs on the switch suite's fixture connector: a mock
+# The live-child half runs on the switch harness's fixture connector: a mock
 # variant whose connect() applies the real gateway-role selection, reading the
 # real per-type posture, with no Channel Access anywhere. Imported rather than
 # restated — a second copy would be a second rule to keep in step with
-# EPICSConnector.connect(). Importing the module applies none of its fixtures.
-from tests.mcp_server.test_switch_lifecycle import (
+# EPICSConnector.connect(). The harness is a module of its own, holding the
+# two-target setup and nothing else.
+from tests.mcp_server._switch_harness import (
     FIXTURE_MODULE,
     GATEWAY_HOST,
     REPO_PATHS,
