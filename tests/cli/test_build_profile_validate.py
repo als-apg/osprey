@@ -1183,8 +1183,8 @@ def test_external_parameter_schema_file_must_exist_and_parse(tmp_path: Path) -> 
         bluesky=BlueskyConfig(
             external=_external(
                 parameter_schemas={
-                    "geecs_scan_request_plan.request": "missing.json",
-                    "geecs_run_action_plan.name": "bad.json",
+                    "scan_request_plan.request": "missing.json",
+                    "run_action_plan.name": "bad.json",
                 }
             )
         ),
@@ -1199,6 +1199,6 @@ def test_external_parameter_schema_valid_file_passes(tmp_path: Path) -> None:
     _profile(
         name="x",
         bluesky=BlueskyConfig(
-            external=_external(parameter_schemas={"geecs_scan_request_plan.request": "s.json"})
+            external=_external(parameter_schemas={"scan_request_plan.request": "s.json"})
         ),
     ).validate(tmp_path)
