@@ -11,10 +11,12 @@
  *   - DETACH STOPS. Parking the shell in the pool ends the polling: no
  *     further request, however long the page lives.
  *   - THE READING. Errors outrank warnings outrank ok; `skip` counts for
- *     nothing; warming and an unreachable sidecar each have their own word
- *     while a stale report keeps its reading (the card says it is stale);
- *     `text: status` puts the word on the chip, `detail: checks` lists every
- *     check instead of one row per category.
+ *     nothing. That severity order is the design system's, the same one the
+ *     SYSTEM dashboard ranks by, so a status new to the sidecar reaches both
+ *     surfaces or neither. Warming and an unreachable sidecar each have their
+ *     own word while a stale report keeps its reading (the card says it is
+ *     stale); `text: status` puts the word on the chip, `detail: checks` lists
+ *     every check instead of one row per category.
  *
  * These run against the REAL bar-host.js and bar-items.js, with `fetch`
  * stubbed to answer envelopes in the shape the sidecar documents.
@@ -282,6 +284,27 @@ describe('system-health item: the card', () => {
       (b) => b.textContent === 'Open SYSTEM'
     );
     expect(open).toBeDefined();
+  });
+
+  // The severity order is the design system's, shared with the SYSTEM
+  // dashboard: the worst status in a category wins wherever it sits in the
+  // list, and the row's aside is that check's own message.
+  test('the worst status wins wherever it sits in the category', async () => {
+    answer = () =>
+      envelope([
+        { name: 'a.first', category: 'a', status: 'ok' },
+        { name: 'a.second', category: 'a', status: 'error', message: 'sidecar down' },
+        { name: 'a.third', category: 'a', status: 'warning', message: 'slow' },
+        { name: 'a.fourth', category: 'a', status: 'skip', message: 'not configured' },
+      ]);
+    seedDom('', shellMarkup());
+    host.hydrate();
+    await settle();
+
+    chip().click();
+    expect(rows()).toEqual([
+      { tone: 'err', name: 'a', count: '1/3', aside: 'sidecar down' },
+    ]);
   });
 
   test('`detail: checks` lists every check by its title, with its value or message', async () => {
