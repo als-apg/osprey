@@ -6,10 +6,12 @@ Chat Bridges
 
 A chat bridge lets your team ask the Osprey agent questions from a chat room
 they already sit in. Someone mentions the agent in the room, and the answer
-comes back in the same conversation — including plots and files.
+comes back in the same conversation — plots included, and on Nextcloud Talk and
+Google Chat other files too.
 
-Two chat systems are supported today, **Nextcloud Talk** and **Google Chat**.
-They work the same way and are configured the same way. You can add others.
+Three chat systems are supported today: **Nextcloud Talk**, **Google Chat** and
+**Microsoft Teams**. They answer the same way and are switched on the same way in
+a profile. You can add others.
 
 What a Bridge Is Not
 ====================
@@ -39,9 +41,11 @@ Only the top box changes between chat systems. Each system has its own small
 there. Everything below it — remembering questions, keeping the conversation,
 handling failures — is shared code that every bridge uses unchanged.
 
-Notice that every arrow leaving a bridge points outward. A bridge asks the chat
-system for new messages rather than being called by it, so it opens no network
-port, needs no public address, and nothing has to be able to reach it.
+Notice that every arrow leaving a bridge points outward. A bridge fetches its
+messages — from the chat system, or from a queue the chat system feeds — rather
+than being called, so it opens no network port, needs no public address, and
+nothing has to be able to reach it. For Teams the one public piece is the relay,
+and that lives in Azure, not in your stack.
 
 .. _bridge-memory:
 
@@ -79,37 +83,53 @@ the agent is allowed to do, however it is phrased.
 Choosing Your Platform
 ======================
 
-Both bridges are equally capable. The differences that matter when you pick one:
+All three bridges answer questions equally well. The differences that matter when
+you pick one:
 
 .. list-table::
    :header-rows: 1
-   :widths: 22 39 39
+   :widths: 16 28 28 28
 
    * -
      - Nextcloud Talk
      - Google Chat
+     - Microsoft Teams
    * - The agent speaks as
      - A normal Nextcloud user account you create
      - A Chat app backed by a service account
+     - A single-tenant Azure Bot registration in your own tenant
    * - Messages arrive by
      - The bridge asking Nextcloud for them
      - A Google Cloud message queue
+     - An Azure Function relay that checks each message came from Microsoft and
+       puts it on a Service Bus queue the bridge reads
    * - Plots and files
      - Shared with the room, visible to its members only
      - **Published as a public link** anyone can open
+     - Plots only, as PNG images attached inside the conversation and visible to
+       its members; other files are not delivered
    * - You need
      - A Nextcloud instance with the Talk app
      - A Google Cloud project
+     - An Azure subscription, and permission to install a Teams app
 
-That last row is the one to read twice. Google Chat can only display an image if
-Google itself can fetch it, so files are published to a world-readable address
-rather than shared privately. If that is not acceptable at your facility, you can
-turn files off and still get text answers — the Google Chat page explains how.
+The plots-and-files row is the one to read twice. Google Chat can only display an
+image if Google itself can fetch it, so files are published to a world-readable
+address rather than shared privately; Nextcloud Talk keeps them in the room, and
+Teams returns plots inside the conversation and no other files. If a public
+address is not acceptable at your facility, you can turn
+files off in a Google Chat deployment and still get text answers — the Google Chat
+page explains how.
+
+Microsoft Teams asks the most of you up front, because a Teams bot can only be
+reached over the public internet: you publish a small relay into Azure, and the
+bridge reads what the relay queues. In return, nothing in your stack is exposed
+and plots never leave the conversation. The Microsoft Teams page walks through it.
 
 Learn More
 ==========
 
-.. grid:: 1 1 3 3
+.. grid:: 1 2 2 4
    :gutter: 3
 
    .. grid-item-card:: Nextcloud Talk
@@ -129,6 +149,15 @@ Learn More
 
       Deploy a bridge into Google Chat spaces, and decide how plots and files
       are shared.
+
+   .. grid-item-card:: Microsoft Teams
+      :link: microsoft-teams
+      :link-type: doc
+      :class-header: bg-secondary text-white
+      :shadow: md
+
+      Publish the relay into Azure, then deploy a bridge into Teams channels and
+      chats, where plots stay in the conversation.
 
    .. grid-item-card:: Add Your Own
       :link: /contributing/extending-osprey
@@ -151,3 +180,4 @@ Learn More
 
    nextcloud-talk
    google-chat
+   microsoft-teams

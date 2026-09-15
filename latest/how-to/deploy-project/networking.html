@@ -417,6 +417,7 @@
 <li class="toctree-l2 has-children"><a class="reference internal" href="../agent-interfaces/chat-bridges/index.html">Chat Bridges</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/nextcloud-talk.html">Nextcloud Talk</a></li>
 <li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../agent-interfaces/chat-bridges/microsoft-teams.html">Microsoft Teams</a></li>
 </ul>
 </details></li>
 </ul>
@@ -613,7 +614,8 @@ event dispatcher from off-host is then a deliberate act:
 <code class="docutils literal notranslate"><span class="pre">services.event_dispatcher.bind</span></code>.</p></li>
 <li><p>Addresses OSPREY writes between services become <code class="docutils literal notranslate"><span class="pre">localhost:&lt;port&gt;</span></code> instead
 of compose service names — the dispatcher’s target for its workers, and the
-Google Chat and Nextcloud bridges’ URLs for the dispatch pair.</p></li>
+Nextcloud Talk, Google Chat and Microsoft Teams bridges’ URLs for the dispatch
+pair.</p></li>
 </ul>
 <p>Services that talk to each other have to be on the same side of that boundary,
 and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses to render a deployment where they are not: a

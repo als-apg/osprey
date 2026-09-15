@@ -519,15 +519,16 @@ included.</p>
 </section>
 <section id="chat-bridge">
 <span id="extending-chat-bridge"></span><h2>Chat bridge<a class="headerlink" href="#chat-bridge" title="Link to this heading">#</a></h2>
-<p>Nextcloud Talk and Google Chat ship with Osprey; Slack, Mattermost or plain
-email would each be a new bridge. Almost none of a bridge is per-service —
+<p>Nextcloud Talk, Google Chat and Microsoft Teams ship with Osprey; Slack,
+Mattermost or plain email would each be a new bridge. Almost none of a bridge is per-service —
 deduplication, history, retries, honest give-up and crash recovery live in the
 engine under <code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/core/</span></code>. What you write is an arrival loop
 and one class, <code class="docutils literal notranslate"><span class="pre">osprey.bridges.core.ports.ChannelOps</span></code>. Read that module’s
 docstring first: it carries the failure contract member by member, and getting
 it wrong is the one mistake that leaves a bridge looking healthy while losing
-answers. Copy <code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/google_chat/</span></code> or
-<code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/nextcloud_talk/</span></code>, and expect to touch the build-profile
+answers. Copy <code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/google_chat/</span></code>,
+<code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/nextcloud_talk/</span></code> or <code class="docutils literal notranslate"><span class="pre">src/osprey/bridges/teams/</span></code>, and
+expect to touch the build-profile
 and injector modules in <code class="docutils literal notranslate"><span class="pre">src/osprey/cli/</span></code> so a profile can switch the new
 service on. Pinning test: <code class="docutils literal notranslate"><span class="pre">tests/bridges/test_ports.py</span></code>. Deployers start
 from <a class="reference internal" href="../how-to/agent-interfaces/chat-bridges/index.html"><span class="doc">Chat Bridges</span></a>.</p>

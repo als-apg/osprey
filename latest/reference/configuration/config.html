@@ -1236,7 +1236,7 @@ covered in <a class="reference internal" href="../../how-to/deploy-project/index
 <span id="deployment-image-overrides"></span><h3>Overriding Service Images<a class="headerlink" href="#overriding-service-images" title="Link to this heading">#</a></h3>
 <p>Every service image resolves through the same three-layer chain — an
 environment variable wins, then a <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> key, then the packaged
-default. Fifteen images, one row each:</p>
+default. Sixteen images, one row each:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 20.0%" />
@@ -1292,37 +1292,42 @@ default. Fifteen images, one row each:</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.gchat_bridge.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-gchat-bridge</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>ariel_sync</p></td>
+<tr class="row-even"><td><p>teams_bridge</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TEAMS_BRIDGE_IMAGE</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">services.teams_bridge.image</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-teams-bridge</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>ariel_sync</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_WORKER_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.ariel_sync.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>bluesky</p></td>
+<tr class="row-even"><td><p>bluesky</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_BRIDGE_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-bridge</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>bluesky (Tiled sidecar)</p></td>
+<tr class="row-odd"><td><p>bluesky (Tiled sidecar)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_TILED_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.tiled_image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-odd"><td><p>bluesky (Redis sidecar)</p></td>
+<tr class="row-even"><td><p>bluesky (Redis sidecar)</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_REDIS_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky.redis_image</span></code></p></td>
 <td><p>upstream pin</p></td>
 </tr>
-<tr class="row-even"><td><p>bluesky_web</p></td>
+<tr class="row-odd"><td><p>bluesky_web</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_BLUESKY_WEB_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.bluesky_web.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-bluesky-web</span></code></p></td>
 </tr>
-<tr class="row-odd"><td><p>virtual_accelerator</p></td>
+<tr class="row-even"><td><p>virtual_accelerator</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_VA_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.virtual_accelerator.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-va</span></code></p></td>
 </tr>
-<tr class="row-even"><td><p>qmd</p></td>
+<tr class="row-odd"><td><p>qmd</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_QMD_IMAGE</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">services.qmd.image</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">&lt;project&gt;-qmd</span></code></p></td>
@@ -1333,8 +1338,8 @@ default. Fifteen images, one row each:</p>
 <p>Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.</p>
-<p>Six of the fifteen are <strong>upstream pins</strong> — images somebody else publishes,
-named exactly as they publish them. The other nine are <strong>built by OSPREY</strong>
+<p>Six of the sixteen are <strong>upstream pins</strong> — images somebody else publishes,
+named exactly as they publish them. The other ten are <strong>built by OSPREY</strong>
 from your project, and their default reference is assembled rather than
 fixed: a project name, a per-service suffix, and the two axes below.</p>
 <p><code class="docutils literal notranslate"><span class="pre">dispatch_worker</span></code> and <code class="docutils literal notranslate"><span class="pre">ariel_sync</span></code> share one row value on purpose: both run
@@ -1348,7 +1353,7 @@ and both services move to the image you name.</p>
 </div>
 <p>Two stack-wide settings supply the ends of that name, so an entire deployment
 can be moved to a registry — or to a different tag — without touching any of
-the fifteen rows above:</p>
+the sixteen rows above:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 16.0%" />

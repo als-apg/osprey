@@ -792,7 +792,7 @@ Overriding Service Images
 
 Every service image resolves through the same three-layer chain — an
 environment variable wins, then a ``config.yml`` key, then the packaged
-default. Fifteen images, one row each:
+default. Sixteen images, one row each:
 
 .. list-table::
    :header-rows: 1
@@ -834,6 +834,10 @@ default. Fifteen images, one row each:
      - ``OSPREY_GCHAT_BRIDGE_IMAGE``
      - ``services.gchat_bridge.image``
      - ``<project>-gchat-bridge``
+   * - teams_bridge
+     - ``OSPREY_TEAMS_BRIDGE_IMAGE``
+     - ``services.teams_bridge.image``
+     - ``<project>-teams-bridge``
    * - ariel_sync
      - ``OSPREY_WORKER_IMAGE``
      - ``services.ariel_sync.image``
@@ -867,8 +871,8 @@ Point either of the first two layers at an internal registry mirror or a
 pinned digest when your deployment host cannot (or should not) pull public
 images.
 
-Six of the fifteen are **upstream pins** — images somebody else publishes,
-named exactly as they publish them. The other nine are **built by OSPREY**
+Six of the sixteen are **upstream pins** — images somebody else publishes,
+named exactly as they publish them. The other ten are **built by OSPREY**
 from your project, and their default reference is assembled rather than
 fixed: a project name, a per-service suffix, and the two axes below.
 
@@ -887,7 +891,7 @@ An OSPREY-built default is always spelled the same way::
 
 Two stack-wide settings supply the ends of that name, so an entire deployment
 can be moved to a registry — or to a different tag — without touching any of
-the fifteen rows above:
+the sixteen rows above:
 
 .. list-table::
    :header-rows: 1

@@ -417,6 +417,7 @@
 <li class="toctree-l2 current active has-children"><a class="current reference internal" href="#">Chat Bridges</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l3"><a class="reference internal" href="nextcloud-talk.html">Nextcloud Talk</a></li>
 <li class="toctree-l3"><a class="reference internal" href="google-chat.html">Google Chat</a></li>
+<li class="toctree-l3"><a class="reference internal" href="microsoft-teams.html">Microsoft Teams</a></li>
 </ul>
 </details></li>
 </ul>
@@ -520,9 +521,11 @@
 <span id="how-to-chat-bridges"></span><h1>Chat Bridges<a class="headerlink" href="#chat-bridges" title="Link to this heading">#</a></h1>
 <p>A chat bridge lets your team ask the Osprey agent questions from a chat room
 they already sit in. Someone mentions the agent in the room, and the answer
-comes back in the same conversation — including plots and files.</p>
-<p>Two chat systems are supported today, <strong>Nextcloud Talk</strong> and <strong>Google Chat</strong>.
-They work the same way and are configured the same way. You can add others.</p>
+comes back in the same conversation — plots included, and on Nextcloud Talk and
+Google Chat other files too.</p>
+<p>Three chat systems are supported today: <strong>Nextcloud Talk</strong>, <strong>Google Chat</strong> and
+<strong>Microsoft Teams</strong>. They answer the same way and are switched on the same way in
+a profile. You can add others.</p>
 <section id="what-a-bridge-is-not">
 <h2>What a Bridge Is Not<a class="headerlink" href="#what-a-bridge-is-not" title="Link to this heading">#</a></h2>
 <p>A bridge is not a second <a class="reference internal" href="../../web-terminal/index.html"><span class="doc">Web Terminal</span></a>. There is
@@ -541,7 +544,7 @@ the dispatcher, waits, and posts back what comes out.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 548" role="img" aria-labelledby="chat-bridge-title chat-bridge-desc">
   <title id="chat-bridge-title">How a chat bridge works</title>
-  <desc id="chat-bridge-desc">Each chat system has its own small adapter, and everything below the adapters is shared code. The bridge polls the chat system for new messages, hands the question to the event dispatcher, and posts back what the agent returns. Every connection the bridge makes points outward, so it opens no network port and nothing has to reach it.</desc>
+  <desc id="chat-bridge-desc">Three chat systems are supported: Nextcloud Talk, Google Chat and Microsoft Teams. Each has its own small adapter, and everything below the adapters is shared code. A bridge takes new messages from its chat system, hands the question to the event dispatcher, and posts back what the agent returns. Every connection the bridge makes points outward, so it opens no network port and nothing has to reach it.</desc>
   <defs>
     <marker id="chat-bridge-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -553,33 +556,42 @@ the dispatcher, waits, and posts back what comes out.</p>
   <line class="e-thin" x1="150" y1="222" x2="150" y2="486"/>
 
   <!-- edges -->
-  <line class="e" x1="290" y1="70" x2="290" y2="116" marker-end="url(#chat-bridge-arr)"/>
-  <line class="e" x1="670" y1="70" x2="670" y2="116" marker-end="url(#chat-bridge-arr)"/>
-  <line class="e" x1="290" y1="166" x2="290" y2="222" marker-end="url(#chat-bridge-arr)"/>
-  <line class="e" x1="670" y1="166" x2="670" y2="222" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="270" y1="70" x2="270" y2="116" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="480" y1="70" x2="480" y2="116" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="690" y1="70" x2="690" y2="116" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="270" y1="166" x2="270" y2="222" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="480" y1="166" x2="480" y2="222" marker-end="url(#chat-bridge-arr)"/>
+  <line class="e" x1="690" y1="166" x2="690" y2="222" marker-end="url(#chat-bridge-arr)"/>
   <line class="e" x1="330" y1="288" x2="330" y2="340" marker-end="url(#chat-bridge-arr)"/>
   <line class="e e-dash" x1="430" y1="340" x2="430" y2="288" marker-end="url(#chat-bridge-arr)"/>
   <line class="e" x1="370" y1="390" x2="370" y2="436" marker-end="url(#chat-bridge-arr)"/>
   <line class="e" x1="460" y1="461" x2="520" y2="461" marker-end="url(#chat-bridge-arr)"/>
 
   <!-- chat systems -->
-  <rect class="nb-in" x="180" y="24" width="220" height="46" rx="6"/>
-  <text class="tn" x="290" y="45" text-anchor="middle">Nextcloud Talk</text>
-  <text class="ts" x="290" y="60" text-anchor="middle">room</text>
-  <rect class="nb-in" x="560" y="24" width="220" height="46" rx="6"/>
-  <text class="tn" x="670" y="45" text-anchor="middle">Google Chat</text>
-  <text class="ts" x="670" y="60" text-anchor="middle">space</text>
+  <rect class="nb-in" x="180" y="24" width="180" height="46" rx="6"/>
+  <text class="tn" x="270" y="45" text-anchor="middle">Nextcloud Talk</text>
+  <text class="ts" x="270" y="60" text-anchor="middle">room</text>
+  <rect class="nb-in" x="390" y="24" width="180" height="46" rx="6"/>
+  <text class="tn" x="480" y="45" text-anchor="middle">Google Chat</text>
+  <text class="ts" x="480" y="60" text-anchor="middle">space</text>
+  <rect class="nb-in" x="600" y="24" width="180" height="46" rx="6"/>
+  <text class="tn" x="690" y="45" text-anchor="middle">Microsoft Teams</text>
+  <text class="ts" x="690" y="60" text-anchor="middle">channel or chat</text>
 
-  <text class="ta" x="298" y="95">bridge polls for new messages</text>
-  <text class="ta" x="678" y="95">bridge reads a message queue</text>
+  <text class="ta" x="278" y="95">bridge asks for new messages</text>
+  <text class="ta" x="488" y="95">bridge reads a queue</text>
+  <text class="ta" x="698" y="95">bridge reads a relay's queue</text>
 
   <!-- adapters -->
-  <rect class="nb" x="180" y="116" width="220" height="50" rx="6"/>
-  <text class="tn" x="290" y="140" text-anchor="middle">Talk adapter</text>
-  <text class="ts" x="290" y="156" text-anchor="middle">how messages arrive here</text>
-  <rect class="nb" x="560" y="116" width="220" height="50" rx="6"/>
-  <text class="tn" x="670" y="140" text-anchor="middle">Chat adapter</text>
-  <text class="ts" x="670" y="156" text-anchor="middle">how messages arrive here</text>
+  <rect class="nb" x="180" y="116" width="180" height="50" rx="6"/>
+  <text class="tn" x="270" y="140" text-anchor="middle">Talk adapter</text>
+  <text class="ts" x="270" y="156" text-anchor="middle">how messages arrive here</text>
+  <rect class="nb" x="390" y="116" width="180" height="50" rx="6"/>
+  <text class="tn" x="480" y="140" text-anchor="middle">Chat adapter</text>
+  <text class="ts" x="480" y="156" text-anchor="middle">how messages arrive here</text>
+  <rect class="nb" x="600" y="116" width="180" height="50" rx="6"/>
+  <text class="tn" x="690" y="140" text-anchor="middle">Teams adapter</text>
+  <text class="ts" x="690" y="156" text-anchor="middle">how messages arrive here</text>
 
   <text class="te" x="40" y="145">PER SYSTEM</text>
   <text class="te" x="40" y="260">SHARED</text>
@@ -612,9 +624,11 @@ the dispatcher, waits, and posts back what comes out.</p>
 <strong>adapter</strong>, which knows how messages arrive there and how to post a reply
 there. Everything below it — remembering questions, keeping the conversation,
 handling failures — is shared code that every bridge uses unchanged.</p>
-<p>Notice that every arrow leaving a bridge points outward. A bridge asks the chat
-system for new messages rather than being called by it, so it opens no network
-port, needs no public address, and nothing has to be able to reach it.</p>
+<p>Notice that every arrow leaving a bridge points outward. A bridge fetches its
+messages — from the chat system, or from a queue the chat system feeds — rather
+than being called, so it opens no network port, needs no public address, and
+nothing has to be able to reach it. For Teams the one public piece is the relay,
+and that lives in Azure, not in your stack.</p>
 <section id="what-the-bridge-remembers">
 <span id="bridge-memory"></span><h3>What the Bridge Remembers<a class="headerlink" href="#what-the-bridge-remembers" title="Link to this heading">#</a></h3>
 <p>The bridge is the only part of the system that sees a whole conversation, so it
@@ -642,48 +656,64 @@ the agent is allowed to do, however it is phrased.</p>
 </section>
 <section id="choosing-your-platform">
 <h2>Choosing Your Platform<a class="headerlink" href="#choosing-your-platform" title="Link to this heading">#</a></h2>
-<p>Both bridges are equally capable. The differences that matter when you pick one:</p>
+<p>All three bridges answer questions equally well. The differences that matter when
+you pick one:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
-<col style="width: 22.0%" />
-<col style="width: 39.0%" />
-<col style="width: 39.0%" />
+<col style="width: 16.0%" />
+<col style="width: 28.0%" />
+<col style="width: 28.0%" />
+<col style="width: 28.0%" />
 </colgroup>
 <thead>
 <tr class="row-odd"><th class="head"></th>
 <th class="head"><p>Nextcloud Talk</p></th>
 <th class="head"><p>Google Chat</p></th>
+<th class="head"><p>Microsoft Teams</p></th>
 </tr>
 </thead>
 <tbody>
 <tr class="row-even"><td><p>The agent speaks as</p></td>
 <td><p>A normal Nextcloud user account you create</p></td>
 <td><p>A Chat app backed by a service account</p></td>
+<td><p>A single-tenant Azure Bot registration in your own tenant</p></td>
 </tr>
 <tr class="row-odd"><td><p>Messages arrive by</p></td>
 <td><p>The bridge asking Nextcloud for them</p></td>
 <td><p>A Google Cloud message queue</p></td>
+<td><p>An Azure Function relay that checks each message came from Microsoft and
+puts it on a Service Bus queue the bridge reads</p></td>
 </tr>
 <tr class="row-even"><td><p>Plots and files</p></td>
 <td><p>Shared with the room, visible to its members only</p></td>
 <td><p><strong>Published as a public link</strong> anyone can open</p></td>
+<td><p>Plots only, as PNG images attached inside the conversation and visible to
+its members; other files are not delivered</p></td>
 </tr>
 <tr class="row-odd"><td><p>You need</p></td>
 <td><p>A Nextcloud instance with the Talk app</p></td>
 <td><p>A Google Cloud project</p></td>
+<td><p>An Azure subscription, and permission to install a Teams app</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>That last row is the one to read twice. Google Chat can only display an image if
-Google itself can fetch it, so files are published to a world-readable address
-rather than shared privately. If that is not acceptable at your facility, you can
-turn files off and still get text answers — the Google Chat page explains how.</p>
+<p>The plots-and-files row is the one to read twice. Google Chat can only display an
+image if Google itself can fetch it, so files are published to a world-readable
+address rather than shared privately; Nextcloud Talk keeps them in the room, and
+Teams returns plots inside the conversation and no other files. If a public
+address is not acceptable at your facility, you can turn
+files off in a Google Chat deployment and still get text answers — the Google Chat
+page explains how.</p>
+<p>Microsoft Teams asks the most of you up front, because a Teams bot can only be
+reached over the public internet: you publish a small relay into Azure, and the
+bridge reads what the relay queues. In return, nothing in your stack is exposed
+and plots never leave the conversation. The Microsoft Teams page walks through it.</p>
 </section>
 <section id="learn-more">
 <h2>Learn More<a class="headerlink" href="#learn-more" title="Link to this heading">#</a></h2>
 <div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-3 sd-row-cols-lg-3 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
+<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-2 sd-row-cols-md-2 sd-row-cols-lg-4 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
 <div class="sd-card-body docutils">
@@ -703,6 +733,16 @@ Google Chat</div>
 are shared.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="google-chat.html"><span class="doc">Google Chat</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Microsoft Teams</div>
+<p class="sd-card-text">Publish the relay into Azure, then deploy a bridge into Teams channels and
+chats, where plots stay in the conversation.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="microsoft-teams.html"><span class="doc">Microsoft Teams</span></a></div>
 </div>
 <div class="sd-col sd-d-flex-row docutils">
 <div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
