@@ -41,6 +41,31 @@ export const QUEUE_ACTIVE_MANAGER_STATES = Object.freeze([
   'paused',
 ]);
 
+/**
+ * Manager states that affirmatively mean REST. Doubt is read from this list
+ * and the active one together, never from the active one alone: a state this
+ * bundle cannot name is a state whose meaning the browser does not know, and
+ * the only safe reading of one is that the queue may be busy.
+ * @type {readonly string[]}
+ */
+export const QUEUE_IDLE_MANAGER_STATES = Object.freeze(['idle']);
+
+/**
+ * Whether the manager's state is one this bundle can act on.
+ *
+ * False for a summary that reports no state at all and for any state string
+ * outside the active and idle lists. It says nothing about whether the
+ * summary could be read — `available` answers that, and answers it first.
+ *
+ * @param {QueueStatus|null} status
+ * @returns {boolean}
+ */
+export function managerStateKnown(status) {
+  const raw = typeof status?.manager_state === 'string' ? status.manager_state : null;
+  if (raw === null) return false;
+  return QUEUE_ACTIVE_MANAGER_STATES.includes(raw) || QUEUE_IDLE_MANAGER_STATES.includes(raw);
+}
+
 /** Run statuses a run record can no longer leave (`runs.py`). */
 export const TERMINAL_RUN_STATUSES = Object.freeze(['completed', 'stopped', 'error']);
 
@@ -281,6 +306,19 @@ export function describeQueueStatus(status) {
  * }} StopControlState */
 
 /**
+ * How an unreadable state is named to the operator: the manager's own word
+ * when there is one, and the absence of one when there is not.
+ *
+ * @param {string|null} managerState
+ * @returns {string}
+ */
+function unfamiliarStateReason(managerState) {
+  return managerState === null
+    ? 'The queue manager reported no state.'
+    : `The queue manager reported an unfamiliar state (${managerState}).`;
+}
+
+/**
  * Which queue controls are live, and why not when they aren't.
  *
  * Deliberately NOT a local copy of the bridge's arming policy: nothing here
@@ -318,17 +356,29 @@ export function queueControls(state) {
   // Start ARMS the queue: it drains what is queued now and whatever arrives
   // later, so an empty stopped queue is a legitimate thing to start. It is
   // dead only when there is nothing to arm — already armed, already draining,
-  // or a manager that cannot be read.
+  // a manager that cannot be read, or a state this panel cannot name and so
+  // cannot rule out motion from.
   /** @type {ControlState} */
   let start;
   if (!available) {
     start = { disabled: true, reason: 'The queue manager could not be read.' };
   } else if (active) {
     start = { disabled: true, reason: 'The queue is already running.' };
+  } else if (!managerStateKnown(status)) {
+    start = { disabled: true, reason: unfamiliarStateReason(managerState) };
   } else if (queueArmed(status)) {
     start = { disabled: true, reason: 'The queue is already started.' };
   } else {
     start = { disabled: false, reason: null };
+  }
+
+  let stopNote = null;
+  if (!available) {
+    stopNote = 'The queue manager summary could not be read; the stop is still sent.';
+  } else if (!managerStateKnown(status)) {
+    stopNote = `${unfamiliarStateReason(managerState)} The stop is still sent.`;
+  } else if (!active) {
+    stopNote = 'The queue is not running; a stop is still accepted.';
   }
 
   /** @type {StopControlState} */
@@ -338,15 +388,7 @@ export function queueControls(state) {
         arming: true,
         note: 'The queue will keep draining after the current item.',
       }
-    : {
-        body: { cancel: false },
-        arming: false,
-        note: !available
-          ? 'The queue manager summary could not be read; the stop is still sent.'
-          : active
-            ? null
-            : 'The queue is not running; a stop is still accepted.',
-      };
+    : { body: { cancel: false }, arming: false, note: stopNote };
 
   return { start, stop };
 }
@@ -506,8 +548,11 @@ export function stripControls(state, view) {
  *
  * Adding to an ARMED idle queue runs the plan — so the button says `Run`. In
  * every other state the item waits its turn, and the note says for what: the
- * running plan, or a start the operator has to give from the Queue tab. An
- * unreadable manager promises nothing (the capability banner speaks there).
+ * running plan, or a start the operator has to give from the Queue tab.
+ * Neither an unreadable manager nor a state this bundle cannot name promises
+ * anything about when the item runs: the first has no summary to read at all
+ * (the capability banner speaks there), and the second has one whose meaning
+ * the browser does not know.
  *
  * @param {QueueStatus|null} status
  * @returns {{label: string, note: string}}
@@ -517,6 +562,8 @@ export function enqueuePresentation(status) {
   const managerState = typeof status.manager_state === 'string' ? status.manager_state : null;
   const active = managerState !== null && QUEUE_ACTIVE_MANAGER_STATES.includes(managerState);
   if (active) return { label: 'Add to queue', note: 'Runs after the current plan.' };
+  if (!managerStateKnown(status))
+    return { label: 'Add to queue', note: 'The queue state is unfamiliar; the item waits its turn.' };
   if (queueArmed(status)) return { label: 'Run', note: 'Runs now.' };
   return { label: 'Add to queue', note: 'The queue is stopped. Start it from the Queue tab.' };
 }
