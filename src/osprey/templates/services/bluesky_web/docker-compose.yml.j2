@@ -41,6 +41,9 @@ services:
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
+{%- if osprey_pip_pre | default(false) %}
+        OSPREY_PIP_PRE: "1"
+{%- endif %}
 {% if 'bluesky' in deployed_services %}
     # Only when the bluesky bridge (Task 1.x) is co-deployed: order the
     # sidecar's startup after the bridge's healthcheck, so the read-proxy and

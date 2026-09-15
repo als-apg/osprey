@@ -113,6 +113,9 @@ services:
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
+{%- if osprey_pip_pre | default(false) %}
+        OSPREY_PIP_PRE: "1"
+{%- endif %}
 {%- endif %}
     # Ordering, not convenience: the bridge opens the RE worker environment
     # ONCE at startup and does not keep trying. `app.py`'s

@@ -2395,7 +2395,10 @@ def _project_image_build_cmd(
     # The Dockerfile lives inside the context's render, not at its root: the
     # context is a deployment REPO (see workspace.container_image_context), and a
     # repo keeps its build output one level down.
+    from osprey.version import pins_prerelease
+
     dockerfile = os.path.join(project_root, BUILD_DIRNAME, "Dockerfile")
+    pip_spec = _resolve_pip_spec(dev_mode=dev_mode)
     cmd = [
         runtime,
         "build",
@@ -2410,8 +2413,13 @@ def _project_image_build_cmd(
         "--build-arg",
         f"CLAUDE_CLI_VERSION={_resolve_claude_cli_version(config)}",
         "--build-arg",
-        f"OSPREY_PIP_SPEC={_resolve_pip_spec(dev_mode=dev_mode)}",
+        f"OSPREY_PIP_SPEC={pip_spec}",
     ]
+    if pins_prerelease(pip_spec):
+        # A beta framework exists only beside a beta connectors, which pip
+        # never picks for a requirement that names none: the recipe's deps
+        # layer resolves with --pre under this arg. See pins_prerelease.
+        cmd.extend(["--build-arg", "OSPREY_PIP_PRE=1"])
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.extend(site_image_build_args(config, project_root))
