@@ -35,14 +35,8 @@ from click.testing import CliRunner
 from osprey.cli.build_cmd import build
 from osprey.cli.init_cmd import init
 from osprey.cli.templates.manager import TemplateManager
-from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
-from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import ConfigBuilder
-
-# The one bundled template that renders an ``execution:`` block. It is derived
-# from the profile's ``environment:`` declaration, so it belongs to the
-# framework template rather than to any deployment's own ``config:``.
-CONFIG_TEMPLATES = ("project/config.yml.j2",)
+from tests._config_render_context import CONFIG_TEMPLATES, MINIMAL_CONFIG_CONTEXT
 
 # Any path that names a Python interpreter, e.g. /Users/x/proj/.venv/bin/python3.11.
 _INTERPRETER_PATH = re.compile(r"bin/python[\d.]*$")
@@ -121,19 +115,6 @@ class TestTemplatesRenderTheDeclaration:
     def jinja_env(self):
         return TemplateManager().jinja_env
 
-    #: The port table and panel registry the real render builds in
-    #: TemplateManager._project_context. These tests reach the
-    #: environment directly, so they carry them themselves. The template
-    #: refuses a render with no ``builtin_panels`` or no ``selected_web_panels``,
-    #: deliberately: both are wiring the manager sets on every context, and an
-    #: empty selection is a profile that chose no builtin, not a missing input.
-    PORTS = {
-        "port_base": DEFAULT_PORT_BASE,
-        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
-        "builtin_panels": sorted(BUILTIN_PANELS),
-        "selected_web_panels": [],
-    }
-
     @pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)
     def test_renders_without_a_declaration(self, jinja_env, template_name):
         """With nothing declared the block still renders, as empty defaults.
@@ -142,7 +123,7 @@ class TestTemplatesRenderTheDeclaration:
         is a declarative key a deployment states in its own ``config:``, and
         the built-config test below is where its value is pinned.
         """
-        rendered = jinja_env.get_template(template_name).render(self.PORTS)
+        rendered = jinja_env.get_template(template_name).render(MINIMAL_CONFIG_CONTEXT)
         execution = yaml.safe_load(rendered)["execution"]
 
         assert execution["environment"] == {
@@ -156,7 +137,7 @@ class TestTemplatesRenderTheDeclaration:
         """The declared values reach the rendered YAML unchanged."""
         rendered = jinja_env.get_template(template_name).render(
             {
-                **self.PORTS,
+                **MINIMAL_CONFIG_CONTEXT,
                 "environment_python": "/opt/facility/analysis/bin/python",
                 "environment_packages": ["numpy>=2", "lmfit"],
                 "environment_inherit_exclude": ["pytest", "ruff"],
@@ -173,7 +154,7 @@ class TestTemplatesRenderTheDeclaration:
     @pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)
     def test_no_python_env_path_key(self, jinja_env, template_name):
         """The retired key is gone from the template entirely."""
-        rendered = jinja_env.get_template(template_name).render(self.PORTS)
+        rendered = jinja_env.get_template(template_name).render(MINIMAL_CONFIG_CONTEXT)
 
         assert "python_env_path" not in rendered
         assert "python_env_path" not in yaml.safe_load(rendered)["execution"]
