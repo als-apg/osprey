@@ -59,6 +59,73 @@ def _patch_writes_enabled(monkeypatch, enabled: bool):
     monkeypatch.setattr("osprey.utils.config.get_config_value", fake_get_config_value)
 
 
+# ---------------------------------------------------------------------------
+# pyepics' interpreter-shutdown hook
+#
+# ``finalize_libca`` — registered with ``atexit`` the first time libca loads —
+# wedges or crashes the process once Channel Access was used from a worker
+# thread, which this connector always does (``asyncio.to_thread``). A sandbox
+# that cannot exit is reported as a timeout ten minutes after its script
+# finished; the connector therefore switches the hook off before libca loads.
+# ---------------------------------------------------------------------------
+
+
+def _fake_pyepics(monkeypatch):
+    """A stand-in ``epics`` whose ``ca.clear_cache`` records the finalizer switch."""
+    ca = types.ModuleType("epics.ca")
+    ca.AUTO_CLEANUP = True
+    ca.finalize_libca = lambda: None
+    ca.seen_at_first_libca_use: list = []
+
+    def clear_cache():
+        # The first ``withCA`` call is where pyepics initialises libca and
+        # registers its finalizer — the switch must already be off here.
+        ca.seen_at_first_libca_use.append(ca.AUTO_CLEANUP)
+
+    ca.clear_cache = clear_cache
+    package = types.ModuleType("epics")
+    package.ca = ca
+    monkeypatch.setitem(sys.modules, "epics", package)
+    monkeypatch.setitem(sys.modules, "epics.ca", ca)
+    return ca
+
+
+class TestShutdownHook:
+    @pytest.mark.asyncio
+    async def test_connect_switches_pyepics_finalizer_off_before_libca_loads(
+        self, monkeypatch, clean_epics_env
+    ):
+        _patch_writes_enabled(monkeypatch, False)
+        ca = _fake_pyepics(monkeypatch)
+
+        connector = EPICSConnector()
+        await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+
+        assert ca.AUTO_CLEANUP is False
+        assert ca.seen_at_first_libca_use == [False]
+
+    @pytest.mark.asyncio
+    async def test_connect_unregisters_a_finalizer_libca_already_installed(
+        self, monkeypatch, clean_epics_env
+    ):
+        """A process whose libca loaded earlier already carries the hook: take it out."""
+        import atexit
+
+        _patch_writes_enabled(monkeypatch, False)
+        ca = _fake_pyepics(monkeypatch)
+        atexit.register(ca.finalize_libca)
+        unregistered: list = []
+        real_unregister = atexit.unregister
+        monkeypatch.setattr(
+            atexit, "unregister", lambda fn: (unregistered.append(fn), real_unregister(fn))
+        )
+
+        connector = EPICSConnector()
+        await connector.connect({"gateways": {"read_only": {"address": "ro", "port": 5064}}})
+
+        assert ca.finalize_libca in unregistered
+
+
 def _connector(*, epics=None, limits_validator=None, timeout=5.0):
     """Build a connector that skips connect() by injecting its runtime state."""
     connector = EPICSConnector()
