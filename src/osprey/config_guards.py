@@ -1,11 +1,13 @@
-"""Shared guards for authored config values that must be positive integers.
+"""Shared guards for authored config values that have exactly one usable shape.
 
 A cap, an interval and a port are all the same authoring contract: a whole
-number of at least one. Spelling that check at each reading site lets copies
-drift, so the same mistake — ``0``, ``true``, ``"8181"`` — is refused in one
-deployment surface and quietly replaced in another. The predicate and the two
-refusing readers live here so every surface answers the same way, and so the
-refusal an operator sees is one sentence rather than one per module.
+number of at least one. A host directory handed to a runtime is another: an
+absolute path. Spelling either check at each reading site lets copies
+drift, so the same mistake — ``0``, ``true``, ``"8181"``, ``./models`` — is
+refused in one deployment surface and quietly replaced in another. The
+predicate and the refusing readers live here so every surface answers the same
+way, and so the refusal an operator sees is one sentence rather than one per
+module.
 
 ``bool`` is excluded once, here. It is an ``int`` subclass, so ``port: true``
 would otherwise resolve to port 1 and ``max_runs: true`` to a buffer of one —
@@ -22,9 +24,15 @@ tree and the standalone auth sidecar can all reach it.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
-__all__ = ["is_positive_int", "require_positive_int", "require_positive_int_str"]
+__all__ = [
+    "is_positive_int",
+    "require_absolute_path",
+    "require_positive_int",
+    "require_positive_int_str",
+]
 
 
 def _refusal(name: str, value: Any) -> str:
@@ -66,6 +74,40 @@ def require_positive_int(value: Any, default: int, key: str) -> int:
     if not is_positive_int(value):
         raise ValueError(_refusal(key, value))
     return int(value)
+
+
+def require_absolute_path(value: Any, key: str) -> str | None:
+    """Read an already-parsed config value as an absolute path, or refuse.
+
+    Args:
+        value: The raw value read from config. ``None`` is the absent key.
+        key: Dotted config key, named in the refusal.
+
+    Returns:
+        ``None`` when *value* is ``None``, otherwise the value stripped of
+        surrounding whitespace, so a path indented in YAML is not refused for
+        the indentation.
+
+    Raises:
+        ValueError: If *value* is present and is not a non-empty absolute
+            path. Absoluteness is required rather than resolved for: a
+            relative path names one directory to the process that reads the
+            config and another to whatever runtime consumes it, and neither
+            of them expands ``~``. Accepting one would let a later existence
+            check pass against a directory the consumer never sees.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{key} must be a non-empty absolute path, got {value!r}")
+    path = value.strip()
+    if not Path(path).is_absolute():
+        raise ValueError(
+            f"{key} must be an absolute path, got {path!r}. A relative path "
+            "resolves against a different directory in each process that reads "
+            "it, and none of them expands '~'."
+        )
+    return path
 
 
 def require_positive_int_str(raw: str | None, default: int, variable: str) -> int:

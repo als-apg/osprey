@@ -11,7 +11,12 @@ from __future__ import annotations
 
 import pytest
 
-from osprey.config_guards import is_positive_int, require_positive_int, require_positive_int_str
+from osprey.config_guards import (
+    is_positive_int,
+    require_absolute_path,
+    require_positive_int,
+    require_positive_int_str,
+)
 
 
 class TestIsPositiveInt:
@@ -67,6 +72,24 @@ class TestRequirePositiveIntStr:
             require_positive_int_str(raw, 50, "OSPREY_BLUESKY_MAX_RUNS")
         assert "OSPREY_BLUESKY_MAX_RUNS must be a positive integer" in str(excinfo.value)
         assert repr(raw) in str(excinfo.value)
+
+
+class TestRequireAbsolutePath:
+    def test_absent_key_yields_none(self) -> None:
+        assert require_absolute_path(None, "services.qmd.models_dir") is None
+
+    def test_an_absolute_path_is_stripped_and_returned(self) -> None:
+        """YAML indentation is not a reason to refuse a path."""
+        assert require_absolute_path(" /srv/qmd-models ", "services.qmd.models_dir") == (
+            "/srv/qmd-models"
+        )
+
+    @pytest.mark.parametrize("bad", ["", "   ", "models", "./models", "~/models", 7, True])
+    def test_unusable_values_are_refused_by_key(self, bad: object) -> None:
+        with pytest.raises(ValueError) as excinfo:
+            require_absolute_path(bad, "services.qmd.models_dir")
+        assert "services.qmd.models_dir" in str(excinfo.value)
+        assert repr(bad) in str(excinfo.value)
 
 
 def test_both_forms_spell_the_same_refusal() -> None:
