@@ -1385,7 +1385,7 @@ def _inject_project_metadata(config):
     # can sit AHEAD of the checkout's lineage. A production build from a
     # development checkout is still refused earlier and more clearly by
     # `_resolve_pip_spec`; see `get_image_pin_version` for the full rationale.
-    from osprey.version import get_image_pin_version
+    from osprey.version import get_image_pin_version, is_prerelease
 
     osprey_version = get_image_pin_version(bool(config.get("dev_mode")))
 
@@ -1426,6 +1426,10 @@ def _inject_project_metadata(config):
         "repo_id": repo_identity(repo_root),
     }
     config_with_labels["osprey_version"] = osprey_version
+    # A beta framework exists only beside a beta connectors, which pip never
+    # picks for a requirement that names none: the service recipes take this
+    # as OSPREY_PIP_PRE=1 and resolve their deps layer with --pre.
+    config_with_labels["osprey_pip_pre"] = is_prerelease(osprey_version)
 
     # Which env-chain files this deployment repo has, for the templates that
     # deliver them to a container. A service reads the chain through an

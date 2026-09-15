@@ -91,6 +91,9 @@ services:
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
+{%- if osprey_pip_pre | default(false) %}
+        OSPREY_PIP_PRE: "1"
+{%- endif %}
 {% if 'event_dispatcher' in deployed_services %}
     # Only when the dispatch pair is co-deployed: the bridge's boot sequence
     # reconciles in-flight runs against the dispatcher before accepting a single

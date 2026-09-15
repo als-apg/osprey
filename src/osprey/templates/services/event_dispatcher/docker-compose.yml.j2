@@ -54,6 +54,9 @@ services:
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
+{%- if osprey_pip_pre | default(false) %}
+        OSPREY_PIP_PRE: "1"
+{%- endif %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the dispatcher on one host without
     # colliding on one name. In-network consumers reach this service by its

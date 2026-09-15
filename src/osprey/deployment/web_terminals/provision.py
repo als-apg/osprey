@@ -923,7 +923,7 @@ def build_auth_sidecar_image(
     # Base release under effective dev (cache-stable deps layer; the staged
     # wheel overlays the code), running version otherwise — see
     # `osprey.version.get_image_pin_version` for the full rationale.
-    from osprey.version import get_image_pin_version
+    from osprey.version import get_image_pin_version, is_prerelease
 
     osprey_version = get_image_pin_version(effective_dev)
 
@@ -945,6 +945,10 @@ def build_auth_sidecar_image(
         "--build-arg",
         f"OSPREY_VERSION={osprey_version}",
     ]
+    if is_prerelease(osprey_version):
+        # A beta framework resolves only beside its beta connectors, which
+        # pip admits only under --pre; the recipe reads this arg for that.
+        cmd.extend(["--build-arg", "OSPREY_PIP_PRE=1"])
     if effective_dev:
         # Keyed on the EFFECTIVE dev mode (wheel actually staged), not the
         # flag: OSPREY_DEV=1 relaxes the Dockerfile's fail-loud pin, and
