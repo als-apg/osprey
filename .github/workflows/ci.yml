@@ -1557,6 +1557,10 @@ jobs:
           # therefore leave together and run in gchat-bridge-e2e as two
           # separate, sequential pytest steps; ignoring only the bridge module
           # would leave the hazard armed for the next file to use the fixture.
+          # The two Microsoft Teams files leave for a third reason: both import
+          # azure.servicebus at module scope and this lane installs no `teams`
+          # extra, so collecting them here is an ImportError, not a container
+          # hazard. They run together in teams-bridge-e2e, which installs it.
           # -n 4 --dist loadfile (pytest-xdist): this lane is ~18 min of
           # real-LLM round-trips at near-zero CPU, so four workers cut it to
           # roughly the slowest single file. loadfile (not load) keeps every
@@ -1600,6 +1604,8 @@ jobs:
             --ignore=tests/e2e/test_nextcloud_talk_bridge_e2e.py \
             --ignore=tests/e2e/test_gchat_bridge_e2e.py \
             --ignore=tests/e2e/fixtures/test_gchat_fixture_smoke.py \
+            --ignore=tests/e2e/test_teams_bridge_e2e.py \
+            --ignore=tests/e2e/fixtures/test_teams_fixture_smoke.py \
             --ignore=tests/e2e/web_terminals/test_auth_perimeter.py \
             --ignore=tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py \
             --ignore=tests/e2e/test_full_chain_auth.py \
@@ -3017,6 +3023,109 @@ jobs:
       with:
         name: gchat-bridge-e2e
         engine: docker
+
+
+  teams-bridge-e2e:
+    name: Microsoft Teams Bridge E2E (loopback fakes, no container)
+    runs-on: ubuntu-latest
+    # Deliberately no `if:` gate, unlike the two bridge lanes above. Their gates
+    # exist because they pull images and spend model tokens; this one starts no
+    # container, pulls no image, declares no secret and calls no model, so there
+    # is nothing for a `full-ci` label to protect. It costs a dependency sync
+    # and under two minutes of pytest, which is worth paying on every pull
+    # request — a broken Teams adapter is cheapest to find on the PR that broke
+    # it. Nothing here needs Actions secrets, so it also runs unchanged on fork
+    # and Dependabot pull requests, where the gated lanes skip.
+    #
+    # A job-level `permissions:` block REPLACES the default token scopes rather
+    # than extending them, so the one scope this lane needs is stated in full.
+    # No `packages: read`: nothing in this job authenticates to a registry.
+    permissions:
+      contents: read
+    # The lane's own work is ~2 minutes: five e2e cells plus the fixture smoke
+    # file, all against in-process loopback fakes. The margin above the pytest
+    # step is sized for a cold dependency sync — checkout, uv setup and a full
+    # `uv sync` of the core stack on an empty cache — so a hang in the tests
+    # still ends as a failed step whose output survives, rather than a job-level
+    # cancel that takes the log and the diagnostics step with it. Fifteen
+    # minutes still ends a wedged poll long before an hour of runner time is gone.
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install osprey
+      # `--extra teams` is load-bearing at COLLECTION time, not tidiness: the
+      # e2e module imports `azure.servicebus` at module scope, so a job that
+      # syncs only `dev` errors before a single test runs. The zero-skip gate
+      # at the bottom of this job is the backstop; this is the fix.
+      run: uv sync --extra dev --extra teams
+
+    - name: Run Microsoft Teams bridge E2E
+      # Well inside the job cap, so the diagnostics step below still runs.
+      timeout-minutes: 8
+      run: |
+        # Both files in ONE pytest step. The Google Chat lane splits its two
+        # into separate steps because they share a fixed-name emulator
+        # container that must never run twice at once; this lane has no
+        # container and no host port, so the split would buy nothing. Fixtures
+        # are named first so a broken fake fails before the bridge cells.
+        #
+        # `--no-sync` keeps the install above: a bare `uv run` re-syncs to the
+        # default extras and silently strips azure-servicebus back out, which
+        # fails collection. Same trap the dependency-floor lane documents.
+        uv run --no-sync pytest \
+          tests/e2e/fixtures/test_teams_fixture_smoke.py \
+          tests/e2e/test_teams_bridge_e2e.py \
+          -v --tb=short \
+          --junitxml=junit-teams-bridge-e2e.xml
+
+    - name: Fail the lane on any skipped test
+      run: |
+        # This module declares no skipif and no runtime gate, so every way it
+        # can skip is a CI misconfiguration rather than a legitimate
+        # environment gap — a missing `teams` extra being the likely one, which
+        # pytest reports as success. So the junit XML the run above wrote is
+        # read here: zero skips, and a non-zero test count so an empty
+        # selection cannot pass either.
+        uv run --no-sync python - <<'PY'
+        import sys
+        import xml.etree.ElementTree as ET
+
+        report = "junit-teams-bridge-e2e.xml"
+        total = skipped = 0
+        for suite in ET.parse(report).getroot().iter("testsuite"):
+            total += int(suite.get("tests", 0))
+            skipped += int(suite.get("skipped", 0))
+        print(f"{report}: {total} test(s), {skipped} skipped")
+        if total == 0:
+            print(f"::error::{report} collected no tests")
+            sys.exit(1)
+        if skipped:
+            print(f"::error::{report} reports {skipped} skipped test(s)")
+            sys.exit(1)
+        print("✅ every Microsoft Teams test ran; none skipped")
+        PY
+    # On failure only: runner disk/memory state, uploaded as the
+    # `ci-diag-<lane>` artifact. No `engine:` input, unlike the lanes that run a
+    # stack — this one has no containers to interrogate, and naming an engine
+    # here would advertise a container lane that does not exist.
+    - name: Capture failure diagnostics
+      if: failure()
+      uses: ./.github/actions/capture-ci-diagnostics
+      with:
+        name: teams-bridge-e2e
 
 
   privilege-split-e2e:
@@ -5162,7 +5271,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, dependency-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, plugin-smoke]
+    needs: [test, dependency-floor, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-web-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, bluesky-queue-e2e, scan-agentic-e2e, archiver-world-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e, teams-bridge-e2e, dockerfile-e2e, privilege-split-e2e, execution-environment-parity-e2e, agentic-per-preset, deploy-writeback-e2e, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman, auth-perimeter-e2e, terminal-auth-multiuser-e2e, full-chain-auth-e2e, two-shape-boot-e2e, qmd-sidecar-e2e, jupyter-panel-e2e, target-switch-e2e, target-switch-agentic-e2e, plugin-smoke]
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: always()
@@ -5268,6 +5377,7 @@ jobs:
         check_pr_lane "Bluesky sandbox escape E2E"   "${{ needs.bluesky-sandbox-escape-e2e.result }}"
         check_pr_lane "Nextcloud Talk bridge E2E"    "${{ needs.nextcloud-talk-bridge-e2e.result }}"
         check_pr_lane "Google Chat bridge E2E"       "${{ needs.gchat-bridge-e2e.result }}"
+        check_pr_lane "Microsoft Teams bridge E2E"   "${{ needs.teams-bridge-e2e.result }}"
         check_pr_lane "Dockerfile E2E"               "${{ needs.dockerfile-e2e.result }}"
         check_pr_lane "Privilege split E2E"          "${{ needs.privilege-split-e2e.result }}"
         check_pr_lane "Execution env parity E2E"     "${{ needs.execution-environment-parity-e2e.result }}"

@@ -1,8 +1,8 @@
 """A declared ``env:`` passthrough must survive the injector that rewrites its block.
 
-Seven deploy-time services are wired by a *dedicated* injector — bluesky,
-bluesky_web, gchat_bridge, nextcloud_bridge, virtual_accelerator, mongodb and
-archiver_recorder. Each of them builds its ``services.<name>`` block from its own
+Eight deploy-time services are wired by a *dedicated* injector — bluesky,
+bluesky_web, gchat_bridge, nextcloud_bridge, teams_bridge, virtual_accelerator,
+mongodb and archiver_recorder. Each builds its ``services.<name>`` block from its own
 profile block and installs it with a whole-VALUE assignment, which runs AFTER
 both spellings of the env axis have already landed in ``config.yml``:
 
@@ -19,7 +19,7 @@ easy to miss.
 
 What these tests pin:
 
-* every one of the seven carries a declared ``env:`` list through its injector,
+* every one of the eight carries a declared ``env:`` list through its injector,
   in both spellings and in author order;
 * the keys the injector *derives* (a port, a trigger, a path) are still
   regenerated — carrying the authored key must not turn the block into an
@@ -45,6 +45,7 @@ from osprey.cli.build_injectors import (
     _inject_gchat_bridge,
     _inject_nextcloud_bridge,
     _inject_profile_services,
+    _inject_teams_bridge,
     _inject_va,
     _inject_va_archiver,
 )
@@ -55,6 +56,7 @@ from osprey.cli.build_profile_schema import (
     GChatBridgeProfileConfig,
     NextcloudBridgeProfileConfig,
     ServiceDef,
+    TeamsBridgeProfileConfig,
     VAConfig,
 )
 from osprey.port_layout import default_port
@@ -85,6 +87,11 @@ _INJECTORS: tuple[tuple[str, Any, str], ...] = (
     (
         "nextcloud_bridge",
         lambda path: _inject_nextcloud_bridge(NextcloudBridgeProfileConfig(), path),
+        "trigger",
+    ),
+    (
+        "teams_bridge",
+        lambda path: _inject_teams_bridge(TeamsBridgeProfileConfig(), path),
         "trigger",
     ),
     ("mongodb", lambda path: _inject_va_archiver(VAArchiverConfig(), path), "port_host"),

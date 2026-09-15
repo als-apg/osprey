@@ -446,6 +446,14 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             is_directory=True,
         ),
         BuildArtifact(
+            canonical_name="services/teams_bridge",
+            template_path="teams_bridge",
+            output_path="services/teams_bridge",
+            description="Microsoft Teams bridge compose template + image context",
+            template_root="services",
+            is_directory=True,
+        ),
+        BuildArtifact(
             canonical_name="services/ariel_sync",
             template_path="ariel_sync",
             output_path="services/ariel_sync",

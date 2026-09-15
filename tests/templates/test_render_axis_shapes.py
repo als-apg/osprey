@@ -13,8 +13,8 @@ Each scenario is a small, named delta over that same default context, rendered
 through the same context builder and the same Environment (both imported from
 the defaults module, so a scenario golden and a default golden can differ only
 where the scenario differs). A scenario pins only the templates its delta
-reaches: four templates honor the network axis
-(``event_dispatcher``, ``dispatch_worker``, and the two bridges) and one renders
+reaches: five templates honor the network axis
+(``event_dispatcher``, ``dispatch_worker``, and the three bridges) and one renders
 the env chain, so rendering the other eight per scenario would commit eight
 copies of a file the defaults already pin. The ``env:`` axis is honored by every
 service template but declared per service, so its scenarios pin exactly the
@@ -23,7 +23,7 @@ own, because that file renders FOUR containers from one service block and the
 shape worth pinning there is that all four carry the names. The image axes are
 the exception — they are declared once for
 the whole stack, so that scenario reaches every template carrying an image this
-repo builds and pins all nine.
+repo builds and pins all ten.
 
 **What these catch that the substring suites cannot.** ``network: host`` is not
 one edit to one line — it moves a service's network attachment, deletes its
@@ -248,24 +248,26 @@ SCENARIOS: tuple[Scenario, ...] = (
         deployed=("event_dispatcher", "dispatch_worker", "mongodb", "openobserve"),
         templates=("event_dispatcher", "dispatch_worker"),
     ),
-    # A single service template flipped to host beside a same-mode pair. Both
-    # bridges are pinned because they are twins by intent — the axis and the two
+    # A single service template flipped to host beside a same-mode pair. Every
+    # bridge is pinned because they are twins by intent — the axis and the two
     # dispatch addresses are meant to be spelled identically in each, and only a
-    # baseline of both catches the day one of them drifts.
+    # baseline of all of them catches the day one of them drifts.
     Scenario(
         name="bridge-on-host",
         services={
             **_pair_blocks(on_host=True),
             "gchat_bridge": {"network": "host"},
             "nextcloud_bridge": {"network": "host"},
+            "teams_bridge": {"network": "host"},
         },
         deployed=(
             "event_dispatcher",
             "dispatch_worker",
             "gchat_bridge",
             "nextcloud_bridge",
+            "teams_bridge",
         ),
-        templates=("gchat_bridge", "nextcloud_bridge"),
+        templates=("gchat_bridge", "nextcloud_bridge", "teams_bridge"),
     ),
     # A repo carrying committed defaults alongside its local secrets. Axes
     # unset: this shape is about the env chain, and the worker is the one
@@ -333,7 +335,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     ),
     # Every OSPREY-built image moved onto a registry and a released tag — the
     # shape a deployment gets once CI's images and the compose documents are
-    # the same images. All eight are pinned in one scenario because the axes are
+    # the same images. All nine are pinned in one scenario because the axes are
     # stack-wide: a template left behind renders a tag nothing pushed, and the
     # deploy fails on that one service alone. ``bluesky`` earns its place twice
     # over — it is the only file where an axis-derived default and two
@@ -351,6 +353,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             "bluesky_web",
             "gchat_bridge",
             "nextcloud_bridge",
+            "teams_bridge",
             "mongodb",
         ),
         templates=(
@@ -363,6 +366,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             "bluesky_web",
             "gchat_bridge",
             "nextcloud_bridge",
+            "teams_bridge",
         ),
         overrides={"images": {"registry": _AXIS_REGISTRY, "tag": _AXIS_TAG}},
     ),
@@ -663,7 +667,7 @@ def test_host_mode_worker_port_is_the_address_the_build_routes_to() -> None:
 
 
 def test_bridges_on_host_address_the_pair_at_the_host() -> None:
-    """Both bridges reach the co-deployed pair at ``localhost``, same ports.
+    """Every bridge reaches the co-deployed pair at ``localhost``, same ports.
 
     The bridge follows ITS OWN axis here, and the substitution assumes the pair
     is on the host too — which the build's parity check guarantees and this
@@ -674,6 +678,7 @@ def test_bridges_on_host_address_the_pair_at_the_host() -> None:
     for key, compose_name in (
         ("gchat_bridge", "gchat-bridge"),
         ("nextcloud_bridge", "nextcloud-bridge"),
+        ("teams_bridge", "teams-bridge"),
     ):
         environment = _service_env("bridge-on-host", key, compose_name)
         assert environment["DISPATCHER_URL"] == f"http://localhost:{dispatch.dispatcher_port}"
@@ -1022,13 +1027,13 @@ def test_every_service_template_hands_the_axis_to_every_container_it_renders() -
 
 
 def test_image_axes_move_every_osprey_built_image() -> None:
-    """All eight OSPREY-built images land on the declared registry and tag.
+    """All nine OSPREY-built images land on the declared registry and tag.
 
     Enumerated from the shipped suffix map rather than listed here, so an image
     added to the stack arrives in this assertion instead of being quietly left
     on ``:local`` — which is the whole failure this scenario exists to catch: a
-    deploy that pulls seven services from the registry and tries to run the
-    eighth from a tag the host never built.
+    deploy that pulls eight services from the registry and tries to run the
+    ninth from a tag the host never built.
     """
     from osprey.deployment.compose_generator import _OSPREY_IMAGE_SUFFIXES
 
@@ -1047,7 +1052,7 @@ def test_image_axes_move_every_osprey_built_image() -> None:
                 rendered_images.add(image)
 
     assert rendered_images == expected, (
-        "the axis-set goldens do not carry exactly the eight built images — "
+        "the axis-set goldens do not carry exactly the nine built images — "
         f"missing {sorted(expected - rendered_images)}, "
         f"unexpected {sorted(rendered_images - expected)}"
     )
@@ -1061,8 +1066,8 @@ def test_image_axes_leave_the_third_party_pins_alone() -> None:
     deploy time rather than anywhere near the config that caused it. The
     bluesky file is where the two kinds of image sit closest together — its
     bridge is built here, its store is pulled from upstream. The set-equality
-    above is the general form of this: no image outside the eight acquired the
-    prefix anywhere in the nine templates.
+    above is the general form of this: no image outside the nine acquired the
+    prefix anywhere in the ten templates.
     """
     axis = yaml.safe_load(_golden_text(_scenario("images-on-a-registry"), "bluesky"))
     default = yaml.safe_load((_DEFAULTS_DIR / "bluesky.yml").read_text(encoding="utf-8"))

@@ -90,15 +90,16 @@ included.
 Chat bridge
 -----------
 
-Nextcloud Talk and Google Chat ship with Osprey; Slack, Mattermost or plain
-email would each be a new bridge. Almost none of a bridge is per-service ---
+Nextcloud Talk, Google Chat and Microsoft Teams ship with Osprey; Slack,
+Mattermost or plain email would each be a new bridge. Almost none of a bridge is per-service ---
 deduplication, history, retries, honest give-up and crash recovery live in the
 engine under ``src/osprey/bridges/core/``. What you write is an arrival loop
 and one class, ``osprey.bridges.core.ports.ChannelOps``. Read that module's
 docstring first: it carries the failure contract member by member, and getting
 it wrong is the one mistake that leaves a bridge looking healthy while losing
-answers. Copy ``src/osprey/bridges/google_chat/`` or
-``src/osprey/bridges/nextcloud_talk/``, and expect to touch the build-profile
+answers. Copy ``src/osprey/bridges/google_chat/``,
+``src/osprey/bridges/nextcloud_talk/`` or ``src/osprey/bridges/teams/``, and
+expect to touch the build-profile
 and injector modules in ``src/osprey/cli/`` so a profile can switch the new
 service on. Pinning test: ``tests/bridges/test_ports.py``. Deployers start
 from :doc:`/how-to/agent-interfaces/chat-bridges/index`.

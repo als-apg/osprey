@@ -551,7 +551,11 @@ class TestHostNetworkDerivation:
         socket; a warning for them would be noise on a valid config."""
         with caplog.at_level("WARNING"):
             bindings = derive_host_network_bindings(
-                _host_config(nextcloud_bridge={"network": "host"}, gchat_bridge={"network": "host"})
+                _host_config(
+                    nextcloud_bridge={"network": "host"},
+                    gchat_bridge={"network": "host"},
+                    teams_bridge={"network": "host"},
+                )
             )
         assert bindings == []
         assert "host network" not in caplog.text

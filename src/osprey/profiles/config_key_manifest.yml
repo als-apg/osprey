@@ -582,6 +582,12 @@ keys:
     note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
     default: derived
     default_note: osprey_images.gchat_bridge
+  services.teams_bridge.image:
+    rendered: false
+    evidence: 'OSPREY_TEAMS_BRIDGE_IMAGE:-\{\{ services\.teams_bridge\.image'
+    note: OSPREY-built image, same layering as `services.event_dispatcher.image`.
+    default: derived
+    default_note: osprey_images.teams_bridge
   services.ariel_sync.image:
     rendered: false
     evidence: 'OSPREY_WORKER_IMAGE:-\{\{ svc\.image \| default\(osprey_images\.worker\)'

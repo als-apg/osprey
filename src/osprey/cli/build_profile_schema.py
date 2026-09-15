@@ -3,8 +3,9 @@
 The declarative half of the build profile: the nested config blocks a
 ``profile.yml`` may declare (``mcp_servers``, ``lifecycle``, ``env``,
 ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
-``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``) plus the environment-variable name
-pattern their validators share. Parsing, inheritance merging, and validation live in
+``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``) plus the
+environment-variable name pattern their validators share. Parsing, inheritance
+merging, and validation live in
 :mod:`osprey.cli.build_profile_load`, :mod:`osprey.cli.build_profile_merge`,
 and :mod:`osprey.cli.build_profile_model`, respectively; this module is a
 leaf holding only the shapes, so the service injectors can type against them
@@ -934,6 +935,38 @@ class GChatBridgeProfileConfig:
     rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
 
     This default is the ONLY place the ``gchat-question`` name is defaulted:
+    the runtime config's ``from_env`` applies no trigger default, so a
+    hand-rolled (non-build) deployment still fails loudly on a missing trigger
+    rather than silently firing a name nobody declared. The value must name a
+    trigger declared in the ``dispatch.triggers`` file.
+    """
+
+
+@dataclass
+class TeamsBridgeProfileConfig:
+    """Microsoft Teams bridge configuration for a build profile (opt-in via the
+    ``teams_bridge:`` key).
+
+    Consumed by the build pipeline's teams-bridge-injection step
+    (``_inject_teams_bridge`` in ``build_cmd.py``) to deploy the single
+    ``teams_bridge`` service — a Service Bus queue consumer that ingests the
+    Teams messages an Azure Functions relay enqueues and dispatches them
+    through the event-dispatch pair, so the block is only meaningful alongside
+    a ``dispatch:`` block.
+
+    The Azure credentials and destinations are deliberately *not* profile
+    fields: ``TEAMS_APP_ID``, ``TEAMS_APP_SECRET``, ``TEAMS_TENANT_ID``,
+    ``TEAMS_SERVICEBUS_CONNECTION_STRING``, ``TEAMS_SERVICEBUS_QUEUE`` and the
+    optional ``TEAMS_CLOUD`` are user-supplied runtime env (declared via
+    ``env.required``), never baked into a build. Validated by
+    :meth:`BuildProfile.validate`.
+    """
+
+    trigger: str = "teams-question"
+    """Dispatcher trigger the bridge fires (``POST /webhook/{trigger}``),
+    rendered as ``DISPATCH_TRIGGER`` in the service's compose template.
+
+    This default is the ONLY place the ``teams-question`` name is defaulted:
     the runtime config's ``from_env`` applies no trigger default, so a
     hand-rolled (non-build) deployment still fails loudly on a missing trigger
     rather than silently firing a name nobody declared. The value must name a

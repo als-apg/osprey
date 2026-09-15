@@ -1412,6 +1412,18 @@ panel_presets: {}
 #
 # gchat_bridge:
 #   trigger: gchat-question
+
+# --- Microsoft Teams bridge --------------------------------------------------
+# Answers questions asked from a Microsoft Teams channel or chat. The trigger
+# name must match one declared in the dispatch triggers file.
+#
+# The Azure credentials and destinations are runtime env, not profile keys:
+# declare TEAMS_APP_ID, TEAMS_APP_SECRET, TEAMS_TENANT_ID,
+# TEAMS_SERVICEBUS_CONNECTION_STRING and TEAMS_SERVICEBUS_QUEUE under
+# `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud).
+#
+# teams_bridge:
+#   trigger: teams-question
 """
 
 #: Deployment coordinates, filled in. Where this repo runs once it leaves the

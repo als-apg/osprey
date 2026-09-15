@@ -270,6 +270,7 @@ dev = [
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
     "linkml-runtime>=1.11.1,<2",  # Ontology compiler + its tests; runtime use stays in the knowledge extra
+    "PyJWT[crypto]>=2.8",  # Teams relay token validation; its tests import jwt plainly, so a missing install must fail
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -304,6 +305,14 @@ gchat = [
     # (used by google-api-python-client) only honors HTTP(S)_PROXY env vars
     # when PySocks is installed, so this is required, not optional, on those hosts.
     "pysocks>=1.7",
+]
+
+# Microsoft Teams bridge (osprey.bridges.teams): Service Bus queue consumption
+# and image downscaling. Both are imported lazily by the adapter, so the unit
+# lanes run without this extra installed.
+teams = [
+    "azure-servicebus>=7.11",
+    "pillow>=10",
 ]
 
 # Facility knowledge / ontology support (LinkML schema loading for the ontology compiler)
@@ -406,7 +415,7 @@ virtual-accelerator = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,knowledge,gchat]"
+    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,knowledge,gchat,teams]"
 ]
 
 [tool.uv.workspace]
