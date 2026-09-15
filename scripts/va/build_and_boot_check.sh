@@ -24,6 +24,12 @@
 # would satisfy or fail these steps while this gate reported on a machine it
 # never started. The identity handshake that runs before step 1 closes that.
 #
+# The model RPC in step 5 runs from the host as well, over the published
+# PVAccess port, and carries its own proof rather than leaning on that
+# handshake: the write token is minted fresh each run and handed to this
+# container alone, so a write that is ACCEPTED can only have been accepted
+# here.
+#
 # What the gate asserts, and why each assertion is not vacuous:
 #
 #   1. The readiness line matches its whole contract -- marker AND a
@@ -49,15 +55,25 @@
 #      SNAPSHOT is checked too but is explicitly only a forward regression
 #      guard: no such PV exists in this stack, so its absence is evidence of
 #      nothing by itself.
-#   5. A PVA get of model_info returns the model's real variable roster.
+#   5. The model RPC answers from the HOST over the published PVAccess
+#      port: `status` reports the backend, the lattice and the endpoint this
+#      gate actually booted; a token-less `set` is refused and writes
+#      nothing; and a `set` bearing this run's minted token is accepted,
+#      after which `diff` puts the served reading and the model's truth
+#      exactly the written offset apart. The refusal is required to be the
+#      one about the missing token and not the one about writes being
+#      disabled, so a container that never received a token cannot satisfy
+#      it, and served and truth are required to AGREE beforehand, so the
+#      disagreement after the write cannot be one that was already there.
+#      The offset is written back to zero before step 6 runs.
 #   6. A PVA put above the drive limit lands CLAMPED, on both views of the
 #      address -- the value is checked back over PVA and over CA.
 #   7. A refused PVA put moves nothing. Checked on the Channel Access view,
 #      because that is the view that carries a real reading; see the step
 #      itself for why the PVA view would make this check vacuous today.
-#   8. The PVAccess port is not published to the host, while PVA is
-#      confirmed live inside the container -- so "unpublished" is
-#      distinguished from "not running".
+#   8. BOTH served ports are in the container's own port table, and PVA is
+#      confirmed live inside the container -- so a published port is
+#      distinguished from a port published in front of nothing.
 #
 # Exits 0 only if the image builds, boots to serving PVs within
 # BOOT_TIMEOUT_SECS, and every assertion above holds.
@@ -72,6 +88,9 @@
 #                       off 5064 keeps it clear of the deployed stacks that do
 #                       need that one. Set it to 5064 to certify on the shipped
 #                       default, on a host where nothing else holds it.
+#   OSPREY_VA_PVA_PORT  PVAccess port to bind and publish. Defaults to 5175,
+#                       off the 5075 the compose template names, for the same
+#                       reason OSPREY_VA_CA_PORT defaults off 5064.
 #   OSPREY_VA_RUNTIME   Container runtime. Auto-detected when unset.
 set -euo pipefail
 
@@ -93,9 +112,13 @@ CA_PORT="${OSPREY_VA_CA_PORT:-5164}"
 BOOT_TIMEOUT_SECS=60
 READY_LOG_MARKER="virtual accelerator IOC serving PVs"
 
-# The PVAccess server's port. Served inside the container only -- step 8
-# asserts it is never published to the host.
-PVA_PORT=5075
+# The PVAccess server's port, bound and published on the same number for the
+# same reason the Channel Access port is: a PVA search reply carries the
+# server's own port, so a container bound to one and published on another
+# hands clients an address they cannot reach. The default stays off the 5075
+# the compose template names, so this gate never collides with a deployed
+# stack; step 5 talks to it from the host and step 8 asserts it is published.
+PVA_PORT="${OSPREY_VA_PVA_PORT:-5175}"
 
 # A pyat-coupled BPM readback, and the corrector whose field moves it. Reading
 # the BPM alone proves nothing: the tutorial lattice's closed orbit with no
@@ -110,6 +133,17 @@ EXCITE_VALUE="0.5"
 # Floor for "this reading moved". The excitation above produces order 1e-6 m
 # at both BPMs, so this sits ~100x below the signal and far above float noise.
 MOVED_THRESHOLD_M="1e-8"
+
+# The model-only fault step 5 writes over the model RPC, and it must be the
+# one belonging to ${GATE_PV}'s device -- the fault perturbs that BPM's
+# reading and nothing else, and the step measures it there. Dot grammar, so
+# the name can never parse as a channel address: the model surface refuses a
+# write to a served address on principle, and this is what a write it accepts
+# looks like. 5e-4 m sits well inside the +/-1e-2 m the offset takes and some
+# 500x above the orbit step 3's excitation produces, so the shift it puts on
+# the reading cannot be confused with the movement step 3 measures.
+MODEL_FAULT_VAR="BPM01.offset_x"
+MODEL_FAULT_OFFSET="5e-4"
 
 # ${EXCITE_PV}'s drive band is [-12, 12] (channel_limits.json). A put past the
 # top of it must land clamped at the limit rather than being refused or taken
@@ -272,6 +306,14 @@ print(MANIFEST_OUTPUT)')"
 fi
 CHANNELS_FILE_VALUE="channel_manifest.json"
 
+# The credential the model RPC checks before a write, minted per run. It is a
+# secret only in the sense that matters here: nothing but this container is
+# told it, so a write the server ACCEPTS is a write this gate's own container
+# accepted -- which is what makes step 5 an identity proof as well as a
+# behaviour check. Freshly minted rather than a constant, so a container left
+# over from an earlier run cannot take it either.
+MODEL_WRITE_TOKEN="$("${VENV_PY}" -c 'import secrets; print(secrets.token_hex(16))')"
+
 echo "--- Starting ${CONTAINER} (data dir: ${MOUNT_DIR}; manifest: ${CHANNELS_FILE_VALUE}; VA_LATTICE=${VA_LATTICE_VALUE}) ---"
 # The server port is passed explicitly, from the same CA_PORT the publish maps:
 # a CA search reply carries the server's own port, so a container bound to one
@@ -279,11 +321,20 @@ echo "--- Starting ${CONTAINER} (data dir: ${MOUNT_DIR}; manifest: ${CHANNELS_FI
 # useful error. (The image derives EPICS_CAS_SERVER_PORT from this.)
 "${RUNTIME}" run -d --name "${CONTAINER}" \
     -e "EPICS_CA_SERVER_PORT=${CA_PORT}" \
+    -e "EPICS_PVAS_SERVER_PORT=${PVA_PORT}" \
     -e "VA_CHANNELS_FILE=${CHANNELS_FILE_VALUE}" \
     -e "VA_LATTICE=${VA_LATTICE_VALUE}" \
+    -e "VA_MODEL_WRITE_TOKEN=${MODEL_WRITE_TOKEN}" \
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
+    -p "127.0.0.1:${PVA_PORT}:${PVA_PORT}/tcp" \
     -v "${MOUNT_DIR}:/data/simulation:ro" \
     "${IMAGE}" >/dev/null
+
+# What the container calls itself, which is the host half of the endpoint
+# the model RPC's `status` reports. Read from the runtime rather than assumed,
+# and treated as optional: a runtime that reports none costs step 5 the host
+# half of that check and nothing else, and step 5 says so when it happens.
+CONTAINER_HOSTNAME="$("${RUNTIME}" inspect -f '{{.Config.Hostname}}' "${CONTAINER}" 2>/dev/null || true)"
 
 echo "--- Waiting up to ${BOOT_TIMEOUT_SECS}s for PVs to serve ---"
 boot_wait_start=${SECONDS}
@@ -310,6 +361,15 @@ echo "Booted after ${boot_elapsed} s (container start -> ready log line; exclude
 export EPICS_CA_NAME_SERVERS="localhost:${CA_PORT}"
 export EPICS_CA_AUTO_ADDR_LIST="NO"
 export EPICS_CA_ADDR_LIST=""
+
+# The same arrangement for the host's PVAccess client, which step 5 uses:
+# name-server (TCP) discovery against the published port, no UDP broadcast.
+# These are the host's environment only -- `exec` hands the container none of
+# it -- so the in-container p4p payloads in steps 6, 7 and 8 keep finding
+# their server over the container's own loopback, as before.
+export EPICS_PVA_NAME_SERVERS="127.0.0.1:${PVA_PORT}"
+export EPICS_PVA_AUTO_ADDR_LIST="NO"
+export EPICS_PVA_ADDR_LIST=""
 
 # Every Channel Access assertion below runs through pyepics in the worktree
 # venv rather than through the host's caget/caput binaries. One client, not
@@ -362,6 +422,27 @@ in_container_py() {
     fi
     if ! printf '%s' "${out}" | grep -q '^OK: '; then
         echo "FATAL: the in-container payload printed no OK sentinel, so it did not run" >&2
+        return 1
+    fi
+    return 0
+}
+
+# The same guard for a payload run on the HOST. The existing host-side blocks
+# rest on SystemExit alone, which is enough for them because each ends by
+# printing a value the shell goes on to use -- but the model-RPC step below
+# consumes nothing, so a heredoc that failed to arrive would let it "pass"
+# having run nothing at all. Its payload prints an `OK:` line and this
+# requires one.
+host_py() {
+    local out rc
+    out="$("${VENV_PY}" - "$@")"
+    rc=$?
+    printf '%s\n' "${out}"
+    if [[ ${rc} -ne 0 ]]; then
+        return "${rc}"
+    fi
+    if ! printf '%s' "${out}" | grep -q '^OK: '; then
+        echo "FATAL: the host payload printed no OK sentinel, so it did not run" >&2
         return 1
     fi
     return 0
@@ -626,24 +707,159 @@ print(f"  {regression_guard}: absent (regression guard only -- proves nothing on
 print("OK: no control PV is served outside the channel manifest")
 PY
 
-echo "--- [5/8] PVA get of model_info (in-container; PVA is not published) ---"
-in_container_py <<'PY' || ca_fail "PVA get of model_info failed"
+echo "--- [5/8] The model RPC from the host: status, a refused write, an accepted write ---"
+# The first host-side PVAccess client in this repo -- every other thing here
+# that speaks PVA speaks it from inside the container -- so this is the path an
+# operator's client actually takes: through the published port, in name-server
+# mode, against the shipped wire contract rather than a second hand-rolled copy
+# of it. `build_request` and `parse_reply` are imported from the serving stack,
+# so a change to the contract reaches this gate instead of drifting past it.
+#
+# The step needs an identity proof of its own for the same reason the Channel
+# Access handshake above does -- a host client is pointed at a PORT -- and the
+# accepted write IS that proof: ${MODEL_WRITE_TOKEN} was minted this run and
+# given to this container alone, so nothing else on ${PVA_PORT} could take it.
+#
+# None of the three assertions can pass vacuously:
+#   - `status` is checked against what this gate actually booted (the lattice
+#     it passed in, and the port it published), not against a constant;
+#   - the token-less `set` must be refused with the "no token presented"
+#     sentence and NOT with the one about writes being disabled, so a
+#     container that never received a token cannot satisfy it; and the fault
+#     is read back to show the refusal wrote nothing;
+#   - served and truth must AGREE before the accepted write and disagree by
+#     exactly the offset after it, so neither half can be satisfied by a
+#     divergence that was already there.
+#
+# The offset is written back to zero at the end, because steps 6 and 7 measure
+# the same reading and are entitled to an unfaulted one.
+host_py "${PVA_PORT}" "${MODEL_WRITE_TOKEN}" "${MODEL_FAULT_VAR}" "${MODEL_FAULT_OFFSET}" \
+    "${GATE_PV}" "${VA_LATTICE_VALUE}" "${CONTAINER_HOSTNAME}" \
+    <<'PY' || ca_fail "the model RPC round from the host failed"
+import sys
+
 from p4p.client.thread import Context
 
+from osprey.services.virtual_accelerator.serving.model_rpc import (
+    RPC_PV,
+    RPC_TIMEOUT_S,
+    ModelRpcError,
+    build_request,
+    parse_reply,
+)
+from osprey.services.virtual_accelerator.serving.model_surface import WRITES_DISABLED
+
+port, token, fault = sys.argv[1], sys.argv[2], sys.argv[3]
+offset = float(sys.argv[4])
+gate_pv, lattice_source, hostname = sys.argv[5], sys.argv[6], sys.argv[7]
+
+# The refusal a write with no token must meet. Spelled out rather than
+# imported because it is the wire text a client is shown, and this gate is one
+# of the clients: the point is that the sentence itself has not changed.
+NO_TOKEN = "model write refused: no write token was presented"
+# Well below the offset written (5e-4 m) and the orbit measured (order 1e-6 m),
+# and well above float noise on either.
+TOL = 1e-9
+
 ctx = Context("pva")
-info = ctx.get("model_info", timeout=20)
 
-variables = info["supported_variables"]
-if len(variables) <= 0:
-    raise SystemExit("FATAL: model_info describes no variables")
 
-names = [entry["name"] for entry in variables]
-print(f"  class       : {info['class']}")
-print(f"  variables   : {len(names)}")
-print(f"  first       : {names[0]}")
-if len(set(names)) != len(names):
-    raise SystemExit("FATAL: model_info lists duplicate variable names")
-print("OK: model_info served over PVA with a populated variable roster")
+def call(verb, **kwargs):
+    """The verb's result, or ModelRpcError carrying the server's own refusal."""
+    return parse_reply(ctx.rpc(RPC_PV, build_request(verb, **kwargs), timeout=RPC_TIMEOUT_S))
+
+
+status = call("status")
+print(f"  status      : backend={status['backend']} lattice_source={status['lattice_source']}")
+print(f"                endpoint={status['endpoint']} queue_depth={status['queue_depth']!r}")
+if status["lattice_source"] != lattice_source:
+    raise SystemExit(
+        f"FATAL: status reports lattice_source={status['lattice_source']!r}, but this gate "
+        f"booted the container with VA_LATTICE={lattice_source!r}"
+    )
+if lattice_source == "builtin" and status["backend"] != "PyATRingModel":
+    raise SystemExit(
+        f"FATAL: status reports backend={status['backend']!r} on a lattice-backed boot; the "
+        "ring model is what produces every reading the steps around this one assert on"
+    )
+depth = status["queue_depth"]
+if isinstance(depth, bool) or not isinstance(depth, int) or depth < 0:
+    raise SystemExit(f"FATAL: status reports queue_depth={depth!r}, not a queue length")
+endpoint_host, _, endpoint_port = str(status["endpoint"]).rpartition(":")
+if endpoint_port != port:
+    raise SystemExit(
+        f"FATAL: status reports the server on port {endpoint_port!r}, but this gate published "
+        f"{port!r} -- the port this client just reached it on"
+    )
+if not hostname:
+    print("  note        : the runtime named no container hostname; only the port was checked")
+elif endpoint_host != hostname:
+    raise SystemExit(
+        f"FATAL: status reports the server on host {endpoint_host!r}, not {hostname!r}, which "
+        "is the hostname of the container this gate started"
+    )
+
+before = call("diff")
+if gate_pv not in before:
+    raise SystemExit(
+        f"FATAL: diff reports nothing for {gate_pv}. It names every served model variable, so "
+        "the address this step measures the write on should be among them"
+    )
+gap_before = float(before[gate_pv]["served"]) - float(before[gate_pv]["truth"])
+print(f"  diff before : {gate_pv} served - truth = {gap_before:.3g}")
+if abs(gap_before) > TOL:
+    raise SystemExit(
+        f"FATAL: {gate_pv} already reads {gap_before:.3g} m away from the model's truth before "
+        "anything was written, so a disagreement after the write would prove nothing"
+    )
+
+held_before = float(call("get", names=[fault])[fault])
+try:
+    call("set", values={fault: offset})
+except ModelRpcError as exc:
+    refusal = str(exc)
+else:
+    raise SystemExit(f"FATAL: a set of {fault} carrying no token was ACCEPTED")
+print(f"  token-less  : refused -- {refusal}")
+if refusal == WRITES_DISABLED:
+    raise SystemExit(
+        "FATAL: the write was refused because model writes are disabled outright, which says "
+        "nothing about the token: VA_MODEL_WRITE_TOKEN did not reach this container"
+    )
+if refusal != NO_TOKEN:
+    raise SystemExit(f"FATAL: the token-less set was refused with {refusal!r}, not {NO_TOKEN!r}")
+held_after = float(call("get", names=[fault])[fault])
+if held_after != held_before:
+    raise SystemExit(
+        f"FATAL: the refused write moved {fault} from {held_before!r} to {held_after!r}"
+    )
+print(f"  and wrote   : nothing -- {fault} still holds {held_after:g}")
+
+written = call("set", values={fault: offset}, token=token)
+print(f"  token-bearing: accepted, wrote {written}")
+if written != [fault]:
+    raise SystemExit(f"FATAL: the accepted set reports writing {written!r}, not [{fault!r}]")
+
+after = call("diff")
+served, truth = float(after[gate_pv]["served"]), float(after[gate_pv]["truth"])
+gap_after = served - truth
+print(f"  diff after  : {gate_pv} served={served:.6g} truth={truth:.6g} (gap {gap_after:.6g})")
+if abs(gap_after + offset) > TOL:
+    raise SystemExit(
+        f"FATAL: {fault} was written to {offset:g} m, so the served reading should sit that "
+        f"far below the model's truth; the two are {gap_after:.6g} m apart instead"
+    )
+
+restored = call("set", values={fault: 0.0}, token=token)
+back = call("diff")
+gap_restored = float(back[gate_pv]["served"]) - float(back[gate_pv]["truth"])
+if restored != [fault] or abs(gap_restored) > TOL:
+    raise SystemExit(
+        f"FATAL: {fault} did not go back to 0 ({restored!r}): {gate_pv} still reads "
+        f"{gap_restored:.3g} m away from the truth, and the steps below measure that reading"
+    )
+print(f"  restored    : {fault} back to 0, served and truth agree again")
+print("OK: the model RPC answered the host, refused the token-less write and took the other")
 PY
 
 echo "--- [6/8] PVA put above the drive limit lands clamped, on both views ---"
@@ -753,25 +969,29 @@ if after == 999.0:
 print("OK: the refusal moved nothing any reader can see")
 PY
 
-echo "--- [8/8] The PVAccess port is not published to the host ---"
+echo "--- [8/8] Both served ports are published, and PVA is live behind its own ---"
 # Asserted against the container runtime's own port table, which is
 # authoritative about what THIS container published. A host-side connect probe
 # would not be: on a shared development host something unrelated may already
-# be listening on ${PVA_PORT}, and this gate would then report a port leak
-# that is not its container's. (Measured on the development host -- an
-# unrelated process held ${PVA_PORT} while this gate ran clean.)
+# be listening on ${PVA_PORT}, and a probe that connected to it would report
+# this container publishing a port it never published. (Measured on the
+# development host -- an unrelated process held ${PVA_PORT} while an earlier
+# revision of this gate ran.)
 PORT_TABLE="$("${RUNTIME}" port "${CONTAINER}" 2>&1 || true)"
 echo "  published: ${PORT_TABLE:-<nothing>}"
-if printf '%s' "${PORT_TABLE}" | grep -Eq "(^|[^0-9])${PVA_PORT}([^0-9]|\$)"; then
-    echo "FATAL: the PVAccess port ${PVA_PORT} is published to the host" >&2
-    exit 1
-fi
 if ! printf '%s' "${PORT_TABLE}" | grep -Eq "(^|[^0-9])${CA_PORT}([^0-9]|\$)"; then
     echo "FATAL: the Channel Access port ${CA_PORT} is not in the container's port table" >&2
     exit 1
 fi
-# ...and PVA really is running behind that unpublished port, so this step
-# distinguishes "not reachable from the host" from "never started".
+if ! printf '%s' "${PORT_TABLE}" | grep -Eq "(^|[^0-9])${PVA_PORT}([^0-9]|\$)"; then
+    echo "FATAL: the PVAccess port ${PVA_PORT} is not in the container's port table. Step 5" >&2
+    echo "       reached a model RPC on that port from the host, so something answered --" >&2
+    echo "       but not, on this evidence, this container." >&2
+    exit 1
+fi
+# ...and PVA really is running behind the published port, so this step
+# distinguishes a port with a server behind it from a forwarded port with
+# nothing on the other end.
 in_container_py -e "PVA_PORT=${PVA_PORT}" <<'PY' || ca_fail "PVA is not listening inside the container"
 import os
 import socket
@@ -783,10 +1003,10 @@ with socket.socket() as s:
         s.connect(("127.0.0.1", port))
     except OSError as exc:
         raise SystemExit(
-            f"FATAL: nothing is listening on {port} inside the container ({exc}), so its "
-            "absence from the host says nothing about PVA being served"
+            f"FATAL: nothing is listening on {port} inside the container ({exc}), so the "
+            "published port stands in front of nothing"
         ) from exc
-print(f"OK: PVA is live on {port} inside the container and published nowhere")
+print(f"OK: PVA is live on {port} inside the container and published to the host")
 PY
 
 echo "--- Gate PASSED ---"
