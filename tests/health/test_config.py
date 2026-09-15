@@ -137,7 +137,9 @@ def test_title_absent_defaults() -> None:
 
 
 def test_title_present_used() -> None:
-    assert parse_health_config({"title": "ALS Booster Health"}).title == "ALS Booster Health"
+    assert (
+        parse_health_config({"title": "Example Booster Health"}).title == "Example Booster Health"
+    )
 
 
 def test_title_explicit_none_defaults() -> None:

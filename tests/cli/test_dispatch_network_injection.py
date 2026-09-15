@@ -43,8 +43,8 @@ services:
   event_dispatcher:
     path: ./services/event_dispatcher
     port: 10010
-    facility_name: ALS
-    channel_strip_prefix: 'ALS:'
+    facility_name: ERF
+    channel_strip_prefix: 'ERF:'
     additional_dirs:
       - src: triggers.yml
         dst: triggers.yml
@@ -105,8 +105,8 @@ def _dispatch(**overrides: object) -> DispatchConfig:
     """Return the DispatchConfig the pinned renders above describe, with *overrides* applied."""
     base: dict = {
         "triggers": "tutorial_triggers.yml",
-        "facility_name": "ALS",
-        "channel_strip_prefix": "ALS:",
+        "facility_name": "ERF",
+        "channel_strip_prefix": "ERF:",
     }
     base.update(overrides)
     return DispatchConfig(**base)  # type: ignore[arg-type]
@@ -218,8 +218,8 @@ class TestHostMode:
         dispatcher = services["event_dispatcher"]
         assert dispatcher["path"] == "./services/event_dispatcher"
         assert dispatcher["port"] == 10010
-        assert dispatcher["facility_name"] == "ALS"
-        assert dispatcher["channel_strip_prefix"] == "ALS:"
+        assert dispatcher["facility_name"] == "ERF"
+        assert dispatcher["channel_strip_prefix"] == "ERF:"
         assert dispatcher["additional_dirs"] == [{"src": "triggers.yml", "dst": "triggers.yml"}]
         worker = services["dispatch_worker"]
         assert worker["path"] == "./services/dispatch_worker"

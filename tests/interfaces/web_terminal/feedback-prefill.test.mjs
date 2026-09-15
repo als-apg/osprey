@@ -205,12 +205,12 @@ describe('buildPrefillBody', () => {
   test('renders the text and the metadata block, nothing else', () => {
     const body = buildPrefillBody('The lattice panel froze.', {
       'OSPREY version': '1.4.0',
-      Deployment: 'ALS control room',
+      Deployment: 'Example control room',
     });
     expect(body).toContain('The lattice panel froze.');
     expect(body).toContain('OSPREY version');
     expect(body).toContain('1.4.0');
-    expect(body).toContain('ALS control room');
+    expect(body).toContain('Example control room');
     // No paste placeholder: a FULL-mode draft is complete as opened, and a
     // POINTER-mode draft never contains this body at all.
     expect(body).not.toContain('<details>');

@@ -2937,7 +2937,7 @@ def test_resolve_project_name_valid_lowercase_unchanged() -> None:
 def test_resolve_project_name_lowercases_mixed_case() -> None:
     """Mixed-case names are lowercased, matching compose normalization."""
     assert resolve_project_name({"project_name": "MyProject"}) == "myproject"
-    assert resolve_project_name({"project_name": "ALS-Booster"}) == "als-booster"
+    assert resolve_project_name({"project_name": "Example-Booster"}) == "example-booster"
 
 
 def test_resolve_project_name_drops_spaces() -> None:

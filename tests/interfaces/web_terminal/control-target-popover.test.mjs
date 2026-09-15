@@ -423,13 +423,13 @@ describe('names', () => {
     await bootOpen(
       viewOf({
         targets: [
-          rowOf(KINDS.live, { ...STATES.sandbox, display_name: 'ALS storage ring' }),
+          rowOf(KINDS.live, { ...STATES.sandbox, display_name: 'Example storage ring' }),
           rowOf(KINDS.standin, { active: true, available_now: false, reason: 'already_active' }),
           rowOf(KINDS.va),
         ],
       })
     );
-    expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('ALS storage ring');
+    expect(rowEl('live')?.querySelector('.ctc-name')?.textContent).toBe('Example storage ring');
   });
 
   test('the live machine carries the one hazard descriptor, inside its tooltip', async () => {

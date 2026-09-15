@@ -1,4 +1,4 @@
-"""Tests for dashboard HTML runtime config injection (de-ALS)."""
+"""Tests for dashboard HTML runtime config injection."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from osprey.dispatch.dashboard import render_dashboard_html
 
 def test_injects_config_and_consumes_sentinel():
     """render_dashboard_html replaces the sentinel with a window.__OSPREY_CONFIG__ literal."""
-    html = render_dashboard_html(facility_name="ALS Demo", channel_strip_prefix="ALS:")
+    html = render_dashboard_html(facility_name="Example Demo", channel_strip_prefix="ERF:")
 
     # The injected config literal is present with the supplied values.
     assert "window.__OSPREY_CONFIG__ = {" in html
-    assert '"facility_name": "ALS Demo"' in html
-    assert '"channel_strip_prefix": "ALS:"' in html
+    assert '"facility_name": "Example Demo"' in html
+    assert '"channel_strip_prefix": "ERF:"' in html
 
     # The raw placeholder sentinel was consumed (replaced), not left behind.
     assert "/* OSPREY_CONFIG_PLACEHOLDER */" not in html
@@ -46,9 +46,9 @@ def test_absent_telemetry_url_is_the_no_store_signal():
 
 
 def test_dashboard_is_de_alsed():
-    """The hardcoded ALS PV-prefix strip is gone; the prefix is config-driven."""
+    """The hardcoded PV-prefix strip is gone; the prefix is config-driven."""
     html = render_dashboard_html()
-    # The old hardcoded ALS regex must not survive.
+    # The old hardcoded prefix regex must not survive.
     assert "/^ALS:/" not in html
     # The PV display now strips a configurable prefix from window.__OSPREY_CONFIG__.
     assert "window.__OSPREY_CONFIG__.channel_strip_prefix" in html

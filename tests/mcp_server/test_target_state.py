@@ -25,7 +25,7 @@ from osprey_connectors import control_context
 
 TARGETS_META = {
     "live": {
-        "label": "ALS storage ring",
+        "label": "Example storage ring",
         "endpoint": "gateway.example.com:5064",
         "real_machine": True,
         "probe_channel": "SR:BeamCurrent",
@@ -219,7 +219,7 @@ class TestSelectedRole:
 
     ROLED_META = {
         "live": {
-            "label": "ALS storage ring",
+            "label": "Example storage ring",
             "endpoint": "gateway.example.com:5064",
             "real_machine": True,
             "selected_role": "read_only",
@@ -295,7 +295,7 @@ class TestPublishTargets:
 
     NARROWED = {
         "live": {
-            "label": "ALS storage ring",
+            "label": "Example storage ring",
             "endpoint": "gateway.example.com:5065",
             "real_machine": True,
             "probe_channel": "SR:BeamCurrent",

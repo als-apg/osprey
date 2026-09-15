@@ -446,7 +446,7 @@ class TestFeedbackTrackers:
             ]
 
     def test_lifespan_with_list_and_blank_sugar_is_the_list_alone(self, project_dir, shared_root):
-        """The ALS posture: a self-hosted tracker and no upstream channel."""
+        """The self-hosted posture: a tracker of one's own and no upstream channel."""
         overrides = {
             "web.feedback.trackers": [{"kind": "gitlab", "url": GITLAB_URL, "label": "Ops"}],
             "web.feedback.github_repo": "",
@@ -575,10 +575,10 @@ class TestFeedbackOwner:
 
     def test_owner_supplies_the_address_when_the_leaf_key_is_absent(self):
         destination = resolve_feedback_destination(
-            owner={"name": "ALS Controls", "email": "controls@als.example.org"}
+            owner={"name": "Example Controls", "email": "controls@als.example.org"}
         )
         assert destination.email == "controls@als.example.org"
-        assert destination.owner_name == "ALS Controls"
+        assert destination.owner_name == "Example Controls"
 
     def test_the_leaf_key_still_wins(self):
         """An already-deployed profile spelling the leaf key keeps its meaning."""
@@ -669,7 +669,7 @@ class TestFeedbackOwner:
         """End to end: the lifespan reads the block and /api/panels echoes it."""
         overrides = {
             "web.feedback.owner": {
-                "name": "ALS Controls",
+                "name": "Example Controls",
                 "email": "controls@als.example.org",
                 "tracker": OWNER_GITLAB,
             }
@@ -680,7 +680,7 @@ class TestFeedbackOwner:
         assert payload["feedback_trackers"] == [
             {"kind": "gitlab", "label": "GitLab", "url": GITLAB_URL}
         ]
-        assert app.state.feedback_owner_name == "ALS Controls"
+        assert app.state.feedback_owner_name == "Example Controls"
 
 
 class TestDeploymentIdentityAndEscalation:
@@ -721,7 +721,7 @@ class TestDeploymentIdentityAndEscalation:
 
     def test_a_configured_deployment_gets_an_escalation_link(self):
         destination = resolve_feedback_destination(
-            owner={"name": "ALS Controls", "email": "c@x.org", "tracker": OWNER_GITLAB}
+            owner={"name": "Example Controls", "email": "c@x.org", "tracker": OWNER_GITLAB}
         )
         url = upstream_escalation_url(resolve_deployment_identity(**self.IDENTITY), destination)
         assert url.startswith(f"https://github.com/{DEFAULT_FEEDBACK_GITHUB_REPO}/issues/new?")
@@ -729,7 +729,7 @@ class TestDeploymentIdentityAndEscalation:
         assert "control-assistant" in decoded
         assert "hierarchical" in decoded
         assert "2026.9.0b1" in decoded
-        assert "ALS Controls" in decoded
+        assert "Example Controls" in decoded
 
     def test_the_unconfigured_deployment_gets_no_link(self):
         """Its owner IS the OSPREY project — the link would point at itself."""
@@ -763,7 +763,7 @@ class TestDeploymentIdentityAndEscalation:
     def test_the_running_deployment_publishes_both(self, project_dir, shared_root):
         """End to end: lifespan resolves them, /api/panels echoes them."""
         overrides = {
-            "web.feedback.owner": {"name": "ALS Controls", "tracker": OWNER_GITLAB},
+            "web.feedback.owner": {"name": "Example Controls", "tracker": OWNER_GITLAB},
             "provenance.preset": "control-assistant",
             "provenance.preset_hash": "a3f91c7d2e8b4f6a1c9d0e2f",
             "channel_finder.pipeline_mode": "hierarchical",

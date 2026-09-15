@@ -47,7 +47,7 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context
 
 TARGETS_META = {
-    "live": {"label": "ALS storage ring", "endpoint": "gw:5064", "real_machine": True},
+    "live": {"label": "Example storage ring", "endpoint": "gw:5064", "real_machine": True},
     "va": {"label": "Virtual accelerator", "endpoint": "localhost:5074", "real_machine": False},
     "standin": {"label": "Live stand-in", "endpoint": "localhost:5084", "real_machine": False},
 }
@@ -843,7 +843,7 @@ class TestPublishTargets:
 
     NARROWED = {
         "live": {
-            "label": "ALS storage ring",
+            "label": "Example storage ring",
             "endpoint": "gw:5065",
             "real_machine": True,
             "selected_role": "read_only",
