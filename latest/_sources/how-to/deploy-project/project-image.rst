@@ -136,8 +136,12 @@ way ``OSPREY_IMAGE_REGISTRY`` overrides ``images.registry``.
        where a proxy re-signs TLS with its own CA — see
        `TLS-Intercepting Proxies`_ below. Unset, the CA step does nothing.
 
-(One more ARG, ``OSPREY_DEV``, is used internally by ``osprey up
---dev`` to install a locally built wheel; you normally never set it by hand.)
+(Two more ARGs are set by ``osprey up`` itself and you normally never set them
+by hand: ``OSPREY_DEV`` makes ``osprey up --dev`` install a locally built
+wheel, and ``OSPREY_PIP_PRE`` is ``"1"`` when the pinned OSPREY version is a
+pre-release, so the ``pip`` resolve inside the image admits the pre-release of
+``osprey-connectors`` that ships beside it. A hand-run build pinning a beta
+needs ``--build-arg OSPREY_PIP_PRE=1`` for the same reason.)
 
 The **host** side of the build reads its own settings from the shell rather
 than from ``config.yml``: ``osprey build`` installs the project's virtual

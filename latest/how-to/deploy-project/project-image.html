@@ -657,8 +657,12 @@ where a proxy re-signs TLS with its own CA — see
 </tbody>
 </table>
 </div>
-<p>(One more ARG, <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code>, is used internally by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span>
-<span class="pre">--dev</span></code> to install a locally built wheel; you normally never set it by hand.)</p>
+<p>(Two more ARGs are set by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> itself and you normally never set them
+by hand: <code class="docutils literal notranslate"><span class="pre">OSPREY_DEV</span></code> makes <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span> <span class="pre">--dev</span></code> install a locally built
+wheel, and <code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_PRE</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> when the pinned OSPREY version is a
+pre-release, so the <code class="docutils literal notranslate"><span class="pre">pip</span></code> resolve inside the image admits the pre-release of
+<code class="docutils literal notranslate"><span class="pre">osprey-connectors</span></code> that ships beside it. A hand-run build pinning a beta
+needs <code class="docutils literal notranslate"><span class="pre">--build-arg</span> <span class="pre">OSPREY_PIP_PRE=1</span></code> for the same reason.)</p>
 <p>The <strong>host</strong> side of the build reads its own settings from the shell rather
 than from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> installs the project’s virtual
 environment with <code class="docutils literal notranslate"><span class="pre">uv</span></code> (or pip), so <code class="docutils literal notranslate"><span class="pre">UV_INDEX_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">PIP_INDEX_URL</span></code> and a
