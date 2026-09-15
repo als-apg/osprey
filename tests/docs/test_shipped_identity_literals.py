@@ -107,6 +107,9 @@ DENIED: tuple[Denied, ...] = (
         pattern=re.compile(r"thellert", re.IGNORECASE),
         why="a maintainer's own login and mailbox is not an example anyone can copy",
         sample='  # bare username, e.g. "thellert"',
+        roots=REPO_ROOTS,
+        # A case that asserts the literal's absence has to spell it.
+        allow=frozenset({"tests/integration/test_preset_static.py"}),
     ),
     Denied(
         name="site EPICS gateway host",
@@ -133,6 +136,7 @@ DENIED: tuple[Denied, ...] = (
         pattern=re.compile(r"lbl\.gov", re.IGNORECASE),
         why="an institution's own domain is not an example anyone else can copy",
         sample='"""Prefix of a principal naming an identity domain: ``domain:lbl.gov``."""',
+        roots=REPO_ROOTS,
         # Each exemption names the gateway provider OSPREY ships an adapter
         # for, or the reference ingestion adapter — surfaces where the
         # institution is the subject rather than the example.
@@ -146,6 +150,32 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/profiles/providers.yml",
                 "src/osprey/services/ariel_search/ingestion/adapters/als.py",
                 "src/osprey/services/channel_finder/benchmarks/evaluation.py",
+                # A case that asserts the literal's absence has to spell it.
+                "tests/integration/test_preset_static.py",
+                # The named gateway the shipped adapter fronts. Each of these
+                # asserts a value the packaged provider catalog supplies, so a
+                # rewrite here would pin an address no deployment renders.
+                "tests/cli/test_base_url_override.py",
+                "tests/cli/test_chat_verb.py",
+                "tests/cli/test_claude_code_resolver.py",
+                "tests/cli/test_init_providers.py",
+                "tests/cli/test_provider_isolation.py",
+                "tests/cli/test_resolver_cborg_oss.py",
+                "tests/deployment/goldens/exemplar-profile/providers.yml",
+                "tests/models/test_providers_cborg.py",
+                # The harness and the live lanes that call that gateway, where
+                # the address is the endpoint under test rather than an example.
+                "scripts/benchmark/README.md",
+                "scripts/benchmark/matrix.yaml",
+                "scripts/benchmark/matrix_curate_models.py",
+                "scripts/benchmark/matrix_run.py",
+                "tests/benchmark/test_matrix.py",
+                "tests/e2e/claude_code/test_proxy_live_roundtrip_e2e.py",
+                "tests/e2e/claude_code/test_proxy_open_model_harness_e2e.py",
+                "tests/e2e/test_in_context_backend.py",
+                "tests/e2e/test_llm_channel_namer.py",
+                "tests/e2e/test_llm_providers.py",
+                "tests/manual/test_sdk_image_block.py",
             }
         ),
     ),
