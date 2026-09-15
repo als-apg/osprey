@@ -242,7 +242,7 @@ api:
   providers:
     cborg:
       api_key: ${MY_SECRET_API_KEY}
-      base_url: https://api.cborg.lbl.gov/v1
+      base_url: https://api.example.com/v1
 project_root: /test/project
 """
         )
@@ -260,7 +260,7 @@ project_root: /test/project
         assert unexpanded["api"]["providers"]["cborg"]["api_key"] == "${MY_SECRET_API_KEY}"
 
         # Non-env-var values should be the same in both
-        assert unexpanded["api"]["providers"]["cborg"]["base_url"] == "https://api.cborg.lbl.gov/v1"
+        assert unexpanded["api"]["providers"]["cborg"]["base_url"] == "https://api.example.com/v1"
         assert unexpanded["project_root"] == "/test/project"
 
     def test_get_unexpanded_config_returns_deep_copy(self, tmp_path):
