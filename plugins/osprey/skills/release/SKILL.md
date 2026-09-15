@@ -251,7 +251,9 @@ The label persists, so every refold push re-runs the eight; the run that
 counts is the one for the commit that actually merges. If the label ever comes
 off, put it back and let the lanes run again.
 
-Before tagging, open that run and confirm all eight concluded `success`:
+`release.yml` refuses a tag it cannot find such a run for, so this is enforced
+rather than remembered. Check it before tagging anyway — the same answer costs
+two commands here and a deleted tag there:
 
 ```bash
 gh run list --workflow ci.yml --commit <sha> --limit 1
@@ -459,14 +461,25 @@ git push origin vYYYY.M.P
 The tag must point at the merge commit on `main`. The `release.yml` workflow
 triggers on `v*.*.*` and:
 
-1. Builds the wheel and sdist.
-2. Verifies the built version matches the tag. A checkout without full history
+1. Verifies a full CI run covered this tree, before anything is built.
+2. Builds the wheel and sdist.
+3. Verifies the built version matches the tag. A checkout without full history
    builds `0.1.devN` instead of the tagged version; this gate catches that.
-3. Validates the install docs and that the dependencies resolve from PyPI.
-4. Publishes to PyPI via trusted publishing (OIDC; no token needed).
-5. Creates a GitHub Release using the CHANGELOG section as the body.
+4. Validates the install docs and that the dependencies resolve from PyPI.
+5. Publishes to PyPI via trusted publishing (OIDC; no token needed).
+6. Creates a GitHub Release using the CHANGELOG section as the body.
 
-If step 2 fails, the publish aborts before any PyPI write.
+If step 1 or step 3 fails, the publish aborts before any PyPI write.
+
+Step 1 is the `verify-full-ci` job, and it is the automated half of the rule
+in Step 2. It finds the `ci.yml` runs for the tagged commit and asserts every
+model-spending lane concluded `success` there — a skipped lane fails it, which
+is the case a green `All CI Checks Passed` cannot distinguish. Because a
+`--merge` merge commit has a different sha from the PR head whose run carried
+the label, the job also accepts a run on a nearby commit with the *same tree*:
+what the lanes proved is a tree, not a sha. If it fails it prints the lanes at
+fault and the two ways to run them. Re-pushing the tag after that run is green
+re-triggers the whole workflow.
 
 ## Step 7: Verify
 
@@ -480,9 +493,9 @@ open https://als-apg.github.io/osprey/        # switcher button reads vYYYY.M.P
 
 Four success signals:
 
-- `release.yml` finished green. It runs no tests, so this proves the publish,
-  not the tree; what proves the tree is the `full-ci` run checked before the
-  tag.
+- `release.yml` finished green. It runs no tests of its own, so this proves
+  the publish plus the `verify-full-ci` check that found the CI run; what
+  proves the tree is that CI run itself.
 - `https://pypi.org/project/osprey-framework/YYYY.M.P/` exists.
 - `https://github.com/als-apg/osprey/releases/tag/vYYYY.M.P` has the CHANGELOG
   entries as the body.

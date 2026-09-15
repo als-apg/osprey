@@ -5668,6 +5668,77 @@ def test_gate_summary_tells_an_unlabeled_pr_what_did_not_run__mutation_drops_the
 
 
 # ---------------------------------------------------------------------------
+# The tag gate in release.yml reads these lanes by their rendered job names
+# ---------------------------------------------------------------------------
+#
+# `release.yml`'s `verify-full-ci` job refuses to publish a tag unless every
+# spending lane concluded `success` on the tagged tree, and it finds those
+# lanes by matching a prefix of each job's rendered `name:`. That string lives
+# in one workflow and is defined in another, so a rename would otherwise go
+# unnoticed until it failed a release — which is the worst possible moment.
+# Both directions are pinned here: the gate covers every spending lane, and
+# every prefix still names exactly one job in ci.yml.
+
+RELEASE_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "release.yml"
+RELEASE_GATE_JOB = "verify-full-ci"
+
+
+def _release_gate_source() -> str:
+    """The inline Python the tag gate runs, lifted out of its heredoc."""
+    release = yaml.safe_load(RELEASE_YML.read_text())
+    steps = release["jobs"][RELEASE_GATE_JOB]["steps"]
+    step = next(s for s in steps if "python3 - <<'PY'" in s.get("run", ""))
+    return step["run"].split("python3 - <<'PY'\n", 1)[1].rsplit("\nPY", 1)[0]
+
+
+def _required_lane_prefixes() -> dict[str, str]:
+    for node in ast.walk(ast.parse(_release_gate_source())):
+        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "REQUIRED":
+            return ast.literal_eval(node.value)
+    raise AssertionError(f"{RELEASE_GATE_JOB} no longer defines REQUIRED")
+
+
+def test_the_tag_gate_covers_every_spending_lane() -> None:
+    """A lane added to the label gate but not to the tag gate is a lane a
+    release can skip silently."""
+    assert set(_required_lane_prefixes()) == set(SPENDING_LANES)
+
+
+def test_the_tag_gate_names_match_the_rendered_job_names(workflow: dict[str, Any]) -> None:
+    """Each prefix identifies its own lane and nothing else. The matrix lane
+    renders one job per preset, so a prefix is the only stable handle."""
+    jobs = _jobs(workflow)
+    for lane, prefix in _required_lane_prefixes().items():
+        assert jobs[lane]["name"].startswith(prefix), (
+            f"{lane}: release.yml looks for {prefix!r}, ci.yml renders {jobs[lane]['name']!r}"
+        )
+        others = [n for n, j in jobs.items() if n != lane and j.get("name", "").startswith(prefix)]
+        assert others == [], f"{prefix!r} also matches {others}"
+
+
+def test_the_tag_gate_names_match__mutation_renames_a_lane() -> None:
+    """The regression this exists for: ci.yml renames a lane, release.yml is
+    left looking for a job that no run will ever contain, and the gate then
+    fails a release instead of a test."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)["scan-agentic-e2e"]["name"] = "Scan Stack (agentic)"
+    with pytest.raises(AssertionError, match="release.yml looks for"):
+        test_the_tag_gate_names_match_the_rendered_job_names(mutated)
+
+
+def test_the_tag_gate_blocks_the_publish() -> None:
+    """The gate is only a gate if the jobs that build and publish wait on it."""
+    release = yaml.safe_load(RELEASE_YML.read_text())
+    for job in ("build", "publish-to-pypi"):
+        assert RELEASE_GATE_JOB in release["jobs"][job]["needs"], (
+            f"{job} does not wait for {RELEASE_GATE_JOB}"
+        )
+    assert release["jobs"][RELEASE_GATE_JOB]["permissions"]["actions"] == "read", (
+        "reading another workflow's runs needs the actions:read scope"
+    )
+
+
+# ---------------------------------------------------------------------------
 # The type check can run at all: the stubs its imports need are declared
 # ---------------------------------------------------------------------------
 #

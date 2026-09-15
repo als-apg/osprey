@@ -1,5 +1,5 @@
-The `/osprey:release` skill now requires the full end-to-end suite, including
-the lanes that drive a real agent, to pass on the exact tree being tagged, and
-spells out how to check each of those lanes individually. The Teams bridge
-end-to-end module skips itself when the `teams` extra is absent instead of
-ending collection for the whole run.
+A release tag is now refused unless a full CI run, including the lanes that
+drive a real agent, passed on the tagged tree; the release workflow checks this
+before it builds anything, and the `/osprey:release` skill says how to satisfy
+it. The Teams bridge end-to-end module skips itself when the `teams` extra is
+absent instead of ending collection for the whole run.
