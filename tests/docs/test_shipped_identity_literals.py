@@ -254,6 +254,7 @@ DENIED: tuple[Denied, ...] = (
         pattern=re.compile(r"GEECS", re.IGNORECASE),
         why="another site's control system is that site's own stack, not a shipped example",
         sample="parameter, so a document-shaped parameter (a GEECS ``ScanRequest``, say)",
+        roots=REPO_ROOTS,
         # Each names the document-shaped scan parameter this code accepts, by
         # the upstream system the shape comes from.
         allow=frozenset(
