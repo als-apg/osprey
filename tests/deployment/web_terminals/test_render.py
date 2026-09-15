@@ -3544,7 +3544,7 @@ def test_a_domain_card_renders_its_principals_not_the_roster_token() -> None:
     """
     # Arrange
     config = _auth_config(
-        ["alice", {"name": "ops-review", "index": 1, "access": ["domain:lbl.gov"]}]
+        ["alice", {"name": "ops-review", "index": 1, "access": ["domain:example.com"]}]
     )
 
     # Act
@@ -3552,7 +3552,7 @@ def test_a_domain_card_renders_its_principals_not_the_roster_token() -> None:
 
     # Assert
     key = f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix('ops-review')}"
-    assert lines == {key: '["domain:lbl.gov"]'}
+    assert lines == {key: '["domain:example.com"]'}
     assert "any" not in lines[key]
 
 
@@ -3561,14 +3561,16 @@ def test_a_mixed_principal_list_renders_sorted_and_keeps_self() -> None:
     churn the compose file on every build. `self` stays: beside another member
     it is one of the admitted principals, not a marker."""
     # Arrange
-    config = _auth_config([{"name": "ops", "index": 0, "access": ["user:carol@lbl.gov", "self"]}])
+    config = _auth_config(
+        [{"name": "ops", "index": 0, "access": ["user:carol@example.com", "self"]}]
+    )
 
     # Act
     lines = _access_lines(_compose(config))
 
     # Assert
     key = f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix('ops')}"
-    assert lines == {key: '["self","user:carol@lbl.gov"]'}
+    assert lines == {key: '["self","user:carol@example.com"]'}
 
 
 def test_the_roster_shorthands_render_byte_identically() -> None:

@@ -1525,14 +1525,14 @@ def test_passwd_refusal_quotes_the_authored_access_value(tmp_path, monkeypatch, 
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(
         tmp_path,
-        _auth_config(["alice", {"name": "ops", "index": 1, "access": ["domain:lbl.gov"]}]),
+        _auth_config(["alice", {"name": "ops", "index": 1, "access": ["domain:example.com"]}]),
     )
 
     with pytest.raises(ValueError) as excinfo:
         lifecycle.rotate_user_password(str(config_path), "ops", "some-password")
 
     message = str(excinfo.value)
-    assert "access members 'domain:lbl.gov'" in message
+    assert "access members 'domain:example.com'" in message
     assert "[" not in message
     assert "access: any" not in message
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()

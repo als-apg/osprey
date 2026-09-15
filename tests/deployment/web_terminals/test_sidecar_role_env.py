@@ -577,11 +577,11 @@ class TestTheSharedCardMarkerReachesTheSidecar:
     @pytest.mark.parametrize(
         ("authored", "wire", "resolved"),
         [
-            (["domain:lbl.gov"], '["domain:lbl.gov"]', {"domain:lbl.gov"}),
+            (["domain:example.com"], '["domain:example.com"]', {"domain:example.com"}),
             (
-                ["self", "user:carol@lbl.gov"],
-                '["self","user:carol@lbl.gov"]',
-                {"self", "user:carol@lbl.gov"},
+                ["self", "user:carol@example.com"],
+                '["self","user:carol@example.com"]',
+                {"self", "user:carol@example.com"},
             ),
             # A `roster` member beside another is NOT collapsed to the `any`
             # token on the way out, and comes back as both members: the render

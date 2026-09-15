@@ -868,7 +868,7 @@ def test_no_authorization_vocabulary_reaches_a_roles_off_render() -> None:
 
 @pytest.mark.parametrize(
     "access",
-    ["any", ["roster"], ["domain:lbl.gov"], ["self", "user:carol@lbl.gov"]],
+    ["any", ["roster"], ["domain:example.com"], ["self", "user:carol@example.com"]],
 )
 def test_no_admission_rule_reaches_a_wall_less_render(access) -> None:
     """A card's `access` says who may OPEN it, which only has meaning behind a
@@ -890,7 +890,9 @@ def test_no_admission_rule_reaches_a_wall_less_render(access) -> None:
         assert ENV_ROSTER_ACCESS_PREFIX not in text, (
             f"{key}: an admission rule reached a render with no authentication"
         )
-        assert "carol@lbl.gov" not in text, f"{key}: a named identity reached a wall-less render"
+        assert "carol@example.com" not in text, (
+            f"{key}: a named identity reached a wall-less render"
+        )
 
 
 def test_the_token_render_has_no_auth_sidecar_service_at_all() -> None:
