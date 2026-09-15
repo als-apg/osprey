@@ -13,9 +13,10 @@ images stage and the registry credential that an `image_source: local` profile
 never does. Its `deploy:` block is the only input the CI template reads that a
 plain profile does not already provide.
 
-`ci-extra.yml` is not a golden of anything the scaffolder re-emits: it is written
-once, by `osprey init`, and belongs to the deployment from then on. It lives here
-because the pipeline `include:`s it, and a preview run needs something to find.
+The starter `ci-extra.yml` is not here. It is written once, by `osprey init`,
+and belongs to the deployment from then on — so its specification is the
+exemplar in `tests/fixtures/lifecycle_repo.py`, which
+`tests/cli/test_init_verb.py` holds the verb's output to byte for byte.
 
 ## Where the byte specification is
 
