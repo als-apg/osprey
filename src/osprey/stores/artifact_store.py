@@ -315,6 +315,32 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
     _subdir = "artifacts"
     _index_filename = "artifacts.json"
 
+    def __init__(self, workspace_root: Path | None = None, *, auto_launch: bool = True) -> None:
+        """Build the store.
+
+        Args:
+            workspace_root: Root the store's files live under. Resolved from the
+                config when omitted.
+            auto_launch: Whether a save starts the artifact gallery server. A
+                save from a long-lived process launches it, so the artifact is
+                viewable at once. A caller whose process ends right after the
+                save turns it off: a server thread started there dies with the
+                process and serves nobody.
+        """
+        self._auto_launch = auto_launch
+        super().__init__(workspace_root)
+
+    def _launch_gallery(self) -> None:
+        """Start the artifact gallery server, unless this store opted out."""
+        if not self._auto_launch:
+            return
+        try:
+            from osprey.infrastructure.server_launcher import ensure_artifact_server
+
+            ensure_artifact_server()
+        except Exception as exc:
+            logger.warning("Artifact server auto-launch failed: %s", exc, exc_info=True)
+
     def _entry_from_dict(self, d: dict) -> ArtifactEntry:
         # Gracefully handle old index files missing fields
         d.pop("highlighted", None)  # Removed concept; strip from old indexes
@@ -416,13 +442,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
 
         self._notify_listeners(entry)
 
-        # Auto-launch artifact server on first save
-        try:
-            from osprey.infrastructure.server_launcher import ensure_artifact_server
-
-            ensure_artifact_server()
-        except Exception as exc:
-            logger.warning("Artifact server auto-launch failed: %s", exc, exc_info=True)
+        self._launch_gallery()
 
         return entry
 
@@ -552,12 +572,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
 
         self._notify_listeners(entry)
 
-        try:
-            from osprey.infrastructure.server_launcher import ensure_artifact_server
-
-            ensure_artifact_server()
-        except Exception as exc:
-            logger.warning("Artifact server auto-launch failed: %s", exc, exc_info=True)
+        self._launch_gallery()
 
         return entry
 
@@ -685,12 +700,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
 
         self._notify_listeners(entry)
 
-        try:
-            from osprey.infrastructure.server_launcher import ensure_artifact_server
-
-            ensure_artifact_server()
-        except Exception as exc:
-            logger.warning("Artifact server auto-launch failed: %s", exc, exc_info=True)
+        self._launch_gallery()
 
         return entry
 
