@@ -197,7 +197,7 @@ function entry(id) {
   return {
     entry_id: id,
     timestamp: '2026-08-25T12:00:00Z',
-    author: 'thellert',
+    author: 'alice',
     source_system: 'demo',
     raw_text: `body of ${id}`,
     score: null,

@@ -953,7 +953,7 @@ class TestSpendAttribution:
 
     @patch("osprey.models.providers.litellm_adapter.litellm")
     def test_gateway_provider_sends_user_and_tags(self, mock_litellm, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         mock_litellm.completion.return_value.choices[0].message.content = "ok"
         mock_litellm.completion.return_value.choices[0].message.tool_calls = None
 
@@ -966,12 +966,12 @@ class TestSpendAttribution:
         )
 
         kwargs = mock_litellm.completion.call_args.kwargs
-        assert kwargs["user"] == "thellert"
+        assert kwargs["user"] == "alice"
         assert kwargs["extra_headers"] == {"x-litellm-tags": "osprey,surface:terminal"}
 
     @patch("osprey.models.providers.litellm_adapter.litellm")
     def test_direct_provider_sends_nothing(self, mock_litellm, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         mock_litellm.completion.return_value.choices[0].message.content = "ok"
         mock_litellm.completion.return_value.choices[0].message.tool_calls = None
 

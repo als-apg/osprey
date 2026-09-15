@@ -227,7 +227,7 @@ def test_proxy_forwards_litellm_attribution_headers(monkeypatch):
             "max_tokens": 16,
         },
         headers={
-            "X-LiteLLM-End-User-Id": "thellert",
+            "X-LiteLLM-End-User-Id": "alice",
             "x-litellm-tags": "osprey,surface:terminal",
             "X-Corp-Trace": "abc123",
         },
@@ -235,7 +235,7 @@ def test_proxy_forwards_litellm_attribution_headers(monkeypatch):
     assert resp.status_code == 200
 
     sent = {k.lower(): v for k, v in captured["headers"].items()}
-    assert sent["x-litellm-end-user-id"] == "thellert"
+    assert sent["x-litellm-end-user-id"] == "alice"
     assert sent["x-litellm-tags"] == "osprey,surface:terminal"
     assert "x-corp-trace" not in sent
     assert sent["authorization"] == "Bearer secret-key"
