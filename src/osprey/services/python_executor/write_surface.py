@@ -100,9 +100,9 @@ _CLIENT_WRITE_TARGETS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # binding is never reached. A limits-checked run has no bound to put on it
     # — the call carries a value already marshalled into C memory and an
     # opaque channel handle — which is why both names sit in
-    # :data:`_LIMITS_UNWRAPPABLE`. pyepics is unaffected: its
-    # ``epics.ca.libca`` is ``None`` until ``initialize_libca()`` runs, and
-    # that call loads a handle of its own rather than this one.
+    # :data:`_LIMITS_UNWRAPPABLE`. pyepics loads a handle of its own through
+    # ``ctypes`` rather than this binding, and the ``ctypes`` rows of
+    # :data:`_ESCAPE_ROUTES` refuse these same two symbols on that handle.
     ("epicscorelibs.ca.cadef", ("ca_array_put", "ca_array_put_callback")),
     # --- PVAccess (p4p): one client Context per concurrency flavour, plus the
     # server-side SharedPV, which puts values on the wire when it is opened or
@@ -261,6 +261,10 @@ _ESCAPE_ROUTES: tuple[tuple[str, tuple[str, ...]], ...] = (
     # ``ctypes.CDLL("libca")`` reaches Channel Access without importing a
     # single client package. ``LibraryLoader.__getattr__`` is patched too,
     # because ``ctypes.cdll.libca`` never goes through ``CDLL`` by that name.
+    # These rows are gated rather than refused outright: pyepics, which a
+    # readonly run reads through via ``osprey.runtime``, loads ``libca`` this
+    # way, so its own load is permitted and the handle it gets has its put
+    # symbols refused. Every other load refuses.
     ("ctypes", ("CDLL", "PyDLL", "WinDLL", "OleDLL")),
     ("ctypes.LibraryLoader", ("LoadLibrary", "__getattr__")),
 )
