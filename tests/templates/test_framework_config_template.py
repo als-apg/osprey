@@ -31,6 +31,7 @@ import yaml
 from jinja2 import TemplateRuntimeError
 from tests._config_render_context import (
     CONFIG_TEMPLATE,
+    CONFIG_TEMPLATES,
     MINIMAL_CONFIG_CONTEXT,
     PROVIDER_CATALOG,
     render_config,
@@ -43,6 +44,7 @@ from osprey.cli.templates.manager import TemplateManager, _enable_flags
 from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.providers import load_provider_catalog
+from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 
 #: The panel ids one profile *selects*, which is not the registry: the registry
@@ -86,6 +88,35 @@ def _fully_loaded_ctx(mode: str = "hierarchical") -> dict[str, Any]:
         "environment_packages": ["numpy"],
         "environment_inherit_exclude": ["osprey"],
     }
+
+
+# ── The shared context ───────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)
+def test_the_shared_context_renders_every_config_template(template_name: str):
+    """The shared context satisfies what every bundled config template requires.
+
+    It is the one context every by-hand renderer spreads, so a key a template
+    starts requiring has to fail here — once — rather than in each consumer in
+    turn. ``CONFIG_TEMPLATES`` carries a single name today; the parametrize is
+    what makes a second config template arrive with its coverage written.
+    """
+    config = yaml.safe_load(render_config(template_name))
+
+    assert isinstance(config, dict) and config
+
+
+def test_the_shared_context_carries_the_panel_registry():
+    """The shared context carries the registry the build really injects.
+
+    ``TemplateManager`` injects ``sorted(BUILTIN_PANELS)`` on every real render,
+    and the drift case in ``tests/cli/test_templates.py`` checks a selection
+    against the registry rather than against a literal — taking the registry
+    from here. A hand-written list substituted here would take that case's
+    subject away with nothing saying so.
+    """
+    assert MINIMAL_CONFIG_CONTEXT["builtin_panels"] == sorted(BUILTIN_PANELS)
 
 
 # ── The partition ────────────────────────────────────────────────────────────
