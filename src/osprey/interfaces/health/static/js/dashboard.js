@@ -17,7 +17,7 @@
  * applyEmbedded) — deliberately not duplicated here.
  */
 
-import { el, fmtName, fmtMs, msCls, worst, byCategory } from "./helpers.js";
+import { el, fmtName, fmtMs, msCls, worstStatus, byCategory } from "./helpers.js";
 
 /**
  * @typedef {Object} CheckResult
@@ -174,7 +174,7 @@ function appendBar(bar, n, total, cls) {
  * @returns {HTMLElement}
  */
 function buildCard(cat, checks, delay) {
-  const w = worst(checks);
+  const w = worstStatus(checks);
   let ok = 0;
   let wn = 0;
   let er = 0;
@@ -318,7 +318,7 @@ function renderRing(d) {
     const arc = (checks.length / tot) * RING_C;
     const vis = Math.max(arc - RING_GAP, 2);
     const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-    c.setAttribute("class", "ring-seg " + statusCls(worst(checks)));
+    c.setAttribute("class", "ring-seg " + statusCls(worstStatus(checks)));
     c.setAttribute("cx", "100");
     c.setAttribute("cy", "100");
     c.setAttribute("r", String(RING_R));
@@ -330,7 +330,7 @@ function renderRing(d) {
     off += arc;
   });
 
-  const ov = worst(d.results);
+  const ov = worstStatus(d.results);
   setStatusClass(rsc, "ring-sc", ov);
   setStatusClass(beam, "beam", ov === "error" ? "error" : ov === "warning" ? "warning" : "ok");
 }
