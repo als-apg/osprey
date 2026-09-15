@@ -248,3 +248,40 @@ def evict_subtree(listings: MutableMapping[str, dict[str, ChangeStamp]], directo
     prefix = key + os.sep
     for listed in [k for k in listings if k == key or k.startswith(prefix)]:
         del listings[listed]
+
+
+def refresh_listing(
+    listings: MutableMapping[str, dict[str, ChangeStamp]], directory: Path
+) -> tuple[dict[str, ChangeStamp] | None, dict[str, ChangeStamp]]:
+    """Re-read one level of *directory* and leave the map holding what it says.
+
+    Two invariants, and they are what the watchers would otherwise come to
+    disagree about:
+
+    ``None`` for the previous listing is the mark of a directory nothing is yet
+    known about, which a caller reads as "resync this directory" rather than as
+    "nothing changed" — an empty previous listing says the directory was there
+    and held nothing, and the two must not be confused.
+
+    One listing is kept per directory that still exists: a directory found
+    already gone is dropped here rather than remembered as empty, so a tree that
+    churns cannot grow the map without bound.
+
+    Args:
+        listings: The map of what the caller tracks, keyed by path. Left
+            holding the listing taken now, or holding no key for *directory*
+            when it is not there.
+        directory: The directory to read.
+
+    Returns:
+        The listing last taken of *directory*, or ``None`` when there was
+        none, and the listing taken now.
+    """
+    key = str(directory)
+    previous = listings.get(key)
+    current = one_level_listing(directory)
+    if directory.is_dir():
+        listings[key] = current
+    else:
+        listings.pop(key, None)
+    return previous, current

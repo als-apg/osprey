@@ -26,9 +26,9 @@ from osprey.interfaces.fs_watch import (
     ObserverFactory,
     Reconciler,
     evict_subtree,
-    one_level_listing,
     reconcile_interval_seconds,
     reconcile_targets,
+    refresh_listing,
 )
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
@@ -181,18 +181,13 @@ class _IndexFileHandler(FileSystemEventHandler):
         One level, because that is what the frame names: a write in a
         subdirectory produces its own frame for its own directory.
 
-        One listing is kept per directory that still exists: one found already
-        gone is dropped here rather than remembered as empty, and one removed
-        the ordinary way is dropped by :meth:`on_deleted`.
+        The map is left to :func:`~osprey.interfaces.fs_watch.refresh_listing`,
+        which keeps one listing per directory that still exists, so one found
+        already gone is dropped there rather than remembered as empty. One
+        removed the ordinary way is dropped by :meth:`on_deleted` instead.
         """
         directory = Path(os.fsdecode(event.src_path))
-        key = str(directory)
-        previous = self._listings.get(key)
-        current = one_level_listing(directory)
-        if directory.is_dir():
-            self._listings[key] = current
-        else:
-            self._listings.pop(key, None)
+        previous, current = refresh_listing(self._listings, directory)
 
         changed = [
             name
