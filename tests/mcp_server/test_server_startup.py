@@ -81,13 +81,13 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
     # CS_TYPE not set → should use default "mock"
     monkeypatch.delenv("CS_TYPE", raising=False)
     # CS_HOST set → should resolve
-    monkeypatch.setenv("CS_HOST", "epics-server.lbl.gov")
+    monkeypatch.setenv("CS_HOST", "epics-server.example.com")
 
     from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
     assert config["control_system"]["type"] == "mock"
-    assert config["control_system"]["host"] == "epics-server.lbl.gov"
+    assert config["control_system"]["host"] == "epics-server.example.com"
 
 
 @pytest.mark.unit

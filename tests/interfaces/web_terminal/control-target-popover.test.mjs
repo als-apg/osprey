@@ -65,7 +65,7 @@ const KINDS = {
     short_label: 'LIVE',
     kind: 'live machine',
     display_name: '',
-    endpoint: 'als-gw.lbl.gov:5064',
+    endpoint: 'gw.example.org:5064',
     real_machine: true,
   },
   standin: {

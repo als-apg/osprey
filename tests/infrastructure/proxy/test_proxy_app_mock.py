@@ -75,7 +75,7 @@ def test_proxy_translates_text_request_end_to_end(monkeypatch):
             "usage": {"prompt_tokens": 3, "completion_tokens": 1},
         },
     )
-    app = create_proxy_app("https://api.cborg.lbl.gov/v1", upstream_api_key="secret-key")
+    app = create_proxy_app("https://api.example.com/v1", upstream_api_key="secret-key")
     client = TestClient(app)
 
     resp = client.post(
@@ -94,7 +94,7 @@ def test_proxy_translates_text_request_end_to_end(monkeypatch):
     assert body["model"] == "cborg-coder"
 
     # Proxy hit the right upstream URL with the right auth and translated body:
-    assert captured["url"] == "https://api.cborg.lbl.gov/v1/chat/completions"
+    assert captured["url"] == "https://api.example.com/v1/chat/completions"
     assert captured["headers"]["Authorization"] == "Bearer secret-key"
     assert captured["json"]["model"] == "cborg-coder"
     assert captured["json"]["messages"][-1] == {"role": "user", "content": "ping"}
@@ -123,7 +123,7 @@ def test_proxy_translates_tool_call_request_end_to_end(monkeypatch):
             "usage": {"prompt_tokens": 20, "completion_tokens": 9},
         },
     )
-    app = create_proxy_app("https://api.cborg.lbl.gov/v1", upstream_api_key="secret-key")
+    app = create_proxy_app("https://api.example.com/v1", upstream_api_key="secret-key")
     client = TestClient(app)
 
     resp = client.post(
@@ -160,7 +160,7 @@ def test_proxy_falls_back_to_request_bearer_when_no_upstream_key(monkeypatch):
         monkeypatch,
         {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]},
     )
-    app = create_proxy_app("https://api.cborg.lbl.gov/v1", upstream_api_key=None)
+    app = create_proxy_app("https://api.example.com/v1", upstream_api_key=None)
     client = TestClient(app)
 
     resp = client.post(
@@ -182,7 +182,7 @@ def test_proxy_reuses_single_pooled_client_across_requests(monkeypatch):
         monkeypatch,
         {"choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]},
     )
-    app = create_proxy_app("https://api.cborg.lbl.gov/v1", upstream_api_key="secret-key")
+    app = create_proxy_app("https://api.example.com/v1", upstream_api_key="secret-key")
     client = TestClient(app)
 
     for _ in range(5):
@@ -197,11 +197,11 @@ def test_proxy_reuses_single_pooled_client_across_requests(monkeypatch):
 
 
 def test_health_endpoint_reports_upstream():
-    app = create_proxy_app("https://api.cborg.lbl.gov/v1")
+    app = create_proxy_app("https://api.example.com/v1")
     client = TestClient(app)
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json() == {"status": "ok", "upstream": "https://api.cborg.lbl.gov/v1"}
+    assert resp.json() == {"status": "ok", "upstream": "https://api.example.com/v1"}
 
 
 def test_proxy_forwards_litellm_attribution_headers(monkeypatch):

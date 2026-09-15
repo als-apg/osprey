@@ -374,13 +374,13 @@ async def test_entry_create_draft_custom_web_url(tmp_path, monkeypatch):
 
     drafts_dir = tmp_path / "drafts"
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
-    monkeypatch.setenv("ARIEL_WEB_URL", "https://ariel.lbl.gov")
+    monkeypatch.setenv("ARIEL_WEB_URL", "https://ariel.example.com")
 
     fn = _get_entry_create()
     result = await fn(subject="Test", details="Details")
 
     data = json.loads(result)
-    assert "https://ariel.lbl.gov" in data["url"]
+    assert "https://ariel.example.com" in data["url"]
 
 
 # ---------------------------------------------------------------------------

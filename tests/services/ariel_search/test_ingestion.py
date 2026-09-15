@@ -150,9 +150,9 @@ class TestTransformAlsAttachments:
     def test_single_attachment(self):
         """Single attachment is transformed."""
         source = [{"url": "attachments/2024/01/photo.jpg"}]
-        result = transform_als_attachments(source, "https://elog.als.lbl.gov/")
+        result = transform_als_attachments(source, "https://elog.example.com/")
         assert len(result) == 1
-        assert result[0]["url"] == "https://elog.als.lbl.gov/attachments/2024/01/photo.jpg"
+        assert result[0]["url"] == "https://elog.example.com/attachments/2024/01/photo.jpg"
         assert result[0]["filename"] == "photo.jpg"
 
     def test_trailing_slash_normalized(self):
@@ -194,7 +194,7 @@ class TestALSLogbookAdapter:
 
     def test_detect_http_source(self):
         """HTTP URL is detected as HTTP source."""
-        config = self._make_config("https://elog.als.lbl.gov/api")
+        config = self._make_config("https://elog.example.com/api")
         adapter = ALSLogbookAdapter(config)
         assert adapter.source_type == "http"
 
@@ -725,7 +725,7 @@ class TestALSLogbookAdapterHTTP:
 
     def _make_config(
         self,
-        source_url: str = "https://web7.als.lbl.gov/olog/rpc.php",
+        source_url: str = "https://logbook.example.com/olog/rpc.php",
         proxy_url: str | None = None,
         verify_ssl: bool = False,
         chunk_days: int = 365,
@@ -871,7 +871,7 @@ class TestALSLogbookAdapterHTTPMocked:
                 "database": {"uri": "postgresql://test"},
                 "ingestion": {
                     "adapter": "als_logbook",
-                    "source_url": "https://web7.als.lbl.gov/olog/rpc.php",
+                    "source_url": "https://logbook.example.com/olog/rpc.php",
                     "chunk_days": chunk_days,
                     "max_retries": 2,
                     "retry_delay_seconds": 0,  # Fast retries for tests
@@ -1429,7 +1429,7 @@ class TestALSLogbookAdapterWrite:
 
     def _make_config(
         self,
-        source_url: str = "https://web7.als.lbl.gov/olog/rpc.php",
+        source_url: str = "https://logbook.example.com/olog/rpc.php",
         write_enabled: bool = False,
         write_url: str | None = None,
         auth_user: str | None = None,
@@ -1465,7 +1465,7 @@ class TestALSLogbookAdapterWrite:
         """Returns True when write enabled and URL set."""
         config = self._make_config(
             write_enabled=True,
-            write_url="https://elog.als.lbl.gov/olog/rpc.php",
+            write_url="https://elog.example.com/olog/rpc.php",
         )
         adapter = ALSLogbookAdapter(config)
         assert adapter.supports_write is True
@@ -1516,7 +1516,7 @@ class TestALSLogbookAdapterWrite:
 
         config = self._make_config(
             write_enabled=True,
-            write_url="https://elog.als.lbl.gov/olog/rpc.php",
+            write_url="https://elog.example.com/olog/rpc.php",
             auth_user="testuser",
             auth_password="testpass",
         )
@@ -1556,7 +1556,7 @@ class TestALSLogbookAdapterWrite:
         """ALS adapter requires credentials to publish (inherits fail-closed default)."""
         config = self._make_config(
             write_enabled=True,
-            write_url="https://elog.als.lbl.gov/olog/rpc.php",
+            write_url="https://elog.example.com/olog/rpc.php",
         )
         adapter = ALSLogbookAdapter(config)
         assert adapter.requires_write_auth is True
@@ -1573,7 +1573,7 @@ class TestALSLogbookAdapterWrite:
 
         config = self._make_config(
             write_enabled=True,
-            write_url="https://elog.als.lbl.gov/olog/rpc.php",
+            write_url="https://elog.example.com/olog/rpc.php",
             # No auth_user or auth_password
         )
         adapter = ALSLogbookAdapter(config)
