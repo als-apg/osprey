@@ -2235,6 +2235,64 @@ def clear_staged_site_ca(cmd: Sequence[str], context_dir: Path | str) -> None:
         logger.warning("Could not remove the staged site CA %s", staged)
 
 
+def clear_staged_service_site_ca(
+    compose_files: Sequence[str | Path], repo_root: Path | str
+) -> None:
+    """Remove the site CA a render staged into each service build context.
+
+    The invariant :func:`clear_staged_site_ca` keeps for the builds OSPREY
+    drives from an argv of its own, kept for the ones compose drives: a build
+    context holds the operator's CA bundle only while a build is reading it.
+
+    A managed service image is built by compose, so there is no argv to key on.
+    The rendered ``build.args`` is the record of what was staged instead —
+    written by the render that staged it — and a context whose fragment does
+    not name the staged file keeps whatever file of its own carries that name.
+
+    :param compose_files: The rendered compose documents handed to compose,
+        each repo-relative or absolute.
+    :param repo_root: The pinned compose project directory every rendered
+        ``context:`` resolves against, as the templates state above each
+        ``build:`` block.
+    """
+    root = Path(repo_root)
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        path = path if path.is_absolute() else root / path
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            # A cleanup step is never what fails a deploy that otherwise
+            # succeeded, so an unreadable or malformed document is skipped.
+            continue
+        if not isinstance(document, Mapping):
+            continue
+        services = document.get("services")
+        if not isinstance(services, Mapping):
+            continue
+        for service in services.values():
+            # Guarded at every level: a hand-edited document must not raise
+            # here either.
+            if not isinstance(service, Mapping):
+                continue
+            build = service.get("build")
+            if not isinstance(build, Mapping):
+                continue
+            args = build.get("args")
+            if not isinstance(args, Mapping):
+                continue
+            if args.get("OSPREY_SITE_CA") != SITE_CA_CONTEXT_FILENAME:
+                continue
+            context = build.get("context")
+            if not isinstance(context, str):
+                continue
+            staged = root / context / SITE_CA_CONTEXT_FILENAME
+            try:
+                staged.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove the staged site CA %s", staged)
+
+
 #: Env-var spellings for "on" and "off", matching the other framework switches.
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSY = {"0", "false", "no", "off"}
@@ -6289,6 +6347,10 @@ def _start_stack(
             repo_root=Path(repo_root),
         )
         log_endpoint_summary(config, compose_files)
+        # This branch hands the same service compose files to
+        # `deploy_up_web_terminals` and takes over from the plain path below,
+        # so the contexts those images were built from are cleared here.
+        clear_staged_service_site_ca(compose_files, repo_root)
         return
 
     # Pin COMPOSE_PROJECT_NAME so this deploy owns its own compose project (and
@@ -6354,6 +6416,9 @@ def _start_stack(
                 on_line=report,
             )
         _report_step("service images built")
+        # The images have read the bundle; a context keeps no copy of it
+        # between deploys.
+        clear_staged_service_site_ca(compose_files, repo_root)
 
     # --remove-orphans reconciles away containers whose service left the
     # config since the last deploy (including a formerly-enabled web-terminal
@@ -6377,6 +6442,14 @@ def _start_stack(
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
     if detached:
         run_captured(cmd, env=run_env, spool_name="compose-up", repo_root=repo_root)
+        # The detached `up` builds implicitly and returns, so the contexts it
+        # built from are cleared here. The attached shape below has no matching
+        # call: `os.execvpe` replaces this process with compose, so nothing of
+        # OSPREY's runs after that build — the copy left behind there is
+        # cleared by the next render, which empties the build directory
+        # (`compose_generator.setup_build_dir`) and re-stages the context from
+        # `images.site_ca`.
+        clear_staged_service_site_ca(compose_files, repo_root)
         _report_step("containers started")
         log_endpoint_summary(config, compose_files)
     else:
