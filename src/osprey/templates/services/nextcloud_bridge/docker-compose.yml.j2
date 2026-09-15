@@ -11,6 +11,10 @@
     way. With none declared it emits nothing and this file renders exactly
     as it did before the axis existed. -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- The site's build settings — a proxy CA, pip's bypass list, an internal
+    package index — are rendered by the shared macro rather than spelled out
+    per template, so every image OSPREY builds is handed the same set. -#}
+{%- import "services/_site_image_args.j2" as site -%}
 # The nextcloud-bridge service polls Nextcloud Talk rooms and dispatches
 # mentions of the bot account through the osprey.dispatch pair (see
 # src/osprey/bridges/nextcloud_talk/). It is a poller, not a server: it opens
@@ -73,17 +77,7 @@ services:
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
-{#- The site's build settings — a CA for a TLS-intercepting proxy, pip's proxy
-    bypass list, and an internal package index — as the deployment's `images:`
-    block declares them, resolved once per build context by
-    compose_generator._stage_site_image_args_for_context. Rendered at BUILD
-    time off the config rather than as a `${VAR}` default at compose time, for
-    the reason the qmd fragment's own render-time gate states. A deployment
-    that declares none of them emits nothing here, so its build argv is what it
-    always was. #}
-{%- for name, value in site_image_build_args | default({}) | dictsort %}
-        {{ name }}: "{{ value }}"
-{%- endfor %}
+{{- site.build_args(site_image_build_args | default({})) }}
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
