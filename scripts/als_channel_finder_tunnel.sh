@@ -5,6 +5,11 @@
 #   ./scripts/als_channel_finder_tunnel.sh        # open tunnel
 #   ./scripts/als_channel_finder_tunnel.sh stop    # close tunnel
 #
+# The ChannelFinder host and the SSH jump host that reaches it are this
+# deployment's own:
+#   CHANNEL_FINDER_HOST=channelfinder.example.org
+#   CHANNEL_FINDER_JUMP_HOST=bastion.example.org
+#
 # Once open, the API is reachable at https://localhost:8443/ChannelFinder/
 # Configure osprey with:
 #   channel_finder:
@@ -15,9 +20,9 @@
 set -euo pipefail
 
 LOCAL_PORT=8443
-REMOTE_HOST=controls.als.lbl.gov
+REMOTE_HOST="${CHANNEL_FINDER_HOST:?set CHANNEL_FINDER_HOST to your ChannelFinder host}"
 REMOTE_PORT=443
-JUMP_HOST=appsdev2
+JUMP_HOST="${CHANNEL_FINDER_JUMP_HOST:?set CHANNEL_FINDER_JUMP_HOST to the SSH host that reaches it}"
 
 if [[ "${1:-}" == "stop" ]]; then
     # Kill existing tunnel

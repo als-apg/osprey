@@ -71,7 +71,7 @@ if curl -fsS -m 10 http://127.0.0.1:8000/v1/models >/dev/null 2>&1; then
 else
   echo "WARNING: ds4 server not answering on http://127.0.0.1:8000 — skipping" >&2
   echo "         the ds4 lane. Check: sudo launchctl print system/com.ds4.server" >&2
-  echo "         and /Users/Shared/ds4-setup-for-thellert.md" >&2
+  echo "         and /Users/Shared/ds4-setup.md" >&2
 fi
 
 sleep 3
