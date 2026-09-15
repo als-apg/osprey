@@ -1,6 +1,6 @@
 """Import isolation for the lean control-system connector chain.
 
-External consumers (e.g. the ALS tuning_scripts backend) import only the
+External consumers (a site's tuning-scripts backend, say) import only the
 control-system connectors and their support modules. That chain must not
 eagerly load the archiver stack (pandas) or any LLM/agent machinery.
 

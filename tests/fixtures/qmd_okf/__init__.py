@@ -1,6 +1,6 @@
 """Curated OKF query fixtures for ranked-search acceptance testing.
 
-This package pairs a small checked-in OKF bundle (``bundle/``, an ALS-style
+This package pairs a small checked-in OKF bundle (``bundle/``, a
 facility knowledge base of 18 concepts) with a curated set of
 ``(query, expected_concept_id)`` pairs in :data:`OKF_QUERY_FIXTURES`.
 

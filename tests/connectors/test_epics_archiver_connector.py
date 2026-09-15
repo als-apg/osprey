@@ -638,7 +638,7 @@ class TestQueryWindowTimezone:
     """The wire format is UTC; a caller's zone must be converted, not relabeled.
 
     Regression: the connector used to strftime a literal 'Z' onto the caller's
-    wall-clock digits, shifting every ALS query by 7-8h.
+    wall-clock digits, shifting every query by the caller's UTC offset.
     """
 
     _LA = ZoneInfo("America/Los_Angeles")

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Open an SSH tunnel to the ALS ChannelFinder REST API via appsdev2.
+# Open an SSH tunnel to the ChannelFinder REST API via the jump host.
 #
 # Usage:
 #   ./scripts/als_channel_finder_tunnel.sh        # open tunnel
