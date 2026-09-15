@@ -498,3 +498,49 @@ def test_build_names_drift_under_verbose_only(repo: Path) -> None:
     verbose = CliRunner().invoke(cli, ["-v", *args])
     assert verbose.exit_code == 0, verbose.output
     assert "web_panels: system-health" in verbose.output
+
+
+# ---------------------------------------------------------------------------
+# What the repo owns rather than what the preset carries
+# ---------------------------------------------------------------------------
+
+
+def test_two_checkouts_of_one_profile_report_the_same_thing(
+    materialized: Path, tmp_path: Path
+) -> None:
+    """A persona's render name is pinned in the profile and read from there by
+    everything that builds or mounts it, so the lint's answer is a property of
+    the tracked document rather than of the directory holding it."""
+    first = tmp_path / "assistant"
+    second = tmp_path / "assistant-wt"
+    shutil.copytree(materialized, first)
+    shutil.copytree(materialized, second)
+
+    assert _report(first / PROFILE).unmarked == []
+    assert _report(second / PROFILE).unmarked == []
+    assert [f.render() for f in _report(first / PROFILE).unmarked] == [
+        f.render() for f in _report(second / PROFILE).unmarked
+    ]
+
+    for copy in (first, second):
+        _edit(copy / PROFILE, "  web.theme: light", "  web.theme: dark")
+
+    assert [f.subject for f in _report(first / PROFILE).unmarked] == ["config.web.theme"]
+    assert [f.subject for f in _report(second / PROFILE).unmarked] == ["config.web.theme"]
+
+
+def test_a_persona_render_name_is_not_preset_content(repo: Path) -> None:
+    """The two rows name the render this deployment builds, so a deployment
+    that pins names of its own has not drifted from the preset. A persona the
+    preset does not know is still reported whole, at the catalog entry above
+    those rows — ``test_persona_the_preset_does_not_know_is_reported_once``
+    covers that."""
+    profile = repo / PROFILE
+    _edit(profile, f"project: {repo.name}-readonly", "project: elsewhere-readonly")
+    _edit(
+        profile,
+        f"project_path: build/{repo.name}-readonly",
+        "project_path: build/elsewhere-readonly",
+    )
+
+    assert _report(profile).unmarked == []
