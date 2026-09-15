@@ -27,6 +27,7 @@ from osprey.interfaces.fs_watch import (
     one_level_listing,
     reconcile_interval_seconds,
     reconcile_targets,
+    refresh_listing,
 )
 
 logger = logging.getLogger(__name__)
@@ -395,19 +396,14 @@ class _WorkspaceHandler(FileSystemEventHandler):
         but not descended into, and whatever afterwards moves in it is
         scheduled by the next diff.
 
-        One listing is kept per directory that still exists: a directory whose
-        frame finds it already gone is dropped after its contents are announced
-        as deleted, and one that leaves the ordinary way is dropped by its own
-        deletion event, so a workspace that churns cannot grow the map without
-        bound.
+        The map is left to :func:`~osprey.interfaces.fs_watch.refresh_listing`,
+        which keeps one listing per directory that still exists: a directory
+        whose frame finds it already gone is dropped there, after its contents
+        are announced as deleted here. A directory that leaves the ordinary way
+        is dropped by its own deletion event instead, so a workspace that churns
+        cannot grow the map without bound.
         """
-        key = str(directory)
-        previous = self._listings.get(key)
-        current = one_level_listing(directory)
-        if directory.is_dir():
-            self._listings[key] = current
-        else:
-            self._listings.pop(key, None)
+        previous, current = refresh_listing(self._listings, directory)
 
         if previous is None:
             for name, stamp in current.items():

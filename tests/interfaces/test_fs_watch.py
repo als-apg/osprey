@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import threading
 import time
 
@@ -17,6 +18,7 @@ from osprey.interfaces.fs_watch import (
     one_level_listing,
     reconcile_interval_seconds,
     reconcile_targets,
+    refresh_listing,
 )
 
 _STAMP: ChangeStamp = (False, 0, 0)
@@ -74,6 +76,56 @@ class TestEvictingADirectorysSubtree:
 
         evict_subtree(listings, gone)
 
+        assert listings == {}
+
+
+@pytest.mark.unit
+class TestRefreshingADirectorysListing:
+    """One listing is kept per directory that still exists, and the caller is
+    handed what it replaced so it can say what differs."""
+
+    def test_a_directory_not_yet_tracked_has_no_previous_listing(self, tmp_path):
+        (tmp_path / "note.txt").write_text("hello")
+        listings: dict[str, dict[str, ChangeStamp]] = {}
+
+        previous, current = refresh_listing(listings, tmp_path)
+
+        assert previous is None
+        assert current == one_level_listing(tmp_path)
+        assert listings == {str(tmp_path): current}
+
+    def test_a_second_read_returns_what_the_first_stored(self, tmp_path):
+        (tmp_path / "note.txt").write_text("hello")
+        listings: dict[str, dict[str, ChangeStamp]] = {}
+        _, first = refresh_listing(listings, tmp_path)
+
+        (tmp_path / "later.txt").write_text("world")
+        previous, current = refresh_listing(listings, tmp_path)
+
+        assert previous == first
+        assert "later.txt" in current
+        assert listings == {str(tmp_path): current}
+
+    def test_a_directory_that_is_gone_drops_its_key_rather_than_storing_an_empty_listing(
+        self, tmp_path
+    ):
+        directory = tmp_path / "sub"
+        directory.mkdir()
+        (directory / "note.txt").write_text("hello")
+        listings: dict[str, dict[str, ChangeStamp]] = {}
+        _, primed = refresh_listing(listings, directory)
+
+        shutil.rmtree(directory)
+        previous, current = refresh_listing(listings, directory)
+
+        assert previous == primed
+        assert current == {}
+        assert str(directory) not in listings
+
+    def test_a_directory_that_was_never_there_adds_no_key(self, tmp_path):
+        listings: dict[str, dict[str, ChangeStamp]] = {}
+
+        assert refresh_listing(listings, tmp_path / "never_there") == (None, {})
         assert listings == {}
 
 
