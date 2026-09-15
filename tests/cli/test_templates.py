@@ -668,12 +668,11 @@ class TestBuiltinPanelRegistryDrift:
     """Enable-able builtin panels must derive from the BUILTIN_PANELS registry,
     not a hardcoded template literal that drifts from it.
 
-    Discovered wiring the native ``okf`` KNOWLEDGE panel into BELLA + ALS: both
-    config templates hardcoded ``["ariel", "channel-finder"]``, so a
-    profile listing a builtin the literal omitted (``okf`` or ``lattice``) in its
-    ``web_panels`` got filtered out at build time → no ``web.panels.okf`` stanza
-    → the runtime never enabled the tab and it silently never rendered. BELLA/ALS
-    worked around it with an explicit ``web.panels.okf.enabled: true`` override.
+    A literal that lists a subset of the registry filters out every builtin it
+    omits: a profile naming one in its ``web_panels`` gets no
+    ``web.panels.<name>`` stanza, the runtime never enables the tab, and nothing
+    is said. A deployment's only recourse is an explicit
+    ``web.panels.<name>.enabled: true`` override in its own config.
     """
 
     #: The one template that renders the builtin-panel loop. The selection is
@@ -730,9 +729,9 @@ class TestBuiltinPanelRegistryDrift:
 
     def test_create_project_enables_okf_builtin_panel(self, tmp_path):
         """End-to-end: ``manager.py`` injects ``sorted(BUILTIN_PANELS)`` → template
-        enables ``okf``. Fails against the hardcoded fallback literal (which omits
-        okf) and passes with the registry-derived context. This removes the need
-        for the ``web.panels.okf.enabled: true`` override BELLA/ALS carried."""
+        enables ``okf``. Fails against a hardcoded fallback literal that omits okf
+        and passes with the registry-derived context, so a profile listing ``okf``
+        needs no ``web.panels.okf.enabled: true`` override of its own."""
         import yaml
 
         manager = TemplateManager()
