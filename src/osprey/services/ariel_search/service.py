@@ -377,7 +377,9 @@ class ARIELSearchService:
         """Collect the tool descriptor of every registered search module.
 
         Uses the same registry listing as the capabilities API so the routable
-        modes and the advertised modes can never drift apart.
+        modes and the advertised modes can never drift apart. The listing is
+        taken from an initialized registry, so which modes are routable does not
+        depend on what else the process has already loaded.
 
         Returns:
             Mapping of module name to descriptor, in registry order. A module
@@ -387,6 +389,7 @@ class ARIELSearchService:
         from osprey.registry import get_registry
 
         registry = get_registry()
+        registry.initialize(silent=True)
         descriptors: dict[str, SearchToolDescriptor] = {}
         for name in registry.list_ariel_search_modules():
             module = registry.get_ariel_search_module(name)
