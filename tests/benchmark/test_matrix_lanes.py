@@ -23,6 +23,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -78,6 +79,45 @@ def test_every_in_scope_e2e_test_declares_a_benchmark_lane():
         "lane gate failed — an in-scope e2e test is missing (or double-carries) its "
         "agentic_benchmark/harness_benchmark marker:\n" + proc.stderr
     )
+
+
+class TestLaneGateReadsTheCollectorsVerdict:
+    """A collection that was refused cannot be scored from what it left behind.
+
+    The manifest is written by a collection hook that runs even when collection
+    itself was refused, so its presence says only that pytest got far enough to
+    call the hook. The collector's own exit status is the verdict, and the gate
+    reads it.
+
+    Collection runs in a subprocess here too — the fake stands in for the gate
+    module's ``subprocess`` attribute, never for ``subprocess.run`` itself,
+    which is process-global.
+    """
+
+    _NODEID = "tests/e2e/test_stub.py::test_stub"
+
+    def _violations(self, monkeypatch, returncode: int, stderr: str) -> list[str]:
+        gate = _load("check_e2e_coverage")
+
+        def _run(cmd, cwd=None, env=None, capture_output=False, text=False):
+            Path(env["OSPREY_E2E_LANES"]).write_text(
+                json.dumps({self._NODEID: "agentic"}), encoding="utf-8"
+            )
+            return subprocess.CompletedProcess(cmd, returncode, "", stderr)
+
+        monkeypatch.setattr(gate, "subprocess", SimpleNamespace(run=_run))
+        return gate.check_lanes(_REPO, {})
+
+    def test_a_collection_that_succeeded_is_scored(self, monkeypatch):
+        assert self._violations(monkeypatch, 0, "") == []
+
+    def test_a_collection_that_failed_is_a_violation(self, monkeypatch):
+        """A refusal during collection must not read as a clean suite."""
+        violations = self._violations(monkeypatch, 4, "UsageError: no provider named")
+
+        assert len(violations) == 1
+        assert "rc=4" in violations[0]
+        assert "UsageError: no provider named" in violations[0]
 
 
 # ---------------------------------------------------------------------------
