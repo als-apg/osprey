@@ -26,9 +26,9 @@ The shape is:
 2. Run the two **advisory drift sweeps**, housekeeping and doc-sync, and land
    their accepted fixes as ordinary PRs before the release PR.
 3. Test in a clean environment and refresh the doc screenshots.
-4. Open a **release-notes PR** carrying the CHANGELOG fold and rotation, the
-   RELEASE_NOTES title, and any re-captured screenshots (no direct push to
-   `main`; branch protection rejects it).
+4. Open a **release-notes PR**, labeled `full-ci`, carrying the CHANGELOG fold
+   and rotation, the RELEASE_NOTES title, and any re-captured screenshots (no
+   direct push to `main`; branch protection rejects it).
 5. Merge the PR to `main`.
 6. Tag the merge commit and push the tag. **This is what sets the version.**
 7. Verify the automated GitHub Actions workflow publishes successfully.
@@ -178,21 +178,99 @@ reports is a release that ships known drift.
 ## Step 2: Pre-release testing in a clean environment
 
 Your working environment may carry packages the project does not declare. A
-fresh environment catches missing dependencies before users do:
+fresh environment catches missing dependencies before users do — and on a
+release it is synced with every extra the test tree reaches for, not just
+`dev`. A module whose extra is absent skips itself, and a skipped module is a
+green that proved nothing.
 
 ```bash
-UV_PROJECT_ENVIRONMENT=.venv-release-test uv sync --extra dev
+export UV_PROJECT_ENVIRONMENT=.venv-release-test
+uv sync --extra dev --extra teams --extra gchat --extra virtual-accelerator
+
+# Pick the provider CI picks: one gateway, no fallbacks. A run that names no
+# provider is refused before the first test, and a stray key from another
+# provider sends tests somewhere CI never goes.
+export OSPREY_E2E_PROVIDER=als-apg
+export ALS_APG_API_KEY=... ALS_APG_BASE_URL=...
+unset CBORG_API_KEY OPENAI_API_KEY GOOGLE_API_KEY ANTHROPIC_API_KEY
 
 # Unit tests
-UV_PROJECT_ENVIRONMENT=.venv-release-test uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n 4 --dist loadgroup -q
-
-# E2E tests — the path, not a marker; they build real images and need Docker
-UV_PROJECT_ENVIRONMENT=.venv-release-test uv run pytest tests/e2e/ -v
+uv run pytest tests/ --ignore=tests/e2e -m "not pty" -n 4 --dist loadgroup -q
 
 rm -rf .venv-release-test
 ```
 
-Any failures stop the release. Fix forward, then re-run.
+The e2e half is the bulk lane, run exactly as CI runs it — same parallelism,
+same exclusions. Copy the invocation out of the `e2e-tests` job rather than
+retyping thirty-three `--ignore` flags:
+
+```bash
+sed -n '/^  e2e-tests:/,/^  channel-finder-benchmarks:/p' .github/workflows/ci.yml \
+  | grep -e 'pytest tests/e2e/' -e '--ignore='
+```
+
+It runs `pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile` with that
+ignore list. The path, not the marker — `-m e2e` leaks registry state between
+tests.
+
+**The ignored modules are not untested.** Each has a dedicated CI lane of its
+own, because each binds a fixed host port, leaves a fixed-name container
+behind, or needs an extra the bulk lane does not install; CI gives them a
+runner each for exactly that reason. This local run does not reach them, and
+is not meant to. The `full-ci` run below is their gate.
+
+Read the skips, not just the exit code. A missing key, container runtime or
+backend turns a lane green having run nothing, and `tests/e2e/README.md` lists
+what each one needs. Anything still skipping for want of Postgres or Ollama
+gets named in the release notes as untested rather than passed over.
+
+Also trigger the on-demand benchmark lane against the release tree, which no
+PR runs: `gh workflow run ci.yml -f run_benchmarks=true`.
+
+Budget most of a day. The bulk lane alone is 20-25 minutes in CI at four-way
+parallelism, and the Docker stacks around it are slower on a laptop than on a
+runner.
+
+Any failure, and any unexplained skip, stops the release. Fix forward, then
+re-run.
+
+### The full-ci run is a hard requirement
+
+Eight CI lanes drive real agent sessions against a live model endpoint, and
+they run only on a pull request carrying the `full-ci` label. They are the
+only proof the agentic paths work on the exact tree being tagged: `release.yml`
+runs no tests and never reads the tagged commit's CI status.
+
+So the release-notes PR in Step 4 carries the label from the moment it opens:
+
+```bash
+gh pr edit <number> --add-label full-ci
+```
+
+The label persists, so every refold push re-runs the eight; the run that
+counts is the one for the commit that actually merges. If the label ever comes
+off, put it back and let the lanes run again.
+
+Before tagging, open that run and confirm all eight concluded `success`:
+
+```bash
+gh run list --workflow ci.yml --commit <sha> --limit 1
+gh run view <run-id> --json jobs --jq '.jobs[] | [.conclusion, .name] | @tsv'
+```
+
+By their `ci.yml` job ids, the eight are `agentic-per-preset` (one job per
+preset), `e2e-tests`, `dispatch-deploy-e2e`, `dispatch-overlay-e2e`,
+`scan-agentic-e2e`, `nextcloud-talk-bridge-e2e`, `gchat-bridge-e2e` and
+`target-switch-agentic-e2e`.
+
+**Skipped is not passed.** `All CI Checks Passed` cannot tell a lane that ran
+and won from a lane whose `if:` never fired, so an unlabeled release PR merges
+fully green with every agentic lane skipped. The conclusion has to be read per
+lane.
+
+Any red stops the release. Fix forward; never deselect a test or mark one
+flaky to get a tag out. This holds for a beta exactly as it holds for a final
+release — a beta is what users install.
 
 ## Step 3: Refresh the doc screenshots
 
@@ -402,7 +480,9 @@ open https://als-apg.github.io/osprey/        # switcher button reads vYYYY.M.P
 
 Four success signals:
 
-- `release.yml` finished green.
+- `release.yml` finished green. It runs no tests, so this proves the publish,
+  not the tree; what proves the tree is the `full-ci` run checked before the
+  tag.
 - `https://pypi.org/project/osprey-framework/YYYY.M.P/` exists.
 - `https://github.com/als-apg/osprey/releases/tag/vYYYY.M.P` has the CHANGELOG
   entries as the body.

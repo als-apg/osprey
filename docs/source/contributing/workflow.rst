@@ -137,6 +137,9 @@ They now run on exactly two events:
 
      gh workflow run ci.yml --ref main -f revalidate_secret_lanes=true
 
+A release-notes pull request always carries ``full-ci``: these lanes are the
+only proof the agentic paths work on the tree about to be tagged.
+
 There is deliberately no schedule. A scheduled run spends model tokens with
 nobody watching, and its red reaches nobody; a lane that only runs when someone
 asked for it has a person waiting on the result. If you consume ``main``

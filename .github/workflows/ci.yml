@@ -3058,9 +3058,9 @@ jobs:
 
     - name: Install osprey
       # `--extra teams` is load-bearing at COLLECTION time, not tidiness: the
-      # e2e module imports `azure.servicebus` at module scope, so a job that
-      # syncs only `dev` errors before a single test runs. The zero-skip gate
-      # at the bottom of this job is the backstop; this is the fix.
+      # e2e module needs `azure.servicebus` and skips itself without it, so a
+      # job that syncs only `dev` collects nothing here. The zero-skip gate at
+      # the bottom of this job is the backstop; this is the fix.
       run: uv sync --extra dev --extra teams
 
     - name: Run Microsoft Teams bridge E2E
