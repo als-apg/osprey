@@ -25,6 +25,7 @@ from osprey.interfaces.fs_watch import (
     ChangeStamp,
     ObserverFactory,
     Reconciler,
+    entry_stamp,
     evict_subtree,
     reconcile_interval_seconds,
     reconcile_targets,
@@ -32,20 +33,6 @@ from osprey.interfaces.fs_watch import (
 )
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
-
-
-def _change_stamp(path: Path) -> tuple[int, int] | None:
-    """``(mtime_ns, size)`` of *path*, or ``None`` when it is not there.
-
-    Enough to tell one write from the next without reading the file: two
-    reports of the same write carry the same stamp, and a second write moves
-    it.
-    """
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    return (stat.st_mtime_ns, stat.st_size)
 
 
 class _IndexFileHandler(FileSystemEventHandler):
@@ -69,7 +56,7 @@ class _IndexFileHandler(FileSystemEventHandler):
         self._index_configs = index_configs
         self._broadcaster = broadcaster
         self._last_event: dict[str, float] = {}
-        self._last_stamp: dict[str, tuple[int, int] | None] = {}
+        self._last_stamp: dict[str, ChangeStamp | None] = {}
         self._debounce_seconds = 0.1
         self._listings: dict[str, dict[str, ChangeStamp]] = {}
         # The listing map has two writers: the observer's emitter thread and the
@@ -215,7 +202,7 @@ class _IndexFileHandler(FileSystemEventHandler):
         # read.
         now = time.monotonic()
         key = str(src_path)
-        stamp = _change_stamp(src_path)
+        stamp = entry_stamp(src_path)
         within_window = now - self._last_event.get(key, 0) < self._debounce_seconds
         if within_window and key in self._last_stamp and self._last_stamp[key] == stamp:
             return
