@@ -25,6 +25,7 @@ from watchdog.observers import Observer
 from watchdog.observers.polling import PollingObserver
 
 from osprey.interfaces.artifacts.store_watcher import StoreIndexWatcher, _IndexFileHandler
+from osprey.interfaces.fs_watch import one_level_listing
 from osprey.stores.artifact_store import ArtifactStore
 from tests.interfaces.fsevents_wait import poke_until, wait_for, wait_for_polling_baseline
 
@@ -549,6 +550,35 @@ class TestACoalescedDirectoryFrame:
 
         announced = [call.args[0] for call in broadcaster.broadcast.call_args_list]
         assert [e for e in announced if e.get("title") == "Behind A Stale Frame"]
+
+    def test_the_index_stamp_is_the_one_its_directorys_listing_holds(self, tmp_path):
+        """The debounce and the listing diff describe the same file, so a change
+        recorded through one is the same change the other would see."""
+        broadcaster = MagicMock()
+        watcher = StoreIndexWatcher(
+            workspace_root=tmp_path,
+            broadcaster=broadcaster,
+            artifact_store=ArtifactStore(workspace_root=tmp_path),
+        )
+        handler = _IndexFileHandler(watcher._index_configs, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        index = artifacts_dir / "artifacts.json"
+        index.write_text(
+            json.dumps(
+                {
+                    "version": 1,
+                    "updated": "2024-01-01T00:00:00",
+                    "entry_count": 0,
+                    "entries": [],
+                    "created": "2024-01-01T00:00:00",
+                }
+            )
+        )
+
+        handler.on_modified(FileModifiedEvent(str(index)))
+
+        assert handler._last_stamp[str(index)] == one_level_listing(index.parent)["artifacts.json"]
 
 
 @pytest.mark.unit
