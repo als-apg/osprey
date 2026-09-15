@@ -450,6 +450,30 @@ class TestACoalescedDirectoryFrame:
 
         assert str(artifacts_dir) not in handler._listings
 
+    def test_a_recursive_deletion_reported_once_drops_the_whole_subtree(self, tmp_path):
+        """The cache invariant is a property of the map rather than of how finely
+        the backend reports a removal, so one event for the top of a deleted tree
+        is enough."""
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        artifacts_dir = tmp_path / "artifacts"
+        nested = artifacts_dir / "nested"
+        nested.mkdir(parents=True)
+        handler.on_modified(DirModifiedEvent(str(artifacts_dir)))
+        handler.on_modified(DirModifiedEvent(str(nested)))
+        assert str(artifacts_dir) in handler._listings
+        assert str(nested) in handler._listings
+        broadcaster.reset_mock()
+
+        shutil.rmtree(artifacts_dir)
+        handler.on_deleted(DirDeletedEvent(str(artifacts_dir)))
+
+        assert str(artifacts_dir) not in handler._listings
+        assert str(nested) not in handler._listings
+        assert broadcaster.broadcast.call_args_list == [], (
+            "a deleted directory is not an index write"
+        )
+
     def test_a_moved_directory_drops_its_listing_and_its_subtrees(self, tmp_path):
         """A rename is one event for the whole subtree.
 
