@@ -29,7 +29,6 @@ this stack derives from it.
 from __future__ import annotations
 
 import contextlib
-import os
 from typing import Any
 
 import pytest
@@ -43,24 +42,20 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
-from tests._control_context_fixtures import write_control_context
 
 # The live-child half runs on the switch harness's fixture connector: a mock
-# variant whose connect() applies the real gateway-role selection, reading the
-# real per-type posture, with no Channel Access anywhere. Imported rather than
-# restated — a second copy would be a second rule to keep in step with
-# EPICSConnector.connect(). The harness is a module of its own, holding the
-# two-target setup and nothing else.
+# variant whose connect() applies the real gateway-role selection against the
+# real per-type posture, with no Channel Access anywhere. That connector and the
+# two-target setup it comes with live in the harness module, and this
+# directory's conftest is what resolves the harness's fixtures here.
 from tests.mcp_server._switch_harness import (
-    FIXTURE_MODULE,
     GATEWAY_HOST,
-    REPO_PATHS,
-    SITECUSTOMIZE,
     SPAWN_TIMEOUT_S,
     VA_PROBE,
     VA_READ_GATEWAY_PORT,
     VA_WRITE_GATEWAY_PORT,
     gateway_config,
+    narrow,
     project_config,
 )
 
@@ -143,12 +138,6 @@ def store_root(tmp_path, monkeypatch):
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     posture_store.invalidate_cache()
     yield tmp_path
-    posture_store.invalidate_cache()
-
-
-def narrow(root, *targets: str) -> None:
-    """Record the operator's narrowing of *targets* on this deployment."""
-    write_control_context(root, posture=dict.fromkeys(targets, posture_store.POSTURE_SANDBOX))
     posture_store.invalidate_cache()
 
 
@@ -341,25 +330,17 @@ class TestRosterRows:
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(scope="session")
-def fixture_dir(tmp_path_factory):
-    """A scratch directory the children import their VA connector from."""
-    directory = tmp_path_factory.mktemp("store_switch_fixture")
-    (directory / "switch_fixture_connectors.py").write_text(FIXTURE_MODULE, encoding="utf-8")
-    (directory / "sitecustomize.py").write_text(SITECUSTOMIZE, encoding="utf-8")
-    return directory
-
-
-@pytest.fixture
-def child_environment(fixture_dir, monkeypatch):
-    """Children see the repo, the fixture connector, and no ambient config."""
-    monkeypatch.setenv("PYTHONPATH", os.pathsep.join([str(fixture_dir), *REPO_PATHS]))
-    monkeypatch.delenv("CONFIG_FILE", raising=False)
-
-
 @pytest.fixture
 async def make_manager(store_root, child_environment, monkeypatch):
-    """Managers on the scratch root, whose children are all reaped after."""
+    """Managers on the scratch store root, whose children are all reaped after.
+
+    Not the harness's ``make_manager``, which this shadows: that one builds over
+    the harness's own state root and records every spawn, for tests that assert
+    on the child processes themselves. What is under test here is what a manager
+    derives from the posture store, so the root has to be the stamped one every
+    narrowing in this module is written under, and the raw config and the project
+    config are always the caller's.
+    """
     from osprey.mcp_server.control_system import target_state
 
     monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: store_root)
