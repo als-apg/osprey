@@ -50,12 +50,11 @@ from osprey.services.channel_finder.graph_queries import (
     GRAPH_CHANNEL_COUNT_CYPHER,
     GRAPH_DEVICE_CYPHER,
 )
-from tests._container_support import start_or_skip, stop_quietly
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
-    NEO4J_IMAGE,
+    graphdb_store,
 )
 from tests.integration._graph_oracles import (
     GRAPH_DEVICE_COUNT_CYPHER,
@@ -139,22 +138,7 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
     ``_OspreySeed`` bookkeeping node in the store that ``get_schema`` then has
     to hide.
     """
-    try:
-        from testcontainers.community.neo4j import Neo4jContainer
-    except ImportError:  # pragma: no cover - depends on the installed extras
-        pytest.skip("testcontainers' neo4j module is not installed")
-
-    def _build() -> Neo4jContainer:
-        container = Neo4jContainer(image=NEO4J_IMAGE, password=GRAPHDB_TEST_PASSWORD)
-        container.with_volume_mapping(str(plugin_dir), "/plugins", "rw")
-        container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*,n10s.*")
-        container.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*,n10s.*")
-        return container
-
-    container = start_or_skip(_build, label=f"graphdb for {label}")
-    try:
-        uri = container.get_connection_url()
-
+    with graphdb_store(plugin_dir, label=f"graphdb for {label}") as uri:
         from osprey.services.facility_knowledge.seeder import graph_seeder
 
         with graph_seeder.open_session(
@@ -177,8 +161,6 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
                 f"{graph_seeder.resource_count(session)} Resource nodes"
             )
         yield uri
-    finally:
-        stop_quietly(container)
 
 
 def _demo_ttl_text() -> str:
