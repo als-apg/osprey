@@ -412,7 +412,17 @@ jobs:
           cli)  SHARD_PATH="cli"; SHARD_IGNORE="" ;;
           rest) SHARD_PATH="";    SHARD_IGNORE="--ignore=tests/cli" ;;
         esac
-        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py --ignore=tests/services/channel_finder/graph_index/test_scale.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
+        # Two integration modules are dropped by name rather than by marker. Each
+        # renders and builds a real project, and each is run by name in a job that
+        # carries no `if:` — the boot smoke over its preset matrix, and the Tier 0
+        # static job — so collecting them here buys a second reading of the same
+        # tests at the price of a full build in every cell of this matrix. The drop
+        # is safe only while those jobs stay unconditional: put an `if:` on either
+        # one, or on the step that names the file, and the module is read on fewer
+        # events than it is here.
+        # tests/deployment/test_ci_workflow_wiring.py holds that rule over every
+        # file this line ignores by name, and lists the exemptions to it.
+        uv run pytest tests/$SHARD_PATH $SHARD_IGNORE --ignore=tests/e2e --ignore=tests/va/test_record_factory.py --ignore=tests/va/test_apply_fault.py --ignore=tests/services/channel_finder/graph_index/test_scale.py --ignore=tests/integration/test_build_boot.py --ignore=tests/integration/test_preset_static.py -m "not pty" -v --tb=short --durations=50 --timeout=600 --timeout-method=signal -n 4 --dist loadgroup $COV_ARGS 2>&1 | tee ci-diag/pytest.log
 
     # The two steps below are the reason the step above has its own timeout.
     # They run on success too: on a green lane the summary is the slow-test
