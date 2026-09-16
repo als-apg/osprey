@@ -6012,9 +6012,11 @@ def _start_stack(
 
     An attached start resolves the image builds in a step of its own and then
     hands the terminal to compose with ``os.execvpe``: the ``up`` it execs
-    carries ``--no-build``, and nothing of this process runs after it. A
-    detached start returns, and leaves the builds to compose's implicit
-    build-on-up.
+    carries ``--no-build``, and nothing of this process runs after it — so the
+    site CA staged into each service build context is cleared before the
+    hand-off rather than after the build, which is where the detached shape
+    clears it. A detached start returns, and leaves the builds to compose's
+    implicit build-on-up.
 
     Args:
         config: Loaded deploy config.
@@ -6466,16 +6468,17 @@ def _start_stack(
     if detached:
         run_captured(cmd, env=run_env, spool_name="compose-up", repo_root=repo_root)
         # The detached `up` builds implicitly and returns, so the contexts it
-        # built from are cleared here. The attached shape below has no matching
-        # call: `os.execvpe` replaces this process with compose, so nothing of
-        # OSPREY's runs after that build — the copy left behind there is
-        # cleared by the next render, which empties the build directory
-        # (`compose_generator.setup_build_dir`) and re-stages the context from
-        # `images.site_ca`.
+        # built from are cleared here.
         clear_staged_service_site_ca(compose_files, repo_root)
         _report_step("containers started")
         log_endpoint_summary(config, compose_files)
     else:
+        # The contexts are finished with here, while there is still a process to
+        # clear them: the argv below replaces this process with compose. Every
+        # attached `up` carries `--no-build` -- its images were built by the step
+        # above, or the host declared them prebuilt -- so no build reads these
+        # contexts after this point.
+        clear_staged_service_site_ca(compose_files, repo_root)
         # execvpe replaces this process, so the summary must print first —
         # compose's own output follows it.
         log_endpoint_summary(config, compose_files)

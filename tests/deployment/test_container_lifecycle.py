@@ -2110,6 +2110,101 @@ def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
     assert not staged.exists()
 
 
+def _attached_start(monkeypatch, repo, staged, **kwargs):
+    """Drive ``_start_stack`` attached, recording the state AT the exec.
+
+    Nothing of OSPREY runs after ``os.execvpe``, so a copy that is gone by
+    the time ``_start_stack`` returns proves nothing: the stand-in below is
+    the last moment a real start still exists.
+    """
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+            list(cmd), 0, stdout="", stderr=""
+        ),
+    )
+    ran: list[list[str]] = []
+    monkeypatch.setattr(
+        container_lifecycle, "run_captured", lambda cmd, **kwargs: ran.append(list(cmd))
+    )
+    execd: dict = {}
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvpe",
+        lambda file, args, env: execd.update(argv=list(args), staged=staged.exists()),
+    )
+    # An exec that lost its env would otherwise replace the test process
+    # instead of failing an assertion.
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvp",
+        lambda *a: pytest.fail("an attached start must exec WITH its env"),
+    )
+
+    container_lifecycle._start_stack(
+        {"project_name": "proj", "deployed_services": ["qmd"]},
+        ["build/services/docker-compose.0.yml"],
+        repo,
+        detached=False,
+        env_path=repo / ".env",
+        **kwargs,
+    )
+    return ran, execd
+
+
+def _staged_service_repo(tmp_path):
+    """A rendered repo whose one service build context holds the staged CA."""
+    repo = tmp_path / "repo"
+    services = repo / "build" / "services"
+    services.mkdir(parents=True)
+    (repo / ".env").write_text("A=x\n", encoding="utf-8")
+    (services / "docker-compose.0.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    return repo, _staged_ca(services / "qmd")
+
+
+def test_an_attached_deploy_clears_the_service_contexts_before_it_hands_over(tmp_path, monkeypatch):
+    """End to end on the attached path: the copy compose read is gone at the
+    moment the terminal is handed over, which is the last moment there is a
+    process to clear it in."""
+    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+    repo, staged = _staged_service_repo(tmp_path)
+
+    ran, execd = _attached_start(monkeypatch, repo, staged)
+
+    joined = [" ".join(cmd) for cmd in ran]
+    # The staged file is what the build reads, so the clear has to land after
+    # the build and before the hand-off -- not instead of the build.
+    assert any(cmd[-1] == "build" for cmd in ran), joined
+    assert "up" in execd["argv"], execd
+    assert "--no-build" in execd["argv"], execd
+    assert execd["staged"] is False, execd
+
+
+def test_an_attached_deploy_on_a_prebuilt_host_clears_them_too(tmp_path, monkeypatch):
+    """The render stages the copy whether or not this host builds, so the clear
+    is not conditional on a build having happened here."""
+    monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "1")
+    repo, staged = _staged_service_repo(tmp_path)
+
+    ran, execd = _attached_start(monkeypatch, repo, staged)
+
+    joined = [" ".join(cmd) for cmd in ran]
+    assert not any(cmd[-1] == "build" for cmd in ran), joined
+    assert execd["staged"] is False, execd
+
+
 def test_site_image_build_args_read_offline_from_the_top_level_key(no_site_env, tmp_path):
     """`offline: true` is what makes the image vendor its web assets — the same
     key `vendor.is_offline` reads at run time to decide whether to serve them."""
