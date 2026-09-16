@@ -22,6 +22,7 @@ from osprey.services.channel_finder.databases import (
     MiddleLayerDatabase,
     TemplateChannelDatabase,
 )
+from osprey.services.channel_finder.databases.middle_layer import CHANNEL_KEYS
 from osprey.services.channel_finder.tools.validate_database import (
     print_graph_paradigm_guidance,
 )
@@ -30,17 +31,22 @@ from osprey.services.channel_finder.utils.detection import detect_pipeline_confi
 _default_console = Console()
 
 
-def _reaches_channel_names(node: object) -> bool:
-    """True when *node* is a mapping that holds, or nests, a ``ChannelNames`` list.
+#: Sub-dicts of a family that hold its per-device arrays rather than a field.
+_SETUP_KEYS = frozenset({"setup", "_setup"})
 
-    ``ChannelNames`` is what the middle-layer paradigm bottoms out in; every
+
+def _reaches_channel_names(node: object) -> bool:
+    """True when *node* is a mapping that holds, or nests, a channel-key list.
+
+    A list under any key of ``CHANNEL_KEYS`` (``ChannelNames`` or
+    ``TangoNames``) is what the middle-layer paradigm bottoms out in; every
     level above it is named by the facility, so the walk descends through
     whatever names it finds. Keys starting with ``_`` are metadata and are
     skipped, as they are everywhere else in these files.
     """
     if not isinstance(node, dict):
         return False
-    if isinstance(node.get("ChannelNames"), list):
+    if any(isinstance(node.get(key), list) for key in CHANNEL_KEYS):
         return True
     return any(
         _reaches_channel_names(value)
@@ -49,11 +55,46 @@ def _reaches_channel_names(node: object) -> bool:
     )
 
 
+def is_family_dict(name: str, value: object) -> bool:
+    """True when *value*, found under *name*, has the shape of a middle-layer family.
+
+    A family is a dict holding at least one field --- a sub-dict carrying a key
+    of ``CHANNEL_KEYS`` --- or a ``DeviceList``, at the family level or in its
+    ``setup``/``_setup`` block. The rule is structural so that any facility's
+    family names qualify. A name starting with ``_`` is metadata and never a
+    family, and neither ``setup`` nor a ``_``-prefixed sub-dict is a field, so
+    a channel key inside one does not make its parent a family.
+
+    Args:
+        name: The key the value sits under in its parent dict.
+        value: The candidate family body.
+
+    Returns:
+        Whether the value is a family.
+    """
+    if name.startswith("_") or not isinstance(value, dict):
+        return False
+    if "DeviceList" in value:
+        return True
+    for key, child in value.items():
+        if not isinstance(child, dict):
+            continue
+        if key in _SETUP_KEYS:
+            if "DeviceList" in child:
+                return True
+            continue
+        if key.startswith("_"):
+            continue
+        if any(channel_key in child for channel_key in CHANNEL_KEYS):
+            return True
+    return False
+
+
 def _looks_like_middle_layer(data: object) -> bool:
     """True when *data* has the shape of a middle-layer database.
 
     The paradigm is a nesting of the facility's own group names that ends in a
-    ``ChannelNames`` list --- the structure
+    channel-key list --- the structure
     :mod:`osprey.services.channel_finder.databases.middle_layer` documents.
     Recognising it by shape is what lets any facility's file be previewed: a
     list of group tokens would only ever recognise the machine it was written

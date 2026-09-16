@@ -8,6 +8,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 
 import json
 import logging
+from typing import Literal
 
 from fastmcp.exceptions import ToolError
 
@@ -25,6 +26,7 @@ def list_channels(
     subfield: str | None = None,
     sectors: list[int] | None = None,
     devices: list[int] | None = None,
+    protocol: Literal["ca", "tango"] | None = None,
 ) -> str:
     """Get channel names for a specific system/family/field path.
 
@@ -38,14 +40,18 @@ def list_channels(
         subfield: Optional subfield name for nested structures (e.g., "X", "Y").
         sectors: Optional list of sector numbers to filter by.
         devices: Optional list of device numbers to filter by.
+        protocol: Optional channel protocol: "ca" for Channel Access names,
+            "tango" for Tango device attributes. Omit it to get the field's
+            first listed names (Channel Access when a field has both).
 
     Returns:
         JSON with list of channel names and total count.
     """
     try:
         registry = get_cf_ml_context()
+        extra = {} if protocol is None else {"protocol": protocol}
         channels = registry.database.list_channel_names(
-            system, family, field, subfield, sectors, devices
+            system, family, field, subfield, sectors, devices, **extra
         )
 
         result = {"channels": channels, "total": len(channels)}
