@@ -6010,6 +6010,12 @@ def _start_stack(
     host-port preflight. Volumes are never touched by any of these measures,
     and running containers only by that last one.
 
+    An attached start resolves the image builds in a step of its own and then
+    hands the terminal to compose with ``os.execvpe``: the ``up`` it execs
+    carries ``--no-build``, and nothing of this process runs after it. A
+    detached start returns, and leaves the builds to compose's implicit
+    build-on-up.
+
     Args:
         config: Loaded deploy config.
         compose_files: The services stack's compose files, in ``-f`` order.
@@ -6393,6 +6399,14 @@ def _start_stack(
     _report_step("cleared stopped containers")
 
     prebuilt = _resolve_prebuilt_images(config)
+    # Whether the image builds run as a step of this process rather than being
+    # left to compose's implicit build-on-up. A host that declares its images
+    # prebuilt builds nothing at all. Otherwise `--dev` builds because compose
+    # reuses the cached tag for a wheel that has just been re-baked, and an
+    # attached start builds because the `up` below replaces this process:
+    # anything that has to happen once the images are built would have no
+    # process left to happen in.
+    builds_here = not prebuilt and (dev_mode or not detached)
     if dev_mode and prebuilt:
         # Nothing to build: the tags are expected to be on the host already, and
         # the `up --no-build` below runs against them. A tag that is in fact
@@ -6400,16 +6414,16 @@ def _start_stack(
         # image that has to be loaded — better than anything a preflight here
         # could say.
         _report_step("skipped image build (prebuilt images)")
-    elif dev_mode:
-        # `osprey up --dev` re-bakes the local osprey checkout into a fresh
-        # wheel on every run, but compose reuses the cached image tag (e.g.
-        # <project>-dispatch:local) unless it is rebuilt — so a dev deploy must build.
+    elif builds_here:
         # Build in its OWN step, then `up --no-build`: a single `up --build` can
         # build a local-only tag and then fail container-create with
-        # "No such image" under Docker's containerd image store. Non-dev has no
-        # build step of its own, so unless the host says its images are prebuilt
-        # it stays a plain `up` and compose's implicit build-on-up still covers a
-        # build-only service that has no published upstream tag to pull.
+        # "No such image" under Docker's containerd image store.
+        #
+        # Two shapes come through here. `osprey up --dev` re-bakes the local osprey
+        # checkout into a fresh wheel on every run, and compose reuses the cached
+        # image tag (e.g. <project>-dispatch:local) unless it is rebuilt. An
+        # attached start builds because it is the last moment it can: the `up`
+        # below hands the terminal to compose and never returns.
         build_cmd = base_cmd + ["build"]
         logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
         # Watched for the duration of the build and no longer: the live view
@@ -6435,14 +6449,15 @@ def _start_stack(
     # invocations share one project name, so each would destroy the other
     # stack's containers as "orphans".
     cmd = base_cmd + ["up", "--remove-orphans"]
-    if dev_mode or prebuilt:
-        # Non-dev never builds in a step of its own, so on a prebuilt host the
-        # only build left to suppress is compose's implicit build-on-up. Without
-        # this a pull-only mirror deploy would answer a missing tag by building
-        # a locally-tagged impostor from the template's `build:` block instead
-        # of failing on the image that never arrived. The switch reaches
-        # compose's implicit builds only: explicit persona and auth-sidecar
-        # builds stay governed by `image_source`.
+    if builds_here or prebuilt:
+        # Compose's implicit build-on-up is suppressed wherever the images are
+        # already resolved — this process built them in the step above, or the host
+        # says they arrived prebuilt. On a prebuilt host that is the whole of what
+        # the switch has to suppress: without it a pull-only mirror deploy would
+        # answer a missing tag by building a locally-tagged impostor from the
+        # template's `build:` block instead of failing on the image that never
+        # arrived. The switch reaches compose's implicit builds only: explicit
+        # persona and auth-sidecar builds stay governed by `image_source`.
         cmd.append("--no-build")
     if detached:
         cmd.append("-d")
@@ -7532,8 +7547,8 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
     so every up-path behavior — the web-terminals branch, the dev-mode
     build/up split, the stale-container preflight — stays defined in exactly
     one place. ``clean``'s ``down --rmi all`` removes the images, so the
-    delegated ``up`` rebuilds/pulls everything fresh via compose's own
-    build-on-up, no explicit ``build`` step needed here. The web-terminal
+    delegated ``up`` rebuilds or pulls everything ``clean`` removed, so this
+    verb needs no build step of its own. The web-terminal
     stack's per-user volumes are declared only in ``docker-compose.web.yml``
     (never in the services compose files ``clean`` operates on), so a rebuild
     recreates web containers but preserves user volumes.
