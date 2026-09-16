@@ -191,15 +191,24 @@ def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[str]:
 # ---------------------------------------------------------------------------
 
 
-#: Query budget for the store these tests talk to, replacing the product default.
-#: That default sizes a query against the turn an agent has to act within, which
-#: is a statement about a deployed store on a machine of its own. The store here
-#: is a container sharing a host with the rest of the suite, where the same
-#: traversal costs an order of magnitude more, so the product number would make
-#: host contention read as a store that timed out. What these tests assert is
-#: what a query answers, never how quickly: the case that covers the timeout path
-#: sets its own budget low enough to trip on purpose, and keeps it.
-_INTEGRATION_QUERY_TIMEOUT_S = 60
+#: The store these tests talk to runs its queries on no clock. The product
+#: default sizes a query against the turn an agent has to act within, which is
+#: a statement about a deployed store on a machine of its own; this store is a
+#: container sharing a host with the rest of the suite, where the same
+#: traversal costs an order of magnitude more and how much more is a fact
+#: about the host's load rather than about the store. What these tests assert
+#: is what a query answers, never how quickly, so there is nothing here for a
+#: budget to protect and nothing it could decide except on a loaded host. Zero
+#: is how the driver spells "no transaction timeout": it is sent as
+#: ``tx_timeout: 0``, which the server reads as unbounded. The case that
+#: covers the timeout path sets its own budget, low enough to trip on purpose,
+#: and keeps it — that case is where the clock belongs. A query that would
+#: never return is ended by the suite's own per-test cap.
+#:
+#: A deployment cannot reach this posture: ``services.graphdb.query_timeout_s``
+#: is read through ``positive_int``, which refuses zero and falls back to the
+#: product default.
+_INTEGRATION_QUERY_TIMEOUT_S = 0
 
 
 @contextmanager
