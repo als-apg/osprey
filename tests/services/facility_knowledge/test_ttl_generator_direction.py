@@ -88,6 +88,22 @@ def no_ambient_config(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# DirectionSource
+# ---------------------------------------------------------------------------
+
+
+class TestDirectionSource:
+    """The tokens a TTL header may record for where its directions came from."""
+
+    def test_mapping_is_a_recorded_source(self):
+        assert DirectionSource("mapping") is DirectionSource.MAPPING
+        assert DirectionSource.MAPPING == "mapping"
+
+    def test_the_source_tokens_are_exactly_the_three_derivations(self):
+        assert {source.value for source in DirectionSource} == {"limits", "grammar", "mapping"}
+
+
+# ---------------------------------------------------------------------------
 # resolve_limits_path
 # ---------------------------------------------------------------------------
 

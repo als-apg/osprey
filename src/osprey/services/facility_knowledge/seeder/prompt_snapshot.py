@@ -381,7 +381,7 @@ DEFAULT_PARAMETERS_NOTE = "framework defaults; substitute values from this corpu
 
 #: How each ``READSSIGNAL``/``WRITESSIGNAL`` edge in *this* corpus came to point
 #: the way it does. ``build-ttl`` knows; the seeder carries it in the marker;
-#: the agent needs it because the two derivations differ in what they can get
+#: the agent needs it because the derivations differ in what they can get
 #: wrong — a grammar-derived corpus mislabels any writable channel whose address
 #: does not end in the setpoint subfield. The token is quoted from the generator
 #: that applies it rather than spelled here, so the note cannot describe a rule
@@ -395,6 +395,10 @@ DIRECTION_PROVENANCE_LINES = {
         "Direction provenance: read/write edges derived from the address grammar "
         f"(`:{WRITE_SUBFIELD}` writes), because no channel limits were available."
     ),
+    "mapping": (
+        "Direction provenance: read/write edges derived from the MML export's "
+        "MemberOf tags and the facility's mapping file."
+    ),
 }
 
 
@@ -402,7 +406,7 @@ def _render_direction(direction_source: str | None) -> list[str]:
     """The provenance line's lines, or none at all.
 
     A corpus built by an older ``osprey`` recorded no source, and there is no
-    honest default to fall back on — the two derivations are not
+    honest default to fall back on — the derivations are not
     interchangeable — so an absent source renders nothing rather than a guess.
     An unrecognised value is printed verbatim: a newer builder's spelling is
     still more informative than silence.

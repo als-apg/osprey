@@ -417,6 +417,47 @@ class TestDirectionSourceHeader:
         assert isomorphic(plain, headed)
 
 
+class TestHeaderComments:
+    """Free-text provenance comments ride directly under the direction line."""
+
+    def test_two_comments_follow_the_direction_line_in_order(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap, tmp_path: Path
+    ) -> None:
+        comments = ["exporter: mml 1.0", "ao sha256: abc123"]
+        plain = emitter.serialize_turtle(synthetic_model, ontology, direction_source="limits")
+        text = emitter.serialize_turtle(
+            synthetic_model, ontology, direction_source="limits", header_comments=comments
+        )
+        lines = text.splitlines()
+        assert lines[0] == "# osprey:direction-source limits"
+        assert lines[1:3] == ["# exporter: mml 1.0", "# ao sha256: abc123"]
+        assert lines[3:] == plain.splitlines()[1:]
+
+        written = emitter.write_turtle(
+            synthetic_model,
+            ontology,
+            tmp_path / "corpus.ttl",
+            direction_source="limits",
+            header_comments=comments,
+        )
+        assert written.read_text(encoding="utf-8") == text
+
+        # Still plain Turtle comments: the parsed graph is unchanged.
+        bare = Graph()
+        bare.parse(data=plain, format="turtle")
+        commented = Graph()
+        commented.parse(data=text, format="turtle")
+        assert isomorphic(bare, commented)
+
+    @pytest.mark.parametrize("entry", ["first\nsecond", "trailing\n", "carriage\rreturn"])
+    def test_a_comment_with_an_embedded_newline_is_refused(
+        self, synthetic_model: model.GraphModel, ontology: OntologyMap, entry: str
+    ) -> None:
+        """A line break would end the comment and leak the rest into the Turtle body."""
+        with pytest.raises(ValueError, match="newline"):
+            emitter.serialize_turtle(synthetic_model, ontology, header_comments=["ok", entry])
+
+
 # ---------------------------------------------------------------------------
 # Determinism and round-trip
 # ---------------------------------------------------------------------------
