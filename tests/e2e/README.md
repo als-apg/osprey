@@ -266,8 +266,13 @@ export ALS_APG_BASE_URL="https://your-gateway.example.org/v1"
 # The key is all a lane needs; the endpoint ships in the provider catalog.
 export CBORG_API_KEY="your-key"
 
-# Optional: point the CBORG lanes at a different host than the catalog's.
+# For AMSC i2 (the provider matrix only). The key is all a lane needs; the
+# endpoint ships in the provider catalog.
+export AMSC_I2_API_KEY="your-key"
+
+# Optional: point these lanes at a different host than the catalog's.
 export CBORG_BASE_URL="https://your-endpoint.example.org/v1"
+export AMSC_I2_BASE_URL="https://your-endpoint.example.org/v1"
 
 # Or for Anthropic
 export ANTHROPIC_API_KEY="your-key"

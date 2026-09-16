@@ -27,6 +27,8 @@ import pytest
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
+from tests.e2e.provider import gateway_base_url
+
 # Explicit opt-in gate (mirrors tests/va/e2e's OSPREY_VA_E2E_ENABLE convention:
 # the module must always collect cleanly and skip cleanly with the flag unset).
 _MATRIX_ENABLED = os.environ.get("OSPREY_LLM_MATRIX_ENABLE") == "1"
@@ -123,18 +125,23 @@ class AgentResponse(BaseModel):
 # =============================================================================
 
 
-def _cborg_reachable(base_url: str) -> bool:
+def _cborg_reachable(base_url: str | None) -> bool:
     """Probe whether the CBORG gateway accepts requests from the current IP.
 
     A 403 with "Access denied: IP address ... not recognized" — or any other
     failure to reach the gateway — means we're off LBLnet/VPN. Returns False
-    in that case so the matrix tests SKIP rather than FAIL.
+    in that case so the matrix tests SKIP rather than FAIL. A provider with
+    no endpoint is not reachable either: there is nothing to probe.
     """
+    if not base_url:
+        return False
     try:
         import httpx
 
-        # /v1/models is the cheapest endpoint that exercises auth + IP-allowlist.
-        resp = httpx.get(f"{base_url.rstrip('/')}/v1/models", timeout=3.0)
+        # The base URL already names the API version, so the model listing
+        # under it is the cheapest call that exercises auth and the IP
+        # allowlist together.
+        resp = httpx.get(f"{base_url.rstrip('/')}/models", timeout=3.0)
         if resp.status_code == 403 and "ip address" in resp.text.lower():
             return False
         return resp.status_code < 500
@@ -163,11 +170,16 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
         ),
         ("openai", ["OPENAI_API_KEY"], None, "gpt-4o-mini"),
         ("google", ["GOOGLE_API_KEY"], None, "gemini-2.0-flash"),
-        ("cborg", ["CBORG_API_KEY"], "https://api.cborg.lbl.gov", "anthropic/claude-haiku"),
+        (
+            "cborg",
+            ["CBORG_API_KEY"],
+            gateway_base_url("cborg", "CBORG_BASE_URL"),
+            "anthropic/claude-haiku",
+        ),
         (
             "amsc-i2",
             ["AMSC_I2_API_KEY"],
-            "https://api.i2-core.american-science-cloud.org",
+            gateway_base_url("amsc-i2", "AMSC_I2_BASE_URL"),
             "claude-haiku",
         ),
     ]
