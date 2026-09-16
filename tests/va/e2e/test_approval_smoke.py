@@ -24,6 +24,7 @@ from __future__ import annotations
 import pytest
 
 from osprey_connectors.control_system import WriteOutcome
+from osprey_connectors.types import VIRTUAL_ACCELERATOR, writes_enabled_key
 from tests.va.e2e import conftest as e2e_conftest
 
 CORRECTOR_SP = "SR:MAG:HCM:03:CURRENT:SP"
@@ -44,7 +45,7 @@ class TestApprovalSmoke:
 
         assert result.outcome is WriteOutcome.REFUSED
         assert "writes are disabled" in result.error_message
-        assert "control_system.writes_enabled" in result.error_message
+        assert writes_enabled_key(VIRTUAL_ACCELERATOR) in result.error_message
 
         # Read back with writes still disabled (reads are never gated) to
         # confirm the blocked write never reached the IOC over CA.
