@@ -27,6 +27,7 @@ from osprey.cli import build_lifecycle
 from osprey.cli.build_profile_schema import LifecycleStep
 from osprey.cli.phase_reporter import NullReporter, PhaseReporter, install_reporter
 from osprey.errors import BuildProfileError
+from tests.cli._scoped_subprocess import patch_subprocess
 
 _JUNIT_XML = """<?xml version="1.0" encoding="utf-8"?>
 <testsuites>
@@ -191,7 +192,7 @@ def test_a_timed_out_step_is_cut_off_and_named(
 
 
 def test_a_timed_out_step_reports_its_last_output(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A timeout names itself, then the tail of what the step managed to say.
 
@@ -206,11 +207,11 @@ def test_a_timed_out_step_reports_its_last_output(
         seen.append(kwargs)
         raise subprocess.TimeoutExpired(cmd, kwargs["timeout"], output="nearly there\n")
 
-    monkeypatch.setattr(build_lifecycle.subprocess, "run", timed_out_run)
     steps = [LifecycleStep(name="slow step", run="sleep 30", timeout=1)]
 
-    with pytest.raises(BuildProfileError) as raised:
-        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+    with patch_subprocess("osprey.cli.build_lifecycle", side_effect=timed_out_run):
+        with pytest.raises(BuildProfileError) as raised:
+            build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
 
     assert [call["timeout"] for call in seen] == [1]
     assert seen[0]["capture_output"] is True
