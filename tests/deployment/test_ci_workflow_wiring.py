@@ -118,6 +118,26 @@ TEAMS_SMOKE_FILE = "tests/e2e/fixtures/test_teams_fixture_smoke.py"
 TEAMS_EXTRA = "teams"
 TEAMS_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 
+NO_MODEL_JOB = "e2e-no-model"
+NO_MODEL_RUN_STEP = "Run the model-free E2E files"
+NO_MODEL_SKIP_GATE_STEP = "Fail the lane on any skipped test"
+#: The files the model-free lane names, in the order its run step names them.
+NO_MODEL_TEST_FILES = (
+    "tests/e2e/test_openobserve_telemetry.py",
+    "tests/e2e/test_sdk_helpers.py",
+    "tests/e2e/web_terminals/test_prefix_routing.py",
+    "tests/e2e/test_mcp_readiness.py",
+    "tests/e2e/test_dispatch_deploy_render.py",
+    "tests/e2e/web_terminals/test_scaffold_render_roundtrip.py",
+    "tests/e2e/web_terminals/test_skills_overlay_discovery.py",
+    "tests/e2e/web_terminals/test_loopback_chokepoint.py",
+    "tests/e2e/web_terminals/test_session_restart_e2e.py",
+    "tests/e2e/web_terminals/test_terminal_auth_e2e.py",
+)
+#: The one test in that set gated on a credential rather than on a model call.
+NO_MODEL_DESELECTED = "tests/e2e/test_openobserve_telemetry.py::test_live_agent_metric_lands"
+SAME_REPO_CLAUSE = "github.event.pull_request.head.repo.full_name == github.repository"
+
 ALS_APG_BASE_URL_ENV = "ALS_APG_BASE_URL"
 E2E_PROVIDER_ENV = "OSPREY_E2E_PROVIDER"
 PROBE_BASE_VAR = "ALS_APG_PROBE_BASE"
@@ -2692,6 +2712,212 @@ def test_all_checks_passed_needs_teams_bridge__mutation_drops_check_pr_lane_line
     assert TEAMS_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
     with pytest.raises(AssertionError):
         test_all_checks_passed_needs_teams_bridge(mutated)
+
+
+# ---------------------------------------------------------------------------
+# the model-free end-to-end lane: the tests/e2e files that reach no gateway
+# ---------------------------------------------------------------------------
+
+
+def _model_free_selected_paths(wf: dict[str, Any]) -> list[str]:
+    """The paths the model-free lane's run step hands pytest to collect.
+
+    A file named only inside a ``--deselect`` node id is a test being taken OUT
+    of the run, which is the opposite of what this list stands for, so the line
+    it lives on is not read as a selection.
+    """
+    run_text = _find_named_step(wf, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"]
+    selected: list[str] = []
+    for line in run_text.splitlines():
+        if "--deselect" in line:
+            continue
+        selected.extend(token for token in line.split() if token.startswith("tests/"))
+    return selected
+
+
+def test_model_free_lane_exists(workflow: dict[str, Any]) -> None:
+    assert NO_MODEL_JOB in _jobs(workflow)
+
+
+def test_model_free_lane_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][NO_MODEL_JOB]
+    with pytest.raises(AssertionError):
+        assert NO_MODEL_JOB in _jobs(mutated)
+
+
+def test_model_free_lane_runs_on_every_same_repo_pull_request(workflow: dict[str, Any]) -> None:
+    """The same-repo condition is the private image mirror's, not a
+    credential's — the lane declares no gateway key — and a label clause added
+    here would put a lane that can honestly run on every pull request back on
+    the few that are labelled, which is the whole thing this lane exists to
+    undo."""
+    condition = _jobs(workflow)[NO_MODEL_JOB]["if"]
+    assert SAME_REPO_CLAUSE in condition, (
+        f"'{NO_MODEL_JOB}' must be limited to same-repo pull requests: the openobserve "
+        f"image comes from a private mirror a fork run's token cannot read"
+    )
+    assert FULL_CI_LABEL_CLAUSE not in condition, (
+        f"'{NO_MODEL_JOB}' is label-gated but spends no model tokens"
+    )
+
+
+def test_model_free_lane_runs_on_every_same_repo_pull_request__mutation_adds_the_label_gate() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[NO_MODEL_JOB]
+    job["if"] = job["if"] + f" && {FULL_CI_LABEL_CLAUSE}"
+    assert SAME_REPO_CLAUSE in job["if"]  # the other half survives untouched
+    with pytest.raises(AssertionError, match="spends no model tokens"):
+        test_model_free_lane_runs_on_every_same_repo_pull_request(mutated)
+
+
+def test_model_free_lane_runs_on_every_same_repo_pull_request__mutation_drops_the_same_repo_clause() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[NO_MODEL_JOB]
+    job["if"] = job["if"].replace(SAME_REPO_CLAUSE, "true")
+    assert FULL_CI_LABEL_CLAUSE not in job["if"]  # the other half survives untouched
+    with pytest.raises(AssertionError, match="same-repo pull requests"):
+        test_model_free_lane_runs_on_every_same_repo_pull_request(mutated)
+
+
+def test_model_free_lane_names_every_file_it_owns(workflow: dict[str, Any]) -> None:
+    """Named by path rather than by marker because a path that stops existing
+    exits pytest non-zero and reds the step, while a marker that stops matching
+    selects nothing and greens it — and the on-disk half is what makes the
+    first half mean something, since a renamed file would otherwise leave the
+    lane asserting about a string."""
+    missing = [f for f in NO_MODEL_TEST_FILES if f not in _model_free_selected_paths(workflow)]
+    assert missing == [], (
+        f"'{NO_MODEL_RUN_STEP}' does not name: {missing} — a file the lane owns and nothing runs"
+    )
+    absent = [f for f in NO_MODEL_TEST_FILES if not (CI_YML.parents[2] / f).is_file()]
+    assert absent == [], (
+        f"the lane names file(s) no longer on disk: {absent} — pytest exits non-zero on "
+        f"a path it cannot collect, so the step reds until the list is corrected"
+    )
+
+
+def test_model_free_lane_names_every_file_it_owns__mutation_drops_a_file_from_the_run_step() -> (
+    None
+):
+    """The dropped file is the one also named in the ``--deselect``, so this is
+    what proves the helper does not read that line as a selection."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    lines = step["run"].splitlines(keepends=True)
+    kept = [
+        line
+        for line in lines
+        if "--deselect" in line or "tests/e2e/test_openobserve_telemetry.py" not in line
+    ]
+    assert len(kept) == len(lines) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    # the neighbour survives, so the mutation is one file wide
+    assert "tests/e2e/test_sdk_helpers.py" in _model_free_selected_paths(mutated)
+    with pytest.raises(AssertionError, match="does not name"):
+        test_model_free_lane_names_every_file_it_owns(mutated)
+
+
+def test_model_free_lane_deselects_the_one_credential_gated_test(workflow: dict[str, Any]) -> None:
+    """The test appends a live agent turn to a round-trip that is otherwise
+    synthetic, so it is gated on a credential this lane does not hold; left
+    selected it would skip, and this lane treats a skip as a failure."""
+    run_text = _find_named_step(workflow, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"]
+    assert f"--deselect {NO_MODEL_DESELECTED}" in run_text, (
+        f"'{NO_MODEL_RUN_STEP}' must deselect {NO_MODEL_DESELECTED} by node id"
+    )
+
+
+def test_model_free_lane_deselects_the_one_credential_gated_test__mutation_drops_the_deselection() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = step["run"].replace(f"--deselect {NO_MODEL_DESELECTED}", "")
+    with pytest.raises(AssertionError, match="must deselect"):
+        test_model_free_lane_deselects_the_one_credential_gated_test(mutated)
+
+
+def test_model_free_lane_declares_no_gateway_key(workflow: dict[str, Any]) -> None:
+    """The directory's provider refusal is satisfied by the workflow-level
+    ``OSPREY_E2E_PROVIDER`` alone, so a gateway key here would buy nothing and
+    would move the lane into the label-gated posture it was built to leave."""
+    assert not _job_declares_secret(workflow, NO_MODEL_JOB, SECRET_TOKEN)
+
+
+def test_model_free_lane_declares_no_gateway_key__mutation_adds_the_key() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][NO_MODEL_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        test_model_free_lane_declares_no_gateway_key(mutated)
+
+
+def test_model_free_lane_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
+    """Every file here is named by path and every test in them runs without a
+    credential, so a skip is the lane being wrong about its own runner rather
+    than an environment gap — and pytest's exit code cannot tell "everything
+    passed" from "everything was skipped"."""
+    reports = _JUNIT_RE.findall(_find_named_step(workflow, NO_MODEL_JOB, NO_MODEL_RUN_STEP)["run"])
+    assert len(reports) == 1, (
+        f"'{NO_MODEL_RUN_STEP}' must write exactly one --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(workflow, NO_MODEL_JOB, NO_MODEL_SKIP_GATE_STEP)["run"]
+    assert reports[0] in gate, f"'{NO_MODEL_SKIP_GATE_STEP}' never reads: {reports[0]}"
+    assert 'get("skipped"' in gate, "the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, "the gate must fail the job, not just print"
+
+
+def test_model_free_lane_fails_on_any_skipped_test__mutation_drops_the_junit_report() -> None:
+    """A run step that writes no report is invisible to the gate."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_RUN_STEP)
+    step["run"] = _JUNIT_RE.sub("", step["run"])
+    with pytest.raises(AssertionError, match="exactly one --junitxml report"):
+        test_model_free_lane_fails_on_any_skipped_test(mutated)
+
+
+def test_model_free_lane_fails_on_any_skipped_test__mutation_gate_stops_failing() -> None:
+    """A gate that prints the skip count without exiting non-zero is
+    decorative: the job still reports success over a lane that ran nothing."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, NO_MODEL_JOB, NO_MODEL_SKIP_GATE_STEP)
+    step["run"] = step["run"].replace("sys.exit(1)", "pass")
+    with pytest.raises(AssertionError, match="must fail the job"):
+        test_model_free_lane_fails_on_any_skipped_test(mutated)
+
+
+def test_all_checks_passed_needs_the_model_free_lane(workflow: dict[str, Any]) -> None:
+    """``needs:`` makes the roll-up wait and ``check_pr_lane`` makes it care —
+    the reason spelled out on the Google Chat pair."""
+    assert NO_MODEL_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+    assert f"needs.{NO_MODEL_JOB}.result" in _gate_run_text(workflow)
+
+
+def test_all_checks_passed_needs_the_model_free_lane__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(NO_MODEL_JOB)
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_the_model_free_lane(mutated)
+
+
+def test_all_checks_passed_needs_the_model_free_lane__mutation_drops_check_pr_lane_line() -> None:
+    """The dangerous half: the ``needs`` entry stays (so the gate waits for the
+    job) while the line that reads its result is gone — the lane could go red
+    forever inside a green check."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, GATE_JOB, "Check all jobs status")
+    kept = [line for line in step["run"].splitlines(keepends=True) if NO_MODEL_JOB not in line]
+    assert len(kept) == len(step["run"].splitlines()) - 1, "expected exactly one line dropped"
+    step["run"] = "".join(kept)
+    assert NO_MODEL_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the needs entry survives
+    with pytest.raises(AssertionError):
+        test_all_checks_passed_needs_the_model_free_lane(mutated)
 
 
 # ---------------------------------------------------------------------------
