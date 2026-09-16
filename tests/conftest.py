@@ -986,6 +986,13 @@ def _e2e_provider_reason() -> str:
     return _e2e_provider_availability()[1]
 
 
+def _is_matlab_available() -> bool:
+    """True if a `matlab` executable is on PATH."""
+    import shutil as _shutil
+
+    return _shutil.which("matlab") is not None
+
+
 def _is_ollama_available() -> bool:
     """True if a local Ollama server responds at localhost:11434."""
     try:
@@ -1008,6 +1015,10 @@ _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] 
         "AMSC_I2_API_KEY / ANTHROPIC_API_KEY)",
     ),
     "requires_ollama": (_is_ollama_available, "Ollama not reachable at localhost:11434"),
+    "requires_matlab": (
+        _is_matlab_available,
+        "matlab not on PATH — a MATLAB installation with the AT toolbox is required",
+    ),
     "requires_openai": (_has_openai_api_key, "OPENAI_API_KEY not set"),
     "requires_google": (_has_google_api_key, "GOOGLE_API_KEY not set"),
     "requires_cborg": (_has_cborg_api_key, "CBORG_API_KEY not set"),
