@@ -96,11 +96,41 @@ def _inside_a_deployment(lifecycle_repo, monkeypatch):
     monkeypatch.chdir(lifecycle_repo)
 
 
+def _free_ports(count: int) -> list[int]:
+    """Reserve then release ``count`` DISTINCT OS-assigned ports.
+
+    Every socket is held until all of them are bound, which is what makes the
+    numbers distinct: two live binds to one ``(host, port)`` cannot coexist, so
+    the OS is forced to hand out a fresh port each time. Calling
+    :func:`_free_port` twice instead gives no such guarantee — the first port is
+    back in the ephemeral pool before the second bind asks for one, and the OS
+    is free to hand out the same number again.
+
+    That distinction is load-bearing for every test whose premise is a CONFLICT
+    between a declared env var and a flag: ``_notice_declared_override`` prints
+    nothing when the flag already agrees with the declaration (the deliberate
+    matching declaration `TestResolveWebPort` pins), so a repeated port turns
+    such a test into a silent no-op or an outright failure.
+    """
+    socks = []
+    try:
+        for _ in range(count):
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(("127.0.0.1", 0))
+            socks.append(sock)
+        return [sock.getsockname()[1] for sock in socks]
+    finally:
+        for sock in socks:
+            sock.close()
+
+
 def _free_port() -> int:
-    """Reserve then release an OS-assigned port so nothing is listening on it."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(("127.0.0.1", 0))
-        return sock.getsockname()[1]
+    """Reserve then release one OS-assigned port so nothing is listening on it.
+
+    For the tests that need A free port. Where two ports must DIFFER, take them
+    from a single :func:`_free_ports` call instead.
+    """
+    return _free_ports(1)[0]
 
 
 @contextlib.contextmanager
@@ -263,8 +293,10 @@ class TestPortEnvvar:
 
     def test_explicit_port_flag_wins_over_env(self, runner, monkeypatch):
         self._stub_launch(monkeypatch)
-        monkeypatch.setenv("OSPREY_WEB_PORT", str(_free_port()))
-        flag_port = _free_port()
+        # Distinct by construction: an env port that happened to equal the flag
+        # port would assert nothing about which of the two won.
+        env_port, flag_port = _free_ports(2)
+        monkeypatch.setenv("OSPREY_WEB_PORT", str(env_port))
         captured = {}
         monkeypatch.setattr(
             "osprey.interfaces.web_terminal.run_web", lambda **kw: captured.update(kw)
@@ -331,7 +363,10 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
         that reaches run_web must be the declared one, NOT the flag —
         otherwise nginx's per-user upstream mapping desyncs from the
         container's actual listener."""
-        declared_port = _free_port()
+        # Distinct by construction: a flag port that happened to equal the
+        # declared one would satisfy the assertion without the declaration
+        # having overridden anything.
+        declared_port, flag_port = _free_ports(2)
         monkeypatch.setenv(DECLARED_WEB_PORT_ENV, str(declared_port))
         captured = {}
 
@@ -345,7 +380,7 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
             web,
             [
                 "--port",
-                str(_free_port()),
+                str(flag_port),
                 "--shell",
                 "true",
                 "--skip-preflight",
@@ -357,7 +392,10 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
         assert captured.get("port") == declared_port
 
     def test_notice_printed_when_declared_env_overrides_port_flag(self, runner, monkeypatch):
-        declared_port = _free_port()
+        # The notice fires on a CONFLICT and is deliberately silent when the
+        # flag already agrees with the declaration, so the two ports have to be
+        # distinct by construction for the test to have a premise at all.
+        declared_port, flag_port = _free_ports(2)
         monkeypatch.setenv(DECLARED_WEB_PORT_ENV, str(declared_port))
         self._stub_launch(monkeypatch)
 
@@ -365,7 +403,7 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
             web,
             [
                 "--port",
-                str(_free_port()),
+                str(flag_port),
                 "--shell",
                 "true",
                 "--skip-preflight",
