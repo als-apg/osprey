@@ -146,13 +146,87 @@ partial list. The cap is on the agent's context, not on the database, which is
 why it is set per deployment.
 
 The database follows MATLAB Middle Layer (MML) functional organization
-(System -> Family -> Field -> ChannelNames). Convert from MML exports:
+(system, then family, then field, then the channel names). A facility that runs
+a Middle Layer already has that structure, and ``osprey mml`` installs from it.
+
+
+Installing from a Middle Layer
+------------------------------
+
+Three verbs, run in the deployment repository: ``import`` reads the export,
+``map`` records what it means, ``emit`` writes the deployment's files. Each one
+reads what the one before it wrote, so the order is the whole workflow.
+
+**Import.** First export the Middle Layer as JSON on the MATLAB machine. The
+exporter ships with OSPREY --- ``osprey scaffold pull
+control-assistant:data/mml/mml_export.m`` puts it in ``data/mml/``, and the
+README beside it covers the MATLAB half. Run it once per sub-machine, then read
+the exports in:
 
 .. code-block:: bash
 
-   python -m osprey.services.channel_finder.utils.mml_converter \
-      --input path/to/mml_exports.py:MML_ao_SR \
-      --output data/channel_databases/middle_layer.json
+   osprey mml import mymachine.storagering.ao.json mymachine.booster.ao.json
+
+They become ``data/mml/ao.json``, ``data/mml/ad.json`` and ``PROFILE.md``, a
+census of what arrived: systems, families, distinct addresses, and how many
+signals it could not tell a readback from a setpoint by. The location is fixed
+rather than a flag, because the later verbs read the same directory. An export
+that does not name its own sub-machine is given a system name with ``--system
+TOKEN``.
+
+**Map.** Nothing about your facility is guessed at silently. ``mml map --init``
+writes ``data/mml/mapping.yaml``, a skeleton with a slot for every decision:
+what each raw family is called in the deployment, what kind of device it is,
+which section of the machine it sits in, and whether each signal is read or
+written.
+
+.. code-block:: bash
+
+   osprey mml map --init
+
+Fill the empty slots and review the ones the skeleton guessed --- the OSPREY
+agent can propose all of them, but the wording is yours to confirm, because
+this file is what the agent will later read your machine through. Then check
+the file back against the export:
+
+.. code-block:: bash
+
+   osprey mml map --check
+
+The check names every problem it finds and exits non-zero while any remain; it
+also says how many guessed slots are still unreviewed. Adding ``--no-derived``
+turns each of those into a problem of its own --- the stricter run to pass
+before you go live.
+
+**Emit.** The last verb writes the deployment's files from the export and the
+checked mapping:
+
+.. code-block:: bash
+
+   osprey mml emit --duckdb
+
+That is the middle-layer database at
+``data/channel_databases/middle_layer.json``, the facility ontology, the
+knowledge pages under ``data/facility_knowledge/``, and a Turtle corpus named
+for your facility. ``--duckdb`` also writes the DuckDB copy that the
+``run_sql`` tool reads. That copy holds one row per process variable, so two
+slots naming the same PV --- a shared setpoint, or one row broadcast to every
+device in a family --- become a single row; emit names each of them as it
+writes, and the middle-layer database and the corpus keep every binding. A
+project still carrying the demo facility's databases
+or knowledge pages is refused before anything is written, with one ``rm`` line
+naming exactly what to remove; run it and emit again. Finally ``osprey build``
+copies the emitted files into the deployment --- the running stack keeps its
+old copy until then.
+
+**One export, either paradigm.** Emit writes the middle-layer database *and*
+the corpus every time, because both describe the same machine. Which one the
+channel finder uses is the ``channel_finder_mode`` field: leave it at
+``middle_layer`` to query the database, or set it to ``graph`` and point
+``services.graphdb.ttl_path`` at the corpus
+(:doc:`/how-to/facility-knowledge/use-facility-graph`). The unchosen file stays
+in the repository, so trying the other paradigm later is a configuration
+change, not a second install.
 
 
 Graph Pipeline

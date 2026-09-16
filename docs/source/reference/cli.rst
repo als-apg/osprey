@@ -40,6 +40,7 @@ names another one explicitly.
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
    osprey knowledge          # Facility knowledge bundles and graph corpus
+   osprey mml                # Install a facility from its MATLAB Middle Layer
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey artifacts          # Artifact gallery
@@ -1017,6 +1018,59 @@ from ``services.graphdb.ttl_path``. See :doc:`/how-to/facility-knowledge/okf-bun
    osprey knowledge build-index --ttl data/demo_machine.ttl
    osprey knowledge seed-graph data/demo_machine.ttl
    osprey knowledge validate
+
+.. _cli-osprey-mml:
+
+osprey mml
+==========
+
+Install a facility from its MATLAB Middle Layer (MML) export: read the export,
+record what it means, and write the deployment's channel database, ontology,
+knowledge pages and graph corpus from that one review. The three verbs run in
+order and each reads what the one before it wrote, in the fixed directory
+``data/mml/`` of the deployment repository. All three take ``--repo
+DIRECTORY``; without it the repository is found by walking up from where you
+are standing. See :doc:`/how-to/use-channel-finder` for the flow end to end.
+
+``osprey mml import INPUTS... [--system TOKEN | PATH=TOKEN]``
+   Read one or more MML exports (``.json`` from the packaged exporter, or
+   ``.mat``) into ``data/mml/ao.json``, ``data/mml/ad.json`` and a
+   ``PROFILE.md`` census of what arrived. Several exports merge into one set of
+   documents, each under its own system name. An export that records its own
+   sub-machine names itself; a flat one needs ``--system``, as a bare token
+   with a single input or as ``PATH=TOKEN`` once per flat input when there are
+   several.
+
+``osprey mml map (--init [--force] | --check [--no-derived])``
+   Write or check ``data/mml/mapping.yaml``, the record of what the export
+   means: the deployment name, device class and machine section of every
+   family, and the direction --- read or written --- of every signal.
+   ``--init`` writes the skeleton, refusing to overwrite an existing file
+   unless ``--force`` says to, because that file holds reviewed decisions.
+   ``--check`` reports every problem and exits non-zero while any remain, and
+   says how many slots the skeleton guessed are still unreviewed;
+   ``--no-derived`` turns each of those into a problem of its own, which is the
+   run to pass before going live.
+
+``osprey mml emit [--duckdb [PATH]]``
+   Write the deployment's files under ``data/`` from the export and the checked
+   mapping: the middle-layer channel database, the facility ontology as schema
+   and compiled table, the knowledge pages under ``data/facility_knowledge/``,
+   and the Turtle corpus named for the facility token. ``--duckdb`` also
+   imports the database into DuckDB, at ``PATH`` or
+   ``data/channel_databases/middle_layer.duckdb``; that copy holds one row per
+   process variable, and emit lists every shared or broadcast PV whose other
+   bindings it therefore holds no row of. Before writing anything it
+   refuses while the project still carries the demo facility's tier databases
+   or untouched demo knowledge pages, naming them in one ``rm`` line. Run
+   ``osprey build`` afterwards to copy the result into the deployment.
+
+.. code-block:: bash
+
+   osprey mml import mymachine.storagering.ao.json mymachine.booster.ao.json
+   osprey mml map --init
+   osprey mml map --check --no-derived
+   osprey mml emit --duckdb
 
 osprey ariel
 ============
