@@ -82,6 +82,7 @@ import pytest
 import yaml
 
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
+from osprey.cli.build_profile_schema import SECOND_LANE_PORT_STRIDE
 from osprey.mcp_server.bluesky import lanes as lanes_module
 from osprey.mcp_server.bluesky.server_context import (
     initialize_server_context,
@@ -117,10 +118,12 @@ LANE_LIVE = SECOND_LANE_KEYS["live"]
 #: has to be able to run beside an already-deployed stack on a shared dev
 #: machine -- a bound-port collision aborts `osprey up` before it creates a
 #: single container, which would read as a lane bug rather than as host state.
-#: Lane 2's bridge port is DERIVED (``bluesky.port + 100``), never configured.
+#: Lane 2's bridge port is DERIVED (``bluesky.port + SECOND_LANE_PORT_STRIDE``),
+#: never configured, so the tiled port is pinned off that derived slot: a
+#: profile whose tiled port sits on it is refused at ``osprey build``.
 BRIDGE_PORT = 18490
-SECOND_BRIDGE_PORT = BRIDGE_PORT + 100
-TILED_PORT = 18491
+SECOND_BRIDGE_PORT = BRIDGE_PORT + SECOND_LANE_PORT_STRIDE
+TILED_PORT = 18492
 PANELS_PORT = 18496
 VA_CA_PORT = 15264
 POSTGRES_PORT = 25932
