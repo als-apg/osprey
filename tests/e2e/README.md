@@ -117,10 +117,11 @@ Tests hierarchical channel finder performance and accuracy:
 
 ## Local-only tests (skipped in CI)
 
-The default GitHub Actions runner has Docker, Python, and ``ALS_APG_API_KEY``
-— but no Postgres, no Ollama, no Confluence access, and no SQLite-backed
-research databases. These tests skip cleanly in CI but are runnable
-locally with the right backend stack:
+The default GitHub Actions runner has Docker, Python, and both halves of the
+als-apg credential (``ALS_APG_API_KEY`` and ``ALS_APG_BASE_URL``) — but no
+Postgres, no Ollama, no Confluence access, and no SQLite-backed research
+databases. These tests skip cleanly in CI but are runnable locally with the
+right backend stack:
 
 | File | Skip reason in CI | Local requirements |
 | --- | --- | --- |
@@ -225,7 +226,10 @@ use, so you can iterate without Docker or a live run:
 .venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k floor
 
 # Judge rubric — hand-written conclusions, one failing control per criterion.
-# Needs the judge provider's credentials (ALS_APG_API_KEY), nothing else.
+# Needs the judge provider's credentials — ALS_APG_API_KEY and
+# ALS_APG_BASE_URL — and nothing else. With either half missing the judge
+# builds no self-contained config and falls back to whatever config.yml the
+# run supplies.
 .venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k judge
 ```
 
@@ -395,7 +399,10 @@ jobs:
     steps:
       - run: pytest tests/e2e/ -v
     env:
+      # Both halves: the gateway ships no built-in endpoint, so a runner
+      # holding only the key has no route.
       ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      ALS_APG_BASE_URL: ${{ vars.ALS_APG_BASE_URL }}
 ```
 
 ## Troubleshooting
