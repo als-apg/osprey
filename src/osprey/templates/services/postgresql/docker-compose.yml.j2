@@ -38,6 +38,23 @@ services:
       # the variable (a hand-run `docker compose up`).
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
+    # POSIX shared memory for the server's dynamic shared memory segments.
+    # PostgreSQL's `dynamic_shared_memory_type` is `posix` by default, so every
+    # parallel worker's DSA -- a parallel index build's graph, a parallel hash
+    # join, a bitmap scan -- is a file under /dev/shm, and the container runtime
+    # caps that mount at 64 MiB. The invariant this value has to satisfy is that
+    # the mount exceeds `maintenance_work_mem` (64 MiB by default) with room to
+    # spare, because a parallel index build grows its segment in steps and fails
+    # on the step that crosses the cap, not on its first allocation. At 64 MiB an
+    # HNSW build over a large embedding table dies with `could not resize shared
+    # memory segment ... No space left on device` while the host still has
+    # hundreds of gigabytes free -- an error that reads like a full disk and is
+    # not one. 1 GiB is the conventional floor for a containerized PostgreSQL and
+    # clears the class rather than today's instance.
+    #
+    # Raising `maintenance_work_mem` or `shared_buffers` past this value
+    # re-creates that failure, so the two move together.
+    shm_size: {{ (services.postgresql | default({})).shm_size | default('1gb') }}
     ports:
       # `port_host` used to carry no default at all: a config that named the
       # block but omitted the key rendered an empty host half
