@@ -184,7 +184,6 @@ DENIED: tuple[Denied, ...] = (
                 "tests/benchmark/test_matrix.py",
                 "tests/e2e/claude_code/test_proxy_live_roundtrip_e2e.py",
                 "tests/e2e/claude_code/test_proxy_open_model_harness_e2e.py",
-                "tests/e2e/test_in_context_backend.py",
                 "tests/e2e/test_llm_channel_namer.py",
                 "tests/e2e/test_llm_providers.py",
                 "tests/manual/test_sdk_image_block.py",

@@ -252,11 +252,18 @@ als-apg/haiku in 2026-04 — if the model or provider changes, re-tune
 E2E tests require API access. Set the appropriate environment variable:
 
 ```bash
-# For als-apg (the CI default gateway, reachable from anywhere)
+# For als-apg (the CI default gateway, reachable from anywhere). This gateway
+# has no packaged endpoint, so both halves are required: with no URL there is
+# no route.
 export ALS_APG_API_KEY="your-key"
+export ALS_APG_BASE_URL="https://your-gateway.example.org/v1"
 
-# For CBORG (local dev only — IP allowlist blocks GitHub Actions runners)
+# For CBORG (local dev only — IP allowlist blocks GitHub Actions runners).
+# The key is all a lane needs; the endpoint ships in the provider catalog.
 export CBORG_API_KEY="your-key"
+
+# Optional: point the CBORG lanes at a different host than the catalog's.
+export CBORG_BASE_URL="https://your-endpoint.example.org/v1"
 
 # Or for Anthropic
 export ANTHROPIC_API_KEY="your-key"
