@@ -58,6 +58,10 @@ SHIPPED_ROOTS = ("src/osprey", "docs/source")
 #: rather than merely performed.
 REPO_ROOTS = SHIPPED_ROOTS + ("tests", "scripts")
 
+#: Every extension under the roots that holds text a person reads. A comment
+#: in a test module states as much about a deployment as a paragraph of
+#: documentation does, so an extension belongs here whenever the repository
+#: writes prose in it — not only when the file's purpose is prose.
 SCAN_SUFFIXES = (
     ".py",
     ".md",
@@ -70,9 +74,16 @@ SCAN_SUFFIXES = (
     ".toml",
     ".sh",
     ".js",
+    ".mjs",
     ".html",
     ".css",
 )
+
+#: The filenames that carry a reader's text under no extension at all. A
+#: container recipe's comments reach whoever builds the image exactly as a
+#: template's reach whoever renders it, and its name is the only extension
+#: it has.
+SCAN_NAMES = ("Dockerfile", "Containerfile")
 
 
 @dataclass(frozen=True)
@@ -375,7 +386,9 @@ def _sources(repo_root: Path, roots: tuple[str, ...]) -> tuple[Path, ...]:
         if not base.exists():
             continue
         for path in base.rglob("*"):
-            if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
+            if not path.is_file():
+                continue
+            if path.suffix not in SCAN_SUFFIXES and path.name not in SCAN_NAMES:
                 continue
             if "__pycache__" in path.parts or path == _THIS_FILE:
                 continue
@@ -468,13 +481,15 @@ def test_the_sweep_reaches_shipped_templates_and_docs() -> None:
 
     A rendered template's comment and a how-to page are exactly where an
     identity survives review, and both would be missed by a rule written for
-    ``.py`` alone.
+    ``.py`` alone. A container recipe is the same surface under no extension
+    at all.
     """
     scanned = {str(path.relative_to(_REPO_ROOT)) for path in _sources(_REPO_ROOT, SHIPPED_ROOTS)}
     for required in (
         "src/osprey/templates/modules/web_terminals/docker-compose.web.yml.j2",
         "src/osprey/profiles/presets/control-assistant.yml",
         "docs/source/how-to/web-terminal/multi-user/login.rst",
+        "src/osprey/templates/services/qmd/Dockerfile",
     ):
         assert required in scanned, f"{required} is shipped but the sweep cannot see it"
 
@@ -493,7 +508,9 @@ def test_an_entry_on_the_repo_roots_reaches_them() -> None:
     """A widened entry has to scan the trees it widened onto.
 
     Dropping ``tests`` or ``scripts`` from the tuple would read exactly like
-    a clean repository rather than like a guard that stopped looking.
+    a clean repository rather than like a guard that stopped looking, and
+    dropping a suffix reads the same way: a tree that carries no denied
+    identity is indistinguishable from one the sweep never opened.
     """
     assert any(denied.roots == REPO_ROOTS for denied in DENIED)
 
@@ -502,5 +519,6 @@ def test_an_entry_on_the_repo_roots_reaches_them() -> None:
         "tests/services/bluesky_bridge/test_live_rows.py",
         "tests/mcp_server/test_phoebus_plt_generator.py",
         "scripts/qmd_probe/export_corpus.py",
+        "tests/vitest.setup.mjs",
     ):
         assert required in scanned, f"{required} is in the repo but the sweep cannot see it"
