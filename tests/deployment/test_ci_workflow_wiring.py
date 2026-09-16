@@ -745,6 +745,219 @@ def test_unit_test_job_runs_xdist_parallel__mutation_drops_dist_mode() -> None:
 
 
 # ---------------------------------------------------------------------------
+# The boot smoke selects one preset per cell, so the matrix and the module's
+# own list are two halves of one statement
+# ---------------------------------------------------------------------------
+
+BOOT_SMOKE_JOB = "build-boot-smoke"
+BOOT_SMOKE_STEP = "Run Tier 1 boot smoke for preset"
+BOOT_SMOKE_TEST_FILE = "tests/integration/test_build_boot.py"
+#: The module-level list every test in the boot module is parametrised over, and
+#: the source the lane's matrix has to reproduce one value at a time.
+BOOT_SMOKE_PRESETS_CONSTANT = "PRESETS"
+#: The parametrize argument whose ids the lane's `-k` selector matches on.
+BOOT_SMOKE_PRESET_ARG = "preset"
+#: The shell variable the step interpolates into `-k`, and the step-level env
+#: entry that has to bind it to the matrix value.
+BOOT_SMOKE_SELECTOR = '-k "$PRESET"'
+BOOT_SMOKE_PRESET_ENV = "PRESET"
+
+
+def _boot_module_source() -> str:
+    """``tests/integration/test_build_boot.py`` as text.
+
+    Read and parsed with ``ast`` rather than imported, as the two-shape constants above
+    are: the module pulls in the MCP handshake helpers and exists to shell out to a real
+    build, none of which a wiring check has any business loading.
+    """
+    return (CI_YML.parents[2] / BOOT_SMOKE_TEST_FILE).read_text(encoding="utf-8")
+
+
+def _boot_module_presets(source: str) -> list[str]:
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(t, ast.Name) and t.id == BOOT_SMOKE_PRESETS_CONSTANT for t in node.targets
+        ):
+            return list(ast.literal_eval(node.value))
+    raise AssertionError(
+        f"{BOOT_SMOKE_TEST_FILE} defines no module-level {BOOT_SMOKE_PRESETS_CONSTANT}"
+    )
+
+
+def _parametrises_over_presets(decorator: ast.expr) -> bool:
+    """Whether *decorator* is the ``preset``/``PRESETS`` parametrize.
+
+    Both arguments are read. The argument name decides what the test id looks like and
+    so what ``-k`` can match; the list decides which ids exist at all, and a parametrize
+    over some other list would produce ids no cell of the matrix names.
+    """
+    if not isinstance(decorator, ast.Call) or len(decorator.args) < 2:
+        return False
+    if not ast.unparse(decorator.func).endswith("parametrize"):
+        return False
+    first, second = decorator.args[0], decorator.args[1]
+    return (
+        isinstance(first, ast.Constant)
+        and first.value == BOOT_SMOKE_PRESET_ARG
+        and isinstance(second, ast.Name)
+        and second.id == BOOT_SMOKE_PRESETS_CONSTANT
+    )
+
+
+def _boot_module_tests(source: str) -> tuple[list[str], list[str]]:
+    """Every test in the boot module, and those a ``-k`` cell cannot reach.
+
+    Class bodies are descended into as well as the module's own. A case written as a
+    method is a case, and a ``parametrize`` on the class covers every method under it,
+    so a scan reading only module-level ``def``s would report a clean sweep over a
+    file whose cases it never looked at.
+    """
+    names: list[str] = []
+    stray: list[str] = []
+
+    def collect(body: list[ast.stmt], parametrised: bool) -> None:
+        for node in body:
+            if isinstance(node, ast.ClassDef):
+                inherited = parametrised or any(
+                    _parametrises_over_presets(d) for d in node.decorator_list
+                )
+                collect(node.body, inherited)
+                continue
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            if not node.name.startswith("test_"):
+                continue
+            names.append(node.name)
+            own = any(_parametrises_over_presets(d) for d in node.decorator_list)
+            if not parametrised and not own:
+                stray.append(node.name)
+
+    collect(ast.parse(source).body, False)
+    return names, stray
+
+
+def test_boot_smoke_matrix_runs_every_preset_the_module_parametrises(
+    workflow: dict[str, Any],
+) -> None:
+    """The matrix and the module's list have to be equal in both directions, and
+    each direction fails differently. A preset the module parametrises and the
+    matrix omits is a set of tests selected by no cell, which passes silently; a
+    preset the matrix names and the module does not selects nothing, which reds
+    the lane with an empty run."""
+    matrix = _jobs(workflow)[BOOT_SMOKE_JOB]["strategy"]["matrix"]["preset"]
+    module = _boot_module_presets(_boot_module_source())
+    assert sorted(matrix) == sorted(module), (
+        f"the '{BOOT_SMOKE_JOB}' matrix in .github/workflows/ci.yml names "
+        f"{sorted(matrix)} while {BOOT_SMOKE_TEST_FILE} parametrises {sorted(module)} — "
+        f"one cell per preset, and no cell without one"
+    )
+
+
+def test_boot_smoke_matrix_runs_every_preset__mutation_drops_a_matrix_preset() -> None:
+    """A preset the module still parametrises but the matrix no longer names is
+    the silent half: those tests are selected by no cell and nothing reds."""
+    mutated = copy.deepcopy(_load_workflow())
+    presets = _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"]["preset"]
+    presets.remove("control-assistant")
+    with pytest.raises(AssertionError):
+        test_boot_smoke_matrix_runs_every_preset_the_module_parametrises(mutated)
+
+
+def test_boot_smoke_matrix_runs_every_preset__mutation_adds_a_preset_no_test_names() -> None:
+    """And the other direction: a cell whose ``-k`` matches nothing at all."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[BOOT_SMOKE_JOB]["strategy"]["matrix"]["preset"].append("not-a-preset")
+    with pytest.raises(AssertionError):
+        test_boot_smoke_matrix_runs_every_preset_the_module_parametrises(mutated)
+
+
+def test_boot_smoke_step_selects_the_matrix_preset(workflow: dict[str, Any]) -> None:
+    """The chain from the matrix value to the selector is what makes the two
+    lists comparable at all, and it is three links long — the matrix entry, the
+    step ``env`` binding it, and the ``-k`` reading it. Each one is silently
+    droppable, so each one is pinned."""
+    step = _find_named_step(workflow, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)
+    assert BOOT_SMOKE_TEST_FILE in step["run"], (
+        f"the '{BOOT_SMOKE_STEP}' step must name {BOOT_SMOKE_TEST_FILE} by path; got: "
+        f"{step['run'].strip()!r}"
+    )
+    assert BOOT_SMOKE_SELECTOR in step["run"], (
+        f"the '{BOOT_SMOKE_STEP}' step must select one preset with {BOOT_SMOKE_SELECTOR} — "
+        f"without it every cell runs the whole file and the matrix buys nothing; got: "
+        f"{step['run'].strip()!r}"
+    )
+    assert step.get("env", {}).get(BOOT_SMOKE_PRESET_ENV) == "${{ matrix.preset }}", (
+        f"the '{BOOT_SMOKE_STEP}' step must bind {BOOT_SMOKE_PRESET_ENV} to "
+        f"${{{{ matrix.preset }}}}; got "
+        f"{step.get('env', {}).get(BOOT_SMOKE_PRESET_ENV)!r}"
+    )
+
+
+def test_boot_smoke_step_selects_the_matrix_preset__mutation_drops_the_selector() -> None:
+    """The dangerous half: with no ``-k`` the lane runs the whole file in every
+    cell, pays the build twice over and stays green while doing it."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)
+    original = step["run"]
+    step["run"] = original.replace(BOOT_SMOKE_SELECTOR, "")
+    assert step["run"] != original, "no selector in the step — mutation is stale"
+    with pytest.raises(AssertionError):
+        test_boot_smoke_step_selects_the_matrix_preset(mutated)
+
+
+def test_boot_smoke_step_selects_the_matrix_preset__mutation_unbinds_the_preset_env() -> None:
+    """A selector reading a shell variable the step never bound to the matrix
+    value selects the same thing in all cells."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)
+    step["env"][BOOT_SMOKE_PRESET_ENV] = "hello-world"
+    with pytest.raises(AssertionError):
+        test_boot_smoke_step_selects_the_matrix_preset(mutated)
+
+
+def test_every_boot_smoke_test_runs_in_exactly_one_matrix_cell() -> None:
+    """The selector matches on test id, so a test that is not parametrised over
+    the preset list carries no preset in its id and is selected by no cell of
+    the matrix."""
+    names, stray = _boot_module_tests(_boot_module_source())
+    assert names, (
+        f"{BOOT_SMOKE_TEST_FILE} defines no test functions any more; either the module "
+        f"left or this scan broke"
+    )
+    assert stray == [], (
+        f"test(s) in {BOOT_SMOKE_TEST_FILE} are not parametrised over "
+        f"{BOOT_SMOKE_PRESETS_CONSTANT}: {stray}. The lane selects one preset per cell "
+        f"with {BOOT_SMOKE_SELECTOR}, so a test with no preset in its id runs in no cell."
+    )
+
+
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_forgets_the_parametrize() -> None:
+    """The concrete case: a new case lands in the module, passes locally, and is
+    selected by nothing in CI because nobody noticed the missing decorator."""
+    source = _boot_module_source()
+    names, _ = _boot_module_tests(source)
+    mutated = source + "\n\ndef test_a_preset_free_case() -> None:\n    pass\n"
+    mutated_names, mutated_stray = _boot_module_tests(mutated)
+    assert mutated_stray == ["test_a_preset_free_case"]
+    assert len(mutated_names) == len(names) + 1
+
+
+def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_class() -> None:
+    """The same case one indent deeper. A method carries no preset in its id for
+    exactly the same reason a function does, so the scan has to see it."""
+    source = _boot_module_source()
+    names, _ = _boot_module_tests(source)
+    mutated = source + (
+        "\n\nclass TestPresetFree:\n"
+        "    def test_a_preset_free_method(self) -> None:\n"
+        "        pass\n"
+    )
+    mutated_names, mutated_stray = _boot_module_tests(mutated)
+    assert mutated_stray == ["test_a_preset_free_method"]
+    assert len(mutated_names) == len(names) + 1
+
+
+# ---------------------------------------------------------------------------
 # Coverage is measured on a cell where PEP 669 tracing is actually available
 # ---------------------------------------------------------------------------
 
