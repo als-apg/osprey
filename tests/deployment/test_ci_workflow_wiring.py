@@ -5795,6 +5795,35 @@ def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -
         test_the_type_check_declares_a_stub_for_every_stubless_import(mutated)
 
 
+def test_the_type_checker_is_pinned_to_one_minor(pyproject: dict[str, Any]) -> None:
+    """The baseline beside the gate was measured with one checker, so the checker
+    is named as precisely as the measurement it produced. A floor alone lets a new
+    minor report errors no diff introduced, and the gate would blame the change."""
+    requirements = [
+        Requirement(dep)
+        for dep in _dev_extra(pyproject)
+        if canonicalize_name(Requirement(dep).name) == canonicalize_name("mypy")
+    ]
+    assert requirements, "the `dev` extra must declare mypy"
+    operators = {spec.operator for spec in requirements[0].specifier}
+    assert ">=" in operators, "the mypy requirement must carry a lower bound"
+    assert "<" in operators, (
+        "the mypy requirement must carry an upper bound — an unpinned minor "
+        "moves the baseline the gate scores against"
+    )
+
+
+def test_the_type_checker_is_pinned__mutation_drops_the_ceiling() -> None:
+    """A bare `mypy` is the state this guard exists to refuse."""
+    mutated = _load_pyproject()
+    mutated["project"]["optional-dependencies"]["dev"] = [
+        "mypy" if canonicalize_name(Requirement(dep).name) == canonicalize_name("mypy") else dep
+        for dep in _dev_extra(mutated)
+    ]
+    with pytest.raises(AssertionError):
+        test_the_type_checker_is_pinned_to_one_minor(mutated)
+
+
 # ---------------------------------------------------------------------------
 # The type check completes: it does not follow an installed package the
 # configured Python cannot parse
