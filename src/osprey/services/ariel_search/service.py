@@ -30,6 +30,7 @@ from osprey.services.ariel_search.models import (
     ARIELStatusResult,
     DiagnosticLevel,
     EmbeddingTableInfo,
+    EnhancedLogbookEntry,
     FacilityEntryCreateRequest,
     FacilityEntryCreateResult,
     SearchDiagnostic,
@@ -696,7 +697,7 @@ class ARIELSearchService:
 
         # Optimistic local upsert
         raw_text = f"{request.subject}\n\n{request.details}" if request.details else request.subject
-        entry = {
+        entry: EnhancedLogbookEntry = {
             "entry_id": facility_entry_id,
             "source_system": source_system,
             "timestamp": now,
