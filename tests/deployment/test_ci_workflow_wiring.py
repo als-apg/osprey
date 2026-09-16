@@ -5739,20 +5739,23 @@ def test_the_tag_gate_blocks_the_publish() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The type check can run at all: the stubs its imports need are declared
+# The type check is worth scoring: the stubs its imports need are declared
 # ---------------------------------------------------------------------------
 #
-# A "Library stubs not installed" error is fatal to the whole run, not local to
-# the file that raised it: mypy stops with "errors prevented further checking"
-# and examines no module. So an import in `src/` that ships no inline types
-# needs its stub distribution in the `dev` extra, or the type check reports
-# nothing about this repository whatever else is wrong with it.
+# An import in `src/` that ships no inline types needs its stub distribution in
+# the `dev` extra. Without it the checker reports a per-module `import-untyped`
+# error ("Library stubs not installed for ...") and gives every value from that
+# library the type `Any`, and `scripts/mypy_gate.py` refuses to score a run
+# carrying one: it exits 2 rather than measure a weakened report against the
+# baseline. So an undeclared stub distribution turns the type-check lane red
+# instead of quietly widening the modules that import it.
 
 
 #: Stub distributions the `dev` extra carries, keyed by the import each one
-#: serves. `ignore_missing_imports` is deliberately not the answer here: it
-#: would silence the abort by making every value from these libraries `Any`,
-#: which is the opposite of checking the modules that import them.
+#: serves. Silencing the diagnostic instead — disabling the `import-untyped`
+#: code for these modules — buys a green gate over a report in which every
+#: value from these libraries is `Any`, which is the opposite of checking the
+#: modules that import them.
 STUB_DISTRIBUTIONS = {
     "types-PyYAML": "yaml",
     "types-Markdown": "markdown",
@@ -5772,19 +5775,22 @@ def test_the_type_check_declares_a_stub_for_every_stubless_import(
     pyproject: dict[str, Any],
 ) -> None:
     """Every import named here appears in `src/` and ships no types of its own,
-    so each missing stub package costs the entire run, not one file."""
+    so an undeclared stub distribution costs the run its score: the checker
+    reports `import-untyped` for that import and the gate refuses to measure
+    what it produced."""
     declared = _declared_names(_dev_extra(pyproject))
     for distribution, module in STUB_DISTRIBUTIONS.items():
         assert canonicalize_name(distribution) in declared, (
-            f"the `dev` extra must declare {distribution} — without it mypy aborts "
-            f"on every `import {module}` in src/ and checks nothing"
+            f"the `dev` extra must declare {distribution} — without it every "
+            f"`import {module}` in src/ reports `import-untyped` and the type-check "
+            f"gate refuses to score the run"
         )
 
 
 @pytest.mark.parametrize("distribution", sorted(STUB_DISTRIBUTIONS))
 def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -> None:
-    """Dropping any one of the three must fail: one absent stub aborts the run
-    exactly as thoroughly as three do."""
+    """Dropping any one of the three must fail: one absent stub is refused by
+    the gate exactly as thoroughly as three are."""
     mutated = _load_pyproject()
     mutated["project"]["optional-dependencies"]["dev"] = [
         dep
@@ -5830,7 +5836,8 @@ def test_the_type_checker_is_pinned__mutation_drops_the_ceiling() -> None:
 # ---------------------------------------------------------------------------
 #
 # A syntax error raised while mypy parses a followed dependency is fatal to the
-# whole run, the same way a missing stub is. Nothing in this tree imports
+# whole run: the checker stops with "errors prevented further checking" and
+# examines no module. Nothing in this tree imports
 # sphinx; mypy reaches it through bokeh's own property module, bokeh ships
 # types, so `ignore_missing_imports` never applies. Sphinx's source uses syntax
 # newer than the `python_version` this project targets, and that floor is the
