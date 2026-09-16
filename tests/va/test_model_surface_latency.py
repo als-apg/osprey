@@ -1,21 +1,32 @@
-"""Latency guard: declaring the optics arrays costs a setpoint write nothing.
+"""Cost guard: declaring the optics arrays costs a setpoint write nothing.
 
 ``PyATRingModel`` declares three read-only ND optics arrays (the tunes, and
 beta and the true orbit at the BPMs) that the model computes on demand and
 memoises per solve. The whole design rests on one claim: a routed setpoint
 write -- the hot path, one per client put -- never pays for them. This module
-holds that claim to account two ways.
+holds that claim to account structurally, never by the clock.
 
-The deterministic half is the spy: ``at.get_optics`` is the single optics
-compute in the VA source (``model/pyat.py``, inside ``PyATRingModel._optics``),
-and twenty writes must not call it once. That assertion carries the real
-weight, because it cannot be swayed by a busy host.
+Two assertions carry it, both over a matched pair of models -- one declaring
+the arrays, one built without them -- driven through identical write
+sequences:
 
-The wall-clock half compares the typical per-write cost of a model that
-declares the three arrays against one built without them. It is a
-corroboration, not the primary evidence, and it is written to be robust
-rather than tight: see ``TestSetpointLatency`` for what the budget is and why
-it is that number.
+- **No optics entry point is reached.** ``at.get_optics`` is the single optics
+  compute in the VA source (``model/pyat.py``, inside
+  ``PyATRingModel._optics``). Twenty writes call neither it, nor the per-solve
+  memo in front of it, nor an optics variable's own ``_get``.
+- **The write does the same work either way.** The Python call profile of one
+  routed write is compared frame by frame between the two models, and has to
+  match exactly bar the one type test per declared array that keeps the arrays
+  out of the readout. So the declarations add no call to the write path, and
+  make no call already on it happen more often.
+
+The second assertion replaced a wall-clock comparison of the two models'
+median write time against a millisecond budget. That measured the host as
+much as it measured the write: on a loaded shared CI runner both medians
+tripled, unequally, and the comparison failed while the property it guards
+held perfectly. A call profile counts the same quantity the budget was a
+proxy for -- work per write -- instead of timing it, so a busy host cannot
+move it.
 
 No markers and no ``importorskip``: like ``test_pyat_ring_model.py``, this
 module imports ``at`` at module scope because accelerator-toolbox is a hard
@@ -26,8 +37,8 @@ would gate it.
 from __future__ import annotations
 
 import gc
-import statistics
-import time
+import sys
+from collections import Counter
 from typing import Any
 
 import at
@@ -54,27 +65,20 @@ A_CORRECTOR = "SR:MAG:HCM:01:CURRENT:SP"
 # Corrector currents in Amps, cycled over the writes. Small kicks well inside
 # the ring's stable range, and a cycle rather than a ramp so a long run never
 # drifts away from the closed orbit. Both models are handed the same sequence
-# in the same order, so they solve identical lattices.
+# in the same order, so they solve identical lattices -- which is also what
+# makes their call profiles comparable, since the closed-orbit solver iterates
+# from the previous solution and a different kick can cost it another pass.
 CURRENTS = (0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3)
 
 WRITES = 20
 WARMUP_WRITES = 5
 
-# The two medians may differ by less than this, in milliseconds. The
-# regression it guards is a write that computes the optics: `at.get_optics`
-# over the 72 monitors costs ~12 ms on this ring, which is as much again as an
-# entire write (~11 ms), so a write that paid for the optics would miss this
-# budget by six times over. The budget is therefore loose against the defect
-# and tight against nothing.
-BUDGET_MS = 2.0
-
-# Rounds of `WRITES` writes per model; the closest round has to clear the
-# budget. A round is still a wall-clock measurement on a shared host, and a
-# host that stalls for a whole round skews both of its medians unequally.
-# Retrying is what keeps such a stall from reading as a regression: a real
-# regression shifts *every* round by the optics cost, so no round would ever
-# clear the budget.
-ROUNDS = 3
+# Frames with this name are `isinstance` against an abstract base class. The
+# only trace the declarations leave on a write is one such test per declared
+# array, where `_read_outputs` filters the arrays out of the per-BPM readings.
+# The bound is "no more than one per array", not "exactly one per array", so
+# an interpreter that answers such a test without a Python frame still holds.
+TYPE_CHECK = "__instancecheck__"
 
 
 class FakeRecord:
@@ -130,12 +134,14 @@ def _pyat_coupled_addresses() -> list[str]:
 
 
 def _bound_bridge(model: PyATRingModel, records: dict[str, Any]) -> PhysicsBridge:
-    """A bridge serving `model` through `records`, warmed and ready to time.
+    """A bridge serving `model` through `records`, warmed and ready to measure.
 
     Bound to the whole pyat-coupled partition, as `entrypoint` binds it, so a
-    timed write pushes into all 144 BPM readback records exactly as a served
-    write does. Seeded RNG: the reading noise must not vary between the two
-    models, or the comparison is measuring the draws.
+    measured write pushes into all 144 BPM readback records exactly as a
+    served write does. Seeded RNG: the reading noise must not vary between the
+    two models, or the comparison is measuring the draws. The warm-up writes
+    settle everything a first write pays once -- lazy imports, caches, the
+    first closed-orbit solution the next solve starts from.
     """
     bridge = PhysicsBridge(model=model, rng_seed=20250909)
     bridge.bind(
@@ -147,41 +153,45 @@ def _bound_bridge(model: PyATRingModel, records: dict[str, Any]) -> PhysicsBridg
     return bridge
 
 
-def _timed_write(bridge: PhysicsBridge, value: float) -> float:
-    """One routed setpoint write, in milliseconds."""
-    start = time.perf_counter()
-    bridge.on_setpoint(A_CORRECTOR, value)
-    return (time.perf_counter() - start) * 1000.0
+def _write_call_profile(bridge: PhysicsBridge, value: float) -> Counter[tuple[str, str]]:
+    """Every Python call one routed setpoint write makes, counted per function.
 
+    Keyed by code object -- (file, function name) -- which is finer than the
+    module boundary and needs no list of which packages count as work: a call
+    the write makes is a call the write pays for, wherever it lands.
 
-def _round_medians(declared: PhysicsBridge, skipped: PhysicsBridge) -> tuple[float, float]:
-    """Median ms per write over `WRITES` writes on each bridge.
-
-    The median, not the mean: samples range 8-40 ms around a median of 10, and
-    one descheduled sample moves a 20-sample mean by more than the budget on
-    its own, in whichever series the host happened to look away from. A
-    per-write cost that really grew moves every sample, and so moves the
-    median with them.
-
-    The two are interleaved write by write so that a host that slows down
-    partway through the round slows both series, rather than whichever one
-    happened to be measured second. Garbage collection is off for the round
-    and restored afterwards: a collection pause lands in one series only and
-    is the one nondeterministic cost that can be taken out of the measurement
-    outright.
+    Garbage collection is off for the measurement and restored afterwards, so
+    a collection that happened to fall inside one of the two writes cannot
+    contribute a finalizer's frames to it. Any profile function already
+    installed is restored rather than dropped.
     """
-    declared_samples: list[float] = []
-    skipped_samples: list[float] = []
+    counts: Counter[tuple[str, str]] = Counter()
+
+    def record(frame: Any, event: str, _arg: Any) -> None:
+        if event == "call":
+            code = frame.f_code
+            counts[(code.co_filename, code.co_name)] += 1
+
+    previous = sys.getprofile()
     gc.collect()
     gc.disable()
+    sys.setprofile(record)
     try:
-        for index in range(WRITES):
-            value = CURRENTS[index % len(CURRENTS)]
-            declared_samples.append(_timed_write(declared, value))
-            skipped_samples.append(_timed_write(skipped, value))
+        bridge.on_setpoint(A_CORRECTOR, value)
     finally:
+        sys.setprofile(previous)
         gc.enable()
-    return statistics.median(declared_samples), statistics.median(skipped_samples)
+    return counts
+
+
+def _work(profile: Counter[tuple[str, str]]) -> dict[tuple[str, str], int]:
+    """The profile without its type tests -- the calls that do the write."""
+    return {frame: count for frame, count in profile.items() if frame[1] != TYPE_CHECK}
+
+
+def _type_checks(profile: Counter[tuple[str, str]]) -> int:
+    """How many abstract-base-class type tests the write made."""
+    return sum(count for frame, count in profile.items() if frame[1] == TYPE_CHECK)
 
 
 @pytest.fixture(scope="module")
@@ -201,6 +211,9 @@ def bridges(records) -> tuple[PhysicsBridge, PhysicsBridge]:
 
     Module-scoped -- building the ring twice is the expensive part, and a
     setpoint write leaves nothing behind that the next test cares about.
+    Every test in this module writes the same values to both bridges in the
+    same order, so the two lattices stay in step whatever order the tests run
+    in, and a write means the same amount of physics on each.
     """
     return (
         _bound_bridge(PyATRingModel(), records),
@@ -209,29 +222,40 @@ def bridges(records) -> tuple[PhysicsBridge, PhysicsBridge]:
 
 
 @pytest.fixture
-def optics_calls(monkeypatch) -> list[tuple]:
-    """Record every ``at.get_optics`` call, passing each one through."""
-    calls: list[tuple] = []
-    real = at.get_optics
+def optics_calls(monkeypatch) -> list[str]:
+    """Record every call to an optics entry point, passing each one through.
 
-    def recording(*args, **kwargs):
-        calls.append((args, kwargs))
-        return real(*args, **kwargs)
+    All three of them: the compute itself, the per-solve memo that fronts it
+    (so a write that reaches a *warm* memo, costing nothing, is still caught
+    as a write that asked for the optics), and the read of an optics variable.
+    """
+    calls: list[str] = []
 
-    monkeypatch.setattr(at, "get_optics", recording)
+    def spy(owner: Any, attribute: str, label: str) -> None:
+        real = getattr(owner, attribute)
+
+        def recording(*args: Any, **kwargs: Any) -> Any:
+            calls.append(label)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(owner, attribute, recording)
+
+    spy(at, "get_optics", "at.get_optics")
+    spy(PyATRingModel, "_optics", "PyATRingModel._optics")
+    spy(PyATReadOnlyNDVariable, "_get", "PyATReadOnlyNDVariable._get")
     return calls
 
 
 class TestSetpointLatency:
-    """Twenty routed setpoint writes cost the same whether or not the model
-    declares the read-only optics arrays, and never compute them."""
+    """A routed setpoint write does the same work, and so costs the same,
+    whether or not the model declares the read-only optics arrays."""
 
     def test_the_pair_differs_in_the_optics_declarations_and_nothing_else(self, bridges):
         """Without this the comparison could be a model against itself.
 
         `RingModelWithoutOpticsVariables` patches a private module attribute;
         if that factory were renamed the patch would silently do nothing and
-        both halves of the timing test would measure the same model.
+        both halves of the comparison would measure the same model.
         """
         declared, skipped = (bridge._model.supported_variables for bridge in bridges)
 
@@ -241,12 +265,13 @@ class TestSetpointLatency:
         assert set(declared) - OPTICS_NAMES == set(skipped)
 
     def test_a_routed_setpoint_write_never_computes_the_optics(self, bridges, optics_calls):
-        """The deterministic half of the claim, on both models.
+        """The optics are off the write path entirely, on both models.
 
         `PhysicsBridge.on_setpoint` is what a routed put reaches --
-        `SetpointRoutedModel._set` calls it once per routed address -- and
-        `at.get_optics` is the one optics compute in the VA source. Twenty
-        writes must not reach it, whatever the model declares.
+        `SetpointRoutedModel._set` calls it once per routed address -- and the
+        three spied entry points are the whole of how a value of one of these
+        arrays can be arrived at. Twenty writes must reach none of them,
+        whatever the model declares.
         """
         for index in range(WRITES):
             value = CURRENTS[index % len(CURRENTS)]
@@ -256,14 +281,43 @@ class TestSetpointLatency:
         assert optics_calls == []
 
     def test_declaring_the_optics_does_not_slow_a_setpoint_write(self, bridges):
-        """The wall-clock corroboration: the two medians agree within the budget.
+        """The two models make the very same calls to serve the very same write.
 
-        Reported as the median over the twenty writes rather than the slowest
-        one or their mean, because the slowest samples on a shared host
-        measure the scheduler, not the write path.
+        Compared per write rather than in bulk, because the claim is about one
+        write: a cost the declarations added would show up as a function the
+        declaring model calls and the control does not, or calls more often.
+        Every current in the cycle is measured, so a difference that only
+        appears at one working point cannot hide behind another.
+
+        The only admitted difference is the type test per declared array in
+        `PyATRingModel._read_outputs`, which is what keeps the arrays out of
+        the per-BPM readings. That is the price of declaring them, it is
+        bounded by the number of declarations, and it is paid once per write
+        rather than per BPM or per variable.
         """
         declared, skipped = bridges
-        rounds = [_round_medians(declared, skipped) for _ in range(ROUNDS)]
 
-        closest = min(abs(with_optics - without) for with_optics, without in rounds)
-        assert closest < BUDGET_MS, rounds
+        for value in CURRENTS:
+            with_optics = _write_call_profile(declared, value)
+            without_optics = _write_call_profile(skipped, value)
+
+            assert any(name == "on_setpoint" for _file, name in with_optics), (
+                "no write was profiled -- the measurement, not the write path, is broken"
+            )
+
+            done, control = _work(with_optics), _work(without_optics)
+            difference = {
+                frame: (done.get(frame, 0), control.get(frame, 0))
+                for frame in done.keys() | control.keys()
+                if done.get(frame, 0) != control.get(frame, 0)
+            }
+            assert difference == {}, (
+                f"a write of {value} A does different work when the optics are declared; "
+                f"(declared, control) call counts: {difference}"
+            )
+
+            extra = _type_checks(with_optics) - _type_checks(without_optics)
+            assert 0 <= extra <= len(OPTICS_NAMES), (
+                f"a write of {value} A made {extra} more type tests with the optics "
+                f"declared; at most one per declared array is expected"
+            )
