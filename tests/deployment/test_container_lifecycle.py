@@ -78,9 +78,6 @@ def captured_argv(monkeypatch, tmp_path):
     captured: dict = {}
 
     monkeypatch.chdir(tmp_path)
-    # An operator shell that exported the prebuilt-images switch would delete
-    # the dev-mode build from every deploy driven here (see the switch tests).
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     monkeypatch.setattr(
         container_lifecycle,
         "prepare_compose_files",
@@ -505,9 +502,6 @@ def captured_combined_runs(monkeypatch, tmp_path):
     token_calls: list[dict] = []
 
     monkeypatch.chdir(tmp_path)
-    # Same hygiene as captured_argv: the switch tests set this deliberately, and
-    # an exported one would otherwise remove the build these tests count.
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     # Registry mode (default) -- pre-write .env.users so
     # ensure_env_production's exists-check passes (see captured_web_runs).
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
@@ -1480,9 +1474,6 @@ def test_an_attached_start_splits_the_build_from_the_up(monkeypatch, tmp_path):
     built has to happen before it -- an implementation that leaves the build to
     compose's build-on-up has no process left to do it in.
     """
-    # An operator shell that exported the prebuilt-images switch would delete
-    # the build this test is about.
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     runs: list = []
     execd: dict = {}
     _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
@@ -1519,7 +1510,6 @@ def test_a_detached_non_dev_start_still_leaves_the_build_to_the_up(monkeypatch, 
     """A detached start returns, so compose's implicit build-on-up -- which is
     what covers a build-only service with no published upstream tag to pull --
     stays its build."""
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     runs: list = []
     execd: dict = {}
     _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
@@ -2065,7 +2055,6 @@ def test_clear_staged_service_site_ca_ignores_a_document_it_cannot_read(tmp_path
 def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
     """End to end on the detached path: the copy compose read is gone when
     ``_start_stack`` returns."""
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     repo = tmp_path / "repo"
     services = repo / "build" / "services"
     services.mkdir(parents=True)
@@ -2179,7 +2168,6 @@ def test_an_attached_deploy_clears_the_service_contexts_before_it_hands_over(tmp
     """End to end on the attached path: the copy compose read is gone at the
     moment the terminal is handed over, which is the last moment there is a
     process to clear it in."""
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     repo, staged = _staged_service_repo(tmp_path)
 
     ran, execd = _attached_start(monkeypatch, repo, staged)
@@ -2646,10 +2634,11 @@ class TestResolvePrebuiltImages:
     No build tooling, no reachable registry, images side-loaded from a tarball
     instead. There a dev deploy's ``compose build`` is not slow but impossible,
     and the only thing that can run is an ``up`` against tags already present.
+
+    The environment carries no switch unless a test below puts one there.
     """
 
-    def test_the_default_is_to_build(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+    def test_the_default_is_to_build(self):
         assert container_lifecycle._resolve_prebuilt_images({}) is False
 
     @pytest.mark.parametrize("value", sorted(container_lifecycle._TRUTHY))
@@ -2679,12 +2668,10 @@ class TestResolvePrebuiltImages:
         monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", value)
         assert container_lifecycle._resolve_prebuilt_images({}) is True
 
-    def test_the_config_key_turns_the_switch_on(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+    def test_the_config_key_turns_the_switch_on(self):
         assert container_lifecycle._resolve_prebuilt_images({"prebuilt_images": True}) is True
 
-    def test_the_config_key_can_also_spell_out_the_default(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+    def test_the_config_key_can_also_spell_out_the_default(self):
         assert container_lifecycle._resolve_prebuilt_images({"prebuilt_images": False}) is False
 
     def test_env_on_overrides_a_config_that_says_build(self, monkeypatch):
@@ -2752,7 +2739,6 @@ def _compose_builds(cmds: list[list[str]]) -> list[list[str]]:
 
 def test_a_dev_deploy_builds_the_service_images_by_default(monkeypatch, tmp_path):
     """The baseline the switch has to leave alone."""
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
 
     cmds = _dev_deploy_cmds(monkeypatch, tmp_path)
 
@@ -2768,8 +2754,6 @@ def test_the_switch_removes_the_services_build_from_a_dev_deploy(monkeypatch, tm
 
 
 def test_the_config_key_removes_it_too(monkeypatch, tmp_path):
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
-
     cmds = _dev_deploy_cmds(monkeypatch, tmp_path, {"prebuilt_images": True})
 
     assert _compose_builds(cmds) == []
@@ -2842,7 +2826,6 @@ def test_a_non_dev_up_omits_no_build_unless_the_images_are_prebuilt(monkeypatch,
     implicit build-on-up. Suppressing that unconditionally would break every
     ordinary deploy.
     """
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
 
     cmds = _dev_deploy_cmds(monkeypatch, tmp_path, dev_mode=False)
 
@@ -2868,8 +2851,6 @@ def test_the_switch_adds_no_build_to_a_non_dev_up(monkeypatch, tmp_path):
 
 
 def test_the_config_key_adds_no_build_to_a_non_dev_up_too(monkeypatch, tmp_path):
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
-
     cmds = _dev_deploy_cmds(monkeypatch, tmp_path, {"prebuilt_images": True}, dev_mode=False)
 
     up = next(cmd for cmd in cmds if "up" in cmd)
@@ -2963,7 +2944,6 @@ def _project_image_build_calls(monkeypatch, tmp_path, config, *, dev_mode=False)
 
 def test_the_project_image_is_built_when_the_switch_is_off(monkeypatch, tmp_path):
     """The baseline the switch has to leave alone."""
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
 
     cmds, _steps = _project_image_build_calls(monkeypatch, tmp_path, _WORKER_CONFIG)
 
@@ -2982,7 +2962,6 @@ def test_the_switch_removes_the_project_image_build(monkeypatch, tmp_path):
 
 def test_the_config_key_removes_the_project_image_build_too(monkeypatch, tmp_path):
     """The switch is a property of the deployment as well as of the shell."""
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
 
     cmds, steps = _project_image_build_calls(
         monkeypatch, tmp_path, {**_WORKER_CONFIG, "prebuilt_images": True}
@@ -3055,7 +3034,6 @@ def test_the_switch_answers_the_build_target_question_too(monkeypatch):
     monkeypatch.setattr("osprey.version.get_release_version", lambda: "2026.6.2")
     monkeypatch.setattr("osprey.version.get_running_version", lambda: "2026.6.2.post783+g83fda5e60")
 
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     assert container_lifecycle._project_image_build_target(_WORKER_CONFIG, {}) is not None
     assert container_lifecycle._unreleased_pin_problem(_WORKER_CONFIG, {}, dev_mode=False)
 
