@@ -515,13 +515,19 @@ uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span
 uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>--fix<span class="w"> </span>src/<span class="w"> </span>tests/
 
 <span class="c1"># Type checking</span>
-uv<span class="w"> </span>run<span class="w"> </span>mypy
+uv<span class="w"> </span>run<span class="w"> </span>python<span class="w"> </span>scripts/mypy_gate.py
 </pre></div>
 </div>
-<p>The type check’s targets are declared in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>: it covers the
-framework source and the connectors package together. A run that names a single
-file is for a quick look only — it resolves less than the full run and reports
-errors the full run does not.</p>
+<p>The type check is held to a written-down set of errors: <code class="docutils literal notranslate"><span class="pre">scripts/mypy_baseline.json</span></code>
+lists every error the tree reports today, and the gate beside it fails on an error the
+baseline does not already carry. An error that disappears is reported as a notice, never
+a failure. <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">mypy</span></code> on its own is still the way to read the full report, and once
+errors are actually fixed, <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">python</span> <span class="pre">scripts/mypy_gate.py</span> <span class="pre">--update</span></code> refreshes the
+baseline.</p>
+<p>The check’s targets are declared in <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code>: it covers the framework source
+and the connectors package together, and the gate reads that same list, so CI and a local
+run check the same trees. A run that names a single file is for a quick look only — it
+resolves less than the full run and reports errors the full run does not.</p>
 </section>
 <section id="testing">
 <h3>Testing<a class="headerlink" href="#testing" title="Link to this heading">#</a></h3>
