@@ -68,9 +68,10 @@ _TEST_CHANNELS = [
     },
 ]
 
-# Provider preference: als-apg first (IP-unrestricted, works
-# in CI and off-VPN), then CBORG (LBLnet-gated, faster locally), then anthropic
-# direct. Matches the CI auth choice in commit 5d0dcd72.
+# Provider preference: als-apg first, because its gateway is IP-unrestricted and so
+# resolves the same way in CI and off-VPN. CBORG follows -- faster from inside the
+# network that gates it, unreachable from outside. Direct anthropic is the last
+# fallback.
 _ALS_APG_KEY = os.environ.get("ALS_APG_API_KEY", "")
 # The gateway has no built-in endpoint; without one it is not a usable route.
 _ALS_APG_BASE_URL = os.environ.get("ALS_APG_BASE_URL", "")
