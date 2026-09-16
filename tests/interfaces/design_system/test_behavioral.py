@@ -52,7 +52,7 @@ try:
 except ImportError:  # pragma: no cover
     _PLAYWRIGHT_AVAILABLE = False
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 # ---------------------------------------------------------------------------
 # Constants
