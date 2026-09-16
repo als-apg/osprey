@@ -2065,6 +2065,7 @@ def test_clear_staged_service_site_ca_ignores_a_document_it_cannot_read(tmp_path
 def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
     """End to end on the detached path: the copy compose read is gone when
     ``_start_stack`` returns."""
+    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     repo = tmp_path / "repo"
     services = repo / "build" / "services"
     services.mkdir(parents=True)
