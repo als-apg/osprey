@@ -85,7 +85,7 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # ── qmd CLI ──────────────────────────────────────────────────────────────────
 # Pinned so an upstream release cannot silently change index format, query
 # semantics, or the default model set between image builds. Bump deliberately —
-# a default-embedder change forces a full reindex (~40 min at ALS scale).
+# a default-embedder change forces a full reindex (~40 min at facility scale).
 #
 # Several of qmd's transitive dependencies are native addons that publish no
 # prebuilt binary for every platform (the tree-sitter grammars in particular),
