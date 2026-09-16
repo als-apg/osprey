@@ -222,7 +222,7 @@ class TestApplyMisalignment:
         # A pure horizontal offset must not, by itself, induce any vertical
         # orbit distortion (no x-y coupling without roll) -- measured exactly
         # 0.0 on this lattice. (The converse isn't true: see the dy test
-        # below for the real ring's y -> x sextupole feed-down.)
+        # below for this lattice's y -> x sextupole feed-down.)
         assert np.max(np.abs(orbit_at_bpms[:, 2])) == pytest.approx(0.0, abs=1e-12)
 
     def test_dy_misalignment_shifts_vertical_plane_only(self, ring, quad_index):
@@ -236,16 +236,15 @@ class TestApplyMisalignment:
         peak_x = np.max(np.abs(orbit_at_bpms[:, 0]))
         assert peak_y > 0.0
 
-        # Unlike the toy (linear) ring, the real AR ring's sextupoles feed a
-        # SECOND-ORDER horizontal kick off of a nonzero y closed orbit (a
-        # normal sextupole's kick_x ~ -S*(x^2 - y^2)/2, so y_co != 0 alone
-        # leaks into x through the -y^2 term even though x_co starts at 0)
-        # -- this is genuine ring physics, not a decoupling bug. Measured on
-        # this lattice: peak|x| = 1.8768439924848012e-5 m for the same
-        # 300 um dy, ~1.3% of peak|y| = 1.4129316594244626e-3 m, and
-        # confirmed quadratic in dy (peak_x / dy**2 is ~constant across
-        # dy = 50..600 um), consistent with second-order feed-down rather
-        # than linear x-y coupling.
+        # The sextupoles in this lattice feed a SECOND-ORDER horizontal kick
+        # off of a nonzero y closed orbit (a normal sextupole's kick_x ~
+        # -S*(x^2 - y^2)/2, so y_co != 0 alone leaks into x through the -y^2
+        # term even though x_co starts at 0) -- this is genuine ring physics,
+        # not a decoupling bug. Measured on this lattice: peak|x| =
+        # 1.8768439924848012e-5 m for the same 300 um dy, ~1.3% of peak|y| =
+        # 1.4129316594244626e-3 m, and confirmed quadratic in dy
+        # (peak_x / dy**2 is ~constant across dy = 50..600 um), consistent
+        # with second-order feed-down rather than linear x-y coupling.
         assert peak_x == pytest.approx(1.8768e-5, rel=0.05)
         assert peak_x < 0.05 * peak_y
 
@@ -263,11 +262,10 @@ class TestApplyMisalignment:
         # offset into the vertical plane (x-y coupling via roll), which a
         # roll = 0 misalignment on the same element does not.
         #
-        # roll = 0.001 rad, not the toy ring's 0.01: DIPOLE01 (the first
-        # `DIPOLE` family element) is a real combined-function bend with
-        # BendingAngle ~0.1745 rad (~10 deg); measured on this lattice,
-        # at.find_orbit4 stops converging (all-NaN) for roll >~ 0.005 rad at
-        # this dx, so 0.001 was chosen to measure comfortably inside the
+        # roll = 0.001 rad: DIPOLE01 (the first `DIPOLE` family element) is a
+        # combined-function bend with BendingAngle ~0.1745 rad (~10 deg), and
+        # on this lattice at.find_orbit4 stops converging (all-NaN) for
+        # roll >~ 0.005 rad at this dx. 0.001 measures comfortably inside the
         # converging region.
         apply_misalignment(ring[dipole_index], dx=100e-6, roll=0.0)
         try:
@@ -284,11 +282,10 @@ class TestApplyMisalignment:
         # Explicit sign-convention check: negating roll (same |roll|, same
         # dx) must negate the induced vertical orbit at every BPM. Measured
         # on this lattice: rolled_pos[:, 2] and -rolled_neg[:, 2] agree to
-        # ~1e-16 (roll's coupling is an odd function of roll here), which is
-        # what confirms the exit transform's roll sign matches bpm_read's
-        # documented convention rather than the opposite sign -- the thing
-        # this test exists to catch on a real bend, where it can't be
-        # assumed to survive from the toy ring.
+        # ~1e-16, so roll's coupling is an odd function of roll on a bend of
+        # this BendingAngle. That odd symmetry is what pins the exit
+        # transform's roll sign to bpm_read's documented convention rather
+        # than the opposite sign, which is what this test exists to catch.
         apply_misalignment(ring[dipole_index], dx=100e-6, roll=-0.001)
         try:
             _, rolled_neg = at.find_orbit4(ring, refpts=at.Monitor)
