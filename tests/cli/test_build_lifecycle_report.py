@@ -15,9 +15,11 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 import threading
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -170,17 +172,48 @@ def test_a_tolerated_failure_warns_instead(
     assert "✓ after it" in captured.out
 
 
-def test_a_timed_out_step_reports_its_last_output(
+def test_a_timed_out_step_is_cut_off_and_named(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """A timeout names itself, then the tail of what the step managed to say."""
-    steps = [
-        LifecycleStep(name="slow step", run="sh -c 'echo nearly there; sleep 30'", timeout=1),
-    ]
+    """A step sleeping past its timeout ends the phase on a line naming the timeout.
+
+    The child says nothing, so the failure carries no cause under the headline.
+    """
+    steps = [LifecycleStep(name="slow step", run="sleep 30", timeout=1)]
 
     with pytest.raises(BuildProfileError) as raised:
         build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
 
+    captured = capsys.readouterr()
+    assert "✗ Lifecycle post_build step 'slow step' timed out" in captured.err
+    assert "Last output:" not in captured.err
+    assert str(raised.value).startswith("Lifecycle post_build step 'slow step' timed out")
+
+
+def test_a_timed_out_step_reports_its_last_output(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A timeout names itself, then the tail of what the step managed to say.
+
+    The runner is stood in for: whatever the child wrote before the clock ran
+    out rides on the ``TimeoutExpired`` the runner raises, and this pins how
+    that partial output is reported, not whether a live child can fork, exec
+    and write inside one second on a loaded host.
+    """
+    seen: list[dict[str, Any]] = []
+
+    def timed_out_run(cmd: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        seen.append(kwargs)
+        raise subprocess.TimeoutExpired(cmd, kwargs["timeout"], output="nearly there\n")
+
+    monkeypatch.setattr(build_lifecycle.subprocess, "run", timed_out_run)
+    steps = [LifecycleStep(name="slow step", run="sleep 30", timeout=1)]
+
+    with pytest.raises(BuildProfileError) as raised:
+        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+
+    assert [call["timeout"] for call in seen] == [1]
+    assert seen[0]["capture_output"] is True
     captured = capsys.readouterr()
     assert "✗ Lifecycle post_build step 'slow step' timed out" in captured.err
     assert "  Last output:" in captured.err
