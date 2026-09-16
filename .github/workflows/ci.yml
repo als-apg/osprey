@@ -1012,6 +1012,13 @@ jobs:
     name: Behavioral + Visual Theming (Playwright, design system)
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # No `if:` and no paths filter: a browser suite is collected by this lane
+    # and by nothing else, and the rendered UI it covers is changed from well
+    # outside `interfaces/` — the service that serves the page, the template
+    # that renders it, the dependency that ships the component. A step that
+    # could be skipped reports as a step success and a job whose steps all
+    # skipped reports as a job success, which `all-checks-passed` reads as a
+    # lane that ran. The lane costs one chromium install, so it always runs.
     # The default GITHUB_TOKEN is read-only repo-wide; this job's last step
     # pushes regenerated Linux baselines back to the PR branch, so it alone
     # needs contents: write (matches docs.yml's workflow-level grant for the
@@ -1026,59 +1033,21 @@ jobs:
       with:
         fetch-depth: 0
 
-    # Job-level "paths" isn't a thing in GitHub Actions — dorny/paths-filter
-    # computes it as a step output instead, so every later step can gate on
-    # it. An unrelated PR still gets a green (not skipped) job: every gated
-    # step no-ops, which reports as job success, same as any other
-    # conditionally-skipped step in this workflow.
-    - name: Detect design-system / dispatch dashboard changes
-      id: changes
-      uses: dorny/paths-filter@v4
-      with:
-        filters: |
-          theming:
-            - 'src/osprey/interfaces/**'
-            - 'src/osprey/dispatch/**'
-            - 'tests/interfaces/artifacts/test_gallery_interactions.py'
-            - 'tests/interfaces/artifacts/test_plot_theme_browser.py'
-            - 'tests/interfaces/design_system/**'
-            - 'tests/interfaces/web_terminal/**'
-            - 'tests/interfaces/bluesky_web/**'
-            - 'tests/interfaces/lattice_dashboard/**'
-            - 'tests/interfaces/ariel/**'
-            - 'tests/interfaces/conftest.py'
-            - 'tests/interfaces/_browser.py'
-            - 'tests/interfaces/test_load_smokes.py'
-            # The multi-user login-flow browser test drives the composed
-            # perimeter — nginx's rendered config plus the auth sidecar — none
-            # of which lives under interfaces/. Without these four a change to
-            # the login page, the nginx template or the shared container
-            # fixture would leave this lane green by skipping it entirely.
-            - 'src/osprey/services/auth_sidecar/**'
-            - 'src/osprey/deployment/web_terminals/**'
-            - 'src/osprey/templates/modules/web_terminals/**'
-            - 'tests/deployment/web_terminals/test_auth_serving.py'
-
     - name: Install uv
-      if: steps.changes.outputs.theming == 'true'
       uses: astral-sh/setup-uv@v7
       with:
         enable-cache: true
 
     - name: Set up Python
-      if: steps.changes.outputs.theming == 'true'
       run: uv python install 3.11
 
     - name: Install dependencies
-      if: steps.changes.outputs.theming == 'true'
       run: uv sync --extra dev
 
     - name: Install Playwright chromium
-      if: steps.changes.outputs.theming == 'true'
       run: uv run playwright install chromium --with-deps
 
     - name: Run behavioral theming suite
-      if: steps.changes.outputs.theming == 'true'
       run: |
         uv run pytest tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/design_system/test_theme_lab.py \
@@ -1118,11 +1087,9 @@ jobs:
       # test_visual.py's module docstring); this runner IS that platform.
       # A missing baseline is written on the spot — see the "commit" step
       # below for how a first-time/updated baseline lands back in the repo.
-      if: steps.changes.outputs.theming == 'true'
       run: uv run pytest tests/interfaces/design_system/test_visual.py -v --tb=short
 
     - name: Upload Linux-rendered baselines artifact
-      if: steps.changes.outputs.theming == 'true'
       uses: actions/upload-artifact@v7
       with:
         name: visual-baselines-linux
@@ -1133,7 +1100,6 @@ jobs:
       # Only for same-repo PRs — forks can't push, and main pushes have
       # nothing to compare against (baselines only ever change via a PR).
       if: >-
-        steps.changes.outputs.theming == 'true' &&
         github.event_name == 'pull_request' &&
         github.event.pull_request.head.repo.full_name == github.repository
       uses: stefanzweifel/git-auto-commit-action@v7
