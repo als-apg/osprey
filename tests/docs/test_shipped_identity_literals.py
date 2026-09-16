@@ -79,6 +79,12 @@ SCAN_SUFFIXES = (
     ".css",
 )
 
+#: The filenames that carry a reader's text under no extension at all. A
+#: container recipe's comments reach whoever builds the image exactly as a
+#: template's reach whoever renders it, and its name is the only extension
+#: it has.
+SCAN_NAMES = ("Dockerfile", "Containerfile")
+
 
 @dataclass(frozen=True)
 class Denied:
@@ -380,7 +386,9 @@ def _sources(repo_root: Path, roots: tuple[str, ...]) -> tuple[Path, ...]:
         if not base.exists():
             continue
         for path in base.rglob("*"):
-            if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
+            if not path.is_file():
+                continue
+            if path.suffix not in SCAN_SUFFIXES and path.name not in SCAN_NAMES:
                 continue
             if "__pycache__" in path.parts or path == _THIS_FILE:
                 continue
@@ -473,13 +481,15 @@ def test_the_sweep_reaches_shipped_templates_and_docs() -> None:
 
     A rendered template's comment and a how-to page are exactly where an
     identity survives review, and both would be missed by a rule written for
-    ``.py`` alone.
+    ``.py`` alone. A container recipe is the same surface under no extension
+    at all.
     """
     scanned = {str(path.relative_to(_REPO_ROOT)) for path in _sources(_REPO_ROOT, SHIPPED_ROOTS)}
     for required in (
         "src/osprey/templates/modules/web_terminals/docker-compose.web.yml.j2",
         "src/osprey/profiles/presets/control-assistant.yml",
         "docs/source/how-to/web-terminal/multi-user/login.rst",
+        "src/osprey/templates/services/qmd/Dockerfile",
     ):
         assert required in scanned, f"{required} is shipped but the sweep cannot see it"
 
