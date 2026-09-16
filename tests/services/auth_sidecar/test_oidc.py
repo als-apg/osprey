@@ -26,7 +26,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.services.auth_sidecar import audit
-from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, create_app
+from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, AuthSettings, create_app
 from osprey.services.auth_sidecar.return_to import MAX_RETURN_TO_LENGTH
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
@@ -39,6 +39,8 @@ from osprey.services.auth_sidecar.routes.oidc import (
     REASON_UNMAPPED_USER,
     REASON_UNSAFE_ASSERTED_IDENTITY,
     REASON_UNVERIFIED_EMAIL,
+    RoleBinding,
+    _claims_request,
     token_admissible,
 )
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
@@ -286,6 +288,35 @@ def test_login_redirects_to_the_identity_provider() -> None:
     # The clicked user rides in the signed state cookie, never on the wire.
     assert STATE_COOKIE_NAME in response.cookies
     assert "alice" not in response.headers["location"]
+
+
+def test_claims_request_is_absent_unless_the_deployment_asks() -> None:
+    """The default is no parameter at all, not an empty one."""
+    settings = AuthSettings.from_env(OIDC_ENV)
+
+    assert _claims_request(settings, RoleBinding()) is None
+
+
+def test_claims_request_names_only_the_claims_the_sidecar_reads() -> None:
+    """An identity that is not an address asks for no ``email_verified``,
+    and a role claim that IS the identity claim is not asked for twice."""
+    settings = AuthSettings.from_env(
+        {
+            **OIDC_ENV,
+            "OSPREY_AUTH_OIDC_CLAIM": "preferred_username",
+            "OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN": "true",
+        }
+    )
+
+    assert _claims_request(settings, RoleBinding()) == {
+        "id_token": {"preferred_username": {"essential": True}}
+    }
+    assert _claims_request(
+        settings, RoleBinding(claim="preferred_username", claim_map={"alice": "operator"})
+    ) == {"id_token": {"preferred_username": {"essential": True}}}
+    assert _claims_request(settings, RoleBinding(claim="groups", claim_map={"g": "operator"})) == {
+        "id_token": {"preferred_username": {"essential": True}, "groups": None}
+    }
 
 
 def test_login_refuses_a_user_with_no_mapped_identity(caplog: pytest.LogCaptureFixture) -> None:
