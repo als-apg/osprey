@@ -86,8 +86,7 @@ import pytest
 import yaml
 
 from osprey.agent_runner import expected_mcp_servers
-from tests._container_support import start_or_fail, stop_quietly
-from tests._graphdb_container import GRAPHDB_TEST_PASSWORD, NEO4J_IMAGE
+from tests._graphdb_container import GRAPHDB_TEST_PASSWORD, graphdb_store_published_port
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -118,15 +117,6 @@ logger = logging.getLogger(__name__)
 # (``pytest tests/e2e/``) — no dedicated lane and no ``--ignore`` entry: the
 # container takes a random port and a generated name, so it leaves no
 # host-global residue.
-
-
-# ---------------------------------------------------------------------------
-# Pins (the shared recipe in tests/_graphdb_container.py — see its docstring)
-# ---------------------------------------------------------------------------
-
-#: This module publishes bolt on a fixed host port (the render's config.yml
-#: names it), unlike the ephemeral-port stores the shared recipe starts.
-BOLT_PORT = 7687
 
 
 # ---------------------------------------------------------------------------
@@ -266,32 +256,12 @@ def graph_store_port(graph_smoke_plugin_dir: Path) -> Iterator[int]:
     host (which publishes 7687 under a project-derived name) and two runs of
     this module can overlap.
 
-    ``start_or_fail`` rather than ``start_or_skip``: Docker was established
-    reachable by :func:`graph_smoke_plugin_dir`, so past that point a container
-    that will not start is a real failure, and it retries the testcontainers
-    port-publish race that ``start_or_skip`` would turn into a vacuous green.
+    The fail-hard entry point, because Docker was established reachable by
+    :func:`graph_smoke_plugin_dir`: past that point a container that will not
+    start is a real failure, and a skip would be a vacuous green.
     """
-    try:
-        from testcontainers.community.neo4j import Neo4jContainer
-    except ImportError:  # pragma: no cover - depends on the installed extras
-        pytest.skip("testcontainers' neo4j module is not installed")
-
-    def _build() -> Neo4jContainer:
-        container = Neo4jContainer(image=NEO4J_IMAGE, password=GRAPHDB_TEST_PASSWORD)
-        container.with_volume_mapping(str(graph_smoke_plugin_dir), "/plugins", "rw")
-        # The allowlist is the half of NEO4J_PLUGINS that is not a download:
-        # without it every n10s.* call fails with "not on the allowlist", and
-        # n10s needs the unrestricted grant because it calls into APOC.
-        container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*,n10s.*")
-        container.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*,n10s.*")
-        return container
-
-    container, port = start_or_fail(_build, "graphdb (neo4j + n10s)", BOLT_PORT)
-    logger.info(f"graph store published bolt on host port {port}")
-    try:
+    with graphdb_store_published_port(graph_smoke_plugin_dir, label="graph smoke store") as port:
         yield port
-    finally:
-        stop_quietly(container)
 
 
 # ---------------------------------------------------------------------------

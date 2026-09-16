@@ -41,12 +41,7 @@ import yaml
 from osprey.agent_runner import expected_mcp_servers
 from osprey.services.channel_finder.benchmarks.models import BenchmarkRun, QueryResult
 from osprey.services.channel_finder.benchmarks.runner import BenchmarkRunner
-from tests._container_support import (
-    is_docker_available,
-    is_image_present,
-    start_or_fail,
-    stop_quietly,
-)
+from tests._container_support import is_docker_available, is_image_present
 
 # The container recipe (image, jar version, throwaway password, plugin
 # helpers) is the shared one in tests/_graphdb_container.py; the two patches
@@ -57,6 +52,7 @@ from tests._graphdb_container import (
     NEO4J_IMAGE,
     _copy_bundled_apoc,
     _fetch_n10s_jar,
+    graphdb_store_published_port,
 )
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -64,7 +60,6 @@ from tests.e2e.sdk_helpers import (
     render_dir,
 )
 from tests.e2e.test_graph_mcp_smoke import (
-    BOLT_PORT,
     _point_project_at_the_store,
     _seed_demo_corpus,
 )
@@ -326,26 +321,10 @@ def graph_bench_store_port(graph_bench_plugin_dir: Path) -> Iterator[int]:
     ``graphdb`` service deployed on the same host, nor with the graph MCP
     acceptance test's own store if both modules run in one session.
     """
-    try:
-        from testcontainers.community.neo4j import Neo4jContainer
-    except ImportError:  # pragma: no cover - depends on the installed extras
-        pytest.skip("testcontainers' neo4j module is not installed")
-
-    def _build() -> Neo4jContainer:
-        container = Neo4jContainer(image=NEO4J_IMAGE, password=GRAPHDB_TEST_PASSWORD)
-        container.with_volume_mapping(str(graph_bench_plugin_dir), "/plugins", "rw")
-        # n10s calls into APOC, so both need the unrestricted grant; without
-        # the allowlist every n10s.* call fails with "not on the allowlist".
-        container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*,n10s.*")
-        container.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*,n10s.*")
-        return container
-
-    container, port = start_or_fail(_build, "graphdb (neo4j + n10s)", BOLT_PORT)
-    logger.info(f"graph benchmark store published bolt on host port {port}")
-    try:
+    with graphdb_store_published_port(
+        graph_bench_plugin_dir, label="graph benchmark store"
+    ) as port:
         yield port
-    finally:
-        stop_quietly(container)
 
 
 @pytest.fixture(scope="module")
