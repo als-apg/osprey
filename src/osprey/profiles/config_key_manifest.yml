@@ -1632,6 +1632,7 @@ keys:
   channel_finder.pipelines.middle_layer.database: {covered-by: channel_finder.pipelines.middle_layer, default: {}}
   channel_finder.pipelines.middle_layer.database.type: {covered-by: channel_finder.pipelines.middle_layer.database, default: template}
   channel_finder.pipelines.middle_layer.database.path: {covered-by: channel_finder.pipelines.middle_layer.database, default: ''}
+  channel_finder.pipelines.middle_layer.database.duckdb_path: {covered-by: channel_finder.pipelines.middle_layer.database, default: null}
   channel_finder.query_max_rows:
     evidence: 'positive_int\(\s*cf_config\.get\("query_max_rows"\)'
     note: >-
@@ -2699,6 +2700,7 @@ render_contexts:
     # no services, no deployed_services and no per-app blocks any more.
     channel_finder_mode: [in_context, hierarchical, middle_layer]
     ariel_server_on: [true, false]
+    middle_layer_duckdb: [true, false]
     web_selection:
     - panels: all          # every builtin the registry declares
       default_panel: ariel
@@ -2735,11 +2737,12 @@ render_contexts:
     enable_in_context: channel_finder.pipelines.in_context.subagent_model
     enable_hierarchical: channel_finder.pipelines.hierarchical.feedback.store_path
     enable_middle_layer: channel_finder.pipelines.middle_layer.database.type
+    middle_layer_duckdb: channel_finder.pipelines.middle_layer.database.duckdb_path
     ariel_server_on: ariel.enhancement_modules.semantic_processor.model.model_id
     panels_on: web.panels.channel-finder.enabled
     default_panel_set: web.default_panel
     panel_presets_set: web.presets
-  expected_union_size: 355
+  expected_union_size: 356
   note_union_size: >-
     An assertion: the guard derives the union on every run and fails when this
     figure disagrees with it, or when it is missing. It moves whenever the

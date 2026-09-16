@@ -3872,6 +3872,10 @@ def _repo_render_context(
     ``ariel_server_on`` is the flag the framework template gates its two
     ARIEL-dependent blocks on; see :func:`_ariel_server_enabled`.
 
+    ``middle_layer_duckdb`` says whether the profile's data tree holds
+    ``channel_databases/middle_layer.duckdb``; the framework template renders
+    the middle-layer ``duckdb_path`` only when it does.
+
     Raises:
         ValueError: If the profile's ``deployment.port_base`` is out of range;
             see :func:`_profile_port_base`.
@@ -3909,6 +3913,15 @@ def _repo_render_context(
     if build_profile.claude_md_template:
         context["claude_md_template"] = build_profile.claude_md_template
     context["ariel_server_on"] = _ariel_server_enabled(build_profile)
+    # Binds the middle-layer pipeline's `duckdb_path` when the profile ships the
+    # database. Decided here, against the tree the build copies, because the
+    # template manager builds its context before it copies any data and so
+    # cannot see the file.
+    context["middle_layer_duckdb"] = (
+        (build_profile.resolved_data_root(repo_root) or repo_root / "data")
+        / "channel_databases"
+        / "middle_layer.duckdb"
+    ).is_file()
 
     python_env = build_profile.python_env or "project"
     if runtime_interpreter:
