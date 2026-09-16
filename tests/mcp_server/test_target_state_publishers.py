@@ -45,6 +45,7 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context
+from tests.mcp_server._report_root import state_root as state_root  # noqa: F401
 
 TARGETS_META = {
     "live": {"label": "Example storage ring", "endpoint": "gw:5064", "real_machine": True},
@@ -67,22 +68,6 @@ REPORT_FIELDS = {
     "targets",
     "updated_at",
 }
-
-
-@pytest.fixture(autouse=True)
-def state_root(tmp_path, monkeypatch):
-    """Anchor the state directory in tmp_path instead of a real deployment.
-
-    The environment stamp is cleared as well as the config derivation patched,
-    so this fixture pins the directory whichever of the two resolution rules
-    ``state_dir`` is applying. ``OSPREY_POSTURE_SESSION`` is cleared too: the
-    session a report carries is read from the environment, and a test that
-    inherited the runner's would assert against the machine it ran on.
-    """
-    monkeypatch.delenv("OSPREY_AGENT_DATA_ROOT", raising=False)
-    monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    return tmp_path
 
 
 @pytest.fixture
