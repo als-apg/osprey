@@ -469,6 +469,16 @@ def _unmarked_layout_port_comments(text: str) -> list[str]:
     return offenders
 
 
+def _layout_port_failure(preset: str, offenders: list[str]) -> str:
+    """The comments that were refused, and the one line that would exempt them."""
+    return (
+        f"{preset}: comment(s) naming a default-layout port: {offenders}. A number that "
+        "belongs to a protocol rather than to this deployment is declared foreign by a "
+        f"'# Not a deployment port: <n>[, <n>]' line within {_COMMENT_REACH} comment lines "
+        "above it."
+    )
+
+
 @pytest.mark.parametrize("preset", list_presets())
 def test_no_comment_names_a_default_layout_port(preset: str) -> None:
     """A port an operator can move must not be spelled out in prose.
@@ -486,7 +496,7 @@ def test_no_comment_names_a_default_layout_port(preset: str) -> None:
     """
     offenders = _unmarked_layout_port_comments(_emit(preset))
 
-    assert offenders == [], f"{preset}: comment(s) naming a default-layout port: {offenders}"
+    assert offenders == [], _layout_port_failure(preset, offenders)
 
 
 def test_an_unmarked_comment_naming_a_layout_port_is_an_offender() -> None:
@@ -508,6 +518,22 @@ def test_a_marker_stops_covering_a_comment_out_of_reach() -> None:
     text = f"# Not a deployment port: {DEFAULT_PORT_BASE} is elsewhere.\n{filler}\n{line}\n"
 
     assert _unmarked_layout_port_comments(text) == [line]
+
+
+def test_the_refusal_names_the_marker_that_declares_a_port_foreign() -> None:
+    """A rule is readable where it fires, or it is read nowhere.
+
+    The marker's shape is spelled in the pattern above, in the one bundled preset that uses
+    it and in the fixture that copies that preset byte for byte. The failure message is the
+    only one of the four that a contributor editing a preset arrives at.
+    """
+    offender = f"# reachable at {DEFAULT_PORT_BASE}"
+
+    message = _layout_port_failure("control-assistant", [offender])
+
+    assert offender in message
+    assert "# Not a deployment port: <n>" in message
+    assert str(_COMMENT_REACH) in message
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CHANNEL_FINDER_MODES))

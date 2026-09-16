@@ -40,8 +40,10 @@ fi
 echo ""
 
 echo "→ Running mypy (type checking)..."
-if ! uv run mypy --no-error-summary; then
-    echo "⚠️  Mypy found type issues (not blocking)"
+if ! uv run python scripts/mypy_gate.py; then
+    FAILED_CHECKS+=("mypy")
+    echo "❌ Mypy found errors the baseline does not carry"
+    echo "💡 Fix them, or record them with 'uv run python scripts/mypy_gate.py --update'"
 else
     echo "✅ Mypy passed"
 fi

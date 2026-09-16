@@ -251,7 +251,11 @@ dev = [
     "pytest-timeout",  # Per-test hang-breaker: the model-matrix benchmark runner and the
                        # CI unit lane both pass --timeout (see .github/workflows/ci.yml)
     "pytest-xdist",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
-    "mypy",
+    # Pinned to the minor the checked-in baseline beside the gate was measured
+    # with. The baseline is a measurement; a checker free to move minors reports
+    # errors the diff did not introduce, so the pin is what makes a red gate mean
+    # the change under it.
+    "mypy>=1.19.1,<1.20",
     # Stub distributions for the typeless third-party imports in src/. Without any
     # one of them mypy stops with "errors prevented further checking" and examines
     # no module at all.

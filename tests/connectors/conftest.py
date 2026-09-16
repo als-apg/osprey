@@ -3,9 +3,11 @@
 Fixtures defined here are automatically available to all test files in
 ``tests/connectors/`` and any subdirectories.
 
-The MongoDB fixtures spin up a real container via testcontainers and
-skip cleanly when Docker is unavailable, matching the pattern used by
-``tests/services/ariel_search/conftest.py``.
+The MongoDB fixtures hand their tests the credentials, database and
+collection names the connector needs, and delegate the bring-up to the shared
+recipe in ``tests/_mongo_container.py``: the image pin, the start, the
+readiness wait and the teardown all live there, as does the skip on a host with
+no container engine.
 """
 
 from datetime import datetime, timedelta

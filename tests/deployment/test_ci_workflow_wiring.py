@@ -5739,20 +5739,23 @@ def test_the_tag_gate_blocks_the_publish() -> None:
 
 
 # ---------------------------------------------------------------------------
-# The type check can run at all: the stubs its imports need are declared
+# The type check is worth scoring: the stubs its imports need are declared
 # ---------------------------------------------------------------------------
 #
-# A "Library stubs not installed" error is fatal to the whole run, not local to
-# the file that raised it: mypy stops with "errors prevented further checking"
-# and examines no module. So an import in `src/` that ships no inline types
-# needs its stub distribution in the `dev` extra, or the type check reports
-# nothing about this repository whatever else is wrong with it.
+# An import in `src/` that ships no inline types needs its stub distribution in
+# the `dev` extra. Without it the checker reports a per-module `import-untyped`
+# error ("Library stubs not installed for ...") and gives every value from that
+# library the type `Any`, and `scripts/mypy_gate.py` refuses to score a run
+# carrying one: it exits 2 rather than measure a weakened report against the
+# baseline. So an undeclared stub distribution turns the type-check lane red
+# instead of quietly widening the modules that import it.
 
 
 #: Stub distributions the `dev` extra carries, keyed by the import each one
-#: serves. `ignore_missing_imports` is deliberately not the answer here: it
-#: would silence the abort by making every value from these libraries `Any`,
-#: which is the opposite of checking the modules that import them.
+#: serves. Silencing the diagnostic instead — disabling the `import-untyped`
+#: code for these modules — buys a green gate over a report in which every
+#: value from these libraries is `Any`, which is the opposite of checking the
+#: modules that import them.
 STUB_DISTRIBUTIONS = {
     "types-PyYAML": "yaml",
     "types-Markdown": "markdown",
@@ -5772,19 +5775,22 @@ def test_the_type_check_declares_a_stub_for_every_stubless_import(
     pyproject: dict[str, Any],
 ) -> None:
     """Every import named here appears in `src/` and ships no types of its own,
-    so each missing stub package costs the entire run, not one file."""
+    so an undeclared stub distribution costs the run its score: the checker
+    reports `import-untyped` for that import and the gate refuses to measure
+    what it produced."""
     declared = _declared_names(_dev_extra(pyproject))
     for distribution, module in STUB_DISTRIBUTIONS.items():
         assert canonicalize_name(distribution) in declared, (
-            f"the `dev` extra must declare {distribution} — without it mypy aborts "
-            f"on every `import {module}` in src/ and checks nothing"
+            f"the `dev` extra must declare {distribution} — without it every "
+            f"`import {module}` in src/ reports `import-untyped` and the type-check "
+            f"gate refuses to score the run"
         )
 
 
 @pytest.mark.parametrize("distribution", sorted(STUB_DISTRIBUTIONS))
 def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -> None:
-    """Dropping any one of the three must fail: one absent stub aborts the run
-    exactly as thoroughly as three do."""
+    """Dropping any one of the three must fail: one absent stub is refused by
+    the gate exactly as thoroughly as three are."""
     mutated = _load_pyproject()
     mutated["project"]["optional-dependencies"]["dev"] = [
         dep
@@ -5795,13 +5801,43 @@ def test_the_type_check_declares_a_stub__mutation_drops_one(distribution: str) -
         test_the_type_check_declares_a_stub_for_every_stubless_import(mutated)
 
 
+def test_the_type_checker_is_pinned_to_one_minor(pyproject: dict[str, Any]) -> None:
+    """The baseline beside the gate was measured with one checker, so the checker
+    is named as precisely as the measurement it produced. A floor alone lets a new
+    minor report errors no diff introduced, and the gate would blame the change."""
+    requirements = [
+        Requirement(dep)
+        for dep in _dev_extra(pyproject)
+        if canonicalize_name(Requirement(dep).name) == canonicalize_name("mypy")
+    ]
+    assert requirements, "the `dev` extra must declare mypy"
+    operators = {spec.operator for spec in requirements[0].specifier}
+    assert ">=" in operators, "the mypy requirement must carry a lower bound"
+    assert "<" in operators, (
+        "the mypy requirement must carry an upper bound — an unpinned minor "
+        "moves the baseline the gate scores against"
+    )
+
+
+def test_the_type_checker_is_pinned__mutation_drops_the_ceiling() -> None:
+    """A bare `mypy` is the state this guard exists to refuse."""
+    mutated = _load_pyproject()
+    mutated["project"]["optional-dependencies"]["dev"] = [
+        "mypy" if canonicalize_name(Requirement(dep).name) == canonicalize_name("mypy") else dep
+        for dep in _dev_extra(mutated)
+    ]
+    with pytest.raises(AssertionError):
+        test_the_type_checker_is_pinned_to_one_minor(mutated)
+
+
 # ---------------------------------------------------------------------------
 # The type check completes: it does not follow an installed package the
 # configured Python cannot parse
 # ---------------------------------------------------------------------------
 #
 # A syntax error raised while mypy parses a followed dependency is fatal to the
-# whole run, the same way a missing stub is. Nothing in this tree imports
+# whole run: the checker stops with "errors prevented further checking" and
+# examines no module. Nothing in this tree imports
 # sphinx; mypy reaches it through bokeh's own property module, bokeh ships
 # types, so `ignore_missing_imports` never applies. Sphinx's source uses syntax
 # newer than the `python_version` this project targets, and that floor is the
@@ -5911,40 +5947,92 @@ MYPY_JOB = "lint"
 MYPY_STEP = "Run mypy (type checking)"
 
 
-def _mypy_targets_in_ci(wf: dict[str, Any]) -> list[str]:
-    """The trees the CI mypy step names, in the order it names them.
+def _load_mypy_gate() -> Any:
+    """The gate script, loaded by path — ``scripts/`` is not a package."""
+    spec = importlib.util.spec_from_file_location(
+        "_mypy_gate_probe", CI_YML.parents[2] / "scripts" / "mypy_gate.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.modules.pop(spec.name, None)
 
-    Read off the command rather than off a variable: a step that hardcodes a
-    third tree defines nothing new, so keying on anything but the arguments
-    themselves would miss exactly the drift this guard exists to catch.
+
+def test_the_type_check_step_runs_the_gate(workflow: dict[str, Any]) -> None:
+    """The build scores the type check against the baseline beside the gate.
+
+    A bare ``mypy`` invocation prints a count nobody compares to anything; the gate
+    is what turns that count into a verdict about the diff under it.
     """
-    run = _find_named_step(wf, MYPY_JOB, MYPY_STEP)["run"]
-    words = run.split()
-    after_mypy = words[words.index("mypy") + 1 :]
-    return [
-        word.rstrip("/")
-        for word in after_mypy
-        if not word.startswith("-") and word not in {"||", "true"}
-    ]
+    run = _find_named_step(workflow, MYPY_JOB, MYPY_STEP)["run"]
+    assert "scripts/mypy_gate.py" in run, (
+        "the type-check step must run scripts/mypy_gate.py, not a bare mypy"
+    )
 
 
-def test_mypy_targets_match_the_declared_files(
-    workflow: dict[str, Any], pyproject: dict[str, Any]
-) -> None:
-    """CI and a bare local ``mypy`` check the same trees.
-
-    ``[tool.mypy] files`` is what a contributor's own run reads; the CI step
-    spells its trees out. With the two free to drift, a package checked in CI
-    can be invisible to everyone running the checker locally, and the first
-    report of an error is a review comment rather than the editor.
-    """
-    declared = [entry.rstrip("/") for entry in pyproject["tool"]["mypy"]["files"]]
-    assert _mypy_targets_in_ci(workflow) == declared
-
-
-def test_mypy_targets_match_the_declared_files__mutation_drops_a_tree() -> None:
+def test_the_type_check_step_runs_the_gate__mutation_restores_a_bare_run() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, MYPY_JOB, MYPY_STEP)
-    step["run"] = step["run"].replace(" packages/osprey-connectors/src/", "")
+    step["run"] = "uv run mypy src/ packages/osprey-connectors/src/ --no-error-summary"
     with pytest.raises(AssertionError):
-        test_mypy_targets_match_the_declared_files(mutated, _load_pyproject())
+        test_the_type_check_step_runs_the_gate(mutated)
+
+
+def test_the_type_check_step_is_not_advisory(workflow: dict[str, Any]) -> None:
+    """A check whose result cannot fail the job reports to no one.
+
+    Both ways of discarding it are refused: ``continue-on-error`` on the step, and a
+    shell suffix that swallows the command's own status.
+    """
+    step = _find_named_step(workflow, MYPY_JOB, MYPY_STEP)
+    assert "continue-on-error" not in step, "the type-check step must be able to fail the lint job"
+    run = step["run"]
+    assert "|| true" not in run and "|| :" not in run, (
+        "the type-check step must not swallow its own exit status"
+    )
+
+
+def test_the_type_check_step_is_not_advisory__mutation_restores_continue_on_error() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, MYPY_JOB, MYPY_STEP)["continue-on-error"] = True
+    with pytest.raises(AssertionError):
+        test_the_type_check_step_is_not_advisory(mutated)
+
+
+def test_the_type_check_step_is_not_advisory__mutation_restores_the_suffix() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, MYPY_JOB, MYPY_STEP)
+    step["run"] = step["run"].rstrip() + " || true"
+    with pytest.raises(AssertionError):
+        test_the_type_check_step_is_not_advisory(mutated)
+
+
+def test_the_gate_reads_its_targets_from_the_declared_files(pyproject: dict[str, Any]) -> None:
+    """CI and a bare local ``mypy`` check the same trees, by construction.
+
+    The build names no trees at all any more, so there is nothing for CI and a local
+    run to disagree about. What has to hold instead is that the gate keeps deriving
+    them from ``[tool.mypy] files`` rather than growing a list of its own.
+    """
+    gate = _load_mypy_gate()
+    declared = list(pyproject["tool"]["mypy"]["files"])
+    assert gate.declared_targets(CI_YML.parents[2] / "pyproject.toml") == declared
+
+
+def test_the_gate_reads_its_targets_from_the_declared_files__mutation_drops_a_tree(
+    tmp_path: Path,
+) -> None:
+    pyproject = _load_pyproject()
+    trimmed = [
+        entry
+        for entry in pyproject["tool"]["mypy"]["files"]
+        if entry != "packages/osprey-connectors/src"
+    ]
+    mutated = tmp_path / "pyproject.toml"
+    mutated.write_text(f"[tool.mypy]\nfiles = {json.dumps(trimmed)}\n")
+    gate = _load_mypy_gate()
+    assert gate.declared_targets(mutated) != pyproject["tool"]["mypy"]["files"]

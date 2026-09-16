@@ -1,11 +1,11 @@
 """One recipe for a throwaway Neo4j store carrying n10s + APOC.
 
-Three lanes need the same container — the store integration lane
-(``tests/integration/test_graphdb_store.py``), the corpus enrichment lane
-(``tests/services/facility_knowledge/test_graph_enrichment_live.py``) and the
-runnable-examples lane (``tests/mcp_server/channel_finder_graph/test_examples_live.py``).
-They differ in what they do to the store, not in how it is built, so the build
-lives here once.
+Every graph lane's store comes from here. What they differ in is not how the
+store is built but what they want back from it, and what an unstartable
+container means for them — and those two differences are the two entry points:
+:func:`graphdb_store` yields a bolt URI and skips when the container will not
+start, :func:`graphdb_store_published_port` yields the published host port and
+fails.
 
 **Why the plugins are mounted rather than downloaded by the server.** The
 shipped compose template sets ``NEO4J_PLUGINS`` and the Neo4j entrypoint honours
@@ -26,8 +26,8 @@ never mount.
 **Scope.** The plugin directory is session-scoped (fixture
 ``graphdb_plugin_dir`` in ``tests/conftest.py``) because it is the expensive
 half and its content does not depend on the lane. The *store* is deliberately
-not shared: two of the three lanes wipe it between corpora, so they start their
-own module-scoped container from this same recipe.
+not shared: the lanes that wipe it between corpora start their own
+module-scoped container from this same recipe.
 """
 
 from __future__ import annotations
@@ -46,6 +46,7 @@ import requests
 from tests._container_support import (
     is_docker_available,
     is_image_present,
+    start_or_fail,
     start_or_skip,
     stop_quietly,
 )
@@ -90,6 +91,10 @@ GRAPHDB_TEST_USERNAME = "neo4j"
 #: Database the throwaway store serves. The Community image serves exactly one,
 #: and this is its name.
 GRAPHDB_TEST_DATABASE = "neo4j"
+
+#: Port the server listens on inside the container. The published host port a
+#: lane reaches it on is ephemeral and read back from the started container.
+NEO4J_BOLT_PORT = 7687
 
 
 # ---------------------------------------------------------------------------
@@ -215,30 +220,87 @@ def resolve_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
 # ---------------------------------------------------------------------------
 
 
-@contextmanager
-def graphdb_store(plugin_dir: Path) -> Iterator[str]:
-    """Start a throwaway graph store on *plugin_dir* and yield its bolt URI.
+def _neo4j_container(plugin_dir: Path) -> Neo4jContainer:  # noqa: F821
+    """Build an unstarted graph store carrying the plugins in *plugin_dir*.
 
-    The environment mirrors the shipped compose template minus
-    ``NEO4J_PLUGINS`` — see the module docstring for why that one is left out
-    and what replaces it.  Testcontainers publishes bolt on an ephemeral port
-    under a generated name, so this cannot collide with a ``graphdb`` service
-    already deployed on the host.
+    The one construction site in the tree, and therefore the one statement of
+    which module :class:`Neo4jContainer` comes from. The environment mirrors
+    the shipped compose template minus ``NEO4J_PLUGINS`` — see the module
+    docstring for why that one is left out and what replaces it. The missing
+    extra is not guarded here because :func:`resolve_plugin_dir` probes for it
+    first on every lane, which is why its probe order is what it is.
     """
     from testcontainers.community.neo4j import Neo4jContainer
 
-    def _build() -> Neo4jContainer:
-        container = Neo4jContainer(image=NEO4J_IMAGE, password=GRAPHDB_TEST_PASSWORD)
-        container.with_volume_mapping(str(plugin_dir), "/plugins", "rw")
-        # The allowlist is the half of NEO4J_PLUGINS that is not a download:
-        # without it every n10s.* call fails with "not on the allowlist", and
-        # n10s needs the unrestricted grant because it calls into APOC.
-        container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*,n10s.*")
-        container.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*,n10s.*")
-        return container
+    container = Neo4jContainer(image=NEO4J_IMAGE, password=GRAPHDB_TEST_PASSWORD)
+    container.with_volume_mapping(str(plugin_dir), "/plugins", "rw")
+    # The allowlist is the half of NEO4J_PLUGINS that is not a download:
+    # without it every n10s.* call fails with "not on the allowlist", and
+    # n10s needs the unrestricted grant because it calls into APOC.
+    container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*,n10s.*")
+    container.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*,n10s.*")
+    return container
 
-    container = start_or_skip(_build, label="graphdb (neo4j + n10s)")
+
+@contextmanager
+def graphdb_store(
+    plugin_dir: Path,
+    *,
+    label: str = "graphdb (neo4j + n10s)",
+) -> Iterator[str]:
+    """Start a throwaway graph store on *plugin_dir* and yield its bolt URI.
+
+    Skips rather than fails when the container will not start: these lanes run
+    on contributor machines where an absent engine is a fact about the host.
+    Testcontainers publishes bolt on an ephemeral port under a generated name,
+    so this cannot collide with a ``graphdb`` service already deployed on the
+    host.
+
+    Args:
+        plugin_dir: Directory holding n10s + APOC, from :func:`resolve_plugin_dir`.
+        label: Human-readable name for the store, used in skip messages.
+
+    Yields:
+        The bolt URI to reach the store on.
+
+    Raises:
+        Skipped: Via ``pytest.skip`` when the container will not start.
+    """
+    container = start_or_skip(lambda: _neo4j_container(plugin_dir), label=label)
     try:
         yield container.get_connection_url()
+    finally:
+        stop_quietly(container)
+
+
+@contextmanager
+def graphdb_store_published_port(
+    plugin_dir: Path,
+    *,
+    label: str = "graphdb (neo4j + n10s)",
+) -> Iterator[int]:
+    """Start a throwaway graph store and yield its published **host** port.
+
+    The fail-hard counterpart to :func:`graphdb_store`, for a lane that has
+    already established the daemon is reachable and would otherwise report
+    success having run nothing. It also retries the testcontainers
+    port-publish race, which :func:`start_or_skip` turns into a skip on the
+    first attempt — reading the published port is part of the retried
+    operation there, not a step after it.
+
+    Args:
+        plugin_dir: Directory holding n10s + APOC, from :func:`resolve_plugin_dir`.
+        label: Human-readable name for the store, used in the failure.
+
+    Yields:
+        The host port the store's bolt endpoint is published on.
+
+    Raises:
+        AssertionError: When the container would not start.
+    """
+    container, port = start_or_fail(lambda: _neo4j_container(plugin_dir), label, NEO4J_BOLT_PORT)
+    logger.info(f"{label}: bolt published on host port {port}")
+    try:
+        yield port
     finally:
         stop_quietly(container)

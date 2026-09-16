@@ -75,3 +75,37 @@ def build_provider(pinned: str) -> str:
     """
     forced = os.environ.get(FORCE_PROVIDER_ENV, "").strip()
     return forced or pinned
+
+
+def gateway_base_url(provider: str, env_var: str) -> str | None:
+    """The endpoint an end-to-end lane calls for one catalog provider.
+
+    The packaged provider catalog is where a gateway's address is written, so
+    a lane reads it there rather than keeping a second copy that drifts when
+    the catalog is re-pointed. ``env_var`` is an override, not the address: a
+    runner that reaches the gateway somewhere else names that host, and the
+    catalog's own entry stands for everyone else.
+
+    A catalog entry may decline to name a host and defer to a shell instead
+    (``base_url: ${SOME_VAR}``). That is a reference, not an address, and
+    this reader does not expand it: with no override exported such a provider
+    has no endpoint and the caller has no route to offer.
+
+    Args:
+        provider: Entry name in the catalog, as ``provider:`` spells it.
+        env_var: Environment variable overriding that entry's address.
+
+    Returns:
+        The endpoint to call, or ``None`` when neither the environment nor
+        the catalog names one.
+    """
+    from osprey.profiles.providers import load_provider_catalog
+
+    override = os.environ.get(env_var, "").strip()
+    if override:
+        return override
+    entry = load_provider_catalog(None).entries.get(provider) or {}
+    packaged = str(entry.get("base_url", "")).strip()
+    if not packaged or packaged.startswith("${"):
+        return None
+    return packaged

@@ -10,10 +10,16 @@ A note is a copy of a mapping that lives elsewhere, so it can go stale. These
 tests derive the same mapping from its sources — the defaults suite's glob and
 the axis-shapes suite's ``SCENARIOS`` — and fail when a template names a suite
 that does not pin it, or omits one that does.
+
+The same derivation covers the shared partials those templates import. A
+partial writes no file of its own, so what it can honestly name is the union of
+the suites pinning its importers — the goldens a single macro edit moves, all
+at once, and none of them visible from where an importer sits.
 """
 
 from __future__ import annotations
 
+import re
 from pathlib import PurePosixPath
 
 # Imported by bare module name, not as ``tests.templates.…``: this directory
@@ -37,6 +43,16 @@ _DEPLOYMENT_SUITES = {
     "tests/deployment/test_va_compose_instances.py": "virtual_accelerator",
     "tests/deployment/test_recorder_standin_compose.py": "archiver_recorder",
 }
+
+
+#: Templates-root-relative paths of the shared partials the service templates
+#: import. Discovered by the same ``_*.j2`` glob the build ships them by
+#: (``osprey.cli.build_injectors._SHARED_SERVICE_PARTIALS``), so a partial added
+#: later cannot slip in unnoted.
+_PARTIALS = sorted(
+    path.relative_to(_templates_root()).as_posix()
+    for path in _templates_root().glob("services/_*.j2")
+)
 
 
 def _service_key(rel_path: str) -> str:
@@ -106,3 +122,51 @@ def test_each_deployment_suite_is_named_only_by_the_template_it_pins() -> None:
             if other != key and entry_point in _template_text(rel)
         )
         assert not claims, f"these templates name {entry_point}, which pins {key} alone: {claims}"
+
+
+def _importers(partial_rel: str) -> set[str]:
+    """Service keys of the bundled templates that import *partial_rel*.
+
+    The import STATEMENT is what counts, not the filename: a header comment
+    names sibling partials in prose, and a template's own explainer could too.
+    The pattern matches both the project-rooted spelling every bundled template
+    uses and the bare-name spelling a differently rooted Environment would.
+    """
+    basename = PurePosixPath(partial_rel).name
+    pattern = re.compile(r'{%-?\s*import\s+"(?:services/)?' + re.escape(basename) + r'"')
+    return {_service_key(rel) for rel in TEMPLATES if pattern.search(_template_text(rel))}
+
+
+def _suites_for(key: str) -> set[str]:
+    """The regeneration entry points that pin one service key's render."""
+    suites = {_DEFAULTS_ENTRY_POINT}
+    if key in _scenario_named():
+        suites.add(_AXIS_SHAPES_ENTRY_POINT)
+    suites |= {entry for entry, pinned in _DEPLOYMENT_SUITES.items() if pinned == key}
+    return suites
+
+
+def test_each_shared_partial_names_exactly_the_suites_that_pin_its_importers() -> None:
+    """A partial's reach is every importer's goldens, so it names every suite."""
+    all_entry_points = {_DEFAULTS_ENTRY_POINT, _AXIS_SHAPES_ENTRY_POINT, *_DEPLOYMENT_SUITES}
+    for partial in _PARTIALS:
+        text = _template_text(partial)
+        expected: set[str] = set()
+        for key in _importers(partial):
+            expected |= _suites_for(key)
+        observed = {entry for entry in all_entry_points if entry in text}
+        assert observed == expected, (
+            f"{partial} omits these suites, which pin an importer of it: "
+            f"{sorted(expected - observed)}; and names these, which pin none of "
+            f"its importers: {sorted(observed - expected)}"
+        )
+
+
+def test_every_shared_partial_is_imported_by_some_template() -> None:
+    """A partial nothing imports — or an import regex that matches nothing —
+    would make the test above vacuously true, so fail loudly instead."""
+    orphans = sorted(partial for partial in _PARTIALS if not _importers(partial))
+    assert not orphans, (
+        "no bundled template carries an import of these partials, so nothing "
+        f"pins their render and the suites they name are unverifiable: {orphans}"
+    )
