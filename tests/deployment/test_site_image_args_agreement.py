@@ -186,3 +186,33 @@ def test_a_deployment_that_declares_nothing_builds_and_renders_as_it_always_did(
     assert staged == {}
     assert _rendered_text(staged) == ""
     assert _rendered_args(staged) == {}
+
+
+@pytest.mark.parametrize(
+    "index_url",
+    [
+        'https://user:pa"ss@mirror.example.org/simple',
+        "https://user:it's&<fine>@mirror.example.org/simple",
+    ],
+)
+def test_a_value_that_carries_a_quote_survives_the_render(no_site_env, tmp_path, index_url):
+    """A value is emitted as a scalar the parser reads back character for character.
+
+    A proxy or index URL carrying credentials is where a quote, an ampersand or
+    an angle bracket plausibly arrives, and nothing upstream forbids one. A
+    value that ends its own scalar early takes the whole deployment's render
+    with it, not just the axis that carried it.
+    """
+    config = _site_config(tmp_path)
+    config["images"]["pip_index_url"] = index_url
+
+    argv = _build_args(
+        container_lifecycle.site_image_build_args(config, _context(tmp_path, "argv-context"))
+    )
+    staged = compose_generator._stage_site_image_args_for_context(
+        config, str(_context(tmp_path, "compose-context"))
+    )
+    rendered = _rendered_args(staged)
+
+    assert rendered == argv
+    assert rendered["PIP_INDEX_URL"] == index_url

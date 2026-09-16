@@ -79,13 +79,18 @@
     templates, which is the only place this macro is called from. Sorted
     rather than author-ordered: the mapping is assembled by the resolver and
     never written by hand, so sorting is what makes a render a function of
-    its context alone. -#}
+    its context alone.
+
+    A value is emitted as a quoted scalar a YAML parser reads back character
+    for character, so no value a deployment can declare — a proxy URL carrying
+    credentials among them — can end the scalar early and break the document
+    around it. -#}
 {%- macro build_args(args, indent=8) -%}
 {%- set declared = args | default({}, true) -%}
 {%- set entries = declared if declared is mapping else {} -%}
 {%- set ns = namespace(lines=['']) -%}
 {%- for name, value in entries | dictsort -%}
-{%- set _ = ns.lines.append(' ' * indent ~ name ~ ': "' ~ value ~ '"') -%}
+{%- set _ = ns.lines.append(' ' * indent ~ name ~ ': ' ~ (value | string | tojson)) -%}
 {%- endfor -%}
 {%- if ns.lines | length > 1 -%}
 {{ ns.lines | join('\n') }}
