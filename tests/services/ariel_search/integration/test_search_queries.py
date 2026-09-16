@@ -20,32 +20,52 @@ import pytest
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 
+@pytest.fixture
+async def seeded_repository(repository, seed_entry_factory):
+    """Repository seeded with four entries whose texts and authors discriminate.
+
+    The rows are chosen rather than arbitrary. ``search-kw-002`` and
+    ``search-kw-004`` both carry ``beam``, only ``search-kw-002`` also carries
+    ``orbit``, and only ``search-kw-004`` is written by ``oper_smith``. A search
+    that fails to narrow on the second term, or on the author, therefore returns
+    a row that a correct one does not.
+
+    Args:
+        repository: Repository over the migrated test database.
+        seed_entry_factory: Factory building a single logbook entry.
+
+    Returns:
+        The repository, with the four entries upserted.
+    """
+    entries = [
+        seed_entry_factory(
+            entry_id="search-kw-001",
+            raw_text="The vacuum chamber pressure dropped unexpectedly during the experiment.",
+            author="operator1",
+        ),
+        seed_entry_factory(
+            entry_id="search-kw-002",
+            raw_text="Beam alignment was adjusted to correct the orbit deviation.",
+            author="physicist1",
+        ),
+        seed_entry_factory(
+            entry_id="search-kw-003",
+            raw_text="The undulator gap was changed to optimize photon flux.",
+            author="scientist1",
+        ),
+        seed_entry_factory(
+            entry_id="search-kw-004",
+            raw_text="Beam loss was recorded during the morning shift.",
+            author="oper_smith",
+        ),
+    ]
+    for entry in entries:
+        await repository.upsert_entry(entry)
+    return repository
+
+
 class TestKeywordSearch:
     """Test keyword search with real PostgreSQL FTS."""
-
-    @pytest.fixture
-    async def seeded_repository(self, repository, seed_entry_factory):
-        """Repository with test entries for search tests."""
-        entries = [
-            seed_entry_factory(
-                entry_id="search-kw-001",
-                raw_text="The vacuum chamber pressure dropped unexpectedly during the experiment.",
-                author="operator1",
-            ),
-            seed_entry_factory(
-                entry_id="search-kw-002",
-                raw_text="Beam alignment was adjusted to correct the orbit deviation.",
-                author="physicist1",
-            ),
-            seed_entry_factory(
-                entry_id="search-kw-003",
-                raw_text="The undulator gap was changed to optimize photon flux.",
-                author="scientist1",
-            ),
-        ]
-        for entry in entries:
-            await repository.upsert_entry(entry)
-        return repository
 
     async def test_keyword_search_finds_matches(self, seeded_repository):
         """Keyword search returns matching entries via repository method."""
@@ -94,6 +114,56 @@ class TestKeywordSearch:
         # Should find the beam alignment entry
         entry_ids = [entry["entry_id"] for entry, score, highlights in results]
         assert "search-kw-002" in entry_ids
+
+
+class TestKeywordQuerySyntax:
+    """Query text reaching real PostgreSQL through the keyword search module.
+
+    These drive ``osprey.services.ariel_search.search.keyword.keyword_search``,
+    which parses the query and builds the predicates the class above hands
+    :meth:`ARIELRepository.keyword_search` directly. What an operator's
+    ``AND`` and ``author:`` mean is decided by PostgreSQL over the composed
+    statement, so only a real database answers it.
+
+    ``max_results`` is wide because the database is shared with the rest of
+    the package: a narrow limit would let another module's seeded rows crowd
+    the discriminating entry out of the result and fail the assertion for a
+    reason that has nothing to do with the query.
+    """
+
+    async def test_an_and_query_requires_both_terms(
+        self, seeded_repository, integration_ariel_config
+    ):
+        """``beam AND orbit`` keeps only the entry carrying both terms."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        results = await keyword_search(
+            query="beam AND orbit",
+            repository=seeded_repository,
+            config=integration_ariel_config,
+            max_results=100,
+        )
+
+        entry_ids = [entry["entry_id"] for entry, _score, _highlights in results]
+        assert "search-kw-002" in entry_ids
+        assert "search-kw-004" not in entry_ids
+
+    async def test_an_author_prefix_narrows_a_text_match(
+        self, seeded_repository, integration_ariel_config
+    ):
+        """``author:oper_smith beam`` keeps only that author's matching entry."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        results = await keyword_search(
+            query="author:oper_smith beam",
+            repository=seeded_repository,
+            config=integration_ariel_config,
+            max_results=100,
+        )
+
+        entry_ids = [entry["entry_id"] for entry, _score, _highlights in results]
+        assert "search-kw-004" in entry_ids
+        assert "search-kw-002" not in entry_ids
 
 
 class TestKeywordSearchCleanup:
