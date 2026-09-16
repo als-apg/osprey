@@ -3738,6 +3738,7 @@ CLI_DEPENDENT_JOBS = (
     "agentic-per-preset",
     "e2e-tests",
     "channel-finder-benchmarks",
+    NO_MODEL_JOB,
     SCAN_AGENTIC_JOB,
     TARGET_SWITCH_AGENTIC_JOB,
 )
@@ -3752,10 +3753,9 @@ def test_cli_dependent_lane_exposes_the_bundled_claude(
     """A lane running agent tests must make ``claude`` resolvable on PATH.
 
     Without it the lane is vacuously green: pytest exits 0 having skipped
-    every test that needed an agent. Only ``scan-agentic-e2e`` carries a
-    zero-skip gate to catch that at runtime, so for the other three this
-    guard is the only thing standing between a silent skip and a green
-    check.
+    every test that needed an agent. Some of these lanes carry a zero-skip
+    gate that catches that at runtime; for the ones that do not, this guard is
+    the only thing standing between a silent skip and a green check.
 
     Pinned by content, not just by step name: the step must both resolve the
     SDK's ``_bundled`` directory and append it to ``GITHUB_PATH``. Appending
