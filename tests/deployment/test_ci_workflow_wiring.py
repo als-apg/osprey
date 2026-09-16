@@ -5940,40 +5940,92 @@ MYPY_JOB = "lint"
 MYPY_STEP = "Run mypy (type checking)"
 
 
-def _mypy_targets_in_ci(wf: dict[str, Any]) -> list[str]:
-    """The trees the CI mypy step names, in the order it names them.
+def _load_mypy_gate() -> Any:
+    """The gate script, loaded by path — ``scripts/`` is not a package."""
+    spec = importlib.util.spec_from_file_location(
+        "_mypy_gate_probe", CI_YML.parents[2] / "scripts" / "mypy_gate.py"
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        sys.modules.pop(spec.name, None)
 
-    Read off the command rather than off a variable: a step that hardcodes a
-    third tree defines nothing new, so keying on anything but the arguments
-    themselves would miss exactly the drift this guard exists to catch.
+
+def test_the_type_check_step_runs_the_gate(workflow: dict[str, Any]) -> None:
+    """The build scores the type check against the baseline beside the gate.
+
+    A bare ``mypy`` invocation prints a count nobody compares to anything; the gate
+    is what turns that count into a verdict about the diff under it.
     """
-    run = _find_named_step(wf, MYPY_JOB, MYPY_STEP)["run"]
-    words = run.split()
-    after_mypy = words[words.index("mypy") + 1 :]
-    return [
-        word.rstrip("/")
-        for word in after_mypy
-        if not word.startswith("-") and word not in {"||", "true"}
-    ]
+    run = _find_named_step(workflow, MYPY_JOB, MYPY_STEP)["run"]
+    assert "scripts/mypy_gate.py" in run, (
+        "the type-check step must run scripts/mypy_gate.py, not a bare mypy"
+    )
 
 
-def test_mypy_targets_match_the_declared_files(
-    workflow: dict[str, Any], pyproject: dict[str, Any]
-) -> None:
-    """CI and a bare local ``mypy`` check the same trees.
-
-    ``[tool.mypy] files`` is what a contributor's own run reads; the CI step
-    spells its trees out. With the two free to drift, a package checked in CI
-    can be invisible to everyone running the checker locally, and the first
-    report of an error is a review comment rather than the editor.
-    """
-    declared = [entry.rstrip("/") for entry in pyproject["tool"]["mypy"]["files"]]
-    assert _mypy_targets_in_ci(workflow) == declared
-
-
-def test_mypy_targets_match_the_declared_files__mutation_drops_a_tree() -> None:
+def test_the_type_check_step_runs_the_gate__mutation_restores_a_bare_run() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, MYPY_JOB, MYPY_STEP)
-    step["run"] = step["run"].replace(" packages/osprey-connectors/src/", "")
+    step["run"] = "uv run mypy src/ packages/osprey-connectors/src/ --no-error-summary"
     with pytest.raises(AssertionError):
-        test_mypy_targets_match_the_declared_files(mutated, _load_pyproject())
+        test_the_type_check_step_runs_the_gate(mutated)
+
+
+def test_the_type_check_step_is_not_advisory(workflow: dict[str, Any]) -> None:
+    """A check whose result cannot fail the job reports to no one.
+
+    Both ways of discarding it are refused: ``continue-on-error`` on the step, and a
+    shell suffix that swallows the command's own status.
+    """
+    step = _find_named_step(workflow, MYPY_JOB, MYPY_STEP)
+    assert "continue-on-error" not in step, "the type-check step must be able to fail the lint job"
+    run = step["run"]
+    assert "|| true" not in run and "|| :" not in run, (
+        "the type-check step must not swallow its own exit status"
+    )
+
+
+def test_the_type_check_step_is_not_advisory__mutation_restores_continue_on_error() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, MYPY_JOB, MYPY_STEP)["continue-on-error"] = True
+    with pytest.raises(AssertionError):
+        test_the_type_check_step_is_not_advisory(mutated)
+
+
+def test_the_type_check_step_is_not_advisory__mutation_restores_the_suffix() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, MYPY_JOB, MYPY_STEP)
+    step["run"] = step["run"].rstrip() + " || true"
+    with pytest.raises(AssertionError):
+        test_the_type_check_step_is_not_advisory(mutated)
+
+
+def test_the_gate_reads_its_targets_from_the_declared_files(pyproject: dict[str, Any]) -> None:
+    """CI and a bare local ``mypy`` check the same trees, by construction.
+
+    The build names no trees at all any more, so there is nothing for CI and a local
+    run to disagree about. What has to hold instead is that the gate keeps deriving
+    them from ``[tool.mypy] files`` rather than growing a list of its own.
+    """
+    gate = _load_mypy_gate()
+    declared = list(pyproject["tool"]["mypy"]["files"])
+    assert gate.declared_targets(CI_YML.parents[2] / "pyproject.toml") == declared
+
+
+def test_the_gate_reads_its_targets_from_the_declared_files__mutation_drops_a_tree(
+    tmp_path: Path,
+) -> None:
+    pyproject = _load_pyproject()
+    trimmed = [
+        entry
+        for entry in pyproject["tool"]["mypy"]["files"]
+        if entry != "packages/osprey-connectors/src"
+    ]
+    mutated = tmp_path / "pyproject.toml"
+    mutated.write_text(f"[tool.mypy]\nfiles = {json.dumps(trimmed)}\n")
+    gate = _load_mypy_gate()
+    assert gate.declared_targets(mutated) != pyproject["tool"]["mypy"]["files"]
