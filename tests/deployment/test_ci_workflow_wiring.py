@@ -2625,20 +2625,67 @@ def test_channel_combobox_browser_test_runs_in_the_browser_lane__mutation_drops_
 # ---------------------------------------------------------------------------
 # (h3) every browser suite on disk: (h) and (h2) each pin one file by name,
 # which is exactly how the next one gets forgotten. The lane's explicit file
-# list is checked against a glob over the tree instead, so a ``*_browser.py``
-# that nobody registers is red here rather than silently never collected.
+# list is checked against the tree instead — a module that marks itself
+# ``browser`` is skipped by the unit lane for want of a chromium binary, so
+# one this lane does not name is collected nowhere at all.
 # ---------------------------------------------------------------------------
 
 TESTS_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = TESTS_ROOT.parent
 
 
+#: The marker a module applies to itself to say it drives a browser. It is
+#: what makes the unit lane skip the module — there is no chromium binary
+#: there — so it is also what decides which lane has to name it.
+BROWSER_MARKER = "browser"
+
+
+def _module_marks(source: str) -> set[str]:
+    """The pytest marker names a module applies to every test it defines.
+
+    Read with ``ast`` rather than by importing: a browser suite pulls in
+    playwright and starts the interface server it drives, neither of which a
+    workflow-wiring check has any business doing. Both ``pytestmark = [...]``
+    and the annotated spelling are read, and a bare ``pytestmark =
+    pytest.mark.browser`` is one mark rather than none.
+    """
+    marks: set[str] = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.AnnAssign):
+            targets, value = [node.target], node.value
+        elif isinstance(node, ast.Assign):
+            targets, value = node.targets, node.value
+        else:
+            continue
+        if value is None:
+            continue
+        if not any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in targets):
+            continue
+        for sub in ast.walk(value):
+            if (
+                isinstance(sub, ast.Attribute)
+                and isinstance(sub.value, ast.Attribute)
+                and sub.value.attr == "mark"
+                and isinstance(sub.value.value, ast.Name)
+                and sub.value.value.id == "pytest"
+            ):
+                marks.add(sub.attr)
+    return marks
+
+
 def _browser_suites_on_disk() -> list[str]:
-    """Every ``tests/**/test_*_browser.py``, repo-relative, POSIX-spelled."""
+    """Every test module that marks itself ``browser``, repo-relative, POSIX-spelled.
+
+    Discovery follows the marker, never the filename: the marker is the
+    module's own declaration that it needs a browser, and a suite is free to
+    be called anything. A filename convention accounts only for the modules
+    that follow it and passes over every other in silence.
+    """
     return sorted(
         path.relative_to(REPO_ROOT).as_posix()
-        for path in TESTS_ROOT.rglob("test_*_browser.py")
+        for path in TESTS_ROOT.rglob("test_*.py")
         if "__pycache__" not in path.parts
+        and BROWSER_MARKER in _module_marks(path.read_text(encoding="utf-8"))
     )
 
 
@@ -2649,11 +2696,48 @@ def _browser_lane_named_files(wf: dict[str, Any]) -> set[str]:
     return {tok for tok in _browser_lane_files(wf).split() if tok.endswith(".py")}
 
 
+#: The number of browser-marked modules in the tree. A discovery that reads
+#: the marker wrongly still returns a plausible-looking list, and every guard
+#: below it would then pass over the difference; a suite deliberately deleted
+#: lowers this by hand.
+BROWSER_SUITE_FLOOR = 37
+
+
 def test_browser_suite_discovery_has_a_floor() -> None:
-    """A glob that finds nothing would make the guards below vacuous."""
+    """A discovery that finds nothing, or finds a fraction, would make the
+    guards below vacuous rather than red."""
     found = _browser_suites_on_disk()
     assert AUTH_BROWSER_TEST_FILE in found
     assert COMBOBOX_BROWSER_TEST_FILE in found
+    assert len(found) >= BROWSER_SUITE_FLOOR, found
+
+
+def test_browser_suite_discovery_covers_every_suite_named_like_one() -> None:
+    """A module called ``test_*_browser.py`` says the same thing its marker
+    says, so the marker has to find all of them. This is the floor that
+    maintains itself: the naming convention is a subset of the marker, and a
+    walk that silently stops reading one of the two spellings of
+    ``pytestmark`` fails here without anyone remembering to raise a count."""
+    found = set(_browser_suites_on_disk())
+    named_like_one = sorted(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in TESTS_ROOT.rglob("test_*_browser.py")
+        if "__pycache__" not in path.parts
+    )
+    missing = [suite for suite in named_like_one if suite not in found]
+    assert missing == [], f"browser suites the marker discovery does not find: {missing}"
+
+
+def test_the_marker_discovery_reads_the_marker_not_the_name() -> None:
+    """The helper the guards rest on, exercised directly: a module is a
+    browser suite because of what it declares, and a module that declares
+    nothing is not one however it is named."""
+    assert BROWSER_MARKER in _module_marks(
+        "import pytest\n\npytestmark = [pytest.mark.browser, pytest.mark.slow]\n"
+    )
+    assert BROWSER_MARKER in _module_marks("import pytest\n\npytestmark = pytest.mark.browser\n")
+    assert BROWSER_MARKER not in _module_marks("import pytest\n\npytestmark = [pytest.mark.slow]\n")
+    assert _module_marks("x = 1\n") == set()
 
 
 def test_every_browser_suite_on_disk_is_named_in_the_browser_lane(
