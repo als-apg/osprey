@@ -75,6 +75,18 @@ TARGET_SWITCH_JOB = "target-switch-e2e"
 #: second step in the one above because it needs the LLM secret and the CLI,
 #: and lane-level `if:` gating is the only granularity GitHub offers.
 TARGET_SWITCH_AGENTIC_JOB = "target-switch-agentic-e2e"
+VA_LIVE_JOB = "va-live-e2e"
+VA_BLUESKY_JOB = "va-bluesky-deploy-e2e"
+#: The run step of each lane that executes modules from tests/va/e2e/. The
+#: partition below is over this mapping, so a further live lane is registered
+#: here and nowhere else.
+VA_LIVE_LANE_RUN_STEPS = {
+    TARGET_SWITCH_JOB: "Run the control-target switch E2E",
+    VA_LIVE_JOB: "Run the live virtual accelerator E2E",
+    VA_BLUESKY_JOB: "Run the two-lane plan deployment E2E",
+}
+VA_E2E_ENABLE_FLAG = "OSPREY_VA_E2E_ENABLE"
+VA_LIVE_SKIP_GATE_STEP = "Fail the lane on any skipped test"
 TWO_SHAPE_JOB = "two-shape-boot-e2e"
 TWO_SHAPE_TEST_FILE = "tests/e2e/test_two_shape_boot.py"
 TWO_SHAPE_BOOT_STEP = "Run two-shape boot E2E (podman)"
@@ -5702,6 +5714,168 @@ def test_all_checks_passed_needs_target_switch_agentic__mutation_drops_check_pr_
     assert TARGET_SWITCH_AGENTIC_JOB in _jobs(mutated)[GATE_JOB]["needs"]
     with pytest.raises(AssertionError):
         test_all_checks_passed_needs_target_switch_agentic(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The live virtual-accelerator lanes: every suite in tests/va/e2e/ is named by
+# exactly one of them
+# ---------------------------------------------------------------------------
+#
+# The directory's conftest skips every test in it unless
+# ``OSPREY_VA_E2E_ENABLE`` is set, so a module here that no lane names is
+# collected on every unit cell, green on every unit cell, and has never run a
+# line of its own body. The lanes' explicit file lists are therefore checked
+# against a glob over the tree rather than against each other: a module added
+# to the directory is red here rather than silently never executed.
+
+VA_LIVE_SUITE_DIR = "tests/va/e2e"
+
+
+def _va_live_suites_on_disk() -> list[str]:
+    """Every ``tests/va/e2e/test_*.py``, repo-relative, POSIX-spelled."""
+    return sorted(
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in (TESTS_ROOT / "va" / "e2e").glob("test_*.py")
+        if "__pycache__" not in path.parts
+    )
+
+
+def _va_live_lane_named_files(wf: dict[str, Any], job_name: str) -> list[str]:
+    """The pytest file arguments of *job_name*'s run step, one token at a time.
+
+    Split on whitespace rather than searched for as substrings, for
+    ``_browser_lane_named_files``' reason: a substring search lets
+    ``test_full_sweep.py`` be satisfied by a file whose name merely ends with
+    it.
+
+    A list rather than a set: a file named twice in one lane is a duplicate
+    the partition check below must still see.
+    """
+    run = _find_named_step(wf, job_name, VA_LIVE_LANE_RUN_STEPS[job_name])["run"]
+    return [token for token in run.split() if token.endswith(".py")]
+
+
+def _va_live_suites_named_by_any_lane(wf: dict[str, Any]) -> list[str]:
+    return [f for job in VA_LIVE_LANE_RUN_STEPS for f in _va_live_lane_named_files(wf, job)]
+
+
+def test_va_live_suite_discovery_has_a_floor() -> None:
+    """A glob that finds nothing would make the guards below vacuous rather
+    than red. One anchor per lane, so the floor covers all three parts of the
+    partition rather than whichever part happens to be largest."""
+    found = _va_live_suites_on_disk()
+    assert f"{VA_LIVE_SUITE_DIR}/test_target_switch.py" in found, found
+    assert f"{VA_LIVE_SUITE_DIR}/test_serving_parity.py" in found, found
+    assert f"{VA_LIVE_SUITE_DIR}/test_bluesky_lanes.py" in found, found
+
+
+def test_every_live_va_suite_is_named_by_one_lane(workflow: dict[str, Any]) -> None:
+    """The covering half of the partition, as one equality rather than two
+    containment checks, so it catches both directions at once: a module on
+    disk that no lane runs, and a lane naming a path that is not there."""
+    named = _va_live_suites_named_by_any_lane(workflow)
+    on_disk = _va_live_suites_on_disk()
+    unrun = sorted(set(on_disk) - set(named))
+    absent = sorted(set(named) - set(on_disk))
+    assert sorted(named) == on_disk, (
+        f"suites on disk that no live lane runs (the unit lane collects them and skips every "
+        f"one, so nothing executes them anywhere): {unrun}; "
+        f"paths named by a live lane that do not exist: {absent}"
+    )
+
+
+def test_every_live_va_suite_is_named_by_one_lane__mutation_drops_one_suite() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    step["run"] = step["run"].replace(f"{VA_LIVE_SUITE_DIR}/test_full_sweep.py ", "")
+    with pytest.raises(AssertionError):
+        test_every_live_va_suite_is_named_by_one_lane(mutated)
+
+
+def test_no_live_va_suite_is_named_by_two_lanes(workflow: dict[str, Any]) -> None:
+    """The disjointness half, and the reason the helper returns a list.
+
+    Naming a module in two lanes is the cheap way to make the covering check
+    above pass, and it buys a second container boot and a second copy of every
+    assertion for nothing.
+    """
+    named = _va_live_suites_named_by_any_lane(workflow)
+    repeats = sorted({f for f in named if named.count(f) > 1})
+    assert sorted(named) == sorted(set(named)), (
+        f"suites named by more than one live lane: {repeats}"
+    )
+
+
+def test_no_live_va_suite_is_named_by_two_lanes__mutation_names_a_suite_in_both_lanes() -> None:
+    """Both halves fail on this mutation, which is what pins that they are
+    genuinely independent rather than one check written twice."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, VA_LIVE_JOB, VA_LIVE_LANE_RUN_STEPS[VA_LIVE_JOB])
+    step["run"] = f"{step['run']} {VA_LIVE_SUITE_DIR}/test_target_switch.py\n"
+    with pytest.raises(AssertionError):
+        test_no_live_va_suite_is_named_by_two_lanes(mutated)
+    with pytest.raises(AssertionError):
+        test_every_live_va_suite_is_named_by_one_lane(mutated)
+
+
+@pytest.mark.parametrize("job_name", sorted(VA_LIVE_LANE_RUN_STEPS))
+def test_live_va_lane_enables_the_directory_flag(
+    job_name: str, workflow: dict[str, Any] | None = None
+) -> None:
+    """Without the flag the directory conftest skips every test the lane
+    names, and the lane goes green having built an image and measured nothing.
+
+    The value is compared as a string because YAML would otherwise parse a
+    bare ``1`` to an integer the shell never sees as the flag's expected
+    value.
+    """
+    wf = workflow if workflow is not None else _load_workflow()
+    step = _find_named_step(wf, job_name, VA_LIVE_LANE_RUN_STEPS[job_name])
+    value = step.get("env", {}).get(VA_E2E_ENABLE_FLAG)
+    assert value == "1", (
+        f"{job_name}: the run step must set {VA_E2E_ENABLE_FLAG} to the string '1'; got {value!r}"
+    )
+
+
+@pytest.mark.parametrize("job_name", sorted(VA_LIVE_LANE_RUN_STEPS))
+def test_live_va_lane_enables_the_directory_flag__mutation_drops_the_flag(job_name: str) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, job_name, VA_LIVE_LANE_RUN_STEPS[job_name])
+    del step["env"][VA_E2E_ENABLE_FLAG]
+    with pytest.raises(AssertionError):
+        test_live_va_lane_enables_the_directory_flag(job_name, mutated)
+
+
+@pytest.mark.parametrize("job_name", sorted(VA_LIVE_LANE_RUN_STEPS))
+def test_live_va_lane_fails_on_any_skipped_test(
+    job_name: str, workflow: dict[str, Any] | None = None
+) -> None:
+    """Each lane's zero-skip gate, pinned by content rather than by step name.
+
+    The gate is what turns every way a lane can skip into a red, and pytest's
+    exit code cannot express the difference: a fully skipped run exits 0. A
+    gate reading a report the run step does not write is a gate over a file
+    that is not there, so the two halves have to be pinned as one fact.
+    """
+    wf = workflow if workflow is not None else _load_workflow()
+    run_step = _find_named_step(wf, job_name, VA_LIVE_LANE_RUN_STEPS[job_name])
+    reports = _junit_reports_written_by([run_step])
+    assert len(reports) == 1, (
+        f"{job_name}: the run step must write exactly one --junitxml report; got {reports}"
+    )
+    gate = _find_named_step(wf, job_name, VA_LIVE_SKIP_GATE_STEP)["run"]
+    assert reports[0] in gate, f"'{VA_LIVE_SKIP_GATE_STEP}' in {job_name} never reads {reports[0]}"
+    assert 'get("skipped"' in gate, f"{job_name}: the gate must read the junit skipped count"
+    assert "sys.exit(1)" in gate, f"{job_name}: the gate must fail the job, not just print"
+
+
+@pytest.mark.parametrize("job_name", sorted(VA_LIVE_LANE_RUN_STEPS))
+def test_live_va_lane_fails_on_any_skipped_test__mutation_drops_the_gate(job_name: str) -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[job_name]
+    job["steps"] = [s for s in job["steps"] if s.get("name") != VA_LIVE_SKIP_GATE_STEP]
+    with pytest.raises(AssertionError):
+        test_live_va_lane_fails_on_any_skipped_test(job_name, mutated)
 
 
 # ---------------------------------------------------------------------------
