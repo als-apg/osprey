@@ -127,9 +127,10 @@ through OSPREY verbs — nothing in it is typed by the agent.
 | --- | --- | --- |
 | Documents (a wiki export, operations manuals, design reports) | One `derived` stub per subsystem, device or procedure the documents describe, filed under the matching OKF directory; then `regen-index` and `validate` | `derived`, this facility |
 | A channel list as CSV (`address, description, family_name, instances, sub_channel`) | `osprey channel-finder build-database --csv <file> --output data/channel_databases/<name>.json` (without `--output` it lands at `processed/channel_database.json` in the profile's data tree) | `built`, this facility |
-| An IOC database or a channel database already in OSPREY's format | Copy in unchanged, then `osprey knowledge build-ttl data/<facility>.ttl --channel-db <hierarchical.json> --descriptions <in_context.json> --facility <prefix>`; set `services.graphdb.ttl_path=./data/<facility>.ttl`. `--facility` is required here: its default is `demo`, and it is stamped into every IRI the corpus mints. `--ontology` defaults to the demo machine's family-to-class table; a facility whose device families differ compiles its own with `osprey knowledge compile-ontology` and names it | `ported` (the database), `built` (the TTL) |
+| An IOC database or a channel database already in OSPREY's format | Copy in unchanged, then `osprey knowledge build-ttl data/<facility>.ttl --channel-db <hierarchical.json> --descriptions <in_context.json> --facility <prefix>`; set `config.services.graphdb.ttl_path=./data/<facility>.ttl`. `--facility` is required here: its default is `demo`, and it is stamped into every IRI the corpus mints. `--ontology` defaults to the demo machine's family-to-class table; a facility whose device families differ compiles its own with `osprey knowledge compile-ontology` and names it | `ported` (the database), `built` (the TTL) |
 | That TTL corpus, for the graph | After `osprey up`: `osprey knowledge seed-graph` loads it into the store; `osprey knowledge build-index` derives the search index | `built` |
 | That TTL corpus, for the OKF bundle | `osprey knowledge seed-from-ttl data/<facility>.ttl data/facility_knowledge` writes one device stub per device node (`--force` to overwrite a `localize` stub written earlier) | `built`, this facility |
+| A MATLAB Middle Layer the facility runs | The chain in §3.1: pull the exporter, the user exports, `osprey mml import`, `osprey mml map`, review, `osprey mml emit`. One pass writes the channel database, the ontology, the OKF pages and the TTL corpus | `stated` (the mapping), `built` (everything emitted) |
 | A lattice file | Copy in unchanged under `data/lattice/`; the SIMULATION area's keys bind it | `ported` |
 | A logbook export | The LOGBOOK feature port for the keys, then `osprey ariel ingest -s <file or URL> -a <adapter>` once the service is up; `-a` takes the adapter names `--help` lists | `ported` |
 
@@ -145,16 +146,110 @@ without `ttl_path` (the comment: "remove the key to bring the store up
 bootstrapped but empty"), and a channel finder in a file-backed mode with the
 template from §4.
 
+### 3.1 A MATLAB Middle Layer
+
+A facility that runs MML already holds its channel names, its device families, its
+units and its own descriptions. This chain moves them into the deployment. The agent
+types none of them.
+
+1. **Pull the exporter.** `osprey scaffold pull control-assistant:data/mml/mml_export.m`
+   lands `data/mml/mml_export.m`. Pull `control-assistant:data/mml/README.md` beside it:
+   that file is the user's copy of steps 2 and 3.
+2. **The user exports, once per sub-machine.** They copy the script onto the MATLAB path
+   of the machine that runs the Middle Layer, run their usual MML setpath for one
+   sub-machine, then `mml_export`. It writes `<machine>.<submachine>.ao.json` and
+   `<machine>.<submachine>.ad.json` into the current folder. Each run writes its own
+   pair, so repeating it per sub-machine overwrites nothing.
+3. **Import.** `osprey mml import <machine>.<sub>.ao.json [<machine>.<sub2>.ao.json ...]`.
+   Name the `.ao.json` files only; the `.ad.json` beside each one is read automatically,
+   and the sub-machine name recorded in the file becomes the system name. It writes
+   `data/mml/ao.json`, `data/mml/ad.json` and `data/mml/PROFILE.md`, and reports the
+   systems, families, distinct PVs and undecided directions it found. `--system` is for
+   a flat export that records no sub-machine name.
+4. **Map.** `osprey mml map --init` writes `data/mml/mapping.yaml`: every slot the export
+   states a fact for is pre-filled, every other slot is `null`. This file is the only
+   place a decision about this facility is recorded.
+5. **Fill every `null`.** A `null` direction or facility token blocks the emit. Ask the
+   user for what the export does not say. Nothing here is guessed.
+6. **Review every derived slot, with the user.** `map --init` marks prose it built from
+   export facts `provenance: derived`, and prose the export itself carried `imported`;
+   a direction it voted is `derived` too. Read each `derived` description against the
+   export, each `derived` direction against what the field does, and each family's
+   `class` and `branch` against the facility's own vocabulary. Correct what is wrong,
+   then set that slot's `provenance: stated`. A direction that disagrees with the vote
+   on purpose also needs `override: true`.
+7. **Check.** `osprey mml map --check --no-derived` exits non-zero while any slot is
+   still `derived` and names each one, so a clean run is the evidence step 6 happened.
+   Plain `--check` is the one to run while the review is still in progress.
+8. **Emit.** `osprey mml emit` writes `data/channel_databases/middle_layer.json` (and
+   `data/channel_databases/tiers/tier3/middle_layer.json` where a `tiers/` directory
+   exists), `data/ontology/<token>.yaml`, `data/facility_ontology.json`, the OKF pages
+   under `data/facility_knowledge/`, and the corpus `data/<token>.ttl`. `--duckdb` imports
+   the channel database into DuckDB as well. Emit refuses while the deployment still holds
+   files it would contradict, and prints one `rm` line naming them: every file under
+   `data/channel_databases/tiers/` other than emit's own `tier3/middle_layer.json`, and
+   any knowledge page still byte-identical to the reference bundle's. Read that line
+   before running it — a database the facility parked under `tiers/` is named there too,
+   demo or not. Run it, then emit again.
+9. **Build.** `osprey build` copies the emitted files into `build/`. The running stack
+   keeps its old copy until then.
+10. **Bind one paradigm.** Emit wrote both channel-finder artifacts. The profile reads
+    one, and the card below is how the user picks it.
+
+Every emitted path is `built`, this facility, and gets its ledger row in the same step.
+
+The PARADIGM card, in the grammar of `references/cards.md`, with one question after it
+— "Which paradigm does this deployment run?":
+
+```
+ ┌ MIDDLE LAYER ── the emitted channel database ────────────────────────┐
+ │ binds      channel_finder_mode=middle_layer                          │
+ │            config.claude_code.servers.channel-finder.enabled=true    │
+ │ needs      channel-finder on the profile's agents list               │
+ │ reads      data/channel_databases/middle_layer.json                  │
+ │ then       osprey build                                              │
+ └──────────────────────────────────────────────────────────────────────┘
+ ┌ GRAPH ── the emitted corpus ─────────────────────────────────────────┐
+ │ binds      channel_finder_mode=graph                                 │
+ │            config.services.graphdb.ttl_path=./data/<token>.ttl       │
+ │            config.claude_code.servers.channel-finder.enabled=true    │
+ │ needs      channel-finder on the profile's agents list               │
+ │ reads      the graph store, seeded from data/<token>.ttl             │
+ │ then       osprey build, osprey up, osprey knowledge seed-graph,     │
+ │            osprey knowledge build-index                              │
+ └──────────────────────────────────────────────────────────────────────┘
+```
+
+`<token>` is `facility.token` from `mapping.yaml`.
+
+Every line under `binds` is an `osprey set` key. `needs` is not: `osprey set` replaces
+a leaf value whole, so `agents=[channel-finder]` would drop every agent the feature
+ports added. Add the name to the profile's `agents` list the way `references/map.md`
+step 5 does. Both boxes need that same agent — the native channel-finder server is the
+finder in either paradigm — and only the `reads` and `then` lines differ between them.
+That server is enabled by default once the agent is on the roster; the card states its
+key so the profile says what it runs.
+
+Never set a `channel_finder.pipelines.*` key: the build derives that group from the
+profile, and `osprey validate` refuses it in the file.
+
+The artifact the answer leaves unread stays on disk and still takes a ledger row:
+`built, unbound (switch paradigms by binding the other box's keys)`.
+
 ## 4. Channel databases
 
-Pull the template, port the facility's own file, or build one from its CSV (§3):
+Pull the template, port the facility's own file, build one from its CSV (§3), or emit
+one from its MATLAB Middle Layer export (§3.1):
 
 ```
 osprey scaffold pull control-assistant:data/channel_databases/TEMPLATE_EXAMPLE.json
 ```
 
 The `examples/` and `tiers/` directories beside it are reference-facility
-material. Leave them. Never hand-write a channel entry. An address the OSPREY
+material. Leave them, with one exception: a database emitted from an MML export
+replaces the demo databases under `tiers/`. `osprey mml emit` refuses while they
+are there, names them in its `rm` line, and writes its own copy to
+`tiers/tier3/middle_layer.json`. Never hand-write a channel entry. An address the OSPREY
 agent guessed is worse than no database, because the deployment acts on it.
 
 ## 5. Write limits

@@ -216,8 +216,8 @@ Nothing is probed before the user names it. The skill never lists an endpoint, r
 channel the user did not name.
 
 **Ask once for references**: repos (control-system definitions, IOC databases, lattice,
-tooling), documents, endpoints (logbook, archiver, ARIEL), channel lists, and who owns
-what.
+tooling), documents, endpoints (logbook, archiver, ARIEL), channel lists, a MATLAB
+Middle Layer, and who owns what.
 
 **Then, per reference, propose one exploration plan** as a single multiple-choice
 question. The options:
