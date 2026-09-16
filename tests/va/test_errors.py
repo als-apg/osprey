@@ -206,13 +206,10 @@ class TestApplyMisalignment:
         assert orbit0 == pytest.approx([0.0] * 6, abs=1e-12)
 
     def test_dx_misalignment_on_a_quad_produces_expected_orbit_shift(self, ring, quad_index):
-        # Reference re-derived on the real ALS-U AR ring (Task 4.4, replacing
-        # the toy ring's ~83 um number): a 300 um dx on QF01 (the first `QF`
-        # family element) gives peak|x| across all 72 BPMs of
-        # 2.4607487918269252e-3 m via find_orbit4 -- measured directly on
-        # this lattice (build_ring()) and reproduced bit-for-bit across
-        # repeated solves. The real AR optics amplify the same 300 um offset
-        # roughly 30x more than the toy ring did.
+        # A 300 um dx on QF01 -- the first `QF` family element of the ALS-U
+        # accumulator ring `build_ring()` returns -- shifts the closed orbit to a
+        # peak |x| of 2.4607487918269252e-3 m across that ring's 72 BPMs, and
+        # `find_orbit4` reproduces the figure bit-for-bit across repeated solves.
         apply_misalignment(ring[quad_index], dx=300e-6)
         try:
             _, orbit_at_bpms = at.find_orbit4(ring, refpts=at.Monitor)
@@ -224,7 +221,7 @@ class TestApplyMisalignment:
 
         # A pure horizontal offset must not, by itself, induce any vertical
         # orbit distortion (no x-y coupling without roll) -- measured exactly
-        # 0.0 on the real ring too. (The converse isn't true: see the dy test
+        # 0.0 on this lattice. (The converse isn't true: see the dy test
         # below for the real ring's y -> x sextupole feed-down.)
         assert np.max(np.abs(orbit_at_bpms[:, 2])) == pytest.approx(0.0, abs=1e-12)
 
