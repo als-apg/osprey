@@ -222,6 +222,7 @@ REQUIRED_TTL_GENERATOR_MODULES = frozenset(
     {
         "osprey.services.facility_knowledge.ttl_generator",
         "osprey.services.facility_knowledge.ttl_generator.direction",
+        "osprey.services.facility_knowledge.ttl_generator.mml_source",
         "osprey.services.facility_knowledge.ttl_generator.model",
         "osprey.services.facility_knowledge.ttl_generator.ontology_map",
     }
@@ -467,6 +468,26 @@ class TestTtlGeneratorRdflibIsolation:
         """The generator writes a file; it must never reach for the graph driver."""
         ok, stderr = _run_neo4j_isolation_check(f"import {module}")
         assert ok, f"neo4j leaked after importing {module}:\n{stderr}"
+
+    def test_mml_source_names_no_yaml_rdflib_or_neo4j_import(self):
+        """The MML source takes a parsed mapping; it imports no YAML, rdflib or neo4j.
+
+        Checked on the module's own source: the ``facility_knowledge`` package
+        root already loads YAML for OKF documents, so a ``sys.modules`` probe
+        could not tell the MML source's imports from its parent package's.
+        """
+        path = REPO_ROOT / "src/osprey/services/facility_knowledge/ttl_generator/mml_source.py"
+        forbidden = {"yaml", "rdflib", "neo4j"}
+        hits = []
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = [node.module]
+            else:
+                continue
+            hits.extend(name for name in names if name.split(".")[0] in forbidden)
+        assert not hits, f"mml_source imports {sorted(hits)}"
 
 
 class TestGraphIndexImportIsolation:
