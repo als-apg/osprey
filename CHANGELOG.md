@@ -311,7 +311,9 @@ this one with
   `tango` beside the existing `mock`, `virtual_accelerator` and `epics`
   blocks, and for `mongodb_archiver` and `doocs_archiver` beside
   `mock_archiver` and `epics_archiver`; each is a commented example, so no
-  rendered configuration changes. `hello-world` points at `osprey config
+  rendered configuration changes. The `tango` stanza spells the device
+  database's conventional port rather than a placeholder, so the line can be
+  copied as written. `hello-world` points at `osprey config
   --defaults`, which now names those types too, beside `control_system.type`
   and `archiver.type`, and prints the accepted values beside every key the
   build refuses to guess at — including the five that carried no note:
@@ -373,6 +375,10 @@ this one with
   linking the project at the build host's installed packages. An install that
   fails now fails the build and reports the resolver's own output, so a built
   project runs against the dependency set it recorded and nothing else.
+- A deployment's service build contexts no longer keep a copy of the site CA
+  bundle under `build/services/<name>/` once the images that needed it are
+  built, matching what the project, persona and auth-sidecar builds already
+  do.
 - Provider facts now come from one producer each, so a deployment that
   configures its own endpoints is reported and run as it is configured.
 
@@ -403,6 +409,10 @@ this one with
     `gateway:` key in a provider entry overrides the built-in default for
     spend-attribution headers, and a misspelled `api_protocol` in
     `providers.yml` is refused at load.
+  - A build for the `asksage` provider reports a missing credential by name
+    instead of failing inside the build: the provider table names
+    `ASKSAGE_API_KEY` as the variable the key arrives in, and `.env.example`
+    lists it.
   - The `osprey status` remedy and the no-provider error name the keys that
     actually set a provider, and `registry_path` is documented.
 - The web terminal's file panel and the artifact gallery keep up with the
@@ -418,9 +428,10 @@ this one with
   outright — on macOS a burst of writes could leave both listings stale until
   the next reload. A directory renamed inside the workspace or the artifacts
   store drops its listing and everything under it, so a long-running
-  terminal's memory stays bounded by the tree it is watching. And a path the
-  operating system reports as bytes no longer stops the watcher with a
-  `TypeError`.
+  terminal's memory stays bounded by the tree it is watching; a directory
+  removed rather than renamed drops that same subtree, however finely the
+  platform reports the removal. And a path the operating system reports as
+  bytes no longer stops the watcher with a `TypeError`.
 - Writes to a virtual accelerator reach the lattice on a facility that does
   not spell addresses the way the demo does. Which channels are setpoints and
   which are their readbacks is read from each channel's `subfield` in the
@@ -498,6 +509,14 @@ this one with
   query instead of over the page it just fetched, so a filter on a logbook
   larger than one page no longer silently drops matching entries or reports a
   total that counts the whole table.
+- ARIEL reaches the adapters and modules a deployment registered itself,
+  whichever way it is entered. The ARIEL panel reads its deployment's
+  registry, so a logbook adapter and that deployment's enhancement modules
+  stay available to it and publishing or creating an entry through such an
+  adapter works from the panel. A process that only searches — the ARIEL MCP
+  server, or any caller that builds the search service itself — finds the
+  registered search modules and can route to a configured mode, and the
+  capabilities report offers the same modes.
 - Operator- and agent-facing copy no longer assumes EPICS, one facility's
   device vocabulary, or a particular logbook product. The visualization tools
   describe the packages their sandbox can actually import, the network guard
@@ -521,7 +540,11 @@ this one with
   the optional `family_label` field. The queue bar item shows the queue as
   busy, and leaves Start alone, when the run engine reports a manager state
   the web terminal does not recognise — it used to read any unrecognised state
-  as "at rest" and offer Start against a manager that was doing something.
+  as "at rest" and offer Start against a manager that was doing something. The
+  BLUESKY panel does the same: Start is not offered, the unfamiliar state is
+  named in the button's tooltip, and an item added in that condition says on
+  the Plans tab that it waits its turn rather than claiming it runs now. Stop
+  stays sendable in every condition and names the state too.
 - The artifact gallery explains an artifact it cannot place. A save under a
   category the gallery does not know now names `artifact_server.categories`,
   the config key that registers a facility's own categories — documented in
@@ -563,6 +586,10 @@ this one with
   server has not registered in time — not only the end-to-end tests its old
   `OSPREY_E2E_MCP_READY_TIMEOUT` name implied. The old name is still read and
   will be dropped after one release.
+- `osprey validate` no longer reports preset drift for a persona's `project`
+  and `project_path`. Those two name the render this deployment builds and
+  mounts, so a repo checked out under any directory name validates the same
+  way.
 - `.env.example` and the generated README no longer claim to list every
   variable the deployment reads. The file carries the variables the deployment
   itself supplies — provider keys, whatever the profile declares, and the
