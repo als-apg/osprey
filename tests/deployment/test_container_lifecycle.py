@@ -1344,6 +1344,14 @@ def test_rebuild_deployment_pins_compose_project_name(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle.subprocess, "run", lambda *a, **k: _FakeCompletedProcess()
     )
+    # `rebuild_deployment` defaults to an attached start, whose watched build
+    # runs through Popen rather than `run` -- unpatched it escapes to a real
+    # container runtime.
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: None),
+    )
     captured: dict = {}
     monkeypatch.setattr(
         container_lifecycle.os,
@@ -1382,9 +1390,10 @@ def test_clean_deployment_pins_compose_project_name(monkeypatch, tmp_path):
 # Under Docker's containerd image store, `compose up --build` can build a
 # local-only tag and then fail container-create with "No such image" in the same
 # call. Wherever a build is intended, run `compose build` first, then
-# `up --no-build`. The non-dev services path is deliberately left on a plain
-# `up` (no --no-build) so compose's implicit build-on-up still covers a
-# build-only service with no published upstream tag.
+# `up --no-build` -- a build and a `create` never share one invocation. The path
+# that leaves the build to compose is the detached non-dev one, which is still
+# there to return when compose is done, so its implicit build-on-up still covers
+# a build-only service with no published upstream tag.
 # ---------------------------------------------------------------------------
 
 
@@ -1422,6 +1431,107 @@ def test_deploy_up_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     # A standalone `build` ran, and a subsequent `up --no-build`.
     assert any(c[-1] == "build" for c in runs), joined
     assert any("up" in c and "--no-build" in c for c in runs), joined
+
+
+_EXEC_MARKER = ["<execvpe>"]
+
+
+def _attached_start_stubs(monkeypatch, tmp_path, runs, execd):
+    """The collaborator set every attached-``deploy_up`` argv test shares.
+
+    Records each compose child argv into *runs* -- including a marker for the
+    ``execvpe`` hand-off, so the order of the build against the exec is a fact
+    of one list -- and the exec'd argv into *execd*.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, env=None, **k: runs.append(list(cmd)) or _FakeCompletedProcess(),
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: runs.append(list(cmd))),
+    )
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvpe",
+        lambda file, args, env: runs.append(_EXEC_MARKER) or execd.update(args=list(args)),
+    )
+
+
+def test_an_attached_start_splits_the_build_from_the_up(monkeypatch, tmp_path):
+    """A non-dev start without ``-d`` builds in a step of its own, then execs
+    ``up --no-build``.
+
+    The exec never returns, so anything that has to happen once the images are
+    built has to happen before it -- an implementation that leaves the build to
+    compose's build-on-up has no process left to do it in.
+    """
+    # An operator shell that exported the prebuilt-images switch would delete
+    # the build this test is about.
+    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    joined = [" ".join(c) for c in runs]
+    assert any(c[-1] == "build" for c in runs), joined
+    assert "up" in execd["args"], execd
+    assert "--no-build" in execd["args"], execd
+    assert "--build" not in execd["args"], execd
+    build_at = next(i for i, c in enumerate(runs) if c[-1] == "build")
+    exec_at = next(i for i, c in enumerate(runs) if c is _EXEC_MARKER)
+    assert build_at < exec_at, joined
+
+
+def test_an_attached_start_on_a_prebuilt_host_builds_nothing(monkeypatch, tmp_path):
+    """A host that declares its images prebuilt has no build tooling, so the
+    attached shape must not be what gives it a build step."""
+    monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "1")
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    joined = [" ".join(c) for c in runs]
+    assert not any(c[-1] == "build" for c in runs), joined
+    assert "up" in execd["args"], execd
+    assert "--no-build" in execd["args"], execd
+
+
+def test_a_detached_non_dev_start_still_leaves_the_build_to_the_up(monkeypatch, tmp_path):
+    """A detached start returns, so compose's implicit build-on-up -- which is
+    what covers a build-only service with no published upstream tag to pull --
+    stays its build."""
+    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    joined = [" ".join(c) for c in runs]
+    assert not any(c[-1] == "build" for c in runs), joined
+    ups = [c for c in runs if "up" in c]
+    assert ups, joined
+    assert "--build" not in ups[-1], joined
+    assert "--no-build" not in ups[-1], joined
 
 
 def test_rebuild_deployment_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
