@@ -1,0 +1,1101 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../../../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Microsoft Teams &#8212; Osprey Framework 2026.9.0b3 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../../../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../../../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../../../_static/custom.css?v=1819b4a7" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../../../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../../../_static/documentation_options.js?v=7a08cdc8"></script>
+    <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../../../_static/copybutton.js?v=30646c52"></script>
+    <script src="../../../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/agent-interfaces/chat-bridges/microsoft-teams';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.9.0b3';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            true;
+        </script>
+    <link rel="canonical" href="https://als-apg.github.io/osprey/how-to/agent-interfaces/chat-bridges/microsoft-teams.html" />
+    <link rel="icon" href="../../../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" />
+    <link rel="next" title="Health and Monitoring" href="../../health-and-monitoring/index.html" />
+    <link rel="prev" title="Google Chat" href="google-chat.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="2026.9.0b3" />
+    <meta name="docbuild:last-update" content="Sep 16, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../../../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../../../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="../../index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../architecture/index.html">
+    Architecture
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../reference/index.html">
+    Reference
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../../../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="../../build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../deploy-a-facility.html">Deploy a Facility</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../deploy-project/index.html">Container Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/compose-templates.html">Compose Templates and Images</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/networking.html">Network Binding and Security</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/env-chain.html">Environment Variables (the <code class="docutils literal notranslate"><span class="pre">.env</span></code> chain)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../deploy-project/project-image.html">The Project Image</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../llm-providers/index.html">LLM Providers</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../llm-providers/configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../llm-providers/run-open-models.html">Run Open &amp; Local Models</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../web-terminal/operate.html">Run the Web Terminal</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../web-terminal/theming.html">Theming</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../web-terminal/notebooks.html">Notebooks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../web-terminal/send-feedback.html">Send and Retrieve Feedback</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../../web-terminal/multi-user/index.html">Multi-User Support</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../../web-terminal/multi-user/tiers.html">Privilege Tiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../../web-terminal/multi-user/login.html">Require a Login</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="../index.html">Agent Interfaces</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="../cli-agent.html">Run the Agent from the Command Line</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l2 current active has-children"><a class="reference internal" href="index.html">Chat Bridges</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="nextcloud-talk.html">Nextcloud Talk</a></li>
+<li class="toctree-l3"><a class="reference internal" href="google-chat.html">Google Chat</a></li>
+<li class="toctree-l3 current active"><a class="current reference internal" href="#">Microsoft Teams</a></li>
+</ul>
+</details></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../health-and-monitoring/index.html">Health and Monitoring</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/configure-health-checks.html">Configure Health Checks</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../health-and-monitoring/monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../control-systems/index.html">Control Systems</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-connectors.html">Use Connectors</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../control-systems/switch-control-target.html">Switch the Control Target at Run Time</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="../../use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../facility-knowledge/index.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/okf-bundle.html">The OKF Bundle</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../facility-knowledge/use-facility-graph.html">Search the Facility Graph</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/search-sidecar.html">The Search Sidecar (<code class="docutils literal notranslate"><span class="pre">qmd</span></code>)</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../../bluesky/index.html">Bluesky Plans</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../../bluesky/run-first-plan.html">Run Your First Plan</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../bluesky/queue.html">Plans and the Queue</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../../bluesky/write-plans.html">Write Your Own Plans</a></li>
+</ul>
+</details></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../../../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="../../index.html" class="nav-link">How-To Guides</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="../index.html" class="nav-link">Agent Interfaces</a></li>
+    
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">Chat Bridges</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Microsoft Teams</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="microsoft-teams">
+<span id="how-to-microsoft-teams"></span><h1>Microsoft Teams<a class="headerlink" href="#microsoft-teams" title="Link to this heading">#</a></h1>
+<p>How to let your team ask the OSPREY agent questions from a Microsoft Teams
+channel or chat, and get answers and plots back in the same conversation.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-checklist" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 1.75v11.5c0 .138.112.25.25.25h3.17a.75.75 0 0 1 0 1.5H2.75A1.75 1.75 0 0 1 1 13.25V1.75C1 .784 1.784 0 2.75 0h8.5C12.216 0 13 .784 13 1.75v7.736a.75.75 0 0 1-1.5 0V1.75a.25.25 0 0 0-.25-.25h-8.5a.25.25 0 0 0-.25.25Zm13.274 9.537v-.001l-4.557 4.45a.75.75 0 0 1-1.055-.008l-1.943-1.95a.75.75 0 0 1 1.062-1.058l1.419 1.425 4.026-3.932a.75.75 0 1 1 1.048 1.074ZM4.75 4h4.5a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1 0-1.5ZM4 7.75A.75.75 0 0 1 4.75 7h2a.75.75 0 0 1 0 1.5h-2A.75.75 0 0 1 4 7.75Z"></path></svg></span><span class="sd-summary-text">Before you start</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<ul class="simple">
+<li><p class="sd-card-text">A project whose build profile has a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block — see
+<a class="reference internal" href="../event-dispatch.html"><span class="doc">Event Dispatch</span></a>.</p></li>
+<li><p class="sd-card-text">Docker or Podman, for the container path.</p></li>
+<li><p class="sd-card-text">An Azure subscription in which you can create an app registration, a bot,
+a Service Bus namespace and a Function App.</p></li>
+<li><p class="sd-card-text">Permission to add an app to your Teams tenant, or a Teams administrator who
+will do it for you.</p></li>
+<li><p class="sd-card-text">The <a class="reference external" href="https://learn.microsoft.com/cli/azure/">Azure CLI</a> (<code class="docutils literal notranslate"><span class="pre">az</span></code>) and the
+<a class="reference external" href="https://learn.microsoft.com/azure/azure-functions/functions-run-local">Azure Functions Core Tools</a>
+(<code class="docutils literal notranslate"><span class="pre">func</span></code>), signed in to that subscription.</p></li>
+</ul>
+</div>
+</details><section id="overview">
+<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<p>The bridge turns a Teams conversation into a way of talking to the agent.
+Someone mentions the bot in a channel or writes to it in a chat, the question is
+handed to the <a class="reference internal" href="../event-dispatch.html"><span class="doc">event dispatch pipeline</span></a>, and the answer
+is posted back in the same conversation.</p>
+<p>Teams differs from the other two platforms in one way that shapes the setup. A
+Teams bot receives messages <strong>only</strong> as an HTTPS POST to an address reachable
+from the public internet — there is nothing for the bridge to read from. So the
+deployment has two pieces rather than one:</p>
+<ul class="simple">
+<li><p>A <strong>relay</strong>: a small Azure Function that is the bot’s public address. It
+checks that each incoming message really came from Microsoft, and puts it on a
+Service Bus queue. It is four files that ship with Osprey; you publish them,
+you do not write them.</p></li>
+<li><p>The <strong>bridge</strong> itself, running in your stack beside the dispatcher. It pulls
+that queue, and posts replies back through the bot connector.</p></li>
+</ul>
+<p>The bridge is therefore still a <strong>reader of a queue, not a server</strong>: it opens no
+port and nothing has to be able to reach it, which is what lets it run on a
+control-room network with no inbound path from the internet. The relay is the
+only public surface, and the only thing it can do is put a validated message on
+your queue.</p>
+<p>Like every bridge, it <a class="reference internal" href="index.html#bridge-memory"><span class="std std-ref">remembers each question and conversation</span></a>. What is particular to Teams is that there is no reading
+position to keep: a message the bridge has not finished with stays on the queue,
+so anything sent while the bridge was down is waiting when it comes back.</p>
+<p>Each question gets an acknowledgement as soon as it is picked up and the answer
+when the run finishes, each as its own message; any plots follow as further
+messages. Nothing is edited after it is posted. In a channel all of them are
+threaded under the question itself; in a one-to-one or group chat, where Teams
+has no threads, the acknowledgement and the answer open with a quote of the
+question’s first line so it is clear which message is being answered.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>If your tenant is GCC High</strong>, the differences are two configuration values,
+not a different deployment. Set <code class="docutils literal notranslate"><span class="pre">TEAMS_CLOUD=gcchigh</span></code> on the bridge and the
+same setting on the relay; the sovereign-cloud login host, token scope,
+signing-key metadata address and issuer are all selected from that one value.
+Point the CLI at the right cloud first with <code class="docutils literal notranslate"><span class="pre">az</span> <span class="pre">cloud</span> <span class="pre">set</span> <span class="pre">--name</span>
+<span class="pre">AzureUSGovernment</span></code>, and read <code class="docutils literal notranslate"><span class="pre">azurewebsites.us</span></code> wherever the commands below
+say <code class="docutils literal notranslate"><span class="pre">azurewebsites.net</span></code>. Everything else on this page is the same.</p>
+</div>
+</section>
+<section id="enable-it-in-a-profile">
+<h2>Enable It in a Profile<a class="headerlink" href="#enable-it-in-a-profile" title="Link to this heading">#</a></h2>
+<p>Add a <code class="docutils literal notranslate"><span class="pre">teams_bridge:</span></code> block to your build profile. The only setting is which
+dispatcher trigger the bridge fires — that trigger decides what the agent is
+allowed to do with a chat question — and the block is only meaningful next to a
+<code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">teams_bridge</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">trigger</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">teams-question</span><span class="w">        </span><span class="c1"># default; must exist in your triggers file</span>
+
+<span class="nt">dispatch</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">triggers</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_triggers.yml</span><span class="w">      </span><span class="c1"># the file that trigger must be declared in</span>
+<span class="w">  </span><span class="nt">worker_count</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">1</span>
+
+<span class="nt">env</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">required</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TEAMS_APP_ID</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TEAMS_APP_SECRET</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TEAMS_TENANT_ID</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TEAMS_SERVICEBUS_CONNECTION_STRING</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TEAMS_SERVICEBUS_QUEUE</span>
+</pre></div>
+</div>
+<p>The bot’s credentials and the queue it reads are <strong>not</strong> profile settings. Which
+tenant this deployment authenticates in and which queue it drains differ per
+deployment — and the client secret and the connection string are secrets that
+must never be baked into a build. Listing them under <code class="docutils literal notranslate"><span class="pre">env.required</span></code> documents
+them in <code class="docutils literal notranslate"><span class="pre">.env.example</span></code>; fill the values into the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>, which
+is where a secret survives a rebuild. The build derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+from it (created mode <code class="docutils literal notranslate"><span class="pre">0600</span></code>, readable only by you).</p>
+<p>Two mistakes are caught at <strong>build</strong> time rather than at runtime: declaring the
+bridge without a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block, and naming a trigger your triggers file
+does not declare. Both fail the build with a message naming the problem.</p>
+<section id="runtime-settings">
+<h3>Runtime settings<a class="headerlink" href="#runtime-settings" title="Link to this heading">#</a></h3>
+<p>These are the ones you create and set yourself.</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Variable</p></th>
+<th class="head"><p>Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_APP_ID</span></code></p></td>
+<td><p>The bot’s app-registration (client) id, a GUID. It is also what an
+&#64;mention is matched against, so a wrong value makes the bridge ignore
+every channel message instead of failing loudly — worth double-checking.
+The relay needs the same value.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_APP_SECRET</span></code></p></td>
+<td><p>The client secret of that app registration, which the bridge exchanges for
+a token to post with. A secret: it belongs in the <code class="docutils literal notranslate"><span class="pre">.env</span></code> and nowhere
+else.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_TENANT_ID</span></code></p></td>
+<td><p>The directory (tenant) id the app registration lives in. Single-tenant
+bots have no default for this.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_SERVICEBUS_CONNECTION_STRING</span></code></p></td>
+<td><p>Connection string for the queue the relay writes to, taken from the
+<strong>Listen-only</strong> policy (<code class="docutils literal notranslate"><span class="pre">bridge-listen</span></code> below). The bridge never sends
+to the queue, so it never holds a key that could.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_SERVICEBUS_QUEUE</span></code></p></td>
+<td><p>The name of that queue. Read the warning below before pointing a second
+deployment at it.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">TEAMS_CLOUD</span></code></p></td>
+<td><p>Optional. Leave it unset for an ordinary commercial tenant. Set it to
+<code class="docutils literal notranslate"><span class="pre">gcchigh</span></code> for a GCC High tenant; those are the only two values, and any
+other one stops the bridge at startup rather than failing later as an
+unexplained authentication error.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The bridge refuses to start if any of the required five is missing, naming all
+the missing variables at once.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><strong>One bridge per queue.</strong> Deploy exactly one bridge against a given queue.
+Service Bus hands each message to only <em>one</em> of a queue’s readers, so a second
+deployment pointed at the same queue — a staging stack, a container someone
+forgot to remove, another facility reusing the name — does not get its own
+copy of every message. It <strong>silently splits</strong> them: each bridge answers only
+the messages it happened to receive, the other questions look to your team
+like they were ignored, and nothing anywhere logs an error. Give every
+deployment its own queue, and its own relay writing to it.</p>
+</div>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-gear" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.09.299.071l1.103-.303c.644-.176 1.392.021 1.82.63.27.385.506.792.704 1.218.315.675.111 1.422-.364 1.891l-.814.806c-.049.048-.098.147-.088.294.016.257.016.515 0 .772-.01.147.038.246.088.294l.814.806c.475.469.679 1.216.364 1.891a7.977 7.977 0 0 1-.704 1.217c-.428.61-1.176.807-1.82.63l-1.102-.302c-.067-.019-.177-.011-.3.071a5.909 5.909 0 0 1-.668.386c-.133.066-.194.158-.211.224l-.29 1.106c-.168.646-.715 1.196-1.458 1.26a8.006 8.006 0 0 1-1.402 0c-.743-.064-1.289-.614-1.458-1.26l-.289-1.106c-.018-.066-.079-.158-.212-.224a5.738 5.738 0 0 1-.668-.386c-.123-.082-.233-.09-.299-.071l-1.103.303c-.644.176-1.392-.021-1.82-.63a8.12 8.12 0 0 1-.704-1.218c-.315-.675-.111-1.422.363-1.891l.815-.806c.05-.048.098-.147.088-.294a6.214 6.214 0 0 1 0-.772c.01-.147-.038-.246-.088-.294l-.815-.806C.635 6.045.431 5.298.746 4.623a7.92 7.92 0 0 1 .704-1.217c.428-.61 1.176-.807 1.82-.63l1.102.302c.067.019.177.011.3-.071.214-.143.437-.272.668-.386.133-.066.194-.158.211-.224l.29-1.106C6.009.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.549.967-.998 1.189-.173.086-.34.183-.5.29-.417.278-.97.423-1.529.27l-1.103-.303c-.109-.03-.175.016-.195.045-.22.312-.412.644-.573.99-.014.031-.021.11.059.19l.815.806c.411.406.562.957.53 1.456a4.709 4.709 0 0 0 0 .582c.032.499-.119 1.05-.53 1.456l-.815.806c-.081.08-.073.159-.059.19.162.346.353.677.573.989.02.03.085.076.195.046l1.102-.303c.56-.153 1.113-.008 1.53.27.161.107.328.204.501.29.447.222.85.629.997 1.189l.289 1.105c.029.109.101.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.549-.967.998-1.189.173-.086.34-.183.5-.29.417-.278.97-.423 1.529-.27l1.103.303c.109.029.175-.016.195-.045.22-.313.411-.644.573-.99.014-.031.021-.11-.059-.19l-.815-.806c-.411-.406-.562-.957-.53-1.456a4.709 4.709 0 0 0 0-.582c-.032-.499.119-1.05.53-1.456l.815-.806c.081-.08.073-.159.059-.19a6.464 6.464 0 0 0-.573-.989c-.02-.03-.085-.076-.195-.046l-1.102.303c-.56.153-1.113.008-1.53-.27a4.44 4.44 0 0 0-.501-.29c-.447-.222-.85-.629-.997-1.189l-.289-1.105c-.029-.11-.101-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"></path></svg></span><span class="sd-summary-text">Settings that are filled in for you, or safe to leave alone</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 30.0%" />
+<col style="width: 70.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p class="sd-card-text">Variable</p></th>
+<th class="head"><p class="sd-card-text">Meaning</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DISPATCH_TRIGGER</span></code></p></td>
+<td><p class="sd-card-text">The trigger to fire. Comes from the profile block.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code>, <code class="docutils literal notranslate"><span class="pre">DISPATCH_WORKER_TOKEN</span></code></p></td>
+<td><p class="sd-card-text">The two shared secrets the bridge needs to reach the dispatcher and
+the worker, generated for you when unset — see
+<a class="reference internal" href="../event-dispatch.html#event-dispatch-auth"><span class="std std-ref">Authentication</span></a>.</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DISPATCHER_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">WORKER_URL</span></code></p></td>
+<td><p class="sd-card-text">Where the dispatcher and worker are — the bridge collects answers and
+files from the worker directly. Filled in for you when they run in the
+same stack; when they run elsewhere you must set them, and the bridge
+refuses to start without them.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DISPATCH_TIMEOUT_SEC</span></code></p></td>
+<td><p class="sd-card-text">How long the worker may spend on one run. Comes from your project
+configuration, so raising it raises it for both halves at once.</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">POLL_BUDGET</span></code></p></td>
+<td><p class="sd-card-text">How long the bridge waits for an answer before giving up on it.
+Defaults to 30 seconds more than the worker’s own limit, and may never
+be less than that limit — the bridge refuses to start if it is.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">POLL_INTERVAL</span></code></p></td>
+<td><p class="sd-card-text">Seconds between checks on an answer in progress (default 2).</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DRAIN_INTERVAL</span></code></p></td>
+<td><p class="sd-card-text">Seconds between sweeps of the queue of questions that could not be
+handed off yet (default 60).</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">RETRY_MIN_AGE</span></code></p></td>
+<td><p class="sd-card-text">How long a failed hand-off is held before it is retried, so a brief
+outage has time to clear (default 20 minutes).</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">RETRY_GIVE_UP</span></code></p></td>
+<td><p class="sd-card-text">Age at which a question that still cannot be handed off is abandoned
+(default 48 hours).</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">RETRY_LIFETIME_CAP</span></code></p></td>
+<td><p class="sd-card-text">Hard ceiling on how long anything may sit in that queue, whatever its
+state (default 7 days).</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">BRIDGE_TRUST_ENV</span></code></p></td>
+<td><p class="sd-card-text">Set to <code class="docutils literal notranslate"><span class="pre">1</span></code> only if this host’s outbound calls must go through your
+site’s web proxy. Off by default, so a proxy inherited from a shell or
+a CI runner cannot quietly place itself in front of Microsoft.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">GITLAB_URL</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_PROJECT</span></code>, <code class="docutils literal notranslate"><span class="pre">GITLAB_ISSUES_TOKEN</span></code></p></td>
+<td><p class="sd-card-text">Where to file an issue when a question is finally given up on. Leave
+unset if you have no such host: nothing is filed and nothing is
+checked.</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">APP_VERSION_DISPLAY</span></code></p></td>
+<td><p class="sd-card-text">A release label shown with each acknowledgement, so a conversation
+shows which version answered: the acknowledgement reads <code class="docutils literal notranslate"><span class="pre">On</span> <span class="pre">it</span> <span class="pre">—</span>
+<span class="pre">working</span> <span class="pre">on</span> <span class="pre">this</span> <span class="pre">now.</span>&#160; <span class="pre">(OSPREY</span> <span class="pre">2026.9.0)</span></code> with this label in the
+parenthesis. When it is unset the bridge uses the version of the
+Osprey package it is running, and drops the parenthesis only if even
+that is unavailable.</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">DEDUP_PATH</span></code>, <code class="docutils literal notranslate"><span class="pre">HISTORY_PATH</span></code></p></td>
+<td><p class="sd-card-text">Where the bridge keeps what it remembers. Both default to files under
+<code class="docutils literal notranslate"><span class="pre">/data</span></code>, its own volume; change them only if you deliberately
+relocate that state.</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">TZ</span></code></p></td>
+<td><p class="sd-card-text">Timezone, taken from your project configuration so timestamps match
+the rest of the stack.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+</details></section>
+</section>
+<section id="bring-it-up">
+<h2>Bring It Up<a class="headerlink" href="#bring-it-up" title="Link to this heading">#</a></h2>
+<p>The commands below use one set of names throughout — resource group
+<code class="docutils literal notranslate"><span class="pre">osprey-teams</span></code>, namespace <code class="docutils literal notranslate"><span class="pre">osprey-teams-bus</span></code>, queue <code class="docutils literal notranslate"><span class="pre">osprey-questions</span></code>,
+Function App <code class="docutils literal notranslate"><span class="pre">osprey-teams-relay</span></code> — so you can paste them in order and change
+the names once, at the top. Namespace, Function App and storage-account names are
+part of a public address, so they must be unique across Azure; pick something
+with your facility in it if these are taken.</p>
+<p><strong>1. Create a resource group to hold everything.</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>login
+az<span class="w"> </span>group<span class="w"> </span>create<span class="w"> </span>--name<span class="w"> </span>osprey-teams<span class="w"> </span>--location<span class="w"> </span>westus2
+</pre></div>
+</div>
+<p>On a GCC High tenant, run <code class="docutils literal notranslate"><span class="pre">az</span> <span class="pre">cloud</span> <span class="pre">set</span> <span class="pre">--name</span> <span class="pre">AzureUSGovernment</span></code> before
+<code class="docutils literal notranslate"><span class="pre">az</span> <span class="pre">login</span></code>, and use one of that cloud’s regions (for example <code class="docutils literal notranslate"><span class="pre">usgovvirginia</span></code>)
+throughout.</p>
+<p><strong>2. Give this deployment its own queue.</strong> One namespace, and one queue that
+nothing else reads — see the warning above for what a shared queue does.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>servicebus<span class="w"> </span>namespace<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>osprey-teams-bus<span class="w"> </span>--sku<span class="w"> </span>Standard
+az<span class="w"> </span>servicebus<span class="w"> </span>queue<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--namespace-name<span class="w"> </span>osprey-teams-bus<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--name<span class="w"> </span>osprey-questions
+</pre></div>
+</div>
+<p><strong>3. Create one key for writing and one for reading.</strong> The relay may only send,
+the bridge may only listen; neither half holds the other’s rights.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>servicebus<span class="w"> </span>queue<span class="w"> </span>authorization-rule<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--namespace-name<span class="w"> </span>osprey-teams-bus<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--queue-name<span class="w"> </span>osprey-questions<span class="w"> </span>--name<span class="w"> </span>relay-send<span class="w"> </span>--rights<span class="w"> </span>Send
+az<span class="w"> </span>servicebus<span class="w"> </span>queue<span class="w"> </span>authorization-rule<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--namespace-name<span class="w"> </span>osprey-teams-bus<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--queue-name<span class="w"> </span>osprey-questions<span class="w"> </span>--name<span class="w"> </span>bridge-listen<span class="w"> </span>--rights<span class="w"> </span>Listen
+</pre></div>
+</div>
+<p>Then read the two connection strings out. Keep them somewhere safe for steps 5
+and 8; they are credentials.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>servicebus<span class="w"> </span>queue<span class="w"> </span>authorization-rule<span class="w"> </span>keys<span class="w"> </span>list<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--namespace-name<span class="w"> </span>osprey-teams-bus<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--queue-name<span class="w"> </span>osprey-questions<span class="w"> </span>--name<span class="w"> </span>relay-send<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--query<span class="w"> </span>primaryConnectionString<span class="w"> </span>--output<span class="w"> </span>tsv
+az<span class="w"> </span>servicebus<span class="w"> </span>queue<span class="w"> </span>authorization-rule<span class="w"> </span>keys<span class="w"> </span>list<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--namespace-name<span class="w"> </span>osprey-teams-bus<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--queue-name<span class="w"> </span>osprey-questions<span class="w"> </span>--name<span class="w"> </span>bridge-listen<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--query<span class="w"> </span>primaryConnectionString<span class="w"> </span>--output<span class="w"> </span>tsv
+</pre></div>
+</div>
+<p><strong>4. Register the bot and the identity it speaks as.</strong> The registration’s name
+is internal; the name your team sees replying is the one you give the Teams app
+in step 7. Single-tenant keeps the bot usable only inside your own directory.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>ad<span class="w"> </span>app<span class="w"> </span>create<span class="w"> </span>--display-name<span class="w"> </span><span class="s2">&quot;OSPREY agent&quot;</span><span class="w"> </span>--sign-in-audience<span class="w"> </span>AzureADMyOrg<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--query<span class="w"> </span>appId<span class="w"> </span>--output<span class="w"> </span>tsv
+az<span class="w"> </span>account<span class="w"> </span>show<span class="w"> </span>--query<span class="w"> </span>tenantId<span class="w"> </span>--output<span class="w"> </span>tsv
+</pre></div>
+</div>
+<p>Note both values — they are <code class="docutils literal notranslate"><span class="pre">TEAMS_APP_ID</span></code> and <code class="docutils literal notranslate"><span class="pre">TEAMS_TENANT_ID</span></code>. Then create
+a client secret, which is shown once and never again:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>ad<span class="w"> </span>app<span class="w"> </span>credential<span class="w"> </span>reset<span class="w"> </span>--id<span class="w"> </span>&lt;app<span class="w"> </span>id&gt;<span class="w"> </span>--display-name<span class="w"> </span>teams-bridge<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--query<span class="w"> </span>password<span class="w"> </span>--output<span class="w"> </span>tsv
+</pre></div>
+</div>
+<p>Now create the bot resource. Its messaging endpoint is the relay’s address,
+which you can write down before the relay exists — it is the Function App name
+you are going to use in step 5:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>bot<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>osprey-agent-bot<span class="w"> </span>--sku<span class="w"> </span>F0<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--app-type<span class="w"> </span>SingleTenant<span class="w"> </span>--appid<span class="w"> </span>&lt;app<span class="w"> </span>id&gt;<span class="w"> </span>--tenant-id<span class="w"> </span>&lt;tenant<span class="w"> </span>id&gt;<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--endpoint<span class="w"> </span>https://osprey-teams-relay.azurewebsites.net/api/messages
+az<span class="w"> </span>bot<span class="w"> </span>msteams<span class="w"> </span>create<span class="w"> </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>osprey-agent-bot
+</pre></div>
+</div>
+<p>The second command turns on the Teams channel; without it the bot exists but
+Teams will not talk to it.</p>
+<p><strong>5. Create the relay’s Function App.</strong> Flex Consumption with one always-ready
+instance: Teams expects an answer from the endpoint within 15 seconds, and an
+app that has scaled to nothing spends most of that budget starting up.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>storage<span class="w"> </span>account<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>ospreyteamsrelay<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--location<span class="w"> </span>westus2<span class="w"> </span>--sku<span class="w"> </span>Standard_LRS
+az<span class="w"> </span>functionapp<span class="w"> </span>create<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>osprey-teams-relay<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--storage-account<span class="w"> </span>ospreyteamsrelay<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--flexconsumption-location<span class="w"> </span>westus2<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--runtime<span class="w"> </span>python<span class="w"> </span>--runtime-version<span class="w"> </span><span class="m">3</span>.11
+az<span class="w"> </span>functionapp<span class="w"> </span>scale<span class="w"> </span>config<span class="w"> </span>always-ready<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>osprey-teams-relay<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--settings<span class="w"> </span><span class="nv">http</span><span class="o">=</span><span class="m">1</span>
+</pre></div>
+</div>
+<p>Then give it its settings. These are the relay’s own names and are <strong>not</strong> the
+bridge’s: in particular the connection string here is the <code class="docutils literal notranslate"><span class="pre">relay-send</span></code> one, and
+the setting is called <code class="docutils literal notranslate"><span class="pre">SERVICEBUS_CONNECTION</span></code>, because the Functions host reads
+it directly so the send key never passes through the relay’s own code.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>az<span class="w"> </span>functionapp<span class="w"> </span>config<span class="w"> </span>appsettings<span class="w"> </span><span class="nb">set</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--resource-group<span class="w"> </span>osprey-teams<span class="w"> </span>--name<span class="w"> </span>osprey-teams-relay<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--settings<span class="w"> </span><span class="nv">TEAMS_APP_ID</span><span class="o">=</span>&lt;app<span class="w"> </span>id&gt;<span class="w"> </span><span class="se">\</span>
+<span class="w">             </span><span class="nv">TEAMS_SERVICEBUS_QUEUE</span><span class="o">=</span>osprey-questions<span class="w"> </span><span class="se">\</span>
+<span class="w">             </span><span class="nv">SERVICEBUS_CONNECTION</span><span class="o">=</span><span class="s2">&quot;&lt;the relay-send connection string&gt;&quot;</span>
+</pre></div>
+</div>
+<p>On a GCC High tenant add <code class="docutils literal notranslate"><span class="pre">TEAMS_CLOUD=gcchigh</span></code> to that same command. Leave it
+unset anywhere else.</p>
+<p><strong>6. Publish the relay.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> copies it into your deployment
+repository, under <code class="docutils literal notranslate"><span class="pre">build/services/teams_bridge/relay/</span></code>. Publish from that
+directory:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>build/services/teams_bridge/relay
+func<span class="w"> </span>azure<span class="w"> </span>functionapp<span class="w"> </span>publish<span class="w"> </span>osprey-teams-relay<span class="w"> </span>--python
+</pre></div>
+</div>
+<p>The endpoint is then live at
+<code class="docutils literal notranslate"><span class="pre">https://osprey-teams-relay.azurewebsites.net/api/messages</span></code> — the address you
+gave the bot in step 4. It accepts anonymous requests on purpose: the proof that
+a message is genuine is the signed token Microsoft sends with it, which the relay
+checks against the bot’s app id before anything reaches your queue. A request
+that fails that check is refused and never enqueued.</p>
+<p><strong>7. Install the app in Teams.</strong> Build a Teams app package — a <code class="docutils literal notranslate"><span class="pre">manifest.json</span></code>
+plus its two icons, zipped — whose <code class="docutils literal notranslate"><span class="pre">bots</span></code> entry carries the app id from step 4:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;bots&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;botId&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;&lt;app id&gt;&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;scopes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;team&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;groupChat&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;personal&quot;</span><span class="p">],</span>
+<span class="w">      </span><span class="nt">&quot;supportsFiles&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;isNotificationOnly&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">]</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Upload it in the Teams admin center, or in Teams itself if your tenant allows
+custom apps, then add the app to each team or chat it should serve. It only sees
+conversations it has been added to.</p>
+<p><strong>8. Fill in the environment file.</strong> Set the values in the <strong>profile’s</strong> <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+(the build derives the project’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> from it):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">TEAMS_APP_ID</span><span class="o">=</span><span class="m">00000000</span>-0000-0000-0000-000000000000
+<span class="nv">TEAMS_APP_SECRET</span><span class="o">=</span>the-secret-from-step-4
+<span class="nv">TEAMS_TENANT_ID</span><span class="o">=</span><span class="m">11111111</span>-1111-1111-1111-111111111111
+<span class="nv">TEAMS_SERVICEBUS_CONNECTION_STRING</span><span class="o">=</span>&lt;the<span class="w"> </span>bridge-listen<span class="w"> </span>connection<span class="w"> </span>string&gt;
+<span class="nv">TEAMS_SERVICEBUS_QUEUE</span><span class="o">=</span>osprey-questions
+<span class="c1"># TEAMS_CLOUD=gcchigh                  # only on a GCC High tenant</span>
+</pre></div>
+</div>
+<p><strong>9. Bring the stack up.</strong> The bridge is registered in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, so
+it starts with everything else:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
+</pre></div>
+</div>
+<p>Then mention the bot in a channel it has been added to and ask it something. If
+nothing happens, work outwards from the bridge: a missing credential stops it at
+startup with the missing variable named. A wrong app id is the quieter failure —
+the bridge runs happily and ignores every channel message, because nothing it
+sees looks like a mention of itself. If the bridge looks idle, check the Function
+App’s logs: a message refused there never reaches the queue, and a relay whose
+settings name the wrong queue writes where nobody is reading.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>The bridge keeps what it remembers — which questions it has answered and the
+recent conversation — in a named volume mounted at <code class="docutils literal notranslate"><span class="pre">/data</span></code>. Do not remove
+that volume. Without it, a restart in the middle of a question can answer it
+twice or drop it, and conversations lose their thread of context.</p>
+</div>
+</section>
+<section id="who-can-ask-and-what-is-shared">
+<span id="what-is-shared-teams"></span><h2>Who Can Ask, and What Is Shared<a class="headerlink" href="#who-can-ask-and-what-is-shared" title="Link to this heading">#</a></h2>
+<p>Who may reach the agent, and what the trigger lets it do, is the same for every
+bridge — see <a class="reference internal" href="index.html#bridge-access"><span class="std std-ref">Who Can Ask</span></a>. What is particular to Microsoft Teams:</p>
+<p><strong>The conversations are the ones the app was added to.</strong> Teams — not Osprey —
+decides who is in those teams and chats, so add the app as deliberately as you
+would choose who gets an account.</p>
+<p><strong>In a channel or a group chat, only a real &#64;mention of the bot is answered.</strong>
+The bridge matches the mention Teams itself records, not the message text, so
+writing the bot’s name in passing does not trigger it. A one-to-one chat has
+nobody else to address, so every message there is a question.</p>
+<p><strong>Other people’s names survive the question.</strong> When a question mentions a
+colleague as well as the bot, the bot’s own mention is removed as addressing and
+every other mention becomes that person’s display name, so the agent sees who was
+named.</p>
+<p><strong>Plots come back inside the conversation.</strong> Each plot arrives as its own
+message directly after the answer, one image per message, attached inline rather
+than linked from anywhere else, so it is visible exactly to the people who can
+see the conversation and to nobody else. This is the opposite
+of the <a class="reference internal" href="google-chat.html"><span class="doc">Google Chat</span></a> deployment, where files are published as
+public links.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><strong>What the agent cannot exchange in Teams.</strong></p>
+<ul class="simple">
+<li><p><em>Only PNG images come back.</em> Each one is fitted into a 1024×1024 box and
+re-encoded before posting; anything still over 1 MB after that is dropped,
+and one last message names what was dropped so the answer never quietly
+omits a plot. Documents — PDFs, CSVs, tables saved to file — are not delivered at
+all in a Teams deployment.</p></li>
+<li><p><em>Images need Pillow.</em> It is installed with the <code class="docutils literal notranslate"><span class="pre">teams</span></code> extra, which the
+shipped image uses. Without it the agent still answers in full text and
+every image is named in the same note rather than attached.</p></li>
+<li><p><em>Files attached to a question are ignored.</em> Teams attachments are not
+downloaded, so a question that says “look at this log” and attaches one gets
+an answer written without it. Paste the relevant part into the message
+instead.</p></li>
+</ul>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="google-chat.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Google Chat</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../../health-and-monitoring/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Health and Monitoring</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#enable-it-in-a-profile">Enable It in a Profile</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-settings">Runtime settings</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bring-it-up">Bring It Up</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#who-can-ask-and-what-is-shared">Who Can Ask, and What Is Shared</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/agent-interfaces/chat-bridges/microsoft-teams.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../../../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../../../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

@@ -1,0 +1,298 @@
+===================
+Plans and the Queue
+===================
+
+Three sentences carry everything on this page. Plans live in a **queue
+server** that survives restarts — not in the agent, not in the panels. The
+queue is either **armed** — a plan you add runs at once, and so does every
+plan added after it — or **stopped**, where plans wait until someone starts
+it; sending a plan toward the machine is the guarded step, whichever click
+does it. **Stopping is never locked** — no token, no switch, no state can
+take the stop and abort buttons away.
+
+A project built from the ``control-assistant`` preset comes up armed
+(``bluesky.queue_autostart``), so the everyday flow is one click: **Run**.
+Stop or Abort leaves the queue stopped until the next **Start**.
+
+.. raw:: html
+   :file: ../../_diagrams/bluesky-queue.html
+
+Everything below is the same queue seen from three sides — pick the one you
+work in.
+
+One queue, three ways to drive it
+=================================
+
+.. tab-set::
+
+   .. tab-item:: Panels
+
+      The **PLAN** tab composes; the **BLUESKY** tab runs and watches. A
+      badge in BLUESKY's status strip names the queue's state on every tab —
+      *ready*, *running*, *stopped*, *stopping after current* — and a **?**
+      beside it explains the buttons.
+
+      - **Run** (PLAN) — on an armed queue, queues exactly the draft on your
+        screen after a confirming click, and it runs now. On a stopped queue
+        the same button reads **Add to queue**: the plan waits.
+      - **Start** (BLUESKY, Queue tab) — arms a stopped queue: it runs
+        everything waiting, in order, and whatever is added later.
+      - **Stop** and **Abort** (BLUESKY) — never disabled. Stop lets the
+        current plan finish; Abort stops it right now, after a second,
+        confirming click. Both leave the queue stopped. They sit on the Queue
+        tab always, quiet while nothing moves, and appear on the other tabs
+        whenever a plan is moving or the state is in doubt.
+      - **Clear** (BLUESKY, Queue tab) — drops every waiting plan, after a
+        confirming click. The running plan is Abort's.
+      - Every queued row has reorder (↑ ↓) and remove (✕) buttons — the queue
+        is editable right up until it runs.
+      - **History** lists finished runs. Each row's ✕ removes that run from
+        the list, and the card's **Clear** removes them all after a
+        confirming click; the Results view offers **Remove from history** for
+        the run on screen. Run data is kept — see *Where the data lives*.
+      - A **Simple mode** hides the expert details and leaves the essentials:
+        the form, the queue, the results, and the halts.
+
+      See :doc:`/how-to/web-terminal/panels` for where these tabs live.
+
+   .. tab-item:: Chat with the agent
+
+      Ask in plain language — "queue that plan and start it", "stop the
+      queue", "abort the plan" — and the agent drives the same queue with a
+      small set of tools:
+
+      - ``get_draft`` / ``set_draft`` — compose the shared draft you see in
+        BLUESKY's Plans view.
+      - ``queue_add`` — queues the pinned draft; on an armed queue that runs
+        it. ``queue_start`` — arms a stopped queue. Both ask for your
+        approval, and both are switched off entirely while the project's
+        control-system writes are disabled.
+      - ``queue_stop`` / ``stop_run`` — the two halts. Never switched off.
+      - ``queue_list`` / ``queue_status`` / ``list_runs`` / ``get_run_data``
+        — read what is queued, running, and measured.
+      - ``get_run_figure`` — read the same figure the BLUESKY panel is
+        drawing, so you and the agent are discussing one picture.
+
+      A bundled skill (``operating-bluesky-plans``) teaches the agent this
+      flow, so you rarely need to name a tool yourself.
+
+   .. tab-item:: HTTP API
+
+      The panels and the agent both talk to the **Bluesky bridge**, and your
+      own tooling can too:
+
+      .. code-block:: text
+
+         POST   /queue/items        add the current draft revision (runs at once
+                                    on an armed queue — then needs the launch token)
+         POST   /queue/start        arm the queue (needs the launch token)
+         POST   /queue/stop         stop after the running item, and disarm
+         POST   /queue/abort        abort the running plan, and disarm — never gated
+         DELETE /queue/items        drop every waiting item
+         GET    /queue              what is queued and running
+         GET    /runs               recent runs; /runs/<id>/data for the numbers,
+                                    /runs/<id>/figure for the plotted view
+         DELETE /runs/<id>          remove one finished run from the list
+         DELETE /history            remove every finished run from the list
+
+      Every refusal comes back with a ``detail`` object of the form
+      ``{"code": ..., "detail": ...}`` — a stable code for software to
+      branch on, a sentence for a human to read. The panels and the agent
+      show that same sentence, so every surface describes the same event
+      the same way.
+
+Managing the queue
+==================
+
+The queue is a plan of what the machine is about to do, and it stays
+editable while idle: reorder items, remove them, keep adding. Two honest
+quirks worth knowing:
+
+- **Progress can be absent, and absent is not zero.** Plans that cannot
+  predict their total point count report "N points so far" rather than a
+  made-up percentage.
+- **The run list is recent history, not the archive.** A run the list has
+  forgotten still has its data — see *Where the data lives* below.
+
+.. dropdown:: What needs arming — the full picture
+   :color: info
+   :icon: shield-check
+
+   The **launch token** is a credential the deployment holds; it guards
+   exactly the operations that send work toward hardware.
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 55 45
+
+      * - Operation
+        - What it needs
+      * - Compose or edit the shared draft
+        - Nothing — composing never touches hardware.
+      * - Add to a **stopped** queue
+        - Nothing — the item just waits.
+      * - Add to an **armed** or **running** queue
+        - The launch token — this hands work straight to the machine. On the
+          ``control-assistant`` preset the queue is armed by default, so this
+          is the everyday case.
+      * - Start (arm) the queue
+        - The launch token.
+      * - Stop the queue / abort the running plan
+        - Nothing. Ever. Anywhere.
+      * - Withdraw a pending stop
+        - The launch token — it lets the queue keep draining.
+
+   The agent is held to a harder rule on top of this: where the project may
+   write to no control target at all, its ``queue_add`` and ``queue_start``
+   tools are denied outright — it cannot queue or start anything, even on an
+   idle queue. Its halts and its read tools are never taken away.
+
+   Write posture is per control target, and each queue lane is bound at build
+   time to one target, so a deployment can arm the lane that drives the
+   simulator and leave the lane that drives the live machine unarmed. Nothing
+   is denied up front on such a deployment — the deny list is written once,
+   before a session picks a target — and ``queue_add`` and ``queue_start``
+   refuse per call instead, with ``writes_disabled``, naming the lane's machine.
+
+   In a deployed control room the agent holds the launch token only where the
+   deployment grants it, and it is granted **per lane**: to a persona whose
+   config arms writes for the machine that lane drives and that also runs the
+   bluesky MCP server. A persona can hold the simulator lane's token and none
+   for the live one. Where it is granted, the agent's
+   ``queue_start`` arms the queue itself, and your approval of that tool call
+   is the arming decision. Where it is not, ``queue_start`` is refused with
+   ``launch_token_required`` and the start stays with you, from the BLUESKY
+   queue panel's own **Start** button.
+
+   On a two-lane deployment the BLUESKY panel carries a **lane picker** in its
+   status strip, labelled by the machine each lane drives. The panel is bound
+   to one lane at a time — plans, shared draft, queue and results all follow
+   the picked lane, and its Start button arms with that lane's own token —
+   so what you see and what a click starts can never belong to two different
+   machines.
+
+.. dropdown:: When something is refused
+   :color: info
+   :icon: alert
+
+   A refusal always says why. The codes you will actually meet:
+
+   ``stale_draft_revision`` / ``draft_revision_already_launched``
+      The draft changed since you looked, or that exact revision has already
+      been queued once. Re-read the draft; edit it to mint a fresh revision
+      for a repeat.
+
+   ``launch_token_required``
+      The operation was armed and the caller held no valid token. Nothing was
+      started. An agent meets this where the deployment did not grant it a
+      token, where the token it holds does not match the bridge's, or where
+      no launch token is configured at all — hand the start to the operator.
+
+   ``browse_only_connector``
+      This deployment cannot execute plans at all — it is pointed at the
+      ``mock`` control system. Composing still works; the refusal names the
+      command that switches to an executing connector.
+
+   ``session_plan_unvalidated``
+      An agent-written plan must pass validation, byte for byte, before it
+      runs — see :doc:`write-plans`.
+
+   ``interrupted_item_in_queue``
+      The queue still holds a plan someone stopped — see the next dropdown.
+
+   ``manager_unreachable``
+      The queue server is not answering — often it is simply still starting.
+      Wait a moment and retry.
+
+.. dropdown:: After an emergency stop
+   :color: info
+   :icon: stop
+
+   A stopped plan does not vanish. The queue server records the run in
+   history **and puts a copy of the item back at the front of the queue**, so
+   a human can decide what happens next. Until that copy is removed, every
+   attempt to start the queue is refused — a plan someone emergency-stopped
+   can never sneak back onto the machine.
+
+   Removing it is the deliberate step: the ✕ on its queue row, or the
+   assistant's ``queue_remove`` tool — which asks for your approval, so the
+   decision stays yours either way. To actually run it again afterwards,
+   stage it through the draft and add it afresh.
+
+.. dropdown:: Where the data lives
+   :color: info
+   :icon: database
+
+   - **While a plan runs**, the panels and the agent read live rows from the
+     bridge's own buffer.
+   - **After that**, the data is durable in **Tiled**, the deployment's data
+     store (part of the tutorial preset; optional elsewhere) — it outlives
+     the run list, the queue server's history, and any restart. A run id
+     whose entry has aged out of the list still answers with its data.
+   - **The queue itself** lives in the queue server's own storage, so a
+     bridge restart changes nothing about what is queued. The one gap: live
+     rows of a run that is happening *during* a bridge restart are missing
+     from the live view until the next run starts — the run itself keeps
+     going and its data still lands in Tiled.
+   - **Removing a run from History** forgets the list entry, not the data.
+     Clearing the history clears the queue server's own record; removing one
+     run hides it from OSPREY's list — the panel and the agent alike — and the
+     bridge remembers that across its own restarts.
+
+.. dropdown:: For deployers — what is running
+   :color: info
+   :icon: server
+
+   A project built from the ``control-assistant`` preset brings the whole
+   stack up with ``osprey up``: the **bridge** (the HTTP front door,
+   port 10080), the **queue server** with its own storage, the **bluesky-web**
+   sidecar serving the BLUESKY panel (port 10071), the **Virtual Accelerator** (the
+   preset's default control system), and — when enabled — **Tiled** (port
+   10070). Those are the deployment's port layout at its default base
+   (:ref:`reference-ports`). The launch token is minted automatically at deploy
+   time and stored in the project's ``.env``.
+
+   The build profile's ``bluesky:`` block can pin those ports, and sets the
+   Tiled store, which plans the catalog carries, and the device file plans may
+   drive or record — see :doc:`/reference/configuration/profile`. Whether the
+   queue comes up armed is ``bluesky.queue_autostart``: on in the
+   ``control-assistant`` preset, off unless a deployment says so.
+
+   Whether a deployment can execute plans at all is decided by its control
+   system. The queue worker builds its devices over Channel Access, so the
+   connectors that speak it execute plans — ``epics``, ``virtual_accelerator``
+   and the live stand-in — and every other one browses. ``mock`` browses
+   because it moves nothing; a connector for another protocol browses because
+   no device layer for it exists yet, which is a gap in the plan stack rather
+   than a property of the facility. The panels and the agent both surface this
+   as a capability banner; on the ``mock`` connector it names the flip:
+
+   .. code-block:: bash
+
+      osprey set connector=virtual_accelerator
+
+   Run ``osprey build`` and ``osprey up`` afterwards to carry the change into
+   the running stack. That switch needs a real archive behind it: a deployment
+   created from the ``control-assistant`` preset has one and the flip just
+   works; one still reading the mock archiver is refused at build time, and told
+   to point ``archiver.type`` at a store its deployment writes first — see
+   :doc:`../control-systems/use-virtual-accelerator`.
+
+   One timing detail worth knowing: the channel limits a plan's writes are
+   checked against come from the file
+   ``control_system.limits_checking.database_path`` names, and ``osprey build``
+   stages its **own copy** of that file for the plan lane. So widening or
+   tightening a limit in your deployment repository reaches the queue server at
+   the next ``osprey build`` (and ``osprey up``) — not the moment you save the
+   file.
+
+.. seealso::
+
+   :doc:`run-first-plan`
+      The worked example, from asking to watching points land.
+
+   :doc:`write-plans`
+      Trust tiers and adding plans of your own.
+
+   :doc:`/how-to/control-systems/use-virtual-accelerator`
+      The connector that makes a deployment able to execute.
