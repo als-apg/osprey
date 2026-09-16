@@ -88,12 +88,19 @@ Linting and Formatting
    uv run ruff check --fix src/ tests/
 
    # Type checking
-   uv run mypy
+   uv run python scripts/mypy_gate.py
 
-The type check's targets are declared in ``pyproject.toml``: it covers the
-framework source and the connectors package together. A run that names a single
-file is for a quick look only — it resolves less than the full run and reports
-errors the full run does not.
+The type check is held to a written-down set of errors: ``scripts/mypy_baseline.json``
+lists every error the tree reports today, and the gate beside it fails on an error the
+baseline does not already carry. An error that disappears is reported as a notice, never
+a failure. ``uv run mypy`` on its own is still the way to read the full report, and once
+errors are actually fixed, ``uv run python scripts/mypy_gate.py --update`` refreshes the
+baseline.
+
+The check's targets are declared in ``pyproject.toml``: it covers the framework source
+and the connectors package together, and the gate reads that same list, so CI and a local
+run check the same trees. A run that names a single file is for a quick look only — it
+resolves less than the full run and reports errors the full run does not.
 
 Testing
 ^^^^^^^
