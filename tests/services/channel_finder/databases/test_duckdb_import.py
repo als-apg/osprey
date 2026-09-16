@@ -102,6 +102,56 @@ class TestImportedContent:
         assert member_of == "BPM, Diagnostics"
         assert units == "mm"
 
+
+class TestEngineeringUnit:
+    """``channels.units`` holds the unit a field is served in, never the MML mode word."""
+
+    @pytest.mark.parametrize(
+        ("meta", "expected"),
+        [
+            ({"Units": "Hardware", "HWUnits": "Amps", "PhysicsUnits": "rad"}, "Amps"),
+            ({"Units": "Physics", "HWUnits": "Amps", "PhysicsUnits": "rad"}, "rad"),
+            ({"HWUnits": "mm"}, "mm"),
+            ({"Units": "mm"}, "mm"),
+            ({"Units": "Hardware", "HWUnits": ["nm", "nm", "nm"]}, "nm"),
+            ({"Units": "Hardware", "HWUnits": ["nm", "", " "]}, "nm"),
+            ({"Units": "Hardware", "HWUnits": ["nm", "mm"]}, ""),
+            ({"Units": "Hardware", "HWUnits": []}, ""),
+            ({"Units": "Hardware"}, ""),
+            ({"Units": "Physics", "HWUnits": "Amps"}, ""),
+            ({}, ""),
+        ],
+    )
+    def test_unit_per_metadata_shape(self, meta: dict, expected: str):
+        """A mode word selects the unit key; any other ``Units`` string is the unit."""
+        assert dimp._engineering_unit(meta) == expected
+
+    def test_mode_word_never_reaches_the_column(self, tmp_path: Path):
+        """A field served in hardware units lands its ``HWUnits`` in ``units``."""
+        data = {
+            "SR": {
+                "HCM": {
+                    "Setpoint": {
+                        "ChannelNames": ["SR01:HCM:SP"],
+                        "Units": "Hardware",
+                        "HWUnits": "Amps",
+                        "PhysicsUnits": "rad",
+                    }
+                }
+            }
+        }
+        src = tmp_path / "ml.json"
+        src.write_text(json.dumps(data))
+        out = str(tmp_path / "out.duckdb")
+        dimp.import_to_duckdb(str(src), out)
+
+        con = duckdb.connect(out)
+        try:
+            (units,) = con.execute("SELECT units FROM channels").fetchone()
+        finally:
+            con.close()
+        assert units == "Amps"
+
     def test_device_map_pairs_index_to_common_name(self, mml_json: str, tmp_path: Path):
         out = str(tmp_path / "out.duckdb")
         dimp.import_to_duckdb(mml_json, out)
