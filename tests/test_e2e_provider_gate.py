@@ -16,9 +16,16 @@ from types import SimpleNamespace
 import pytest
 
 from osprey.models.provider_registry import PROVIDER_API_KEYS
+from osprey.profiles.providers import load_provider_catalog
 from tests.conftest import _e2e_provider_availability
 from tests.e2e import conftest as e2e_conftest
-from tests.e2e.provider import E2E_PROVIDER_ENV, FORCE_PROVIDER_ENV, build_provider, e2e_provider
+from tests.e2e.provider import (
+    E2E_PROVIDER_ENV,
+    FORCE_PROVIDER_ENV,
+    build_provider,
+    e2e_provider,
+    gateway_base_url,
+)
 
 #: The lanes that build a deployment repo and run an agent against it. They gate
 #: on the provider the run named; every other e2e module pins a provider in its
@@ -160,6 +167,64 @@ def test_a_named_provider_lets_configure_register_its_markers(
     config = _StubConfig()
     e2e_conftest.pytest_configure(config)
     assert any(line.startswith("e2e:") for line in config.markers)
+
+
+# ---------------------------------------------------------------------------
+# gateway_base_url: the endpoint a lane calls, and what overrides it
+# ---------------------------------------------------------------------------
+
+
+def test_a_catalog_provider_takes_the_packaged_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The catalog is where a gateway's address is written, so a lane that
+    exported no override gets whatever that entry carries — asserted against
+    the catalog rather than a spelled host, which would pin an address no
+    deployment renders."""
+    monkeypatch.delenv("CBORG_BASE_URL", raising=False)
+    assert (
+        gateway_base_url("cborg", "CBORG_BASE_URL")
+        == load_provider_catalog(None).entries["cborg"]["base_url"]
+    )
+
+
+def test_an_exported_override_beats_the_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A runner reaching the gateway somewhere else names that host, and the
+    reader offers it instead of the catalog's own entry."""
+    monkeypatch.setenv("CBORG_BASE_URL", "https://mirror.example.org/v1")
+    assert gateway_base_url("cborg", "CBORG_BASE_URL") == "https://mirror.example.org/v1"
+
+
+def test_a_blank_override_is_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Whitespace is not an address. The variable is read the way
+    :func:`e2e_provider` reads its own, so the two agree on what a shell that
+    exported an empty string said."""
+    monkeypatch.setenv("CBORG_BASE_URL", "   ")
+    assert (
+        gateway_base_url("cborg", "CBORG_BASE_URL")
+        == load_provider_catalog(None).entries["cborg"]["base_url"]
+    )
+
+
+def test_a_catalog_entry_that_defers_to_a_shell_names_no_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An entry whose ``base_url`` is an unexpanded reference states where the
+    address comes from, not what it is. With nothing exported the lane has no
+    route to offer; with the variable set the same call returns what it holds."""
+    monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+    assert gateway_base_url("als-apg", "ALS_APG_BASE_URL") is None
+    monkeypatch.setenv("ALS_APG_BASE_URL", "https://gateway.example.org/v1")
+    assert gateway_base_url("als-apg", "ALS_APG_BASE_URL") == "https://gateway.example.org/v1"
+
+
+def test_a_provider_the_catalog_does_not_carry_has_no_endpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A name no entry uses reads as endpointless rather than raising: the
+    caller's answer is that there is no route, not that the catalog is wrong."""
+    monkeypatch.delenv("NO_SUCH_GATEWAY_BASE_URL", raising=False)
+    assert gateway_base_url("no-such-provider", "NO_SUCH_GATEWAY_BASE_URL") is None
 
 
 # ---------------------------------------------------------------------------
