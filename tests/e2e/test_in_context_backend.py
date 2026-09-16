@@ -91,7 +91,10 @@ elif _CBORG_KEY:
     _PROVIDER = "cborg"
     _PROVIDER_API_KEY = _CBORG_KEY
     _SUBAGENT_MODEL = "anthropic/claude-haiku"  # CBORG model name
-    _PROVIDER_BASE_URL = "https://api.cborg.lbl.gov/v1"
+    # An override, not the address: the packaged catalog already names this
+    # gateway, so an unset variable leaves that endpoint standing and a set
+    # one redirects the lane at whichever host this runner can reach.
+    _PROVIDER_BASE_URL = os.environ.get("CBORG_BASE_URL", "")
     _BACKEND_MODEL = "cborg/claude-haiku-4-5"
     _EXPECTED_WIRE = "claude-haiku-4-5"
 else:
