@@ -958,6 +958,189 @@ def test_every_boot_smoke_test_runs_in_one_cell__mutation_hides_the_case_in_a_cl
 
 
 # ---------------------------------------------------------------------------
+# A file the unit lane ignores by name runs somewhere that is not gated
+# ---------------------------------------------------------------------------
+
+#: Files the unit lane drops from its sweep that are NOT subject to the rule
+#: below, each with the reason. A file named here runs somewhere that does not
+#: run on every event the unit lane does, which is the deliberate trade in each
+#: case:
+#:
+#:  * the two live Channel Access modules run one pytest process per module
+#:    through scripts/va/live_ca/gate.py, in a step of the unit job itself that
+#:    is gated on a single matrix cell. libca is process-global and not
+#:    thread-safe, so a shared xdist worker is precisely what they cannot have,
+#:    and the gate — not a path in a run step — is what proves they ran;
+#:  * the search-index scale guard holds latency budgets taken on a workstation
+#:    that four workers sharing a runner miss by design, so it runs alone in the
+#:    on-demand benchmark job. The `channel_finder_benchmark` marker text in
+#:    pyproject.toml states the same rule from the other side.
+UNIT_LANE_IGNORE_EXEMPTIONS = frozenset(
+    {
+        "tests/va/test_record_factory.py",
+        "tests/va/test_apply_fault.py",
+        "tests/services/channel_finder/graph_index/test_scale.py",
+    }
+)
+
+#: An `--ignore=` argument on a pytest invocation.
+_IGNORE_ARG_RE = re.compile(r"--ignore=(\S+)")
+
+
+def _unit_lane_ignored_files(wf: dict[str, Any]) -> list[str]:
+    """Files the unit lane's own pytest line drops by name, minus the exemptions.
+
+    Only paths ending in ``.py`` are subject to the rule. A directory ignore is a
+    different statement — ``tests/e2e`` names a suite with a whole set of lanes of its
+    own and a conftest that refuses to run outside them — and it is not a file that
+    could be hosted by one job.
+    """
+    return sorted(
+        path
+        for path in _IGNORE_ARG_RE.findall(_unit_test_pytest_line(wf))
+        if path.endswith(".py") and path not in UNIT_LANE_IGNORE_EXEMPTIONS
+    )
+
+
+def _unconditional_hosts(wf: dict[str, Any], path: str) -> list[str]:
+    """Jobs that run *path* by name with nothing gating the job or the step.
+
+    Both gates are read, because either alone reinstates the hole the ignore would
+    otherwise open: a job with an ``if:`` runs on a subset of the events the unit lane
+    runs on, and so does an unconditional job whose step is gated on a matrix cell.
+
+    ``--ignore=`` arguments are stripped from a step's text before the search. A lane
+    that declines to run a file names it exactly as literally as one that runs it, and
+    reading the first as coverage would let any file be hosted by whichever lane
+    dropped it.
+    """
+    hosts = []
+    for name, job in _jobs(wf).items():
+        if name == UNIT_TEST_JOB or "if" in job:
+            continue
+        for step in job.get("steps", []):
+            if "if" in step:
+                continue
+            if path in _IGNORE_ARG_RE.sub("", str(step.get("run", ""))):
+                hosts.append(name)
+                break
+    return sorted(hosts)
+
+
+def test_every_file_the_unit_lane_ignores_runs_in_an_unconditional_job(
+    workflow: dict[str, Any],
+) -> None:
+    """An ignore is the one way to stop running a test that reports nothing and
+    reds nothing: no skip, no summary line, every check still green. So each
+    one has to name a file that some unconditional job runs by name. The
+    exemptions above are the entries for which that is deliberately untrue, and
+    they are listed with their reasons rather than skipped."""
+    ignored = _unit_lane_ignored_files(workflow)
+    assert ignored, (
+        f"the '{UNIT_TEST_JOB}' lane's pytest line names no file outside "
+        f"{sorted(UNIT_LANE_IGNORE_EXEMPTIONS)} — either this scan or the shape of that "
+        f"line has gone stale, and the rule below is holding nothing"
+    )
+    unhosted = [path for path in ignored if not _unconditional_hosts(workflow, path)]
+    assert unhosted == [], (
+        f"the '{UNIT_TEST_JOB}' lane ignores {unhosted} and no unconditional job runs "
+        f"them by name, so they run on fewer events than the lane does — or on none. "
+        f"Give each one a job that carries no `if:` and a step that carries none "
+        f"either, or add it to UNIT_LANE_IGNORE_EXEMPTIONS beside its reason."
+    )
+
+
+def test_every_ignored_file_has_a_host__mutation_drops_the_host_step() -> None:
+    """A file whose only unconditional host step is deleted is ignored by the
+    lane and run by nothing at all."""
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[BOOT_SMOKE_JOB]["steps"]
+    _jobs(mutated)[BOOT_SMOKE_JOB]["steps"] = [
+        step for step in steps if step.get("name") != BOOT_SMOKE_STEP
+    ]
+    assert len(_jobs(mutated)[BOOT_SMOKE_JOB]["steps"]) == len(steps) - 1, (
+        f"no step named {BOOT_SMOKE_STEP!r} in {BOOT_SMOKE_JOB} — mutation is stale"
+    )
+    assert _unconditional_hosts(mutated, "tests/integration/test_preset_static.py"), (
+        "the other ignored module must keep its host, or the mutation proves nothing "
+        "about the one it removed"
+    )
+    with pytest.raises(AssertionError):
+        test_every_file_the_unit_lane_ignores_runs_in_an_unconditional_job(mutated)
+
+
+def test_every_ignored_file_has_a_host__mutation_gates_the_host_job() -> None:
+    """The dangerous half: the step still names the file, so the file still
+    appears to have a home — it just stopped being read on most events."""
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[PARSE_ONLY_JOB]["if"] = "github.event_name == 'pull_request'"
+    hosting = [
+        step
+        for step in _jobs(mutated)[PARSE_ONLY_JOB]["steps"]
+        if "tests/integration/test_preset_static.py" in str(step.get("run", ""))
+    ]
+    assert len(hosting) == 1 and "if" not in hosting[0], (
+        f"expected one ungated step naming the file in {PARSE_ONLY_JOB}; got {hosting}"
+    )
+    with pytest.raises(AssertionError):
+        test_every_file_the_unit_lane_ignores_runs_in_an_unconditional_job(mutated)
+
+
+def test_every_ignored_file_has_a_host__mutation_gates_the_host_step() -> None:
+    """A gate on the step is the same hole as a gate on the job: the file is
+    read on a subset of the events the unit lane would have read it on."""
+    mutated = copy.deepcopy(_load_workflow())
+    assert "if" not in _jobs(mutated)[BOOT_SMOKE_JOB], (
+        f"{BOOT_SMOKE_JOB} already carries an `if:` — mutation is stale"
+    )
+    _find_named_step(mutated, BOOT_SMOKE_JOB, BOOT_SMOKE_STEP)["if"] = (
+        "matrix.preset == 'hello-world'"
+    )
+    with pytest.raises(AssertionError):
+        test_every_file_the_unit_lane_ignores_runs_in_an_unconditional_job(mutated)
+
+
+def test_every_ignored_file_has_a_host__mutation_a_host_that_only_ignores_the_file() -> None:
+    """The shared e2e lane spells one of its files in an ``--ignore=``, so a
+    substring read of that step would report the file as covered by the very
+    lane that specifically declines to run it.
+
+    That lane's own job gate is lifted first, and the step naming the file is
+    checked to carry none either, so what keeps the lane out of the hosts is the
+    stripping under test and not a gate that would have excluded it anyway.
+    """
+    mutated = copy.deepcopy(_load_workflow())
+    assert TEAMS_TEST_FILE in json.dumps(_jobs(mutated)[E2E_TESTS_JOB]), (
+        f"{E2E_TESTS_JOB} no longer names {TEAMS_TEST_FILE} at all; this probe is stale"
+    )
+    del _jobs(mutated)[E2E_TESTS_JOB]["if"]
+    naming = [
+        step
+        for step in _jobs(mutated)[E2E_TESTS_JOB]["steps"]
+        if TEAMS_TEST_FILE in str(step.get("run", ""))
+    ]
+    assert naming and all("if" not in step for step in naming), (
+        f"expected an ungated step naming {TEAMS_TEST_FILE} in {E2E_TESTS_JOB}, or the "
+        f"probe passes on the gate rather than on the stripping; got {naming}"
+    )
+    assert E2E_TESTS_JOB not in _unconditional_hosts(mutated, TEAMS_TEST_FILE)
+
+
+def test_every_ignored_file_has_a_host__mutation_an_unhosted_ignore_is_reported() -> None:
+    """A new ignore with no host anywhere must come back named, not swallowed
+    by the two entries that do have one."""
+    mutated = copy.deepcopy(_load_workflow())
+    orphan = "tests/integration/test_nothing_else_runs_this.py"
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Run unit tests")
+    line = _unit_test_pytest_line(mutated)
+    step["run"] = step["run"].replace(line, f"{line} --ignore={orphan}")
+    ignored = _unit_lane_ignored_files(mutated)
+    assert orphan in ignored, "the appended ignore did not reach the scan"
+    unhosted = [path for path in ignored if not _unconditional_hosts(mutated, path)]
+    assert unhosted == [orphan]
+
+
+# ---------------------------------------------------------------------------
 # Coverage is measured on a cell where PEP 669 tracing is actually available
 # ---------------------------------------------------------------------------
 
