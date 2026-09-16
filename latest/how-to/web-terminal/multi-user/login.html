@@ -759,6 +759,32 @@ so a deployment whose provider publishes its identity claim under <code class="d
 or <code class="docutils literal notranslate"><span class="pre">email</span></code> can leave the line out. <code class="docutils literal notranslate"><span class="pre">openid</span></code> may not be dropped — without it
 the provider issues no ID token at all, and the sidecar refuses to serve rather
 than run a login it cannot check.</p>
+<p>A scope is a request for a claim, not for <em>where</em> it is delivered. OIDC lets a
+provider answer a scope by putting the claim in the ID token or by holding it
+at its UserInfo endpoint, and a provider that follows the specification
+strictly (Connect2id is one) does the latter under the code flow. The sidecar
+reads the identity only from the signed ID token and never calls UserInfo —
+that endpoint would be a second, weaker trust path — so against such a
+provider every login fails with <code class="docutils literal notranslate"><span class="pre">the</span> <span class="pre">ID</span> <span class="pre">token</span> <span class="pre">carries</span> <span class="pre">no</span> <span class="pre">usable</span> <span class="pre">'email'</span>
+<span class="pre">claim</span></code> although <code class="docutils literal notranslate"><span class="pre">email</span></code> was in <code class="docutils literal notranslate"><span class="pre">scopes</span></code> and the provider released it.
+That symptom has one fix:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">oidc</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">issuer</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://sso.example.org/realms/accelerator</span>
+<span class="w">  </span><span class="nt">claim</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">email</span>
+<span class="w">  </span><span class="nt">claims_in_id_token</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
+<p>With it the login route sends the OIDC <code class="docutils literal notranslate"><span class="pre">claims</span></code> request parameter — the
+specification’s own way to ask for a claim in the ID token — naming the claims
+the sidecar actually reads: the identity claim as essential, and
+<code class="docutils literal notranslate"><span class="pre">email_verified</span></code> and any role-binding claim (<a class="reference internal" href="#multi-user-role-from-sso"><span class="std std-ref">Let single sign-on pick the tier</span></a>)
+as voluntary. Nothing is spelled by hand; the sidecar derives the parameter
+from its own configuration. The key is off by default because the parameter is
+optional in the specification, many providers ignore it, and one may refuse an
+authorization request that carries it. A provider advertises support as
+<code class="docutils literal notranslate"><span class="pre">claims_parameter_supported</span></code> in its discovery document; one that ignores the
+parameter still delivers nothing in the token, and the provider’s own client
+configuration is then where the claim has to be released.</p>
 <p>A login matches when the asserted claim equals the card’s <code class="docutils literal notranslate"><span class="pre">oidc_subject</span></code>.
 The comparison is exact for every claim except <code class="docutils literal notranslate"><span class="pre">email</span></code>, which is compared
 case-insensitively: an address is the same mailbox in any case, and an
