@@ -248,10 +248,10 @@ def chains(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], Chain]:
 
     def build(name: str) -> Chain:
         if name not in built:
-            source, flags, _ = FIXTURE_IMPORTS[name]
+            sources, flags, _ = FIXTURE_IMPORTS[name]
             built[name] = run_chain(
                 tmp_path_factory.mktemp(name),
-                (str(FIXTURES / source),),
+                tuple(str(FIXTURES / source) for source in sources),
                 flags,
                 FIXTURES / name / "mapping.yaml",
                 name=name,
@@ -841,12 +841,12 @@ class TestTheDerivedViews:
 
     def test_emit_names_the_bindings_the_duckdb_copy_holds_no_row_of(self, tmp_path: Path) -> None:
         """A shared or broadcast PV is one SQL row, and emit says so as it writes."""
-        source, flags, _ = FIXTURE_IMPORTS["tango"]
+        sources, flags, _ = FIXTURE_IMPORTS["tango"]
         root = tmp_path / "tango"
         root.mkdir()
         (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
         where = ("--repo", str(root))
-        _run("mml", "import", str(FIXTURES / source), *flags, *where)
+        _run("mml", "import", *(str(FIXTURES / source) for source in sources), *flags, *where)
         _run("mml", "map", "--init", *where)
         shutil.copy(FIXTURES / "tango" / "mapping.yaml", root / "data" / "mml" / "mapping.yaml")
         _run("mml", "map", "--check", *where)

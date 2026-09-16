@@ -43,17 +43,29 @@ ALS_MAT_ENV = "OSPREY_ALS_MML_MAT"
 #: The save call the v7.3 refusal must name.
 SAVE_V7 = "save('-v7', ...)"
 
-#: Each committed fixture: its input file, the ``--system`` arguments it needs,
-#: and the systems ``_import_order`` must record.
-FIXTURE_IMPORTS: dict[str, tuple[str, tuple[str, ...], list[str]]] = {
-    "paired": ("paired/quokka.ring.ao.json", (), ["RING"]),
-    "mat": ("mat/quokka_booster.mat", (), ["BOOSTER"]),
-    "dialect": ("dialect/export.json", (), ["RING", "BOOST"]),
-    "tango": ("tango/export.json", ("--system", "RING"), ["RING"]),
-    "dualkey": ("dualkey/export.json", ("--system", "STOR"), ["STOR"]),
-    "casedup": ("casedup/export.json", ("--system", "MAIN"), ["MAIN"]),
-    "wrapped": ("wrapped/export.json", ("--system", "INJ"), ["INJ"]),
+#: Each committed fixture: its input files (one ``mml import`` call), the
+#: ``--system`` arguments it needs, and the systems ``_import_order`` must record.
+FIXTURE_IMPORTS: dict[str, tuple[tuple[str, ...], tuple[str, ...], list[str]]] = {
+    "paired": (("paired/quokka.ring.ao.json",), (), ["RING"]),
+    "mat": (("mat/quokka_booster.mat",), (), ["BOOSTER"]),
+    "dialect": (("dialect/export.json",), (), ["RING", "BOOST"]),
+    "tango": (("tango/export.json",), ("--system", "RING"), ["RING"]),
+    "dualkey": (("dualkey/export.json",), ("--system", "STOR"), ["STOR"]),
+    "casedup": (("casedup/export.json",), ("--system", "MAIN"), ["MAIN"]),
+    "wrapped": (("wrapped/export.json",), ("--system", "INJ"), ["INJ"]),
+    "nsls2": (
+        ("nsls2/nsls2.storagering.ao.json", "nsls2/nsls2.ltb.ao.json"),
+        (),
+        ["StorageRing", "LTB"],
+    ),
+    "spear3": (("spear3/spear3.storagering.ao.json",), (), ["StorageRing"]),
 }
+
+
+def _inputs(sources: tuple[str, ...]) -> list[str]:
+    """The fixture files as ``mml import`` arguments."""
+    return [str(FIXTURES / source) for source in sources]
+
 
 _MEMBER_OF_HEADING = "### MemberOf census"
 _TABLE_CELL = re.compile(r"^\| ((?:[^|\\]|\\.)+?) \|")
@@ -93,9 +105,13 @@ def _walk(value: Any, path: tuple[str, ...] = ()) -> Iterator[tuple[tuple[str, .
 
 
 def _source_member_of_tags(fixture: str) -> set[str]:
-    """Every ``MemberOf`` tag in a fixture's source export, read without the importer."""
-    source, _, _ = FIXTURE_IMPORTS[fixture]
-    path = FIXTURES / source
+    """Every ``MemberOf`` tag in a fixture's source exports, read without the importer."""
+    sources, _, _ = FIXTURE_IMPORTS[fixture]
+    return set().union(*(_member_of_tags_in(FIXTURES / source) for source in sources))
+
+
+def _member_of_tags_in(path: Path) -> set[str]:
+    """Every ``MemberOf`` tag in one export file."""
     if path.suffix == ".mat":
         from scipy.io import loadmat
 
@@ -149,9 +165,9 @@ def _profile_member_of_tags(profile: str) -> set[str]:
 class TestEveryFixtureImports:
     @pytest.mark.parametrize("fixture", sorted(FIXTURE_IMPORTS))
     def test_imports_in_the_way_its_form_requires(self, repo: Path, fixture: str) -> None:
-        source, flags, systems = FIXTURE_IMPORTS[fixture]
+        sources, flags, systems = FIXTURE_IMPORTS[fixture]
 
-        result = _invoke("import", str(FIXTURES / source), *flags)
+        result = _invoke("import", *_inputs(sources), *flags)
 
         assert result.exit_code == 0, result.output
         assert "Traceback" not in result.output
@@ -164,11 +180,11 @@ class TestEveryFixtureImports:
 
     @pytest.mark.parametrize("fixture", sorted(FIXTURE_IMPORTS))
     def test_profile_lists_every_member_of_tag_verbatim(self, repo: Path, fixture: str) -> None:
-        source, flags, _ = FIXTURE_IMPORTS[fixture]
+        sources, flags, _ = FIXTURE_IMPORTS[fixture]
         expected = _source_member_of_tags(fixture)
         assert expected, f"{fixture} carries no MemberOf tag to check"
 
-        result = _invoke("import", str(FIXTURES / source), *flags)
+        result = _invoke("import", *_inputs(sources), *flags)
 
         assert result.exit_code == 0, result.output
         profile = (_out(repo) / "PROFILE.md").read_text(encoding="utf-8")
@@ -209,9 +225,9 @@ class TestEveryFixtureImports:
 
     @pytest.mark.parametrize("fixture", ["tango", "dualkey", "casedup", "wrapped"])
     def test_flat_export_without_a_system_is_refused(self, repo: Path, fixture: str) -> None:
-        source, _, _ = FIXTURE_IMPORTS[fixture]
+        sources, _, _ = FIXTURE_IMPORTS[fixture]
 
-        result = _invoke("import", str(FIXTURES / source))
+        result = _invoke("import", *_inputs(sources))
 
         assert result.exit_code == 2, result.output
         assert "--system" in result.output

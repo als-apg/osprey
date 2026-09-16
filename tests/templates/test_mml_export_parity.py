@@ -35,7 +35,11 @@ Two variables name the checkouts, and the lane skips when either is unset:
 * ``OSPREY_AT_ROOT`` --- an Accelerator Toolbox checkout: the folder holding
   ``atmat/``.
 
-``matlab`` must also be on PATH. Each sub-machine costs one MATLAB session, so
+``matlab`` must also be on PATH. The MML checkout's own AT (``simulators/at2.0``)
+must have integrators compiled for that MATLAB (``atmexall`` in its ``atmat/``):
+the machine's ``setpathmml`` puts that AT on the path and initialises the
+Accelerator Objects, tracking through it for the momentum compaction, before
+anything else can be put on the path. Each sub-machine costs one MATLAB session, so
 the export of a sub-machine is produced once and shared by every case below.
 """
 
@@ -108,7 +112,7 @@ class Case:
 CASES = (
     Case("nsls2", "NSLS2", "StorageRing", "setpathnsls2('StorageRing')"),
     Case("nsls2", "NSLS2", "LTB", "setpathnsls2('LTB')"),
-    Case("spear3", "Spear3", "StorageRing", "setpathspear3"),
+    Case("spear3", "SPEAR3", "StorageRing", "setpathspear3"),
 )
 
 
@@ -200,10 +204,12 @@ def _matlab_literal(text: str | Path) -> str:
 def _program(case: Case, mml: Path, at_dir: Path, exporter_dir: Path, outdir: Path) -> str:
     """The one command ``matlab -batch`` is given.
 
-    The machine's own setpath points AT at whatever the MML checkout ships, so
-    the named AT checkout is put on the path after it, not before.
+    One line: ``matlab -batch`` runs only the first line of a statement that
+    holds a newline (R2026a), and exits 0. The machine's own setpath points AT
+    at whatever the MML checkout ships and initialises through it, so the named
+    AT checkout is put on the path after it, not before.
     """
-    return ";\n".join(
+    return "; ".join(
         [
             f"addpath({_matlab_literal(mml)})",
             case.setup,

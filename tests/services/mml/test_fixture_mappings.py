@@ -20,8 +20,9 @@ from osprey.cli.main import cli
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "mml"
 
-#: How each fixture is imported: the files copied into the repo (the first of
-#: them is the import input) and the extra ``mml import`` arguments.
+#: How each fixture is imported: the files copied into the repo (every one that
+#: is not an ``.ad.json`` sibling is an import input) and the extra ``mml import``
+#: arguments.
 IMPORTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "tango": (("export.json",), ("--system", "RING")),
     "dualkey": (("export.json",), ("--system", "STOR")),
@@ -30,6 +31,16 @@ IMPORTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
     "dialect": (("export.json",), ()),
     "paired": (("quokka.ring.ao.json", "quokka.ring.ad.json"), ()),
     "mat": (("quokka_booster.mat",), ()),
+    "nsls2": (
+        (
+            "nsls2.storagering.ao.json",
+            "nsls2.storagering.ad.json",
+            "nsls2.ltb.ao.json",
+            "nsls2.ltb.ad.json",
+        ),
+        (),
+    ),
+    "spear3": (("spear3.storagering.ao.json", "spear3.storagering.ad.json"), ()),
 }
 
 
@@ -37,7 +48,8 @@ def _import(root: Path, name: str) -> None:
     files, extra = IMPORTS[name]
     for filename in files:
         shutil.copy(FIXTURES / name / filename, root / filename)
-    result = CliRunner().invoke(cli, ["mml", "import", files[0], *extra], catch_exceptions=False)
+    inputs = [name for name in files if not name.endswith(".ad.json")]
+    result = CliRunner().invoke(cli, ["mml", "import", *inputs, *extra], catch_exceptions=False)
     assert result.exit_code == 0, result.output
 
 
