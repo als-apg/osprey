@@ -35,7 +35,6 @@ from __future__ import annotations
 
 import ast
 import copy
-import fnmatch
 import importlib.util
 import json
 import re
@@ -2491,36 +2490,92 @@ def test_workflow_on_key_parses_to_bool_true_not_string(workflow: dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
-# (h) multi-user login-flow browser test: registered in the lane, and the lane
-# is actually triggered by the code it covers
+# (h) multi-user login-flow browser test: named in the lane's file list, which
+# is the only way it is ever collected
 # ---------------------------------------------------------------------------
 
 BROWSER_JOB = "visual-theming"
 BROWSER_RUN_STEP = "Run behavioral theming suite"
-BROWSER_FILTER_STEP = "Detect design-system / dispatch dashboard changes"
 AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
-AUTH_SERVING_TEST_FILE = "tests/deployment/web_terminals/test_auth_serving.py"
-AUTH_PERIMETER_PATHS = (
-    "src/osprey/services/auth_sidecar/**",
-    "src/osprey/deployment/web_terminals/**",
-    "src/osprey/templates/modules/web_terminals/**",
-    AUTH_SERVING_TEST_FILE,
-)
 
 
 def _browser_lane_files(wf: dict[str, Any]) -> str:
     return _find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)["run"]
 
 
-def _browser_lane_filter_paths(wf: dict[str, Any]) -> list[str]:
-    """The `theming` filter's path list, parsed out of the step's `filters` blob.
+# ---------------------------------------------------------------------------
+# (h0) the browser lane carries no condition: a skipped step reports as a step
+# success and a job whose steps all skipped reports as a job success, and this
+# lane sits in the merge gate's always-on tier
+# ---------------------------------------------------------------------------
 
-    dorny/paths-filter takes its filters as a YAML *string*, so the outer
-    safe_load leaves this as text and it has to be parsed a second time —
-    still structurally, never by substring matching.
-    """
-    step = _find_named_step(wf, BROWSER_JOB, BROWSER_FILTER_STEP)
-    return yaml.safe_load(step["with"]["filters"])["theming"]
+#: Any `if:` that reads another step's output. A lane whose steps can be
+#: switched off by an earlier step is a lane that can report success having
+#: proven nothing.
+_STEP_OUTPUT_CONDITION = re.compile(r"steps\.[A-Za-z0-9_-]+\.outputs")
+
+
+def test_the_browser_lane_runs_unconditionally(workflow: dict[str, Any]) -> None:
+    """Three ways this lane could stop running, all of them silent.
+
+    A job-level ``if:`` skips the job; a paths-filter step lets a later step
+    decide it has nothing to do; an ``if:`` on a step reading that step's
+    output does the same one step at a time. Each reports as success, and
+    ``all-checks-passed`` requires this lane to be ``success``, so any of the
+    three turns the browser proof off at exactly the moment a reviewer is
+    reading a green check."""
+    job = _jobs(workflow)[BROWSER_JOB]
+    assert "if" not in job, f"the '{BROWSER_JOB}' lane carries a job-level condition"
+    filters = [
+        step.get("name")
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("dorny/paths-filter")
+    ]
+    assert filters == [], f"the '{BROWSER_JOB}' lane computes a paths filter: {filters}"
+    gated = [
+        step.get("name")
+        for step in job["steps"]
+        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
+    ]
+    assert gated == [], (
+        f"steps of the '{BROWSER_JOB}' lane gated on another step's output, which would "
+        f"report the lane green having run nothing: {gated}"
+    )
+
+
+def test_the_browser_lane_runs_unconditionally__mutation_adds_a_filter_step() -> None:
+    """Reintroducing the filter step must be reported."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[BROWSER_JOB]
+    job["steps"].insert(
+        1,
+        {
+            "name": "Detect design-system changes",
+            "id": "changes",
+            "uses": "dorny/paths-filter@v4",
+            "with": {"filters": "theming:\n  - 'src/osprey/interfaces/**'\n"},
+        },
+    )
+    filters = [
+        step.get("name")
+        for step in job["steps"]
+        if str(step.get("uses", "")).startswith("dorny/paths-filter")
+    ]
+    assert filters == ["Detect design-system changes"]
+
+
+def test_the_browser_lane_runs_unconditionally__mutation_gates_the_run_step() -> None:
+    """Gating the run step on a step output must be reported."""
+    mutated = copy.deepcopy(_load_workflow())
+    _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)["if"] = (
+        "steps.changes.outputs.theming == 'true'"
+    )
+    gated = [
+        step.get("name")
+        for step in _jobs(mutated)[BROWSER_JOB]["steps"]
+        if _STEP_OUTPUT_CONDITION.search(str(step.get("if", "")))
+    ]
+    assert gated == [BROWSER_RUN_STEP]
 
 
 def test_login_flow_browser_test_runs_in_the_browser_lane(workflow: dict[str, Any]) -> None:
@@ -2542,46 +2597,12 @@ def test_login_flow_browser_test_runs_in_the_browser_lane__mutation_drops_the_fi
     assert AUTH_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
 
 
-def test_browser_lane_is_triggered_by_the_perimeter_it_covers(workflow: dict[str, Any]) -> None:
-    """Every path the login-flow test actually exercises must arm the lane.
-
-    The filter was written for `interfaces/` and `dispatch/`, but this suite
-    drives the auth sidecar, the rendered nginx config and the shared container
-    fixture — none of which live there. Left unlisted, a PR that changes the
-    login page or the perimeter template skips every gated step in this job,
-    which GitHub reports as a job SUCCESS. The proof would be silently gone at
-    exactly the moment it mattered."""
-    paths = _browser_lane_filter_paths(workflow)
-    missing = [path for path in AUTH_PERIMETER_PATHS if path not in paths]
-    assert missing == [], (
-        f"the '{BROWSER_JOB}' lane is not triggered by {missing}, so a change there would "
-        f"green-skip {AUTH_BROWSER_TEST_FILE} instead of running it"
-    )
-
-
-def test_browser_lane_is_triggered_by_the_perimeter__mutation_drops_the_sidecar_path() -> None:
-    """Dropping the sidecar source from the filter must be reported missing."""
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_FILTER_STEP)
-    filters = yaml.safe_load(step["with"]["filters"])
-    filters["theming"] = [
-        path for path in filters["theming"] if path != "src/osprey/services/auth_sidecar/**"
-    ]
-    step["with"]["filters"] = yaml.safe_dump(filters)
-    paths = _browser_lane_filter_paths(mutated)
-    assert [p for p in AUTH_PERIMETER_PATHS if p not in paths] == [
-        "src/osprey/services/auth_sidecar/**"
-    ]
-
-
 # ---------------------------------------------------------------------------
 # (h2) channel-combobox browser test: same vacuous-green shape as (h) — the
-# lane runs an explicit file list and a paths filter, and a suite missing
-# from either silently never runs
+# lane runs an explicit file list, and a suite missing from it runs nowhere
 # ---------------------------------------------------------------------------
 
 COMBOBOX_BROWSER_TEST_FILE = "tests/interfaces/bluesky_web/test_channel_combobox_browser.py"
-COMBOBOX_TESTS_FILTER_PATH = "tests/interfaces/bluesky_web/**"
 
 
 def test_channel_combobox_browser_test_runs_in_the_browser_lane(
@@ -2599,13 +2620,6 @@ def test_channel_combobox_browser_test_runs_in_the_browser_lane__mutation_drops_
     step = _find_named_step(mutated, BROWSER_JOB, BROWSER_RUN_STEP)
     step["run"] = step["run"].replace(f"{COMBOBOX_BROWSER_TEST_FILE} \\\n", "")
     assert COMBOBOX_BROWSER_TEST_FILE not in _browser_lane_files(mutated)
-
-
-def test_browser_lane_is_triggered_by_the_bluesky_web_tests(workflow: dict[str, Any]) -> None:
-    """The suite's own directory must arm the lane: the filter covers
-    ``src/osprey/interfaces/**`` already, but a PR that only edits the tests
-    (fixtures, assertions) would otherwise green-skip the job."""
-    assert COMBOBOX_TESTS_FILTER_PATH in _browser_lane_filter_paths(workflow)
 
 
 # ---------------------------------------------------------------------------
@@ -2635,10 +2649,6 @@ def _browser_lane_named_files(wf: dict[str, Any]) -> set[str]:
     return {tok for tok in _browser_lane_files(wf).split() if tok.endswith(".py")}
 
 
-def _armed_by_filter(path: str, filter_paths: list[str]) -> bool:
-    return any(fnmatch.fnmatchcase(path, pattern) for pattern in filter_paths)
-
-
 def test_browser_suite_discovery_has_a_floor() -> None:
     """A glob that finds nothing would make the guards below vacuous."""
     found = _browser_suites_on_disk()
@@ -2663,31 +2673,6 @@ def test_every_browser_suite_on_disk_is_named__mutation_drops_one_suite() -> Non
     step["run"] = step["run"].replace(f"{AUTH_BROWSER_TEST_FILE} \\\n", "")
     named = _browser_lane_named_files(mutated)
     assert [s for s in _browser_suites_on_disk() if s not in named] == [AUTH_BROWSER_TEST_FILE]
-
-
-def test_every_browser_suite_on_disk_arms_the_browser_lane(workflow: dict[str, Any]) -> None:
-    """Being named in the run step is not enough: the paths filter must also
-    fire for the suite's own file, or a PR that only edits the suite reports
-    the lane green without running it."""
-    filter_paths = _browser_lane_filter_paths(workflow)
-    unarmed = [s for s in _browser_suites_on_disk() if not _armed_by_filter(s, filter_paths)]
-    assert unarmed == [], (
-        f"browser suites whose own path does not trigger the '{BROWSER_JOB}' lane: {unarmed}"
-    )
-
-
-def test_every_browser_suite_on_disk_arms_the_lane__mutation_drops_a_directory() -> None:
-    mutated = copy.deepcopy(_load_workflow())
-    step = _find_named_step(mutated, BROWSER_JOB, BROWSER_FILTER_STEP)
-    filters = yaml.safe_load(step["with"]["filters"])
-    filters["theming"] = [p for p in filters["theming"] if p != COMBOBOX_TESTS_FILTER_PATH]
-    step["with"]["filters"] = yaml.safe_dump(filters)
-    filter_paths = _browser_lane_filter_paths(mutated)
-    unarmed = [s for s in _browser_suites_on_disk() if not _armed_by_filter(s, filter_paths)]
-    # Every suite under the dropped directory, and only those, comes back unarmed.
-    assert COMBOBOX_BROWSER_TEST_FILE in unarmed, unarmed
-    dropped_dir = COMBOBOX_TESTS_FILTER_PATH.removesuffix("**")
-    assert all(s.startswith(dropped_dir) for s in unarmed), unarmed
 
 
 # ---------------------------------------------------------------------------
