@@ -1383,6 +1383,273 @@ class TestGateFailures:
         assert "only the release PR's apply removes fragments" in failures[2]
 
 
+class TestNewestReleaseSpan:
+    """Which section the top-up shape compares, and what it is called."""
+
+    FILE = [
+        "# Changelog",
+        "",
+        "## [Unreleased]",
+        "",
+        "## [2026.9.0b3] - 2026-09-15",
+        "",
+        "- the newest release",
+        "",
+        "## [2026.8.0] - 2026-08-20",
+        "",
+        "- the one before it",
+    ]
+
+    def test_the_newest_release_is_the_first_dated_section(self):
+        assert cf.newest_release_span(self.FILE) == (4, 8, "2026.9.0b3")
+
+    def test_unreleased_is_never_the_newest_release(self):
+        """It is a `## [` heading too, and it is the one section this skips."""
+        heading, _, version = cf.newest_release_span(self.FILE)
+        assert self.FILE[heading] == "## [2026.9.0b3] - 2026-09-15"
+        assert version == "2026.9.0b3"
+
+    def test_the_last_section_runs_to_the_end_of_the_file(self):
+        assert cf.newest_release_span(self.FILE[:8]) == (4, 8, "2026.9.0b3")
+
+    def test_a_heading_without_a_date_still_names_its_version(self):
+        assert cf.newest_release_span(["## [Unreleased]", "## [2026.9.0]"]) == (1, 2, "2026.9.0")
+
+    @pytest.mark.parametrize("lines", [[], ["# Changelog"], ["## [Unreleased]", "", "- a bullet"]])
+    def test_a_file_with_no_released_section_is_none(self, lines):
+        assert cf.newest_release_span(lines) is None
+
+
+class TestPreTagTopup:
+    """Rule 3's second shape: a fold into a release section with no tag yet.
+
+    The release rotates `[Unreleased]` into a dated section and merges; the tag
+    is cut afterwards. Fragments that land in between belong in that section —
+    it is the list of what the tag will contain — so folding them in is the
+    correction, and the only place they can go.
+    """
+
+    BEFORE = "- an entry the release notes already carried\n"
+    AFTER = (
+        "- an entry the release notes already carried\n"
+        "- the queue panel stops offering Start on a state it does not know\n"
+        "- the service trusts the site's certificate authority\n"
+    )
+    DELETED = [
+        "changelog.d/queue-unfamiliar-state.fixed.md",
+        "changelog.d/service-site-ca.fixed.md",
+        "changelog.d/lazy-export-maps.internal.md",
+    ]
+    CHANGED = ["CHANGELOG.md", *DELETED]
+    OK_LINE = "✓ pre-tag top-up: 3 fragment(s) folded into ## [2026.9.0b3] (untagged)"
+
+    @staticmethod
+    def changelog(entries: str, unreleased: str = "\n") -> str:
+        """A changelog whose newest release section holds exactly *entries*."""
+        return (
+            "# Changelog\n"
+            "\n"
+            "## [Unreleased]\n"
+            f"{unreleased}"
+            "## [2026.9.0b3] - 2026-09-15\n"
+            "\n"
+            "### Fixed\n"
+            "\n"
+            f"{entries}"
+            "\n"
+            "## [2026.8.0] - 2026-08-20\n"
+            "\n"
+            "### Fixed\n"
+            "\n"
+            "- something in the last release\n"
+        )
+
+    @staticmethod
+    def untagged(version: str) -> bool:
+        return False
+
+    @staticmethod
+    def already_tagged(version: str) -> bool:
+        return True
+
+    @staticmethod
+    def unreachable(version: str) -> bool:
+        raise cf.ProbeError(
+            f"git ls-remote --tags origin refs/tags/v{version} failed — "
+            f"fatal: could not read from remote repository"
+        )
+
+    def gate(self, head: str, base: str, *, changed=None, deleted=None, tagged=None):
+        """The gate over one top-up-shaped diff, with the defaults this class uses."""
+        return cf.gate_failures(
+            list(self.CHANGED if changed is None else changed),
+            [],
+            list(self.DELETED if deleted is None else deleted),
+            head,
+            base,
+            self.untagged if tagged is None else tagged,
+        )
+
+    def test_a_fold_into_an_untagged_release_section_passes(self):
+        failures, ok_lines = self.gate(self.changelog(self.AFTER), self.changelog(self.BEFORE))
+        assert failures == []
+        assert self.OK_LINE in ok_lines
+
+    def test_the_remote_is_asked_about_that_section_s_version(self):
+        asked: list[str] = []
+
+        def probe(version: str) -> bool:
+            asked.append(version)
+            return False
+
+        self.gate(self.changelog(self.AFTER), self.changelog(self.BEFORE), tagged=probe)
+        assert asked == ["2026.9.0b3"]
+
+    def test_a_tagged_release_section_is_not_topped_up(self):
+        """Once the tag is cut the section is what shipped, and it is closed."""
+        failures, _ = self.gate(
+            self.changelog(self.AFTER), self.changelog(self.BEFORE), tagged=self.already_tagged
+        )
+        assert len(failures) == 1
+        assert "only the release PR's apply removes fragments" in failures[0]
+        assert "whose tag is not cut yet" in failures[0]
+
+    def test_a_remote_that_cannot_answer_refuses_and_says_so(self):
+        """Fail closed: an unreachable remote must not read as 'no tag'."""
+        failures, _ = self.gate(
+            self.changelog(self.AFTER), self.changelog(self.BEFORE), tagged=self.unreachable
+        )
+        assert len(failures) == 1
+        assert "git ls-remote --tags origin refs/tags/v2026.9.0b3 failed" in failures[0]
+        assert "could not read from remote repository" in failures[0]
+
+    def test_a_hand_written_bullet_in_unreleased_is_not_a_fold(self):
+        failures, _ = self.gate(
+            self.changelog(self.AFTER, "\n### Fixed\n\n- written by hand\n\n"),
+            self.changelog(self.BEFORE),
+        )
+        assert len(failures) == 2
+        assert "adds to ## [Unreleased] by hand" in failures[0]
+        assert "only the release PR's apply removes fragments" in failures[1]
+
+    def test_a_base_whose_unreleased_still_holds_a_bullet_is_not_a_fold(self):
+        """The fold writes into the release section; `[Unreleased]` is somebody else's."""
+        failures, _ = self.gate(
+            self.changelog(self.AFTER),
+            self.changelog(self.BEFORE, "\n### Fixed\n\n- an entry nobody folded\n\n"),
+        )
+        assert len(failures) == 2
+        assert "only the release PR's apply removes fragments" in failures[1]
+
+    def test_a_section_that_gained_no_entry_is_not_a_fold(self):
+        """Rewording the section while deleting fragments folds nothing in."""
+        failures, _ = self.gate(
+            self.changelog("- an entry the release notes already carried, reworded\n"),
+            self.changelog(self.BEFORE),
+        )
+        assert len(failures) == 1
+        assert "only the release PR's apply removes fragments" in failures[0]
+
+    def test_a_nested_entry_counts_as_a_fold(self):
+        """Release notes are written by hand; a folded entry often lands nested."""
+        head = self.changelog(f"{self.BEFORE}  - the service trusts the site's authority\n")
+        failures, ok_lines = self.gate(head, self.changelog(self.BEFORE))
+        assert failures == []
+        assert self.OK_LINE in ok_lines
+
+    def test_a_fold_of_internal_fragments_alone_needs_no_new_entry(self):
+        """An `internal` fragment renders nothing, so it adds nothing to find."""
+        deleted = ["changelog.d/lazy-export-maps.internal.md"]
+        failures, ok_lines = self.gate(
+            self.changelog(self.BEFORE),
+            self.changelog(self.BEFORE),
+            changed=["CHANGELOG.md", *deleted],
+            deleted=deleted,
+        )
+        assert failures == []
+        assert "✓ pre-tag top-up: 1 fragment(s) folded into ## [2026.9.0b3] (untagged)" in ok_lines
+
+    def test_another_file_alongside_the_fold_is_not_a_fold(self):
+        failures, _ = self.gate(
+            self.changelog(self.AFTER),
+            self.changelog(self.BEFORE),
+            changed=[*self.CHANGED, "docs/source/index.rst"],
+        )
+        assert len(failures) == 1
+        assert "only the release PR's apply removes fragments" in failures[0]
+
+    def test_a_rewritten_release_heading_is_not_a_fold(self):
+        """A heading that moved is a release being cut or re-cut, not a top-up."""
+        head = self.changelog(self.AFTER).replace(
+            "## [2026.9.0b3] - 2026-09-15", "## [2026.9.0b3] - 2026-09-16"
+        )
+        failures, _ = self.gate(head, self.changelog(self.BEFORE))
+        assert len(failures) == 1
+        assert "only the release PR's apply removes fragments" in failures[0]
+
+    def test_a_file_that_is_not_a_fragment_among_the_deletions_is_not_a_fold(self):
+        deleted = [*self.DELETED, "changelog.d/notes.txt"]
+        failures, _ = self.gate(
+            self.changelog(self.AFTER),
+            self.changelog(self.BEFORE),
+            changed=["CHANGELOG.md", *deleted],
+            deleted=deleted,
+        )
+        assert len(failures) == 1
+        assert "only the release PR's apply removes fragments" in failures[0]
+
+    def test_without_a_tag_probe_the_shape_is_never_recognized(self):
+        """A caller that cannot ask the remote gets the plain refusal."""
+        failures, _ = cf.gate_failures(
+            self.CHANGED, [], self.DELETED, self.changelog(self.AFTER), self.changelog(self.BEFORE)
+        )
+        assert len(failures) == 1
+        assert "only the release PR's apply removes fragments" in failures[0]
+
+    def test_a_release_with_many_fragments_folded_and_rewritten_passes(self):
+        """The shape as a real release meets it: rewritten, merged, some nested.
+
+        Fourteen fragments, five of them `internal`, folded into nine bullets
+        whose wording is the release notes' own. Nothing a fragment said
+        survives verbatim, which is why the fold is recognized by what the
+        section gained rather than by matching its text.
+        """
+        names = [
+            "ariel-panel-registry.fixed.md",
+            "ariel-search-mode-registry.fixed.md",
+            "asksage-api-key-variable.fixed.md",
+            "compose-template-hygiene.internal.md",
+            "connector-shim-reexports.internal.md",
+            "drift-persona-render-names.fixed.md",
+            "health-status-order.internal.md",
+            "lazy-export-maps.internal.md",
+            "queue-unfamiliar-state.fixed.md",
+            "service-site-ca.fixed.md",
+            "shared-config-guards.internal.md",
+            "tango-host-example.changed.md",
+            "watcher-deletion-subtree.fixed.md",
+            "watcher-listing-primitive.internal.md",
+        ]
+        deleted = [f"changelog.d/{name}" for name in names]
+        head = self.changelog(
+            f"{self.BEFORE}"
+            "- ARIEL reaches the adapters and modules a deployment registered itself,\n"
+            "  whichever way it is entered.\n"
+            "- A build names the credential it is missing instead of failing inside the\n"
+            "  build, and the environment file lists the variable.\n"
+            "  - The provider table spells the variable out.\n"
+            "- Operator-facing copy no longer assumes one facility's vocabulary.\n"
+        )
+        failures, ok_lines = self.gate(
+            head,
+            self.changelog(self.BEFORE),
+            changed=["CHANGELOG.md", *deleted],
+            deleted=deleted,
+        )
+        assert failures == []
+        assert "✓ pre-tag top-up: 14 fragment(s) folded into ## [2026.9.0b3] (untagged)" in ok_lines
+
+
 # ---------------------------------------------------------------------------
 # The CLI. Git is answered from a table, so nothing below builds a repository.
 # ---------------------------------------------------------------------------
@@ -1671,6 +1938,65 @@ class TestMain:
         code = cf.main(self.check_argv(tmp_path / "absent", changelog), git)
         assert code == 0
         assert "✓ changelog.d: 0 fragment(s) valid" in capsys.readouterr().out
+
+    # ---- check: the pre-tag top-up ---------------------------------------
+
+    LS_REMOTE = ("git", "ls-remote", "--tags", "origin", "refs/tags/v2026.9.0b3")
+
+    @staticmethod
+    def topup_table(tag: subprocess.CompletedProcess[str] | None = None) -> dict:
+        """A table for one top-up-shaped `check`, with the tag answer of *tag*."""
+        deleted = [("D", path) for path in TestPreTagTopup.DELETED]
+        table = git_table(
+            diff=diff_z(("M", "CHANGELOG.md"), *deleted),
+            base_text=TestPreTagTopup.changelog(TestPreTagTopup.BEFORE),
+        )
+        if tag is not None:
+            table[TestMain.LS_REMOTE] = tag
+        return table
+
+    def test_a_pre_tag_top_up_passes_the_cli(self, tmp_path, capsys):
+        directory, changelog = self.fixture(
+            tmp_path, TestPreTagTopup.changelog(TestPreTagTopup.AFTER)
+        )
+        git = FakeGit(self.topup_table(completed("")))
+        code = cf.main(self.check_argv(directory, changelog), git)
+        assert code == 0
+        assert TestPreTagTopup.OK_LINE in capsys.readouterr().out
+        assert list(self.LS_REMOTE) in git.calls
+
+    def test_a_tagged_version_refuses_the_top_up_at_the_cli(self, tmp_path, capsys):
+        directory, changelog = self.fixture(
+            tmp_path, TestPreTagTopup.changelog(TestPreTagTopup.AFTER)
+        )
+        git = FakeGit(self.topup_table(completed(f"{BASE_SHA}\trefs/tags/v2026.9.0b3\n")))
+        code = cf.main(self.check_argv(directory, changelog), git)
+        assert code == 1
+        assert "✗ 3 fragment(s) deleted" in capsys.readouterr().out
+
+    def test_an_unreachable_remote_refuses_the_top_up_and_names_the_call(self, tmp_path, capsys):
+        """Exit 1, not 2: the fragments are still deleted, the shape is just unproven."""
+        directory, changelog = self.fixture(
+            tmp_path, TestPreTagTopup.changelog(TestPreTagTopup.AFTER)
+        )
+        git = FakeGit(self.topup_table())
+        code = cf.main(self.check_argv(directory, changelog), git)
+        assert code == 1
+        out = capsys.readouterr().out
+        assert "git ls-remote --tags origin refs/tags/v2026.9.0b3 failed" in out
+        assert "fatal: bad revision" in out
+
+    def test_an_ordinary_pull_request_never_asks_the_remote(self, tmp_path):
+        """The tag question is asked only where a deletion has to be explained."""
+        directory, changelog = self.fixture(tmp_path)
+        write(directory, "745.fixed.md", "the gate no longer eats the last line.\n")
+        git = FakeGit(
+            git_table(
+                diff=diff_z(("M", "src/osprey/cli/build.py"), ("A", "changelog.d/745.fixed.md"))
+            )
+        )
+        assert cf.main(self.check_argv(directory, changelog), git) == 0
+        assert not any("ls-remote" in call for call in git.calls)
 
     # ---- apply ------------------------------------------------------------
 
