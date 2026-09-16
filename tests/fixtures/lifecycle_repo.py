@@ -1156,10 +1156,15 @@ config:
       # publishes the identity claim under `profile` or `email`; add whatever
       # scope yours publishes it under. `openid` cannot be dropped: without it
       # the provider issues no ID token and the sidecar refuses every login.
+      # If every login fails with "no usable claim" although the scope was
+      # requested, the provider serves scope claims from UserInfo rather than
+      # in the ID token (OIDC Core §5.4); `claims_in_id_token: true` asks for
+      # them in the token instead.
       #   oidc:
       #     issuer: https://idp.example.org
       #     claim: preferred_username
       #     scopes: [openid, profile, email]
+      #     claims_in_id_token: false
     # Which tier a user lands on is pinned per entry below. Single sign-on can
     # pick it instead by mapping provider groups onto declared roles — see
     # "Let single sign-on pick the tier" in the multi-user login guide.

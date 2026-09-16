@@ -2005,8 +2005,12 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         ``auth_oidc_issuer`` (str or ``None``),
         ``auth_oidc_client_id_env``/``auth_oidc_client_secret_env`` (the env-var
         *names* the sidecar reads its OIDC client credentials from — never the
-        credentials themselves) and ``auth_oidc_claim`` (str or ``None``, the
-        ID-token claim carrying the identity to map onto a roster user); plus
+        credentials themselves), ``auth_oidc_claim`` (str or ``None``, the
+        ID-token claim carrying the identity to map onto a roster user),
+        ``auth_oidc_scopes`` (str or ``None``, the space-joined scope list the
+        login route requests) and ``auth_oidc_claims_in_id_token`` (bool,
+        whether the login route sends the OIDC ``claims`` request parameter
+        asking for those claims in the ID token); plus
         the TLS keys ``tls_enabled`` (bool), ``tls_port`` (int, the listener
         both nginx ``listen`` lines and the derived external origin follow,
         defaulting to :data:`TLS_LISTEN_PORT`), ``https_default_port``
@@ -2065,6 +2069,15 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         # refuses a list without it, which keeps one rule in one place and
         # keeps a config edit from being the thing that removes it.
         "auth_oidc_scopes": _scope_list(oidc.get("scopes")),
+        # Whether the login route sends the OIDC `claims` request parameter
+        # asking for the claims the sidecar reads to be delivered in the ID
+        # token. A provider that follows OIDC Core §5.4 strictly serves
+        # scope-requested claims from UserInfo, which the sidecar never calls,
+        # so against one of those `scopes` alone yields a token with no
+        # identity claim. Off unless authored, and rendered only when on: the
+        # sidecar derives the parameter's contents itself from the claims it
+        # reads, so nothing here spells claims JSON.
+        "auth_oidc_claims_in_id_token": bool(oidc.get("claims_in_id_token", False)),
         "tls_enabled": bool(tls.get("enabled", False)),
         "tls_port": _port_int(tls.get("port"), TLS_LISTEN_PORT),
         # Carried alongside so the template's "is this the port a browser
