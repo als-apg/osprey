@@ -3217,8 +3217,21 @@ BROWSER_RUN_STEP = "Run behavioral theming suite"
 AUTH_BROWSER_TEST_FILE = "tests/interfaces/web_terminal/test_auth_login_browser.py"
 
 
+#: What makes a step of the browser job one that runs suites. The lane runs
+#: its suites in more than one step — the visual-regression step stands apart
+#: so its baseline upload and commit steps can follow it — so a suite named by
+#: any of them is run by the lane, and matching the invocation rather than
+#: listing step names keeps a further step from being named by the lane and
+#: invisible to every guard below.
+_BROWSER_PYTEST_INVOCATION = "uv run pytest "
+
+
 def _browser_lane_files(wf: dict[str, Any]) -> str:
-    return _find_named_step(wf, BROWSER_JOB, BROWSER_RUN_STEP)["run"]
+    return "\n".join(
+        step["run"]
+        for step in _jobs(wf)[BROWSER_JOB]["steps"]
+        if _BROWSER_PYTEST_INVOCATION in step.get("run", "")
+    )
 
 
 # ---------------------------------------------------------------------------
