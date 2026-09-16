@@ -174,7 +174,7 @@ DENIED: tuple[Denied, ...] = (
                 "tests/cli/test_provider_isolation.py",
                 "tests/cli/test_resolver_cborg_oss.py",
                 "tests/deployment/goldens/exemplar-profile/providers.yml",
-                "tests/models/test_providers_cborg.py",
+                "tests/models/test_providers_litellm_delegating.py",
                 # The harness and the live lanes that call that gateway, where
                 # the address is the endpoint under test rather than an example.
                 "scripts/benchmark/README.md",
@@ -319,9 +319,9 @@ DENIED: tuple[Denied, ...] = (
                 "tests/services/ariel_search/integration/test_ingestion.py",
                 "tests/services/ariel_search/test_ingestion.py",
                 "tests/services/ariel_search/test_ingestion_branches.py",
-                # The shipped named-gateway adapter's own suite, which asserts on
-                # the adapter's description.
-                "tests/models/test_providers_als_apg.py",
+                # The suite that asserts on the shipped named-gateway adapter's
+                # description.
+                "tests/models/test_providers_litellm_delegating.py",
                 # Cases that assert the literal's absence, and so have to spell it.
                 "tests/registry/test_pyat_specialist_agent.py",
                 "tests/unit/dispatch/test_dashboard_config_injection.py",
