@@ -56,6 +56,21 @@
 
   Mind the `{{-`: it strips ALL preceding whitespace, so do not place a call
   where a deliberate blank line precedes it.
+
+  ----------------------------------------------------------------------------
+  WHAT AN EDIT HERE REDDENS
+  ----------------------------------------------------------------------------
+
+  Every template that imports this file renders its macros, and those renders
+  are pinned byte for byte. An edit to a macro below therefore moves the
+  goldens of every importer at once — a wider reach than an edit to any one
+  template, and one no importer can see from where it sits. Regenerate in the
+  same change. One command per suite that pins an importer of this file:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+      PYTHONPATH=src ./.venv/bin/python tests/deployment/test_lane_compose.py
+      PYTHONPATH=src ./.venv/bin/python tests/deployment/test_va_compose_instances.py
 #}
 
 {#- The declared build args, one `NAME: "VALUE"` line each, sorted by name.
