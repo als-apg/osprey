@@ -1,0 +1,17 @@
+{
+  "RING": {
+    "_description": "Main storage ring of the invented Quokka light source",
+    "HCM": {"FamilyName": "HCM", "MemberOf": ["HCM", "Magnet"], "setup": {"DeviceList": [[1, 1], [1, 2], [2, 1]], "CommonNames": ["hcm-a", "hcm-b", "   "], "Status": [1, 1, 0], "Position": [2.5, "NaN", 11.0]},
+      "Setpoint": {"MemberOf": ["HCM", "Setpoint"], "Mode": "Simulator", "DataType": "Scalar", "ChannelNames": ["RG:HCM1:SP", "RG:HCM2:SP", "  "], "Units": "Hardware", "HWUnits": "Amps", "PhysicsUnits": "rad", "Range": ["-inf", "inf"], "Tolerance": NaN, "HW2PhysicsFcn": 1, "Physics2HWFcn": "k2amp", "Handles": [11, 12, 13]},
+      "Monitor": {"MemberOf": ["HCM", "Monitor"], "Mode": "Simulator", "DataType": "Scalar", "ChannelNames": ["RG:HCM1:RB", "RG:HCM2:RB", "RG:HCM2:RB"], "Units": "Hardware", "HWUnits": ["Amps", "Amps", "Amps"], "PhysicsUnits": "rad", "Range": [-1, Infinity]}},
+    "QF": {"FamilyName": "QF", "MemberOf": ["QUAD", "Magnet"], "DeviceList": [[1, 1], [2, 1]], "CommonNames": "qf", "Description": "Focusing quadrupoles",
+      "Setpoint": {"MemberOf": ["QUAD", "Setpoint"], "ChannelNames": "RG:QF:SP", "HWUnits": "Amps", "Range": ["-inf", "inf"], "HW2PhysicsFcn": "amp2k", "HW2PhysicSDcn": {"matlabroot": "/opt/matlab", "separator": "/", "sentinel": "@", "function_handle": {"function": "amp2k", "type": "simple", "file": ""}}},
+      "Monitor": {"MemberOf": ["QUAD", "Monitor"], "ChannelNames": ["RG:QF1:RB", "RG:QF2:RB"], "HWUnits": []}},
+    "BEND": {"FamilyName": "BEND", "MemberOf": ["BEND", "Magnet"], "setup": {"DeviceList": [[1, 1], [2, 1]], "CommonNames": ["bend-1", "bend-2"]},
+      "Monitor": {"MemberOf": ["BEND", "Monitor"], "Mode": "Simulator", "DataType": "Scalar", "HWUnits": "Amps"}}
+  },
+  "BOOST": {
+    "BPM": {"FamilyName": "BPM", "MemberOf": ["BPM"], "setup": {"DeviceList": [[1, 1], [1, 2]], "Status": [true, false], "CommonNames": " "},
+      "X": {"MemberOf": ["BPM", "Monitor"], "ChannelNames": ["BS:BPM1:X", " "], "HWUnits": "mm"}}
+  }
+}

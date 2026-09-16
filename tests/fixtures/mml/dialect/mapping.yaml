@@ -1,0 +1,86 @@
+facility:
+  token: Quokka
+  title: Quokka
+  description: The invented Quokka light source used by the synthetic MML fixtures.
+  provenance: stated
+systems:
+  RING:
+    name: RING
+    description: Main storage ring of the invented Quokka light source
+    provenance: stated
+  BOOST:
+    name: BOOST
+    description: Quokka booster synchrotron.
+    provenance: stated
+section_order:
+- RING
+- BOOST
+families:
+  BEND:
+    aliases:
+    - BEND
+    description: Ring bending dipoles; no channels exported.
+    provenance: stated
+    channels: 0
+    fields: {}
+  HCM:
+    class: HCorrector
+    aliases:
+    - HCM
+    description: Horizontal orbit corrector magnets.
+    provenance: stated
+    channels: 5
+    fields:
+      Monitor:
+        description: 'Field Monitor: 3 channels via ChannelNames.'
+        provenance: stated
+      Setpoint:
+        description: 'Field Setpoint: 2 channels via ChannelNames, hardware units Amps.'
+        provenance: stated
+  QF:
+    class: Quadrupole
+    aliases:
+    - QF
+    description: Focusing quadrupoles
+    provenance: stated
+    channels: 4
+    fields:
+      Monitor:
+        description: 'Field Monitor: 2 channels via ChannelNames.'
+        provenance: stated
+      Setpoint:
+        description: 'Field Setpoint: 2 channels via ChannelNames, one channel broadcast
+          to every device, hardware units Amps.'
+        provenance: stated
+  BPM:
+    class: BeamPositionMonitor
+    aliases:
+    - BPM
+    description: Booster beam position monitors, horizontal plane only.
+    provenance: stated
+    channels: 1
+    fields:
+      X:
+        description: 'Field X: 1 channel via ChannelNames, hardware units mm.'
+        provenance: stated
+directions:
+  HCM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QF.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  BPM.X:
+    direction: read
+    provenance: stated
+    override: false

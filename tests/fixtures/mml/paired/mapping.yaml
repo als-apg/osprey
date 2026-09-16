@@ -1,0 +1,86 @@
+facility:
+  token: Quokka
+  title: Quokka
+  description: The invented Quokka light source used by the synthetic MML fixtures.
+  provenance: stated
+systems:
+  RING:
+    name: RING
+    description: Quokka storage ring, simulated user optics.
+    provenance: stated
+section_order:
+- RING
+branches:
+  SkewQuadrupole:
+    parent: Quadrupole
+    description: Quadrupoles rotated to couple the transverse planes.
+families:
+  BPM:
+    class: BeamPositionMonitor
+    aliases:
+    - BPM
+    description: Ring beam position monitors.
+    provenance: stated
+    channels: 6
+    fields:
+      X:
+        description: 'Field X: 3 channels via ChannelNames, hardware units mm.'
+        provenance: stated
+      Y:
+        description: 'Field Y: 3 channels via ChannelNames.'
+        provenance: stated
+  HCM:
+    class: HCorrector
+    aliases:
+    - HCM
+    description: Horizontal orbit corrector magnets.
+    provenance: stated
+    channels: 4
+    fields:
+      Monitor:
+        description: 'Field Monitor: 2 channels via ChannelNames.'
+        provenance: stated
+      Setpoint:
+        description: 'Field Setpoint: 2 channels via ChannelNames, hardware units Amps.'
+        provenance: stated
+  KICKER:
+    aliases:
+    - KICKER
+    description: Injection kickers; no channels exported.
+    provenance: stated
+    channels: 0
+    fields: {}
+  SQ:
+    branch: SkewQuadrupole
+    class: QuokkaSkewTrim
+    aliases:
+    - SQ
+    description: Skew quadrupole trims on one shared supply
+    provenance: stated
+    channels: 3
+    fields:
+      Setpoint:
+        description: 'Field Setpoint: 3 channels via ChannelNames, one channel broadcast
+          to every device, hardware units Amps.'
+        provenance: stated
+directions:
+  BPM.X:
+    direction: read
+    provenance: stated
+    override: false
+  BPM.Y:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SQ.Setpoint:
+    direction: write
+    provenance: stated
+    override: false

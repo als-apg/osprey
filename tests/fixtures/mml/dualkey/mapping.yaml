@@ -1,0 +1,74 @@
+facility:
+  token: Quokka
+  title: Quokka
+  description: The invented Quokka light source used by the synthetic MML fixtures.
+  provenance: stated
+systems:
+  STOR:
+    name: STOR
+    description: Quokka storage ring whose fields carry both EPICS and Tango channel names.
+    provenance: stated
+section_order:
+- STOR
+families:
+  GIRDER:
+    aliases:
+    - GIRDER
+    description: Magnet girders; no channels exported.
+    provenance: stated
+    channels: 0
+    fields: {}
+  QF:
+    class: Quadrupole
+    aliases:
+    - QF
+    description: Focusing quadrupoles
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: 'Field Monitor: 2 channels via ChannelNames, hardware units Amps.'
+        provenance: stated
+  SD:
+    class: Sextupole
+    aliases:
+    - SD
+    description: Defocusing sextupoles.
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: 'Field Monitor: 2 channels via ChannelNames.'
+        provenance: stated
+  SF:
+    class: Sextupole
+    aliases:
+    - SF
+    description: Focusing sextupoles, addressed by both channel-name keys.
+    provenance: stated
+    channels: 10
+    fields:
+      Monitor:
+        description: 'Field Monitor: 4 channels via ChannelNames, TangoNames.'
+        provenance: stated
+      Setpoint:
+        description: 'Field Setpoint: 6 channels via ChannelNames, TangoNames, one channel
+          broadcast to every device, hardware units Amps.'
+        provenance: stated
+directions:
+  QF.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SD.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SF.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false

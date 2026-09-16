@@ -1,0 +1,72 @@
+{
+  "SF": {
+    "FamilyName": "SF",
+    "MemberOf": ["SEXT", "Magnet"],
+    "DeviceList": [[1, 1], [1, 2], [2, 1]],
+    "Status": [1, 1, 0],
+    "CommonNames": ["sf-01", "sf-02", "sf-03"],
+    "Monitor": {
+      "MemberOf": ["SEXT", "Monitor"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "ChannelNames": ["ST-SF-01:I", "ST-SF-02:I", ""],
+      "TangoNames": ["st/ps/sf-01/current", "st/ps/sf-02/current", ""],
+      "Units": "Hardware",
+      "HWUnits": ["Amps", "Amps", "Amps"],
+      "PhysicsUnits": "1/m^3"
+    },
+    "Setpoint": {
+      "MemberOf": ["SEXT", "Setpoint"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "ChannelNames": ["ST-SF:SP"],
+      "TangoNames": ["st/ps/sf/current_sp"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "1/m^3",
+      "Range": ["-Inf", "Inf"]
+    }
+  },
+  "SD": {
+    "FamilyName": "SD",
+    "MemberOf": ["SEXT", "Magnet"],
+    "DeviceList": [[1, 1], [2, 1]],
+    "CommonNames": ["sd-01", "sd-02"],
+    "Monitor": {
+      "MemberOf": ["SEXT", "Monitor"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "ChannelNames": ["ST-SD-01:I", "ST-SD-02:I"],
+      "Units": "Hardware",
+      "HWUnits": [],
+      "PhysicsUnits": "1/m^3"
+    }
+  },
+  "QF": {
+    "FamilyName": "QF",
+    "MemberOf": ["QUAD", "Magnet"],
+    "DeviceList": [[1, 1], [2, 1]],
+    "CommonNames": ["qf-01", "qf-02"],
+    "Description": "Focusing quadrupoles",
+    "Monitor": {
+      "MemberOf": ["QUAD", "Monitor"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "ChannelNames": ["ST-QF-01:I", "ST-SD-02:I"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "1/m^2"
+    }
+  },
+  "GIRDER": {
+    "FamilyName": "GIRDER",
+    "MemberOf": ["GIRDER"],
+    "DeviceList": [[1, 1], [2, 1]],
+    "Monitor": {
+      "MemberOf": ["GIRDER", "Monitor"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "HWUnits": "mm"
+    }
+  }
+}

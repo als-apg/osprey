@@ -1,0 +1,70 @@
+{
+  "BPMx": {
+    "FamilyName": "BPMx",
+    "MemberOf": ["BPM", "Diagnostics"],
+    "DeviceList": [[1, 1], [1, 2], [2, 1]],
+    "CommonNames": ["bpm-01", "bpm-02", "bpm-03"],
+    "Description": "Orbit position, horizontal plane",
+    "Monitor": {
+      "MemberOf": ["BPM", "Monitor"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "ChannelNames": ["MN-BPM1:PosX-Mon", "MN-BPM2:PosX-Mon", "MN-BPM3:PosX-Mon"],
+      "Units": "Hardware",
+      "HWUnits": ["nm", "nm", "nm"],
+      "PhysicsUnits": "m"
+    }
+  },
+  "bpmx": {
+    "FamilyName": "bpmx",
+    "MemberOf": ["BPM", "Diagnostics"],
+    "DeviceList": [[1, 1], [1, 2], [2, 1]],
+    "CommonNames": ["bpm-01", "bpm-02", "bpm-03"],
+    "Description": "Slow orbit acquisition, horizontal plane",
+    "Monitor": {
+      "MemberOf": ["BPM", "Monitor"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "ChannelNames": ["MN-BPM1:PosX-Mon", "MN-BPM2:SlowPosX-Mon", ""],
+      "Units": "Hardware",
+      "HWUnits": [],
+      "PhysicsUnits": "m"
+    }
+  },
+  "CH": {
+    "FamilyName": "CH",
+    "MemberOf": ["HCM", "Magnet"],
+    "DeviceList": [[1, 1], [2, 1]],
+    "CommonNames": ["ch-01", "ch-02"],
+    "Setpoint": {
+      "MemberOf": ["HCM", "Setpoint"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "ChannelNames": ["MN-CH:Current-SP"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "rad",
+      "Range": ["-Inf", "Inf"]
+    },
+    "Monitor": {
+      "MemberOf": ["HCM", "Monitor"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "ChannelNames": ["MN-CH1:Current-Mon", "MN-CH2:Current-Mon"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "rad"
+    }
+  },
+  "DIPOLE": {
+    "FamilyName": "DIPOLE",
+    "MemberOf": ["BEND", "Magnet"],
+    "DeviceList": [[1, 1], [2, 1]],
+    "Monitor": {
+      "MemberOf": ["BEND", "Monitor"],
+      "Mode": "Online",
+      "DataType": "Scalar",
+      "HWUnits": "Amps"
+    }
+  }
+}

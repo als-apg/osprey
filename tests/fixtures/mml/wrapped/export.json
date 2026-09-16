@@ -1,0 +1,66 @@
+{
+  "ao": {
+    "BPM": {
+      "FamilyName": "BPM",
+      "MemberOf": ["BPM", "Diagnostics"],
+      "DeviceList": [[1, 1], [1, 2]],
+      "Status": [1, 1],
+      "CommonNames": ["ij-bpm-1", "ij-bpm-2"],
+      "Position": [0.5, 3.25],
+      "X": {
+        "MemberOf": ["BPM", "Monitor"],
+        "Mode": "Simulator",
+        "DataType": "Scalar",
+        "ChannelNames": ["IJ:BPM1:X", ""],
+        "Units": "Hardware",
+        "HWUnits": [],
+        "PhysicsUnits": "m"
+      }
+    },
+    "QM": {
+      "FamilyName": "QM",
+      "MemberOf": ["QUAD", "Magnet"],
+      "DeviceList": [[1, 1], [1, 2], [1, 3]],
+      "CommonNames": ["qm-1", "qm-2", "qm-3"],
+      "Setpoint": {
+        "MemberOf": ["QUAD", "Setpoint"],
+        "Mode": "Simulator",
+        "DataType": "Scalar",
+        "ChannelNames": ["IJ:QM:SP"],
+        "Units": "Hardware",
+        "HWUnits": "Amps",
+        "PhysicsUnits": "1/m^2"
+      },
+      "Monitor": {
+        "MemberOf": ["QUAD", "Monitor"],
+        "Mode": "Simulator",
+        "DataType": "Scalar",
+        "ChannelNames": ["IJ:QM1:RB", "IJ:QM2:RB", "IJ:QM2:RB"],
+        "Units": "Hardware",
+        "HWUnits": ["Amps", "Amps", "Amps"],
+        "PhysicsUnits": "1/m^2"
+      },
+      "On": {
+        "Mode": "Simulator",
+        "DataType": "Scalar",
+        "ChannelNames": ["IJ:QM1:ON", "IJ:QM2:ON", "IJ:QM3:ON"]
+      },
+      "OnControl": {
+        "Mode": "Simulator",
+        "DataType": "Scalar",
+        "ChannelNames": ["IJ:QM1:ON-SP", "IJ:QM2:ON-SP", "IJ:QM3:ON-SP"]
+      }
+    },
+    "GUN": {
+      "FamilyName": "GUN",
+      "MemberOf": ["GUN"],
+      "DeviceList": [1, 1],
+      "Monitor": {
+        "MemberOf": ["GUN", "Monitor"],
+        "Mode": "Simulator",
+        "DataType": "Scalar",
+        "HWUnits": "kV"
+      }
+    }
+  }
+}

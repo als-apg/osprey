@@ -1,0 +1,113 @@
+{
+  "BPM": {
+    "FamilyName": "BPM",
+    "MemberOf": ["BPM", "Diagnostics"],
+    "DeviceList": [[1, 1], [1, 2], [2, 1]],
+    "ElementList": [1, 2, 3],
+    "Status": [1, 1, 0],
+    "CommonNames": ["bpm-01", "bpm-02", "bpm-03"],
+    "Position": [1.25, 4.5, 9.75],
+    "DeviceType": ["Button", "Button", "Stripline"],
+    "Description": "Beam position monitors",
+    "X": {
+      "MemberOf": ["BPM", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "TangoNames": ["ring/diag/bpm-01/x", "ring/diag/bpm-02/x", ""],
+      "Units": "Hardware",
+      "HWUnits": "mm",
+      "PhysicsUnits": "m",
+      "HW2PhysicsParams": 0.001
+    },
+    "Y": {
+      "MemberOf": ["BPM", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "TangoNames": ["ring/diag/bpm-01/y", "ring/diag/bpm-02/y", ""],
+      "Units": "Hardware",
+      "HWUnits": [],
+      "PhysicsUnits": "m"
+    }
+  },
+  "HCM": {
+    "FamilyName": "HCM",
+    "MemberOf": ["HCM", "Magnet"],
+    "DeviceList": [[1, 1], [1, 2], [2, 1]],
+    "Status": [1, 1, 1],
+    "CommonNames": ["hcm-a1", "hcm-a2", "cor-c3"],
+    "Position": [2.0, 5.5, 10.25],
+    "Setpoint": {
+      "MemberOf": ["HCM", "Setpoint"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "TangoNames": ["ring/mag/hcm-a1/current", "ring/mag/hcm-a2/current", "ring/mag/cor-c3/current"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "rad",
+      "Range": ["-Inf", "Inf"],
+      "Tolerance": 0.01
+    },
+    "Monitor": {
+      "MemberOf": ["HCM", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "TangoNames": ["ring/mag/hcm-a1/current_rb", "ring/mag/hcm-a2/current_rb", "ring/mag/cor-c3/current_rb"],
+      "Units": "Hardware",
+      "HWUnits": ["Amps", "Amps", "Amps"],
+      "PhysicsUnits": "rad"
+    }
+  },
+  "VCM": {
+    "FamilyName": "VCM",
+    "MemberOf": ["VCM", "Magnet"],
+    "DeviceList": [[2, 1], [2, 2]],
+    "CommonNames": ["cor-c3", "vcm-c4"],
+    "Setpoint": {
+      "MemberOf": ["VCM", "Setpoint"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "TangoNames": ["ring/mag/cor-c3/current", "ring/mag/vcm-c4/current"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "rad"
+    }
+  },
+  "SF": {
+    "FamilyName": "SF",
+    "MemberOf": ["SEXT", "Magnet"],
+    "DeviceList": [[1, 1], [1, 2], [2, 1], [2, 2]],
+    "Setpoint": {
+      "MemberOf": ["SEXT", "Setpoint"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "TangoNames": ["ring/mag/sf/current"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "1/m^3"
+    }
+  },
+  "DCCT": {
+    "FamilyName": "DCCT",
+    "MemberOf": ["DCCT", "Diagnostics"],
+    "DeviceList": [1, 1],
+    "Monitor": {
+      "MemberOf": ["DCCT", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "TangoNames": "ring/diag/dcct/current",
+      "HWUnits": "mA"
+    }
+  },
+  "BEND": {
+    "FamilyName": "BEND",
+    "MemberOf": ["BEND", "Magnet"],
+    "DeviceList": [[1, 1], [2, 1]],
+    "CommonNames": ["bend-1", "bend-2"],
+    "Monitor": {
+      "MemberOf": ["BEND", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "HWUnits": "Amps"
+    }
+  }
+}
