@@ -239,13 +239,19 @@ def test_drain_thread_is_silenced_when_a_grandchild_holds_the_pipe(
     closing the pipe from the caller would hang it on the reader's lock.
     """
     monkeypatch.setattr(build_lifecycle, "_DRAIN_SHUTDOWN_SECONDS", 0.3)
+    released = tmp_path / "step-reported.txt"
     marker = tmp_path / "grandchild-wrote.txt"
     grandchild = tmp_path / "grandchild.py"
-    # Sleeps well past the step's own end (timeout + grace, ~1.3s here), so the
-    # line reaches the pipe only once the step has been reported.
+    # Holds its line until the test releases it, so the line reaches the pipe
+    # after the step has been reported however long the step took to get
+    # there. Its own cap is far above the deadline the assertion below polls
+    # to, so a release that never comes fails the test rather than passing it.
     grandchild.write_text(
-        "import time\n"
-        "time.sleep(3)\n"
+        "import os, time\n"
+        f"released = {str(released)!r}\n"
+        "give_up_at = time.monotonic() + 60\n"
+        "while not os.path.exists(released) and time.monotonic() < give_up_at:\n"
+        "    time.sleep(0.02)\n"
         "print('late from grandchild', flush=True)\n"
         f"open({str(marker)!r}, 'w').write('done')\n"
     )
@@ -268,8 +274,10 @@ def test_drain_thread_is_silenced_when_a_grandchild_holds_the_pipe(
     during_step = reporter.lines()
     assert during_step == ["    early"]
 
-    # Wait for proof the grandchild actually put its line in the pipe, then
-    # assert the drain thread read it and passed nothing on.
+    # The step is reported, so nothing more may reach the reporter: release
+    # the grandchild, wait for proof its line went into the pipe, and assert
+    # the drain thread read it and passed nothing on.
+    released.write_text("go")
     assert _wait_until(marker.exists, deadline=15.0), "grandchild never wrote its line"
     assert _wait_until(lambda: not _drain_threads()), "drain thread never ended"
     assert reporter.lines() == during_step
