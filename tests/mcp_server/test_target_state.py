@@ -22,6 +22,7 @@ import pytest
 
 from osprey.mcp_server.control_system import server, server_context, target_state
 from osprey_connectors import control_context
+from tests.mcp_server._report_root import state_root as state_root  # noqa: F401
 
 TARGETS_META = {
     "live": {
@@ -43,13 +44,6 @@ TARGETS_META = {
         "probe_channel": "STANDIN:BeamCurrent",
     },
 }
-
-
-@pytest.fixture(autouse=True)
-def state_root(tmp_path, monkeypatch):
-    """Anchor the state directory in tmp_path instead of a real deployment."""
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    return tmp_path
 
 
 def _write_foreign(state_root, pid, *, children=None, target="live"):
