@@ -169,7 +169,7 @@ class TestRepositoryTimeRange:
         """search_by_time_range filters by source_system when supplied."""
         base = datetime(2003, 3, 3, tzinfo=UTC)
         await repository.upsert_entry(
-            seed_entry_factory(entry_id="integ-src-als", source_system="integ-ALS", timestamp=base)
+            seed_entry_factory(entry_id="integ-src-ex", source_system="integ-EX", timestamp=base)
         )
         await repository.upsert_entry(
             seed_entry_factory(
@@ -177,10 +177,10 @@ class TestRepositoryTimeRange:
             )
         )
 
-        results = await repository.search_by_time_range(source_system="integ-ALS", limit=100)
+        results = await repository.search_by_time_range(source_system="integ-EX", limit=100)
 
         entry_ids = [e["entry_id"] for e in results]
-        assert "integ-src-als" in entry_ids
+        assert "integ-src-ex" in entry_ids
         assert "integ-src-other" not in entry_ids
 
     async def test_search_by_time_range_offset_paginates(self, repository, seed_entry_factory):

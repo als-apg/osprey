@@ -74,7 +74,7 @@ class TestGatewayFor:
 
 class TestActingSurface:
     def test_terminal_user_wins(self, monkeypatch):
-        monkeypatch.setenv(TERMINAL_USER_ENV, "thellert")
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "dispatch-worker-0")
         assert acting_surface() == "terminal"
 
@@ -94,9 +94,9 @@ class TestActingSurface:
 
 class TestAttributionHeaders:
     def test_terminal_user_is_the_end_user(self, monkeypatch):
-        monkeypatch.setenv(TERMINAL_USER_ENV, "thellert")
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
         headers = attribution_headers()
-        assert headers[END_USER_HEADER] == "thellert"
+        assert headers[END_USER_HEADER] == "alice"
         assert headers[TAGS_HEADER] == "osprey,surface:terminal"
 
     def test_dispatch_worker_identity(self, monkeypatch):
@@ -137,19 +137,19 @@ class TestCustomHeadersRendering:
 
 class TestApplyAttributionEnv:
     def test_litellm_gateway_sets_custom_headers(self, monkeypatch):
-        monkeypatch.setenv(TERMINAL_USER_ENV, "thellert")
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
         environ: dict[str, str] = {}
         apply_attribution_env(environ, LITELLM_GATEWAY)
         assert environ[CUSTOM_HEADERS_ENV] == (
-            f"{END_USER_HEADER}: thellert\n{TAGS_HEADER}: osprey,surface:terminal"
+            f"{END_USER_HEADER}: alice\n{TAGS_HEADER}: osprey,surface:terminal"
         )
 
     def test_merges_into_existing_operator_headers(self, monkeypatch):
-        monkeypatch.setenv(TERMINAL_USER_ENV, "thellert")
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
         environ = {CUSTOM_HEADERS_ENV: "X-Corp-Trace: abc123"}
         apply_attribution_env(environ, LITELLM_GATEWAY)
         assert environ[CUSTOM_HEADERS_ENV].startswith("X-Corp-Trace: abc123\n")
-        assert f"{END_USER_HEADER}: thellert" in environ[CUSTOM_HEADERS_ENV]
+        assert f"{END_USER_HEADER}: alice" in environ[CUSTOM_HEADERS_ENV]
 
     def test_no_gateway_leaves_environ_untouched(self, no_identity):
         environ = {CUSTOM_HEADERS_ENV: "X-Corp-Trace: abc123"}

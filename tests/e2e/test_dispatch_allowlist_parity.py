@@ -35,7 +35,7 @@ zone — the render is what the worker reads, and a copy keeps one scenario's
 edit from reaching another's worker.
 
 Runs are direct ``POST /dispatch`` calls to the worker (bearer-token), no
-dispatcher needed. Requires ALS-APG credentials; skips cleanly without.
+dispatcher needed. Requires als-apg credentials; skips cleanly without.
 """
 
 from __future__ import annotations

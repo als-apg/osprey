@@ -54,7 +54,7 @@ async function boot(payload) {
 test('a graph /api/info payload lands its tools and graph store on the state', async () => {
   const state = await boot({
     pipeline_type: 'graph',
-    metadata: { facility_name: 'ALS' },
+    metadata: { facility_name: 'ERF' },
     available_pipelines: ['graph'],
     db_path: null,
     tools: ['capabilities', 'example_queries', 'get_schema', 'read_cypher'],

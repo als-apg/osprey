@@ -976,7 +976,7 @@ DANA_EMAIL = "dana@example.org"
 
 ALICE_EMAIL = "alice@example.org"
 CAROL_EMAIL = "carol@example.org"
-BOB_OUTSIDE_EMAIL = "bob@lbl.gov"
+BOB_OUTSIDE_EMAIL = "bob@example.com"
 """bob's own mapping, deliberately outside the domain his card names."""
 
 DOMAIN_RULE = access_wire_value(frozenset({f"domain:{DOMAIN}"}))
@@ -1185,11 +1185,11 @@ def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
     match is not consulted at all — a card that still ran it would make
     ``roster`` an unremovable member of every rule.
     """
-    _asserts(idp, "alice@lbl.gov")
+    _asserts(idp, "alice@example.com")
     app = _rule_sidecar(
         idp,
         DOMAIN_RULE,
-        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@lbl.gov",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@example.com",
     )
     with _browser(app) as client:
         response = _log_in(client, "bob")
@@ -1206,7 +1206,7 @@ def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
     [
         (DANA_EMAIL, {"hd": "other.example"}, audit.REASON_HOSTED_DOMAIN_MISMATCH),
         (DANA_EMAIL, {"email_verified": False}, audit.REASON_UNVERIFIED_EMAIL),
-        ("dana@lbl.gov", {}, audit.REASON_NO_COVERING_PRINCIPAL),
+        ("dana@example.com", {}, audit.REASON_NO_COVERING_PRINCIPAL),
     ],
     ids=["hosted-domain-disagrees", "address-unverified", "no-covering-principal"],
 )

@@ -48,7 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from osprey.config_guards import require_positive_int
+from osprey.config_guards import require_absolute_path, require_positive_int
 from osprey.deployment.errors import DeploymentPreconditionError
 from osprey.port_layout import default_port, resolve_port_base
 
@@ -226,7 +226,7 @@ def resolve_qmd_service_config(config: Mapping[str, Any] | None) -> QMDServiceCo
             DEFAULT_FIRST_INDEX_GRACE_SECONDS,
             "services.qmd.first_index_grace",
         ),
-        models_dir=_absolute_path(block.get("models_dir"), MODELS_DIR_CONFIG_KEY),
+        models_dir=require_absolute_path(block.get("models_dir"), MODELS_DIR_CONFIG_KEY),
     )
 
 
@@ -414,35 +414,3 @@ def _staged(path: Path) -> bool:
     that would otherwise pass a bare existence check and fail in the container.
     """
     return path.is_file() and path.stat().st_size > 0
-
-
-def _absolute_path(value: Any, key: str) -> str | None:
-    """Coerce a config value to an absolute host path, or ``None`` when unset.
-
-    Args:
-        value: The raw value read from config, possibly ``None``.
-        key: Dotted config key, named in the error message.
-
-    Returns:
-        ``None`` when ``value`` is ``None``, otherwise the stripped path.
-
-    Raises:
-        ValueError: If ``value`` is present but not a non-empty absolute path.
-            Absoluteness is required rather than resolved-for: a relative path
-            means one directory to this process and another to the container
-            runtime, which resolves it against the compose file instead, and
-            neither of them expands ``~``. Accepting one would let the check
-            below pass against a directory the mount never sees.
-    """
-    if value is None:
-        return None
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{key} must be a non-empty absolute host path, got {value!r}")
-    path = value.strip()
-    if not Path(path).is_absolute():
-        raise ValueError(
-            f"{key} must be an absolute host path, got {path!r}. A relative path "
-            "resolves differently here than in the container runtime, and neither "
-            "expands '~'."
-        )
-    return path

@@ -70,9 +70,9 @@ def test_context_loads_flat_database(tmp_path, monkeypatch):
 @pytest.mark.unit
 def test_context_facility_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG + 'facility:\n  name: "ALS"\n')
+    (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG + 'facility:\n  name: "ERF"\n')
     initialize_cf_ic_context()
-    assert get_cf_ic_context().facility_name == "ALS"
+    assert get_cf_ic_context().facility_name == "ERF"
 
 
 @pytest.mark.unit

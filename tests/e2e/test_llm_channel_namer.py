@@ -29,7 +29,7 @@ def get_available_providers() -> dict[str, dict]:
 
     available = {}
 
-    # Provider preference: als-apg first (the ALS-APG gateway — IP-unrestricted,
+    # Provider preference: als-apg first (IP-unrestricted,
     # works in CI and off-VPN), but only once its endpoint is named: the gateway
     # has no built-in host, so ALS_APG_BASE_URL is what makes it a route at all.
     # CBORG is LBLnet-gated and would 403 from GitHub Actions runners or

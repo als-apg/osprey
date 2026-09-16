@@ -855,23 +855,23 @@ async def test_external_plan_catalog_is_the_managers_own(connector, fast_backend
         plans_allowed={
             "success": True,
             "plans_allowed": {
-                "geecs_scan_request_plan": {
-                    "name": "geecs_scan_request_plan",
+                "scan_request_plan": {
+                    "name": "scan_request_plan",
                     "description": "Run one validated ScanRequest.",
                     "parameters": [
                         {"name": "request", "description": "The ScanRequest document."},
                         {"name": "dry_run", "default": "False"},
                     ],
                 },
-                "geecs_run_action_plan": "not-a-mapping",
+                "run_action_plan": "not-a-mapping",
             },
         }
     )
     catalog = await fast_backend(manager, external_worker=True).external_plan_catalog()
 
     assert [entry["name"] for entry in catalog] == [
-        "geecs_run_action_plan",
-        "geecs_scan_request_plan",
+        "run_action_plan",
+        "scan_request_plan",
     ]
     scan = catalog[1]
     assert scan["provenance"] == "facility"
@@ -898,13 +898,13 @@ async def test_external_catalog_grafts_a_facility_published_parameter_schema(
     schema_file.write_text(json.dumps(artifact))
     monkeypatch.setenv(
         qb.EXTERNAL_PARAM_SCHEMAS_ENV,
-        json.dumps({"geecs_scan_request_plan.request": str(schema_file)}),
+        json.dumps({"scan_request_plan.request": str(schema_file)}),
     )
     manager = FakeManager(
         plans_allowed={
             "success": True,
             "plans_allowed": {
-                "geecs_scan_request_plan": {
+                "scan_request_plan": {
                     "description": "Run one validated ScanRequest.",
                     "parameters": [{"name": "request", "description": "The queue's JSON shape."}],
                 }
@@ -930,12 +930,12 @@ async def test_external_catalog_survives_an_unreadable_graft_file(
     connector("epics")
     monkeypatch.setenv(
         qb.EXTERNAL_PARAM_SCHEMAS_ENV,
-        json.dumps({"geecs_scan_request_plan.request": "/nonexistent/schema.json"}),
+        json.dumps({"scan_request_plan.request": "/nonexistent/schema.json"}),
     )
     manager = FakeManager(
         plans_allowed={
             "success": True,
-            "plans_allowed": {"geecs_scan_request_plan": {"parameters": [{"name": "request"}]}},
+            "plans_allowed": {"scan_request_plan": {"parameters": [{"name": "request"}]}},
         }
     )
     (entry,) = await fast_backend(manager, external_worker=True).external_plan_catalog()

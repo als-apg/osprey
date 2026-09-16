@@ -1282,9 +1282,9 @@ def test_normalize_users_carries_access_any_through() -> None:
     "authored",
     [
         ["roster"],
-        ["domain:lbl.gov"],
-        ["user:alice@lbl.gov"],
-        ["self", "domain:lbl.gov"],
+        ["domain:example.com"],
+        ["user:alice@example.com"],
+        ["self", "domain:example.com"],
     ],
 )
 def test_normalize_users_carries_a_principal_list_verbatim(authored: list[str]) -> None:
@@ -1305,11 +1305,11 @@ def test_normalize_users_carries_the_authored_case_not_a_folded_one() -> None:
     """The carried value is verbatim: a domain is folded by the parser, on
     every read, and never written back onto the entry in its folded spelling."""
     # Act
-    result = normalize_users([{"name": "control", "index": 3, "access": ["domain:LBL.Gov"]}])
+    result = normalize_users([{"name": "control", "index": 3, "access": ["domain:Example.Com"]}])
 
     # Assert
-    assert result[0]["access"] == ["domain:LBL.Gov"]
-    assert resolve_access_principals(result[0]) == frozenset({"domain:lbl.gov"})
+    assert result[0]["access"] == ["domain:Example.Com"]
+    assert resolve_access_principals(result[0]) == frozenset({"domain:example.com"})
 
 
 def test_normalize_users_drops_every_owner_only_spelling() -> None:
@@ -1385,7 +1385,7 @@ def test_shared_card_privileged_problems_quotes_the_authored_access() -> None:
     and the word "members" carries the list-vs-scalar cue the brackets did."""
     # Arrange
     resolved = [
-        {"name": "control", "index": 0, "persona": "admin", "access": ["domain:lbl.gov"]},
+        {"name": "control", "index": 0, "persona": "admin", "access": ["domain:example.com"]},
     ]
 
     # Act
@@ -1393,7 +1393,7 @@ def test_shared_card_privileged_problems_quotes_the_authored_access() -> None:
 
     # Assert
     assert len(problems) == 1
-    assert "access members 'domain:lbl.gov'" in problems[0]
+    assert "access members 'domain:example.com'" in problems[0]
     assert "access: any" not in problems[0]
     assert "whole roster" not in problems[0]
     assert "[" not in problems[0]
@@ -1449,10 +1449,13 @@ def test_resolve_access_principals_resolves_the_two_shorthands_and_absence() -> 
     [
         (["self"], {"self"}),
         (["roster"], {"roster"}),
-        (["user:alice@lbl.gov"], {"user:alice@lbl.gov"}),
-        (["domain:lbl.gov"], {"domain:lbl.gov"}),
-        (["self", "domain:lbl.gov"], {"self", "domain:lbl.gov"}),
-        (["user:a@lbl.gov", "user:b@lbl.gov"], {"user:a@lbl.gov", "user:b@lbl.gov"}),
+        (["user:alice@example.com"], {"user:alice@example.com"}),
+        (["domain:example.com"], {"domain:example.com"}),
+        (["self", "domain:example.com"], {"self", "domain:example.com"}),
+        (
+            ["user:a@example.com", "user:b@example.com"],
+            {"user:a@example.com", "user:b@example.com"},
+        ),
         # The union is a set: a member written twice grants once.
         (["self", "self"], {"self"}),
     ],
@@ -1471,13 +1474,13 @@ def test_resolve_access_principals_lowercases_a_domain_and_leaves_a_user_byte_ex
     """A domain is compared case-insensitively, so it is folded once here; a
     `user:` value is an identity string the IdP owns and is never rewritten."""
     resolved = resolve_access_principals(
-        {"name": "control", "index": 3, "access": ["domain:LBL.Gov", "user:Alice@LBL.gov"]}
+        {"name": "control", "index": 3, "access": ["domain:Example.Com", "user:Alice@Example.com"]}
     )
 
-    assert resolved == frozenset({"domain:lbl.gov", "user:Alice@LBL.gov"})
+    assert resolved == frozenset({"domain:example.com", "user:Alice@Example.com"})
 
 
-@pytest.mark.parametrize("member", ["domain:MÜ.de", "domain:münchen.de", "domain:lbl.göv"])
+@pytest.mark.parametrize("member", ["domain:MÜ.de", "domain:münchen.de", "domain:example.cöm"])
 def test_resolve_access_principals_refuses_a_non_ascii_domain(member: str) -> None:
     """An IdP asserts an internationalised domain in punycode, and nothing on
     either side translates between the two spellings — so a Unicode-authored
@@ -1512,7 +1515,7 @@ def test_resolve_access_principals_refuses_an_empty_list() -> None:
 
 @pytest.mark.parametrize(
     "authored",
-    ["ANY", "Any", "own ", "self", "roster", "user:a@lbl.gov", "", True, 1, 0, {}, ("self",)],
+    ["ANY", "Any", "own ", "self", "roster", "user:a@example.com", "", True, 1, 0, {}, ("self",)],
 )
 def test_resolve_access_principals_refuses_a_value_outside_the_authored_forms(
     authored: Any,
@@ -1532,19 +1535,19 @@ def test_resolve_access_principals_refuses_a_value_outside_the_authored_forms(
         "everyone",
         "SELF",
         " self",
-        "tenant:lbl",
-        ":lbl.gov",
+        "tenant:example",
+        ":example.com",
         "user:",
         "user: ",
-        "user:a b@lbl.gov",
+        "user:a b@example.com",
         "domain:",
         "domain: ",
-        "domain:lbl gov",
-        "domain:alice@lbl.gov",
-        "domain:lbl.gov:8080",
-        "domain:lbl.gov/path",
-        "domain:.lbl.gov",
-        "domain:lbl.gov.",
+        "domain:example com",
+        "domain:alice@example.com",
+        "domain:example.com:8080",
+        "domain:example.com/path",
+        "domain:.example.com",
+        "domain:example.com.",
     ],
 )
 def test_resolve_access_principals_refuses_a_malformed_member(member: str) -> None:
@@ -1556,7 +1559,7 @@ def test_resolve_access_principals_refuses_a_malformed_member(member: str) -> No
     assert repr(member) in str(excinfo.value)
 
 
-@pytest.mark.parametrize("member", [None, True, 7, ["self"], {"user": "a@lbl.gov"}])
+@pytest.mark.parametrize("member", [None, True, 7, ["self"], {"user": "a@example.com"}])
 def test_resolve_access_principals_refuses_a_non_string_member(member: Any) -> None:
     """A non-string member is a config typo (a YAML boolean, a nested list), not
     a principal — refused with the entry named."""
@@ -1569,11 +1572,11 @@ def test_resolve_access_principals_refuses_a_non_string_member(member: Any) -> N
 @pytest.mark.parametrize(
     "member",
     [
-        "user:alice$@lbl.gov",
+        "user:alice$@example.com",
         "user:$ALICE",
         "user:${ALICE}",
-        "domain:lbl$.gov",
-        "domain:$LBL.gov",
+        "domain:example$.com",
+        "domain:$SITE.com",
     ],
 )
 def test_resolve_access_principals_refuses_a_dollar_in_a_principal(member: str) -> None:
@@ -1628,11 +1631,11 @@ def test_resolve_access_principals_names_a_nameless_entry_by_position(
 def test_resolve_access_principals_does_not_mutate_the_entry() -> None:
     """The parser reads the authored entry; folding a domain never writes the
     folded form back onto the caller's config dict."""
-    entry: dict[str, Any] = {"name": "control", "index": 3, "access": ["domain:LBL.gov"]}
+    entry: dict[str, Any] = {"name": "control", "index": 3, "access": ["domain:Example.com"]}
 
     resolve_access_principals(entry)
 
-    assert entry == {"name": "control", "index": 3, "access": ["domain:LBL.gov"]}
+    assert entry == {"name": "control", "index": 3, "access": ["domain:Example.com"]}
 
 
 @pytest.mark.parametrize(
@@ -1642,9 +1645,9 @@ def test_resolve_access_principals_does_not_mutate_the_entry() -> None:
         ("any", True),
         (["self"], False),
         (["roster"], True),
-        (["domain:lbl.gov"], True),
-        (["user:alice@lbl.gov"], True),
-        (["self", "user:alice@lbl.gov"], True),
+        (["domain:example.com"], True),
+        (["user:alice@example.com"], True),
+        (["self", "user:alice@example.com"], True),
     ],
 )
 def test_entry_is_shared_answers_from_the_resolved_principal_set(
@@ -1662,8 +1665,8 @@ def test_entry_is_shared_answers_from_the_resolved_principal_set(
     [
         (frozenset({"self"}), ""),
         (frozenset({"roster"}), "any"),
-        (frozenset({"domain:lbl.gov"}), '["domain:lbl.gov"]'),
-        (frozenset({"self", "user:carol@lbl.gov"}), '["self","user:carol@lbl.gov"]'),
+        (frozenset({"domain:example.com"}), '["domain:example.com"]'),
+        (frozenset({"self", "user:carol@example.com"}), '["self","user:carol@example.com"]'),
         # A `roster` member inside a set is not collapsed back to the `any`
         # shorthand: the render spells the set it was given, and the sidecar is
         # what decides that a roster member covers everyone.
@@ -1723,7 +1726,7 @@ def test_resolve_personas_preserves_the_resolved_principal_set() -> None:
     reduction that kept only `any` here is what disarmed the shared-card rule
     for every other form."""
     # Arrange
-    authored = ["domain:LBL.gov", "user:alice@lbl.gov"]
+    authored = ["domain:Example.com", "user:alice@example.com"]
 
     # Act
     zero_migration = resolve_personas(
@@ -1742,7 +1745,7 @@ def test_resolve_personas_preserves_the_resolved_principal_set() -> None:
     for resolved in (zero_migration, persona_branch):
         assert resolved[0]["access"] == authored
         assert resolve_access_principals(resolved[0]) == frozenset(
-            {"domain:lbl.gov", "user:alice@lbl.gov"}
+            {"domain:example.com", "user:alice@example.com"}
         )
         assert entry_is_shared(resolved[0]) is True
 
@@ -1755,7 +1758,12 @@ def test_resolve_personas_shows_a_domain_card_to_the_shared_card_guard() -> None
     resolved = resolve_personas(
         {
             "users": [
-                {"name": "control", "index": 0, "persona": "admin", "access": ["domain:lbl.gov"]}
+                {
+                    "name": "control",
+                    "index": 0,
+                    "persona": "admin",
+                    "access": ["domain:example.com"],
+                }
             ],
             "personas": {"admin": {"project": "als-admin"}},
         },

@@ -13,9 +13,9 @@ import pytest
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest
 from osprey.cli.templates.manager import TemplateManager
-from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
+from tests._config_render_context import MINIMAL_CONFIG_CONTEXT
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -668,12 +668,11 @@ class TestBuiltinPanelRegistryDrift:
     """Enable-able builtin panels must derive from the BUILTIN_PANELS registry,
     not a hardcoded template literal that drifts from it.
 
-    Discovered wiring the native ``okf`` KNOWLEDGE panel into BELLA + ALS: both
-    config templates hardcoded ``["ariel", "channel-finder"]``, so a
-    profile listing a builtin the literal omitted (``okf`` or ``lattice``) in its
-    ``web_panels`` got filtered out at build time → no ``web.panels.okf`` stanza
-    → the runtime never enabled the tab and it silently never rendered. BELLA/ALS
-    worked around it with an explicit ``web.panels.okf.enabled: true`` override.
+    A literal that lists a subset of the registry filters out every builtin it
+    omits: a profile naming one in its ``web_panels`` gets no
+    ``web.panels.<name>`` stanza, the runtime never enables the tab, and nothing
+    is said. A deployment's only recourse is an explicit
+    ``web.panels.<name>.enabled: true`` override in its own config.
     """
 
     #: The one template that renders the builtin-panel loop. The selection is
@@ -689,15 +688,10 @@ class TestBuiltinPanelRegistryDrift:
         profile does NOT list (``ariel``) does not."""
         import yaml
 
-        from osprey.profiles.web_panels import BUILTIN_PANELS
-
         manager = TemplateManager()
         template = manager.jinja_env.get_template(template_path)
         rendered = template.render(
-            builtin_panels=sorted(BUILTIN_PANELS),
-            selected_web_panels=["okf", "channel-finder"],
-            port_base=DEFAULT_PORT_BASE,
-            osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+            **{**MINIMAL_CONFIG_CONTEXT, "selected_web_panels": ["okf", "channel-finder"]}
         )
         panels = yaml.safe_load(rendered)["web"]["panels"]
 
@@ -725,18 +719,19 @@ class TestBuiltinPanelRegistryDrift:
         manager = TemplateManager()
         template = manager.jinja_env.get_template(template_path)
 
+        without_registry = {
+            key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "builtin_panels"
+        }
         with pytest.raises(TemplateRuntimeError, match="builtin_panels"):
             template.render(
-                selected_web_panels=["okf", "channel-finder"],
-                port_base=DEFAULT_PORT_BASE,
-                osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+                **{**without_registry, "selected_web_panels": ["okf", "channel-finder"]}
             )
 
     def test_create_project_enables_okf_builtin_panel(self, tmp_path):
         """End-to-end: ``manager.py`` injects ``sorted(BUILTIN_PANELS)`` → template
-        enables ``okf``. Fails against the hardcoded fallback literal (which omits
-        okf) and passes with the registry-derived context. This removes the need
-        for the ``web.panels.okf.enabled: true`` override BELLA/ALS carried."""
+        enables ``okf``. Fails against a hardcoded fallback literal that omits okf
+        and passes with the registry-derived context, so a profile listing ``okf``
+        needs no ``web.panels.okf.enabled: true`` override of its own."""
         import yaml
 
         manager = TemplateManager()

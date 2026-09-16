@@ -33,7 +33,7 @@ async def test_entry_publish_success(tmp_path, monkeypatch):
     mock_service = AsyncMock()
     mock_service.publish_entry.return_value = FacilityEntryCreateResult(
         entry_id="published-001",
-        source_system="ALS eLog",
+        source_system="Example eLog",
         sync_status=SyncStatus.SYNCED,
         message="Published successfully",
     )
@@ -47,7 +47,7 @@ async def test_entry_publish_success(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["entry_id"] == "published-001"
-    assert data["source_system"] == "ALS eLog"
+    assert data["source_system"] == "Example eLog"
     assert data["sync_status"] == "synced"
     assert data["message"] == "Published successfully"
     assert "error" not in data
@@ -116,7 +116,7 @@ async def test_entry_publish_auth_required(tmp_path, monkeypatch):
 
     mock_service = AsyncMock()
     mock_service.publish_entry.side_effect = AuthenticationRequiredError(
-        "OLOG publishing requires credentials.", source_system="ALS eLog"
+        "OLOG publishing requires credentials.", source_system="Example eLog"
     )
 
     with patch(

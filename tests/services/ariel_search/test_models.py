@@ -36,13 +36,13 @@ class TestARIELSearchRequest:
             query="test query",
             modes=["keyword", "semantic"],
             time_range=time_range,
-            facility="ALS",
+            facility="ERF",
             max_results=50,
             include_images=True,
         )
         assert request.modes == ["keyword", "semantic"]
         assert request.time_range == time_range
-        assert request.facility == "ALS"
+        assert request.facility == "ERF"
         assert request.max_results == 50
         assert request.include_images is True
 
@@ -142,7 +142,7 @@ class TestEnhancedEntryFromRow:
         """Sample database row as dict."""
         return {
             "entry_id": "123",
-            "source_system": "ALS eLog",
+            "source_system": "Example eLog",
             "timestamp": datetime(2024, 1, 15, 10, 30, tzinfo=UTC),
             "author": "jdoe",
             "raw_text": "Test entry content",
@@ -156,7 +156,7 @@ class TestEnhancedEntryFromRow:
         """Test basic row to entry conversion."""
         entry = enhanced_entry_from_row(sample_row)
         assert entry["entry_id"] == "123"
-        assert entry["source_system"] == "ALS eLog"
+        assert entry["source_system"] == "Example eLog"
         assert entry["author"] == "jdoe"
         assert entry["raw_text"] == "Test entry content"
         assert len(entry["attachments"]) == 1
@@ -238,7 +238,7 @@ class TestMetadataSchema:
     """Tests for MetadataSchema TypedDict."""
 
     def test_als_metadata(self) -> None:
-        """Test ALS-specific metadata fields."""
+        """Test the reference format's own metadata fields."""
         metadata: MetadataSchema = {
             "logbook": "Operations",
             "tag": "Injection",

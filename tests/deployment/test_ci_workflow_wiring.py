@@ -2300,12 +2300,12 @@ def test_all_checks_passed_needs_teams_bridge__mutation_drops_check_pr_lane_line
 
 
 # ---------------------------------------------------------------------------
-# ALS-APG endpoint-override drift guard
+# als-apg endpoint-override drift guard
 # ---------------------------------------------------------------------------
 
 
 def _als_apg_probe_steps(wf: dict[str, Any]) -> list[tuple[str, str, str]]:
-    """Every step that preflight-probes the ALS-APG gateway, as
+    """Every step that preflight-probes the als-apg gateway, as
     ``(job, step name, run text)``.
 
     Discovery keys on what a probe *does* — POST an authenticated request to
@@ -2428,13 +2428,13 @@ def test_every_als_apg_probe_honors_the_base_url_override(workflow: dict[str, An
     lane fails against a perfectly healthy gateway, and reads as an outage."""
     probes = _als_apg_probe_steps(workflow)
     assert len(probes) >= EXPECTED_MIN_ALS_APG_PROBES, (
-        f"expected at least {EXPECTED_MIN_ALS_APG_PROBES} ALS-APG probe steps in ci.yml, "
+        f"expected at least {EXPECTED_MIN_ALS_APG_PROBES} als-apg probe steps in ci.yml, "
         f"found {len(probes)} — discovery has drifted and this guard is now vacuous"
     )
     for job_name, step_name, run in probes:
         where = f"{job_name} / {step_name}"
         assert PROBE_BASE_ASSIGNMENT.search(run), (
-            f"{where}: ALS-APG probe must derive its base from "
+            f"{where}: als-apg probe must derive its base from "
             f'${{{ALS_APG_BASE_URL_ENV}}} (e.g. ALS_APG_PROBE_BASE="${{{ALS_APG_BASE_URL_ENV}'
             ':-https://default}"), so the repository variable can retarget it'
         )

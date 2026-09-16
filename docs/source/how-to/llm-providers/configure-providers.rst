@@ -50,7 +50,7 @@ Available Providers
      - OpenAI (proxied)
    * - ``asksage``
      - AskSage proxy
-     - *(custom auth)*
+     - ``ASKSAGE_API_KEY``
      - OpenAI (proxied)
    * - ``openai``
      - OpenAI (GPT models)

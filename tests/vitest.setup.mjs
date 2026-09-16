@@ -10,7 +10,7 @@
 // happy-dom Storage so the suite passes on bare `npx vitest run` under
 // Node 26 without contributors having to set NODE_OPTIONS. This is a no-op on
 // Node <= 24 (CI), where happy-dom's storage is installed normally.
-import { afterAll, afterEach } from 'vitest';
+import { afterAll, afterEach, vi } from 'vitest';
 import { Storage } from 'happy-dom';
 
 for (const key of ['localStorage', 'sessionStorage']) {
@@ -21,6 +21,37 @@ for (const key of ['localStorage', 'sessionStorage']) {
       writable: true
     });
   }
+}
+
+// `vi.waitFor` checks its condition once and re-checks it on an interval, and
+// the framework's own default for that interval is 50 ms. Nearly every
+// condition this suite waits on settles on the microtask queue — a stubbed
+// fetch resolving into state, a node reaching the DOM, a badge being painted —
+// so that default is a tick spent waiting for something unrelated to what is
+// being waited for. The default below is the granularity the conditions
+// actually settle at; a call that names its own interval keeps it, and the
+// 1000 ms bound and the failure message are the framework's own, unchanged.
+//
+// Under fake timers the interval is also how far each check advances fake
+// time, which makes the cadence the waiting test's own business — so a call
+// made with fake timers installed is passed through untouched.
+//
+// The guard makes the replacement idempotent: this file is evaluated once per
+// test file and a worker may reuse a module graph across them.
+const WAIT_FOR_INTERVAL_MS = 5;
+const NARROWED = Symbol.for('osprey.waitFor.narrowed');
+
+const nativeWaitFor = vi.waitFor;
+if (!Reflect.get(nativeWaitFor, NARROWED)) {
+  /** @type {typeof vi.waitFor} */
+  const narrowed = (callback, options) => {
+    if (vi.isFakeTimers()) return nativeWaitFor(callback, options);
+    if (typeof options === 'number')
+      return nativeWaitFor(callback, { timeout: options, interval: WAIT_FOR_INTERVAL_MS });
+    return nativeWaitFor(callback, { interval: WAIT_FOR_INTERVAL_MS, ...options });
+  };
+  Object.defineProperty(narrowed, NARROWED, { value: true });
+  vi.waitFor = narrowed;
 }
 
 // happy-dom navigates a child frame for real: an iframe with a src issues an

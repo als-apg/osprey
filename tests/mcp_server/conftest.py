@@ -28,6 +28,22 @@ from osprey.mcp_server.workspace.tools.screen_capture_backends import reset_back
 from osprey.stores.artifact_store import reset_artifact_store
 from osprey.utils.workspace import reset_config_cache
 
+# The two-target child harness, re-exported so pytest resolves its fixtures for
+# every module in this directory. A fixture a sibling module needs has to be
+# where pytest looks for it, or each consumer carries a rebind of its own and a
+# dependency added to one of them resolves in no module but the one it was
+# written in. None of them is autouse, so a module that neither requests nor
+# defines them is unaffected, and a module with a fixture of the same name keeps
+# shadowing these with its own.
+from tests.mcp_server._switch_harness import (  # noqa: F401
+    child_environment,
+    fixture_dir,
+    live_type,
+    make_manager,
+    posture_root,
+    state_root,
+)
+
 
 def hook_error_class_map() -> dict[str, str]:
     """Read ``ERROR_CLASS_MAP`` out of the shipped error-guidance hook.

@@ -56,7 +56,7 @@ def _llm_json_response(subject="Test Subject", details="Test details.", tags=Non
 # Default provider config returned by get_provider_config("cborg")
 _MOCK_PROVIDER_CONFIG = {
     "api_key": "test-key",
-    "base_url": "https://api.cborg.lbl.gov/v1",
+    "base_url": "https://api.example.com/v1",
     "models": {
         "haiku": "anthropic/claude-haiku",
         "sonnet": "anthropic/claude-sonnet",

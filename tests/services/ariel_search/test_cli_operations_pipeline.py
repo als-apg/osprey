@@ -345,7 +345,7 @@ class TestRunSync:
 
 class TestRunIngestStoring:
     async def test_stores_entries_and_records_the_run(self, monkeypatch, mock_repository):
-        adapter = _Adapter(_entries(2), source_system_name="ALS eLog")
+        adapter = _Adapter(_entries(2), source_system_name="Example eLog")
         enhancer = _Enhancer("text_embedding")
         _patch_adapter(monkeypatch, adapter)
         _patch_enhancers(monkeypatch, [enhancer])
@@ -366,7 +366,7 @@ class TestRunIngestStoring:
         assert out.dry_run is False
         assert out.enhancer_names == ["text_embedding"]
         assert mock_repository.upsert_entry.await_count == 2
-        mock_repository.start_ingestion_run.assert_awaited_once_with("ALS eLog")
+        mock_repository.start_ingestion_run.assert_awaited_once_with("Example eLog")
         mock_repository.complete_ingestion_run.assert_awaited_once_with(
             1, entries_added=2, entries_updated=0, entries_failed=0
         )

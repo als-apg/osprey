@@ -21,24 +21,31 @@ if TYPE_CHECKING:
 
 # Version information. Derived from the git tag at build time and resolved at import
 # by osprey.version — see that module for the resolution chain. Bound eagerly rather
-# than through __getattr__ below so that `from osprey import __version__` and
-# `patch("osprey.__version__", ...)` keep behaving like the plain attribute it was.
+# than through __getattr__ below so that `__version__` is a plain module attribute:
+# `from osprey import __version__` and `patch("osprey.__version__", ...)` behave as
+# they do for any other global.
 __version__ = get_running_version()
 
 __all__ = ["__version__", "configure_logging"]
 
 # Framework is designed for on-demand imports to avoid circular dependencies
 
+#: Public name -> the submodule of this package that defines it. Entries are
+#: resolved on first attribute access, never at import.
+_LAZY_EXPORTS: dict[str, str] = {"configure_logging": ".utils.logger"}
+
 
 def __getattr__(name: str) -> Any:
-    """Resolve package-root exports lazily, keeping ``import osprey`` cheap."""
-    if name == "configure_logging":
-        from osprey.utils.logger import configure_logging
+    """Resolve a public name from its defining module on first access."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from importlib import import_module
 
-        return configure_logging
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
 
 
 def __dir__() -> list[str]:
-    """Include the lazily resolved exports, which ``globals()`` alone misses."""
-    return sorted({*globals(), *__all__})
+    return sorted({*globals(), *_LAZY_EXPORTS})

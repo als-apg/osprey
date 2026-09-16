@@ -1856,6 +1856,150 @@ def test_the_project_image_build_stages_the_ca_then_clears_it(no_site_env, tmp_p
     assert not (tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME).exists()
 
 
+def _service_compose(name: str, context: str, *, stages_ca: bool) -> str:
+    """A rendered service whose ``build:`` block names the staged CA, or does not.
+
+    The shape every bundled service template renders: a context spelled relative
+    to the pinned compose project directory, and the site build args the render
+    resolved for it.
+    """
+    args = "        OSPREY_SITE_CA: osprey-site-ca.crt\n" if stages_ca else ""
+    return (
+        "services:\n"
+        f"  {name}:\n"
+        "    build:\n"
+        f"      context: {context}\n"
+        "      dockerfile: Dockerfile\n"
+        "      args:\n"
+        '        OSPREY_PROJECT_NAME: "proj"\n' + args
+    )
+
+
+def _staged_ca(context_dir: Path) -> Path:
+    """Put a copy of the operator's bundle where a render would have staged it."""
+    context_dir.mkdir(parents=True, exist_ok=True)
+    staged = context_dir / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    staged.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+    return staged
+
+
+def test_clear_staged_service_site_ca_removes_every_context_the_render_staged(tmp_path):
+    """The same rule ``clear_staged_site_ca`` states for argv, keyed on the
+    rendered document: a managed service image is built by compose, so the build
+    arg in the render is the only record of what OSPREY staged."""
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    (services / "docker-compose.graphdb.yml").write_text(
+        _service_compose("graphdb", "./build/services/graphdb", stages_ca=False),
+        encoding="utf-8",
+    )
+    declared = _staged_ca(services / "qmd")
+    theirs = _staged_ca(services / "graphdb")
+
+    container_lifecycle.clear_staged_service_site_ca(
+        ["build/services/docker-compose.qmd.yml", "build/services/docker-compose.graphdb.yml"],
+        tmp_path,
+    )
+
+    assert not declared.exists()
+    assert theirs.is_file()
+
+
+def test_clear_staged_service_site_ca_resolves_a_context_against_the_repo_root(tmp_path):
+    """``./build/services/<name>`` is relative to the PINNED project directory,
+    not to the compose file's own subdirectory — which is what the comment above
+    every rendered ``build:`` block says, and what compose does."""
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = _staged_ca(services / "qmd")
+    # The trap: a reader resolving against the compose file's directory would
+    # clear this one and leave the real copy behind.
+    decoy = _staged_ca(services / "build" / "services" / "qmd")
+
+    container_lifecycle.clear_staged_service_site_ca(
+        ["build/services/docker-compose.qmd.yml"], tmp_path
+    )
+
+    assert not staged.exists()
+    assert decoy.is_file()
+
+
+def test_clear_staged_service_site_ca_ignores_a_document_it_cannot_read(tmp_path):
+    """A cleanup step must never be what fails a deploy that otherwise worked."""
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.broken.yml").write_text("services: [: :\n", encoding="utf-8")
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = _staged_ca(services / "qmd")
+
+    container_lifecycle.clear_staged_service_site_ca(
+        [
+            "build/services/docker-compose.gone.yml",
+            "build/services/docker-compose.broken.yml",
+            "build/services/docker-compose.qmd.yml",
+        ],
+        tmp_path,
+    )
+
+    assert not staged.exists()
+
+
+def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
+    """End to end on the detached path: the copy compose read is gone when
+    ``_start_stack`` returns."""
+    repo = tmp_path / "repo"
+    services = repo / "build" / "services"
+    services.mkdir(parents=True)
+    (repo / ".env").write_text("A=x\n", encoding="utf-8")
+    (services / "docker-compose.0.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = _staged_ca(services / "qmd")
+
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+            list(cmd), 0, stdout="", stderr=""
+        ),
+    )
+    # The dev build and the detached `up` both go through this one, which
+    # spawns its own process rather than the patched `subprocess.run`.
+    ran: list[list[str]] = []
+    monkeypatch.setattr(
+        container_lifecycle, "run_captured", lambda cmd, **kwargs: ran.append(list(cmd))
+    )
+
+    container_lifecycle._start_stack(
+        {"project_name": "proj", "deployed_services": ["qmd"]},
+        ["build/services/docker-compose.0.yml"],
+        repo,
+        detached=True,
+        dev_mode=True,
+        env_path=repo / ".env",
+    )
+
+    assert [cmd[-1] for cmd in ran][-2:] == ["build", "-d"], "the deploy did not build and start"
+    assert not staged.exists()
+
+
 def test_site_image_build_args_read_offline_from_the_top_level_key(no_site_env, tmp_path):
     """`offline: true` is what makes the image vendor its web assets — the same
     key `vendor.is_offline` reads at run time to decide whether to serve them."""

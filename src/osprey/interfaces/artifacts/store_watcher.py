@@ -25,27 +25,14 @@ from osprey.interfaces.fs_watch import (
     ChangeStamp,
     ObserverFactory,
     Reconciler,
+    entry_stamp,
     evict_subtree,
-    one_level_listing,
     reconcile_interval_seconds,
     reconcile_targets,
+    refresh_listing,
 )
 
 logger = logging.getLogger("osprey.interfaces.artifacts.store_watcher")
-
-
-def _change_stamp(path: Path) -> tuple[int, int] | None:
-    """``(mtime_ns, size)`` of *path*, or ``None`` when it is not there.
-
-    Enough to tell one write from the next without reading the file: two
-    reports of the same write carry the same stamp, and a second write moves
-    it.
-    """
-    try:
-        stat = path.stat()
-    except OSError:
-        return None
-    return (stat.st_mtime_ns, stat.st_size)
 
 
 class _IndexFileHandler(FileSystemEventHandler):
@@ -69,7 +56,7 @@ class _IndexFileHandler(FileSystemEventHandler):
         self._index_configs = index_configs
         self._broadcaster = broadcaster
         self._last_event: dict[str, float] = {}
-        self._last_stamp: dict[str, tuple[int, int] | None] = {}
+        self._last_stamp: dict[str, ChangeStamp | None] = {}
         self._debounce_seconds = 0.1
         self._listings: dict[str, dict[str, ChangeStamp]] = {}
         # The listing map has two writers: the observer's emitter thread and the
@@ -100,14 +87,14 @@ class _IndexFileHandler(FileSystemEventHandler):
             self._handle(event)
 
     def on_deleted(self, event: FileSystemEvent) -> None:
-        # A directory that is gone keeps no listing. It leaves two ways: by
-        # rename, where the single event :meth:`on_moved` reads stands for the
-        # whole subtree, and by deletion, where every directory removed is
-        # announced by its own event and drops its own key here. Either way the
-        # map stays bounded by the tree rather than by the watcher's lifetime.
+        # A directory that is gone keeps no listing, and neither does anything
+        # that was under it — whether it left by rename, which :meth:`on_moved`
+        # reads, or by deletion. What the map holds is decided by the tree
+        # rather than by how finely the removal was reported, so it stays
+        # bounded by the tree rather than by the watcher's lifetime.
         with self._dispatch_lock:
             if event.is_directory:
-                self._listings.pop(str(Path(os.fsdecode(event.src_path))), None)
+                evict_subtree(self._listings, Path(os.fsdecode(event.src_path)))
 
     def on_moved(self, event: FileSystemEvent) -> None:
         with self._dispatch_lock:
@@ -181,18 +168,13 @@ class _IndexFileHandler(FileSystemEventHandler):
         One level, because that is what the frame names: a write in a
         subdirectory produces its own frame for its own directory.
 
-        One listing is kept per directory that still exists: one found already
-        gone is dropped here rather than remembered as empty, and one removed
-        the ordinary way is dropped by :meth:`on_deleted`.
+        The map is left to :func:`~osprey.interfaces.fs_watch.refresh_listing`,
+        which keeps one listing per directory that still exists, so one found
+        already gone is dropped there rather than remembered as empty. One
+        removed the ordinary way is dropped by :meth:`on_deleted` instead.
         """
         directory = Path(os.fsdecode(event.src_path))
-        key = str(directory)
-        previous = self._listings.get(key)
-        current = one_level_listing(directory)
-        if directory.is_dir():
-            self._listings[key] = current
-        else:
-            self._listings.pop(key, None)
+        previous, current = refresh_listing(self._listings, directory)
 
         changed = [
             name
@@ -220,7 +202,7 @@ class _IndexFileHandler(FileSystemEventHandler):
         # read.
         now = time.monotonic()
         key = str(src_path)
-        stamp = _change_stamp(src_path)
+        stamp = entry_stamp(src_path)
         within_window = now - self._last_event.get(key, 0) < self._debounce_seconds
         if within_window and key in self._last_stamp and self._last_stamp[key] == stamp:
             return

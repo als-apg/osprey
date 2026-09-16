@@ -762,7 +762,13 @@ def test_lint_roster_without_access_keys_reports_no_access_findings() -> None:
 
 @pytest.mark.parametrize(
     "access",
-    [["self"], ["roster"], ["domain:lbl.gov"], ["user:alice@lbl.gov"], ["self", "domain:lbl.gov"]],
+    [
+        ["self"],
+        ["roster"],
+        ["domain:example.com"],
+        ["user:alice@example.com"],
+        ["self", "domain:example.com"],
+    ],
 )
 def test_lint_well_formed_access_principal_lists_report_nothing(access: list[str]) -> None:
     """A well-formed principal list is the authored form the shorthands are
@@ -894,7 +900,7 @@ def test_lint_user_access_member_with_whitespace_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["user:alice smith@lbl.gov"]}
+        {"name": "alice", "index": 0, "access": ["user:alice smith@example.com"]}
     ]
 
     # Act
@@ -903,18 +909,18 @@ def test_lint_user_access_member_with_whitespace_is_an_error() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 1
-    assert "'user:alice smith@lbl.gov'" in offenders[0].message
+    assert "'user:alice smith@example.com'" in offenders[0].message
     assert "no usable identity after 'user:'" in offenders[0].message
 
 
 def test_lint_domain_access_member_holding_an_address_is_an_error() -> None:
-    """`domain:alice@lbl.gov` reads as a grant to a domain and is a grant to
+    """`domain:alice@example.com` reads as a grant to a domain and is a grant to
     nobody: the value is not a domain, and the member the author wanted is
     `user:`. The refusal names both readings."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["domain:alice@lbl.gov"]}
+        {"name": "alice", "index": 0, "access": ["domain:alice@example.com"]}
     ]
 
     # Act
@@ -923,7 +929,7 @@ def test_lint_domain_access_member_holding_an_address_is_an_error() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 1
-    assert "'domain:alice@lbl.gov'" in offenders[0].message
+    assert "'domain:alice@example.com'" in offenders[0].message
     assert "not a bare domain" in offenders[0].message
     assert "'user:'" in offenders[0].message
 
@@ -936,7 +942,7 @@ def test_lint_access_member_carrying_a_dollar_is_an_error() -> None:
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "access": ["user:$ALICE@lbl.gov"]}
+        {"name": "alice", "index": 0, "access": ["user:$ALICE@example.com"]}
     ]
 
     # Act
@@ -945,7 +951,7 @@ def test_lint_access_member_carrying_a_dollar_is_an_error() -> None:
     # Assert
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.invalid_user_access"]
     assert len(offenders) == 1
-    assert "'user:$ALICE@lbl.gov'" in offenders[0].message
+    assert "'user:$ALICE@example.com'" in offenders[0].message
     assert "'$'" in offenders[0].message
 
 
@@ -957,7 +963,7 @@ def test_lint_malformed_access_reports_one_finding_per_entry() -> None:
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0, "access": ["group:operators"]},
         {"name": "ariel", "index": 1, "access": "maybe"},
-        {"name": "control", "index": 2, "access": ["domain:lbl.gov"]},
+        {"name": "control", "index": 2, "access": ["domain:example.com"]},
     ]
 
     # Act
@@ -1671,7 +1677,7 @@ def test_lint_local_mode_unreferenced_persona_project_path_is_not_checked(tmp_pa
             "image_source": "local",
             "personas": {
                 "assistant": {"project": "als-assistant", "project_path": str(project_dir)},
-                "unused": {"project": "als-unused", "project_path": "/nonexistent"},
+                "unused": {"project": "draft-unused", "project_path": "/nonexistent"},
             },
         }
     )
@@ -3511,8 +3517,8 @@ def test_lint_duplicate_email_subjects_differing_only_in_case_are_an_error() -> 
         {"method": "oidc", "oidc": {"issuer": "https://idp.example.org", "claim": "email"}}
     )
     config["modules"]["web_terminals"]["users"] = [
-        {"name": "alice", "index": 0, "oidc_subject": "Alice@lbl.gov"},
-        {"name": "alice-admin", "index": 1, "oidc_subject": "alice@lbl.gov"},
+        {"name": "alice", "index": 0, "oidc_subject": "Alice@example.com"},
+        {"name": "alice-admin", "index": 1, "oidc_subject": "alice@example.com"},
         {"name": "control", "index": 2, "access": "any"},
     ]
 
@@ -3694,7 +3700,7 @@ def test_lint_user_principal_under_password_is_an_error() -> None:
     identity nothing in this deployment can produce — the card does not admit
     the person it was written for, and nothing else says so."""
     # Arrange
-    config = _principal_config({"method": "password"}, ["user:alice@lbl.gov"])
+    config = _principal_config({"method": "password"}, ["user:alice@example.com"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -3703,14 +3709,16 @@ def test_lint_user_principal_under_password_is_an_error() -> None:
     offenders = _coded(_errors(findings), "access_principal_without_idp")
     assert len(offenders) == 1
     assert "'logbook'" in offenders[0].message
-    assert "'user:alice@lbl.gov'" in offenders[0].message
+    assert "'user:alice@example.com'" in offenders[0].message
     assert "auth.method: oidc" in offenders[0].message
 
 
 def test_lint_domain_principal_under_password_is_an_error() -> None:
     """`domain:` is named by the same absent claim as `user:`, one finding each."""
     # Arrange
-    config = _principal_config({"method": "password"}, ["domain:lbl.gov", "user:alice@lbl.gov"])
+    config = _principal_config(
+        {"method": "password"}, ["domain:example.com", "user:alice@example.com"]
+    )
 
     # Act
     findings = lint_web_terminals(config)
@@ -3719,8 +3727,8 @@ def test_lint_domain_principal_under_password_is_an_error() -> None:
     offenders = _coded(_errors(findings), "access_principal_without_idp")
     assert len(offenders) == 2
     reported = " ".join(finding.message for finding in offenders)
-    assert "'domain:lbl.gov'" in reported
-    assert "'user:alice@lbl.gov'" in reported
+    assert "'domain:example.com'" in reported
+    assert "'user:alice@example.com'" in reported
 
 
 def test_lint_roster_shorthands_under_password_report_nothing() -> None:
@@ -3744,7 +3752,7 @@ def test_lint_roster_shorthands_under_password_report_nothing() -> None:
 def test_lint_access_principal_under_oidc_reports_no_password_finding() -> None:
     """The rule is about the method that asserts no claims; oidc asserts them."""
     # Arrange
-    config = _principal_config(_oidc(claim="email"), ["user:alice@lbl.gov"])
+    config = _principal_config(_oidc(claim="email"), ["user:alice@example.com"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -3760,7 +3768,7 @@ def test_lint_access_principal_without_a_wall_reports_nothing() -> None:
     every build of a config that is correct for the variant that uses it."""
     # Arrange
     config = _principal_config(
-        {"method": "none"}, ["user:alice@lbl.gov", "domain:lbl.gov"], tls=False, fqdn=None
+        {"method": "none"}, ["user:alice@example.com", "domain:example.com"], tls=False, fqdn=None
     )
 
     # Act
@@ -3791,7 +3799,7 @@ def test_lint_domain_principal_without_an_email_claim_is_an_error() -> None:
     no domain — so an unset claim is the common way a `[domain:]` card admits
     nobody, with a green build and a login page that comes up."""
     # Arrange
-    config = _principal_config(_oidc(), ["domain:lbl.gov"])
+    config = _principal_config(_oidc(), ["domain:example.com"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -3800,7 +3808,7 @@ def test_lint_domain_principal_without_an_email_claim_is_an_error() -> None:
     offenders = _coded(_errors(findings), "access_domain_without_email_claim")
     assert len(offenders) == 1
     assert "'logbook'" in offenders[0].message
-    assert "'domain:lbl.gov'" in offenders[0].message
+    assert "'domain:example.com'" in offenders[0].message
     assert "auth.oidc.claim is not set, so it resolves to the opaque 'sub'" in (
         offenders[0].message
     )
@@ -3811,7 +3819,7 @@ def test_lint_domain_principal_with_an_opaque_claim_is_an_error() -> None:
     """A claim that is set but holds an opaque identifier fails the same way,
     and the message names the claim the deployment configured."""
     # Arrange
-    config = _principal_config(_oidc(claim="sub"), ["domain:lbl.gov"])
+    config = _principal_config(_oidc(claim="sub"), ["domain:example.com"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -3825,7 +3833,7 @@ def test_lint_domain_principal_with_an_opaque_claim_is_an_error() -> None:
 def test_lint_domain_principal_with_the_email_claim_reports_nothing() -> None:
     """The one claim that carries a domain — the shape this feature exists for."""
     # Arrange
-    config = _principal_config(_oidc(claim="email"), ["domain:lbl.gov"])
+    config = _principal_config(_oidc(claim="email"), ["domain:example.com"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -3851,7 +3859,7 @@ def test_lint_domain_claim_check_is_mode_gated() -> None:
     """Under `password` the member is already reported once, by the rule that
     says no claim arrives at all; saying it twice buries both."""
     # Arrange
-    config = _principal_config({"method": "password"}, ["domain:lbl.gov"])
+    config = _principal_config({"method": "password"}, ["domain:example.com"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -3866,7 +3874,9 @@ def test_lint_user_principals_differing_only_in_case_are_an_error() -> None:
     case, so these two are one identity: removing the line the operator
     recognises leaves the card open to the one they did not see."""
     # Arrange
-    config = _principal_config(_oidc(claim="email"), ["user:Alice@lbl.gov", "user:alice@lbl.gov"])
+    config = _principal_config(
+        _oidc(claim="email"), ["user:Alice@example.com", "user:alice@example.com"]
+    )
 
     # Act
     findings = lint_web_terminals(config)
@@ -3875,8 +3885,8 @@ def test_lint_user_principals_differing_only_in_case_are_an_error() -> None:
     offenders = _coded(_errors(findings), "duplicate_access_principal")
     assert len(offenders) == 1
     assert "'logbook'" in offenders[0].message
-    assert "user:Alice@lbl.gov" in offenders[0].message
-    assert "user:alice@lbl.gov" in offenders[0].message
+    assert "user:Alice@example.com" in offenders[0].message
+    assert "user:alice@example.com" in offenders[0].message
     assert "'email' claim" in offenders[0].message
 
 
@@ -3911,7 +3921,9 @@ def test_lint_user_principals_differing_in_case_under_an_opaque_claim_are_kept()
 def test_lint_distinct_user_principals_report_nothing() -> None:
     """The shape this rule must never touch: a card admitting two people."""
     # Arrange
-    config = _principal_config(_oidc(claim="email"), ["user:alice@lbl.gov", "user:bob@lbl.gov"])
+    config = _principal_config(
+        _oidc(claim="email"), ["user:alice@example.com", "user:bob@example.com"]
+    )
 
     # Act
     findings = lint_web_terminals(config)
@@ -3926,8 +3938,8 @@ def test_lint_duplicate_principals_are_scoped_to_one_card() -> None:
     config = _auth_config(_oidc(claim="email"))
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0},
-        {"name": "logbook", "index": 1, "access": ["user:alice@lbl.gov"]},
-        {"name": "control", "index": 2, "access": ["user:alice@lbl.gov"]},
+        {"name": "logbook", "index": 1, "access": ["user:alice@example.com"]},
+        {"name": "control", "index": 2, "access": ["user:alice@example.com"]},
     ]
 
     # Act
@@ -3948,7 +3960,7 @@ def test_lint_reports_an_unreadable_access_value_without_raising() -> None:
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0},
         {"name": "logbook", "index": 1, "access": "maybe"},
-        {"name": "control", "index": 2, "access": "any", "oidc_subject": "svc@lbl.gov"},
+        {"name": "control", "index": 2, "access": "any", "oidc_subject": "svc@example.com"},
     ]
 
     # Act
@@ -3966,7 +3978,7 @@ def test_lint_domain_principals_differing_only_in_case_are_an_error() -> None:
     folds the asserted domain the same way, so these two are one principal
     wherever they are read — and the pair is invisible in the resolved set."""
     # Arrange
-    config = _principal_config(_oidc(claim="email"), ["domain:LBL.gov", "domain:lbl.gov"])
+    config = _principal_config(_oidc(claim="email"), ["domain:Example.com", "domain:example.com"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -3974,8 +3986,8 @@ def test_lint_domain_principals_differing_only_in_case_are_an_error() -> None:
     # Assert
     offenders = _coded(_errors(findings), "duplicate_access_principal")
     assert len(offenders) == 1
-    assert "domain:LBL.gov" in offenders[0].message
-    assert "domain:lbl.gov" in offenders[0].message
+    assert "domain:Example.com" in offenders[0].message
+    assert "domain:example.com" in offenders[0].message
     assert "domains compare without regard to case" in offenders[0].message
 
 
@@ -3983,7 +3995,7 @@ def test_lint_repeated_domain_principal_is_an_error() -> None:
     """A literal repeat, and under a claim that folds nothing: the domain fold
     is the resolver's, not the claim's, so it holds for every deployment."""
     # Arrange
-    config = _principal_config(_oidc(claim="sub"), ["domain:lbl.gov", "domain:lbl.gov"])
+    config = _principal_config(_oidc(claim="sub"), ["domain:example.com", "domain:example.com"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -3997,7 +4009,7 @@ def test_lint_repeated_domain_principal_is_an_error() -> None:
 def test_lint_distinct_domain_principals_report_nothing() -> None:
     """Two facilities on one card is the shape this rule must never touch."""
     # Arrange
-    config = _principal_config(_oidc(claim="email"), ["domain:lbl.gov", "domain:slac.stanford.edu"])
+    config = _principal_config(_oidc(claim="email"), ["domain:example.com", "domain:example.net"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -4016,8 +4028,8 @@ def test_lint_shared_card_subject_warning_quotes_the_authored_access() -> None:
         {
             "name": "logbook",
             "index": 1,
-            "access": ["domain:lbl.gov"],
-            "oidc_subject": "svc@lbl.gov",
+            "access": ["domain:example.com"],
+            "oidc_subject": "svc@example.com",
         },
     ]
 
@@ -4027,7 +4039,7 @@ def test_lint_shared_card_subject_warning_quotes_the_authored_access() -> None:
     # Assert
     offenders = _coded(_warnings(findings), "shared_card_subject")
     assert len(offenders) == 1
-    assert "['domain:lbl.gov']" in offenders[0].message
+    assert "['domain:example.com']" in offenders[0].message
     assert "access: any" not in offenders[0].message
     assert "narrow it to access: own" in offenders[0].message
 
@@ -4047,7 +4059,7 @@ def test_lint_access_principals_under_the_default_method_report_nothing() -> Non
         {
             "name": "logbook",
             "index": 1,
-            "access": ["domain:lbl.gov", "user:Bob@lbl.gov", "user:bob@lbl.gov"],
+            "access": ["domain:example.com", "user:Bob@example.com", "user:bob@example.com"],
         },
     ]
 
@@ -4071,7 +4083,7 @@ def test_lint_duplicate_subject_gate_sees_a_list_valued_shared_card() -> None:
     config["modules"]["web_terminals"]["users"] = [
         {"name": "alice", "index": 0, "oidc_subject": "thorsten@example.org"},
         {"name": "alice-admin", "index": 1, "oidc_subject": "thorsten@example.org"},
-        {"name": "logbook", "index": 2, "access": ["domain:lbl.gov"]},
+        {"name": "logbook", "index": 2, "access": ["domain:example.com"]},
     ]
 
     # Act
@@ -4966,7 +4978,7 @@ def test_lint_domain_card_on_a_privileged_persona_is_an_error() -> None:
     config = _shipped_profile_config()
     for user in config["modules.web_terminals"]["users"]:
         if user["name"] == "carol":
-            user["access"] = ["domain:lbl.gov"]
+            user["access"] = ["domain:example.com"]
 
     # Act
     findings = lint_profile_config(config)
@@ -4975,7 +4987,7 @@ def test_lint_domain_card_on_a_privileged_persona_is_an_error() -> None:
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.shared_card_privileged"]
     assert len(offenders) == 1
     assert "'carol'" in offenders[0].message
-    assert "'domain:lbl.gov'" in offenders[0].message
+    assert "'domain:example.com'" in offenders[0].message
     assert "'admin'" in offenders[0].message
 
 
@@ -4988,7 +5000,7 @@ def test_lint_user_card_on_a_privileged_persona_is_an_error() -> None:
     config = _shipped_profile_config()
     for user in config["modules.web_terminals"]["users"]:
         if user["name"] == "carol":
-            user["access"] = ["user:carol@lbl.gov"]
+            user["access"] = ["user:carol@example.com"]
 
     # Act
     findings = lint_profile_config(config)
@@ -4997,7 +5009,7 @@ def test_lint_user_card_on_a_privileged_persona_is_an_error() -> None:
     offenders = [f for f in _errors(findings) if f.code == "web_terminals.shared_card_privileged"]
     assert len(offenders) == 1
     assert "'carol'" in offenders[0].message
-    assert "'user:carol@lbl.gov'" in offenders[0].message
+    assert "'user:carol@example.com'" in offenders[0].message
 
 
 def test_lint_self_only_card_on_a_privileged_persona_reports_nothing() -> None:

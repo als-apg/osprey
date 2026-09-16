@@ -1,3 +1,10 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+-#}
 {#- The network axis — network membership and published ports — comes from the
     shared macro rather than being spelled here, so every service template
     states the same topology the same way. -#}

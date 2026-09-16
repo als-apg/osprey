@@ -51,6 +51,11 @@ _COMMENT_REACH = 3
 #: A key line inside the ``config:`` block: two spaces, then a dotted path.
 _CONFIG_KEY_RE = re.compile(r"^ {2}([A-Za-z_][\w.]*):")
 
+#: A comment may name a number that collides with a layout port only by saying
+#: so. The marker declares the numbers it is about and covers the comment lines
+#: below it, within the same reach a comment documents a key.
+_FOREIGN_PORT_MARKER = re.compile(r"^#\s*Not a deployment port:\s*(\d+(?:,\s*\d+)*)\b")
+
 
 def _emit(preset: str, set_pairs: tuple[str, ...] = ()) -> str:
     return emit_standalone_profile_yaml(preset, set_pairs, "Emitted")
@@ -441,6 +446,29 @@ def test_every_config_key_carries_a_comment() -> None:
     )
 
 
+def _unmarked_layout_port_comments(text: str) -> list[str]:
+    """Comment lines naming a default-layout port without declaring it foreign."""
+    ports = sorted({DEFAULT_PORT_BASE + slot.offset for slot in LAYOUT})
+    pattern = re.compile(rf"(?<!\d)({'|'.join(str(port) for port in ports)})(?!\d)")
+    lines = text.splitlines()
+    offenders = []
+    for i, raw in enumerate(lines):
+        line = raw.strip()
+        if not line.startswith("#") or _FOREIGN_PORT_MARKER.match(line):
+            continue
+        named = set(pattern.findall(line))
+        if not named:
+            continue
+        declared: set[str] = set()
+        for above in lines[max(0, i - _COMMENT_REACH) : i]:
+            marker = _FOREIGN_PORT_MARKER.match(above.strip())
+            if marker:
+                declared |= {part.strip() for part in marker.group(1).split(",")}
+        if named - declared:
+            offenders.append(line)
+    return offenders
+
+
 @pytest.mark.parametrize("preset", list_presets())
 def test_no_comment_names_a_default_layout_port(preset: str) -> None:
     """A port an operator can move must not be spelled out in prose.
@@ -450,13 +478,36 @@ def test_no_comment_names_a_default_layout_port(preset: str) -> None:
     someone moves the base. The app template's comments were rendered from
     ``{{ osprey_ports.* }}`` and so were correct at emission and wrong from the
     first time the base moved. A comment names the slot instead.
-    """
-    ports = sorted({DEFAULT_PORT_BASE + slot.offset for slot in LAYOUT})
-    pattern = re.compile(rf"(?<!\d)({'|'.join(str(port) for port in ports)})(?!\d)")
 
-    offenders = [line for line in _comment_lines(_emit(preset)) if pattern.search(line)]
+    The ban is on a comment *quietly* naming one of this deployment's ports. A
+    number that belongs to a protocol rather than to the layout is written
+    plainly and declared as foreign on the line above, so the reader gets a
+    port they can copy and the rule still reads every other comment.
+    """
+    offenders = _unmarked_layout_port_comments(_emit(preset))
 
     assert offenders == [], f"{preset}: comment(s) naming a default-layout port: {offenders}"
+
+
+def test_an_unmarked_comment_naming_a_layout_port_is_an_offender() -> None:
+    line = f"# the gateway listens on {DEFAULT_PORT_BASE}"
+
+    assert _unmarked_layout_port_comments(f"{line}\nkey: 1\n") == [line]
+
+
+def test_a_marker_exempts_only_the_numbers_it_declares() -> None:
+    line = f"# reachable at {DEFAULT_PORT_BASE}"
+    text = f"# Not a deployment port: 5432 is the store's own convention.\n{line}\n"
+
+    assert _unmarked_layout_port_comments(text) == [line]
+
+
+def test_a_marker_stops_covering_a_comment_out_of_reach() -> None:
+    line = f"# reachable at {DEFAULT_PORT_BASE}"
+    filler = "\n".join("# filler" for _ in range(_COMMENT_REACH))
+    text = f"# Not a deployment port: {DEFAULT_PORT_BASE} is elsewhere.\n{filler}\n{line}\n"
+
+    assert _unmarked_layout_port_comments(text) == [line]
 
 
 @pytest.mark.parametrize("mode", sorted(VALID_CHANNEL_FINDER_MODES))

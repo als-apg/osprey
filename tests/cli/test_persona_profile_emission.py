@@ -614,9 +614,9 @@ def _shared_card_refusals(output: str) -> set[str]:
 @pytest.mark.parametrize(
     ("access", "phrase"),
     [
-        (["domain:lbl.gov"], "access members 'domain:lbl.gov'"),
-        (["user:dana@lbl.gov"], "access members 'user:dana@lbl.gov'"),
-        (["self", "user:dana@lbl.gov"], "access members 'self', 'user:dana@lbl.gov'"),
+        (["domain:example.com"], "access members 'domain:example.com'"),
+        (["user:dana@example.com"], "access members 'user:dana@example.com'"),
+        (["self", "user:dana@example.com"], "access members 'self', 'user:dana@example.com'"),
         ("any", "access: 'any'"),
     ],
 )
@@ -678,7 +678,7 @@ def test_init_and_the_deploy_lint_refuse_the_shared_card_in_the_same_words(
     document = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
     for entry in document["config"]["modules.web_terminals"]["users"]:
         if entry.get("name") == "dana":
-            entry["access"] = ["domain:lbl.gov"]
+            entry["access"] = ["domain:example.com"]
     profile_path.write_text(yaml.safe_dump(document, sort_keys=False), encoding="utf-8")
 
     lint_result = runner.invoke(profile, ["validate", str(linted)])
@@ -686,7 +686,7 @@ def test_init_and_the_deploy_lint_refuse_the_shared_card_in_the_same_words(
         runner,
         tmp_path / "refused-facility",
         "control-assistant",
-        *_card_edit(["domain:lbl.gov"]),
+        *_card_edit(["domain:example.com"]),
     )
 
     assert lint_result.exit_code == 2 and init_result.exit_code == 2

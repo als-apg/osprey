@@ -173,7 +173,7 @@ def binding_uri(full_pv: str) -> str:
 class Family(NamedTuple):
     """One device family, repeated in every section of the demo corpus."""
 
-    #: Address stem an ALS-style device name is built on, before its ordinal.
+    #: Address stem a device name is built on, before its ordinal.
     stem: str
     #: Bare name of the class every device of the family is typed by.
     class_name: str
@@ -295,7 +295,7 @@ class DeviceSpec(NamedTuple):
 
 
 def _device_name(section: str, stem: str, ordinal: int) -> str:
-    """Return the ALS-style name the *ordinal*-th *stem* takes in *section*."""
+    """Return the name the *ordinal*-th *stem* takes in *section*."""
     return f"{section}___{f'{stem}{ordinal}':_<7}"
 
 
@@ -908,7 +908,7 @@ DEMO_INDEX_FILENAME = "graph.duckdb"
 _TRIPLE_SEP = " ;\n    "
 
 #: The corpus's prefixes. Every subject below is written as a full IRI instead:
-#: an ALS-style device name is full of underscores, and a prefixed name would
+#: a device name is full of underscores, and a prefixed name would
 #: have to escape them.
 _TURTLE_PREFIXES = "\n".join(
     (

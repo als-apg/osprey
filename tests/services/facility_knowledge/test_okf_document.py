@@ -13,13 +13,13 @@ from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocu
 FULL_DOC = """\
 ---
 type: facility_overview
-title: ALS Accelerator Complex
+title: Example Accelerator Complex
 description: Overview of the Advanced Light Source accelerator systems.
 ---
 
-# ALS Accelerator Complex
+# Example Accelerator Complex
 
-The Advanced Light Source (ALS) is a synchrotron light source.
+The Example Research Facility is a synchrotron light source.
 """
 
 TYPE_ONLY_DOC = """\
@@ -45,9 +45,9 @@ class TestOKFDocumentParse:
         doc = OKFDocument.parse(FULL_DOC)
 
         assert doc.frontmatter["type"] == "facility_overview"
-        assert doc.frontmatter["title"] == "ALS Accelerator Complex"
+        assert doc.frontmatter["title"] == "Example Accelerator Complex"
         assert "description" in doc.frontmatter
-        assert "ALS" in doc.body
+        assert "Example Research Facility" in doc.body
 
     def test_parse_no_frontmatter(self):
         doc = OKFDocument.parse(NO_FRONTMATTER_DOC)
@@ -183,7 +183,7 @@ class TestOKFDocumentValidate:
         doc = OKFDocument(
             frontmatter={
                 "type": "facility_overview",
-                "title": "ALS",
+                "title": "Example",
                 "description": "A synchrotron.",
             }
         )

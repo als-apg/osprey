@@ -364,8 +364,10 @@ config:
   # TANGO connector: one coordinate of its own, the device database, spelled
   # `host:port`. Leave `tango_host` unset and PyTango reads the TANGO_HOST the
   # environment already carries; write it to name a database that environment
-  # does not. The port is the database's own, not one of this deployment's.
-  # control_system.connector.tango.tango_host: your-tango-db.example.com:<db-port>
+  # does not.
+  # Not a deployment port: 10000 is TANGO's own convention for the device
+  # database, not a port this deployment publishes.
+  # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
   # control_system.connector.tango.timeout: 5.0
   # The same four leaves as every other connector type, for the TANGO machine.

@@ -20,21 +20,22 @@ if TYPE_CHECKING:
 
 __all__ = ["run_web"]
 
+#: Public name -> the submodule of this package that defines it. Entries are
+#: resolved on first attribute access, never at import.
+_LAZY_EXPORTS: dict[str, str] = {"run_web": ".app"}
+
 
 def __getattr__(name: str) -> Any:
-    """Resolve ``run_web`` on first access, leaving every other name unbound.
+    """Resolve a public name from its defining module on first access."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from importlib import import_module
 
-    Args:
-        name: Attribute requested from the package.
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
 
-    Returns:
-        The requested attribute.
 
-    Raises:
-        AttributeError: For any name this package does not export.
-    """
-    if name == "run_web":
-        from osprey.interfaces.web_terminal.app import run_web
-
-        return run_web
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_LAZY_EXPORTS})

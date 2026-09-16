@@ -80,7 +80,7 @@ const CAPABILITIES = /** @type {any} */ ({
       description: 'Restrict to entries by this author',
       type: 'text',
       default: null,
-      placeholder: 'e.g. thellert',
+      placeholder: 'e.g. alice',
       section: 'Filters',
     },
   ],
@@ -174,9 +174,9 @@ describe('advanced options: touched parameters and effective values', () => {
 
   test('a text filter typed and then cleared sends nothing', () => {
     const input = control('author');
-    input.value = 'thellert';
+    input.value = 'alice';
     input.dispatchEvent(new Event('input'));
-    expect(mod.getAdvancedParams()).toEqual({ author: 'thellert' });
+    expect(mod.getAdvancedParams()).toEqual({ author: 'alice' });
 
     input.value = '';
     input.dispatchEvent(new Event('input'));
