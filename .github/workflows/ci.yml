@@ -1535,6 +1535,12 @@ jobs:
           # azure.servicebus at module scope and this lane installs no `teams`
           # extra, so collecting them here is an ImportError, not a container
           # hazard. They run together in teams-bridge-e2e, which installs it.
+          # Ten more files leave for a fourth reason, and it is about price
+          # rather than about the runner: none of them calls a model, so this
+          # lane's label buys them nothing and costs them every unlabelled
+          # pull request. They run in e2e-no-model, which is this lane's
+          # directory sweep minus the gateway key — named there by path, and
+          # ignored here one by one so the two sets stay disjoint.
           # -n 4 --dist loadfile (pytest-xdist): this lane is ~18 min of
           # real-LLM round-trips at near-zero CPU, so four workers cut it to
           # roughly the slowest single file. loadfile (not load) keeps every
@@ -1584,7 +1590,17 @@ jobs:
             --ignore=tests/e2e/web_terminals/test_terminal_auth_multiuser_e2e.py \
             --ignore=tests/e2e/test_full_chain_auth.py \
             --ignore=tests/e2e/test_jupyter_panel_lifecycle.py \
-            --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py
+            --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py \
+            --ignore=tests/e2e/test_openobserve_telemetry.py \
+            --ignore=tests/e2e/test_sdk_helpers.py \
+            --ignore=tests/e2e/web_terminals/test_prefix_routing.py \
+            --ignore=tests/e2e/test_mcp_readiness.py \
+            --ignore=tests/e2e/test_dispatch_deploy_render.py \
+            --ignore=tests/e2e/web_terminals/test_scaffold_render_roundtrip.py \
+            --ignore=tests/e2e/web_terminals/test_skills_overlay_discovery.py \
+            --ignore=tests/e2e/web_terminals/test_loopback_chokepoint.py \
+            --ignore=tests/e2e/web_terminals/test_session_restart_e2e.py \
+            --ignore=tests/e2e/web_terminals/test_terminal_auth_e2e.py
         fi
     # On failure only: container logs, exit codes, `OOMKilled`, and runner
     # disk/memory state, uploaded as the `ci-diag-<lane>` artifact.

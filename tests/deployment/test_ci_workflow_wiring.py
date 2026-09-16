@@ -2920,6 +2920,90 @@ def test_all_checks_passed_needs_the_model_free_lane__mutation_drops_check_pr_la
         test_all_checks_passed_needs_the_model_free_lane(mutated)
 
 
+def _e2e_files_the_shared_lane_sweeps(wf: dict[str, Any]) -> set[str]:
+    """The ``tests/e2e/**/test_*.py`` paths the shared lane's directory sweep
+    still collects, repo-relative and POSIX.
+
+    Derived from disk rather than from a list, so a module added to the tree is
+    in this set the moment it exists — the sweep names a directory, and what
+    leaves it leaves by an ``--ignore``.
+    """
+    run_text = _find_named_step(wf, E2E_TESTS_JOB, "Run E2E tests")["run"]
+    ignored = set(re.findall(r"--ignore=(\S+)", run_text))
+    repo_root = CI_YML.parents[2]
+    swept = {
+        path.relative_to(repo_root).as_posix()
+        for path in (repo_root / "tests" / "e2e").rglob("test_*.py")
+    }
+    return swept - ignored
+
+
+def test_shared_lane_hands_over_every_model_free_file(workflow: dict[str, Any]) -> None:
+    """The handover is one ``--ignore`` per file: the shared lane names a
+    directory, so a file only stops being swept when it is named."""
+    missing = _run_step_ignores_all(workflow, list(NO_MODEL_TEST_FILES))
+    assert missing == [], (
+        f"model-free e2e file(s) still swept by the '{E2E_TESTS_JOB}' lane: {missing} — "
+        f"they would run in both lanes, paying the label for work that needs no label"
+    )
+
+
+def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_telemetry_ignore() -> (
+    None
+):
+    telemetry = "tests/e2e/test_openobserve_telemetry.py"
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], telemetry)
+    others = [f for f in NO_MODEL_TEST_FILES if f != telemetry]
+    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
+    with pytest.raises(AssertionError, match="still swept"):
+        test_shared_lane_hands_over_every_model_free_file(mutated)
+
+
+def test_shared_lane_hands_over_every_model_free_file__mutation_drops_the_terminal_auth_ignore() -> (
+    None
+):
+    """The neighbouring ``--ignore`` names ``test_terminal_auth_multiuser_e2e.py``,
+    which does not contain this file's path as a substring — so exactly one
+    line goes and the mutation stays one file wide."""
+    terminal_auth = "tests/e2e/web_terminals/test_terminal_auth_e2e.py"
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], terminal_auth)
+    others = [f for f in NO_MODEL_TEST_FILES if f != terminal_auth]
+    assert _run_step_ignores_all(mutated, others) == []  # the other nine survive
+    with pytest.raises(AssertionError, match="still swept"):
+        test_shared_lane_hands_over_every_model_free_file(mutated)
+
+
+def test_no_end_to_end_file_runs_in_both_lanes(workflow: dict[str, Any]) -> None:
+    """The two lanes divide one directory, and the division is the claim — a
+    file in both is paid for twice, and the set is computed from what is on
+    disk rather than from the lists, so it also sees a file that returns to the
+    sweep under a path neither list spells the same way."""
+    swept = _e2e_files_the_shared_lane_sweeps(workflow)
+    assert swept, (
+        f"the '{E2E_TESTS_JOB}' sweep was computed as empty — the discovery broke, and "
+        f"an empty set makes the disjointness below vacuous"
+    )
+    both = sorted(set(NO_MODEL_TEST_FILES) & swept)
+    assert both == [], (
+        f"file(s) in both end-to-end lanes: {both} — each is collected twice, once "
+        f"behind the label and once without it"
+    )
+
+
+def test_no_end_to_end_file_runs_in_both_lanes__mutation_returns_a_file_to_the_sweep() -> None:
+    routing = "tests/e2e/web_terminals/test_prefix_routing.py"
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], routing)
+    assert set(NO_MODEL_TEST_FILES) & _e2e_files_the_shared_lane_sweeps(mutated) == {routing}
+    with pytest.raises(AssertionError, match="in both end-to-end lanes"):
+        test_no_end_to_end_file_runs_in_both_lanes(mutated)
+
+
 # ---------------------------------------------------------------------------
 # als-apg endpoint-override drift guard
 # ---------------------------------------------------------------------------
