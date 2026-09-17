@@ -158,7 +158,6 @@ def hello_world_project(tmp_path: Path) -> Path:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 class TestHelloWorldProfileLoads:
     """Verify hello-world.yml parses and validates correctly."""
 
@@ -186,7 +185,6 @@ class TestHelloWorldProfileLoads:
         validate_artifacts(artifacts)
 
 
-@pytest.mark.unit
 class TestHelloWorldBuildOutput:
     """Verify hello-world profile produces a correct project structure."""
 
@@ -240,7 +238,6 @@ class TestHelloWorldBuildOutput:
         assert (hooks_dir / "osprey_memory_guard.py").exists()
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 class TestMockConnectorTutorialChannels:
     """Verify MockConnector can read tutorial channel names."""

@@ -74,8 +74,6 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     return project
 
 
-pytestmark = pytest.mark.unit
-
 _SUBMIT_RESPONSE = "mcp__osprey_workspace__submit_response"
 _OPEN_ENDED_ELLIPSIS = re.compile(r"\(artifact_id: \d+\): \.\.\.")
 #: The id-line label each agent hands back; the channel finder keeps the

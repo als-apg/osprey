@@ -34,7 +34,6 @@ from osprey.mcp_server.audit_middleware import AuditMiddleware  # noqa: E402
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_startup_timer_emits_timing_line(capsys, monkeypatch):
     monkeypatch.setattr(startup, "_server_label", "workspace")
     with startup.startup_timer("phase_x"):
@@ -44,7 +43,6 @@ def test_startup_timer_emits_timing_line(capsys, monkeypatch):
     assert "ms" in err
 
 
-@pytest.mark.unit
 def test_startup_timer_emits_on_exception(capsys, monkeypatch):
     """The timing line is printed even when the wrapped block raises."""
     monkeypatch.setattr(startup, "_server_label", "svc")
@@ -59,7 +57,6 @@ def test_startup_timer_emits_on_exception(capsys, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_prime_config_builder_noop_without_env(monkeypatch):
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     with patch("osprey.utils.config.get_config_builder") as gcb:
@@ -67,7 +64,6 @@ def test_prime_config_builder_noop_without_env(monkeypatch):
     gcb.assert_not_called()
 
 
-@pytest.mark.unit
 def test_prime_config_builder_primes_and_loads_categories(monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/does-not-matter/config.yml")
     with (
@@ -83,7 +79,6 @@ def test_prime_config_builder_primes_and_loads_categories(monkeypatch):
     load_cat.assert_called_once()
 
 
-@pytest.mark.unit
 def test_prime_config_builder_expands_vars(monkeypatch):
     monkeypatch.setenv("MYROOT", "/opt/osprey")
     monkeypatch.setenv("OSPREY_CONFIG", "$MYROOT/config.yml")
@@ -95,7 +90,6 @@ def test_prime_config_builder_expands_vars(monkeypatch):
     assert gcb.call_args.kwargs["config_path"] == "/opt/osprey/config.yml"
 
 
-@pytest.mark.unit
 def test_prime_config_builder_swallows_priming_failure(monkeypatch):
     """A failure to prime is non-fatal (logged, not raised)."""
     # Assert on the module logger, not caplog: full-suite logging reconfiguration
@@ -113,7 +107,6 @@ def test_prime_config_builder_swallows_priming_failure(monkeypatch):
     assert any("priming failed" in msg.lower() for msg in logged)
 
 
-@pytest.mark.unit
 def test_prime_config_builder_survives_category_load_failure(monkeypatch):
     """Category loading is best-effort; its failure doesn't abort priming."""
     monkeypatch.setenv("OSPREY_CONFIG", "/tmp/config.yml")
@@ -135,7 +128,6 @@ def test_prime_config_builder_survives_category_load_failure(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_initialize_workspace_singletons(tmp_path):
     """The artifact store is rooted at the SHARED data root, never a
     session-relocated path — session isolation lives in the index."""
@@ -153,7 +145,6 @@ def test_initialize_workspace_singletons(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_run_mcp_server_wires_startup_sequence(monkeypatch):
     """Derives the label from the module path and drives dotenv->import->create->run."""
     # run_mcp_server reassigns the module-level label; re-set it via monkeypatch
@@ -225,7 +216,6 @@ def _run(server_module: str, *, transport: str, monkeypatch, logger_mock=None):
     return server
 
 
-@pytest.mark.unit
 def test_audit_middleware_is_installed_on_the_stdio_path(monkeypatch):
     """Every stdio framework server gets exactly one AuditMiddleware."""
     server = _run("osprey.mcp_server.workspace.server", transport="stdio", monkeypatch=monkeypatch)
@@ -238,7 +228,6 @@ def test_audit_middleware_is_installed_on_the_stdio_path(monkeypatch):
     assert names.index("add_middleware") < names.index("run")
 
 
-@pytest.mark.unit
 def test_audit_middleware_is_skipped_off_stdio_with_one_named_warning(monkeypatch):
     """The event dispatcher (FASTMCP_TRANSPORT=http) is excluded by the predicate.
 
@@ -262,7 +251,6 @@ def test_audit_middleware_is_skipped_off_stdio_with_one_named_warning(monkeypatc
     assert "http" in said
 
 
-@pytest.mark.unit
 def test_the_skip_predicate_reads_fastmcp_settings_not_the_environment(monkeypatch):
     """An env var fastmcp never saw must not decide the install.
 
@@ -276,7 +264,6 @@ def test_the_skip_predicate_reads_fastmcp_settings_not_the_environment(monkeypat
     server.add_middleware.assert_called_once()
 
 
-@pytest.mark.unit
 def test_the_skip_predicate_follows_settings_with_no_env_var_at_all(monkeypatch):
     """The mirror case: settings say http, the environment says nothing."""
     monkeypatch.delenv("FASTMCP_TRANSPORT", raising=False)
@@ -284,7 +271,6 @@ def test_the_skip_predicate_follows_settings_with_no_env_var_at_all(monkeypatch)
     server.add_middleware.assert_not_called()
 
 
-@pytest.mark.unit
 def test_fastmcp_transport_is_the_single_predicate_seam(monkeypatch):
     """``fastmcp_transport()`` is the one place the transport is read.
 
@@ -316,14 +302,12 @@ def _module_scope_imports(module) -> set[str]:
     return names
 
 
-@pytest.mark.unit
 def test_startup_does_not_import_fastmcp_or_the_middleware_at_module_scope():
     imported = _module_scope_imports(startup)
     assert not [n for n in imported if n == "fastmcp" or n.startswith("fastmcp.")]
     assert "osprey.mcp_server.audit_middleware" not in imported
 
 
-@pytest.mark.unit
 def test_channel_finder_common_does_not_import_fastmcp_at_module_scope():
     """The fastmcp-before-dotenv wrinkle: ``run_cf_main``'s own module used to
     import fastmcp at module scope, so every ``python -m
@@ -337,7 +321,6 @@ def test_channel_finder_common_does_not_import_fastmcp_at_module_scope():
     "module",
     ["osprey.mcp_server.startup", "osprey.mcp_server.channel_finder_common"],
 )
-@pytest.mark.unit
 def test_importing_an_entry_point_module_does_not_pull_in_fastmcp(module):
     """The real closure, not just the direct imports: a transitive import of
     fastmcp would freeze its settings just as effectively."""
@@ -358,7 +341,6 @@ def test_importing_an_entry_point_module_does_not_pull_in_fastmcp(module):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_run_cf_main_delegates_to_run_mcp_server(monkeypatch):
     """Folded in, not re-implemented: one startup sequence, one install site."""
     seen: list[str] = []
@@ -367,7 +349,6 @@ def test_run_cf_main_delegates_to_run_mcp_server(monkeypatch):
     assert seen == ["osprey.mcp_server.channel_finder_graph.server"]
 
 
-@pytest.mark.unit
 def test_run_cf_main_installs_the_audit_middleware_too(monkeypatch):
     """Wired identically: a channel-finder variant is audited like any other."""
     monkeypatch.setattr(startup, "_server_label", startup._server_label)

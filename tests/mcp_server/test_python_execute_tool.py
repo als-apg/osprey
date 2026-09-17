@@ -72,7 +72,6 @@ def _mock_execute_code(
     return AsyncMock(return_value=result)
 
 
-@pytest.mark.unit
 async def test_python_execute_readonly(tmp_path, monkeypatch):
     """Readonly execution runs code and returns stdout in summary."""
     monkeypatch.chdir(tmp_path)
@@ -102,7 +101,6 @@ async def test_python_execute_readonly(tmp_path, monkeypatch):
     assert data["summary"]["status"] == "Success"
 
 
-@pytest.mark.unit
 async def test_python_execute_write_pattern_detection(tmp_path, monkeypatch):
     """Code containing EPICS write patterns in readonly mode returns safety_error."""
     monkeypatch.chdir(tmp_path)
@@ -127,7 +125,6 @@ async def test_python_execute_write_pattern_detection(tmp_path, monkeypatch):
     assert "suggestions" in data
 
 
-@pytest.mark.unit
 async def test_python_execute_execution_error(tmp_path, monkeypatch):
     """Code execution error raises ToolError with execution_error envelope."""
     monkeypatch.chdir(tmp_path)
@@ -162,7 +159,6 @@ async def test_python_execute_execution_error(tmp_path, monkeypatch):
     assert summary["has_errors"] is True
 
 
-@pytest.mark.unit
 async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
     """Execution saves output to artifact store data file."""
     monkeypatch.chdir(tmp_path)
@@ -196,7 +192,6 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
     assert (tmp_path / data["data_file"]).exists()
 
 
-@pytest.mark.unit
 async def test_python_execute_no_saving(tmp_path, monkeypatch):
     """save_output=False returns inline result without data file."""
     monkeypatch.chdir(tmp_path)
@@ -228,7 +223,6 @@ async def test_python_execute_no_saving(tmp_path, monkeypatch):
     assert "hello" in data["stdout"]
 
 
-@pytest.mark.unit
 async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
     """readwrite mode allows code with write patterns."""
     monkeypatch.chdir(tmp_path)
@@ -269,7 +263,6 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
     assert data["summary"]["status"] == "Success"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("mode", ["ReadWrite", "READWRITE", "write", "read_write"])
 async def test_python_execute_rejects_unknown_execution_mode(tmp_path, monkeypatch, mode):
     """Modes outside {readonly, readwrite} are rejected before any gate runs.
@@ -315,7 +308,6 @@ async def test_python_execute_rejects_unknown_execution_mode(tmp_path, monkeypat
     assert "execution_mode" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 async def test_python_execute_empty_code(tmp_path, monkeypatch):
     """Empty code returns validation error."""
     monkeypatch.chdir(tmp_path)
@@ -327,7 +319,6 @@ async def test_python_execute_empty_code(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_python_execute_pattern_detection_import_error(tmp_path, monkeypatch):
     """Pattern detection import failure falls back to allowing execution."""
     monkeypatch.chdir(tmp_path)
@@ -361,7 +352,6 @@ async def test_python_execute_pattern_detection_import_error(tmp_path, monkeypat
 # ============================================================================
 
 
-@pytest.mark.unit
 async def test_python_execute_uses_adapter(tmp_path, monkeypatch):
     """Tool calls execute_code adapter instead of bare exec()."""
     monkeypatch.chdir(tmp_path)
@@ -397,7 +387,6 @@ async def test_python_execute_uses_adapter(tmp_path, monkeypatch):
     assert "adapter called" in data["summary"]["output"]
 
 
-@pytest.mark.unit
 async def test_safety_checks_run_before_adapter(tmp_path, monkeypatch):
     """quick_safety_check() blocks BEFORE adapter is called."""
     monkeypatch.chdir(tmp_path)
@@ -428,7 +417,6 @@ async def test_safety_checks_run_before_adapter(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_pattern_detection_runs_before_adapter(tmp_path, monkeypatch):
     """Write pattern detection blocks readonly mode BEFORE adapter is called."""
     monkeypatch.chdir(tmp_path)
@@ -462,7 +450,6 @@ async def test_pattern_detection_runs_before_adapter(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
     """Adapter's ExecutionResult correctly maps to the JSON response."""
     monkeypatch.chdir(tmp_path)
@@ -496,7 +483,6 @@ async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
     assert data["summary"]["has_errors"] is False
 
 
-@pytest.mark.unit
 async def test_adapter_error_returns_tool_error(tmp_path, monkeypatch):
     """When adapter returns failed result, tool raises ToolError with envelope."""
     monkeypatch.chdir(tmp_path)
@@ -531,7 +517,6 @@ async def test_adapter_error_returns_tool_error(tmp_path, monkeypatch):
     assert summary["has_errors"] is True
 
 
-@pytest.mark.unit
 async def test_notebook_artifact_created_from_adapter_result(tmp_path, monkeypatch):
     """Post-execution notebook uses stdout/stderr from adapter result."""
     monkeypatch.chdir(tmp_path)
@@ -563,7 +548,6 @@ async def test_notebook_artifact_created_from_adapter_result(tmp_path, monkeypat
     assert "notebook_artifact_id" in data or "artifact_ids" in data.get("summary", {})
 
 
-@pytest.mark.unit
 async def test_figure_artifacts_created_post_execution(tmp_path, monkeypatch):
     """Figures from adapter result are saved as gallery artifacts."""
     monkeypatch.chdir(tmp_path)
@@ -604,7 +588,6 @@ async def test_figure_artifacts_created_post_execution(tmp_path, monkeypatch):
     assert len(artifact_ids) >= 1
 
 
-@pytest.mark.unit
 async def test_executor_error_returns_failure_result(tmp_path, monkeypatch):
     """When execution setup fails, execute_code returns ExecutionResult(success=False).
 
@@ -636,7 +619,6 @@ async def test_executor_error_returns_failure_result(tmp_path, monkeypatch):
     assert result.failure_kind == FAILURE_KIND_SETUP
 
 
-@pytest.mark.unit
 def test_executor_no_in_process_fallback():
     """Confirm the in-process fallback function has been removed."""
     from osprey.mcp_server.python_executor import executor
@@ -644,7 +626,6 @@ def test_executor_no_in_process_fallback():
     assert not hasattr(executor, "_execute_in_process_fallback")
 
 
-@pytest.mark.unit
 async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
     """ArtifactStore.save_data() receives full result including execution_method."""
     monkeypatch.chdir(tmp_path)
@@ -698,7 +679,6 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
 # ============================================================================
 
 
-@pytest.mark.unit
 def test_save_artifact_injection_generates_code():
     """ExecutionWrapper._get_save_artifact_injection() generates valid Python."""
     import ast
@@ -714,7 +694,6 @@ def test_save_artifact_injection_generates_code():
     ast.parse(code)
 
 
-@pytest.mark.unit
 def test_save_artifact_in_full_wrapper():
     """create_wrapper() includes save_artifact() in the output."""
     from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
@@ -726,7 +705,6 @@ def test_save_artifact_in_full_wrapper():
     assert "artifacts/manifest.json" in full_code or "manifest.json" in full_code
 
 
-@pytest.mark.unit
 def test_collect_artifacts_reads_manifest(tmp_path):
     """collect_artifacts() reads manifest.json and returns artifact dicts."""
     import json
@@ -758,7 +736,6 @@ def test_collect_artifacts_reads_manifest(tmp_path):
     assert result[0]["path"] == art_file
 
 
-@pytest.mark.unit
 def test_collect_artifacts_empty_when_no_manifest(tmp_path):
     """collect_artifacts() returns empty list when no manifest exists."""
     from osprey.stores.artifact_manifest import collect_artifacts
@@ -766,7 +743,6 @@ def test_collect_artifacts_empty_when_no_manifest(tmp_path):
     assert collect_artifacts(tmp_path) == []
 
 
-@pytest.mark.unit
 async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
     """Artifacts from exec_result.artifacts are saved to the gallery."""
 
@@ -1169,7 +1145,6 @@ def _fake_enumeration(names, monkeypatch, module):
     return calls
 
 
-@pytest.mark.unit
 def test_package_line_prioritises_scientific_stack():
     """Scientific-stack names lead the rendered line, in priority order."""
     from osprey.mcp_server.python_executor.tools._package_inventory import render_package_line
@@ -1182,7 +1157,6 @@ def test_package_line_prioritises_scientific_stack():
     assert set(listed) == {"aiohttp", "pandas", "zstandard", "numpy", "click", "scipy"}
 
 
-@pytest.mark.unit
 def test_package_line_caps_names_and_reports_remainder():
     """At most MAX_LISTED_PACKAGES names are shown; the rest become '+N more'."""
     from osprey.mcp_server.python_executor.tools._package_inventory import (
@@ -1200,7 +1174,6 @@ def test_package_line_caps_names_and_reports_remainder():
     assert listed[:2] == ["numpy", "scipy"]
 
 
-@pytest.mark.unit
 def test_package_line_omits_remainder_when_everything_fits():
     """A small environment is listed in full, with no '+N more' tail."""
     from osprey.mcp_server.python_executor.tools._package_inventory import render_package_line
@@ -1211,7 +1184,6 @@ def test_package_line_omits_remainder_when_everything_fits():
     assert "more" not in line
 
 
-@pytest.mark.unit
 def test_describe_available_packages_enumerates_agent_interpreter(clean_package_cache, monkeypatch):
     """Enumeration runs against resolve_agent_interpreter(), not sys.executable."""
     module = clean_package_cache
@@ -1230,7 +1202,6 @@ def test_describe_available_packages_enumerates_agent_interpreter(clean_package_
     )
 
 
-@pytest.mark.unit
 def test_describe_available_packages_is_generated_once(clean_package_cache, monkeypatch):
     """The subprocess runs once per process — the description is static."""
     module = clean_package_cache
@@ -1244,7 +1215,6 @@ def test_describe_available_packages_is_generated_once(clean_package_cache, monk
     assert len(calls) == 1
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "failure",
     [
@@ -1273,7 +1243,6 @@ def test_describe_available_packages_falls_back_on_failure(
     assert_names_no_packages(description)
 
 
-@pytest.mark.unit
 def test_describe_available_packages_falls_back_on_garbage_output(clean_package_cache, monkeypatch):
     """Unparseable enumeration output is a failure, not a package list."""
     module = clean_package_cache
@@ -1287,7 +1256,6 @@ def test_describe_available_packages_falls_back_on_garbage_output(clean_package_
     assert module.describe_available_packages() == module.FALLBACK_DESCRIPTION
 
 
-@pytest.mark.unit
 def test_enumeration_snippet_drops_mypyc_shims(monkeypatch):
     """The probe drops `<hash>__mypyc` shims whatever their hash starts with.
 
@@ -1319,13 +1287,11 @@ def test_enumeration_snippet_drops_mypyc_shims(monkeypatch):
     assert json.loads(captured.getvalue()) == ["numpy"]
 
 
-@pytest.mark.unit
 def test_empty_environment_falls_back(clean_package_cache):
     """An empty inventory tells us nothing usable — fall back rather than claim it."""
     assert clean_package_cache.render_package_line([]) == clean_package_cache.FALLBACK_DESCRIPTION
 
 
-@pytest.mark.unit
 def test_fallback_sentence_names_no_packages():
     """The fallback must be vague-but-true: it may not name any package."""
     from osprey.mcp_server.python_executor.tools._package_inventory import FALLBACK_DESCRIPTION
@@ -1333,7 +1299,6 @@ def test_fallback_sentence_names_no_packages():
     assert_names_no_packages(FALLBACK_DESCRIPTION)
 
 
-@pytest.mark.unit
 def test_with_live_packages_substitutes_placeholder(clean_package_cache, monkeypatch):
     """The decorator rewrites the placeholder in place, before FastMCP reads it."""
     module = clean_package_cache
@@ -1351,7 +1316,6 @@ def test_with_live_packages_substitutes_placeholder(clean_package_cache, monkeyp
     assert "numpy" in sample.__doc__
 
 
-@pytest.mark.unit
 async def test_execute_tool_description_has_no_hardcoded_list():
     """The registered tool description is generated, not the old literal list."""
     from osprey.mcp_server.python_executor.server import mcp
@@ -1403,7 +1367,6 @@ def test_enumeration_probe_works_against_a_real_interpreter():
 ALIASED_CAPUT = "from epics import caput as _w\n_w('SR:MAG:QF:01:CURRENT:SP', 150)\n"
 
 
-@pytest.mark.unit
 async def test_python_execute_readonly_refuses_epics_import(tmp_path, monkeypatch):
     """An aliased caput evades every write regex; the import itself is refused."""
     monkeypatch.chdir(tmp_path)
@@ -1419,7 +1382,6 @@ async def test_python_execute_readonly_refuses_epics_import(tmp_path, monkeypatc
     mock_exec.assert_not_called()
 
 
-@pytest.mark.unit
 async def test_python_execute_readwrite_allows_epics_import(tmp_path, monkeypatch):
     """The denylist is a readonly gate only; readwrite runs are approved by a human."""
     monkeypatch.chdir(tmp_path)

@@ -22,7 +22,6 @@ from osprey.mcp_server.workspace.tools.screen_capture_backends.base import (
 )
 
 
-@pytest.mark.unit
 def test_darwin_returns_macos_backend():
     """On macOS, get_backend() returns a MacOSBackend."""
     reset_backend()
@@ -38,7 +37,6 @@ def test_darwin_returns_macos_backend():
         assert isinstance(backend, MacOSBackend)
 
 
-@pytest.mark.unit
 def test_singleton_caching():
     """get_backend() returns the same instance on repeated calls."""
     reset_backend()
@@ -52,7 +50,6 @@ def test_singleton_caching():
         assert b1 is b2
 
 
-@pytest.mark.unit
 def test_reset_clears_cache():
     """reset_backend() clears the singleton so next call creates a new one."""
     reset_backend()
@@ -67,7 +64,6 @@ def test_reset_clears_cache():
         assert b1 is not b2
 
 
-@pytest.mark.unit
 def test_linux_no_display():
     """Linux without DISPLAY raises BackendUnavailableError."""
     reset_backend()
@@ -83,7 +79,6 @@ def test_linux_no_display():
             get_backend()
 
 
-@pytest.mark.unit
 def test_linux_missing_mss():
     """Linux with DISPLAY but missing mss raises BackendUnavailableError."""
     reset_backend()
@@ -109,7 +104,6 @@ def test_linux_missing_mss():
             get_backend()
 
 
-@pytest.mark.unit
 def test_linux_missing_xlib():
     """Linux with DISPLAY but missing python-xlib raises BackendUnavailableError."""
     reset_backend()
@@ -135,7 +129,6 @@ def test_linux_missing_xlib():
             get_backend()
 
 
-@pytest.mark.unit
 def test_unsupported_platform():
     """Unsupported platform raises BackendUnavailableError."""
     reset_backend()
@@ -148,7 +141,6 @@ def test_unsupported_platform():
             get_backend()
 
 
-@pytest.mark.unit
 def test_error_carries_suggestions():
     """BackendUnavailableError includes helpful suggestions."""
     reset_backend()

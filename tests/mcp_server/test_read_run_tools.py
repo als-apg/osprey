@@ -7,12 +7,8 @@ no Bluesky bridge process and no network.
 
 from unittest.mock import patch
 
-import pytest
-
 from osprey.mcp_server.bluesky.tools import read_tools
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
-
-pytestmark = pytest.mark.unit
 
 _MOD = "osprey.mcp_server.bluesky.tools.read_tools"
 

@@ -32,8 +32,6 @@ from osprey.connectors.control_system.limits_validator import (
 from osprey.errors import ChannelLimitsViolationError
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-pytestmark = pytest.mark.unit
-
 CHANNEL = "TEST:MAG:SP"
 CURRENT = 5.0
 

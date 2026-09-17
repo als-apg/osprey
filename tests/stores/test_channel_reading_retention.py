@@ -77,7 +77,6 @@ def _entry_files(store: ArtifactStore, entry) -> list:
 
 
 class TestWindow:
-    @pytest.mark.unit
     def test_oldest_beyond_the_window_are_pruned(self, store):
         """Saving N+k readings and keeping N drops the k oldest."""
         entries = [_save(store, title=f"frame {i}") for i in range(5)]
@@ -87,21 +86,18 @@ class TestWindow:
         assert [e.id for e in pruned] == [entries[0].id, entries[1].id]
         assert _ids(store) == [e.id for e in entries[2:]]
 
-    @pytest.mark.unit
     def test_window_not_yet_full_is_a_no_op(self, store):
         entries = [_save(store) for _ in range(2)]
 
         assert store.prune_channel_readings(CHANNEL, keep=3) == []
         assert _ids(store) == [e.id for e in entries]
 
-    @pytest.mark.unit
     def test_exactly_at_the_window_is_a_no_op(self, store):
         entries = [_save(store) for _ in range(3)]
 
         assert store.prune_channel_readings(CHANNEL, keep=3) == []
         assert _ids(store) == [e.id for e in entries]
 
-    @pytest.mark.unit
     def test_repeated_saves_hold_the_window(self, store):
         """The intended call shape: prune after every save keeps the window flat."""
         kept: list[str] = []
@@ -112,7 +108,6 @@ class TestWindow:
             kept = kept[-2:]
             assert _ids(store) == kept
 
-    @pytest.mark.unit
     def test_keep_zero_keeps_everything(self, store):
         """0 means unlimited retention, not 'delete everything'."""
         entries = [_save(store) for _ in range(4)]
@@ -120,21 +115,18 @@ class TestWindow:
         assert store.prune_channel_readings(CHANNEL, keep=0) == []
         assert _ids(store) == [e.id for e in entries]
 
-    @pytest.mark.unit
     def test_negative_keep_keeps_everything(self, store):
         entries = [_save(store) for _ in range(4)]
 
         assert store.prune_channel_readings(CHANNEL, keep=-1) == []
         assert _ids(store) == [e.id for e in entries]
 
-    @pytest.mark.unit
     def test_unknown_channel_prunes_nothing(self, store):
         entries = [_save(store) for _ in range(3)]
 
         assert store.prune_channel_readings("SIM:NOPE", keep=1) == []
         assert _ids(store) == [e.id for e in entries]
 
-    @pytest.mark.unit
     def test_prune_survives_reload(self, store):
         """The index is persisted once, so a fresh store sees the trimmed window."""
         entries = [_save(store) for _ in range(4)]
@@ -145,7 +137,6 @@ class TestWindow:
 
 
 class TestPinnedExemption:
-    @pytest.mark.unit
     def test_pinned_entries_are_never_pruned(self, store):
         entries = [_save(store, title=f"frame {i}") for i in range(4)]
         store.set_pinned(entries[0].id, True)
@@ -154,7 +145,6 @@ class TestPinnedExemption:
 
         assert entries[0].id in _ids(store), "a pinned reading must survive the sweep"
 
-    @pytest.mark.unit
     def test_pinned_entries_do_not_occupy_the_window(self, store):
         """keep=2 with 1 pinned + 3 unpinned leaves 2 unpinned plus the pin."""
         pinned = _save(store, title="pinned")
@@ -166,7 +156,6 @@ class TestPinnedExemption:
         assert [e.id for e in pruned] == [unpinned[0].id]
         assert _ids(store) == [pinned.id, unpinned[1].id, unpinned[2].id]
 
-    @pytest.mark.unit
     def test_an_all_pinned_channel_never_prunes(self, store):
         entries = [_save(store) for _ in range(4)]
         for entry in entries:
@@ -177,7 +166,6 @@ class TestPinnedExemption:
 
 
 class TestScoping:
-    @pytest.mark.unit
     def test_other_channels_are_untouched(self, store):
         mine = [_save(store, title=f"mine {i}") for i in range(3)]
         theirs = [_save(store, OTHER_CHANNEL, title=f"theirs {i}") for i in range(3)]
@@ -189,7 +177,6 @@ class TestScoping:
         assert all(e.id in surviving for e in theirs)
         assert mine[2].id in surviving
 
-    @pytest.mark.unit
     def test_other_categories_are_untouched(self, store):
         """Only ``channel_values`` entries are in scope, even for the same address."""
         other = store.save_data(
@@ -207,7 +194,6 @@ class TestScoping:
         assert other.id in _ids(store)
         assert readings[-1].id in _ids(store)
 
-    @pytest.mark.unit
     def test_one_dimensional_json_readings_share_the_window(self, store):
         """A ``save_data`` series and a two-file frame count in the same window."""
         series = store.save_data(
@@ -226,7 +212,6 @@ class TestScoping:
 
 
 class TestFilesRemoved:
-    @pytest.mark.unit
     def test_both_files_of_a_pruned_entry_leave_disk(self, store):
         doomed = _save(store, title="doomed")
         survivor = _save(store, title="survivor")
@@ -242,7 +227,6 @@ class TestFilesRemoved:
 
 
 class TestActorAttribution:
-    @pytest.mark.unit
     def test_prune_deletes_are_attributed_to_the_system_actor(self, store, delete_events):
         entries = [_save(store) for _ in range(3)]
 
@@ -251,7 +235,6 @@ class TestActorAttribution:
         assert [e[0] for e in delete_events] == [entries[0].id, entries[1].id]
         assert {e[1] for e in delete_events} == {"system"}
 
-    @pytest.mark.unit
     def test_an_ordinary_delete_is_still_the_agent(self, store, delete_events):
         """The sweep's attribution is scoped to the sweep, not leaked globally."""
         entry = _save(store)
@@ -262,7 +245,6 @@ class TestActorAttribution:
 
 
 class TestListenersFireOutsideTheLock:
-    @pytest.mark.unit
     def test_a_listener_may_call_back_into_the_store(self, store):
         """A delete listener that re-enters the store must not deadlock.
 

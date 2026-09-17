@@ -23,8 +23,6 @@ import pytest
 
 from osprey.deployment import docker_desktop
 
-pytestmark = pytest.mark.unit
-
 
 #: A settings payload shaped like the real one, trimmed to the read path.
 def _settings(host_networking: object) -> dict:

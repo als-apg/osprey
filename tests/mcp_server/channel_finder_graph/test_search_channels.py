@@ -41,8 +41,6 @@ from tests.services.channel_finder.graph_index import corpora
 
 from .conftest import get_tool_fn
 
-pytestmark = pytest.mark.unit
-
 #: The prefixes and ontology every fixture corpus opens with, stripped when
 #: several of them are glued into one.
 _HEAD = corpora.PREFIXES + corpora.SHARED_ONTOLOGY

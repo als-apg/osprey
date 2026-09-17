@@ -19,8 +19,6 @@ from osprey.deployment import container_lifecycle
 from osprey.deployment.web_terminals import persona_images
 from osprey.version import is_prerelease, pins_prerelease
 
-pytestmark = pytest.mark.unit
-
 
 class TestVersionHelpers:
     @pytest.mark.parametrize(

@@ -42,8 +42,6 @@ from osprey.audit.envelope import (
     utc_timestamp,
 )
 
-pytestmark = pytest.mark.unit
-
 
 def make_envelope(**overrides: object) -> AuditEnvelope:
     """Build a minimal legal envelope, with *overrides* applied.

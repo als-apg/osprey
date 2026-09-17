@@ -65,7 +65,6 @@ SAVES = pytest.mark.parametrize(
 )
 
 
-@pytest.mark.unit
 @SAVES
 def test_a_save_launches_the_gallery_by_default(agent_data_root, save):
     store = ArtifactStore(workspace_root=agent_data_root)
@@ -77,7 +76,6 @@ def test_a_save_launches_the_gallery_by_default(agent_data_root, save):
     launch.assert_called_once_with()
 
 
-@pytest.mark.unit
 @SAVES
 def test_a_store_built_without_auto_launch_saves_without_starting_the_gallery(
     agent_data_root, save

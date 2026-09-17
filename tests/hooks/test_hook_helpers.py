@@ -31,25 +31,21 @@ import osprey.templates.claude_code.claude.hooks.osprey_hook_log as hook_log
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_execute_readonly_is_not_a_write_call():
     """A readonly python execution writes nothing."""
     assert hook_log.is_write_call("mcp__python__execute", {"execution_mode": "readonly"}) is False
 
 
-@pytest.mark.unit
 def test_execute_readwrite_is_a_write_call():
     """A non-readonly execution_mode is a write."""
     assert hook_log.is_write_call("mcp__python__execute", {"execution_mode": "readwrite"}) is True
 
 
-@pytest.mark.unit
 def test_execute_without_mode_is_not_a_write_call():
     """A missing execution_mode reads as readonly, matching the server default."""
     assert hook_log.is_write_call("mcp__python__execute", {"code": "print(1)"}) is False
 
 
-@pytest.mark.unit
 def test_non_execute_tool_is_always_a_write_call():
     """Every other tool writes whenever it is called, whatever its arguments."""
     assert hook_log.is_write_call("mcp__controls__channel_write", {}) is True
@@ -59,14 +55,12 @@ def test_non_execute_tool_is_always_a_write_call():
     )
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("tool_input", [None, "readonly", ["execution_mode"], 7])
 def test_execute_with_non_mapping_input_is_not_a_write_call(tool_input):
     """A tool_input that is not a mapping is read as an empty one, so: readonly."""
     assert hook_log.is_write_call("mcp__python__execute", tool_input) is False
 
 
-@pytest.mark.unit
 def test_a_cloned_python_server_keeps_the_readonly_carve_out():
     """`mcp__pyva__execute` is the same tool as `mcp__python__execute`.
 
@@ -78,7 +72,6 @@ def test_a_cloned_python_server_keeps_the_readonly_carve_out():
     assert hook_log.is_write_call("mcp__pyva__execute", {"execution_mode": "readwrite"}) is True
 
 
-@pytest.mark.unit
 def test_a_supplied_short_name_decides_the_carve_out():
     """A caller that already stripped the prefix hands its answer in.
 
@@ -100,41 +93,35 @@ def test_a_supplied_short_name_decides_the_carve_out():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_exact_entry_matches():
     """An entry equal to the tool name covers it."""
     write_tools = ["mcp__controls__channel_write", "mcp__python__execute"]
     assert hook_log.is_write_tool("mcp__controls__channel_write", write_tools) is True
 
 
-@pytest.mark.unit
 def test_exact_entry_does_not_match_another_tool():
     """An exact entry covers nothing but itself."""
     write_tools = ["mcp__controls__channel_write"]
     assert hook_log.is_write_tool("mcp__controls__channel_read", write_tools) is False
 
 
-@pytest.mark.unit
 def test_wildcard_entry_matches_on_prefix():
     """``mcp__myserver__.*`` covers every tool on that server."""
     write_tools = ["mcp__myserver__.*"]
     assert hook_log.is_write_tool("mcp__myserver__set_current", write_tools) is True
 
 
-@pytest.mark.unit
 def test_wildcard_entry_does_not_match_a_different_prefix():
     """The prefix has to match; a neighbouring server is not covered."""
     write_tools = ["mcp__myserver__.*"]
     assert hook_log.is_write_tool("mcp__otherserver__set_current", write_tools) is False
 
 
-@pytest.mark.unit
 def test_wildcard_entry_matches_the_bare_prefix_itself():
     """``foo.*`` covers ``foo``: the rule is startswith, and ``.*`` matches empty."""
     assert hook_log.is_write_tool("foo", ["foo.*"]) is True
 
 
-@pytest.mark.unit
 def test_non_string_entries_are_ignored():
     """A malformed entry is skipped, and the valid entries still match."""
     write_tools = [None, 42, {"tool": "mcp__python__execute"}, "mcp__python__execute"]
@@ -142,7 +129,6 @@ def test_non_string_entries_are_ignored():
     assert hook_log.is_write_tool("mcp__controls__channel_write", write_tools) is False
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("write_tools", [[], None])
 def test_empty_write_tools_covers_nothing(write_tools):
     """With no entries there is nothing to match."""
@@ -167,7 +153,6 @@ def hook_config_file(tmp_path, monkeypatch):
     return _write
 
 
-@pytest.mark.unit
 def test_write_tools_returns_the_generated_list(hook_config_file):
     """A rendered deployment's own matchers, including a self-gated server."""
     hook_config_file({"write_tools": ["mcp__controls__channel_write", "mcp__bluesky__.*"]})
@@ -175,7 +160,6 @@ def test_write_tools_returns_the_generated_list(hook_config_file):
     assert hook_log.write_tools() == ["mcp__controls__channel_write", "mcp__bluesky__.*"]
 
 
-@pytest.mark.unit
 def test_write_tools_falls_back_when_the_key_is_absent(hook_config_file):
     """A hook_config with no ``write_tools`` key gets the framework floor."""
     hook_config_file({"server_prefixes": ["mcp__controls__"]})
@@ -184,7 +168,6 @@ def test_write_tools_falls_back_when_the_key_is_absent(hook_config_file):
     assert "mcp__controls__channel_write" in hook_log.write_tools()
 
 
-@pytest.mark.unit
 def test_write_tools_falls_back_when_the_file_is_missing(tmp_path, monkeypatch):
     """No hook_config at all is fail-closed, not "gate nothing"."""
     monkeypatch.setenv("OSPREY_HOOK_CONFIG", str(tmp_path / "absent.json"))
@@ -192,7 +175,6 @@ def test_write_tools_falls_back_when_the_file_is_missing(tmp_path, monkeypatch):
     assert hook_log.write_tools() == hook_log.FALLBACK_WRITE_TOOLS
 
 
-@pytest.mark.unit
 def test_an_explicitly_empty_list_is_taken_at_its_word(hook_config_file):
     """A generated empty list gates nothing — the renderer lint owns that case.
 
@@ -211,7 +193,6 @@ def test_an_explicitly_empty_list_is_taken_at_its_word(hook_config_file):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_short_tool_name_strips_a_matching_prefix():
     """The ordinary case: a server prefix comes off and the tool name is left."""
     assert (
@@ -220,7 +201,6 @@ def test_short_tool_name_strips_a_matching_prefix():
     )
 
 
-@pytest.mark.unit
 def test_the_longest_matching_prefix_wins():
     """One server prefix can be a prefix of another, and the shorter one lies.
 
@@ -232,19 +212,16 @@ def test_the_longest_matching_prefix_wins():
     assert hook_log.short_tool_name("mcp__bluesky_va__queue_start", prefixes) == "queue_start"
 
 
-@pytest.mark.unit
 def test_an_unlisted_server_falls_back_to_the_mcp_shape():
     """A tool from a server no prefix list carries is still an MCP tool name."""
     assert hook_log.short_tool_name("mcp__other__do_thing", ["mcp__controls__"]) == "do_thing"
 
 
-@pytest.mark.unit
 def test_a_tool_name_in_no_mcp_shape_is_its_own_short_name():
     """A built-in tool has no server to strip."""
     assert hook_log.short_tool_name("Bash", ["mcp__controls__"]) == "Bash"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("prefixes", [[], None, [None, 42]])
 def test_short_tool_name_survives_a_useless_prefix_list(prefixes):
     """No usable prefixes leaves the MCP-shape fallback to answer."""

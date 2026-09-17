@@ -60,7 +60,6 @@ async def _tool_names(server) -> set[str]:
     return {getattr(t, "name", t) for t in tools}
 
 
-@pytest.mark.unit
 async def test_create_server_exposes_exactly_two_tools(stub_server_context):
     """create_server() returns a server exposing exactly the two tiered tools."""
     from osprey.mcp_server.health.server import create_server
@@ -72,7 +71,6 @@ async def test_create_server_exposes_exactly_two_tools(stub_server_context):
     assert names == {"health_check", "health_check_full"}
 
 
-@pytest.mark.unit
 async def test_create_server_initializes_server_context(stub_server_context):
     """create_server() drives initialize_server_context via the lazy import."""
     from osprey.mcp_server.health.server import create_server
@@ -81,7 +79,6 @@ async def test_create_server_initializes_server_context(stub_server_context):
     assert stub_server_context["initialized"] >= 1
 
 
-@pytest.mark.unit
 async def test_create_server_does_not_blow_up_when_context_stubbed(stub_server_context):
     """create_server() completes cleanly when server_context is stubbed."""
     from osprey.mcp_server.health.server import create_server
@@ -91,7 +88,6 @@ async def test_create_server_does_not_blow_up_when_context_stubbed(stub_server_c
     assert server is not None
 
 
-@pytest.mark.unit
 async def test_tool_signatures_are_categories_only(stub_server_context):
     """Both tools carry the final ``(categories: list[str] | None = None)`` signature."""
     from osprey.mcp_server.health.tools.health_check import health_check
@@ -104,7 +100,6 @@ async def test_tool_signatures_are_categories_only(stub_server_context):
         assert params["categories"].default is None
 
 
-@pytest.mark.unit
 def test_main_uses_run_mcp_server_idiom():
     """__main__ wires run_mcp_server against the health server module string."""
     main_mod = importlib.import_module("osprey.mcp_server.health.__main__")

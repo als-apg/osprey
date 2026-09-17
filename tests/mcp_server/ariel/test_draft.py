@@ -20,7 +20,6 @@ from osprey.interfaces.ariel.api.drafts import (
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_create_and_read_draft(tmp_path, monkeypatch):
     """Write a draft file and read it back."""
     import osprey.interfaces.ariel.api.drafts as drafts_mod
@@ -46,7 +45,6 @@ def test_create_and_read_draft(tmp_path, monkeypatch):
     assert result["tags"] == ["test"]
 
 
-@pytest.mark.unit
 def test_get_nonexistent_returns_none(tmp_path, monkeypatch):
     """Reading a nonexistent draft returns None."""
     import osprey.interfaces.ariel.api.drafts as drafts_mod
@@ -57,7 +55,6 @@ def test_get_nonexistent_returns_none(tmp_path, monkeypatch):
     assert result is None
 
 
-@pytest.mark.unit
 def test_expired_drafts_cleaned_up(tmp_path, monkeypatch):
     """Drafts older than TTL are deleted on cleanup."""
     import osprey.interfaces.ariel.api.drafts as drafts_mod
@@ -102,7 +99,6 @@ def draft_app(tmp_path, monkeypatch):
     return app
 
 
-@pytest.mark.unit
 async def test_api_create_and_get_draft(draft_app):
     """POST /api/drafts then GET /api/drafts/{id} returns the draft."""
     transport = ASGITransport(app=draft_app)
@@ -125,7 +121,6 @@ async def test_api_create_and_get_draft(draft_app):
         assert draft["author"] == "Bob"
 
 
-@pytest.mark.unit
 async def test_api_get_nonexistent_returns_404(draft_app):
     """GET /api/drafts/{bad_id} returns 404."""
     transport = ASGITransport(app=draft_app)
@@ -134,7 +129,6 @@ async def test_api_get_nonexistent_returns_404(draft_app):
         assert resp.status_code == 404
 
 
-@pytest.mark.unit
 def test_read_draft_resolves_dir_without_dict_injection(tmp_path, monkeypatch):
     """Regression: production has no `DRAFTS_DIR` in module.__dict__.
 

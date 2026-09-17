@@ -19,8 +19,6 @@ import pytest
 
 from osprey.mcp_server.dispatch_worker import sdk_runner
 
-pytestmark = pytest.mark.unit
-
 
 class _FakeClient:
     """Reports ``connecting`` for the first ``connect_after`` polls, then

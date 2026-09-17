@@ -59,8 +59,6 @@ from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.python_executor import executor as host_executor
 from tests._control_context_fixtures import write_control_context
 
-pytestmark = pytest.mark.unit
-
 #: Absent from the limits database on purpose: the posture is the only thing
 #: that can decide this write. Free of ``:SP``/``:SET``, which the mock mirrors
 #: onto a readback channel.

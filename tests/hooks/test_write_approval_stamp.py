@@ -162,7 +162,6 @@ def reason_of(output):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_a_channel_write_ask_stamps_the_binding_it_rendered(approval, root, state_dir, session):
     """The ask carries the target line; the stamp carries the same record."""
     publish(root, target="live", generation=7)
@@ -179,7 +178,6 @@ def test_a_channel_write_ask_stamps_the_binding_it_rendered(approval, root, stat
     assert stamps[0]["tool"] == "channel_write"
 
 
-@pytest.mark.unit
 def test_the_stamp_names_the_audit_session_that_rendered_it(approval, root, state_dir, session):
     """``session`` is the third field of the key, and it comes off the environment.
 
@@ -194,7 +192,6 @@ def test_the_stamp_names_the_audit_session_that_rendered_it(approval, root, stat
     assert stamps_in(state_dir)[0]["session"] == SESSION_A
 
 
-@pytest.mark.unit
 def test_a_session_less_render_stamps_a_null_session(approval, root, state_dir, no_session):
     """A bare ``claude`` has no audit session, and the stamp says so plainly.
 
@@ -208,7 +205,6 @@ def test_a_session_less_render_stamps_a_null_session(approval, root, state_dir, 
     assert stamps_in(state_dir)[0]["session"] is None
 
 
-@pytest.mark.unit
 def test_the_stamp_carries_no_process_identity(approval, root, state_dir, session):
     """No pid in the stamp: the context is the deployment's, not a process tree's.
 
@@ -223,7 +219,6 @@ def test_the_stamp_carries_no_process_identity(approval, root, state_dir, sessio
     assert "server_pid" not in stamps_in(state_dir)[0]
 
 
-@pytest.mark.unit
 def test_an_unpublished_deployment_stamps_an_unpublished_binding(
     approval, root, state_dir, session
 ):
@@ -249,7 +244,6 @@ def test_an_unpublished_deployment_stamps_an_unpublished_binding(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("confirm", [_UNSET, True, False])
 def test_the_stamp_is_filed_under_the_name_the_server_looks_it_up_by(
     approval, root, state_dir, session, confirm
@@ -283,7 +277,6 @@ def test_the_stamp_is_filed_under_the_name_the_server_looks_it_up_by(
     assert binding == ("va", 3)
 
 
-@pytest.mark.unit
 def test_the_file_name_carries_the_session_as_well_as_the_payload(
     approval, root, state_dir, monkeypatch
 ):
@@ -306,7 +299,6 @@ def test_the_file_name_carries_the_session_as_well_as_the_payload(
     assert {stamp["session"] for stamp in stamps_in(state_dir)} == {SESSION_A, SESSION_B}
 
 
-@pytest.mark.unit
 def test_session_less_siblings_share_one_file(approval, root, state_dir, no_session):
     """Two unattributed renders of the same write collide, and that is benign.
 
@@ -326,7 +318,6 @@ def test_session_less_siblings_share_one_file(approval, root, state_dir, no_sess
     assert len(first) == 1
 
 
-@pytest.mark.unit
 def test_the_confirmation_setting_is_part_of_the_approval_identity(approval):
     """Three different writes, three different keys.
 
@@ -349,7 +340,6 @@ def test_the_confirmation_setting_is_part_of_the_approval_identity(approval):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_a_server_claims_only_stamps_from_its_own_session(monkeypatch):
     """`_stamp_is_ours` is an equality on the audit session, and nothing looser."""
     from osprey.mcp_server.control_system.tools import channel_write as tool
@@ -363,7 +353,6 @@ def test_a_server_claims_only_stamps_from_its_own_session(monkeypatch):
     assert not tool._stamp_is_ours("not a stamp")
 
 
-@pytest.mark.unit
 def test_a_session_less_server_claims_only_session_less_stamps(monkeypatch):
     """With nothing to attribute by, "ours" is the other unattributed renders.
 
@@ -379,7 +368,6 @@ def test_a_session_less_server_claims_only_session_less_stamps(monkeypatch):
     assert not tool._stamp_is_ours({"session": SESSION_A})
 
 
-@pytest.mark.unit
 def test_a_stamp_from_another_session_is_not_compared_against(
     approval, root, state_dir, monkeypatch
 ):
@@ -410,7 +398,6 @@ def test_a_stamp_from_another_session_is_not_compared_against(
     assert tool._read_approval_stamp(tool_input["operations"], None) == (False, None)
 
 
-@pytest.mark.unit
 def test_a_key_miss_is_reported_when_this_session_has_other_stamps(
     approval, root, state_dir, monkeypatch, caplog
 ):
@@ -435,7 +422,6 @@ def test_a_key_miss_is_reported_when_this_session_has_other_stamps(
     assert "deriving different keys" in caplog.text
 
 
-@pytest.mark.unit
 def test_a_session_less_server_does_not_report_a_key_miss(
     approval, root, state_dir, monkeypatch, caplog, no_session
 ):
@@ -465,7 +451,6 @@ def test_a_session_less_server_does_not_report_a_key_miss(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_other_tools_are_not_stamped(approval, root, state_dir, session):
     """Only a write binds itself to a target; every other ask leaves nothing."""
     publish(root)
@@ -477,7 +462,6 @@ def test_other_tools_are_not_stamped(approval, root, state_dir, session):
     assert stamps_in(state_dir) == []
 
 
-@pytest.mark.unit
 def test_the_legacy_single_channel_payload_is_not_stamped(approval, root, state_dir, session):
     """A payload shape the tool does not accept cannot be correlated with a call.
 
@@ -495,7 +479,6 @@ def test_the_legacy_single_channel_payload_is_not_stamped(approval, root, state_
     assert stamps_in(state_dir) == []
 
 
-@pytest.mark.unit
 def test_an_unwritable_state_directory_still_renders_the_prompt(
     approval, reader, session, monkeypatch, tmp_path
 ):
@@ -514,7 +497,6 @@ def test_an_unwritable_state_directory_still_renders_the_prompt(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_expired_stamps_are_swept_when_a_new_one_is_written(approval, root, state_dir, session):
     """The directory must not grow one file per write for the life of a project."""
     publish(root)
@@ -529,7 +511,6 @@ def test_expired_stamps_are_swept_when_a_new_one_is_written(approval, root, stat
     assert len(stamps_in(state_dir)) == 1
 
 
-@pytest.mark.unit
 def test_a_stamp_is_neither_the_record_nor_a_server_report(approval, root, state_dir, session):
     """The readers glob ``server_*.json`` and name ``control_context.json``.
 

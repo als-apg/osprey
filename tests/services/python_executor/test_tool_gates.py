@@ -20,8 +20,6 @@ import pytest
 from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
-pytestmark = pytest.mark.unit
-
 #: A literal write into the render zone — the canonical thing the policy exists
 #: to refuse. Relative, so it matches whichever repo root the tool resolves.
 RENDER_ZONE_WRITE = "open('build/config.yml', 'w')"

@@ -34,8 +34,6 @@ from osprey.services.python_executor.execution.wrapper import (
     ExecutionWrapper,
 )
 
-pytestmark = pytest.mark.unit
-
 # The refusal text contains literal parentheses; escape it for pytest.raises.
 _REFUSAL = re.escape(READONLY_REFUSAL)
 

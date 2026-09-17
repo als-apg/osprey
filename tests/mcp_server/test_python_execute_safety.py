@@ -17,7 +17,6 @@ def _get_python_execute():
     return get_tool_fn(execute)
 
 
-@pytest.mark.unit
 async def test_syntax_error_caught_before_execution(tmp_path, monkeypatch):
     """Code with syntax errors is rejected before execution."""
     monkeypatch.chdir(tmp_path)
@@ -34,7 +33,6 @@ async def test_syntax_error_caught_before_execution(tmp_path, monkeypatch):
     assert any("Syntax error" in s for s in data["suggestions"])
 
 
-@pytest.mark.unit
 async def test_exec_call_flagged(tmp_path, monkeypatch):
     """Code containing exec() is flagged by safety checks."""
     monkeypatch.chdir(tmp_path)
@@ -51,7 +49,6 @@ async def test_exec_call_flagged(tmp_path, monkeypatch):
     assert any("exec" in s.lower() for s in data["suggestions"])
 
 
-@pytest.mark.unit
 async def test_eval_call_flagged(tmp_path, monkeypatch):
     """Code containing eval() is flagged by safety checks."""
     monkeypatch.chdir(tmp_path)
@@ -68,7 +65,6 @@ async def test_eval_call_flagged(tmp_path, monkeypatch):
     assert any("eval" in s.lower() for s in data["suggestions"])
 
 
-@pytest.mark.unit
 async def test_prohibited_import_blocked(tmp_path, monkeypatch):
     """Code with prohibited imports is blocked."""
     monkeypatch.chdir(tmp_path)
@@ -85,7 +81,6 @@ async def test_prohibited_import_blocked(tmp_path, monkeypatch):
     assert any("subprocess" in s.lower() for s in data["suggestions"])
 
 
-@pytest.mark.unit
 async def test_valid_code_passes_safety_checks(tmp_path, monkeypatch):
     """Valid code passes safety checks and executes normally."""
     monkeypatch.chdir(tmp_path)
@@ -121,7 +116,6 @@ async def test_valid_code_passes_safety_checks(tmp_path, monkeypatch):
     assert "4" in data["summary"]["output"]
 
 
-@pytest.mark.unit
 async def test_dunder_import_flagged(tmp_path, monkeypatch):
     """Code containing __import__ is flagged."""
     monkeypatch.chdir(tmp_path)
@@ -137,7 +131,6 @@ async def test_dunder_import_flagged(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 def test_quick_safety_check_standalone():
     """Unit test for the quick_safety_check function directly."""
     from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
@@ -166,7 +159,6 @@ def test_quick_safety_check_standalone():
 # ============================================================================
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -192,7 +184,6 @@ def test_ordinary_code_is_not_flagged_as_dynamic_evaluation(code):
     assert passed is True, issues
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -223,7 +214,6 @@ def _readonly_import_issues(code):
     return check_readonly_imports(code)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -250,7 +240,6 @@ def test_readonly_imports_denied(code):
     assert all("readonly" in i for i in issues), issues
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -269,7 +258,6 @@ def test_readonly_allows_framework_imports(code):
     assert _readonly_import_issues(code) == []
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -285,7 +273,6 @@ def test_readonly_imports_allowed(code):
     assert _readonly_import_issues(code) == []
 
 
-@pytest.mark.unit
 def test_readonly_imports_syntax_error_is_not_an_issue_here():
     """Syntax errors belong to check_syntax; this walker stays quiet."""
     assert _readonly_import_issues("def (:") == []
@@ -312,7 +299,6 @@ def _audit_records(root):
     return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
 
 
-@pytest.mark.unit
 async def test_denied_import_is_recorded_with_its_source(tmp_path, monkeypatch):
     """The import denylist refusal names the layer and keeps the offending code."""
     from osprey.audit import writer
@@ -334,7 +320,6 @@ async def test_denied_import_is_recorded_with_its_source(tmp_path, monkeypatch):
     assert "epics" in record["detail"]
 
 
-@pytest.mark.unit
 async def test_a_clean_readonly_run_writes_no_audit_record(tmp_path, monkeypatch):
     """The log must stay a record of refusals, not of executions."""
     from osprey.audit import writer

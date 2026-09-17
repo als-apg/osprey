@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 # ---------------------------------------------------------------------------
 # _wrap_in_html
 # ---------------------------------------------------------------------------
@@ -46,7 +44,6 @@ class TestWrapInHtml:
 class TestPassthrough:
     """Tests for the passthrough converter."""
 
-    @pytest.mark.unit
     async def test_returns_source_unchanged(self, tmp_path):
         from osprey.mcp_server.ariel.converters import passthrough
 
@@ -58,7 +55,6 @@ class TestPassthrough:
         result = await passthrough(source, output_dir)
         assert result == source
 
-    @pytest.mark.unit
     async def test_does_not_create_files(self, tmp_path):
         from osprey.mcp_server.ariel.converters import passthrough
 
@@ -79,7 +75,6 @@ class TestPassthrough:
 class TestHtmlToPng:
     """Tests for the HTML-to-PNG converter."""
 
-    @pytest.mark.unit
     async def test_calls_convert_html_to_image(self, tmp_path):
         from osprey.mcp_server.ariel.converters import html_to_png
 
@@ -101,7 +96,6 @@ class TestHtmlToPng:
         assert result == output_dir / "plot.png"
         assert result.read_bytes() == b"\x89PNG converted"
 
-    @pytest.mark.unit
     async def test_output_in_output_dir(self, tmp_path):
         from osprey.mcp_server.ariel.converters import html_to_png
 
@@ -131,7 +125,6 @@ class TestHtmlToPng:
 class TestMarkdownToPng:
     """Tests for the Markdown-to-PNG converter."""
 
-    @pytest.mark.unit
     async def test_renders_markdown_to_png(self, tmp_path):
         from osprey.mcp_server.ariel.converters import markdown_to_png
 
@@ -156,7 +149,6 @@ class TestMarkdownToPng:
 
         assert result == output_dir / "readme.png"
 
-    @pytest.mark.unit
     async def test_intermediate_html_has_styling(self, tmp_path):
         from osprey.mcp_server.ariel.converters import markdown_to_png
 
@@ -190,7 +182,6 @@ class TestMarkdownToPng:
 class TestNotebookToPng:
     """Tests for the Notebook-to-PNG converter."""
 
-    @pytest.mark.unit
     async def test_renders_notebook(self, tmp_path):
         from osprey.mcp_server.ariel.converters import notebook_to_png
 
@@ -217,7 +208,6 @@ class TestNotebookToPng:
 
         assert result == output_dir / "analysis.png"
 
-    @pytest.mark.unit
     async def test_writes_intermediate_html(self, tmp_path):
         from osprey.mcp_server.ariel.converters import notebook_to_png
 
@@ -255,7 +245,6 @@ class TestNotebookToPng:
 class TestJsonToPng:
     """Tests for the JSON-to-PNG converter."""
 
-    @pytest.mark.unit
     async def test_pretty_prints_json(self, tmp_path):
         from osprey.mcp_server.ariel.converters import json_to_png
 
@@ -283,7 +272,6 @@ class TestJsonToPng:
         assert '"key": "value"' in captured_html["content"]
         assert "<pre>" in captured_html["content"]
 
-    @pytest.mark.unit
     async def test_handles_invalid_json_gracefully(self, tmp_path):
         from osprey.mcp_server.ariel.converters import json_to_png
 
@@ -314,7 +302,6 @@ class TestJsonToPng:
 class TestTextToPng:
     """Tests for the text-to-PNG converter."""
 
-    @pytest.mark.unit
     async def test_wraps_in_pre(self, tmp_path):
         from osprey.mcp_server.ariel.converters import text_to_png
 
@@ -340,7 +327,6 @@ class TestTextToPng:
         assert "<pre>" in captured_html["content"]
         assert "Line 1\nLine 2" in captured_html["content"]
 
-    @pytest.mark.unit
     async def test_escapes_html_entities(self, tmp_path):
         from osprey.mcp_server.ariel.converters import text_to_png
 

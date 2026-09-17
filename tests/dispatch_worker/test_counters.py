@@ -25,7 +25,6 @@ def _isolate_counters():
     counters.reset()
 
 
-@pytest.mark.unit
 def test_counts_seeded_for_every_class():
     """A fresh snapshot has a zero entry for each known class."""
     counts = counters.get_counts()
@@ -33,7 +32,6 @@ def test_counts_seeded_for_every_class():
     assert all(counts[cls] == 0 for cls in fc.FAILURE_CLASSES)
 
 
-@pytest.mark.unit
 def test_increment_is_monotonic():
     counters.increment(fc.FAILURE_PROVIDER)
     counters.increment(fc.FAILURE_PROVIDER)
@@ -44,14 +42,12 @@ def test_increment_is_monotonic():
     assert counts[fc.FAILURE_INFRASTRUCTURE] == 0
 
 
-@pytest.mark.unit
 def test_increment_tolerates_unknown_class():
     """An unexpected class is counted under its own key, never dropped."""
     counters.increment("mystery")
     assert counters.get_counts()["mystery"] == 1
 
 
-@pytest.mark.unit
 def test_get_counts_returns_a_copy():
     """Mutating the returned snapshot must not corrupt the live counters."""
     snap = counters.get_counts()
@@ -59,7 +55,6 @@ def test_get_counts_returns_a_copy():
     assert counters.get_counts()[fc.FAILURE_PROVIDER] == 0
 
 
-@pytest.mark.unit
 def test_install_wires_stamp_to_counters():
     """After install(), a real _stamp bumps the lifetime counter for its class."""
     counters.install()
@@ -70,7 +65,6 @@ def test_install_wires_stamp_to_counters():
     assert counts[fc.FAILURE_INFRASTRUCTURE] == 1
 
 
-@pytest.mark.unit
 def test_reset_zeros_all():
     counters.increment(fc.FAILURE_RUN)
     counters.reset()

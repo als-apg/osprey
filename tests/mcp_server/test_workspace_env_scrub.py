@@ -30,7 +30,6 @@ from osprey.mcp_server.workspace.execution.sandbox_executor import execute_sandb
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_scrub_removes_bluesky_launch_token():
     """BLUESKY_LAUNCH_TOKEN is dropped via the *_LAUNCH_TOKEN suffix rule."""
     env = {"BLUESKY_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -39,7 +38,6 @@ def test_scrub_removes_bluesky_launch_token():
     assert scrubbed["PATH"] == "/usr/bin"
 
 
-@pytest.mark.unit
 def test_scrub_removes_event_dispatcher_token():
     """EVENT_DISPATCHER_TOKEN is dropped via the exact-name rule."""
     env = {"EVENT_DISPATCHER_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -48,7 +46,6 @@ def test_scrub_removes_event_dispatcher_token():
     assert scrubbed["PATH"] == "/usr/bin"
 
 
-@pytest.mark.unit
 def test_scrub_removes_terminal_secret():
     """OSPREY_TERMINAL_SECRET is dropped: it authenticates a web-terminal session."""
     env = {"OSPREY_TERMINAL_SECRET": "secret", "PATH": "/usr/bin"}
@@ -57,7 +54,6 @@ def test_scrub_removes_terminal_secret():
     assert scrubbed["PATH"] == "/usr/bin"
 
 
-@pytest.mark.unit
 def test_scrub_removes_panel_token():
     """OSPREY_PANEL_TOKEN is dropped: no sandbox has business calling panel routes."""
     env = {"OSPREY_PANEL_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -66,7 +62,6 @@ def test_scrub_removes_panel_token():
     assert scrubbed["PATH"] == "/usr/bin"
 
 
-@pytest.mark.unit
 def test_scrub_generalizes_to_future_launch_tokens():
     """Any future *_LAUNCH_TOKEN name is scrubbed without a code change."""
     env = {"SOME_OTHER_BRIDGE_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -74,7 +69,6 @@ def test_scrub_generalizes_to_future_launch_tokens():
     assert "SOME_OTHER_BRIDGE_LAUNCH_TOKEN" not in scrubbed
 
 
-@pytest.mark.unit
 def test_scrub_preserves_unrelated_env():
     """Ordinary env vars (including ones merely containing "TOKEN") pass through."""
     env = {
@@ -88,7 +82,6 @@ def test_scrub_preserves_unrelated_env():
     assert scrubbed == env
 
 
-@pytest.mark.unit
 def test_scrub_does_not_mutate_input():
     """scrub_sensitive_env returns a copy; it must not mutate the caller's dict."""
     env = {"BLUESKY_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -97,12 +90,10 @@ def test_scrub_does_not_mutate_input():
     assert env == original
 
 
-@pytest.mark.unit
 def test_scrub_empty_env():
     assert scrub_sensitive_env({}) == {}
 
 
-@pytest.mark.unit
 def test_sensitive_env_constants_are_tuples():
     """Constants are tuples (immutable, module-level security constants — not config)."""
     assert isinstance(SENSITIVE_ENV_EXACT, tuple)
@@ -113,7 +104,6 @@ def test_sensitive_env_constants_are_tuples():
     assert "_LAUNCH_TOKEN" in SENSITIVE_ENV_SUFFIXES
 
 
-@pytest.mark.unit
 def test_sensitive_env_constants_are_reexports_of_canonical_module():
     """The names are re-exported from osprey.utils.sensitive_env, not re-typed here.
 
@@ -126,7 +116,6 @@ def test_sensitive_env_constants_are_reexports_of_canonical_module():
     assert SENSITIVE_ENV_SUFFIXES is canonical.SENSITIVE_ENV_SUFFIXES
 
 
-@pytest.mark.unit
 def test_scrub_shared_with_python_executor():
     """Both sandboxes build the child env with the SAME helper.
 
@@ -141,7 +130,6 @@ def test_scrub_shared_with_python_executor():
     assert sandbox_executor.scrub_sandbox_child_env is scrub_sandbox_child_env
 
 
-@pytest.mark.unit
 def test_drop_lists_have_a_single_definition():
     """Neither spawn path holds a drop list of its own.
 
@@ -157,7 +145,6 @@ def test_drop_lists_have_a_single_definition():
         assert not [name for name in vars(module) if name.endswith("_TO_DROP")]
 
 
-@pytest.mark.unit
 def test_shared_helper_drops_the_web_terminal_address_book():
     """The pure helper drops OSPREY_WEB_PORT and the whole OSPREY_TERMINAL_ family."""
     env = {
@@ -170,7 +157,6 @@ def test_shared_helper_drops_the_web_terminal_address_book():
     assert scrubbed == {"PATH": "/usr/bin"}
 
 
-@pytest.mark.unit
 def test_shared_helper_drops_the_perimeter_stamp():
     """The pure helper drops both stamp names: the parent has already read them."""
     env = {
@@ -182,7 +168,6 @@ def test_shared_helper_drops_the_perimeter_stamp():
     assert scrubbed == {"PATH": "/usr/bin"}
 
 
-@pytest.mark.unit
 def test_shared_helper_does_not_mutate_input():
     """os.environ is passed directly at both call sites, so this must be a copy."""
     env = {PERIMETER_MARKER_ENV: "open", "PATH": "/usr/bin"}
@@ -211,7 +196,6 @@ def workspace_root(tmp_path):
     return ws
 
 
-@pytest.mark.unit
 async def test_sandbox_subprocess_env_excludes_launch_token(
     execution_folder, workspace_root, monkeypatch
 ):
@@ -242,7 +226,6 @@ async def test_sandbox_subprocess_env_excludes_launch_token(
     assert "BLUESKY_LAUNCH_TOKEN" not in passed_env
 
 
-@pytest.mark.unit
 async def test_sandbox_subprocess_env_excludes_event_dispatcher_token(
     execution_folder, workspace_root, monkeypatch
 ):
@@ -272,7 +255,6 @@ async def test_sandbox_subprocess_env_excludes_event_dispatcher_token(
     assert "EVENT_DISPATCHER_TOKEN" not in passed_env
 
 
-@pytest.mark.unit
 async def test_sandbox_subprocess_env_keeps_unrelated_vars(
     execution_folder, workspace_root, monkeypatch
 ):
@@ -340,7 +322,6 @@ async def _sandbox_child_env(execution_folder, workspace_root) -> dict[str, str]
     return mock_spawn.await_args.kwargs["env"]
 
 
-@pytest.mark.unit
 async def test_sandbox_subprocess_env_excludes_the_perimeter_stamp(
     execution_folder, workspace_root, monkeypatch
 ):
@@ -361,7 +342,6 @@ async def test_sandbox_subprocess_env_excludes_the_perimeter_stamp(
     assert "OSPREY_WEB_PERIMETER_DENY_PORTS" not in passed_env
 
 
-@pytest.mark.unit
 async def test_sandbox_subprocess_env_excludes_the_web_terminal_address_book(
     execution_folder, workspace_root, monkeypatch
 ):

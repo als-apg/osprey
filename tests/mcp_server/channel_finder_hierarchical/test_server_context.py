@@ -10,13 +10,11 @@ from osprey.mcp_server.channel_finder_hierarchical.server_context import (
 )
 
 
-@pytest.mark.unit
 def test_registry_not_initialized():
     with pytest.raises(RuntimeError, match="not initialized"):
         get_cf_hier_context()
 
 
-@pytest.mark.unit
 def test_registry_database_not_configured(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
@@ -26,7 +24,6 @@ def test_registry_database_not_configured(tmp_path, monkeypatch):
         _ = reg.database
 
 
-@pytest.mark.unit
 def test_registry_facility_name_default(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
@@ -34,7 +31,6 @@ def test_registry_facility_name_default(tmp_path, monkeypatch):
     assert get_cf_hier_context().facility_name == "control system"
 
 
-@pytest.mark.unit
 def test_registry_facility_name_from_config(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text('facility:\n  name: "NSLS-II"')
@@ -47,7 +43,6 @@ def test_registry_facility_name_from_config(tmp_path, monkeypatch):
 # ------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_registry_feedback_store_initialized(tmp_path, monkeypatch):
     """Config with feedback enabled creates a FeedbackStore."""
     monkeypatch.chdir(tmp_path)
@@ -66,7 +61,6 @@ def test_registry_feedback_store_initialized(tmp_path, monkeypatch):
     assert reg.feedback_store is not None
 
 
-@pytest.mark.unit
 def test_registry_feedback_store_disabled(tmp_path, monkeypatch):
     """Config with feedback disabled results in None feedback_store."""
     monkeypatch.chdir(tmp_path)
@@ -84,7 +78,6 @@ def test_registry_feedback_store_disabled(tmp_path, monkeypatch):
     assert reg.feedback_store is None
 
 
-@pytest.mark.unit
 def test_registry_feedback_store_no_config(tmp_path, monkeypatch):
     """No feedback section in config results in None feedback_store."""
     monkeypatch.chdir(tmp_path)

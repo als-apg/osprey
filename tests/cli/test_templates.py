@@ -326,7 +326,6 @@ class TestBuildClaudeCodeContextHierarchy:
         }
         return TemplateManager(), config
 
-    @pytest.mark.unit
     def test_build_claude_code_context_embeds_hierarchy_info(self, tmp_path):
         """Hierarchy levels, config, and naming pattern are embedded in context."""
         manager, config = self._make_manager_and_config(
@@ -361,7 +360,6 @@ class TestBuildClaudeCodeContextHierarchy:
         assert hier["naming_pattern"] == "{system}:{device}"
         assert "system" in hier["hierarchy_config"]["levels"]
 
-    @pytest.mark.unit
     def test_build_claude_code_context_hierarchy_missing_path(self, tmp_path):
         """Graceful fallback to None when database path is missing."""
         config = {
@@ -381,7 +379,6 @@ class TestBuildClaudeCodeContextHierarchy:
         )
         assert ctx["channel_finder_hierarchy"] is None
 
-    @pytest.mark.unit
     def test_build_claude_code_context_hierarchy_non_hierarchical(self, tmp_path):
         """Non-hierarchical pipeline mode: channel_finder_hierarchy is None."""
         config = {
@@ -396,7 +393,6 @@ class TestBuildClaudeCodeContextHierarchy:
         )
         assert ctx["channel_finder_hierarchy"] is None
 
-    @pytest.mark.unit
     def test_create_project_embeds_hierarchy_info(self, tmp_path, monkeypatch):
         """create_project renders hierarchy info into the agent prompt."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -442,7 +438,6 @@ class TestBuildClaudeCodeContextPipelineMode:
         )
         return tmp_path
 
-    @pytest.mark.unit
     def test_missing_pipeline_mode_raises(self, tmp_path):
         """A channel_finder block with no pipeline_mode is an error, not a default."""
         manager = TemplateManager()
@@ -454,7 +449,6 @@ class TestBuildClaudeCodeContextPipelineMode:
                 self._config(pipelines={}),
             )
 
-    @pytest.mark.unit
     def test_unknown_pipeline_mode_raises_and_names_the_mode(self, tmp_path):
         """An unrecognised paradigm raises and the message names it."""
         manager = TemplateManager()
@@ -466,7 +460,6 @@ class TestBuildClaudeCodeContextPipelineMode:
                 self._config(pipeline_mode="bogus"),
             )
 
-    @pytest.mark.unit
     @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
     def test_known_modes_render_their_tool_list(self, tmp_path, mode):
         """Every registered paradigm renders the registry's tool list for it."""

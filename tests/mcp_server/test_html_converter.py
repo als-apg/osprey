@@ -52,7 +52,6 @@ def _make_playwright_mock(launch_side_effect=None):
     return mod, mock_page, mock_browser
 
 
-@pytest.mark.unit
 async def test_convert_html_to_png(tmp_path):
     """Successful conversion calls Playwright with correct arguments."""
     html_file = tmp_path / "plot.html"
@@ -73,7 +72,6 @@ async def test_convert_html_to_png(tmp_path):
     mock_browser.close.assert_called_once()
 
 
-@pytest.mark.unit
 async def test_playwright_not_installed(tmp_path):
     """Missing playwright module raises PlaywrightNotInstalledError."""
     html_file = tmp_path / "plot.html"
@@ -86,7 +84,6 @@ async def test_playwright_not_installed(tmp_path):
             await convert_html_to_image(html_file, output_file)
 
 
-@pytest.mark.unit
 async def test_invalid_format(tmp_path):
     """Unsupported format raises ValueError."""
     html_file = tmp_path / "plot.html"
@@ -96,14 +93,12 @@ async def test_invalid_format(tmp_path):
         await convert_html_to_image(html_file, tmp_path / "out.bmp", fmt="bmp")
 
 
-@pytest.mark.unit
 async def test_file_not_found(tmp_path):
     """Non-existent HTML file raises FileNotFoundError."""
     with pytest.raises(FileNotFoundError, match="not found"):
         await convert_html_to_image(tmp_path / "missing.html", tmp_path / "out.png")
 
 
-@pytest.mark.unit
 async def test_custom_viewport(tmp_path):
     """Custom width/height are passed through to Playwright."""
     html_file = tmp_path / "plot.html"
@@ -152,7 +147,6 @@ class TestChromiumAutoInstall:
         (tmp_path / "plot.png").write_bytes(b"fake")
         return html_file, tmp_path / "plot.png"
 
-    @pytest.mark.unit
     async def test_successful_launch_never_installs(self, tmp_path, _install_calls):
         """A browser that launches is a browser that is installed — no subprocess.
 
@@ -168,7 +162,6 @@ class TestChromiumAutoInstall:
 
         assert _install_calls == []
 
-    @pytest.mark.unit
     async def test_missing_browser_installs_then_retries(self, tmp_path, _install_calls):
         """A launch that fails for a missing binary installs once and retries."""
         html_file, output_file = self._html(tmp_path)
@@ -183,7 +176,6 @@ class TestChromiumAutoInstall:
         assert result == output_file.resolve()
         assert _install_calls == [[sys.executable, "-m", "playwright", "install", "chromium"]]
 
-    @pytest.mark.unit
     async def test_install_attempted_at_most_once_per_process(self, tmp_path, _install_calls):
         """A second conversion with a missing browser does not re-install."""
         html_file, output_file = self._html(tmp_path)
@@ -198,7 +190,6 @@ class TestChromiumAutoInstall:
 
         assert len(_install_calls) == 1
 
-    @pytest.mark.unit
     async def test_failed_install_reports_stderr(self, tmp_path, monkeypatch):
         """A nonzero install surfaces as PlaywrightNotInstalledError with its stderr."""
         html_file, output_file = self._html(tmp_path)
@@ -217,7 +208,6 @@ class TestChromiumAutoInstall:
             with pytest.raises(PlaywrightNotInstalledError, match="proxy blocked the CDN"):
                 await convert_html_to_image(html_file, output_file)
 
-    @pytest.mark.unit
     async def test_unrelated_launch_failure_propagates(self, tmp_path, _install_calls):
         """A launch failure that is not a missing binary surfaces as itself."""
         html_file, output_file = self._html(tmp_path)

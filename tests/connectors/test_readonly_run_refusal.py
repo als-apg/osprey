@@ -75,7 +75,6 @@ def writes_enabled_deployment(monkeypatch):
     )
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_run_refuses_write(monkeypatch, writes_enabled_deployment):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
@@ -89,7 +88,6 @@ async def test_readonly_run_refuses_write(monkeypatch, writes_enabled_deployment
     assert connector.writes == []
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_run_refuses_multi_write(monkeypatch, writes_enabled_deployment):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
@@ -101,7 +99,6 @@ async def test_readonly_run_refuses_multi_write(monkeypatch, writes_enabled_depl
     assert connector.writes == []
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_refusal_message_does_not_blame_deployment(
     monkeypatch, writes_enabled_deployment
@@ -117,7 +114,6 @@ async def test_readonly_refusal_message_does_not_blame_deployment(
     assert "readwrite" in result.error_message
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readwrite_run_passes_through(monkeypatch, writes_enabled_deployment):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readwrite")
@@ -129,7 +125,6 @@ async def test_readwrite_run_passes_through(monkeypatch, writes_enabled_deployme
     assert connector.writes == [("A:SP", 1.0)]
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_no_mode_var_means_not_a_sandbox_run(monkeypatch, writes_enabled_deployment):
     """Outside the sandbox (e.g. the controls MCP server) the variable is unset
@@ -142,7 +137,6 @@ async def test_no_mode_var_means_not_a_sandbox_run(monkeypatch, writes_enabled_d
     assert result.outcome is WriteOutcome.CONFIRMED
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_refusal_message_carries_the_shared_marker(
     monkeypatch, writes_enabled_deployment
@@ -207,7 +201,6 @@ def executor_sandbox_script(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "argv", [str(tmp_path / "wrapped_script.py")])
 
 
-@pytest.mark.unit
 def test_mcp_server_process_is_detected_from_the_real_entry_point(monkeypatch):
     """The discriminator, on its own: server entry point yes, script no.
 
@@ -230,7 +223,6 @@ def test_mcp_server_process_is_detected_from_the_real_entry_point(monkeypatch):
     assert _in_mcp_server_process() is False
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_run_refusal_names_the_deployment_wide_run(
     writes_enabled_deployment, readonly_run_in_an_mcp_server
@@ -251,7 +243,6 @@ async def test_readonly_run_refusal_names_the_deployment_wide_run(
     assert connector.writes == []
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_run_refusal_does_not_blame_config_or_a_script(
     writes_enabled_deployment, readonly_run_in_an_mcp_server
@@ -274,7 +265,6 @@ async def test_readonly_run_refusal_does_not_blame_config_or_a_script(
     assert "execution_mode='" not in result.error_message
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_run_refusal_says_the_chip_cannot_lift_it(
     writes_enabled_deployment, readonly_run_in_an_mcp_server
@@ -293,7 +283,6 @@ async def test_readonly_run_refusal_says_the_chip_cannot_lift_it(
     assert "switch the session to the writes posture" not in message
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_run_refusal_carries_the_shared_marker(
     writes_enabled_deployment, readonly_run_in_an_mcp_server
@@ -315,7 +304,6 @@ async def test_readonly_run_refusal_carries_the_shared_marker(
     assert READONLY_REFUSAL_MARKER in result.error_message
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_run_refusal_keeps_the_shared_refusal_reason(
     writes_enabled_deployment, readonly_run_in_an_mcp_server
@@ -331,7 +319,6 @@ async def test_readonly_run_refusal_keeps_the_shared_refusal_reason(
     assert result.refusal_reason == "WRITES_DISABLED"
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_readonly_run_refusal_covers_the_multi_write_path(
     writes_enabled_deployment, readonly_run_in_an_mcp_server
@@ -346,7 +333,6 @@ async def test_readonly_run_refusal_covers_the_multi_write_path(
     assert connector.writes == []
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_sandbox_script_run_keeps_the_script_shaped_message(
     writes_enabled_deployment, executor_sandbox_script
@@ -365,7 +351,6 @@ async def test_sandbox_script_run_keeps_the_script_shaped_message(
     assert "posture" not in result.error_message.lower()
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_deployment_refusal_is_unchanged_inside_an_mcp_server(monkeypatch):
     """The posture branch is reached only when the posture is what refused.

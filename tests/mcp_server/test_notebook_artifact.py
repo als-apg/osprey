@@ -6,10 +6,7 @@ Covers:
   - Gallery render returns 400 for non-notebook artifacts
 """
 
-import pytest
 
-
-@pytest.mark.unit
 def test_gallery_notebook_render_endpoint(tmp_path):
     """The gallery /api/notebooks/{id}/rendered endpoint returns HTML."""
     import nbformat
@@ -44,7 +41,6 @@ def test_gallery_notebook_render_endpoint(tmp_path):
     assert "GALLERY_RENDER_MARKER_XYZ" in response.text
 
 
-@pytest.mark.unit
 def test_gallery_notebook_render_404_for_missing(tmp_path):
     """Render endpoint returns 404 for non-existent artifact."""
     from fastapi.testclient import TestClient
@@ -58,7 +54,6 @@ def test_gallery_notebook_render_404_for_missing(tmp_path):
     assert response.status_code == 404
 
 
-@pytest.mark.unit
 def test_gallery_notebook_render_400_for_non_notebook(tmp_path):
     """Render endpoint returns 400 for non-notebook artifact types."""
     from osprey.stores.artifact_store import ArtifactStore

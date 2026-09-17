@@ -2,14 +2,12 @@
 
 from unittest.mock import patch
 
-import pytest
 from pydantic import BaseModel
 
 from osprey.models.providers.ds4 import DS4ProviderAdapter
 
 
 class TestDS4Provider:
-    @pytest.mark.unit
     def test_metadata(self):
         assert DS4ProviderAdapter.name == "ds4"
         assert DS4ProviderAdapter.is_openai_compatible is True
@@ -21,12 +19,10 @@ class TestDS4Provider:
         # test_litellm_adapter.py::TestStructuredOutputCapabilityFlag::test_ds4_declares_false_end_to_end.
         assert DS4ProviderAdapter.supports_native_structured_output is False
 
-    @pytest.mark.unit
     def test_serves_deepseek_models(self):
         assert "deepseek-v4-flash" in DS4ProviderAdapter.available_models
         assert "deepseek-v4-pro" in DS4ProviderAdapter.available_models
 
-    @pytest.mark.unit
     def test_check_health_builds_models_url_without_mangling(self, monkeypatch):
         """removesuffix('/v1') must strip only the literal suffix, not characters.
 
@@ -66,7 +62,6 @@ class TestDS4Provider:
         # check_health must return check_litellm_health's result verbatim.
         assert result == (True, "ok")
 
-    @pytest.mark.unit
     def test_check_health_no_models_loaded(self, monkeypatch):
         """200 with empty data short-circuits before the litellm health call."""
 
@@ -86,7 +81,6 @@ class TestDS4Provider:
         result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
         assert result == (False, "ds4 server running but no models loaded")
 
-    @pytest.mark.unit
     def test_check_health_non_200(self, monkeypatch):
         """A non-200 response reports the status code and stops."""
 
@@ -106,7 +100,6 @@ class TestDS4Provider:
         result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
         assert result == (False, "ds4 server returned 503")
 
-    @pytest.mark.unit
     def test_check_health_connect_error(self, monkeypatch):
         """A refused connection yields the connect-specific diagnostic (the most
         likely real failure for a local inference server) and never reaches the
@@ -121,7 +114,6 @@ class TestDS4Provider:
         result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
         assert result == (False, "Cannot connect to ds4 server at http://host:8001/v1")
 
-    @pytest.mark.unit
     def test_check_health_query_error(self, monkeypatch):
         """A non-connect error querying the server is wrapped in the generic
         'Error querying ds4' message rather than propagating."""
@@ -135,7 +127,6 @@ class TestDS4Provider:
         result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
         assert result == (False, "Error querying ds4: boom")
 
-    @pytest.mark.unit
     def test_check_health_model_without_id(self, monkeypatch):
         """A model entry lacking an 'id' leaves model_id unset, so the post-query
         guard reports no usable model instead of forwarding None to litellm."""
@@ -156,7 +147,6 @@ class TestDS4Provider:
         result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
         assert result == (False, "No model available for health check")
 
-    @pytest.mark.unit
     def test_check_health_explicit_model_id_skips_discovery(self, monkeypatch):
         """When model_id is supplied, the server-discovery httpx.get must be
         skipped entirely (the `if not model_id` block) and the given model

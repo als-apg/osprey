@@ -46,8 +46,6 @@ from osprey.utils.dotenv import (
     parse_dotenv_file,
 )
 
-pytestmark = pytest.mark.unit
-
 # The unwritable-file cases below rely on the OS honoring a read-only mode.
 # root ignores it, so those assertions would be vacuous there.
 running_as_root = hasattr(os, "geteuid") and os.geteuid() == 0

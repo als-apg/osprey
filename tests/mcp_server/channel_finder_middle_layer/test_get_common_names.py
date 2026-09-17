@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
@@ -17,7 +15,6 @@ def _setup(tmp_path, monkeypatch):
     initialize_cf_ml_context()
 
 
-@pytest.mark.unit
 def test_get_common_names_returns_names(tmp_path, monkeypatch):
     """Happy path: returns common names for a family."""
     _setup(tmp_path, monkeypatch)
@@ -40,7 +37,6 @@ def test_get_common_names_returns_names(tmp_path, monkeypatch):
     mock_db.get_common_names.assert_called_once_with("SR", "BPM")
 
 
-@pytest.mark.unit
 def test_get_common_names_returns_none(tmp_path, monkeypatch):
     """Returns null common_names with message when not available."""
     _setup(tmp_path, monkeypatch)
@@ -64,7 +60,6 @@ def test_get_common_names_returns_none(tmp_path, monkeypatch):
     assert "No common names" in data["message"]
 
 
-@pytest.mark.unit
 def test_get_common_names_internal_error(tmp_path, monkeypatch):
     """Internal error returns standard error envelope."""
     _setup(tmp_path, monkeypatch)

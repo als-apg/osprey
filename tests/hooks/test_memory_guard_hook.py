@@ -38,7 +38,6 @@ def memory_dir_for(memory_guard, hook_home):
 # -- Path encoding --
 
 
-@pytest.mark.unit
 def test_memory_dir_is_home_relative(tmp_path, memory_guard, hook_home):
     """The memory dir is ``$HOME/.claude/projects/<encoded>/memory``."""
     encoded = encode_claude_project_path(tmp_path)
@@ -48,7 +47,6 @@ def test_memory_dir_is_home_relative(tmp_path, memory_guard, hook_home):
     )
 
 
-@pytest.mark.unit
 def test_memory_dir_honours_claude_config_dir(tmp_path, memory_guard, monkeypatch):
     """``CLAUDE_CONFIG_DIR`` is the state root; ``$HOME/.claude`` is only the fallback.
 
@@ -67,7 +65,6 @@ def test_memory_dir_honours_claude_config_dir(tmp_path, memory_guard, monkeypatc
     )
 
 
-@pytest.mark.unit
 def test_allows_memory_write_under_claude_config_dir(tmp_path, hook_runner, monkeypatch):
     """End to end: a write into the ``$CLAUDE_CONFIG_DIR`` memory dir is allowed."""
     config_dir = tmp_path / "data" / "claude-config"
@@ -88,7 +85,6 @@ def test_allows_memory_write_under_claude_config_dir(tmp_path, hook_runner, monk
     assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "project_name",
     ["plain", "with spaces", "dotted.name.v2", "under_score+plus@sign"],
@@ -114,7 +110,6 @@ def test_encoding_matches_packaged_helper(tmp_path, memory_guard, project_name):
 # -- Write predicate --
 
 
-@pytest.mark.unit
 def test_predicate_allows_md_direct_child(tmp_path, memory_guard, memory_dir_for):
     """A ``.md`` file directly inside the memory dir is allowed."""
     memory_dir = memory_dir_for(tmp_path)
@@ -122,7 +117,6 @@ def test_predicate_allows_md_direct_child(tmp_path, memory_guard, memory_dir_for
     assert memory_guard.is_allowed_memory_write(str(memory_dir / "channels.md"), memory_dir)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("build_path", "rejected_for"),
     [
@@ -149,7 +143,6 @@ def test_predicate_rejects(tmp_path, memory_guard, memory_dir_for, build_path, r
 # -- Allow cases --
 
 
-@pytest.mark.unit
 def test_allows_write_to_memory_md(tmp_path, hook_runner, memory_dir_for):
     """Write to a .md file inside the Claude memory directory is allowed."""
     target = str(memory_dir_for(tmp_path) / "channels.md")
@@ -165,7 +158,6 @@ def test_allows_write_to_memory_md(tmp_path, hook_runner, memory_dir_for):
     assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
 
 
-@pytest.mark.unit
 def test_allows_primary_memory_file(tmp_path, hook_runner, memory_dir_for):
     """MEMORY.md (the primary memory file) is allowed."""
     target = str(memory_dir_for(tmp_path) / "MEMORY.md")
@@ -184,7 +176,6 @@ def test_allows_primary_memory_file(tmp_path, hook_runner, memory_dir_for):
 # -- Deny cases --
 
 
-@pytest.mark.unit
 def test_denies_write_to_arbitrary_path(tmp_path, hook_runner):
     """Write to an arbitrary file outside memory directory is denied."""
     target = str(tmp_path / "evil.py")
@@ -200,7 +191,6 @@ def test_denies_write_to_arbitrary_path(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_denies_write_to_project_claude_md(tmp_path, hook_runner):
     """Write to the project-level CLAUDE.md (system prompt) is denied."""
     target = str(tmp_path / "CLAUDE.md")
@@ -216,7 +206,6 @@ def test_denies_write_to_project_claude_md(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_denies_non_md_in_memory_dir(tmp_path, hook_runner, memory_dir_for):
     """Write to the memory directory but with a non-.md extension is denied."""
     target = str(memory_dir_for(tmp_path) / "script.py")
@@ -232,7 +221,6 @@ def test_denies_non_md_in_memory_dir(tmp_path, hook_runner, memory_dir_for):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_denies_subdirectory_in_memory_dir(tmp_path, hook_runner, memory_dir_for):
     """Write to a subdirectory within the memory dir is denied (direct children only)."""
     target = str(memory_dir_for(tmp_path) / "subdir" / "notes.md")
@@ -248,7 +236,6 @@ def test_denies_subdirectory_in_memory_dir(tmp_path, hook_runner, memory_dir_for
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_denies_path_traversal(tmp_path, hook_runner, memory_dir_for):
     """Write with path traversal components is denied."""
     target = str(memory_dir_for(tmp_path) / ".." / ".." / ".." / ".bashrc")
@@ -264,7 +251,6 @@ def test_denies_path_traversal(tmp_path, hook_runner, memory_dir_for):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_denies_empty_file_path(tmp_path, hook_runner):
     """Write with no file_path is denied."""
     result = hook_runner(
@@ -278,7 +264,6 @@ def test_denies_empty_file_path(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_denies_missing_file_path(tmp_path, hook_runner):
     """Write with no file_path key at all is denied."""
     result = hook_runner(
@@ -295,7 +280,6 @@ def test_denies_missing_file_path(tmp_path, hook_runner):
 # -- Pass-through cases --
 
 
-@pytest.mark.unit
 def test_non_write_tool_passes_through(tmp_path, hook_runner):
     """Non-Write tools are not affected by this hook."""
     result = hook_runner(
@@ -308,7 +292,6 @@ def test_non_write_tool_passes_through(tmp_path, hook_runner):
     assert result is None  # No opinion
 
 
-@pytest.mark.unit
 def test_mcp_tool_passes_through(tmp_path, hook_runner):
     """MCP tools are not affected by this hook."""
     result = hook_runner(
@@ -324,7 +307,6 @@ def test_mcp_tool_passes_through(tmp_path, hook_runner):
 # -- Deny message quality --
 
 
-@pytest.mark.unit
 def test_deny_message_includes_allowed_directory(tmp_path, hook_runner):
     """Deny message tells the agent where it CAN write."""
     target = str(tmp_path / "nope.txt")
@@ -345,7 +327,6 @@ def test_deny_message_includes_allowed_directory(tmp_path, hook_runner):
 # -- CLAUDE_PROJECT_DIR env var --
 
 
-@pytest.mark.unit
 def test_uses_claude_project_dir_env(tmp_path, hook_runner, memory_dir_for, monkeypatch):
     """Hook respects CLAUDE_PROJECT_DIR env var over CWD."""
     project_dir = tmp_path / "my-project"
@@ -365,7 +346,6 @@ def test_uses_claude_project_dir_env(tmp_path, hook_runner, memory_dir_for, monk
     assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "stdin",
     ["", "{nope", "[]", "[1,2,3]"],
