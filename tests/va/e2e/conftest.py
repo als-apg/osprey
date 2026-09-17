@@ -418,11 +418,13 @@ def _readiness_pv_served() -> bool:
     The probe leaves through ``os._exit`` rather than returning. This child
     calls ``epics.caget`` directly and builds no connector, so nothing takes
     pyepics' ``finalize_libca`` off its exit hooks the way
-    ``EPICSConnector.connect`` does for the processes that go through it, and
-    that finalizer wedges a process which has held a Channel Access context.
-    A probe that will not die is read here as a container that is not
-    serving. The word is written and flushed before the exit, so leaving
-    abruptly costs nothing.
+    ``EPICSConnector.connect`` does for the processes that go through it. That
+    finalizer's recorded hang follows Channel Access use on a worker thread --
+    what the connector's executor does -- rather than the one main-thread
+    ``caget`` this child makes, which has not been seen to hang. The forced
+    exit is kept as a bound that costs nothing: a probe that will not die is
+    read here as a container that is not serving, and the word is written and
+    flushed before the exit.
     """
     code = (
         "import sys, epics\n"
