@@ -1,0 +1,45 @@
+name: Remove the virtual accelerator target images
+description: >-
+  Remove the images a virtual-accelerator lane built, by exact tag.
+  `osprey-va-full:latest` always, because every caller builds it; anything
+  else that lane built through `extra-tags`. Intended to run with
+  `if: always()` at the call site, after the lane's diagnostics capture.
+
+inputs:
+  extra-tags:
+    description: >-
+      Whitespace-separated tags to remove alongside `osprey-va-full:latest`.
+      Exact tags only — this is never matched as a pattern, so a caller that
+      passes one removes nothing.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Remove the target images
+      shell: bash
+      # Exact tags only — never a prune, an -a/--all, or a wildcard, matching
+      # the container-ops guardrail every lane here observes. `$EXTRA_TAGS`
+      # splits on whitespace into further exact tags and is never handed to a
+      # pattern match, so the widest thing this step can remove is the list
+      # its caller wrote out.
+      #
+      # The input arrives through the environment rather than being
+      # interpolated into the script, so a tag can never become script text.
+      #
+      # The containers are not this action's to remove: every one a lane
+      # starts is named after a per-run value chosen at run time, so there is
+      # no fixed name to remove and a pattern match is what the rule above
+      # forbids. Each lane's own teardown removes them.
+      #
+      # `|| true` per tag: this runs on every outcome, including the one where
+      # the build never produced the image, and a removal that finds nothing
+      # must not be what reds the lane.
+      env:
+        EXTRA_TAGS: ${{ inputs.extra-tags }}
+      run: |
+        set -euo pipefail
+        for tag in osprey-va-full:latest $EXTRA_TAGS; do
+          docker rmi -f "$tag" || true
+        done
