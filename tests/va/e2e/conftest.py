@@ -414,6 +414,15 @@ def _readiness_pv_served() -> bool:
     So the readiness check must never touch pyepics in-process -- run it
     out-of-process, exactly as the probe's caget check does. Returns True once
     the readiness PV is served.
+
+    The probe leaves through ``os._exit`` rather than returning. This child
+    calls ``epics.caget`` directly and builds no connector, so nothing takes
+    pyepics' ``finalize_libca`` off its exit hooks the way
+    ``EPICSConnector.connect`` does for the processes that go through it, and
+    that finalizer wedges a process which has held a Channel Access context.
+    A probe that will not die is read here as a container that is not
+    serving. The word is written and flushed before the exit, so leaving
+    abruptly costs nothing.
     """
     code = (
         "import sys, epics\n"
