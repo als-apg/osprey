@@ -20,6 +20,10 @@ import pytest
 pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 
+#: The one row the capability's own repository stores and reads back.
+CAPABILITY_PREFIX = "cap-integ-"
+
+
 @pytest.fixture
 async def reset_capability_singleton():
     """Reset and cleanup capability singleton before/after tests.
@@ -152,7 +156,12 @@ class TestCapabilityWithRealService:
         assert count >= 0
 
     async def test_service_can_store_and_retrieve_entry(
-        self, database_url, migrated_pool, seed_entry_factory, reset_capability_singleton
+        self,
+        database_url,
+        migrated_pool,
+        seed_entry_factory,
+        reset_capability_singleton,
+        seeded_prefixes,
     ):
         """Service from capability can store and retrieve entries."""
         from osprey.services.ariel_search.capability import get_ariel_search_service
@@ -168,9 +177,10 @@ class TestCapabilityWithRealService:
 
         # Create and store entry
         entry = seed_entry_factory(
-            entry_id="cap-integ-001",
+            entry_id=f"{CAPABILITY_PREFIX}001",
             raw_text="Capability integration test entry",
         )
+        seeded_prefixes.add(CAPABILITY_PREFIX)
         await service.repository.upsert_entry(entry)
 
         # Retrieve entry
@@ -200,14 +210,6 @@ class TestCapabilityWithRealService:
         assert isinstance(result, ARIELSearchResult)
         assert hasattr(result, "entries")
         assert hasattr(result, "answer")
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up capability test data."""
-        async with migrated_pool.connection() as conn:
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'cap-integ-%'
-            """)
 
 
 class TestCapabilityConfig:
