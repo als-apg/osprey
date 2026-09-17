@@ -1012,12 +1012,14 @@ class TestAnApprovedWriteIsRefusedAfterASwitch:
 #: initialisation is chatty on both streams and a result parsed out of that
 #: noise would be a result this test could misread.
 #:
-#: The exit is abrupt for the reason ``osprey_connectors.ipc.host`` states of
-#: its own: a process that has held a Channel Access context can block forever
-#: in pyepics' ``finalize_libca`` atexit hook, and a sandbox that will not die
-#: is worse than one that skips its hooks. ``conftest._readiness_pv_served``
-#: ends the same way. Measured here: the write itself completes in about a
-#: second and the teardown then wedges indefinitely.
+#: The exit is abrupt because the executor's own wrapper ends that way, and a
+#: stand-in that left through interpreter shutdown would be standing in for
+#: something the executor never runs. Shutdown would otherwise reach
+#: ``osprey.runtime``'s connector-teardown hook, which tears a Channel Access
+#: circuit down at interpreter exit -- work the executor never asks of a
+#: sandbox, and the sequence ``tests/e2e/_va_host_ca_op.py`` force-exits to
+#: stay clear of for reasons of its own. The verdict is on disk and both
+#: streams are flushed by then, so leaving abruptly costs this test nothing.
 _PINNED_WRITE = """
 import json
 import os
