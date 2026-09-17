@@ -208,6 +208,11 @@ def _va_served(port: int) -> bool:
     latches ``EPICS_CA_*`` at initialisation and its contexts are per-thread, so
     a main-thread pyepics call in this process would deadlock the connector-host
     children these tests spend their time talking to.
+
+    It leaves through ``os._exit`` for that file's other reason: a bare
+    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
+    still on its exit hooks and wedges a process that has held a Channel
+    Access context.
     """
     code = (
         "import sys, epics\n"
