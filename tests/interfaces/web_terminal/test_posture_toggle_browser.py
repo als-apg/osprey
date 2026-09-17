@@ -446,14 +446,6 @@ def _pty_pid(app: Any, session_id: str) -> int:
     return pid
 
 
-#: Seeded into every page before load: marks the onboarding tour as already
-#: dismissed. Under the default `once` policy the invite card (scrim + modal)
-#: would otherwise overlay the shell on the fresh profile these tests run
-#: under and swallow every chip and popover click this suite drives. The tour
-#: has its own dedicated coverage (tour.test.mjs).
-_DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
-
-
 def _row(page: Page, target: str) -> Any:
     """The popover row for *target*.
 
@@ -490,7 +482,6 @@ def _settled_chip(browser: Browser, base_url: str) -> tuple[Page, str | None]:
         respawned.
     """
     page = browser.new_page()
-    page.add_init_script(_DISMISS_TOUR)
     page.goto(base_url, wait_until="domcontentloaded")
 
     expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT)

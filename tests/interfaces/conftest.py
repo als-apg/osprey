@@ -408,6 +408,13 @@ def launch_graph_channel_finder(
 #: and its scoped variants needs neither the scope nor an ordering, and the
 #: bare key is written too so a page that enumerates storage still sees it.
 #:
+#: This is the only seed in the tree. A suite that also writes the bare key
+#: in an init script of its own adds nothing — the wrapper above already
+#: answers for it, scoped or not — and states the narrower of the two
+#: behaviours next to code that needs the wider one, which is how the next
+#: copy comes to be written. ``test_shared_tour_seam_contract.py`` is what
+#: keeps the count at one.
+#:
 #: A browser test that wants the invite opts out in its own page-level init
 #: script, which runs after the context's, by putting back the reader this one
 #: parked on ``Storage.prototype.getItem.osprey_real``. Clearing the key is not
