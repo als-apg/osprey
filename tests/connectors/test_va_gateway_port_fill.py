@@ -75,7 +75,6 @@ def deployed_va_port(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_preset_writes_no_hardcoded_va_gateway_port() -> None:
     """No gateway writes the port out — there is nothing to drift."""
     gateways = _rendered_va_block()["gateways"]
@@ -90,7 +89,6 @@ def test_preset_writes_no_hardcoded_va_gateway_port() -> None:
         assert gateway["use_name_server"] is True
 
 
-@pytest.mark.unit
 def test_preset_documents_the_port_override() -> None:
     """A project reaching a VA it does not deploy needs to see how."""
     text = _preset_source(CONTROL_ASSISTANT_PRESET)
@@ -104,7 +102,6 @@ def test_preset_documents_the_port_override() -> None:
     )
 
 
-@pytest.mark.unit
 def test_preset_does_not_warn_the_port_must_not_change() -> None:
     """The preset must not warn about a hardcode it does not have."""
     preset_path = Path(osprey.__file__).parent / PRESET_PATH
@@ -122,7 +119,6 @@ def test_preset_does_not_warn_the_port_must_not_change() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_unset_gateway_port_follows_the_deployed_va_port(deployed_va_port) -> None:
     """The whole point: moving the VA service's port moves the connector."""
     deployed_va_port(5074)
@@ -140,7 +136,6 @@ def test_unset_gateway_port_follows_the_deployed_va_port(deployed_va_port) -> No
     assert filled["gateways"]["write_access"]["port"] == 5074
 
 
-@pytest.mark.unit
 def test_rendered_preset_follows_a_post_render_port_edit(deployed_va_port) -> None:
     """The as-shipped config, fed the edited service port, follows it."""
     deployed_va_port(15064)
@@ -154,7 +149,6 @@ def test_rendered_preset_follows_a_post_render_port_edit(deployed_va_port) -> No
     assert filled["simulation_file"] == "data/simulation/machine.json"
 
 
-@pytest.mark.unit
 def test_defaults_to_5064_when_the_service_port_is_unset(deployed_va_port) -> None:
     """With neither the gateway nor the service naming a port, 5064 stands."""
     deployed_va_port(None)
@@ -164,7 +158,6 @@ def test_defaults_to_5064_when_the_service_port_is_unset(deployed_va_port) -> No
     assert filled["gateways"]["read_only"]["port"] == DEFAULT_VA_PORT
 
 
-@pytest.mark.unit
 def test_unreadable_config_falls_back_to_5064(monkeypatch) -> None:
     """Outside a project context the connector falls back to the default port."""
     from osprey.utils import config as config_module
@@ -184,7 +177,6 @@ def test_unreadable_config_falls_back_to_5064(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_explicit_gateway_port_wins(deployed_va_port) -> None:
     """A project pointed at a VA it does not deploy keeps its own port."""
     deployed_va_port(15064)
@@ -202,7 +194,6 @@ def test_explicit_gateway_port_wins(deployed_va_port) -> None:
     assert filled["gateways"]["write_access"]["port"] == 5084
 
 
-@pytest.mark.unit
 def test_explicit_and_derived_ports_mix_per_gateway(deployed_va_port) -> None:
     """Filling is per gateway — one explicit port does not pin the other."""
     deployed_va_port(15064)
@@ -220,7 +211,6 @@ def test_explicit_and_derived_ports_mix_per_gateway(deployed_va_port) -> None:
     assert filled["gateways"]["write_access"]["port"] == 5084
 
 
-@pytest.mark.unit
 def test_fully_explicit_config_never_reads_the_config_file(monkeypatch) -> None:
     """Nothing to fill means nothing to resolve — and the dict comes back as-is."""
     from osprey.utils import config as config_module
@@ -240,7 +230,6 @@ def test_fully_explicit_config_never_reads_the_config_file(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_the_callers_config_is_not_mutated(deployed_va_port) -> None:
     """The factory hands over the loaded config block; the fill must not edit it."""
     deployed_va_port(15064)
@@ -251,7 +240,6 @@ def test_the_callers_config_is_not_mutated(deployed_va_port) -> None:
     assert config == {"gateways": {"read_only": {"address": "localhost"}}}
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "config",
     [
@@ -280,7 +268,6 @@ def test_a_config_with_no_gateways_passes_through(config: dict[str, Any], monkey
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, monkeypatch) -> None:
     """The derived port reaches EPICSConnector.connect, which configures CA.
@@ -303,7 +290,6 @@ async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, mon
     assert captured["config"]["timeout"] == 5.0
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_plain_epics_connector_does_not_follow_the_va_service_port(monkeypatch) -> None:
     """A production EPICS gateway is external infrastructure — it must not move.

@@ -21,8 +21,6 @@ import pytest
 import yaml
 from fastapi.testclient import TestClient
 
-pytestmark = pytest.mark.unit
-
 # Distinct from any facility name under test, so a crossed wire is visible: this
 # is the per-pipeline name the registry reports into `app.state.facility_names`
 # (plural), which is a different attribute than the config-derived singular.

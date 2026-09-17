@@ -38,8 +38,6 @@ from tests.mcp_server.conftest import (
     get_tool_fn,
 )
 
-pytestmark = pytest.mark.unit
-
 _CW_MOD = "osprey.mcp_server.control_system.tools.channel_write"
 _QUEUE_MOD = "osprey.mcp_server.bluesky.tools.queue"
 _FOCUS_MOD = "osprey.mcp_server.workspace.tools.focus_tools"

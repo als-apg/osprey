@@ -241,7 +241,6 @@ def batch_connector(connector_factory):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 class TestLiveReads:
     """Every normative type the connector claims to map, read off the wire."""
 
@@ -310,7 +309,6 @@ class TestLiveReads:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 class TestMetadataAndValidation:
     """What the connector learns without reading a payload."""
 
@@ -370,7 +368,6 @@ def writes_enabled(monkeypatch):
     monkeypatch.setattr(EPICSConnector, "_writes_enabled", property(lambda self: True))
 
 
-@pytest.mark.unit
 @pytest.mark.usefixtures("writes_enabled")
 class TestWriteRefusal:
     """A PVA-routed address is read-only, whatever the value's shape."""
@@ -447,7 +444,6 @@ async def _read_through_the_tool(tmp_path, monkeypatch, connector, channels: lis
     return extract_response_dict(result)
 
 
-@pytest.mark.unit
 @pytest.mark.usefixtures("tool_singletons")
 class TestThroughTheToolBody:
     """What the agent is handed when the reads come off a real PVA server."""

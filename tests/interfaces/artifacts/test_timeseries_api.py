@@ -132,7 +132,6 @@ class TestArtifactDataAPI:
         app = create_app(workspace_root=tmp_path)
         return TestClient(app), tmp_path
 
-    @pytest.mark.unit
     def test_no_format_returns_full_json(self, app_client):
         """No format param → full JSON data file."""
         client, workspace = app_client
@@ -146,7 +145,6 @@ class TestArtifactDataAPI:
         assert data["columns"] == payload["columns"]
         assert len(data["index"]) == 50
 
-    @pytest.mark.unit
     def test_chart_format_returns_downsampled(self, app_client):
         """?format=chart with large dataset returns per-channel downsampled series."""
         client, workspace = app_client
@@ -164,7 +162,6 @@ class TestArtifactDataAPI:
             assert len(ch["values"]) == ch["returned_points"]
         assert data["summary"]["downsampled"] is True
 
-    @pytest.mark.unit
     def test_chart_small_dataset_not_downsampled(self, app_client):
         """Small dataset passes through without downsampling."""
         client, workspace = app_client
@@ -179,7 +176,6 @@ class TestArtifactDataAPI:
             assert ch["returned_points"] == 50
         assert data["summary"]["downsampled"] is False
 
-    @pytest.mark.unit
     def test_chart_format_new_layout_channels_have_independent_timestamps(self, app_client):
         """A new-format archiver artifact renders per-channel series, not empty."""
         client, workspace = app_client
@@ -202,7 +198,6 @@ class TestArtifactDataAPI:
         assert len(by_channel["PV:B"]["timestamps"]) == 20
         assert by_channel["PV:A"]["timestamps"] != by_channel["PV:B"]["timestamps"]
 
-    @pytest.mark.unit
     def test_chart_format_non_numeric_channel_not_coerced(self, app_client):
         """An enum/status channel's string values survive the chart path untouched."""
         client, workspace = app_client
@@ -222,7 +217,6 @@ class TestArtifactDataAPI:
         # The front-end needs this flag -- an enum channel cannot share the numeric y-axis.
         assert ch["numeric"] is False
 
-    @pytest.mark.unit
     def test_chart_payload_carries_the_server_computed_info_bar_aggregates(self, app_client):
         """The chart response owns its own cross-channel aggregates.
 
@@ -253,7 +247,6 @@ class TestArtifactDataAPI:
         table = client.get(f"/api/artifacts/{entry.id}/data?format=table").json()
         assert summary["row_count"] == table["total_rows"]
 
-    @pytest.mark.unit
     def test_chart_summary_reports_downsampling_across_channels(self, app_client):
         """``downsampled`` is an any(), and ``returned_points`` the post-LTTB sum."""
         client, workspace = app_client
@@ -280,7 +273,6 @@ class TestArtifactDataAPI:
         assert summary["returned_points"] < summary["total_points"]
         assert summary["row_count"] == 500  # t0000..t0499, PV:B's stamps are a subset
 
-    @pytest.mark.unit
     def test_chart_format_numeric_flag_on_a_numeric_channel(self, app_client):
         client, workspace = app_client
         store = client.app.state.artifact_store
@@ -291,7 +283,6 @@ class TestArtifactDataAPI:
         data = resp.json()
         assert all(ch["numeric"] is True for ch in data["channels"])
 
-    @pytest.mark.unit
     def test_table_format_returns_correct_slice(self, app_client):
         """?format=table returns paginated slice."""
         client, workspace = app_client
@@ -307,7 +298,6 @@ class TestArtifactDataAPI:
         assert data["returned_rows"] == 25
         assert data["index"] == payload["index"][50:75]
 
-    @pytest.mark.unit
     def test_table_format_new_layout_unions_timestamps_with_null_fill(self, app_client):
         """Channels at different cadences are pivoted for display with no fill --
         a missing sample at a shared timestamp becomes null, never interpolated.
@@ -331,7 +321,6 @@ class TestArtifactDataAPI:
         by_index = dict(zip(data["index"], data["data"], strict=True))
         assert by_index["t1"] == [2.0, None]  # PV:B has no sample at t1 -- null, not filled
 
-    @pytest.mark.unit
     def test_table_columns_are_the_columns_its_own_rows_were_built_from(self, app_client):
         """``format=table`` is a self-consistent payload: header *and* cells.
 
@@ -362,7 +351,6 @@ class TestArtifactDataAPI:
             cells = dict(zip(columns, by_ts[ts], strict=True))
             assert cells == {"PV:A": scale, "PV:B": scale * 10, "PV:C": scale * 100}
 
-    @pytest.mark.unit
     def test_legacy_dataframe_wrapper_layout_chart_and_table(self, app_client):
         """The legacy wrapper layout already on disk must still render in both formats."""
         client, workspace = app_client
@@ -389,7 +377,6 @@ class TestArtifactDataAPI:
         assert table["index"] == index
         assert table["data"] == data
 
-    @pytest.mark.unit
     def test_legacy_wide_layout_with_nulls_round_trips_through_table(self, app_client):
         """A null cell in a legacy wide layout survives the drop-then-pivot
         round trip exactly, null for null.
@@ -408,7 +395,6 @@ class TestArtifactDataAPI:
         assert table["index"] == index
         assert table["data"] == data  # exact round trip, including null positions
 
-    @pytest.mark.unit
     def test_no_data_file_returns_400(self, app_client):
         """Artifact without data_file metadata returns 400."""
         client, _ = app_client
@@ -418,7 +404,6 @@ class TestArtifactDataAPI:
         resp = client.get(f"/api/artifacts/{entry.id}/data")
         assert resp.status_code == 400
 
-    @pytest.mark.unit
     def test_format_on_non_timeseries_returns_400(self, app_client):
         """format param on artifact with non-timeseries data_type → 400."""
         client, workspace = app_client
@@ -445,7 +430,6 @@ class TestArtifactDataAPI:
         assert resp.status_code == 400
         assert "timeseries" in resp.json()["detail"].lower()
 
-    @pytest.mark.unit
     def test_missing_artifact_returns_404(self, app_client):
         """Nonexistent artifact → 404."""
         client, _ = app_client
@@ -487,7 +471,6 @@ class TestDataFileResolution:
             metadata={"data_type": "timeseries", "data_file": data_file},
         )
 
-    @pytest.mark.unit
     @pytest.mark.parametrize(
         "data_file",
         ["data/rel_series.json", "bare_series.json"],
@@ -510,7 +493,6 @@ class TestDataFileResolution:
         assert resp.status_code == 200
         assert resp.json()["channels"][0]["channel"] == "PV:A"
 
-    @pytest.mark.unit
     @pytest.mark.parametrize("absolute", [False, True], ids=["relative", "absolute"])
     def test_missing_data_file_returns_404(self, app_client, absolute):
         """A data_file that resolves nowhere — absolute, or relative and
@@ -524,7 +506,6 @@ class TestDataFileResolution:
         assert resp.status_code == 404
         assert "not found on disk" in resp.json()["detail"]
 
-    @pytest.mark.unit
     def test_oversized_data_file_returns_413(self, app_client, monkeypatch):
         """A data file over the size cap is refused with 413 rather than
         parsed; the cap protects the gallery process, not the client."""
@@ -553,7 +534,6 @@ class TestTheTimeseriesSizeCapIsAConfigKey:
     reader is what decides how far a value gets.
     """
 
-    @pytest.mark.unit
     def test_default_when_no_config_is_primed(self, monkeypatch):
         """A standalone gallery reads no config and still has a bound."""
         monkeypatch.setattr(
@@ -566,14 +546,12 @@ class TestTheTimeseriesSizeCapIsAConfigKey:
             == artifacts_app.DEFAULT_MAX_TIMESERIES_FILE_MB * 1024 * 1024
         )
 
-    @pytest.mark.unit
     def test_configured_value_is_read_in_megabytes(self, monkeypatch):
         """The key is authored in MB; the handler compares bytes."""
         monkeypatch.setattr("osprey.utils.config.get_config_value", lambda *a, **k: 500)
 
         assert artifacts_app._max_timeseries_file_bytes() == 500 * 1024 * 1024
 
-    @pytest.mark.unit
     @pytest.mark.parametrize("bad", [0, -1, True, "500", None])
     def test_an_unusable_value_falls_back_to_the_default(self, monkeypatch, bad):
         """A nonsense cap keeps the documented bound rather than removing it."""
@@ -599,7 +577,6 @@ class TestArtifactTablePivotRobustness:
         app = create_app(workspace_root=tmp_path)
         return TestClient(app), tmp_path
 
-    @pytest.mark.unit
     def test_duplicate_timestamp_within_a_channel_is_a_visible_error_not_silent_loss(
         self, app_client
     ):
@@ -620,7 +597,6 @@ class TestArtifactTablePivotRobustness:
         assert resp.status_code >= 400  # a visible error, not a silently-wrong 200
         assert "t0" in resp.json()["detail"]
 
-    @pytest.mark.unit
     def test_mismatched_channel_length_does_not_500_in_table(self, app_client):
         """A malformed channel (more timestamps than values) must not crash the
         table path when the chart path already tolerates it.
@@ -643,7 +619,6 @@ class TestArtifactTablePivotRobustness:
         assert chart_resp.status_code == 200
         assert table_resp.status_code == 200
 
-    @pytest.mark.unit
     def test_duplicate_detection_names_the_first_repeat_by_position(self, app_client):
         """Which duplicate the 500 names is part of the contract.
 
@@ -667,7 +642,6 @@ class TestArtifactTablePivotRobustness:
             "and cannot represent both without silently discarding one."
         )
 
-    @pytest.mark.unit
     def test_duplicate_beyond_the_shorter_values_list_is_not_an_error(self, app_client):
         """Pairs are zipped, so timestamps past the end of ``values`` don't exist."""
         client, workspace = app_client
@@ -682,7 +656,6 @@ class TestArtifactTablePivotRobustness:
         assert resp.status_code == 200
         assert resp.json()["total_rows"] == 3
 
-    @pytest.mark.unit
     def test_mixed_type_timestamps_across_channels_do_not_crash_the_sort(self, app_client):
         """Timestamps of mutually-incomparable types across channels (e.g. an
         int from one channel, a str from another) can't be sorted directly by
@@ -704,7 +677,6 @@ class TestArtifactTablePivotRobustness:
         assert resp.status_code == 200
         assert resp.json()["total_rows"] == 3
 
-    @pytest.mark.unit
     def test_unhashable_timestamps_still_pivot_into_a_table(self, app_client):
         """A timestamp that is itself a JSON array cannot key a dict; the pivot
         falls back to matching timestamps by equality instead of by hash.
@@ -728,7 +700,6 @@ class TestArtifactTablePivotRobustness:
         # PV:B has no sample at ["t0"] -- that cell is a gap, not a value.
         assert body["data"] == [[1.0, None], [2.0, "CW"]]
 
-    @pytest.mark.unit
     def test_unhashable_duplicate_timestamps_are_still_a_visible_error(self, app_client):
         """The equality fallback must not quietly become laxer than the hash
         path it replaces: two samples at the same unhashable label still cannot
@@ -747,7 +718,6 @@ class TestArtifactTablePivotRobustness:
         assert "more than one sample at timestamp" in resp.json()["detail"]
         assert "PV:A" in resp.json()["detail"]
 
-    @pytest.mark.unit
     def test_unhashable_timestamps_do_not_crash_the_chart_row_count(self, app_client):
         """An unhashable timestamp cannot be deduplicated through a ``set``; the
         chart's row count must not take down a chart that would otherwise draw.
@@ -780,7 +750,6 @@ class TestArtifactPinHighlightAPI:
         app = create_app(workspace_root=tmp_path)
         return TestClient(app)
 
-    @pytest.mark.unit
     def test_pin_artifact(self, app_client):
         store = app_client.app.state.artifact_store
         entry = store.save_file(
@@ -801,7 +770,6 @@ class TestArtifactPinHighlightAPI:
         resp = app_client.get("/api/artifacts?pinned=true")
         assert resp.json()["count"] == 1
 
-    @pytest.mark.unit
     def test_unpin_artifact(self, app_client):
         store = app_client.app.state.artifact_store
         entry = store.save_file(
@@ -819,7 +787,6 @@ class TestArtifactPinHighlightAPI:
         assert resp.status_code == 200
         assert resp.json()["pinned"] is False
 
-    @pytest.mark.unit
     def test_pin_not_found(self, app_client):
         resp = app_client.post("/api/artifacts/nonexistent/pin", json={"pinned": True})
         assert resp.status_code == 404
@@ -841,7 +808,6 @@ class TestTablePivotPagination:
             for c, ch in enumerate(channels)
         }
 
-    @pytest.mark.unit
     def test_only_the_requested_page_is_materialized(self):
         """Counts the actual row-building work rather than trusting the shape.
 
@@ -870,7 +836,6 @@ class TestTablePivotPagination:
         assert CountingName.hashes <= len(channels) * (10 + 5)
         assert list(columns) == list(channels)
 
-    @pytest.mark.unit
     def test_page_contents_match_the_full_pivot(self):
         """Pagination must not change which values land in which cell."""
         from osprey.interfaces.artifacts.app import _pivot_channel_series_to_table
@@ -890,7 +855,6 @@ class TestTablePivotPagination:
         assert page_index == full_index[20:25]
         assert page_rows == full_rows[20:25]
 
-    @pytest.mark.unit
     def test_columns_are_derived_from_the_series_and_index_the_rows(self):
         """The pivot reports the columns it built the rows against."""
         from osprey.interfaces.artifacts.app import _pivot_channel_series_to_table
@@ -910,7 +874,6 @@ class TestTablePivotPagination:
             {"PV:Z": 2.0, "PV:A": 20.0},
         ]
 
-    @pytest.mark.unit
     @pytest.mark.parametrize(
         ("offset", "limit", "expected"),
         [

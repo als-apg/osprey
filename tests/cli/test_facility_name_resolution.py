@@ -59,9 +59,6 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     return project
 
 
-pytestmark = pytest.mark.unit
-
-
 # ---------------------------------------------------------------------------
 # resolve_facility_name — the shared resolution order
 # ---------------------------------------------------------------------------

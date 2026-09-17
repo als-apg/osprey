@@ -50,7 +50,6 @@ def _seed(project_dir, focus, entries):
         (agent_data / "artifacts" / "artifacts.json").write_text(json.dumps({"entries": entries}))
 
 
-@pytest.mark.unit
 def test_focus_validator_drops_stale_ids(hook_runner_raw, monkeypatch, tmp_path):
     """Lines referencing missing artifact IDs are dropped; valid lines kept."""
     focus = (
@@ -69,7 +68,6 @@ def test_focus_validator_drops_stale_ids(hook_runner_raw, monkeypatch, tmp_path)
     assert stdout.startswith("[Gallery Focus]")
 
 
-@pytest.mark.unit
 def test_focus_validator_drops_all_returns_empty(hook_runner_raw, monkeypatch, tmp_path):
     """When every line is stale, output is empty (header is also dropped)."""
     focus = '[Gallery Focus]\n  artifact: "Gone" (id=stale1)\n  pinned:   "Also Gone" (id=stale2)\n'
@@ -80,7 +78,6 @@ def test_focus_validator_drops_all_returns_empty(hook_runner_raw, monkeypatch, t
     assert stdout == ""
 
 
-@pytest.mark.unit
 def test_focus_validator_fails_open_on_missing_index(hook_runner_raw, monkeypatch, tmp_path):
     """If artifacts.json is missing, hook prints original contents and exits 0."""
     focus = '[Gallery Focus]\n  artifact: "Anything" (id=whatever)\n'
@@ -91,7 +88,6 @@ def test_focus_validator_fails_open_on_missing_index(hook_runner_raw, monkeypatc
     assert stdout == focus
 
 
-@pytest.mark.unit
 def test_focus_validator_fails_open_on_malformed_index(hook_runner_raw, monkeypatch, tmp_path):
     """Malformed artifacts.json is treated as 'unknown' → fail open."""
     focus = '[Gallery Focus]\n  artifact: "Anything" (id=whatever)\n'
@@ -105,7 +101,6 @@ def test_focus_validator_fails_open_on_malformed_index(hook_runner_raw, monkeypa
     assert stdout == focus
 
 
-@pytest.mark.unit
 def test_focus_validator_empty_focus_file(hook_runner_raw, monkeypatch, tmp_path):
     """Empty focus_state.txt yields empty output (no spurious header)."""
     _seed(tmp_path, "", entries=[{"id": "anything"}])
@@ -115,7 +110,6 @@ def test_focus_validator_empty_focus_file(hook_runner_raw, monkeypatch, tmp_path
     assert stdout == ""
 
 
-@pytest.mark.unit
 def test_focus_validator_missing_focus_file(hook_runner_raw, monkeypatch, tmp_path):
     """No focus_state.txt at all yields empty output, exit 0."""
     (tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "artifacts").mkdir(parents=True)
@@ -128,7 +122,6 @@ def test_focus_validator_missing_focus_file(hook_runner_raw, monkeypatch, tmp_pa
     assert stdout == ""
 
 
-@pytest.mark.unit
 def test_focus_validator_keeps_lines_without_ids(hook_runner_raw, monkeypatch, tmp_path):
     """Lines carrying no ``(id=...)`` pass through untouched."""
     focus = (
@@ -150,7 +143,6 @@ def test_focus_validator_keeps_lines_without_ids(hook_runner_raw, monkeypatch, t
     )
 
 
-@pytest.mark.unit
 def test_focus_validator_ignores_stdin(hook_runner_raw, monkeypatch, tmp_path):
     """Output depends only on the files — stdin is never read.
 
@@ -179,7 +171,6 @@ def test_focus_validator_ignores_stdin(hook_runner_raw, monkeypatch, tmp_path):
         assert "Traceback" not in stderr, f"hook crashed for stdin {stdin!r}"
 
 
-@pytest.mark.unit
 def test_focus_validator_emits_raw_text_not_json(hook_runner_raw, monkeypatch, tmp_path):
     """stdout is the prompt text itself, not a JSON hook envelope."""
     focus = '[Gallery Focus]\n  artifact: "Live Plot" (id=live1)\n'
@@ -193,7 +184,6 @@ def test_focus_validator_emits_raw_text_not_json(hook_runner_raw, monkeypatch, t
         json.loads(stdout)
 
 
-@pytest.mark.unit
 def test_clean_filters_lines_and_preserves_shape():
     """``_clean`` keeps valid and id-less lines, and preserves file shape."""
     from osprey.templates.claude_code.claude.hooks.osprey_focus_validate import _clean
@@ -212,7 +202,6 @@ def test_clean_filters_lines_and_preserves_shape():
     assert _clean("plain line\n", set()) == "plain line\n"
 
 
-@pytest.mark.unit
 def test_load_valid_ids_returns_none_on_unusable_index(tmp_path):
     """``_load_valid_ids`` distinguishes 'no ids' from 'cannot tell' (``None``)."""
     from osprey.templates.claude_code.claude.hooks.osprey_focus_validate import _load_valid_ids

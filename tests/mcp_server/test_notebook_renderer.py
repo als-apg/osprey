@@ -11,7 +11,6 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import nbformat
-import pytest
 
 from osprey.stores.notebook_renderer import (
     create_notebook_from_code,
@@ -23,7 +22,6 @@ from osprey.stores.notebook_renderer import (
 class TestCreateNotebookFromCode:
     """Tests for create_notebook_from_code()."""
 
-    @pytest.mark.unit
     def test_creates_valid_notebook(self):
         """Notebook has correct nbformat version and is valid."""
         nb = create_notebook_from_code(
@@ -33,7 +31,6 @@ class TestCreateNotebookFromCode:
         assert nb.nbformat == 4
         nbformat.validate(nb)
 
-    @pytest.mark.unit
     def test_includes_header_code_cells(self):
         """Notebook includes a markdown header and a code cell."""
         nb = create_notebook_from_code(
@@ -46,7 +43,6 @@ class TestCreateNotebookFromCode:
         assert nb.cells[1].cell_type == "code"
         assert "x = 1 + 2" in nb.cells[1].source
 
-    @pytest.mark.unit
     def test_includes_output_cell_with_stdout(self):
         """When stdout is provided, a results cell is added."""
         nb = create_notebook_from_code(
@@ -60,7 +56,6 @@ class TestCreateNotebookFromCode:
         assert "42" in results_cell.source
         assert "Output" in results_cell.source
 
-    @pytest.mark.unit
     def test_includes_error_in_output_cell(self):
         """When stderr is provided, errors section appears in results cell."""
         nb = create_notebook_from_code(
@@ -72,7 +67,6 @@ class TestCreateNotebookFromCode:
         assert "Errors" in results_cell.source
         assert "ZeroDivisionError" in results_cell.source
 
-    @pytest.mark.unit
     def test_header_shows_status(self):
         """Header cell shows Success when no stderr, Error when stderr present."""
         nb_success = create_notebook_from_code(code="pass", description="ok")
@@ -81,7 +75,6 @@ class TestCreateNotebookFromCode:
         nb_error = create_notebook_from_code(code="pass", description="fail", stderr="err")
         assert "Error" in nb_error.cells[0].source
 
-    @pytest.mark.unit
     def test_no_output_cell_when_empty(self):
         """No results cell when both stdout and stderr are empty."""
         nb = create_notebook_from_code(code="x = 1", description="silent")
@@ -91,7 +84,6 @@ class TestCreateNotebookFromCode:
 class TestRenderNotebookToHtml:
     """Tests for render_notebook_to_html()."""
 
-    @pytest.mark.unit
     def test_renders_html_containing_code(self, tmp_path):
         """Rendered HTML contains the original code."""
         nb = create_notebook_from_code(
@@ -106,7 +98,6 @@ class TestRenderNotebookToHtml:
         assert "HELLO_WORLD_UNIQUE_MARKER" in html
         assert "<html" in html.lower()
 
-    @pytest.mark.unit
     def test_renders_html_with_output(self, tmp_path):
         """Rendered HTML includes stdout content."""
         nb = create_notebook_from_code(
@@ -145,21 +136,18 @@ class TestOfflineAwareRendering:
             nbformat.write(nb, handle)
         return path
 
-    @pytest.mark.unit
     def test_an_offline_render_references_no_remote_asset(self, tmp_path):
         """Nothing to fetch: the isolated deployment's render is self-contained."""
         html = render_notebook_to_html(self._notebook(tmp_path), offline=True)
 
         assert MATHJAX_URL not in html
 
-    @pytest.mark.unit
     def test_a_connected_render_keeps_the_exporters_own_assets(self, tmp_path):
         """A deployment that can reach them gets LaTeX, widgets and Mermaid."""
         html = render_notebook_to_html(self._notebook(tmp_path), offline=False)
 
         assert MATHJAX_URL in html
 
-    @pytest.mark.unit
     def test_the_mode_defaults_to_the_deployments_posture(self, tmp_path, monkeypatch):
         """Callers that pass nothing get the posture the deployment declares."""
         notebook = self._notebook(tmp_path)
@@ -174,7 +162,6 @@ class TestOfflineAwareRendering:
 class TestGetOrRenderHtml:
     """Tests for get_or_render_html() caching behavior."""
 
-    @pytest.mark.unit
     def test_creates_cache_file(self, tmp_path, monkeypatch):
         """First call creates the cached HTML file."""
         # The cache name carries the render mode, so the mode is pinned rather
@@ -192,7 +179,6 @@ class TestGetOrRenderHtml:
         assert "CACHE_TEST_MARKER_ABC123" in html
         assert html_path.name == "cached_rendered.html"
 
-    @pytest.mark.unit
     def test_uses_cache_on_second_call(self, tmp_path):
         """Second call returns cached HTML without re-rendering."""
         nb = create_notebook_from_code(code="y = 2", description="Cache hit test")
@@ -210,7 +196,6 @@ class TestGetOrRenderHtml:
         _, html_path2 = get_or_render_html(nb_path, cache_dir=cache_dir)
         assert html_path2.stat().st_mtime == first_mtime
 
-    @pytest.mark.unit
     def test_invalidates_stale_cache(self, tmp_path):
         """Cache is regenerated when notebook is newer than cached HTML."""
         nb = create_notebook_from_code(code="STALE_ORIGINAL_MARKER", description="Stale test")
@@ -232,7 +217,6 @@ class TestGetOrRenderHtml:
         assert html_path2.stat().st_mtime > first_mtime
         assert "STALE_UPDATED_MARKER" in html
 
-    @pytest.mark.unit
     def test_each_mode_caches_under_its_own_name(self, tmp_path, monkeypatch):
         """Flipping the posture re-renders instead of serving the other document.
 
@@ -257,7 +241,6 @@ class TestGetOrRenderHtml:
         assert MATHJAX_URL in online_html
         assert MATHJAX_URL not in offline_html
 
-    @pytest.mark.unit
     def test_a_stale_cache_is_regenerated_in_the_offline_mode_too(self, tmp_path, monkeypatch):
         """The staleness rule is per mode, not only for the connected one."""
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
@@ -285,7 +268,6 @@ class TestGetOrRenderHtml:
 TOKYO = ZoneInfo("Asia/Tokyo")  # UTC+9, no DST
 
 
-@pytest.mark.unit
 def test_header_timestamp_is_in_the_facility_zone(monkeypatch):
     """The header an operator opens carries the facility offset, not a UTC literal."""
     monkeypatch.setattr(

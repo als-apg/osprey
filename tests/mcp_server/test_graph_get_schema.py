@@ -30,8 +30,6 @@ from osprey.mcp_server.graph.tools import get_schema as mod
 from osprey.services.facility_knowledge.seeder import NARAD_PREFIXES
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn, registered_tool_names
 
-pytestmark = pytest.mark.unit
-
 get_schema_fn = get_tool_fn(mod.get_schema)
 
 #: Matches the per-label property sample, capturing the label between backticks.

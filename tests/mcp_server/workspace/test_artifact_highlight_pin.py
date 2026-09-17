@@ -33,13 +33,11 @@ def _save(store, title="Test"):
 
 
 class TestPinned:
-    @pytest.mark.unit
     def test_new_entry_defaults(self, store):
         """New artifacts are pinned=False by default."""
         entry = _save(store)
         assert entry.pinned is False
 
-    @pytest.mark.unit
     def test_set_pinned(self, store):
         """set_pinned toggles the pin flag and persists."""
         entry = _save(store)
@@ -54,12 +52,10 @@ class TestPinned:
         reloaded = store2.get_entry(entry.id)
         assert reloaded.pinned is True
 
-    @pytest.mark.unit
     def test_set_pinned_not_found(self, store):
         """set_pinned on nonexistent ID returns None."""
         assert store.set_pinned("nonexistent", True) is None
 
-    @pytest.mark.unit
     def test_list_filter_pinned(self, store):
         """list_entries(pinned=True) returns only pinned."""
         e1 = _save(store, title="A")
@@ -70,7 +66,6 @@ class TestPinned:
         assert len(pinned) == 1
         assert pinned[0].id == e1.id
 
-    @pytest.mark.unit
     def test_to_tool_response_includes_pinned(self, store):
         """to_tool_response includes pinned."""
         entry = _save(store)
@@ -81,7 +76,6 @@ class TestPinned:
         assert resp["pinned"] is True
         assert "gallery_url" in resp
 
-    @pytest.mark.unit
     def test_to_dict_includes_pinned(self, store):
         """to_dict includes pinned."""
         entry = _save(store)
@@ -91,7 +85,6 @@ class TestPinned:
 
 
 class TestBackwardCompat:
-    @pytest.mark.unit
     def test_old_index_without_fields(self, tmp_path):
         """Index files from before pinned still load correctly."""
         art_dir = tmp_path / "artifacts"

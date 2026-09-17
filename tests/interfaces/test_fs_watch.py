@@ -28,7 +28,6 @@ def _listing() -> dict[str, ChangeStamp]:
     return {"note.txt": _STAMP}
 
 
-@pytest.mark.unit
 class TestEvictingADirectorysSubtree:
     """A path that is no longer in the tree keeps no listing, and neither does
     anything that was under it."""
@@ -79,7 +78,6 @@ class TestEvictingADirectorysSubtree:
         assert listings == {}
 
 
-@pytest.mark.unit
 class TestRefreshingADirectorysListing:
     """One listing is kept per directory that still exists, and the caller is
     handed what it replaced so it can say what differs."""
@@ -129,7 +127,6 @@ class TestRefreshingADirectorysListing:
         assert listings == {}
 
 
-@pytest.mark.unit
 class TestStampingOneEntry:
     """A stamp taken of a path and a stamp taken by listing its parent describe
     the same file identically — otherwise a change recorded through one could
@@ -165,7 +162,6 @@ class TestStampingOneEntry:
         assert entry_stamp(note) != before
 
 
-@pytest.mark.unit
 class TestTheReconciliationTimer:
     """The second trigger: it keeps running, it stops on demand, and one bad
     pass does not end it."""
@@ -219,7 +215,6 @@ class TestTheReconciliationTimer:
         assert Reconciler(1.5, lambda: None).interval == 1.5
 
 
-@pytest.mark.unit
 class TestTheConfiguredInterval:
     """One setting for both watchers, and no value that switches the pass off."""
 
@@ -249,7 +244,6 @@ class TestTheConfiguredInterval:
         assert "web.file_watch_reconcile_interval_s" in caplog.text
 
 
-@pytest.mark.unit
 class TestTheDirectoriesAPassVisits:
     """What one pass owes a frame to, decided in one place for both watchers.
 

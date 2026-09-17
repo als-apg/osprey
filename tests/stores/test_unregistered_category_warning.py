@@ -16,8 +16,6 @@ import pytest
 
 from osprey.stores.artifact_store import ArtifactStore
 
-pytestmark = pytest.mark.unit
-
 
 @pytest.fixture
 def store(tmp_path, monkeypatch) -> ArtifactStore:

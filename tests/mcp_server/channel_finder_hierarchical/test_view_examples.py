@@ -3,8 +3,6 @@
 import json
 from unittest.mock import PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     initialize_cf_hier_context,
 )
@@ -42,7 +40,6 @@ def _make_store_with_entries(tmp_path):
     return store
 
 
-@pytest.mark.unit
 def test_view_examples_no_store(tmp_path, monkeypatch):
     """Registry has no feedback_store, returns empty."""
     _setup(tmp_path, monkeypatch)
@@ -62,7 +59,6 @@ def test_view_examples_no_store(tmp_path, monkeypatch):
     assert "No feedback data" in result["message"]
 
 
-@pytest.mark.unit
 def test_view_examples_no_keywords_lists_all(tmp_path, monkeypatch):
     """Store with entries, no keywords — returns all summaries."""
     _setup(tmp_path, monkeypatch)
@@ -89,7 +85,6 @@ def test_view_examples_no_keywords_lists_all(tmp_path, monkeypatch):
     assert "BAD" in all_text
 
 
-@pytest.mark.unit
 def test_view_examples_with_keywords_returns_matches(tmp_path, monkeypatch):
     """Keyword search surfaces relevant entries."""
     _setup(tmp_path, monkeypatch)
@@ -116,7 +111,6 @@ def test_view_examples_with_keywords_returns_matches(tmp_path, monkeypatch):
     assert len(result["all_examples"]) == 2
 
 
-@pytest.mark.unit
 def test_view_examples_with_exact_query_returns_hints(tmp_path, monkeypatch):
     """Exact query match returns hints in exact_match field."""
     _setup(tmp_path, monkeypatch)
@@ -148,7 +142,6 @@ def test_view_examples_with_exact_query_returns_hints(tmp_path, monkeypatch):
     assert "GOOD" in result["exact_match"][0]
 
 
-@pytest.mark.unit
 def test_view_examples_with_keywords_no_match(tmp_path, monkeypatch):
     """Unrelated keywords return empty matches but still all summaries."""
     _setup(tmp_path, monkeypatch)

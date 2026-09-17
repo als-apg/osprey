@@ -40,9 +40,6 @@ from osprey.audit.envelope import (
 )
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, UNKNOWN_IDENTITY
 
-pytestmark = pytest.mark.unit
-
-
 # --------------------------------------------------------------------------
 # Fixtures and helpers
 # --------------------------------------------------------------------------

@@ -2,8 +2,6 @@
 
 from unittest.mock import patch
 
-import pytest
-
 from osprey.mcp_server.export.converter import PlaywrightNotInstalledError
 from osprey.stores.artifact_store import ArtifactStore
 from tests.mcp_server.conftest import (
@@ -19,7 +17,6 @@ def _get_artifact_export():
     return get_tool_fn(artifact_export)
 
 
-@pytest.mark.unit
 async def test_export_html_to_png(tmp_path, monkeypatch):
     """HTML artifact is converted to PNG via mocked converter."""
     monkeypatch.chdir(tmp_path)
@@ -56,7 +53,6 @@ async def test_export_html_to_png(tmp_path, monkeypatch):
     assert data["artifact_type"] == "image"
 
 
-@pytest.mark.unit
 async def test_export_already_target_format(tmp_path, monkeypatch):
     """PNG artifact returns existing entry without conversion."""
     monkeypatch.chdir(tmp_path)
@@ -80,7 +76,6 @@ async def test_export_already_target_format(tmp_path, monkeypatch):
     assert data["artifact_id"] == entry.id  # same artifact, no conversion
 
 
-@pytest.mark.unit
 async def test_export_nonexistent_artifact(tmp_path, monkeypatch):
     """Non-existent artifact ID returns not_found error."""
     monkeypatch.chdir(tmp_path)
@@ -95,7 +90,6 @@ async def test_export_nonexistent_artifact(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_export_non_html_artifact(tmp_path, monkeypatch):
     """Non-HTML artifact (e.g. JSON) returns conversion_not_supported error."""
     monkeypatch.chdir(tmp_path)
@@ -118,7 +112,6 @@ async def test_export_non_html_artifact(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_export_playwright_missing(tmp_path, monkeypatch):
     """Missing Playwright raises dependency_missing error."""
     monkeypatch.chdir(tmp_path)

@@ -64,7 +64,6 @@ def pinned_passwords(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_a_derived_dsn_opens_both_pools(pool_factory):
     """Two logins on one store, and the read-only one is the smaller pool: it
@@ -81,7 +80,6 @@ async def test_a_derived_dsn_opens_both_pools(pool_factory):
     assert service.readonly_pool is not service.pool
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_an_explicit_dsn_leaves_one_pool_and_one_warning(pool_factory, caplog):
     """A database osprey did not provision has no ``_ro`` role to open."""
@@ -96,7 +94,6 @@ async def test_an_explicit_dsn_leaves_one_pool_and_one_warning(pool_factory, cap
     assert "SQL tool is running on the ingestion role" in caplog.text
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_a_refused_readonly_login_falls_back_and_says_so(monkeypatch, caplog):
     """The shape an existing data volume has: the DSN resolves, the login does
@@ -131,7 +128,6 @@ async def test_a_refused_readonly_login_falls_back_and_says_so(monkeypatch, capl
     assert "ariel_ro" in caplog.text
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_the_readonly_pool_is_closed_with_the_service(pool_factory):
     """Both pools are the service's to close; leaking the smaller one would
@@ -194,7 +190,6 @@ def _service_with_two_pools() -> tuple[Any, _RecordingPool, _RecordingPool]:
     return service, ingest, readonly
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_the_mcp_context_shutdown_closes_both_pools():
     """The server that hosts ``sql_query`` is the readonly pool's one consumer."""
@@ -210,7 +205,6 @@ async def test_the_mcp_context_shutdown_closes_both_pools():
     assert readonly.closed
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_closing_the_capability_singleton_closes_both_pools(monkeypatch):
     """Same hand-rolled teardown, one module along."""
@@ -226,7 +220,6 @@ async def test_closing_the_capability_singleton_closes_both_pools(monkeypatch):
     assert capability._ariel_service_instance is None
 
 
-@pytest.mark.unit
 @pytest.mark.asyncio
 async def test_a_single_pool_service_still_closes_cleanly(monkeypatch):
     """A stack on the fallback has no readonly pool; neither teardown may trip."""

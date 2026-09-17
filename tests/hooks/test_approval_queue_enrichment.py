@@ -48,8 +48,6 @@ import socket
 import threading
 from contextlib import contextmanager
 
-import pytest
-
 SCAN_HOOK_CONFIG = {
     "server_prefixes": ["mcp__bluesky__"],
     "approval_prefixes": ["mcp__bluesky__"],
@@ -185,7 +183,6 @@ def _reason(result) -> str:
     return output["permissionDecisionReason"]
 
 
-@pytest.mark.unit
 def test_matching_revision_renders_shipped_plan_and_source(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -245,7 +242,6 @@ def test_matching_revision_renders_shipped_plan_and_source(
     assert "AGENT-AUTHORED" not in reason
 
 
-@pytest.mark.unit
 def test_matching_revision_labels_unvalidated_session_plan_as_untrusted(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -290,7 +286,6 @@ def test_matching_revision_labels_unvalidated_session_plan_as_untrusted(
     assert "__subclasses__" in reason
 
 
-@pytest.mark.unit
 def test_matching_revision_reports_validated_session_plan_as_passed(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -338,7 +333,6 @@ def test_matching_revision_reports_validated_session_plan_as_passed(
     assert "AGENT-AUTHORED, NOT REVIEWED BY A HUMAN" in reason
 
 
-@pytest.mark.unit
 def test_newline_in_plan_name_cannot_forge_an_enrichment_line(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -381,7 +375,6 @@ def test_newline_in_plan_name_cannot_forge_an_enrichment_line(
     assert "SPOOFED BY THE PLAN NAME" in reason
 
 
-@pytest.mark.unit
 def test_changed_revision_renders_loud_drift_warning(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -430,7 +423,6 @@ def test_changed_revision_renders_loud_drift_warning(
     assert "num_points" in reason
 
 
-@pytest.mark.unit
 def test_empty_draft_renders_explicit_empty_line(tmp_path, hook_runner, make_config, monkeypatch):
     """A never-set / cleared draft renders an explicit EMPTY line, never a
     silent absence of plan detail."""
@@ -452,7 +444,6 @@ def test_empty_draft_renders_explicit_empty_line(tmp_path, hook_runner, make_con
     assert "Tool: queue_add" in reason
 
 
-@pytest.mark.unit
 def test_unreachable_bridge_fails_open(tmp_path, hook_runner, make_config, monkeypatch):
     """A dead bridge must never block the approval prompt: the hook still asks,
     just with the plain tool/policy reason instead of any draft detail.
@@ -473,7 +464,6 @@ def test_unreachable_bridge_fails_open(tmp_path, hook_runner, make_config, monke
     assert "Draft:" not in reason
 
 
-@pytest.mark.unit
 def test_malformed_draft_response_fails_open(tmp_path, hook_runner, make_config, monkeypatch):
     """A `GET /draft` body that is not parseable JSON must fail open exactly
     like an unreachable bridge — plain reason, no draft detail, zero exit."""
@@ -504,7 +494,6 @@ _IDLE_QUEUE = {
 }
 
 
-@pytest.mark.unit
 def test_queue_add_onto_a_running_queue_warns_that_it_executes_immediately(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -534,7 +523,6 @@ def test_queue_add_onto_a_running_queue_warns_that_it_executes_immediately(
     assert "no further approval" in reason
 
 
-@pytest.mark.unit
 def test_queue_add_onto_an_idle_queue_does_not_cry_wolf(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -557,7 +545,6 @@ def test_queue_add_onto_an_idle_queue_does_not_cry_wolf(
     assert "No plan is currently running" in reason
 
 
-@pytest.mark.unit
 def test_queue_add_reports_out_of_band_autostart(tmp_path, hook_runner, make_config, monkeypatch):
     """Autostart on an idle queue is still armed — the queue is started."""
     config = _queue_config(make_config)
@@ -578,7 +565,6 @@ def test_queue_add_reports_out_of_band_autostart(tmp_path, hook_runner, make_con
     assert "no further approval" in reason
 
 
-@pytest.mark.unit
 def test_queue_start_names_every_item_it_would_run(tmp_path, hook_runner, make_config, monkeypatch):
     """`queue_start` takes no arguments, so the prompt IS the statement of what moves.
 
@@ -612,7 +598,6 @@ def test_queue_start_names_every_item_it_would_run(tmp_path, hook_runner, make_c
     assert "AGENT-AUTHORED" in reason
 
 
-@pytest.mark.unit
 def test_queue_start_on_an_empty_queue_says_so(tmp_path, hook_runner, make_config, monkeypatch):
     """Approving a start that would run nothing should read as running nothing."""
     config = _queue_config(make_config)
@@ -625,7 +610,6 @@ def test_queue_start_on_an_empty_queue_says_so(tmp_path, hook_runner, make_confi
     assert "AGENT-AUTHORED" not in reason
 
 
-@pytest.mark.unit
 def test_queue_stop_cancel_renders_the_loud_withdrawal_warning(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -650,7 +634,6 @@ def test_queue_stop_cancel_renders_the_loud_withdrawal_warning(
     assert "A stop is PENDING" in reason
 
 
-@pytest.mark.unit
 def test_plain_queue_stop_is_described_as_a_halt(tmp_path, hook_runner, make_config, monkeypatch):
     """Negative control for the withdrawal warning, plus the limit of a halt.
 
@@ -673,7 +656,6 @@ def test_plain_queue_stop_is_described_as_a_halt(tmp_path, hook_runner, make_con
     assert "no tool here can" not in reason
 
 
-@pytest.mark.unit
 def test_stop_run_renders_the_abort_prompt_end_to_end(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -693,7 +675,6 @@ def test_stop_run_renders_the_abort_prompt_end_to_end(
     assert "left wherever the plan moved it" in reason
 
 
-@pytest.mark.unit
 def test_queue_start_with_an_unreachable_bridge_says_the_queue_is_unseen(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -742,7 +723,6 @@ def _draft_route(plan: str, plan_args: dict, revision: int) -> dict:
     return {"draft": {"plan_name": plan, "plan_args": plan_args}, "revision": revision}
 
 
-@pytest.mark.unit
 def test_queue_add_renders_the_bounded_trajectory_and_declared_channels(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -790,7 +770,6 @@ def test_queue_add_renders_the_bounded_trajectory_and_declared_channels(
     assert posted == [(_preview_route("grid_scan"), plan_args)]
 
 
-@pytest.mark.unit
 def test_queue_add_states_the_exact_total_when_the_pre_flight_truncated(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -827,7 +806,6 @@ def test_queue_add_states_the_exact_total_when_the_pre_flight_truncated(
     assert "… 2 moves not shown …" in reason
 
 
-@pytest.mark.unit
 def test_queue_add_renders_trajectory_unavailable_without_blocking_approval(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -867,7 +845,6 @@ def test_queue_add_renders_trajectory_unavailable_without_blocking_approval(
     assert "Tool: queue_add" in reason
 
 
-@pytest.mark.unit
 def test_queue_add_survives_a_bridge_with_no_pre_flight_route(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -885,7 +862,6 @@ def test_queue_add_survives_a_bridge_with_no_pre_flight_route(
     assert "num_points" in reason
 
 
-@pytest.mark.unit
 def test_a_newline_in_a_previewed_channel_cannot_forge_a_prompt_line(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -919,7 +895,6 @@ def test_a_newline_in_a_previewed_channel_cannot_forge_a_prompt_line(
     assert "Hazard: read-only" in reason
 
 
-@pytest.mark.unit
 def test_queue_start_renders_the_trajectory_of_the_items_it_would_run(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -960,7 +935,6 @@ def test_queue_start_renders_the_trajectory_of_the_items_it_would_run(
     assert posted == [(_preview_route("grid_scan"), {"num_points": 3})]
 
 
-@pytest.mark.unit
 def test_queue_start_previews_only_the_first_three_items_of_a_larger_queue(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1016,7 +990,6 @@ def test_queue_start_previews_only_the_first_three_items_of_a_larger_queue(
     )
 
 
-@pytest.mark.unit
 def test_queue_start_item_preview_skips_the_fetch_once_the_shared_budget_is_spent(
     hook_module,
 ):
@@ -1040,7 +1013,6 @@ def test_queue_start_item_preview_skips_the_fetch_once_the_shared_budget_is_spen
     ]
 
 
-@pytest.mark.unit
 def test_bounded_move_lines_singular_at_exactly_one_hidden_move(hook_module):
     """Grammar pin: exactly one hidden move (11 total, 5 head + 5 tail) reads
     '1 move not shown', not '1 moves not shown'."""
@@ -1059,7 +1031,6 @@ def _moves_for_module(mod, count: int) -> list:
     ]
 
 
-@pytest.mark.unit
 def test_declared_channels_survives_a_non_list_channels_field(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1095,7 +1066,6 @@ def test_declared_channels_survives_a_non_list_channels_field(
     assert "Tool: queue_add" in reason
 
 
-@pytest.mark.unit
 def test_declared_channels_survives_entries_missing_expected_keys(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1129,7 +1099,6 @@ def test_declared_channels_survives_entries_missing_expected_keys(
     assert "Tool: queue_add" in reason
 
 
-@pytest.mark.unit
 def test_preview_fetch_survives_a_plan_name_with_a_lone_surrogate(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1160,7 +1129,6 @@ def test_preview_fetch_survives_a_plan_name_with_a_lone_surrogate(
     assert "Setpoint trajectory: unavailable" in reason
 
 
-@pytest.mark.unit
 def test_role_reason_and_detail_sanitize_embedded_newlines(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1206,7 +1174,6 @@ def test_role_reason_and_detail_sanitize_embedded_newlines(
     assert "Provenance: shipped (SPOOFED)" in reason
 
 
-@pytest.mark.unit
 def test_target_sanitizes_embedded_newlines(tmp_path, hook_runner, make_config, monkeypatch):
     """Sanitization coverage for a move's *target*: like `channel`, it is a
     staged parameter relayed verbatim by the pre-flight, and must not be able

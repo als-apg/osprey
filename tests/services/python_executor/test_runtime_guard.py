@@ -53,8 +53,6 @@ from osprey.services.python_executor.execution.wrapper import (
     ExecutionWrapper,
 )
 
-pytestmark = pytest.mark.unit
-
 _GUARD_BANNER = "OSPREY filesystem guard"
 
 

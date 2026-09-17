@@ -32,7 +32,6 @@ def project(tmp_path, monkeypatch):
     return tmp_path
 
 
-@pytest.mark.unit
 def test_singleton_ignores_session_relocation(project, monkeypatch):
     """With OSPREY_SESSION_ID set, the store must still root at the shared path."""
     monkeypatch.setenv("OSPREY_SESSION_ID", SESSION_ID)
@@ -45,7 +44,6 @@ def test_singleton_ignores_session_relocation(project, monkeypatch):
     assert "sessions" not in store.artifact_dir.parts
 
 
-@pytest.mark.unit
 def test_saved_entry_carries_session_tag_on_shared_root(project, monkeypatch):
     """Session isolation happens at the index level: shared path, tagged entry."""
     monkeypatch.setenv("OSPREY_SESSION_ID", SESSION_ID)
@@ -65,7 +63,6 @@ def test_saved_entry_carries_session_tag_on_shared_root(project, monkeypatch):
     assert (project / "_agent_data" / "artifacts" / entry.filename).exists()
 
 
-@pytest.mark.unit
 def test_singleton_root_without_session_env(project):
     """Sanity: without OSPREY_SESSION_ID the root is unchanged."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -74,7 +71,6 @@ def test_singleton_root_without_session_env(project):
     assert get_artifact_store().artifact_dir == project / "_agent_data" / "artifacts"
 
 
-@pytest.mark.unit
 @pytest.mark.real_server_launch
 def test_daemon_web_server_receives_shared_root(project, monkeypatch):
     """ServerLauncher hands daemons the shared root even in session-scoped processes.

@@ -36,8 +36,6 @@ from osprey.mcp_server.bluesky.server_context import initialize_server_context, 
 from osprey.mcp_server.bluesky.tools import stop
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
-pytestmark = pytest.mark.unit
-
 _MOD = "osprey.mcp_server.bluesky.tools.stop"
 
 _ABORT_OK = {

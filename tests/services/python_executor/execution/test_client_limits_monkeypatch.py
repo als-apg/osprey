@@ -39,9 +39,6 @@ from osprey.services.python_executor.write_surface import (
     _LIMITS_WRAPPED,
 )
 
-pytestmark = pytest.mark.unit
-
-
 # ---------------------------------------------------------------------------
 # Restoration
 # ---------------------------------------------------------------------------

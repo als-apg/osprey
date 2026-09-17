@@ -95,7 +95,6 @@ async def _read(tmp_path, monkeypatch, values, channels=None, inline_max=None, *
     return extract_response_dict(result), connector
 
 
-@pytest.mark.unit
 async def test_scalars_and_text_always_inline(tmp_path, monkeypatch):
     """Scalars, a 10k-character string and bytes inline regardless of length."""
     long_text = "x" * 10_000
@@ -115,7 +114,6 @@ async def test_scalars_and_text_always_inline(tmp_path, monkeypatch):
         assert "value_withheld" not in entry
 
 
-@pytest.mark.unit
 async def test_small_array_inlines_as_json_list(tmp_path, monkeypatch):
     """A small array comes back as an actual JSON list, never stringified."""
     array = np.arange(10, dtype=np.float64)
@@ -126,7 +124,6 @@ async def test_small_array_inlines_as_json_list(tmp_path, monkeypatch):
     assert value == [float(x) for x in range(10)]
 
 
-@pytest.mark.unit
 async def test_oversized_array_is_withheld_with_summary(tmp_path, monkeypatch):
     """An array over the per-value threshold gets a summary, not raw numbers."""
     frame = np.arange(64 * 48, dtype=np.uint16).reshape(48, 64)
@@ -155,7 +152,6 @@ async def test_oversized_array_is_withheld_with_summary(tmp_path, monkeypatch):
     assert "per_value_threshold" in withheld["artifact_reason"]
 
 
-@pytest.mark.unit
 async def test_aggregate_budget_overflow_is_request_ordered(tmp_path, monkeypatch):
     """Under-threshold arrays that together bust the 4x budget are withheld in order."""
     # Threshold 250 -> aggregate budget 1000. Each array is 240 elements, well
@@ -176,7 +172,6 @@ async def test_aggregate_budget_overflow_is_request_ordered(tmp_path, monkeypatc
     assert data["access_details"]["values_withheld"]["channels"] == [channels[4]]
 
 
-@pytest.mark.unit
 async def test_aggregate_budget_reason_is_distinct_from_per_value(tmp_path, monkeypatch):
     """A batch can carry both reasons, and each entry names its own."""
     channels = ["SR:BIG", "SR:S1", "SR:S2"]
@@ -196,7 +191,6 @@ async def test_aggregate_budget_reason_is_distinct_from_per_value(tmp_path, monk
     assert isinstance(readings["SR:S2"]["value"], list)
 
 
-@pytest.mark.unit
 async def test_non_numeric_oversized_array_has_no_stats(tmp_path, monkeypatch):
     """A withheld string array reports shape/dtype/count but no invented extremes."""
     array = np.array(["a"] * 3000)
@@ -211,7 +205,6 @@ async def test_non_numeric_oversized_array_has_no_stats(tmp_path, monkeypatch):
         assert stat not in entry
 
 
-@pytest.mark.unit
 async def test_failed_address_reported_with_error_text(tmp_path, monkeypatch):
     """One bad address in a batch surfaces in channels_failed; the rest succeed."""
     values = {
@@ -233,7 +226,6 @@ async def test_failed_address_reported_with_error_text(tmp_path, monkeypatch):
     assert connector.calls == list(values)
 
 
-@pytest.mark.unit
 async def test_no_failures_means_no_channels_failed_key(tmp_path, monkeypatch):
     """The scalar envelope is unchanged when every channel answers."""
     data, _ = await _read(tmp_path, monkeypatch, {"SR:CURRENT:RB": 500.2})
@@ -242,7 +234,6 @@ async def test_no_failures_means_no_channels_failed_key(tmp_path, monkeypatch):
     assert "values_withheld" not in data["access_details"]
 
 
-@pytest.mark.unit
 async def test_configured_threshold_is_honored(tmp_path, monkeypatch):
     """A configured inline_max_elements decides what inlines."""
     array = np.arange(50, dtype=np.float64)

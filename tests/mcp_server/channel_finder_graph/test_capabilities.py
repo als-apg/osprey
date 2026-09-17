@@ -30,8 +30,6 @@ from osprey.mcp_server.graph.server_context import (
 )
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn, registered_tool_names
 
-pytestmark = pytest.mark.unit
-
 capabilities_fn = get_tool_fn(mod.capabilities)
 
 #: The full tool vocabulary the paradigm advertises. A literal, so a renamed or

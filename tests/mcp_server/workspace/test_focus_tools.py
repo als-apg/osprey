@@ -56,7 +56,6 @@ def _pin_fn():
 
 
 class TestArtifactFocus:
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_success_when_gallery_accepts(self, entry, _gallery_url):
         with patch(
@@ -67,7 +66,6 @@ class TestArtifactFocus:
         assert result["status"] == "success"
         assert result["artifact_id"] == entry.id
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_error_when_gallery_unreachable(self, entry, _gallery_url):
         with patch(
@@ -77,7 +75,6 @@ class TestArtifactFocus:
             with assert_raises_error(error_type="gallery_unreachable"):
                 await _focus_fn()(artifact_id=entry.id)
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_error_when_gallery_rejects(self, entry, _gallery_url):
         """A gallery 404 means the user never saw the focus — never claim success."""
@@ -88,7 +85,6 @@ class TestArtifactFocus:
             with assert_raises_error(error_type="gallery_error"):
                 await _focus_fn()(artifact_id=entry.id)
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_unknown_artifact_is_not_found(self, store, _gallery_url):
         with assert_raises_error(error_type="not_found"):
@@ -96,7 +92,6 @@ class TestArtifactFocus:
 
 
 class TestArtifactPin:
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_pin_reports_gallery_notified(self, entry, _gallery_url):
         with patch(
@@ -108,7 +103,6 @@ class TestArtifactPin:
         assert result["pinned"] is True
         assert result["gallery_notified"] is True
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_pin_persists_but_reports_failed_notify(self, store, entry, _gallery_url):
         """Pin lands in the shared index even when the gallery POST fails."""
@@ -123,7 +117,6 @@ class TestArtifactPin:
         # Durable state is set regardless of the gallery being reachable.
         assert store.get_entry(entry.id).pinned is True
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_pin_unknown_artifact_is_not_found(self, store, _gallery_url):
         with assert_raises_error(error_type="not_found"):

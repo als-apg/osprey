@@ -36,7 +36,6 @@ def _write_config(tmp_path, config_dict):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_initialize_loads_config(tmp_path, monkeypatch):
     """Registry reads config.yml and exposes sections."""
     monkeypatch.chdir(tmp_path)
@@ -57,7 +56,6 @@ def test_initialize_loads_config(tmp_path, monkeypatch):
     assert registry.config.writes_enabled is True
 
 
-@pytest.mark.unit
 def test_initialize_missing_config(tmp_path, monkeypatch):
     """Registry initializes with empty config when config.yml is missing."""
     monkeypatch.chdir(tmp_path)
@@ -70,7 +68,6 @@ def test_initialize_missing_config(tmp_path, monkeypatch):
     assert registry.config.writes_enabled is False
 
 
-@pytest.mark.unit
 def test_initialize_idempotent(tmp_path, monkeypatch):
     """Calling initialize() multiple times is a no-op after the first."""
     monkeypatch.chdir(tmp_path)
@@ -83,7 +80,6 @@ def test_initialize_idempotent(tmp_path, monkeypatch):
     assert registry.config.control_system["type"] == "mock"
 
 
-@pytest.mark.unit
 def test_config_not_initialized_raises():
     """Accessing config before initialization raises RuntimeError."""
     registry = ControlSystemContext()
@@ -96,7 +92,6 @@ def test_config_not_initialized_raises():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_singleton_access(tmp_path, monkeypatch):
     """get_server_context() returns the same instance."""
     monkeypatch.chdir(tmp_path)
@@ -109,14 +104,12 @@ def test_singleton_access(tmp_path, monkeypatch):
     assert r1 is r2
 
 
-@pytest.mark.unit
 def test_get_before_initialize_raises():
     """get_server_context() raises before initialize_server_context()."""
     with pytest.raises(RuntimeError, match="not initialized"):
         get_server_context()
 
 
-@pytest.mark.unit
 def test_reset_clears_singleton(tmp_path, monkeypatch):
     """reset_server_context() clears the singleton so get raises again."""
     monkeypatch.chdir(tmp_path)
@@ -134,7 +127,6 @@ def test_reset_clears_singleton(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_connector_caching(tmp_path, monkeypatch):
     """Two calls to registry.control_system() return the same instance."""
     monkeypatch.chdir(tmp_path)
@@ -155,7 +147,6 @@ async def test_connector_caching(tmp_path, monkeypatch):
     assert mock_connector is c1
 
 
-@pytest.mark.unit
 async def test_archiver_connector_caching(tmp_path, monkeypatch):
     """Two calls to registry.archiver() return the same instance."""
     monkeypatch.chdir(tmp_path)
@@ -179,7 +170,6 @@ async def test_archiver_connector_caching(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_connector_invalidation(tmp_path, monkeypatch):
     """After invalidate_connector(), next call creates a fresh instance."""
     monkeypatch.chdir(tmp_path)
@@ -204,7 +194,6 @@ async def test_connector_invalidation(tmp_path, monkeypatch):
     mock_c1.disconnect.assert_called_once()
 
 
-@pytest.mark.unit
 async def test_invalidate_unknown_connector(tmp_path, monkeypatch):
     """Invalidating a non-existent connector is a no-op."""
     monkeypatch.chdir(tmp_path)
@@ -215,7 +204,6 @@ async def test_invalidate_unknown_connector(tmp_path, monkeypatch):
     await registry.invalidate_connector("nonexistent")
 
 
-@pytest.mark.unit
 async def test_invalidate_unconnected(tmp_path, monkeypatch):
     """Invalidating a connector that was never created is a no-op."""
     monkeypatch.chdir(tmp_path)
@@ -231,7 +219,6 @@ async def test_invalidate_unconnected(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_config_validation_warnings_unknown_type(tmp_path, monkeypatch, caplog):
     """Unknown connector types emit warnings."""
     monkeypatch.chdir(tmp_path)
@@ -250,7 +237,6 @@ def test_config_validation_warnings_unknown_type(tmp_path, monkeypatch, caplog):
     assert "Unknown archiver.type: unknown_archiver" in caplog.text
 
 
-@pytest.mark.unit
 def test_config_validation_warnings_missing_sections(tmp_path, monkeypatch, caplog):
     """Missing config sections emit warnings."""
     monkeypatch.chdir(tmp_path)
@@ -268,7 +254,6 @@ def test_config_validation_warnings_missing_sections(tmp_path, monkeypatch, capl
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
     """shutdown() disconnects all cached connectors."""
     monkeypatch.chdir(tmp_path)
@@ -310,7 +295,6 @@ async def test_shutdown_disconnects_all(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_channel_finder_config(tmp_path, monkeypatch):
     """channel_finder_config() returns the correct section."""
     monkeypatch.chdir(tmp_path)
@@ -331,7 +315,6 @@ def test_channel_finder_config(tmp_path, monkeypatch):
     assert cf_config["model_config"]["model"] == "bge-small"
 
 
-@pytest.mark.unit
 def test_channel_finder_config_empty(tmp_path, monkeypatch):
     """channel_finder_config() returns empty dict when section is missing."""
     monkeypatch.chdir(tmp_path)
@@ -346,7 +329,6 @@ def test_channel_finder_config_empty(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_dot_path_access(tmp_path, monkeypatch):
     """registry.get('control_system.type') navigates nested config."""
     monkeypatch.chdir(tmp_path)
@@ -371,7 +353,6 @@ def test_dot_path_access(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_mcp_server_config_properties(tmp_path, monkeypatch):
     """MCPServerConfig exposes all expected properties."""
     monkeypatch.chdir(tmp_path)
@@ -395,7 +376,6 @@ def test_mcp_server_config_properties(tmp_path, monkeypatch):
     assert cfg.writes_enabled is False
 
 
-@pytest.mark.unit
 async def test_unknown_connector_raises(tmp_path, monkeypatch):
     """Requesting an unknown connector type raises ValueError."""
     monkeypatch.chdir(tmp_path)
@@ -425,7 +405,6 @@ _FLAT_ARCHIVER_ONLY = _VA_UNSET_ARCHIVER | {"archiver.type": "mongodb_archiver"}
 _FLAT_CONTROL_SYSTEM_OVER_NESTED_VA = _VA_MOCK_NESTED | {"control_system.type": "mock"}
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "config",
     [
@@ -460,7 +439,6 @@ _STANDIN_MOCK_NESTED = {
 _STANDIN_UNSET_ARCHIVER = {"control_system": {"type": "live_standin"}}
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "config",
     [
@@ -487,7 +465,6 @@ def test_a_stand_in_with_invented_history_is_refused_under_its_own_name(
     assert "'virtual_accelerator'" not in message
 
 
-@pytest.mark.unit
 def test_the_virtual_accelerator_is_still_named_when_it_is_the_invented_machine(
     tmp_path, monkeypatch
 ):
@@ -504,7 +481,6 @@ def test_the_virtual_accelerator_is_still_named_when_it_is_the_invented_machine(
     assert "'live_standin'" not in message
 
 
-@pytest.mark.unit
 def test_the_refusal_explains_an_inert_flat_line_rather_than_calling_it_unset(
     tmp_path, monkeypatch
 ):
@@ -521,7 +497,6 @@ def test_the_refusal_explains_an_inert_flat_line_rather_than_calling_it_unset(
     assert "nested sections" in message
 
 
-@pytest.mark.unit
 def test_a_flat_only_control_system_is_a_mock_deployment_not_a_refusal(tmp_path, monkeypatch):
     """The mirror of the rule. With no `control_system:` section the factory
     falls back to the mock, so this is a mock machine with a mock archive --
@@ -537,7 +512,6 @@ def test_a_flat_only_control_system_is_a_mock_deployment_not_a_refusal(tmp_path,
     assert registry.config.control_system == {}
 
 
-@pytest.mark.unit
 def test_the_refusal_names_the_config_and_both_ways_out(tmp_path, monkeypatch):
     """A refusal at MCP startup reaches someone reading a launcher's stderr, who
     needs the file to open and the edit to make."""
@@ -553,7 +527,6 @@ def test_the_refusal_names_the_config_and_both_ways_out(tmp_path, monkeypatch):
     assert "'mock'" in message
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "config",
     [

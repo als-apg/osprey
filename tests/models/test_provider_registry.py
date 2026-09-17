@@ -20,7 +20,6 @@ def _clean_singleton():
 class TestProviderRegistry:
     """Unit tests for ProviderRegistry."""
 
-    @pytest.mark.unit
     def test_get_builtin_provider(self):
         """Built-in providers (e.g. anthropic) resolve to a class."""
         reg = ProviderRegistry()
@@ -28,13 +27,11 @@ class TestProviderRegistry:
         assert cls is not None
         assert cls.name == "anthropic"
 
-    @pytest.mark.unit
     def test_get_unknown_returns_none(self):
         """Unknown provider name returns None, never raises."""
         reg = ProviderRegistry()
         assert reg.get_provider("does_not_exist") is None
 
-    @pytest.mark.unit
     def test_register_custom_provider(self):
         """Custom providers registered at runtime are resolvable."""
         reg = ProviderRegistry()
@@ -47,7 +44,6 @@ class TestProviderRegistry:
         assert cls is not None
         assert cls.name == "anthropic"
 
-    @pytest.mark.unit
     def test_list_providers_contains_all_builtins(self):
         """list_providers returns all 12 built-in names."""
         reg = ProviderRegistry()
@@ -69,21 +65,18 @@ class TestProviderRegistry:
         assert expected == set(names)
         assert len(names) == 12
 
-    @pytest.mark.unit
     def test_singleton_identity(self):
         """get_provider_registry() returns the same instance."""
         a = get_provider_registry()
         b = get_provider_registry()
         assert a is b
 
-    @pytest.mark.unit
     def test_load_providers_config_filtered(self):
         """load_providers with configured_names only loads those."""
         reg = ProviderRegistry()
         result = reg.load_providers(configured_names={"anthropic", "cborg"})
         assert set(result.keys()) == {"anthropic", "cborg"}
 
-    @pytest.mark.unit
     def test_load_providers_exclusion_filtered(self):
         """load_providers with excluded_names skips those."""
         reg = ProviderRegistry()
@@ -93,7 +86,6 @@ class TestProviderRegistry:
         # All others should be present (may fail if import fails on CI)
         assert "cborg" in result
 
-    @pytest.mark.unit
     def test_load_providers_skips_failed_imports(self):
         """A configured provider whose module can't be imported is silently
         dropped from the result (not crashing the bulk load) while valid
@@ -110,7 +102,6 @@ class TestProviderRegistry:
         assert "broken_provider" not in result
         assert "anthropic" in result
 
-    @pytest.mark.unit
     def test_lazy_load_caches(self):
         """Second get_provider call returns cached class (no re-import)."""
         reg = ProviderRegistry()
@@ -118,7 +109,6 @@ class TestProviderRegistry:
         second = reg.get_provider("anthropic")
         assert first is second
 
-    @pytest.mark.unit
     def test_ds4_is_registered(self):
         """ds4 resolves to its adapter and is keyless."""
         from osprey.models.provider_registry import PROVIDER_API_KEYS
@@ -129,7 +119,6 @@ class TestProviderRegistry:
         assert cls.name == "ds4"
         assert PROVIDER_API_KEYS.get("ds4", "MISSING") is None
 
-    @pytest.mark.unit
     def test_the_key_table_agrees_with_every_adapter(self):
         """A provider that authenticates names the variable its key arrives in.
 
@@ -146,7 +135,6 @@ class TestProviderRegistry:
             assert cls is not None, name
             assert (key_var is not None) == cls.requires_api_key, name
 
-    @pytest.mark.unit
     def test_register_override_evicts_cache(self):
         """Overwriting an existing entry clears the cache for that name."""
         reg = ProviderRegistry()

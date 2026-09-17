@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
@@ -17,7 +15,6 @@ def _setup(tmp_path, monkeypatch):
     initialize_cf_ml_context()
 
 
-@pytest.mark.unit
 def test_list_channels_returns_channels(tmp_path, monkeypatch):
     """Happy path: returns channel names for a system/family/field path."""
     _setup(tmp_path, monkeypatch)
@@ -45,7 +42,6 @@ def test_list_channels_returns_channels(tmp_path, monkeypatch):
     mock_db.list_channel_names.assert_called_once_with("SR", "BPM", "Monitor", None, None, None)
 
 
-@pytest.mark.unit
 def test_list_channels_with_subfield_and_filters(tmp_path, monkeypatch):
     """Subfield and sector/device filters are passed to database."""
     _setup(tmp_path, monkeypatch)
@@ -76,7 +72,6 @@ def test_list_channels_with_subfield_and_filters(tmp_path, monkeypatch):
     mock_db.list_channel_names.assert_called_once_with("SR", "BPM", "Monitor", "X", [1, 2], [1])
 
 
-@pytest.mark.unit
 def test_list_channels_validation_error(tmp_path, monkeypatch):
     """ValueError from database returns validation_error envelope."""
     _setup(tmp_path, monkeypatch)
@@ -99,7 +94,6 @@ def test_list_channels_validation_error(tmp_path, monkeypatch):
     assert "Unknown field" in data["error_message"]
 
 
-@pytest.mark.unit
 def test_list_channels_internal_error(tmp_path, monkeypatch):
     """Internal error returns standard error envelope."""
     _setup(tmp_path, monkeypatch)

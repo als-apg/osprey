@@ -70,13 +70,11 @@ def _section(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_the_posture_keys_are_spelled_the_way_the_config_spells_them():
     assert WRITES_ENABLED_KEY == "control_system.writes_enabled"
     assert TYPE_WRITES_ENABLED_LEAF == "writes_enabled"
 
 
-@pytest.mark.unit
 def test_a_type_names_its_own_block_key():
     """Every refusal in the framework spells the key through this one function."""
     assert writes_enabled_key(EPICS) == "control_system.connector.epics.writes_enabled"
@@ -86,7 +84,6 @@ def test_a_type_names_its_own_block_key():
     )
 
 
-@pytest.mark.unit
 def test_a_registered_type_is_armed_by_the_key_that_names_it():
     """A name with no dots in it is one line, and the refusal quotes that line."""
     remedy = writes_enabled_remedy(EPICS)
@@ -95,7 +92,6 @@ def test_a_registered_type_is_armed_by_the_key_that_names_it():
     assert "profile.yml" in remedy
 
 
-@pytest.mark.unit
 def test_a_dotted_type_is_armed_by_a_mapping_the_profile_applies_verbatim():
     """A build profile splits a dotted key on every dot; this lookup does not.
 
@@ -114,7 +110,6 @@ def test_a_dotted_type_is_armed_by_a_mapping_the_profile_applies_verbatim():
     assert WRITES_ENABLED_KEY in remedy
 
 
-@pytest.mark.unit
 def test_a_refusal_carries_the_remedy_the_profile_can_express():
     """The blocked-write message is where an operator meets the remedy."""
     result = connector_base._writes_disabled_result(
@@ -126,14 +121,12 @@ def test_a_refusal_carries_the_remedy_the_profile_can_express():
     assert "control_system.connector:" in result.error_message
 
 
-@pytest.mark.unit
 def test_no_type_names_the_deployment_wide_key():
     """A caller holding no type has no block to name, and that key answered it."""
     assert writes_enabled_key(None) == WRITES_ENABLED_KEY
     assert writes_enabled_key("") == WRITES_ENABLED_KEY
 
 
-@pytest.mark.unit
 def test_a_targets_key_is_the_block_its_posture_was_read_from():
     """The key a refusal names must be the key that decided the refusal."""
     # Arrange
@@ -154,7 +147,6 @@ def test_a_targets_key_is_the_block_its_posture_was_read_from():
     )
 
 
-@pytest.mark.unit
 def test_an_unresolvable_target_names_the_key_it_inherits_from():
     """`live` on a deployment that never described its real machine, and a target
     that names nothing at all: both read the deployment-wide key, so both name it."""
@@ -171,7 +163,6 @@ def test_an_unresolvable_target_names_the_key_it_inherits_from():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_a_per_type_true_arms_that_type_over_a_global_false():
     """The point of the feature: arm the simulator on a deployment that is off."""
     # Arrange
@@ -186,7 +177,6 @@ def test_a_per_type_true_arms_that_type_over_a_global_false():
     assert type_writes_enabled(section, EPICS) is False
 
 
-@pytest.mark.unit
 def test_a_per_type_false_disarms_that_type_over_a_global_true():
     """An explicit per-type value is the answer; it never falls back."""
     # Arrange
@@ -200,7 +190,6 @@ def test_a_per_type_false_disarms_that_type_over_a_global_true():
     assert type_writes_enabled(section, EPICS) is False
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "value",
     [False, None, "true", "True", "false", "", 0, 1, [], {}],
@@ -230,7 +219,6 @@ def test_any_present_value_that_is_not_the_bool_true_is_unarmed_and_hard(value: 
     assert type_writes_enabled(section, EPICS) is False
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("global_value", [True, False], ids=["global-true", "global-false"])
 @pytest.mark.parametrize(
     "connector",
@@ -266,7 +254,6 @@ def test_an_absent_per_type_key_inherits_the_deployment_wide_key(
     assert type_writes_enabled(section, EPICS) is global_value
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "global_value",
     [False, None, "true", 1, ...],
@@ -281,7 +268,6 @@ def test_the_inherited_deployment_wide_key_is_itself_true_or_nothing(global_valu
     assert type_writes_enabled(section, EPICS) is False
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "section", [None, "not-a-mapping", 0, []], ids=["none", "string", "zero", "list"]
 )
@@ -290,7 +276,6 @@ def test_a_section_that_is_not_a_mapping_is_not_armed(section: Any):
     assert type_writes_enabled(section, EPICS) is False
 
 
-@pytest.mark.unit
 def test_a_config_with_no_posture_anywhere_is_unarmed_for_every_type():
     """No key written at all is the shipped default, and it is off."""
     # Arrange
@@ -304,7 +289,6 @@ def test_a_config_with_no_posture_anywhere_is_unarmed_for_every_type():
     assert target_writes_enabled(section, TARGET_VA) is False
 
 
-@pytest.mark.unit
 def test_a_dotted_custom_type_is_one_key_and_not_a_path():
     """``mypackage.MoatConnector`` names one block; the dots are part of it."""
     # Arrange
@@ -321,7 +305,6 @@ def test_a_dotted_custom_type_is_one_key_and_not_a_path():
     assert type_writes_enabled(section, CUSTOM_TYPE) is True
 
 
-@pytest.mark.unit
 def test_a_dotted_custom_type_with_no_block_of_its_own_inherits():
     """The nested lookalike is a different key and contributes nothing."""
     # Arrange
@@ -335,7 +318,6 @@ def test_a_dotted_custom_type_with_no_block_of_its_own_inherits():
     assert type_writes_enabled(section, CUSTOM_TYPE) is True
 
 
-@pytest.mark.unit
 def test_the_posture_does_not_read_the_environment(monkeypatch: pytest.MonkeyPatch):
     """A read-only run is the caller's AND, not this resolver's business.
 
@@ -352,7 +334,6 @@ def test_the_posture_does_not_read_the_environment(monkeypatch: pytest.MonkeyPat
     assert target_writes_enabled(section, TARGET_LIVE) is True
 
 
-@pytest.mark.unit
 def test_asking_about_the_posture_does_not_mutate_the_section():
     # Arrange
     section = _section(EPICS, writes_enabled=False, connector={"epics": {"writes_enabled": True}})
@@ -375,7 +356,6 @@ def test_asking_about_the_posture_does_not_mutate_the_section():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_va_reads_the_virtual_accelerator_block_and_live_reads_the_epics_one():
     # Arrange
     section = _section(
@@ -392,7 +372,6 @@ def test_va_reads_the_virtual_accelerator_block_and_live_reads_the_epics_one():
     assert target_writes_enabled(section, TARGET_LIVE) is False
 
 
-@pytest.mark.unit
 def test_live_on_an_epics_baseline_reads_the_epics_block():
     # Arrange
     section = _section(
@@ -405,7 +384,6 @@ def test_live_on_an_epics_baseline_reads_the_epics_block():
     assert target_writes_enabled(section, TARGET_LIVE) is True
 
 
-@pytest.mark.unit
 def test_a_va_baseline_arms_its_own_target_without_arming_live():
     """The shape a VA deployment ships in: the simulator armed, hardware not."""
     # Arrange
@@ -422,7 +400,6 @@ def test_a_va_baseline_arms_its_own_target_without_arming_live():
     assert target_writes_enabled(section, TARGET_LIVE) is False
 
 
-@pytest.mark.unit
 def test_a_va_baseline_with_no_live_block_still_answers_live_from_the_global_key():
     """``live`` is underivable here, so the deployment-wide key is the answer."""
     # Arrange
@@ -437,7 +414,6 @@ def test_a_va_baseline_with_no_live_block_still_answers_live_from_the_global_key
     assert target_writes_enabled(section, TARGET_LIVE) is True
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("global_value", [True, False], ids=["global-true", "global-false"])
 def test_live_on_a_mock_deployment_answers_the_deployment_wide_key(global_value: bool):
     """Parity: a mock deployment never had a second target, so it keeps the flag."""
@@ -448,7 +424,6 @@ def test_live_on_a_mock_deployment_answers_the_deployment_wide_key(global_value:
     assert target_writes_enabled(section, TARGET_LIVE) is global_value
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("global_value", [True, False], ids=["global-true", "global-false"])
 @pytest.mark.parametrize(
     "target",
@@ -468,7 +443,6 @@ def test_an_unknown_target_answers_the_deployment_wide_key(target: Any, global_v
     assert target_writes_enabled(section, target) is global_value
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("target", [TARGET_LIVE, TARGET_VA], ids=["live", "va"])
 def test_a_section_that_is_not_a_mapping_is_not_armed_for_any_target(target: str):
     # Act / Assert
@@ -481,7 +455,6 @@ def test_a_section_that_is_not_a_mapping_is_not_armed_for_any_target(target: str
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_session_posture_names_both_targets_only_where_the_switch_renders():
     """Without the switch a session has one target: the deployment baseline."""
     switchable = _section(
@@ -498,7 +471,6 @@ def test_session_posture_names_both_targets_only_where_the_switch_renders():
     assert session_posture("not a mapping") == {TARGET_LIVE: False}
 
 
-@pytest.mark.unit
 def test_a_deployment_with_no_standin_block_gets_no_standin_posture():
     """The vocabulary grew a third target; this deployment did not.
 
@@ -524,7 +496,6 @@ def test_a_deployment_with_no_standin_block_gets_no_standin_posture():
     assert posture == {TARGET_LIVE: True, TARGET_VA: False}
 
 
-@pytest.mark.unit
 def test_a_standin_baseline_is_switch_capable_and_does_not_raise():
     """The baseline is resolved, not looked up among ``live`` and ``va``.
 
@@ -546,7 +517,6 @@ def test_a_standin_baseline_is_switch_capable_and_does_not_raise():
     assert switch_capable(section) is True
 
 
-@pytest.mark.unit
 def test_a_standin_beside_a_simulator_is_switch_capable_without_a_live_block():
     """Two configured targets are the switching world, whichever two they are.
 
@@ -569,7 +539,6 @@ def test_a_standin_beside_a_simulator_is_switch_capable_without_a_live_block():
     assert configured_targets(section) == [TARGET_VA, TARGET_STANDIN]
 
 
-@pytest.mark.unit
 def test_a_va_baseline_beside_a_standin_is_switch_capable():
     """The same two-machine world, baselined on the simulator."""
     # Arrange
@@ -586,7 +555,6 @@ def test_a_va_baseline_beside_a_standin_is_switch_capable():
     assert configured_targets(section) == [TARGET_VA, TARGET_STANDIN]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "section",
     [
@@ -606,7 +574,6 @@ def test_a_single_target_render_is_not_switch_capable(section):
     assert switch_capable(section) is False
 
 
-@pytest.mark.unit
 def test_the_live_and_va_pair_is_still_switch_capable():
     """The original two-target shape answers as it always did."""
     # Arrange
@@ -622,7 +589,6 @@ def test_the_live_and_va_pair_is_still_switch_capable():
     assert switch_capable(section) is True
 
 
-@pytest.mark.unit
 def test_a_mock_carrying_other_blocks_is_still_not_switch_capable():
     """The baseline-consistency guard survives the target count.
 
@@ -646,7 +612,6 @@ def test_a_mock_carrying_other_blocks_is_still_not_switch_capable():
     assert switch_capable(section) is False
 
 
-@pytest.mark.unit
 def test_a_standin_baseline_posture_names_three_targets_in_vocabulary_order():
     """The baseline is among them, in the constant's order rather than first.
 
@@ -673,7 +638,6 @@ def test_a_standin_baseline_posture_names_three_targets_in_vocabulary_order():
     assert posture == {TARGET_LIVE: False, TARGET_VA: True, TARGET_STANDIN: True}
 
 
-@pytest.mark.unit
 def test_a_deployment_that_configured_all_three_gets_all_three():
     """The stand-in is a machine of its own, with a posture of its own."""
     # Arrange
@@ -700,7 +664,6 @@ def test_a_deployment_that_configured_all_three_gets_all_three():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_the_configured_targets_are_the_baseline_and_every_block_behind_one():
     # Arrange
     section = _section(
@@ -716,7 +679,6 @@ def test_the_configured_targets_are_the_baseline_and_every_block_behind_one():
     assert configured_targets(section) == [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
 
 
-@pytest.mark.unit
 def test_a_standin_baseline_keeps_the_vocabulary_order():
     """Its own target is in the list, where :data:`CONTROL_TARGETS` puts it."""
     # Arrange
@@ -733,7 +695,6 @@ def test_a_standin_baseline_keeps_the_vocabulary_order():
     assert configured_targets(section) == [TARGET_LIVE, TARGET_VA, TARGET_STANDIN]
 
 
-@pytest.mark.unit
 def test_a_va_baseline_enumerates_exactly_as_it_did_before_the_third_target():
     """The shape SC-5 pins: no stand-in block, so nothing about it may change."""
     # Arrange
@@ -749,7 +710,6 @@ def test_a_va_baseline_enumerates_exactly_as_it_did_before_the_third_target():
     assert configured_targets(section) == [TARGET_LIVE, TARGET_VA]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "standin_block",
     [{}, None, "not-a-mapping", 0, [], ...],
@@ -767,7 +727,6 @@ def test_a_target_without_a_usable_block_is_not_configured(standin_block: Any):
     assert configured_targets(section) == [TARGET_LIVE]
 
 
-@pytest.mark.unit
 def test_a_live_that_does_not_resolve_is_not_a_configured_target():
     """``resolve_target`` refuses to guess a real machine, and a refusal is no slot."""
     # Arrange
@@ -781,7 +740,6 @@ def test_a_live_that_does_not_resolve_is_not_a_configured_target():
     assert configured_targets(section) == [TARGET_VA]
 
 
-@pytest.mark.unit
 def test_the_baseline_is_configured_even_with_no_block_of_its_own():
     """A deployment is on the connector ``control_system.type`` builds regardless."""
     # Act / Assert
@@ -791,7 +749,6 @@ def test_the_baseline_is_configured_even_with_no_block_of_its_own():
     assert configured_targets(_section(LIVE_STANDIN)) == [TARGET_STANDIN]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "section", [None, "not-a-mapping", 0, [], {}], ids=["none", "string", "zero", "list", "empty"]
 )
@@ -801,7 +758,6 @@ def test_a_section_that_is_not_a_mapping_still_has_its_baseline(section: Any):
     assert configured_targets(section) == [TARGET_LIVE]
 
 
-@pytest.mark.unit
 def test_asking_which_targets_are_configured_does_not_mutate_the_section():
     # Arrange
     section = _section(EPICS, connector={"epics": {"port": 5064}})
@@ -814,7 +770,6 @@ def test_asking_which_targets_are_configured_does_not_mutate_the_section():
     assert section == before
 
 
-@pytest.mark.unit
 def test_a_non_switchable_baseline_answers_the_built_type_not_the_live_derivation():
     """A mock deployment with a stray armed epics block builds a mock connector."""
     section = _section(MOCK, writes_enabled=False, connector={"epics": {"writes_enabled": True}})
@@ -823,7 +778,6 @@ def test_a_non_switchable_baseline_answers_the_built_type_not_the_live_derivatio
     assert any_target_writes_enabled(section) is False
 
 
-@pytest.mark.unit
 def test_the_union_does_not_let_a_phantom_live_inherit_the_global_key():
     """Every real lane says ``false``; a global ``true`` must not arm the union."""
     # Arrange
@@ -838,7 +792,6 @@ def test_the_union_does_not_let_a_phantom_live_inherit_the_global_key():
     assert any_target_writes_enabled(section) is False
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("global_value", [True, False])
 def test_the_union_keeps_single_flag_parity_where_nothing_is_said_per_type(global_value: bool):
     """A deployment with only the deployment-wide key answers that key."""
@@ -846,7 +799,6 @@ def test_the_union_keeps_single_flag_parity_where_nothing_is_said_per_type(globa
     assert any_target_writes_enabled(_section(EPICS, writes_enabled=global_value)) is global_value
 
 
-@pytest.mark.unit
 def test_the_union_is_true_when_one_reachable_target_is_armed():
     section = _section(
         EPICS,
@@ -1007,7 +959,6 @@ def store(tmp_path, monkeypatch):
 class TestTheConnectorReferenceMonitor:
     """``ceiling ∧ not is_readonly_run() ∧ (store entry ≠ sandbox)``, per write."""
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_narrowed_target_refuses_while_another_target_writes(self, deployment, store):
         """The point of a per-target posture: one machine, not the session.
@@ -1032,7 +983,6 @@ class TestTheConnectorReferenceMonitor:
         assert allowed.outcome is WriteOutcome.CONFIRMED
         assert untouched.writes == [("VA:CORR:1:SP", 0.5)]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_the_refusal_names_the_target_and_the_chip(self, deployment, store):
         """A refusal that names no way out is a dead end.
@@ -1057,7 +1007,6 @@ class TestTheConnectorReferenceMonitor:
         assert "writes_enabled" not in message
         assert "resubmit" not in message.lower()
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_narrowing_lands_on_a_connector_that_is_already_writing(
         self, deployment, store
@@ -1082,7 +1031,6 @@ class TestTheConnectorReferenceMonitor:
         assert after.outcome is WriteOutcome.REFUSED
         assert connector.writes == [("S:CORR:1:SP", 0.5)]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_every_write_of_a_batch_is_refused_with_the_same_story(self, deployment, store):
         """The multi-write guard forks the same four ways, per operation."""
@@ -1099,7 +1047,6 @@ class TestTheConnectorReferenceMonitor:
         assert all("control-target chip in the header" in r.error_message for r in results)
         assert connector.writes == []
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_the_narrowing_reaches_a_process_that_carries_no_session(self, deployment, store):
         """The narrowing is the deployment's, so nothing has to be addressed.
@@ -1121,7 +1068,6 @@ class TestTheConnectorReferenceMonitor:
         assert "control-target chip in the header" in result.error_message
         assert connector.writes == []
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_an_unstamped_target_takes_the_most_restrictive_entry(self, deployment, store):
         """A connector that cannot say which machine it writes to gets the floor.
@@ -1141,7 +1087,6 @@ class TestTheConnectorReferenceMonitor:
         store.write({})
         assert (await connector.write_channel("A:SP", 1.0)).outcome is WriteOutcome.CONFIRMED
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_the_unstamped_refusal_says_it_could_not_name_a_target(self, deployment, store):
         """Naming a target it does not have would be a lie an operator acts on."""
@@ -1157,7 +1102,6 @@ class TestTheConnectorReferenceMonitor:
         assert "at least one control target" in message
         assert "control-target chip in the header" in message
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_the_store_can_only_narrow(self, deployment, store):
         """An unarmed deployment stays unarmed however the store is spelled.
@@ -1178,7 +1122,6 @@ class TestTheConnectorReferenceMonitor:
         assert result.outcome is WriteOutcome.REFUSED
         assert writes_enabled_key(EPICS) in result.error_message
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_narrowing_the_deployment_already_refuses_names_the_deployment(
         self, deployment, store
@@ -1201,7 +1144,6 @@ class TestTheConnectorReferenceMonitor:
         assert writes_enabled_key(EPICS) in message
         assert "chip" not in message
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_readonly_run_still_wins_the_wording(self, deployment, store, monkeypatch):
         """Two live terms can hold at once; the one the operator cannot lift
@@ -1231,7 +1173,6 @@ class TestTheMonitorAndTheStoreRuleAgree:
     this table is what keeps the restatement honest.
     """
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     @pytest.mark.parametrize("target", [TARGET_LIVE, TARGET_VA, TARGET_STANDIN, None])
     @pytest.mark.parametrize(
@@ -1265,7 +1206,6 @@ class TestTheMonitorAndTheStoreRuleAgree:
 class TestTheFactoryBuiltConnector:
     """The stamps the factory really applies, through the real factory path."""
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_target_unstamped_connector_still_reads_its_types_posture(
         self, deployment, store
@@ -1298,7 +1238,6 @@ class TestTheFactoryBuiltConnector:
         assert writes_enabled_key(EPICS) in result.error_message
         assert connector.writes == []
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_the_named_target_is_what_the_store_is_indexed_by(self, deployment, store):
         """End to end: the factory's stamp is the key the narrowing was filed
@@ -1343,7 +1282,6 @@ class TestOneStoreReadPerWrite:
         monkeypatch.setattr(posture_store, "store_permits", _counting)
         return calls
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_refused_write_reads_the_store_once(self, deployment, store, monkeypatch):
         # Arrange
@@ -1360,7 +1298,6 @@ class TestOneStoreReadPerWrite:
         assert "control-target chip in the header" in result.error_message
         assert calls == [TARGET_STANDIN]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_refused_batch_reads_the_store_once_for_the_whole_batch(
         self, deployment, store, monkeypatch
@@ -1383,7 +1320,6 @@ class TestOneStoreReadPerWrite:
         assert all("control-target chip in the header" in r.error_message for r in results)
         assert calls == [TARGET_STANDIN]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_readonly_run_reads_the_store_not_at_all(self, deployment, store, monkeypatch):
         """The readonly term refuses first and its wording owes the store
@@ -1419,7 +1355,6 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         """A store that narrows nothing: the operator has already flipped back."""
         store.write({})
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_widen_under_a_running_script_names_the_run_not_the_chip(
         self, deployment, store, monkeypatch
@@ -1446,7 +1381,6 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         # The message an operator could not act on is exactly what must be gone.
         assert "Turn writes back on" not in result.error_message
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_the_fail_closed_pin_does_not_claim_anyone_narrowed_anything(
         self, deployment, store, monkeypatch
@@ -1477,7 +1411,6 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         assert "Re-run the script" in result.error_message
         assert "chip" not in result.error_message
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_a_live_narrowing_still_reads_as_a_live_narrowing(
         self, deployment, store, monkeypatch
@@ -1504,7 +1437,6 @@ class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:
         assert "control-target chip in the header" in result.error_message
         assert "Re-run the script" not in result.error_message
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_the_fork_costs_no_extra_store_read(self, deployment, store, monkeypatch):
         """The pin is one environment read, so the per-write memo is untouched."""
@@ -1544,7 +1476,6 @@ class _OverridingConnector(_FakeConnector):
 class TestAnOverriddenPostureStillGates:
     """The guard asks the property, not the base class's implementation of it."""
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_an_override_that_arms_writes_is_honoured(self, deployment, store):
         """Even against a store and a deployment that would both refuse: the
@@ -1563,7 +1494,6 @@ class TestAnOverriddenPostureStillGates:
         assert result.outcome is WriteOutcome.CONFIRMED
         assert connector.writes == [("S:CORR:1:SP", 0.5)]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_an_override_that_refuses_still_gets_the_right_wording(self, deployment, store):
         """The override sets no memo, so the refusal reads the store itself.

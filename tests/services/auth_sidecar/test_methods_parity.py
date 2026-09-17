@@ -14,14 +14,10 @@ declare would be unreachable.
 
 from __future__ import annotations
 
-import pytest
-
 from osprey.deployment.web_terminals import render
 from osprey.services.auth_sidecar import app, audit
 from osprey.services.auth_sidecar.methods import METHOD_OIDC, METHOD_PASSWORD, SUPPORTED_METHODS
 from osprey.services.auth_sidecar.routes import recheck
-
-pytestmark = pytest.mark.unit
 
 
 def test_the_set_is_the_two_named_constants() -> None:

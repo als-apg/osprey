@@ -30,8 +30,6 @@ from tests.fixtures.lifecycle_repo import (
     exemplar_source_files,
 )
 
-pytestmark = pytest.mark.unit
-
 #: Command strings the redesign retires. None may survive in an artifact the
 #: exemplar ships, because ``osprey init`` emits these same files (SC-8).
 #:

@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
@@ -17,7 +15,6 @@ def _setup(tmp_path, monkeypatch):
     initialize_cf_ml_context()
 
 
-@pytest.mark.unit
 def test_list_families_returns_families(tmp_path, monkeypatch):
     """Happy path: returns list of families for a system."""
     _setup(tmp_path, monkeypatch)
@@ -45,7 +42,6 @@ def test_list_families_returns_families(tmp_path, monkeypatch):
     mock_db.list_families.assert_called_once_with("SR")
 
 
-@pytest.mark.unit
 def test_list_families_validation_error(tmp_path, monkeypatch):
     """ValueError from database returns validation_error envelope."""
     _setup(tmp_path, monkeypatch)
@@ -68,7 +64,6 @@ def test_list_families_validation_error(tmp_path, monkeypatch):
     assert "Unknown system" in data["error_message"]
 
 
-@pytest.mark.unit
 def test_list_families_internal_error(tmp_path, monkeypatch):
     """Internal error returns standard error envelope."""
     _setup(tmp_path, monkeypatch)

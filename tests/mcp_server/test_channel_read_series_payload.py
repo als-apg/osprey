@@ -13,7 +13,6 @@ from contextlib import nullcontext
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import numpy as np
-import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.stores.artifact_store import get_artifact_store, initialize_artifact_store
@@ -103,7 +102,6 @@ def _stored_payload(entry_fields: dict) -> dict:
     return json.loads(filepath.read_text())
 
 
-@pytest.mark.unit
 async def test_series_payload_survives_extract_channel_series(tmp_path, monkeypatch):
     """The saved file feeds the chart endpoint's own extractor unchanged."""
     array = _oversized()
@@ -124,7 +122,6 @@ async def test_series_payload_survives_extract_channel_series(tmp_path, monkeypa
     assert query["channels"] == [ADDRESS]
 
 
-@pytest.mark.unit
 async def test_reading_entry_carries_the_artifact_handle(tmp_path, monkeypatch):
     """The withheld entry keeps its summary and gains artifact_id/data_file/note."""
     data = await _read(tmp_path, monkeypatch, {ADDRESS: _oversized()})
@@ -141,7 +138,6 @@ async def test_reading_entry_carries_the_artifact_handle(tmp_path, monkeypatch):
     assert "artifact_status" not in entry
 
 
-@pytest.mark.unit
 async def test_data_file_is_openable_and_json_loads(tmp_path, monkeypatch):
     """data_file is the agent-facing pointer: it resolves and parses as JSON."""
     data = await _read(tmp_path, monkeypatch, {ADDRESS: _oversized()})
@@ -160,7 +156,6 @@ async def test_data_file_is_openable_and_json_loads(tmp_path, monkeypatch):
     assert payload["series"][ADDRESS]["values"][0] == 0.0
 
 
-@pytest.mark.unit
 async def test_artifact_metadata_and_category_drive_the_gallery(tmp_path, monkeypatch):
     """data_type=timeseries picks the chart viewport; channel+category feed retention."""
     data = await _read(tmp_path, monkeypatch, {ADDRESS: _oversized()})
@@ -178,7 +173,6 @@ async def test_artifact_metadata_and_category_drive_the_gallery(tmp_path, monkey
     assert stored.summary["element_count"] == 5000
 
 
-@pytest.mark.unit
 async def test_non_finite_floats_become_json_null_gaps(tmp_path, monkeypatch):
     """NaN/inf would break the chart endpoint's serializer; they land as null."""
     array = _oversized()
@@ -197,7 +191,6 @@ async def test_non_finite_floats_become_json_null_gaps(tmp_path, monkeypatch):
     json.dumps(payload, allow_nan=False)
 
 
-@pytest.mark.unit
 async def test_retention_prunes_with_the_configured_window(tmp_path, monkeypatch):
     """A successful save is followed by the per-channel retention sweep."""
     calls: list[tuple] = []
@@ -221,7 +214,6 @@ async def test_retention_prunes_with_the_configured_window(tmp_path, monkeypatch
     assert calls == [(ADDRESS, 7)]
 
 
-@pytest.mark.unit
 async def test_retention_failure_does_not_cost_the_handle(tmp_path, monkeypatch):
     """Housekeeping trouble must not strip a working handle off a saved artifact."""
     monkeypatch.setattr(
@@ -236,7 +228,6 @@ async def test_retention_failure_does_not_cost_the_handle(tmp_path, monkeypatch)
     assert "artifact_error" not in entry
 
 
-@pytest.mark.unit
 async def test_store_failure_degrades_but_read_stays_successful(tmp_path, monkeypatch):
     """A read the machine answered is never reported as failed."""
     monkeypatch.setattr(
@@ -255,7 +246,6 @@ async def test_store_failure_degrades_but_read_stays_successful(tmp_path, monkey
     assert entry["artifact_error"] == "OSError: disk full"
 
 
-@pytest.mark.unit
 async def test_multi_dimensional_value_takes_no_series_path(tmp_path, monkeypatch):
     """2-D+ goes down the image path instead - never a series the chart would render."""
     frame = np.arange(64 * 48, dtype=np.uint16).reshape(48, 64)

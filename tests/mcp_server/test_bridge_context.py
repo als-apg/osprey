@@ -23,8 +23,6 @@ from osprey.mcp_server.bluesky.server_context import (
 )
 from osprey.port_layout import default_port
 
-pytestmark = pytest.mark.unit
-
 
 def _write_config(tmp_path, config_dict):
     """Write a config.yml to tmp_path and return the path."""

@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
@@ -17,7 +15,6 @@ def _setup(tmp_path, monkeypatch):
     initialize_cf_ml_context()
 
 
-@pytest.mark.unit
 def test_inspect_fields_returns_fields(tmp_path, monkeypatch):
     """Happy path: returns field structure for a system/family."""
     _setup(tmp_path, monkeypatch)
@@ -44,7 +41,6 @@ def test_inspect_fields_returns_fields(tmp_path, monkeypatch):
     mock_db.inspect_fields.assert_called_once_with("SR", "BPM", None)
 
 
-@pytest.mark.unit
 def test_inspect_fields_with_field_drilldown(tmp_path, monkeypatch):
     """Passing a specific field drills down into subfields."""
     _setup(tmp_path, monkeypatch)
@@ -71,7 +67,6 @@ def test_inspect_fields_with_field_drilldown(tmp_path, monkeypatch):
     mock_db.inspect_fields.assert_called_once_with("SR", "BPM", "Monitor")
 
 
-@pytest.mark.unit
 def test_inspect_fields_validation_error(tmp_path, monkeypatch):
     """ValueError from database returns validation_error envelope."""
     _setup(tmp_path, monkeypatch)
@@ -94,7 +89,6 @@ def test_inspect_fields_validation_error(tmp_path, monkeypatch):
     assert "Unknown family" in data["error_message"]
 
 
-@pytest.mark.unit
 def test_inspect_fields_internal_error(tmp_path, monkeypatch):
     """Internal error returns standard error envelope."""
     _setup(tmp_path, monkeypatch)

@@ -21,8 +21,6 @@ from osprey.mcp_server.bluesky.tools import draft
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
-pytestmark = pytest.mark.unit
-
 _MOD = "osprey.mcp_server.bluesky.tools.draft"
 
 

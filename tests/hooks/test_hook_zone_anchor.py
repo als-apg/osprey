@@ -88,7 +88,6 @@ def _clear_anchor_env(monkeypatch):
 # -- 1. The config's project_root is authoritative ----------------------------
 
 
-@pytest.mark.unit
 class TestProjectRootFromConfig:
     """Rule 1: whatever the config OSPREY_CONFIG names says, wins."""
 
@@ -226,7 +225,6 @@ class TestProjectRootFromConfig:
 # -- 2. The config's own repo, ahead of any walk -------------------------------
 
 
-@pytest.mark.unit
 class TestConfigDirectoryOutranksTheWalk:
     """Rule 2: an existing config file settles it, exactly as the framework does.
 
@@ -271,7 +269,6 @@ class TestConfigDirectoryOutranksTheWalk:
 # -- 3. The profile.yml walk-up ------------------------------------------------
 
 
-@pytest.mark.unit
 class TestProfileMarkerWalkUp:
     """Rule 3: the marker on disk, found the way every OSPREY verb finds it.
 
@@ -331,7 +328,6 @@ class TestProfileMarkerWalkUp:
 # -- 4. Legacy flat layouts stay put -------------------------------------------
 
 
-@pytest.mark.unit
 class TestLegacyFlatLayout:
     """Rule 4: no marker, no key — a flat project anchors on itself."""
 
@@ -365,7 +361,6 @@ class TestLegacyFlatLayout:
 # -- 5. The stdlib-only constraint ---------------------------------------------
 
 
-@pytest.mark.unit
 def test_derivation_works_without_pyyaml(tmp_path):
     """A hook may run under a bare system ``python3`` that has no PyYAML.
 
@@ -395,14 +390,12 @@ def test_derivation_works_without_pyyaml(tmp_path):
     assert result.stdout.strip() == str(repo)
 
 
-@pytest.mark.unit
 def test_every_shipped_hook_is_covered():
     """The inventory below is discovered, so an empty glob must not pass quietly."""
     assert "osprey_hook_log" in HOOK_MODULES
     assert len(HOOK_MODULES) >= 5, f"hook discovery found only {HOOK_MODULES}"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("module_name", HOOK_MODULES)
 def test_hook_imports_without_yaml_or_osprey(tmp_path, module_name):
     """*Every* hook must load with neither PyYAML nor ``osprey`` importable.
@@ -440,7 +433,6 @@ def test_hook_imports_without_yaml_or_osprey(tmp_path, module_name):
 # -- 6. The duplicated constants stay in step ----------------------------------
 
 
-@pytest.mark.unit
 def test_hook_constants_match_the_framework(hook_module):
     """The hook spells the marker and zone name out; both must still be right.
 
@@ -460,7 +452,6 @@ def test_hook_constants_match_the_framework(hook_module):
 # -- 7. The hooks that consume it ----------------------------------------------
 
 
-@pytest.mark.unit
 def test_feedback_capture_writes_to_the_state_zone(tmp_path, hook_runner):
     """The capture hook must write where the feedback app reads.
 
@@ -492,7 +483,6 @@ def test_feedback_capture_writes_to_the_state_zone(tmp_path, hook_runner):
     assert next(iter(items.values()))["channel_count"] == 1
 
 
-@pytest.mark.unit
 def test_feedback_capture_still_works_in_a_flat_project(tmp_path, hook_runner):
     """Regression guard: a project with no ``profile.yml`` anchors on itself."""
     hook_runner(
@@ -508,7 +498,6 @@ def test_feedback_capture_still_works_in_a_flat_project(tmp_path, hook_runner):
     assert store.exists(), f"expected capture at {store}"
 
 
-@pytest.mark.unit
 def test_focus_validate_reads_from_the_state_zone(tmp_path, hook_runner_raw, monkeypatch):
     """The focus validator must read the focus file the gallery actually writes.
 

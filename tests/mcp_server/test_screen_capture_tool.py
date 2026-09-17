@@ -8,8 +8,6 @@ All backend calls are mocked — no actual screencapture/swift/osascript executi
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from osprey.mcp_server.workspace.tools.screen_capture_backends.base import (
     BackendUnavailableError,
     ImageInfo,
@@ -66,7 +64,6 @@ _BACKEND_PATCH = "osprey.mcp_server.workspace.tools.screen_capture.get_backend"
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_screenshot_full_mode(tmp_path, monkeypatch):
     """Full mode captures entire screen and returns ArtifactStore entry."""
     monkeypatch.chdir(tmp_path)
@@ -96,7 +93,6 @@ async def test_screenshot_full_mode(tmp_path, monkeypatch):
     assert "screenshots" in data["summary"]["filepath"]
 
 
-@pytest.mark.unit
 async def test_screenshot_region_mode(tmp_path, monkeypatch):
     """Region mode parses x,y,w,h and delegates to backend."""
     monkeypatch.chdir(tmp_path)
@@ -123,7 +119,6 @@ async def test_screenshot_region_mode(tmp_path, monkeypatch):
     assert call_args[0][:4] == (100, 200, 800, 600)
 
 
-@pytest.mark.unit
 async def test_screenshot_display_mode(tmp_path, monkeypatch):
     """Display mode passes display number to backend."""
     monkeypatch.chdir(tmp_path)
@@ -149,7 +144,6 @@ async def test_screenshot_display_mode(tmp_path, monkeypatch):
     assert backend.capture_display.call_args[0][0] == "2"
 
 
-@pytest.mark.unit
 async def test_screenshot_window_by_wid(tmp_path, monkeypatch):
     """Window mode with numeric WID delegates to backend."""
     monkeypatch.chdir(tmp_path)
@@ -175,7 +169,6 @@ async def test_screenshot_window_by_wid(tmp_path, monkeypatch):
     assert backend.capture_window.call_args[0][0] == "12345"
 
 
-@pytest.mark.unit
 async def test_screenshot_window_by_name(tmp_path, monkeypatch):
     """Window mode with app name delegates to backend."""
     monkeypatch.chdir(tmp_path)
@@ -201,7 +194,6 @@ async def test_screenshot_window_by_name(tmp_path, monkeypatch):
     assert backend.capture_window.call_args[0][0] == "Phoebus"
 
 
-@pytest.mark.unit
 async def test_screenshot_window_name_not_found(tmp_path, monkeypatch):
     """Window mode returns error when backend raises WindowNotFoundError."""
     monkeypatch.chdir(tmp_path)
@@ -222,7 +214,6 @@ async def test_screenshot_window_name_not_found(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_screenshot_custom_filename(tmp_path, monkeypatch):
     """Custom filename is used in the output path."""
     monkeypatch.chdir(tmp_path)
@@ -247,7 +238,6 @@ async def test_screenshot_custom_filename(tmp_path, monkeypatch):
     assert "my_screenshot.png" in data["summary"]["filepath"]
 
 
-@pytest.mark.unit
 async def test_screenshot_default_filename(tmp_path, monkeypatch):
     """Default filename uses capture_YYYYMMDD_HHMMSS pattern."""
     monkeypatch.chdir(tmp_path)
@@ -273,7 +263,6 @@ async def test_screenshot_default_filename(tmp_path, monkeypatch):
     assert data["summary"]["filepath"].endswith(".png")
 
 
-@pytest.mark.unit
 async def test_screenshot_invalid_mode(tmp_path, monkeypatch):
     """Invalid mode returns a validation error."""
     monkeypatch.chdir(tmp_path)
@@ -289,7 +278,6 @@ async def test_screenshot_invalid_mode(tmp_path, monkeypatch):
     assert "invalid" in data["error_message"].lower()
 
 
-@pytest.mark.unit
 async def test_screenshot_command_failure(tmp_path, monkeypatch):
     """Backend RuntimeError returns capture_error."""
     monkeypatch.chdir(tmp_path)
@@ -310,7 +298,6 @@ async def test_screenshot_command_failure(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_screenshot_backend_unavailable(tmp_path, monkeypatch):
     """BackendUnavailableError returns platform_error."""
     monkeypatch.chdir(tmp_path)
@@ -339,7 +326,6 @@ async def test_screenshot_backend_unavailable(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_list_windows_basic(tmp_path, monkeypatch):
     """list_windows returns all visible windows from backend."""
     monkeypatch.chdir(tmp_path)
@@ -362,7 +348,6 @@ async def test_list_windows_basic(tmp_path, monkeypatch):
     assert len(data["windows"]) == 2
 
 
-@pytest.mark.unit
 async def test_list_windows_app_filter(tmp_path, monkeypatch):
     """list_windows passes filter to backend."""
     monkeypatch.chdir(tmp_path)
@@ -385,7 +370,6 @@ async def test_list_windows_app_filter(tmp_path, monkeypatch):
     backend.list_windows.assert_called_once_with(app_filter="terminal")
 
 
-@pytest.mark.unit
 async def test_list_windows_backend_failure(tmp_path, monkeypatch):
     """Backend exception returns internal_error."""
     monkeypatch.chdir(tmp_path)
@@ -406,7 +390,6 @@ async def test_list_windows_backend_failure(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_manage_window_bring_to_front(tmp_path, monkeypatch):
     """bring_to_front delegates to backend."""
     monkeypatch.chdir(tmp_path)
@@ -424,7 +407,6 @@ async def test_manage_window_bring_to_front(tmp_path, monkeypatch):
     backend.bring_to_front.assert_called_once_with("Phoebus")
 
 
-@pytest.mark.unit
 async def test_manage_window_move(tmp_path, monkeypatch):
     """Move action delegates to backend with x, y."""
     monkeypatch.chdir(tmp_path)
@@ -444,7 +426,6 @@ async def test_manage_window_move(tmp_path, monkeypatch):
     backend.move_window.assert_called_once_with("Terminal", 200, 300)
 
 
-@pytest.mark.unit
 async def test_manage_window_resize(tmp_path, monkeypatch):
     """Resize action delegates to backend with width, height."""
     monkeypatch.chdir(tmp_path)
@@ -464,7 +445,6 @@ async def test_manage_window_resize(tmp_path, monkeypatch):
     backend.resize_window.assert_called_once_with("Terminal", 1024, 768)
 
 
-@pytest.mark.unit
 async def test_manage_window_invalid_action(tmp_path, monkeypatch):
     """Invalid action returns validation_error."""
     monkeypatch.chdir(tmp_path)
@@ -477,7 +457,6 @@ async def test_manage_window_invalid_action(tmp_path, monkeypatch):
     assert "maximize" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_manage_window_move_missing_params(tmp_path, monkeypatch):
     """Move without x/y returns validation_error."""
     monkeypatch.chdir(tmp_path)
@@ -490,7 +469,6 @@ async def test_manage_window_move_missing_params(tmp_path, monkeypatch):
     assert "x and y" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_manage_window_resize_missing_params(tmp_path, monkeypatch):
     """Resize without width/height returns validation_error."""
     monkeypatch.chdir(tmp_path)
@@ -503,7 +481,6 @@ async def test_manage_window_resize_missing_params(tmp_path, monkeypatch):
     assert "width and height" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_manage_window_injection_prevention(tmp_path, monkeypatch):
     """App names with special characters cause ValueError from backend."""
     monkeypatch.chdir(tmp_path)
@@ -525,7 +502,6 @@ async def test_manage_window_injection_prevention(tmp_path, monkeypatch):
     assert "Invalid app name" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_screenshot_region_missing_target(tmp_path, monkeypatch):
     """Region mode without target returns validation error."""
     monkeypatch.chdir(tmp_path)

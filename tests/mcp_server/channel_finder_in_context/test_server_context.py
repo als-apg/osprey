@@ -26,13 +26,11 @@ def _reset_module_state():
     configure_rate_limiter(None)
 
 
-@pytest.mark.unit
 def test_context_not_initialized():
     with pytest.raises(RuntimeError, match="not initialized"):
         get_cf_ic_context()
 
 
-@pytest.mark.unit
 def test_context_database_not_configured(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG)
@@ -42,7 +40,6 @@ def test_context_database_not_configured(tmp_path, monkeypatch):
         _ = reg.database
 
 
-@pytest.mark.unit
 def test_context_loads_flat_database(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     db_data = [
@@ -67,7 +64,6 @@ def test_context_loads_flat_database(tmp_path, monkeypatch):
     assert len(reg.database.get_all_channels()) == 2
 
 
-@pytest.mark.unit
 def test_context_facility_name(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG + 'facility:\n  name: "ERF"\n')
@@ -75,7 +71,6 @@ def test_context_facility_name(tmp_path, monkeypatch):
     assert get_cf_ic_context().facility_name == "ERF"
 
 
-@pytest.mark.unit
 def test_context_raises_when_no_model(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("{}")
@@ -83,7 +78,6 @@ def test_context_raises_when_no_model(tmp_path, monkeypatch):
         initialize_cf_ic_context()
 
 
-@pytest.mark.unit
 def test_context_subagent_model_from_ic_config(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     config = (
@@ -97,7 +91,6 @@ def test_context_subagent_model_from_ic_config(tmp_path, monkeypatch):
     assert reg.subagent_provider == "anthropic"
 
 
-@pytest.mark.unit
 def test_context_subagent_model_fallback_to_claude_code(tmp_path, monkeypatch):
     # When no pipeline-local subagent_model is set, the context falls back to
     # ClaudeCodeModelResolver, which reads default_model (a tier name) and the
@@ -117,7 +110,6 @@ def test_context_subagent_model_fallback_to_claude_code(tmp_path, monkeypatch):
     assert reg.subagent_model_id == "test-model"
 
 
-@pytest.mark.unit
 def test_context_rate_limiter_armed_for_cborg(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("claude_code:\n  model: m\n  provider: cborg\n")
@@ -127,7 +119,6 @@ def test_context_rate_limiter_armed_for_cborg(tmp_path, monkeypatch):
     assert limiter.max_calls == PROVIDER_RPM["cborg"]
 
 
-@pytest.mark.unit
 def test_context_rate_limiter_none_for_anthropic(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text(_MINIMAL_MODEL_CONFIG)
@@ -135,7 +126,6 @@ def test_context_rate_limiter_none_for_anthropic(tmp_path, monkeypatch):
     assert get_rate_limiter() is None
 
 
-@pytest.mark.unit
 def test_context_system_prompt_contains_final_tags(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     db_data = [{"channel": "CH1", "address": "PV:CH1", "description": "Channel 1"}]

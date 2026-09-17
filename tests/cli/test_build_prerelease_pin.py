@@ -20,8 +20,6 @@ import pytest
 from osprey.cli.build_environment import _create_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 
-pytestmark = pytest.mark.unit
-
 
 @pytest.fixture
 def calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:

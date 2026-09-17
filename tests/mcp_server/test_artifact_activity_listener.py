@@ -109,7 +109,6 @@ def save_run_bookkeeping(store: ArtifactStore) -> None:
     )
 
 
-@pytest.mark.unit
 def test_repeated_startup_registers_exactly_once(project):
     """Startup runs 3x in-process under test; the store appends unconditionally."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -121,7 +120,6 @@ def test_repeated_startup_registers_exactly_once(project):
     assert ArtifactStore._delete_listeners.count(artifact_activity._on_artifact_deleted) == 1
 
 
-@pytest.mark.unit
 def test_execute_run_with_figure_emits_one_frame(project, notified):
     """The flood case: figure + auto-notebook + code_output record → ONE frame."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -141,7 +139,6 @@ def test_execute_run_with_figure_emits_one_frame(project, notified):
     assert "execute" in kwargs["detail"]
 
 
-@pytest.mark.unit
 def test_deliberately_saved_notebook_still_emits(project, notified):
     """The filter keys on the auto-save sources, not on the notebook type alone."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -163,7 +160,6 @@ def test_deliberately_saved_notebook_still_emits(project, notified):
     assert "Orbit analysis" in notified[0][0]["detail"]
 
 
-@pytest.mark.unit
 def test_code_output_record_never_emits(project, notified):
     """A ``code_output`` record is bookkeeping whatever wrote it."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -182,7 +178,6 @@ def test_code_output_record_never_emits(project, notified):
     assert notified == []
 
 
-@pytest.mark.unit
 def test_delete_everything_emits_per_surviving_entry(project, notified):
     """Deletes emit one frame per entry, under the same bookkeeping filter."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -204,7 +199,6 @@ def test_delete_everything_emits_per_surviving_entry(project, notified):
     assert "Orbit X" in details and "Orbit Y" in details
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("actor", ["human", "system"])
 def test_non_agent_deletes_never_emit(project, notified, actor):
     """The frames are *agent* activity: a delete by the gallery user or a
@@ -226,7 +220,6 @@ def test_non_agent_deletes_never_emit(project, notified, actor):
     assert notified == []
 
 
-@pytest.mark.unit
 def test_actor_tag_is_scoped_to_the_context(project, notified):
     """The agent default is restored when a non-agent scope exits."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -263,7 +256,6 @@ def test_actor_tag_is_scoped_to_the_context(project, notified):
     assert "Kept" in notified[0][0]["detail"]
 
 
-@pytest.mark.unit
 def test_suppressed_scope_emits_no_per_entry_delete_frames(project, notified):
     """The bulk-delete scope silences the per-entry flood, and only the flood.
 
@@ -298,7 +290,6 @@ def test_suppressed_scope_emits_no_per_entry_delete_frames(project, notified):
     assert [kwargs["tool"] for kwargs, _ in notified] == ["artifact_delete"]
 
 
-@pytest.mark.unit
 def test_artifact_delete_all_tool_emits_one_summary_frame(project, notified):
     """The tool path end-to-end: N entries → ONE ``artifact_delete_all`` frame."""
     import asyncio
@@ -324,7 +315,6 @@ def test_artifact_delete_all_tool_emits_one_summary_frame(project, notified):
     assert "2" in detail and "everything" in detail
 
 
-@pytest.mark.unit
 def test_artifact_delete_all_of_an_empty_scope_emits_nothing(project, notified):
     """Nothing was destroyed, so there is no action to report."""
     import asyncio
@@ -343,7 +333,6 @@ def test_artifact_delete_all_of_an_empty_scope_emits_nothing(project, notified):
     assert notified == []
 
 
-@pytest.mark.unit
 def test_notify_runs_on_the_worker_not_the_caller(project, notified):
     """The store callback must not do HTTP on the thread that saved."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -359,7 +348,6 @@ def test_notify_runs_on_the_worker_not_the_caller(project, notified):
     assert ident != threading.get_ident()
 
 
-@pytest.mark.unit
 def test_delete_everything_returns_while_notifies_are_still_blocked(project):
     """A slow web terminal must not stall a gallery-wide delete."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
@@ -393,7 +381,6 @@ def test_delete_everything_returns_while_notifies_are_still_blocked(project):
     assert elapsed < 1.0, f"delete_everything blocked on the notify path ({elapsed:.2f}s)"
 
 
-@pytest.mark.unit
 @pytest.mark.timeout(10)
 def test_full_backlog_drops_instead_of_waiting(monkeypatch):
     """A stalled worker must never turn the enqueue into a blocking put.
@@ -424,7 +411,6 @@ def test_full_backlog_drops_instead_of_waiting(monkeypatch):
     assert artifact_activity._pending.qsize() == 1
 
 
-@pytest.mark.unit
 def test_unregistered_process_emits_nothing(project, notified):
     """Gallery / retention processes build their own store and never register."""
     store = ArtifactStore(workspace_root=project / "_agent_data")
