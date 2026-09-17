@@ -17,6 +17,10 @@ from tests.va.e2e.conftest import sweep_check
 
 FULL_SWEEP_WALL_CLOCK_BUDGET_S = 60.0
 
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 2
+
 
 class TestFullSweep:
     def test_full_manifest_is_live_over_ca(self, va_container):
@@ -41,6 +45,20 @@ class TestFullSweep:
             f"{result.missing_value[:20]}" + (" ..." if len(result.missing_value) > 20 else "")
         )
         assert result.connected == result.total == len(addresses)
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_full_sweep.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS
 
 
 if __name__ == "__main__":
