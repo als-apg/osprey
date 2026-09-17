@@ -4924,7 +4924,11 @@ jobs:
           -f docker/bench-ioc/Containerfile docker/bench-ioc
 
     - name: Rotate the bench IOC layer cache
-      # Same swap as the virtual accelerator cache above, same reason.
+      # buildx cannot safely export to the directory it imported from in the
+      # same build, so the export goes to the `-new` sibling and is swapped in
+      # here, under `/tmp/bench-ioc-buildx-cache` — the path actions/cache
+      # saves at the end of the job. A run that skips the swap saves the layers
+      # it restored and throws away the ones it just built.
       run: |
         set -euo pipefail
         rm -rf /tmp/bench-ioc-buildx-cache
@@ -4944,7 +4948,7 @@ jobs:
         # zero-skip gate below is what turns a lost flag into a red lane
         # instead of a green one over nothing.
         OSPREY_VA_E2E_ENABLE: "1"
-      # Named by path rather than by marker: these three modules are the whole
+      # Named by path rather than by marker: these modules are the whole
       # subject of this lane, and a path that stops existing exits pytest 4 and
       # reds the step, whereas a renamed marker would silently select nothing.
       #
@@ -5131,8 +5135,13 @@ jobs:
       uses: actions/cache@v6
       with:
         path: /tmp/bench-ioc-buildx-cache
-        # Shared with target-switch-e2e, same argument as above. Keyed on all
-        # four files the context contains, because here the whole image IS the
+        # The same key as target-switch-e2e's bench IOC cache, because it is
+        # the same image from the same inputs: whichever lane runs first saves
+        # it and the other restores it, and a concurrent second save is a
+        # non-fatal "cache already exists" warning.
+        #
+        # Keyed on all four files the context contains — the Containerfile and
+        # the three text files it copies — because here the whole image IS the
         # cache: nothing in it depends on osprey's source, so an unchanged
         # record set restores every layer including the two pulled EPICS bases.
         key: bench-ioc-buildx-${{ runner.os }}-${{ hashFiles('docker/bench-ioc/Containerfile', 'docker/bench-ioc/bench.db', 'docker/bench-ioc/bench.acf', 'docker/bench-ioc/st.cmd') }}
@@ -5164,7 +5173,11 @@ jobs:
           -f docker/bench-ioc/Containerfile docker/bench-ioc
 
     - name: Rotate the bench IOC layer cache
-      # Same swap as the virtual accelerator cache above, same reason.
+      # buildx cannot safely export to the directory it imported from in the
+      # same build, so the export goes to the `-new` sibling and is swapped in
+      # here, under `/tmp/bench-ioc-buildx-cache` — the path actions/cache
+      # saves at the end of the job. A run that skips the swap saves the layers
+      # it restored and throws away the ones it just built.
       run: |
         set -euo pipefail
         rm -rf /tmp/bench-ioc-buildx-cache
