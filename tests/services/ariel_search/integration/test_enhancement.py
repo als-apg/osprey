@@ -18,6 +18,10 @@ import pytest
 pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 
+#: Rows the embedding module enhances, the multi-model ones among them.
+ENHANCE_PREFIX = "enhance-"
+
+
 def is_ollama_available() -> bool:
     """Check if Ollama is available for tests."""
     try:
@@ -33,7 +37,9 @@ def is_ollama_available() -> bool:
 class TestEnhancementWithOllama:
     """Test enhancement modules with real Ollama service."""
 
-    async def test_text_embedding_generation(self, repository, migrated_pool, seed_entry_factory):
+    async def test_text_embedding_generation(
+        self, repository, migrated_pool, seed_entry_factory, seeded_prefixes
+    ):
         """TextEmbeddingModule generates embeddings with correct dimensions.
 
         Steps:
@@ -51,9 +57,10 @@ class TestEnhancementWithOllama:
 
         # Create test entry
         entry = seed_entry_factory(
-            entry_id="enhance-embed-001",
+            entry_id=f"{ENHANCE_PREFIX}embed-001",
             raw_text="The storage ring current dropped to 480mA after a vacuum event.",
         )
+        seeded_prefixes.add(ENHANCE_PREFIX)
         await repository.upsert_entry(entry)
 
         # Create and configure embedding module
@@ -112,7 +119,7 @@ class TestEnhancementWithOllama:
         assert "connected" in message.lower() or "ok" in message.lower()
 
     async def test_text_embedding_handles_empty_text(
-        self, repository, migrated_pool, seed_entry_factory
+        self, repository, migrated_pool, seed_entry_factory, seeded_prefixes
     ):
         """TextEmbeddingModule skips entries with empty text."""
         if not is_ollama_available():
@@ -124,9 +131,10 @@ class TestEnhancementWithOllama:
 
         # Create entry with empty text
         entry = seed_entry_factory(
-            entry_id="enhance-empty-001",
+            entry_id=f"{ENHANCE_PREFIX}empty-001",
             raw_text="   ",  # Whitespace only
         )
+        seeded_prefixes.add(ENHANCE_PREFIX)
         await repository.upsert_entry(entry)
 
         module = TextEmbeddingModule()
@@ -151,7 +159,7 @@ class TestEnhancementWithOllama:
             assert row[0] == 0
 
     async def test_text_embedding_truncates_long_text(
-        self, repository, migrated_pool, seed_entry_factory
+        self, repository, migrated_pool, seed_entry_factory, seeded_prefixes
     ):
         """TextEmbeddingModule truncates text exceeding max tokens."""
         if not is_ollama_available():
@@ -164,9 +172,10 @@ class TestEnhancementWithOllama:
         # Create entry with very long text
         long_text = "Beam status update. " * 10000  # ~200k chars
         entry = seed_entry_factory(
-            entry_id="enhance-long-001",
+            entry_id=f"{ENHANCE_PREFIX}long-001",
             raw_text=long_text,
         )
+        seeded_prefixes.add(ENHANCE_PREFIX)
         await repository.upsert_entry(entry)
 
         module = TextEmbeddingModule()
@@ -196,31 +205,18 @@ class TestEnhancementWithOllama:
             row = await result.fetchone()
             assert row is not None
 
-    async def test_cleanup(self, migrated_pool):
-        """Clean up enhancement test data."""
-        async with migrated_pool.connection() as conn:
-            # Clean embeddings first
-            try:
-                await conn.execute("""
-                    DELETE FROM text_embeddings_nomic_embed_text
-                    WHERE entry_id LIKE 'enhance-%'
-                """)
-            except Exception:
-                pass
-
-            # Clean entries
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'enhance-%'
-            """)
-
 
 @pytest.mark.requires_ollama
 class TestMultipleEmbeddingModels:
     """Test enhancement with multiple embedding models."""
 
     async def test_multiple_models_generate_embeddings(
-        self, repository, migrated_pool, seed_entry_factory, integration_ariel_config
+        self,
+        repository,
+        migrated_pool,
+        seed_entry_factory,
+        integration_ariel_config,
+        seeded_prefixes,
     ):
         """Enhancement module can use multiple embedding models."""
         if not is_ollama_available():
@@ -252,9 +248,10 @@ class TestMultipleEmbeddingModels:
             await migration.up(conn)
 
         entry = seed_entry_factory(
-            entry_id="enhance-multi-001",
+            entry_id=f"{ENHANCE_PREFIX}multi-001",
             raw_text="RF cavity frequency adjusted by 10 kHz for optimal beam lifetime.",
         )
+        seeded_prefixes.add(ENHANCE_PREFIX)
         await repository.upsert_entry(entry)
 
         module = TextEmbeddingModule()
@@ -289,26 +286,6 @@ class TestMultipleEmbeddingModels:
 
         assert row1 is not None, "nomic-embed-text embedding not stored"
         assert row2 is not None, "all-minilm embedding not stored"
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up multi-model test data."""
-        async with migrated_pool.connection() as conn:
-            for table in [
-                "text_embeddings_nomic_embed_text",
-                "text_embeddings_all_minilm",
-            ]:
-                try:
-                    await conn.execute(f"""
-                        DELETE FROM {table}
-                        WHERE entry_id LIKE 'enhance-multi-%'
-                    """)  # noqa: S608
-                except Exception:
-                    pass
-
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'enhance-multi-%'
-            """)
 
 
 class TestEnhancementWithoutOllama:
