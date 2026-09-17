@@ -203,7 +203,6 @@ than scroll past in the warnings summary. Four groups matter day to day:
   it `ServerLauncher._launch_in_thread` is a no-op, because a companion server
   launched by one test keeps serving for the rest of the worker and files audit
   refusals into whichever later test has the audit writer patched.
-- **`unit` / `integration`** — descriptive labels for what a test talks to.
 
 Async tests need no marker: `asyncio_mode = "auto"`, so an `async def` test just
 runs.
