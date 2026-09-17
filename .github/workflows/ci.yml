@@ -4883,11 +4883,6 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Set up Docker Buildx
-      # Needed only for `type=local` layer caching; the plain docker builder
-      # every other lane uses cannot import or export one.
-      uses: docker/setup-buildx-action@v3
-
     - name: Cache the bench IOC image layers
       uses: actions/cache@v6
       with:
@@ -5132,11 +5127,6 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Set up Docker Buildx
-      # Needed only for `type=local` layer caching; the plain docker builder
-      # every other lane uses cannot import or export one.
-      uses: docker/setup-buildx-action@v3
-
     - name: Cache the bench IOC image layers
       uses: actions/cache@v6
       with:
@@ -5340,11 +5330,6 @@ jobs:
         set -euo pipefail
         docker info > /dev/null
 
-    - name: Set up Docker Buildx
-      # Needed only for `type=local` layer caching; the plain docker builder
-      # every other lane uses cannot import or export one.
-      uses: docker/setup-buildx-action@v3
-
     - name: Build the virtual accelerator image
       # Every module this lane runs reads its values back from a container of
       # this image; there is no fake anywhere in the lane to fall back on.
@@ -5501,11 +5486,6 @@ jobs:
       run: |
         set -euo pipefail
         docker info > /dev/null
-
-    - name: Set up Docker Buildx
-      # Needed only for `type=local` layer caching; the plain docker builder
-      # every other lane uses cannot import or export one.
-      uses: docker/setup-buildx-action@v3
 
     - name: Build the virtual accelerator image
       # The module SKIPS rather than fails when `osprey-va-full:latest` is
