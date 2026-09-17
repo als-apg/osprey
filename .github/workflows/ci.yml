@@ -4998,17 +4998,17 @@ jobs:
         engine: docker
 
     - name: Clean up the target images
-      # Exact tags only — never a prune, an -a/--all, or a wildcard, matching
-      # the container-ops guardrail every other lane here observes. The
-      # containers need no counterpart step: every container is named after a
-      # per-run value (an ephemeral port, or the pid for the shared conftest
-      # VA) chosen at run time, so there is no fixed name to remove
-      # and a pattern match is exactly what this rule forbids. Their own
-      # try/finally teardown is what removes them.
+      # Both of this lane's control-target images go: `bench-ioc:latest` is
+      # this lane's own build and is named here, `osprey-va-full:latest` is
+      # every caller's and the action removes it unasked. The containers
+      # outlive neither — each is named after a per-run value (an ephemeral
+      # port, or the pid for the shared conftest VA) chosen at run time, so
+      # exact-tag removal cannot reach them and their own try/finally
+      # teardown does.
       if: always()
-      run: |
-        docker rmi -f osprey-va-full:latest || true
-        docker rmi -f bench-ioc:latest || true
+      uses: ./.github/actions/remove-virtual-accelerator-images
+      with:
+        extra-tags: bench-ioc:latest
 
   target-switch-agentic-e2e:
     name: Control-Target Switch Agentic E2E (a real agent moving between the virtual accelerator and the bench IOC)
@@ -5259,16 +5259,16 @@ jobs:
         engine: docker
 
     - name: Clean up the target images
-      # Exact tags only — never a prune, an -a/--all, or a wildcard, matching
-      # the container-ops guardrail every other lane here observes. The
-      # containers need no counterpart step: every container this module starts
-      # is named after a per-run ephemeral port, so there is no fixed name to
-      # remove and a pattern match is exactly what this rule forbids. Their own
-      # context-manager teardown is what removes them.
+      # Both of this lane's control-target images go: `bench-ioc:latest` is
+      # this lane's own build and is named here, `osprey-va-full:latest` is
+      # every caller's and the action removes it unasked. The containers
+      # outlive neither — each is named after a per-run ephemeral port, so
+      # exact-tag removal cannot reach them and their own context-manager
+      # teardown does.
       if: always()
-      run: |
-        docker rmi -f osprey-va-full:latest || true
-        docker rmi -f bench-ioc:latest || true
+      uses: ./.github/actions/remove-virtual-accelerator-images
+      with:
+        extra-tags: bench-ioc:latest
 
   va-live-e2e:
     name: Live Virtual Accelerator E2E (one container, every suite the switch lane does not run)
@@ -5411,16 +5411,13 @@ jobs:
         engine: docker
 
     - name: Clean up the target images
-      # Exact tags only — never a prune, an -a/--all, or a wildcard, matching
-      # the container-ops guardrail every other lane here observes. That
-      # leaves the containers, and correctly so: every one is named after a
+      # This lane builds one image, so the action's own tag is the whole list.
+      # The containers outlive it, and correctly so: each is named after a
       # per-run value (an ephemeral port, or the pid for the shared conftest
-      # VA) chosen at run time, so there is no fixed name to remove and a
-      # pattern match is exactly what this rule forbids. Their own
-      # try/finally teardown is what removes them.
+      # VA) chosen at run time, so exact-tag removal cannot reach them and
+      # their own try/finally teardown does.
       if: always()
-      run: |
-        docker rmi -f osprey-va-full:latest || true
+      uses: ./.github/actions/remove-virtual-accelerator-images
 
   va-bluesky-deploy-e2e:
     name: Virtual Accelerator Plan Deploy E2E (two plan lanes, one per control target, full Docker stack)
@@ -5555,15 +5552,11 @@ jobs:
         engine: docker
 
     - name: Clean up the target images
-      # Exact tags only — never a prune, an -a/--all, or a wildcard, matching
-      # the container-ops guardrail every other lane here observes. The module
-      # tears its project down through `osprey down`, which owns every
-      # container and locally built image the project prefix covers, so there
-      # is nothing here for an exact-tag removal to add and a pattern match is
-      # what the rule forbids.
+      # The image built here is the only one left to remove: the module tears
+      # its project down through `osprey down`, which owns every container and
+      # locally built image the project prefix covers.
       if: always()
-      run: |
-        docker rmi -f osprey-va-full:latest || true
+      uses: ./.github/actions/remove-virtual-accelerator-images
 
   all-checks-passed:
     name: All CI Checks Passed
