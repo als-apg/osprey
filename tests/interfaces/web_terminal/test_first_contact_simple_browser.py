@@ -41,10 +41,6 @@ except ImportError:  # pragma: no cover
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
-# The onboarding tour's invite veil covers the shell on a fresh profile and
-# intercepts pointer events, so every page seeds the dismissal flag before its
-# first script runs — the same seed the ui-mode and drawer suites carry.
-_DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
 
 _OP = "#operator-container"
 _INPUT = f"{_OP} .op-input-area textarea"
@@ -69,7 +65,6 @@ def _open_simple_hub(browser: Browser, base_url: str) -> tuple[Page, list[str], 
         this page made to the chat endpoint.
     """
     page = browser.new_page()
-    page.add_init_script(_DISMISS_TOUR)
 
     errors: list[str] = []
     chat_posts: list[str] = []

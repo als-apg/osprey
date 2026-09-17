@@ -132,11 +132,6 @@ _EXEC_MS = 60_000
 #: layout and the file browser is no longer on screen to double-click.
 _VIEWPORT = {"width": 1600, "height": 1000}
 
-#: Seeded before load: marks the onboarding tour dismissed, so its invite card
-#: cannot overlay the shell and swallow the rail click. Same seed the sibling
-#: dock suite uses; the tour has its own coverage.
-_DISMISS_RAIL_HINT = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
-
 
 # ---------------------------------------------------------------------------
 # Environment: a shared root and a pinned theme, both inside tmp_path
@@ -242,7 +237,6 @@ def _open_page(browser, base_url: str) -> Page:
         A page whose rail and dockview grid are both on screen.
     """
     page = browser.new_page(viewport=_VIEWPORT)
-    page.add_init_script(_DISMISS_RAIL_HINT)
     page.goto(base_url, wait_until="domcontentloaded")
     expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
         timeout=10_000
@@ -674,7 +668,6 @@ def _standalone_notebook(browser, base_url: str) -> Page:
     has the notebook and nothing else on screen.
     """
     page = browser.new_page(viewport=_VIEWPORT)
-    page.add_init_script(_DISMISS_RAIL_HINT)
     page.goto(
         f"{base_url}/panel/jupyter/doc/tree/getting-started.ipynb",
         wait_until="domcontentloaded",
