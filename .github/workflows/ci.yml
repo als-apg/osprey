@@ -4888,22 +4888,6 @@ jobs:
       # every other lane uses cannot import or export one.
       uses: docker/setup-buildx-action@v3
 
-    - name: Cache the virtual accelerator image layers
-      uses: actions/cache@v6
-      with:
-        path: /tmp/va-buildx-cache
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/osprey-connectors/pyproject.toml') }}
-        # Honest about what this buys, because the Containerfile's layer order
-        # decides it: the one expensive RUN (pip install of the
-        # `virtual-accelerator` extra plus a pinned PyAT) sits AFTER `COPY
-        # src/`, so any source change invalidates it and only the base and
-        # architecture-guard layers restore. A re-run of a red lane, or a push
-        # touching neither src/ nor pyproject.toml, restores the whole build.
-        # That is the common case this cache is for; it is not a claim that
-        # every run gets one.
-        restore-keys: |
-          va-full-buildx-${{ runner.os }}-
-
     - name: Cache the bench IOC image layers
       uses: actions/cache@v6
       with:
@@ -4916,55 +4900,11 @@ jobs:
         restore-keys: |
           bench-ioc-buildx-${{ runner.os }}-
 
-    - name: Build the virtual accelerator image (staged context)
-      # The staging is scripts/va/build_and_boot_check.sh's, for its reason:
-      # the Containerfile installs osprey from source, so handing it the
-      # repository root would tar .git, .venv and every worktree into the build
-      # context. Four things are staged — pyproject.toml, README.md, src/ and
-      # the Containerfile — and that set IS the build-context contract.
-      #
-      # `-depth` rather than the script's `-prune` for the __pycache__ sweep:
-      # same effect (never descend into a directory just removed), no
-      # blanket-removal shape in a lane that runs on a shared-shape runner.
-      # The directories exist because resolving the version below imports
-      # osprey from the editable install.
-      #
-      # The version is resolved on the host and passed in: the staged tree has
-      # no .git, and without a version the build backend refuses to produce
-      # metadata at all.
-      #
-      # The tag is `osprey-va-full:latest` exactly, because that is what
-      # tests/va/e2e/ defaults to (`OSPREY_VA_E2E_IMAGE` overrides it, and
-      # nothing here wants a different image than the fixtures name).
-      run: |
-        set -euo pipefail
-        staging=/tmp/osprey-va-full-build
-        rm -rf "$staging"
-        mkdir -p "$staging/src" "$staging/docker/virtual-accelerator"
-        cp pyproject.toml README.md "$staging/"
-        cp -R src/. "$staging/src/"
-        cp -R packages "$staging/packages"
-        cp docker/virtual-accelerator/Containerfile "$staging/docker/virtual-accelerator/Containerfile"
-        find "$staging" -depth -type d -name __pycache__ -exec rm -rf {} +
-        version="$(uv run python -c 'import osprey; print(osprey.__version__)')"
-        echo "Building osprey-va-full:latest from osprey $version"
-        docker buildx build \
-          --build-arg "OSPREY_VERSION=$version" \
-          --tag osprey-va-full:latest \
-          --load \
-          --cache-from type=local,src=/tmp/va-buildx-cache \
-          --cache-to type=local,dest=/tmp/va-buildx-cache-new,mode=max \
-          -f "$staging/docker/virtual-accelerator/Containerfile" "$staging"
-
-    - name: Rotate the virtual accelerator layer cache
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to a sibling and is swapped in here.
-      # Without the swap the cache would grow every run until it evicted
-      # itself.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/va-buildx-cache
-        mv /tmp/va-buildx-cache-new /tmp/va-buildx-cache
+    - name: Build the virtual accelerator image
+      # One of this lane's two control targets is a container of this image;
+      # `bench-ioc:latest`, built below, is the other, and every assertion in
+      # the lane reads a value back from one of the two.
+      uses: ./.github/actions/build-virtual-accelerator-image
 
     - name: Build the bench IOC image
       # `-f` is load-bearing, not stylistic: BuildKit only auto-detects a file
@@ -5197,23 +5137,6 @@ jobs:
       # every other lane uses cannot import or export one.
       uses: docker/setup-buildx-action@v3
 
-    - name: Cache the virtual accelerator image layers
-      uses: actions/cache@v6
-      with:
-        path: /tmp/va-buildx-cache
-        # Deliberately the SAME key as target-switch-e2e's, because it is the
-        # same image from the same inputs: whichever lane runs first saves, the
-        # other restores, and a concurrent second save is a non-fatal "cache
-        # already exists" warning. Per-lane prefixes would only buy two copies
-        # of identical layers against the repo's cache quota. (The qmd lane's
-        # two builds share one key for the same reason, within a single job.)
-        # The caveat from that lane applies here too: the one expensive RUN
-        # sits after `COPY src/`, so any source change invalidates it and only
-        # the base and architecture-guard layers restore.
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/osprey-connectors/pyproject.toml') }}
-        restore-keys: |
-          va-full-buildx-${{ runner.os }}-
-
     - name: Cache the bench IOC image layers
       uses: actions/cache@v6
       with:
@@ -5226,53 +5149,11 @@ jobs:
         restore-keys: |
           bench-ioc-buildx-${{ runner.os }}-
 
-    - name: Build the virtual accelerator image (staged context)
-      # Replicated from target-switch-e2e rather than shared: GitHub Actions
-      # jobs are isolated, so there is nothing to factor across them — an image
-      # built there does not exist here.
-      #
-      # The staging is scripts/va/build_and_boot_check.sh's, for its reason:
-      # the Containerfile installs osprey from source, so handing it the
-      # repository root would tar .git, .venv and every worktree into the build
-      # context. Four things are staged — pyproject.toml, README.md, src/ and
-      # the Containerfile — and that set IS the build-context contract.
-      #
-      # The version is resolved on the host and passed in: the staged tree has
-      # no .git, and without a version the build backend refuses to produce
-      # metadata at all.
-      #
-      # The tag is `osprey-va-full:latest` exactly, because that is what the
-      # module's `VA_IMAGE` defaults to (`OSPREY_VA_E2E_IMAGE` overrides it,
-      # and nothing here wants a different image than the fixtures name).
-      run: |
-        set -euo pipefail
-        staging=/tmp/osprey-va-full-build
-        rm -rf "$staging"
-        mkdir -p "$staging/src" "$staging/docker/virtual-accelerator"
-        cp pyproject.toml README.md "$staging/"
-        cp -R src/. "$staging/src/"
-        cp -R packages "$staging/packages"
-        cp docker/virtual-accelerator/Containerfile "$staging/docker/virtual-accelerator/Containerfile"
-        find "$staging" -depth -type d -name __pycache__ -exec rm -rf {} +
-        version="$(uv run python -c 'import osprey; print(osprey.__version__)')"
-        echo "Building osprey-va-full:latest from osprey $version"
-        docker buildx build \
-          --build-arg "OSPREY_VERSION=$version" \
-          --tag osprey-va-full:latest \
-          --load \
-          --cache-from type=local,src=/tmp/va-buildx-cache \
-          --cache-to type=local,dest=/tmp/va-buildx-cache-new,mode=max \
-          -f "$staging/docker/virtual-accelerator/Containerfile" "$staging"
-
-    - name: Rotate the virtual accelerator layer cache
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to a sibling and is swapped in here.
-      # Without the swap the cache would grow every run until it evicted
-      # itself.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/va-buildx-cache
-        mv /tmp/va-buildx-cache-new /tmp/va-buildx-cache
+    - name: Build the virtual accelerator image
+      # One of this lane's two control targets is a container of this image;
+      # `bench-ioc:latest`, built below, is the other, and the agent is
+      # judged on moving between them.
+      uses: ./.github/actions/build-virtual-accelerator-image
 
     - name: Build the bench IOC image
       # `-f` is load-bearing, not stylistic: BuildKit only auto-detects a file
@@ -5464,76 +5345,10 @@ jobs:
       # every other lane uses cannot import or export one.
       uses: docker/setup-buildx-action@v3
 
-    - name: Cache the virtual accelerator image layers
-      uses: actions/cache@v6
-      with:
-        path: /tmp/va-buildx-cache
-        # Deliberately the SAME key as the other lanes that build this image,
-        # because it is the same image from the same inputs: whichever lane
-        # runs first saves, the others restore, and a concurrent second save
-        # is a non-fatal "cache already exists" warning. Per-lane prefixes
-        # would only buy several copies of identical layers against the repo's
-        # cache quota. The caveat those lanes carry applies here too: the one
-        # expensive RUN sits after `COPY src/`, so any source change
-        # invalidates it and only the base and architecture-guard layers
-        # restore.
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/osprey-connectors/pyproject.toml') }}
-        restore-keys: |
-          va-full-buildx-${{ runner.os }}-
-
-    - name: Build the virtual accelerator image (staged context)
-      # Replicated from target-switch-e2e rather than shared: GitHub Actions
-      # jobs are isolated, so there is nothing to factor across them — an
-      # image built there does not exist here.
-      #
-      # The staging is scripts/va/build_and_boot_check.sh's, for its reason:
-      # the Containerfile installs osprey from source, so handing it the
-      # repository root would tar .git, .venv and every worktree into the build
-      # context. Four things are staged — pyproject.toml, README.md, src/ and
-      # the Containerfile — and that set IS the build-context contract.
-      #
-      # `-depth` rather than the script's `-prune` for the __pycache__ sweep:
-      # same effect (never descend into a directory just removed), no
-      # blanket-removal shape in a lane that runs on a shared-shape runner.
-      # The directories exist because resolving the version below imports
-      # osprey from the editable install.
-      #
-      # The version is resolved on the host and passed in: the staged tree has
-      # no .git, and without a version the build backend refuses to produce
-      # metadata at all.
-      #
-      # The tag is `osprey-va-full:latest` exactly, because that is what
-      # tests/va/e2e/ defaults to (`OSPREY_VA_E2E_IMAGE` overrides it, and
-      # nothing here wants a different image than the fixtures name).
-      run: |
-        set -euo pipefail
-        staging=/tmp/osprey-va-full-build
-        rm -rf "$staging"
-        mkdir -p "$staging/src" "$staging/docker/virtual-accelerator"
-        cp pyproject.toml README.md "$staging/"
-        cp -R src/. "$staging/src/"
-        cp -R packages "$staging/packages"
-        cp docker/virtual-accelerator/Containerfile "$staging/docker/virtual-accelerator/Containerfile"
-        find "$staging" -depth -type d -name __pycache__ -exec rm -rf {} +
-        version="$(uv run python -c 'import osprey; print(osprey.__version__)')"
-        echo "Building osprey-va-full:latest from osprey $version"
-        docker buildx build \
-          --build-arg "OSPREY_VERSION=$version" \
-          --tag osprey-va-full:latest \
-          --load \
-          --cache-from type=local,src=/tmp/va-buildx-cache \
-          --cache-to type=local,dest=/tmp/va-buildx-cache-new,mode=max \
-          -f "$staging/docker/virtual-accelerator/Containerfile" "$staging"
-
-    - name: Rotate the virtual accelerator layer cache
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to a sibling and is swapped in here.
-      # Without the swap the cache would grow every run until it evicted
-      # itself.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/va-buildx-cache
-        mv /tmp/va-buildx-cache-new /tmp/va-buildx-cache
+    - name: Build the virtual accelerator image
+      # Every module this lane runs reads its values back from a container of
+      # this image; there is no fake anywhere in the lane to fall back on.
+      uses: ./.github/actions/build-virtual-accelerator-image
 
     - name: Run the live virtual accelerator E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
@@ -5692,79 +5507,11 @@ jobs:
       # every other lane uses cannot import or export one.
       uses: docker/setup-buildx-action@v3
 
-    - name: Cache the virtual accelerator image layers
-      uses: actions/cache@v6
-      with:
-        path: /tmp/va-buildx-cache
-        # Deliberately the SAME key as the other lanes that build this image,
-        # because it is the same image from the same inputs: whichever lane
-        # runs first saves, the others restore, and a concurrent second save
-        # is a non-fatal "cache already exists" warning. Per-lane prefixes
-        # would only buy several copies of identical layers against the repo's
-        # cache quota. The caveat those lanes carry applies here too: the one
-        # expensive RUN sits after `COPY src/`, so any source change
-        # invalidates it and only the base and architecture-guard layers
-        # restore.
-        key: va-full-buildx-${{ runner.os }}-${{ hashFiles('docker/virtual-accelerator/Containerfile', 'pyproject.toml', 'packages/osprey-connectors/pyproject.toml') }}
-        restore-keys: |
-          va-full-buildx-${{ runner.os }}-
-
-    - name: Build the virtual accelerator image (staged context)
-      # Replicated from the lanes above rather than shared: GitHub Actions jobs
-      # are isolated, so there is nothing to factor across them — an image
-      # built there does not exist here. The module skips rather than fails
-      # when `osprey-va-full:latest` is absent, and it boots that image
-      # directly as the live lane's Channel Access endpoint, so this build is
-      # what the whole lane rests on.
-      #
-      # The staging is scripts/va/build_and_boot_check.sh's, for its reason:
-      # the Containerfile installs osprey from source, so handing it the
-      # repository root would tar .git, .venv and every worktree into the build
-      # context. Four things are staged — pyproject.toml, README.md, src/ and
-      # the Containerfile — and that set IS the build-context contract.
-      #
-      # `-depth` rather than the script's `-prune` for the __pycache__ sweep:
-      # same effect (never descend into a directory just removed), no
-      # blanket-removal shape in a lane that runs on a shared-shape runner.
-      # The directories exist because resolving the version below imports
-      # osprey from the editable install.
-      #
-      # The version is resolved on the host and passed in: the staged tree has
-      # no .git, and without a version the build backend refuses to produce
-      # metadata at all.
-      #
-      # The tag is `osprey-va-full:latest` exactly, because that is what
-      # tests/va/e2e/ defaults to (`OSPREY_VA_E2E_IMAGE` overrides it, and
-      # nothing here wants a different image than the fixtures name).
-      run: |
-        set -euo pipefail
-        staging=/tmp/osprey-va-full-build
-        rm -rf "$staging"
-        mkdir -p "$staging/src" "$staging/docker/virtual-accelerator"
-        cp pyproject.toml README.md "$staging/"
-        cp -R src/. "$staging/src/"
-        cp -R packages "$staging/packages"
-        cp docker/virtual-accelerator/Containerfile "$staging/docker/virtual-accelerator/Containerfile"
-        find "$staging" -depth -type d -name __pycache__ -exec rm -rf {} +
-        version="$(uv run python -c 'import osprey; print(osprey.__version__)')"
-        echo "Building osprey-va-full:latest from osprey $version"
-        docker buildx build \
-          --build-arg "OSPREY_VERSION=$version" \
-          --tag osprey-va-full:latest \
-          --load \
-          --cache-from type=local,src=/tmp/va-buildx-cache \
-          --cache-to type=local,dest=/tmp/va-buildx-cache-new,mode=max \
-          -f "$staging/docker/virtual-accelerator/Containerfile" "$staging"
-
-    - name: Rotate the virtual accelerator layer cache
-      # buildx cannot safely export to the directory it imported from in the
-      # same build, so the export goes to a sibling and is swapped in here.
-      # Without the swap the cache would grow every run until it evicted
-      # itself.
-      run: |
-        set -euo pipefail
-        rm -rf /tmp/va-buildx-cache
-        mv /tmp/va-buildx-cache-new /tmp/va-buildx-cache
+    - name: Build the virtual accelerator image
+      # The module SKIPS rather than fails when `osprey-va-full:latest` is
+      # absent, and it boots that image directly as the live lane's Channel
+      # Access endpoint, so this build is what the whole lane rests on.
+      uses: ./.github/actions/build-virtual-accelerator-image
 
     - name: Run the two-lane plan deployment E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
