@@ -77,6 +77,17 @@ def _fill(document: dict) -> dict:
     for slot in document["directions"].values():
         if slot["direction"] is None:
             slot["direction"] = "read"
+    for family in document.get("judgments", {}).values():
+        for field in family.get("rows_beyond_devices", {}).values():
+            for signal in list(field):
+                if field[signal] is None:
+                    field[signal] = "drop"
+        unbound = family.get("unbound_devices", {})
+        for ordinal in list(unbound):
+            if unbound[ordinal] is None:
+                unbound[ordinal] = "drop"
+        if "shared_pvs" in family and family["shared_pvs"] is None:
+            family["shared_pvs"] = "keep_all"
     return document
 
 
@@ -126,6 +137,35 @@ class TestInit:
         assert text.startswith("facility:")
         assert "{" not in text.split("\n", 1)[0]
         assert "directions:" in text
+
+    def test_closing_line_counts_the_pending_judgments(self, repo: Path) -> None:
+        result = _map("--init")
+
+        assert result.exit_code == 0, result.output
+        # The fixture's QM shares IJ:QM2:RB between devices 2 and 3: one slot.
+        assert _load(repo)["judgments"] == {"QM": {"shared_pvs": None}}
+        assert "1 judgment to answer" in result.output
+
+    def test_closing_line_omits_judgments_when_none_pend(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = tmp_path / "plain"
+        root.mkdir()
+        (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
+        monkeypatch.chdir(root)
+        shutil.copy(FIXTURES / "tango" / "export.json", root / "flat.json")
+        imported = CliRunner().invoke(
+            cli, ["mml", "import", "flat.json", "--system", "RING"], catch_exceptions=False
+        )
+        assert imported.exit_code == 0, imported.output
+
+        result = _map("--init")
+
+        assert result.exit_code == 0, result.output
+        assert "judgment" not in result.output
+        assert "judgments" not in yaml.safe_load(
+            (root / "data" / "mml" / "mapping.yaml").read_text(encoding="utf-8")
+        )
 
     def test_refuses_to_overwrite_without_force(self, repo: Path) -> None:
         assert _map("--init").exit_code == 0

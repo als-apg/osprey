@@ -7,11 +7,28 @@ flat path and ``tiers/tier3/`` when the deployment stages tiers, the demo tier
 siblings and untouched demo knowledge pages refuse the run before any write
 with one ``rm`` line, a mapping missing a signal group's direction refuses,
 and the Turtle corpus opens with its mapping provenance.
+
+The refusals ``map --check`` owns are pinned here too: an unanswered judgment,
+an answer the export cannot carry and an answer naming a family the export
+does not have each stop the run before the first file, and a direction is
+required of the judged grain, so a field a judgment creates needs one. The
+mapping of the ``repo`` fixture is filled the way the map tests fill a
+skeleton, so no case here rests on which judgments a committed fixture
+happens to answer.
+
+The DuckDB collapse report is pinned on two repos, because it counts the
+bindings the judgments settle rather than the ones the export holds: the
+``repo`` fixture keeps its shared PV whole and the report names both owners,
+while ``wrapped_repo`` hands that family's shared PV to one device and the PV
+leaves the report, the database and the SQL surface together. Both repos are
+imported through the command, so the report is measured against the artifacts
+of the same run.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -22,6 +39,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from tests.cli.test_mml_map import _fill
 
 pytest.importorskip("linkml_runtime")
 
@@ -59,6 +77,50 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     )
     assert result.exit_code == 0, result.output
     shutil.copy(FIXTURES / "paired" / "mapping.yaml", root / "data" / "mml" / "mapping.yaml")
+    _write_mapping(root, _fill(_document(root)))
+    return root
+
+
+@pytest.fixture
+def nsls2_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A deployment repo with the two-system ``nsls2`` fixture imported and mapped.
+
+    Its mapping answers a row beyond the devices with a field of its own, the
+    one shape a judged direction and an impossible field name need.
+    """
+    root = tmp_path / "nsls2"
+    root.mkdir()
+    (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
+    monkeypatch.chdir(root)
+    for path in sorted((FIXTURES / "nsls2").glob("*.json")):
+        shutil.copy(path, root / path.name)
+    result = CliRunner().invoke(
+        cli,
+        ["mml", "import", "nsls2.ltb.ao.json", "nsls2.storagering.ao.json"],
+        catch_exceptions=False,
+    )
+    assert result.exit_code == 0, result.output
+    shutil.copy(FIXTURES / "nsls2" / "mapping.yaml", root / "data" / "mml" / "mapping.yaml")
+    return root
+
+
+@pytest.fixture
+def wrapped_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A deployment repo with the ``wrapped`` fixture imported and mapped.
+
+    Its committed mapping hands the family's shared PV to one of the two
+    devices that name it, the answer the collapse report has to follow.
+    """
+    root = tmp_path / "wrapped"
+    root.mkdir()
+    (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
+    monkeypatch.chdir(root)
+    shutil.copy(FIXTURES / "wrapped" / "export.json", root / "export.json")
+    result = CliRunner().invoke(
+        cli, ["mml", "import", "export.json", "--system", "INJ"], catch_exceptions=False
+    )
+    assert result.exit_code == 0, result.output
+    shutil.copy(FIXTURES / "wrapped" / "mapping.yaml", root / "data" / "mml" / "mapping.yaml")
     return root
 
 
@@ -66,9 +128,39 @@ def _emit(*args: str):
     return CliRunner().invoke(cli, ["mml", "emit", *args], catch_exceptions=False)
 
 
+def _check(*args: str):
+    return CliRunner().invoke(cli, ["mml", "map", "--check", *args], catch_exceptions=False)
+
+
+def _document(repo: Path) -> dict:
+    return yaml.safe_load((repo / "data" / "mml" / "mapping.yaml").read_text(encoding="utf-8"))
+
+
+def _write_mapping(repo: Path, document: dict) -> None:
+    (repo / "data" / "mml" / "mapping.yaml").write_text(
+        yaml.safe_dump(document, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
+
+
+def _problem_lines(output: str, key: str) -> list[str]:
+    return [line for line in output.splitlines() if line.startswith(f"{key}: ")]
+
+
+def _judgment_lines(output: str) -> list[str]:
+    return [line for line in output.splitlines() if line.startswith("judgments.")]
+
+
+def _assert_wrote_nothing(repo: Path) -> None:
+    """Assert emit left the deployment without a single artifact."""
+    data = repo / "data"
+    assert not (data / "channel_databases").exists()
+    assert not (data / "facility_knowledge").exists()
+    assert not (data / "facility_ontology.json").exists()
+    assert not list(data.glob("*.ttl"))
+
+
 def _token(repo: Path) -> str:
-    mapping = yaml.safe_load((repo / "data" / "mml" / "mapping.yaml").read_text(encoding="utf-8"))
-    return mapping["facility"]["token"]
+    return _document(repo)["facility"]["token"]
 
 
 def _artifacts(repo: Path) -> dict[str, bytes]:
@@ -81,6 +173,31 @@ def _artifacts(repo: Path) -> dict[str, bytes]:
         and path.suffix != ".duckdb"
         and not path.relative_to(data).as_posix().startswith("mml/")
     }
+
+
+def _repeated_pv(export: Path) -> str:
+    """The one PV a fixture export names twice, read off the export itself."""
+    names = [
+        name
+        for family in json.loads(export.read_text(encoding="utf-8"))["ao"].values()
+        for field in family.values()
+        if isinstance(field, dict)
+        for name in field.get("ChannelNames", [])
+    ]
+    repeated = {name for name in names if name and names.count(name) > 1}
+    assert len(repeated) == 1, repeated
+    return repeated.pop()
+
+
+def _collapse_counts(output: str) -> tuple[int, int]:
+    """The binding and row counts the collapse report's first sentence claims."""
+    match = re.search(
+        r"of (\d+) bindings share a PV with another, "
+        r"so the DuckDB channels table holds (\d+) rows",
+        output,
+    )
+    assert match, output
+    return int(match.group(1)), int(match.group(2))
 
 
 def _rm_lines(output: str) -> list[str]:
@@ -283,15 +400,71 @@ class TestDemoKnowledge:
             assert sibling in lines[0]
 
 
+class TestCollapseReport:
+    """Which bindings the DuckDB collapse report counts, and how it names them."""
+
+    def test_shared_pv_owners_are_counted_from_one(self, repo: Path) -> None:
+        """The owners of a shared PV are named by device ordinal, not by index."""
+        pytest.importorskip("duckdb")
+
+        result = _emit("--duckdb")
+
+        assert result.exit_code == 0, result.output
+        shared = [line.strip() for line in result.output.splitlines() if " is bound by " in line]
+        assert shared == ["QK:R12:HCM:RB is bound by RING.HCM.Monitor[1], RING.HCM.Monitor[2]."], (
+            result.output
+        )
+
+    def test_an_owned_shared_pv_is_not_reported(self, wrapped_repo: Path) -> None:
+        """A shared PV one device owns is that device's binding and nothing else's."""
+        pytest.importorskip("duckdb")
+        pv = _repeated_pv(FIXTURES / "wrapped" / "export.json")
+
+        result = _emit("--duckdb")
+
+        assert result.exit_code == 0, result.output
+        assert pv not in result.output
+        assert not [line for line in result.output.splitlines() if " is bound by " in line]
+        database = wrapped_repo / "data" / "channel_databases" / "middle_layer.json"
+        assert database.read_text(encoding="utf-8").count(f'"{pv}"') == 1
+
+    def test_a_broadcast_row_still_collapses(self, wrapped_repo: Path) -> None:
+        """An answered family does not silence the report the rest of the export earns."""
+        pytest.importorskip("duckdb")
+
+        result = _emit("--duckdb")
+
+        assert result.exit_code == 0, result.output
+        detail = [line.strip() for line in result.output.splitlines() if " broadcasts one " in line]
+        assert detail == ["INJ.QM.Setpoint broadcasts one ChannelNames entry to every device."], (
+            result.output
+        )
+
+    def test_the_row_count_is_the_channels_table(self, wrapped_repo: Path) -> None:
+        """The rows the report claims the SQL surface holds are the rows it holds."""
+        duckdb = pytest.importorskip("duckdb")
+
+        result = _emit("--duckdb")
+
+        assert result.exit_code == 0, result.output
+        bindings, rows = _collapse_counts(result.output)
+        assert bindings > rows
+        connection = duckdb.connect(
+            str(wrapped_repo / "data" / "channel_databases" / "middle_layer.duckdb"), read_only=True
+        )
+        try:
+            held = connection.execute("SELECT count(*) FROM channels").fetchone()[0]
+        finally:
+            connection.close()
+        assert held == rows
+
+
 class TestRefusals:
     def test_missing_direction_group_refuses(self, repo: Path) -> None:
-        mapping_path = repo / "data" / "mml" / "mapping.yaml"
-        document = yaml.safe_load(mapping_path.read_text(encoding="utf-8"))
+        document = _document(repo)
         removed = next(iter(document["directions"]))
         del document["directions"][removed]
-        mapping_path.write_text(
-            yaml.safe_dump(document, sort_keys=False, allow_unicode=True), encoding="utf-8"
-        )
+        _write_mapping(repo, document)
 
         result = _emit()
 
@@ -299,7 +472,70 @@ class TestRefusals:
         assert result.exit_code != 0
         assert f"directions.{removed}" in result.output
         assert "map --check" in result.output
-        assert not (repo / "data" / "channel_databases" / "middle_layer.json").exists()
+        _assert_wrote_nothing(repo)
+
+    def test_judged_field_needs_a_direction(self, nsls2_repo: Path) -> None:
+        """A field a judgment creates is a signal group the directions must name."""
+        document = _document(nsls2_repo)
+        del document["directions"]["DCCT.Lifetime"]
+        _write_mapping(nsls2_repo, document)
+
+        result = _emit()
+
+        assert "Traceback" not in result.output
+        assert result.exit_code != 0
+        assert _problem_lines(result.output, "directions.DCCT.Lifetime")
+        assert "map --check" in result.output
+        _assert_wrote_nothing(nsls2_repo)
+
+    def test_null_judgment_refuses(self, repo: Path) -> None:
+        """A slot the reviewer left open stops the run at that slot's key."""
+        document = _document(repo)
+        document["judgments"]["HCM"]["shared_pvs"] = None
+        _write_mapping(repo, document)
+
+        result = _emit()
+
+        assert "Traceback" not in result.output
+        assert result.exit_code != 0
+        assert _judgment_lines(result.output) == ["judgments.HCM.shared_pvs: must not be null"], (
+            result.output
+        )
+        assert _judgment_lines(result.output) == _judgment_lines(_check().output)
+        assert "map --check" in result.output
+        _assert_wrote_nothing(repo)
+
+    def test_answer_naming_an_absent_family_refuses(self, repo: Path) -> None:
+        """The pre-flight is as strict as the check, down to an invented family."""
+        document = _document(repo)
+        document["judgments"]["NOPE"] = {"shared_pvs": "keep_all"}
+        _write_mapping(repo, document)
+
+        result = _emit()
+
+        assert "Traceback" not in result.output
+        assert result.exit_code != 0
+        assert len(_problem_lines(result.output, "judgments.NOPE")) == 1, result.output
+        assert _judgment_lines(result.output) == _judgment_lines(_check().output)
+        _assert_wrote_nothing(repo)
+
+    def test_impossible_answer_refuses_in_the_checks_words(self, nsls2_repo: Path) -> None:
+        """An answer the export cannot carry refuses, as ``map --check`` refuses it."""
+        document = _document(nsls2_repo)
+        rows = document["judgments"]["DCCT"]["rows_beyond_devices"]["Monitor"]
+        signal = next(iter(rows))
+        rows[signal] = {"field": "Monitor"}
+        _write_mapping(nsls2_repo, document)
+
+        result = _emit()
+
+        assert "Traceback" not in result.output
+        assert result.exit_code != 0
+        key = f"judgments.DCCT.rows_beyond_devices.Monitor[{signal}]"
+        assert len(_problem_lines(result.output, key)) == 1, result.output
+        assert _judgment_lines(result.output) == _judgment_lines(_check().output)
+        assert "map --check" in result.output
+        _assert_wrote_nothing(nsls2_repo)
 
     def test_missing_mapping_refuses(self, repo: Path) -> None:
         (repo / "data" / "mml" / "mapping.yaml").unlink()

@@ -15,7 +15,10 @@ deployment's artifacts under ``data/``: the middle-layer channel database, the
 facility ontology (schema and compiled table), the OKF knowledge pages and the
 Turtle corpus. It refuses, before writing anything, while the deployment still
 carries the preset's demo tier databases or untouched demo knowledge pages,
-and names them in one ``rm`` line.
+and names them in one ``rm`` line. It refuses just as ``map --check`` does on
+a judgment the mapping leaves unanswered or the export cannot carry, and on a
+signal group of the judged grain with no direction, so nothing is written from
+a mapping the check rejects.
 
 Note: this module keeps the import services out of its import graph. The
 ``.mat`` loader pulls numpy and scipy, the JSON loader pulls the channel-finder
@@ -200,21 +203,26 @@ def _init_mapping(path: Path, ao: dict, ad: dict, votes: dict, *, force: bool) -
             "pass --force to replace it with a fresh skeleton."
         )
 
-    from osprey.services.mml.mapping.skeleton import build_skeleton, dump_yaml
+    from osprey.services.mml.mapping.skeleton import (
+        build_skeleton,
+        count_judgment_slots,
+        dump_yaml,
+    )
 
-    text = dump_yaml(build_skeleton(ao, ad or None, votes))
+    document = build_skeleton(ao, ad or None, votes)
     try:
-        path.write_text(text, encoding="utf-8")
+        path.write_text(dump_yaml(document), encoding="utf-8")
     except OSError as exc:
         raise click.ClickException(
             f"Cannot write {path} ({exc}); make it writable and run map --init again."
         ) from exc
 
     undecided = sum(1 for vote in votes.values() if vote.direction is None)
-    report(
-        f"Wrote {path}; fill its null slots ({_count(undecided, 'undecided direction')} "
-        "among them), then run osprey mml map --check."
-    )
+    among = f"{_count(undecided, 'undecided direction')} among them"
+    judgments = count_judgment_slots(document)
+    if judgments:
+        among += f" and {_count(judgments, 'judgment')} to answer"
+    report(f"Wrote {path}; fill its null slots ({among}), then run osprey mml map --check.")
 
 
 def _check_mapping(path: Path, ao: dict, votes: dict, *, no_derived: bool) -> None:
@@ -289,6 +297,9 @@ def emit_cmd(duckdb_path: str | None, repo: Path | None) -> None:
     ao, ad = _read_import(out_dir)
     mapping_path = out_dir / MAPPING_FILENAME
     mapping = _parse_mapping_file(mapping_path)
+    # The judgments settle the grain the directions are asked about, so they
+    # are checked first and both pre-flights precede every write.
+    _require_judgments(mapping, ao)
     _require_directions(mapping, ao)
 
     import json
@@ -365,7 +376,7 @@ def emit_cmd(duckdb_path: str | None, repo: Path | None) -> None:
                 "check the path is writable and emit again."
             ) from exc
         report(f"Wrote {duck}.")
-        for line in _duckdb_collapsed_rows(ao, ad or None):
+        for line in _duckdb_collapsed_rows(ao, ad or None, mapping):
             report(line)
 
     # -- ontology ---------------------------------------------------------------
@@ -432,16 +443,22 @@ def emit_cmd(duckdb_path: str | None, repo: Path | None) -> None:
     )
 
 
-def _duckdb_collapsed_rows(ao: dict, ad: dict | None) -> list[str]:
+def _duckdb_collapsed_rows(ao: dict, ad: dict | None, mapping) -> list[str]:
     """Return the report of the bindings the DuckDB copy holds no row of.
 
     ``channels`` is keyed by PV, so two slots naming one PV and a broadcast row
     naming one PV for every device are one row each. The middle-layer database
     and the corpus keep every binding; this names what the SQL surface does not.
+    The census is taken through the mapping, so the bindings counted are the
+    ones the judgments settle: a shared PV a reviewer gave an owner is one
+    binding of one device, and a family kept whole is reported as the export
+    holds it.
+    Each owner carries its device ordinal, counted from one as the mapping,
+    ``PROFILE.md`` and the judgment keys count devices.
     """
     from osprey.services.mml.census import take_census
 
-    census = take_census(ao, ad)
+    census = take_census(ao, ad, mapping)
     collapsed = census.totals.bindings - census.totals.distinct_pvs
     if collapsed <= 0:
         return []
@@ -451,7 +468,7 @@ def _duckdb_collapsed_rows(ao: dict, ad: dict | None) -> list[str]:
         "middle_layer.json and the corpus keep every binding."
     ]
     for item in census.shared_pvs:
-        owners = ", ".join(f"{o.system}.{o.family}.{o.field}[{o.index}]" for o in item.owners)
+        owners = ", ".join(f"{o.system}.{o.family}.{o.field}[{o.index + 1}]" for o in item.owners)
         lines.append(f"  {item.pv} is bound by {owners}.")
     for system in census.systems:
         for row in system.hazards.broadcast_rows:
@@ -498,13 +515,48 @@ def _parse_mapping_file(path: Path):
         raise click.ClickException(f"{path} is not a valid mapping document.") from exc
 
 
+def _require_judgments(mapping, ao: dict) -> None:
+    """Refuse a mapping whose judgment answers are unsettled or impossible.
+
+    Both halves come from the services ``map --check`` refuses with: the slots
+    left null, and the answers the export or the mapping cannot carry, judged
+    against the raw export as the grain the reviewer was asked about. So emit
+    refuses exactly what the check refuses, and no lane is ever handed a grain
+    built from an answer the export cannot carry.
+    """
+    from osprey.services.mml.judgments import (
+        all_pending_judgments,
+        unanswered_slots,
+        validate_answers,
+    )
+
+    problems = unanswered_slots(mapping)
+    problems.extend(
+        (key, message) for key, message, _ in validate_answers(all_pending_judgments(ao), mapping)
+    )
+    if problems:
+        for key, message in problems:
+            report(f"{key}: {message}")
+        raise click.ClickException(
+            f"{_count(len(problems), 'judgment problem')} in {MAPPING_FILENAME}; "
+            "run osprey mml map --check and fix each."
+        )
+
+
 def _require_directions(mapping, ao: dict) -> None:
-    """Refuse a mapping whose ``directions`` leave out a signal group of ``ao``."""
-    from osprey.services.mml.family import family_views, system_bodies
+    """Refuse a mapping whose ``directions`` leave out a signal group of ``ao``.
+
+    The groups are the judged ones, the fields the lanes will emit: a field a
+    judgment creates needs a direction of its own, and a field whose every row
+    a judgment drops keeps needing one, because an answer moves rows between
+    fields and never takes a field away.
+    """
+    from osprey.services.mml.family import system_bodies
+    from osprey.services.mml.judgments import judged_family_views
 
     missing: list[str] = []
     for system, families in system_bodies(ao):
-        for view in family_views(system, families):
+        for view in judged_family_views(system, families, mapping):
             for field in view.fields:
                 key = f"{view.raw_name}.{field}"
                 if key not in mapping.directions and key not in missing:

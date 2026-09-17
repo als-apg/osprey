@@ -12,6 +12,7 @@ import copy
 import pytest
 
 from osprey.services.mml.directions import vote_directions
+from osprey.services.mml.mapping import check as check_module
 from osprey.services.mml.mapping import parse_mapping
 from osprey.services.mml.mapping.branches import ROOT_CLASS
 from osprey.services.mml.mapping.check import CheckResult, Problem, check_mapping
@@ -124,6 +125,112 @@ def _mutated(path: str, value) -> dict:
     else:
         node[last] = value
     return doc
+
+
+def _judged_ao() -> dict:
+    """:func:`_ao` plus the two families a reviewer has to judge.
+
+    ``DCCT`` sits on one device and carries a second ``Monitor`` row, the shape
+    of a row beyond a family's devices. ``BEND`` lives in both systems with four
+    devices: ``SR`` binds all four, ``BTS`` reaches three, so ordinal 4 is
+    unbound in ``BTS`` alone. ``QF`` binds its two devices to one supply, the
+    shape of a shared PV.
+    """
+    ao = _ao()
+    ao["SR"]["DCCT"] = {
+        "DeviceList": [[1, 1]],
+        "Monitor": {"ChannelNames": ["SR:DCCT:I", "SR:DCCT:Lifetime"], "MemberOf": ["Monitor"]},
+    }
+    ao["SR"]["BEND"] = {
+        "DeviceList": [[1, 1], [1, 2], [1, 3], [1, 4]],
+        "Monitor": {"ChannelNames": [f"SR:BEND{n}:I" for n in (1, 2, 3, 4)]},
+    }
+    ao["BTS"]["BEND"] = {
+        "DeviceList": [[1, 1], [1, 2], [1, 3], [1, 4]],
+        "Monitor": {"ChannelNames": [f"BTS:BEND{n}:I" for n in (1, 2, 3)]},
+    }
+    ao["SR"]["QF"] = {
+        "DeviceList": [[1, 1], [1, 2]],
+        "Monitor": {"ChannelNames": ["SR:QF:I", "SR:QF:I"]},
+        "Setpoint": {"ChannelNames": ["SR:QF:SP", "SR:QF:SP"]},
+    }
+    return ao
+
+
+def _judged_document(judgments: dict) -> dict:
+    """A complete mapping of :func:`_judged_ao` carrying ``judgments``."""
+    doc = _document()
+    doc["families"]["DCCT"] = {
+        "branch": "Instrumentation",
+        "class": "ZephyrDCCT",
+        "aliases": ["DCCT"],
+        "description": "Beam current monitor.",
+        "provenance": "stated",
+        "channels": 2,
+        "fields": {"Monitor": {"description": "Beam current.", "provenance": "stated"}},
+    }
+    doc["families"]["BEND"] = {
+        "branch": "Magnet",
+        "class": "ZephyrBend",
+        "aliases": ["BEND"],
+        "description": "Dipoles.",
+        "provenance": "stated",
+        "channels": 7,
+        "fields": {"Monitor": {"description": "Current readback.", "provenance": "stated"}},
+    }
+    doc["families"]["QF"] = {
+        "branch": "Magnet",
+        "class": "ZephyrQuad",
+        "aliases": ["QF"],
+        "description": "Focusing quadrupoles.",
+        "provenance": "stated",
+        "channels": 4,
+        "fields": {
+            "Monitor": {"description": "Current readback.", "provenance": "stated"},
+            "Setpoint": {"description": "Current setpoint.", "provenance": "stated"},
+        },
+    }
+    doc["directions"]["DCCT.Monitor"] = {"direction": "read", "provenance": "stated"}
+    doc["directions"]["BEND.Monitor"] = {"direction": "read", "provenance": "stated"}
+    doc["directions"]["QF.Monitor"] = {"direction": "read", "provenance": "stated"}
+    doc["directions"]["QF.Setpoint"] = {"direction": "write", "provenance": "stated"}
+    doc["judgments"] = judgments
+    return doc
+
+
+def _context(doc: dict, ao: dict):
+    """The context the predicates read, built as ``check_mapping`` builds it."""
+    return check_module._Context(parse_mapping(doc), ao, vote_directions(ao))
+
+
+def _judged(ctx, system: str, family: str):
+    """Return one judged family view of ``ctx``."""
+    return next(view for view in ctx.judged_views[system] if view.raw_name == family)
+
+
+#: The signal of the ``DCCT`` row beyond its one device.
+_ROW = "SR:DCCT:Lifetime"
+
+#: The document path of that row's answer.
+_ROW_KEY = f"judgments.DCCT.rows_beyond_devices.Monitor[{_ROW}]"
+
+#: One answer for every judgment :func:`_judged_ao` pends.
+_ANSWERED: dict = {
+    "DCCT": {"rows_beyond_devices": {"Monitor": {_ROW: "drop"}}},
+    "BEND": {"unbound_devices": {4: "drop"}},
+    "QF": {"shared_pvs": "keep_all"},
+}
+
+
+def _answers(**changes) -> dict:
+    """Return the answered block with families replaced (``...`` deletes one)."""
+    judgments = copy.deepcopy(_ANSWERED)
+    for family, block in changes.items():
+        if block is ...:
+            del judgments[family]
+        else:
+            judgments[family] = block
+    return judgments
 
 
 class TestPassingMapping:
@@ -487,3 +594,304 @@ class TestDerived:
         result = _check()
         with pytest.raises(AttributeError):
             result.derived_directions = 3  # type: ignore[misc]
+
+
+class TestJudgmentNullDomain:
+    """An undecided judgment answer is refused at its bracketed key."""
+
+    @pytest.mark.parametrize(
+        ("judgments", "key"),
+        [
+            (_answers(DCCT={"rows_beyond_devices": {"Monitor": {_ROW: None}}}), _ROW_KEY),
+            (_answers(BEND={"unbound_devices": {4: None}}), "judgments.BEND.unbound_devices.4"),
+            (_answers(QF={"shared_pvs": None}), "judgments.QF.shared_pvs"),
+        ],
+    )
+    def test_null_answer_refused(self, judgments, key):
+        """The undecided answer is the one reported problem."""
+        assert _keys(_check(_judged_document(judgments), _judged_ao())) == [key]
+
+    def test_answered_judgments_pass(self):
+        """A family answering every slot it carries is no null problem."""
+        assert _check(_judged_document(_answers()), _judged_ao()).problems == []
+
+    def test_absent_shared_slot_is_not_null(self):
+        """A family carrying no ``shared_pvs`` key is not an undecided answer."""
+        judgments = _answers()
+        assert "shared_pvs" not in judgments["DCCT"]
+        assert _check(_judged_document(judgments), _judged_ao()).problems == []
+
+
+class TestJudgedGrain:
+    """Every predicate reads the export the answers describe, not the raw one."""
+
+    @staticmethod
+    def _field_answer() -> dict:
+        return _answers(DCCT={"rows_beyond_devices": {"Monitor": {_ROW: {"field": "Lifetime"}}}})
+
+    def test_created_field_needs_a_directions_entry(self):
+        """A ``field:`` answer mints a signal group like any exported field.
+
+        The answer stands, so the mapping is asked for the field entry once and
+        for the directions key by the rule that asks for every other field's.
+        """
+        doc = _judged_document(self._field_answer())
+        assert _keys(_check(doc, _judged_ao())) == [_ROW_KEY, "directions.DCCT.Lifetime"]
+
+    def test_created_field_takes_a_stated_direction_without_override(self):
+        """The new field has no vote to disagree with, so ``override`` is not needed."""
+        doc = _judged_document(self._field_answer())
+        doc["families"]["DCCT"]["fields"]["Lifetime"] = {
+            "description": "Beam lifetime.",
+            "provenance": "stated",
+        }
+        doc["directions"]["DCCT.Lifetime"] = {"direction": "read", "provenance": "stated"}
+        assert _check(doc, _judged_ao()).problems == []
+
+    def test_created_field_reaches_family_fields(self):
+        """The judged view carries the moved row as a field of its own."""
+        ctx = _context(_judged_document(self._field_answer()), _judged_ao())
+        assert list(ctx.family_fields["DCCT"]) == ["Monitor", "Lifetime"]
+        view = _judged(ctx, "SR", "DCCT")
+        assert view.fields["Lifetime"].raw_slots("ChannelNames") == [_ROW]
+
+    def test_dropped_row_keeps_its_field(self):
+        """Dropping a row cuts the row, never the field that carried it."""
+        ctx = _context(_judged_document(_answers()), _judged_ao())
+        assert list(ctx.family_fields["DCCT"]) == ["Monitor"]
+        view = _judged(ctx, "SR", "DCCT")
+        assert view.fields["Monitor"].raw_slots("ChannelNames") == ["SR:DCCT:I"]
+
+
+class TestPerSystemAnswers:
+    """An answer applies in the systems that pend it and nowhere else."""
+
+    JUDGMENTS = _answers()
+
+    def test_ordinal_pends_in_one_system_only(self):
+        """``BTS`` reaches three of four devices; ``SR`` binds all four."""
+        ctx = _context(_judged_document(self.JUDGMENTS), _judged_ao())
+        assert ctx.pending[("BTS", "BEND")].unbound_devices == (4,)
+        assert ctx.pending[("SR", "BEND")].unbound_devices == ()
+
+    def test_drop_leaves_the_other_system_bound(self):
+        """The dropped device leaves ``BTS`` and stays in ``SR``."""
+        ctx = _context(_judged_document(self.JUDGMENTS), _judged_ao())
+        assert _judged(ctx, "BTS", "BEND").n_devices == 3
+        storage_ring = _judged(ctx, "SR", "BEND")
+        assert storage_ring.n_devices == 4
+        assert storage_ring.fields["Monitor"].raw_slots("ChannelNames")[3] == "SR:BEND4:I"
+
+    def test_drop_is_no_problem(self):
+        """A per-system answer breaks no other rule."""
+        assert _check(_judged_document(self.JUDGMENTS), _judged_ao()).problems == []
+
+
+class TestRefusedAnswers:
+    """A refused answer becomes a problem, and an incompatible one is left out."""
+
+    @staticmethod
+    def _findings(*entries):
+        return lambda pending, mapping: list(entries)
+
+    def test_findings_become_problems(self, monkeypatch):
+        """Every entry is rendered at its own key."""
+        monkeypatch.setattr(
+            check_module, "_answer_findings", self._findings((_ROW_KEY, "is not pending", True))
+        )
+        judgments = {"DCCT": {"rows_beyond_devices": {"Monitor": {_ROW: "drop"}}}}
+        ctx = _context(_judged_document(judgments), _judged_ao())
+        assert ctx.judgment_problems == [Problem(_ROW_KEY, "is not pending")]
+
+    def test_export_incompatible_answer_is_not_applied(self, monkeypatch):
+        """The answer leaves ``answers``, so the judged view is the exported one."""
+        monkeypatch.setattr(
+            check_module, "_answer_findings", self._findings((_ROW_KEY, "is not pending", True))
+        )
+        judgments = {"DCCT": {"rows_beyond_devices": {"Monitor": {_ROW: {"field": "Lifetime"}}}}}
+        ctx = _context(_judged_document(judgments), _judged_ao())
+        assert ctx.answers.judgments["DCCT"].rows_beyond["Monitor"] == {}
+        assert list(ctx.family_fields["DCCT"]) == ["Monitor"]
+        view = _judged(ctx, "SR", "DCCT")
+        assert view.fields["Monitor"].raw_slots("ChannelNames") == ["SR:DCCT:I", _ROW]
+
+    def test_completeness_problem_leaves_the_answer_in(self, monkeypatch):
+        """An answer the mapping is merely incomplete for still applies."""
+        monkeypatch.setattr(
+            check_module,
+            "_answer_findings",
+            self._findings((_ROW_KEY, "add this field entry", False)),
+        )
+        judgments = {"DCCT": {"rows_beyond_devices": {"Monitor": {_ROW: {"field": "Lifetime"}}}}}
+        ctx = _context(_judged_document(judgments), _judged_ao())
+        assert ctx.judgment_problems == [Problem(_ROW_KEY, "add this field entry")]
+        assert list(ctx.family_fields["DCCT"]) == ["Monitor", "Lifetime"]
+
+    def test_refused_ordinal_stays_bound(self, monkeypatch):
+        """An incompatible ``unbound_devices`` answer leaves the device where it is."""
+        key = "judgments.BEND.unbound_devices.4"
+        monkeypatch.setattr(
+            check_module, "_answer_findings", self._findings((key, "names no unbound device", True))
+        )
+        ctx = _context(_judged_document({"BEND": {"unbound_devices": {4: "drop"}}}), _judged_ao())
+        assert ctx.answers.judgments["BEND"].unbound_devices == {}
+        assert _judged(ctx, "BTS", "BEND").n_devices == 4
+
+    def test_untouched_mapping_is_reused(self):
+        """With nothing refused, ``answers`` is the parsed mapping itself."""
+        ctx = _context(_judged_document(_answers()), _judged_ao())
+        assert ctx.answers is ctx.mapping
+
+
+class TestJudgmentRules:
+    """Every answer names a judgment the export pends, and mints a name it can carry."""
+
+    @staticmethod
+    def _dcct(monitor: dict) -> dict:
+        """:func:`_judged_ao` with the ``DCCT`` monitor replaced."""
+        ao = _judged_ao()
+        ao["SR"]["DCCT"]["Monitor"] = monitor
+        return ao
+
+    def test_answer_names_no_pending_row(self):
+        """A signal no system carries beyond its devices is refused."""
+        judgments = _answers(
+            DCCT={"rows_beyond_devices": {"Monitor": {_ROW: "drop", "SR:DCCT:Gone": "drop"}}}
+        )
+        assert _keys(_check(_judged_document(judgments), _judged_ao())) == [
+            "judgments.DCCT.rows_beyond_devices.Monitor[SR:DCCT:Gone]"
+        ]
+
+    def test_answer_names_no_unbound_device(self):
+        """``BTS`` reaches device 3, so device 3 is nobody's judgment."""
+        judgments = _answers(BEND={"unbound_devices": {3: "drop", 4: "drop"}})
+        assert _keys(_check(_judged_document(judgments), _judged_ao())) == [
+            "judgments.BEND.unbound_devices.3"
+        ]
+
+    def test_answer_names_no_family(self):
+        """A family the export does not carry is refused once, at the family key."""
+        judgments = _answers(GHOST={"unbound_devices": {1: "drop"}})
+        assert _keys(_check(_judged_document(judgments), _judged_ao())) == ["judgments.GHOST"]
+
+    def test_pending_row_with_no_slot(self):
+        """A pending row the document says nothing about is asked for."""
+        assert _keys(_check(_judged_document(_answers(DCCT=...)), _judged_ao())) == [_ROW_KEY]
+
+    def test_pending_supply_with_no_slot(self):
+        """The supply is one slot per family, asked for at the family's key."""
+        assert _keys(_check(_judged_document(_answers(QF=...)), _judged_ao())) == [
+            "judgments.QF.shared_pvs"
+        ]
+
+    def test_field_name_the_family_already_carries(self):
+        """``field: Monitor`` would overwrite the field the row came from.
+
+        The answer is refused, so it mints no field and no directions key goes
+        missing for one.
+        """
+        judgments = _answers(
+            DCCT={"rows_beyond_devices": {"Monitor": {_ROW: {"field": "Monitor"}}}}
+        )
+        assert _keys(_check(_judged_document(judgments), _judged_ao())) == [_ROW_KEY]
+
+    def test_device_answer_on_a_signal_bound_below(self):
+        """Promoting the row would bind one PV to two devices of the family."""
+        ao = self._dcct({"ChannelNames": ["SR:DCCT:I", "SR:DCCT:I"]})
+        judgments = _answers(DCCT={"rows_beyond_devices": {"Monitor": {"SR:DCCT:I": "device"}}})
+        assert _keys(_check(_judged_document(judgments), ao)) == [
+            "judgments.DCCT.rows_beyond_devices.Monitor[SR:DCCT:I]"
+        ]
+
+    def test_owner_stranding_a_member_is_no_problem(self):
+        """Device 2 of ``QF`` keeps nothing of its own, and that is the reviewer's call."""
+        doc = _judged_document(_answers(QF={"shared_pvs": {1: 1}}))
+        assert _check(doc, _judged_ao()).problems == []
+
+    def test_keep_all_on_a_family_pending_no_supply(self):
+        """A supply answer stands where another export of the family shares nothing."""
+        judgments = _answers(
+            DCCT={
+                "rows_beyond_devices": {"Monitor": {_ROW: "drop"}},
+                "shared_pvs": "keep_all",
+            }
+        )
+        assert _check(_judged_document(judgments), _judged_ao()).problems == []
+
+
+class TestOwnerMapRules:
+    """An owner map names devices, and the check refuses every name the export lacks."""
+
+    @staticmethod
+    def _qf(monitor: list[str], setpoint: list[str]) -> dict:
+        """:func:`_judged_ao` with ``QF`` re-shaped over as many devices as it names."""
+        ao = _judged_ao()
+        ao["SR"]["QF"] = {
+            "DeviceList": [[1, index + 1] for index in range(len(monitor))],
+            "Monitor": {"ChannelNames": monitor},
+            "Setpoint": {"ChannelNames": setpoint},
+        }
+        return ao
+
+    def _owners(self, owners: dict, ao: dict | None = None):
+        """Check :func:`_judged_ao` with ``QF``'s supply answered by ``owners``."""
+        doc = _judged_document(_answers(QF={"shared_pvs": owners}))
+        return _check(doc, _judged_ao() if ao is None else ao)
+
+    def test_a_key_that_is_no_groups_lowest_ordinal(self):
+        """A group is keyed by its lowest ordinal, so ordinal 5 keys nothing."""
+        assert _keys(self._owners({1: 1, 5: 5})) == ["judgments.QF.shared_pvs.5"]
+
+    def test_an_owner_outside_its_group(self):
+        """``QF`` binds two devices to its supply, and device 3 is not one of them."""
+        assert _keys(self._owners({1: 3})) == ["judgments.QF.shared_pvs.1"]
+
+    def test_an_owner_map_missing_a_group(self):
+        """The second supply is pending and the map decides nothing for it."""
+        ao = self._qf(
+            ["SR:QF1:I", "SR:QF1:I", "SR:QF3:I", "SR:QF3:I"],
+            ["SR:QF1:SP", "SR:QF1:SP", "SR:QF3:SP", "SR:QF3:SP"],
+        )
+        assert _keys(self._owners({1: 1}, ao)) == ["judgments.QF.shared_pvs.3"]
+
+    def test_groups_sharing_a_device(self):
+        """Two supplies reaching device 2 leave no key that says which devices it owns."""
+        ao = self._qf(
+            ["SR:QF1:I", "SR:QF1:I", "SR:QF3:I"],
+            ["SR:QF1:SP", "SR:QF2:SP", "SR:QF2:SP"],
+        )
+        result = self._owners({1: 1, 2: 2}, ao)
+        assert _keys(result) == ["judgments.QF.shared_pvs"]
+        assert "answer `keep_all`" in result.problems[0].message
+
+    def test_groups_that_differ_between_systems(self):
+        """Ordinal 1 keys two devices in ``SR`` and three in ``BTS``."""
+        ao = _judged_ao()
+        ao["BTS"]["QF"] = {
+            "DeviceList": [[1, 1], [1, 2], [1, 3]],
+            "Monitor": {"ChannelNames": ["BTS:QF:I"] * 3},
+            "Setpoint": {"ChannelNames": ["BTS:QF:SP"] * 3},
+        }
+        result = self._owners({1: 1}, ao)
+        assert _keys(result) == ["judgments.QF.shared_pvs"]
+        assert "answer `keep_all`" in result.problems[0].message
+
+    def test_an_owner_map_on_a_family_sharing_nothing(self):
+        """``DCCT`` shares no PV in any system, so it has no supply to own."""
+        judgments = _answers(
+            DCCT={
+                "rows_beyond_devices": {"Monitor": {_ROW: "drop"}},
+                "shared_pvs": {1: 1},
+            }
+        )
+        assert _keys(_check(_judged_document(judgments), _judged_ao())) == [
+            "judgments.DCCT.shared_pvs"
+        ]
+
+    def test_a_group_starting_past_the_first_device(self):
+        """The wrapped fixture's flip: the supply is keyed 2 and owned by device 2."""
+        ao = self._qf(
+            ["SR:QF1:I", "SR:QF2:I", "SR:QF2:I"],
+            ["SR:QF1:SP", "SR:QF2:SP", "SR:QF2:SP"],
+        )
+        assert self._owners({2: 2}, ao).problems == []

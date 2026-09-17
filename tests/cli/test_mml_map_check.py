@@ -6,15 +6,23 @@ non-zero and name the offending key as the head of a ``<key>: <message>``
 line; an acceptance must exit zero. The mutations cover the null slots, the
 PN_LOCAL and case-fold collisions, the section order, the directions table and
 its agreement with the vote, the class/branch hierarchy, and ``--no-derived``.
+
+The ``judgments:`` block is checked on the real two-system NSLS-II export,
+whose committed mapping answers thirteen slots. Those cases pin more than a
+key: each says how many problems the whole run may report, so "exactly one
+problem" is an assertion rather than a hope, and one of them forbids any
+``directions.`` line, because an answer the export refuses mints no field and
+must not also be reported as a missing directions entry.
 """
 
 from __future__ import annotations
 
 import copy
+import json
 import re
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import pytest
 import yaml
@@ -24,12 +32,14 @@ from osprey.cli.main import cli
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 
-#: How each fixture used here is imported: its export file and the extra
-#: ``mml import`` arguments.
-IMPORTS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "wrapped": ("export.json", ("--system", "INJ")),
-    "casedup": ("export.json", ("--system", "MAIN")),
-    "dialect": ("export.json", ()),
+#: How each fixture used here is imported: the export files, relative to
+#: :data:`FIXTURES`, and the extra ``mml import`` arguments. A multi-file
+#: export lists every ``ao.json``; ``import`` finds the ``ad.json`` siblings.
+IMPORTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "wrapped": (("wrapped/export.json",), ("--system", "INJ")),
+    "casedup": (("casedup/export.json",), ("--system", "MAIN")),
+    "dialect": (("dialect/export.json",), ()),
+    "nsls2": (("nsls2/nsls2.storagering.ao.json", "nsls2/nsls2.ltb.ao.json"), ()),
 }
 
 #: Value for :func:`mutate` that removes the addressed key.
@@ -38,13 +48,18 @@ DELETE = object()
 _SEGMENT = re.compile(r"\[([^\]]+)\]|([^.\[\]]+)")
 
 
-def _segments(dotted_key: str) -> list[str]:
+def _segments(dotted_key: str) -> list[Any]:
     """Split ``a.b[c.d].e`` into ``["a", "b", "c.d", "e"]``.
 
     Brackets address a key that itself holds a dot, as every ``directions``
-    key (``<family>.<field>``) does.
+    key (``<family>.<field>``) does, and keep it a string however it reads. A
+    bare all-digit segment is the YAML integer key a device ordinal and a
+    supply group's lowest ordinal are written as, so it converts.
     """
-    parts = [bracketed or plain for bracketed, plain in _SEGMENT.findall(dotted_key)]
+    parts = [
+        bracketed if bracketed else int(plain) if plain.isdigit() else plain
+        for bracketed, plain in _SEGMENT.findall(dotted_key)
+    ]
     assert parts, f"empty key {dotted_key!r}"
     return parts
 
@@ -80,9 +95,14 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 def _import(root: Path, name: str) -> dict:
     """Import fixture ``name`` into ``root`` and return its committed mapping."""
-    filename, extra = IMPORTS[name]
-    shutil.copy(FIXTURES / name / filename, root / filename)
-    result = CliRunner().invoke(cli, ["mml", "import", filename, *extra], catch_exceptions=False)
+    sources, extra = IMPORTS[name]
+    return _import_files(root, name, [FIXTURES / source for source in sources], extra)
+
+
+def _import_files(root: Path, name: str, paths: list[Path], extra: tuple[str, ...]) -> dict:
+    """Import ``paths`` into ``root`` and return fixture ``name``'s committed mapping."""
+    inputs = [str(path) for path in paths]
+    result = CliRunner().invoke(cli, ["mml", "import", *inputs, *extra], catch_exceptions=False)
     assert result.exit_code == 0, result.output
     return yaml.safe_load((FIXTURES / name / "mapping.yaml").read_text(encoding="utf-8"))
 
@@ -106,6 +126,62 @@ def _assert_rejected(result, key: str, message: str | None = None) -> None:
     assert lines, f"no line names {key!r}:\n{result.output}"
     if message is not None:
         assert any(message in line for line in lines), result.output
+
+
+_PROBLEM_COUNT = re.compile(r"^Error: (\d+) problems? in ", re.MULTILINE)
+
+
+def _problem_count(output: str) -> int:
+    """How many problems the run reported, read off the line it exits with."""
+    match = _PROBLEM_COUNT.search(output)
+    assert match is not None, f"no problem count in:\n{output}"
+    return int(match.group(1))
+
+
+def _lines_starting(output: str, prefix: str) -> list[str]:
+    return [line.strip() for line in output.splitlines() if line.strip().startswith(prefix)]
+
+
+def _judgment_block(root: Path, dotted: str) -> list[str]:
+    """The ``PROFILE.md`` lines under one ``<system>.<family>`` judgment heading."""
+    lines = (root / "data" / "mml" / "PROFILE.md").read_text(encoding="utf-8").splitlines()
+    heads = [index for index, line in enumerate(lines) if line.startswith(f"- `{dotted}`, ")]
+    assert len(heads) == 1, f"{dotted!r} heads {len(heads)} blocks, not one"
+    start = heads[0] + 1
+    end = next((i for i in range(start, len(lines)) if not lines[i].startswith("  ")), len(lines))
+    return lines[start:end]
+
+
+#: The LTB ``BEND`` fields whose channel lists the two-system case shortens.
+_LTB_BEND_FIELDS = ("Monitor", "Setpoint", "OnControl", "Fault")
+
+
+def _import_short_ltb_bend(root: Path, work: Path) -> dict:
+    """Import nsls2 with LTB ``BEND`` one device short of its channels.
+
+    Every ``BEND`` channel list of the LTB export loses its last entry, so
+    device 4 of that system carries nothing and the family pends
+    ``unbound_devices.4`` there. StorageRing's own sixty-device ``BEND`` is
+    copied untouched, so what an answer may reach is a fact about the export
+    rather than about the edit.
+
+    Args:
+        root: The deployment repo to import into.
+        work: A directory to build the edited export in.
+
+    Returns:
+        The committed nsls2 mapping, which answers every other slot.
+    """
+    exports = work / "exports"
+    exports.mkdir()
+    for source in sorted((FIXTURES / "nsls2").glob("nsls2.*.json")):
+        shutil.copy(source, exports / source.name)
+    short = exports / "nsls2.ltb.ao.json"
+    export = json.loads(short.read_text(encoding="utf-8"))
+    for field in _LTB_BEND_FIELDS:
+        export["BEND"][field]["ChannelNames"] = export["BEND"][field]["ChannelNames"][:-1]
+    short.write_text(json.dumps(export), encoding="utf-8")
+    return _import_files(root, "nsls2", [exports / "nsls2.storagering.ao.json", short], ())
 
 
 _STATED_READ = {"direction": "read", "provenance": "stated", "override": False}
@@ -237,6 +313,76 @@ REJECTIONS: dict[str, tuple[str, list[tuple[str, Any]], str, str]] = {
 }
 
 
+#: The nsls2 ``DCCT`` row the committed mapping answers ``{field: Lifetime}``.
+LIFETIME_ROW = "judgments.DCCT.rows_beyond_devices.Monitor[SR:C03-BI{DCCT:1}Lifetime-I]"
+
+
+class JudgmentCase(NamedTuple):
+    """One mutation of a ``judgments:`` block and what ``--check`` must say.
+
+    Attributes:
+        fixture: The fixture whose committed mapping the case starts from.
+        edits: :func:`mutate` arguments, applied in order.
+        key: The document path the refusal names.
+        message: A fragment of that line's message.
+        problems: How many problems the whole run reports. Pinning it is the
+            point: a judgment refusal must not drag a second problem in.
+        forbidden: A line prefix no reported problem may start with.
+    """
+
+    fixture: str
+    edits: list[tuple[str, Any]]
+    key: str
+    message: str
+    problems: int
+    forbidden: str | None = None
+
+
+#: The judgment answers a reviewed mapping can get wrong, one mutation each.
+JUDGMENTS: dict[str, JudgmentCase] = {
+    "answer-set-back-to-null": JudgmentCase(
+        "nsls2",
+        [("judgments.BEND.shared_pvs", None)],
+        "judgments.BEND.shared_pvs",
+        "must not be null",
+        problems=1,
+    ),
+    "field-name-the-family-already-carries": JudgmentCase(
+        "nsls2",
+        [
+            (LIFETIME_ROW, {"field": "Monitor"}),
+            ("families.DCCT.fields.Lifetime", DELETE),
+            ("directions[DCCT.Lifetime]", DELETE),
+        ],
+        LIFETIME_ROW,
+        "the field name 'Monitor' is a key DCCT already carries",
+        problems=1,
+        forbidden="directions.",
+    ),
+    "pending-ordinal-with-no-slot": JudgmentCase(
+        "nsls2",
+        [("judgments.TUNE.unbound_devices.3", DELETE)],
+        "judgments.TUNE.unbound_devices.3",
+        "is pending in StorageRing and has no answer",
+        problems=1,
+    ),
+    "family-absent-from-the-export": JudgmentCase(
+        "nsls2",
+        [("judgments.NOPE", {"shared_pvs": "keep_all"})],
+        "judgments.NOPE",
+        "names a family absent from ao.json",
+        problems=1,
+    ),
+    "owner-outside-its-supply-group": JudgmentCase(
+        "wrapped",
+        [("judgments.QM.shared_pvs", {}), ("judgments.QM.shared_pvs.2", 9)],
+        "judgments.QM.shared_pvs.2",
+        "device 9 is not a member of supply group 2",
+        problems=1,
+    ),
+}
+
+
 class TestHelpers:
     def test_mutate_addresses_dotted_directions_keys(self) -> None:
         base = {"directions": {"QM.On": {"direction": "read"}}}
@@ -251,6 +397,29 @@ class TestHelpers:
 
         assert mutate(base, "directions[QM.On]", DELETE)["directions"] == {}
         assert mutate(base, "branches.A.parent", "B")["branches"] == {"A": {"parent": "B"}}
+
+    def test_mutate_addresses_an_ordinal_as_the_integer_key_yaml_writes(self) -> None:
+        base = {"judgments": {"TUNE": {"unbound_devices": {3: "drop"}}}}
+
+        changed = mutate(base, "judgments.TUNE.unbound_devices.3", "keep")
+
+        assert changed["judgments"]["TUNE"]["unbound_devices"] == {3: "keep"}
+        assert mutate(base, "judgments.TUNE.unbound_devices.3", DELETE)["judgments"]["TUNE"] == {
+            "unbound_devices": {}
+        }
+
+    def test_mutate_walks_through_an_integer_parent(self) -> None:
+        base = {"judgments": {"QM": {"shared_pvs": {2: {}}}}}
+
+        changed = mutate(base, "judgments.QM.shared_pvs.2.owner", 3)
+
+        assert changed["judgments"]["QM"]["shared_pvs"] == {2: {"owner": 3}}
+
+    def test_mutate_keeps_a_bracketed_digit_segment_a_string(self) -> None:
+        # Only a bare segment is an ordinal; a signal in brackets stays itself.
+        changed = mutate({}, "judgments.DCCT.rows_beyond_devices.Monitor[7]", "drop")
+
+        assert changed["judgments"]["DCCT"]["rows_beyond_devices"]["Monitor"] == {"7": "drop"}
 
 
 class TestCommittedBase:
@@ -285,7 +454,77 @@ class TestRejections:
         _assert_rejected(result, "branches.B.parent", "cycle")
 
 
+class TestJudgmentRejections:
+    """The judgment answers the export or the mapping refuses, end to end."""
+
+    @pytest.mark.parametrize("case", sorted(JUDGMENTS))
+    def test_mutation_is_rejected_naming_the_key_and_nothing_else(
+        self, repo: Path, case: str
+    ) -> None:
+        spec = JUDGMENTS[case]
+        document = _import(repo, spec.fixture)
+        for dotted_key, value in spec.edits:
+            document = mutate(document, dotted_key, value)
+
+        result = _check(repo, document)
+
+        _assert_rejected(result, spec.key, spec.message)
+        assert _problem_count(result.output) == spec.problems, result.output
+        if spec.forbidden is not None:
+            assert not _lines_starting(result.output, spec.forbidden), result.output
+
+    def test_a_created_field_asks_for_its_entry_and_its_direction_once_each(
+        self, repo: Path
+    ) -> None:
+        """A ``field:`` answer the export takes stands; its two entries are named once each."""
+        document = _import(repo, "nsls2")
+        document = mutate(document, "families.DCCT.fields.Lifetime", DELETE)
+        document = mutate(document, "directions[DCCT.Lifetime]", DELETE)
+
+        result = _check(repo, document)
+
+        assert _problem_count(result.output) == 2, result.output
+        created = _problem_lines(result.output, LIFETIME_ROW)
+        assert len(created) == 1, result.output
+        assert "creates the field 'Lifetime' of DCCT in StorageRing" in created[0]
+        assert len(_problem_lines(result.output, "directions.DCCT.Lifetime")) == 1, result.output
+
+
+class TestTwoSystems:
+    """A judgment is pending, and answered, per system."""
+
+    def test_an_ordinal_pending_in_one_system_is_answered_for_that_system(
+        self, repo: Path, tmp_path: Path
+    ) -> None:
+        document = _import_short_ltb_bend(repo, tmp_path)
+        storage = "\n".join(_judgment_block(repo, "StorageRing.BEND"))
+        ltb = "\n".join(_judgment_block(repo, "LTB.BEND"))
+        assert "unbound device" not in storage, storage
+        assert "unbound device ordinal 4 `[1, 4]`" in ltb, ltb
+
+        unanswered = _check(repo, document, "--no-derived")
+        _assert_rejected(unanswered, "judgments.BEND.unbound_devices.4", "is pending in LTB")
+
+        answered = _check(
+            repo, mutate(document, "judgments.BEND.unbound_devices.4", "drop"), "--no-derived"
+        )
+
+        assert answered.exit_code == 0, answered.output
+        assert "passes the check" in answered.output
+
+
 class TestAcceptances:
+    def test_an_owner_answer_naming_a_member_of_its_group_passes(self, repo: Path) -> None:
+        # wrapped's one supply group is QM's, keyed by its lowest ordinal 2;
+        # an owner that strands the group's other member is the reviewer's call.
+        document = mutate(_import(repo, "wrapped"), "judgments.QM.shared_pvs", {})
+        document = mutate(document, "judgments.QM.shared_pvs.2", 3)
+
+        result = _check(repo, document)
+
+        assert result.exit_code == 0, result.output
+        assert not _lines_starting(result.output, "judgments."), result.output
+
     def test_zero_channel_family_without_class_or_branch_passes(self, repo: Path) -> None:
         document = _import(repo, "wrapped")
         gun = document["families"]["GUN"]

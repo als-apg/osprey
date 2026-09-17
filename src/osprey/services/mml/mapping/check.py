@@ -10,7 +10,11 @@ Rules:
 * No ``null`` in the null domain: ``facility.token``; every description at
   facility, system, family and field level; ``class`` of every family with
   ``channels > 0`` and its ``branch`` unless the class is packaged; every
-  ``directions.*.direction``.
+  ``directions.*.direction``; every judgment answer the document carries.
+* Every judgment answer names a judgment some system pends and every pending
+  judgment has an answer slot; a ``field:`` answer mints a name the family can
+  carry and is described by a ``families`` entry; a ``device`` answer promotes
+  no signal the family binds below its devices.
 * The facility token is PN_LOCAL; a ``rename`` is PN_LOCAL.
 * ``systems:`` and ``families:`` name exactly the systems and families of
   ``ao.json``.
@@ -28,6 +32,12 @@ Rules:
 * ``derived`` descriptions are counted per level and ``derived`` directions
   in total; with ``no_derived`` every derived slot is a problem.
 
+Every export fact a predicate reads comes from the judged views -- the export
+with the reviewer's judgment answers applied -- so a field an answer creates
+carries the same obligations as an exported one, down to its ``directions``
+key, and an answer no export can carry is reported once and then left out of
+the grain the rest of the rules see.
+
 A collision is reported at the later entry in document order. The module is
 pure and depends on the standard library and the ``mml`` package.
 """
@@ -35,12 +45,28 @@ pure and depends on the standard library and the ``mml`` package.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from osprey.services.mml.directions import Vote
-from osprey.services.mml.family import family_views, system_bodies
+from osprey.services.mml.family import FamilyView, system_bodies
+from osprey.services.mml.judgments import (
+    PendingJudgments,
+    all_pending_judgments,
+    judged_family_views,
+    unanswered_slots,
+    validate_answers,
+)
 from osprey.services.mml.mapping.branches import ROOT_CLASS, is_pn_local, packaged_classes
-from osprey.services.mml.mapping.schema import Mapping
+from osprey.services.mml.mapping.schema import (
+    ROWS_BEYOND_KIND,
+    SHARED_KIND,
+    UNBOUND_KIND,
+    FamilyJudgments,
+    Mapping,
+    OwnerMap,
+    SharedAnswer,
+    judgment_key,
+)
 
 __all__ = ["CheckResult", "Problem", "check_mapping"]
 
@@ -82,19 +108,122 @@ class CheckResult:
     derived_directions: int
 
 
+def _answer_findings(
+    pending: dict[tuple[str, str], PendingJudgments], mapping: Mapping
+) -> list[tuple[str, str, bool]]:
+    """Return one ``(key, message, export_incompatible)`` entry per refused answer.
+
+    This is the seam between the judgment rules and the checker. The rules have
+    a single home, :func:`osprey.services.mml.judgments.validate_answers`, which
+    reads the same pending judgments; the checker renders what it reports and
+    takes every export-incompatible answer out of :attr:`_Context.answers`. No
+    rule is evaluated here.
+
+    Args:
+        pending: What each ``(system, raw family)`` asks its reviewer.
+        mapping: The mapping carrying the answers.
+
+    Returns:
+        The refused answers, each keyed by its bracketed document path.
+    """
+    return list(validate_answers(pending, mapping))
+
+
+def _kept_shared(raw: str, shared: SharedAnswer | None, refused: set[str]) -> SharedAnswer | None:
+    """Return one family's shared-PV answer with the refused owners taken out."""
+    if shared is None or judgment_key(raw, SHARED_KIND) in refused:
+        return None
+    if isinstance(shared, OwnerMap):
+        return OwnerMap(
+            owners={
+                group: owner
+                for group, owner in shared.owners.items()
+                if judgment_key(raw, SHARED_KIND, ordinal=group) not in refused
+            }
+        )
+    return shared
+
+
+def _kept_answers(raw: str, judgments: FamilyJudgments, refused: set[str]) -> FamilyJudgments:
+    """Return one family's answers with the ones at ``refused`` taken out."""
+    return replace(
+        judgments,
+        rows_beyond={
+            field: {
+                signal: answer
+                for signal, answer in answers.items()
+                if judgment_key(raw, ROWS_BEYOND_KIND, field, signal) not in refused
+            }
+            for field, answers in judgments.rows_beyond.items()
+        },
+        unbound_devices={
+            ordinal: answer
+            for ordinal, answer in judgments.unbound_devices.items()
+            if judgment_key(raw, UNBOUND_KIND, ordinal=ordinal) not in refused
+        },
+        shared_pvs=_kept_shared(raw, judgments.shared_pvs, refused),
+    )
+
+
+def _without_refused(mapping: Mapping, refused: set[str]) -> Mapping:
+    """Return ``mapping`` without the answers keyed by ``refused``.
+
+    An answer the export cannot carry is reported rather than applied, so the
+    judged grain below is what the export and the surviving answers say. A key
+    naming no answer slot takes nothing out.
+    """
+    if not refused:
+        return mapping
+    return replace(
+        mapping,
+        judgments={
+            raw: _kept_answers(raw, judgments, refused)
+            for raw, judgments in mapping.judgments.items()
+        },
+    )
+
+
 class _Context:
-    """The export facts every predicate reads, computed once."""
+    """The export facts every predicate reads, computed once.
+
+    Attributes:
+        mapping: The mapping as parsed, answers and all.
+        votes: The direction votes of the raw export.
+        packaged: The packaged ontology classes.
+        systems: The raw system tokens of the export, in export order.
+        pending: What each ``(system, raw family)`` asks its reviewer, read off
+            the raw export before any answer is applied.
+        judgment_problems: One problem per refused answer, in rule order.
+        answers: ``mapping`` without the answers no export can carry; an answer
+            whose only problem is a missing mapping entry stays, so the field it
+            creates still reaches :attr:`family_fields`.
+        judged_views: The family views of each system, ``answers`` applied.
+        family_fields: raw family -> judged field names, in first-seen order.
+    """
 
     def __init__(self, mapping: Mapping, ao: dict, votes: dict[tuple[str, str], Vote]) -> None:
         self.mapping = mapping
         self.votes = votes
         self.packaged = packaged_classes()
-        self.systems: list[str] = []
-        #: raw family -> field names across systems, in first-seen order.
+        bodies = list(system_bodies(ao))
+        self.systems: list[str] = [system for system, _ in bodies]
+        self.pending = all_pending_judgments(ao)
+
+        findings = _answer_findings(self.pending, mapping)
+        self.judgment_problems: list[Problem] = [
+            Problem(key, message) for key, message, _ in findings
+        ]
+        self.answers = _without_refused(
+            mapping, {key for key, _, incompatible in findings if incompatible}
+        )
+
+        self.judged_views: dict[str, list[FamilyView]] = {
+            system: list(judged_family_views(system, families, self.answers))
+            for system, families in bodies
+        }
         self.family_fields: dict[str, dict[str, None]] = {}
-        for system, families in system_bodies(ao):
-            self.systems.append(system)
-            for view in family_views(system, families):
+        for views in self.judged_views.values():
+            for view in views:
                 fields = self.family_fields.setdefault(view.raw_name, {})
                 for name in view.fields:
                     fields[name] = None
@@ -138,6 +267,12 @@ def _null_domain(ctx: _Context) -> Iterator[Problem]:
     for key, direction in mapping.directions.items():
         if direction.direction is None:
             yield Problem(f"directions.{key}.direction", "must not be null")
+    for key, message in unanswered_slots(mapping):
+        yield Problem(key, message)
+
+
+def _judgments(ctx: _Context) -> Iterator[Problem]:
+    yield from ctx.judgment_problems
 
 
 def _facility_token(ctx: _Context) -> Iterator[Problem]:
@@ -317,6 +452,7 @@ def _stated_against_vote(ctx: _Context) -> Iterator[Problem]:
 
 _PREDICATES: tuple[Predicate, ...] = (
     _null_domain,
+    _judgments,
     _facility_token,
     _unknown_systems,
     _unknown_families,
