@@ -152,10 +152,14 @@ class TestCLIIngestCommand:
         assert "Dry run complete" in result.output
         assert "entries would be ingested" in result.output
 
-    def test_ingest_command_stores_entries(self, database_url, sample_entries_path, migrated_pool):
+    def test_ingest_command_stores_entries(
+        self, database_url, sample_entries_path, migrated_pool, seeded_prefixes
+    ):
         """Ingest command stores entries in database."""
         if not sample_entries_path.exists():
             pytest.skip(f"Fixture file not found: {sample_entries_path}")
+
+        import json
 
         from osprey.cli.ariel import ariel_group
 
@@ -165,6 +169,15 @@ class TestCLIIngestCommand:
             "database": {"uri": database_url},
             "search_modules": {"keyword": {"enabled": True}},
         }
+
+        # The command opens its own connection, so this test never sees the ids it
+        # stored. Every id the source file carries is recorded, which covers the rows
+        # any ``--limit`` reaches.
+        seeded_prefixes.update(
+            json.loads(line)["id"]
+            for line in sample_entries_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        )
 
         with patch("osprey.cli.ariel.get_config_value", return_value=mock_config):
             result = runner.invoke(
@@ -349,16 +362,3 @@ class TestCLIReembedCommand:
 
         assert result.exit_code == 0
         assert "DRY RUN" in result.output
-
-
-class TestCLIIngestCleanup:
-    """Clean up CLI test data."""
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up entries created during CLI tests."""
-        async with migrated_pool.connection() as conn:
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE source_system = 'ALS eLog'
-                AND entry_id ~ '^[0-9]+$'
-            """)
