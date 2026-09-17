@@ -164,9 +164,6 @@ pytest tests/services/python_executor/ -v
 
 # Run only fast tests (skip slow integration tests)
 pytest tests/services/python_executor/ -v -m "not slow"
-
-# Run only integration tests
-pytest tests/services/python_executor/ -v -m "integration"
 ```
 
 ## Call Tracking
