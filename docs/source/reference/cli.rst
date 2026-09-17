@@ -1044,11 +1044,16 @@ are standing. See :doc:`/how-to/use-channel-finder` for the flow end to end.
 ``osprey mml map (--init [--force] | --check [--no-derived])``
    Write or check ``data/mml/mapping.yaml``, the record of what the export
    means: the deployment name, device class and machine section of every
-   family, and the direction --- read or written --- of every signal.
+   family, and the direction --- read or written --- of every signal. Where the
+   export leaves a family's shape ambiguous --- rows beyond its devices, a
+   device bound by no channel, a PV shared across devices --- it also carries a
+   ``judgments:`` block, one null slot per question, listed per family in
+   ``PROFILE.md``.
    ``--init`` writes the skeleton, refusing to overwrite an existing file
    unless ``--force`` says to, because that file holds reviewed decisions.
-   ``--check`` reports every problem and exits non-zero while any remain, and
-   says how many slots the skeleton guessed are still unreviewed;
+   ``--check`` reports every problem and exits non-zero while any remain ---
+   among them every judgment slot left null and every answer the export cannot
+   carry --- and says how many slots the skeleton guessed are still unreviewed;
    ``--no-derived`` turns each of those into a problem of its own, which is the
    run to pass before going live.
 
@@ -1061,8 +1066,10 @@ are standing. See :doc:`/how-to/use-channel-finder` for the flow end to end.
    ``data/channel_databases/middle_layer.duckdb``; that copy holds one row per
    process variable, and emit lists every shared or broadcast PV whose other
    bindings it therefore holds no row of. Before writing anything it
-   refuses while the project still carries the demo facility's tier databases
-   or untouched demo knowledge pages, naming them in one ``rm`` line. Run
+   refuses while a judgment is unanswered or impossible, reporting the same
+   keys ``--check`` does and pointing back at it, and while the project still
+   carries the demo facility's tier databases or untouched demo knowledge
+   pages, naming them in one ``rm`` line. Run
    ``osprey build`` afterwards to copy the result into the deployment.
 
 .. code-block:: bash

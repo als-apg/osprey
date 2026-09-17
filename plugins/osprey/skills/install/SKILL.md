@@ -225,7 +225,8 @@ last is an `osprey init` argument; the other three are `osprey set` keys applied
    - A Middle Layer runs the chain in §3.1 of that file, in order:
      `osprey scaffold pull control-assistant:data/mml/mml_export.m`; the user runs
      `mml_export` once per sub-machine; `osprey mml import <machine>.<sub>.ao.json`;
-     `osprey mml map --init`; fill every `null`; review every `derived` description,
+     `osprey mml map --init`; fill every `null`; answer every slot of the
+     `judgments:` block with the user; review every `derived` description,
      direction, `class` and `branch` with the user and mark each slot `stated`;
      `osprey mml map --check --no-derived`; `osprey mml emit`; `osprey build`; then the
      PARADIGM card binds one of the two channel-finder artifacts emit wrote.
@@ -253,9 +254,10 @@ No-invention rules, all detailed in `references/knowledge-starter.md`:
 - Channel databases: the shipped template, the facility's own file, one built from the
   facility's CSV by `osprey channel-finder build-database`, or one emitted from the
   facility's MML export by `osprey mml emit`. Never by hand.
-- The MML mapping: `data/mml/mapping.yaml` is reviewed to `stated` before anything is
-  emitted from it, and every file `osprey mml emit` writes is `built` — the database,
-  the ontology, the knowledge pages and the corpus alike.
+- The MML mapping: `data/mml/mapping.yaml` is reviewed to `stated` and every
+  `judgments:` slot is answered by the user before anything is emitted from it, and
+  every file `osprey mml emit` writes is `built` — the database, the ontology, the
+  knowledge pages and the corpus alike.
 - Write limits: absent, empty, or ported, never a hand-written min or max.
 - Personas and users: emit all, then prune. One ordering, one home:
   `references/knowledge-starter.md` §6, which the web-terminal recipe points at too.

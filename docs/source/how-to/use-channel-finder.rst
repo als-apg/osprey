@@ -186,17 +186,41 @@ written.
 
 Fill the empty slots and review the ones the skeleton guessed --- the OSPREY
 agent can propose all of them, but the wording is yours to confirm, because
-this file is what the agent will later read your machine through. Then check
-the file back against the export:
+this file is what the agent will later read your machine through.
+
+A few slots are questions rather than wording. Where the export leaves the
+shape of a family genuinely ambiguous, the skeleton writes a ``judgments:``
+block with one null slot per question, and ``PROFILE.md`` lists them family by
+family, naming the devices and PVs each one concerns. There are three kinds:
+
+- **Rows beyond the devices.** A field carries more channel rows than the
+  family has devices --- a DCCT whose monitor lists an average current, a
+  lifetime and a total. Each extra row is answered ``drop`` to leave it out,
+  ``device`` to make it one more device of the family, or ``field: Lifetime``
+  to give it a field of its own. ``device`` adds a device to the family, which
+  every broadcast field also reaches.
+- **A device bound by no channel.** The export lists the device, but no channel
+  names it --- a third tune reading the machine does not measure. Answer
+  ``drop`` to leave it out, or ``keep`` to keep it as a device with no channel.
+- **A PV shared across devices.** One PV stands for a whole group, typically
+  magnets fed from one supply. Answer ``keep_all`` to keep the PV on every
+  member, or name the single device that owns it, as
+  ``{<lowest ordinal>: <owning ordinal>}`` the way ``PROFILE.md`` spells the
+  slot. Naming an owner can leave a member with no channel of its own; that
+  member stays a device, like a kept unbound one, and ``PROFILE.md`` says how
+  many members that is before you answer.
+
+Then check the file back against the export:
 
 .. code-block:: bash
 
    osprey mml map --check
 
-The check names every problem it finds and exits non-zero while any remain; it
-also says how many guessed slots are still unreviewed. Adding ``--no-derived``
-turns each of those into a problem of its own --- the stricter run to pass
-before you go live.
+The check names every problem it finds and exits non-zero while any remain --- a
+judgment left null, or answered in a way the export cannot carry, is one of
+them. It also says how many guessed slots are still unreviewed. Adding
+``--no-derived`` turns each of those into a problem of its own --- the stricter
+run to pass before you go live.
 
 **Emit.** The last verb writes the deployment's files from the export and the
 checked mapping:
@@ -212,8 +236,10 @@ for your facility. ``--duckdb`` also writes the DuckDB copy that the
 ``run_sql`` tool reads. That copy holds one row per process variable, so two
 slots naming the same PV --- a shared setpoint, or one row broadcast to every
 device in a family --- become a single row; emit names each of them as it
-writes, and the middle-layer database and the corpus keep every binding. A
-project still carrying the demo facility's databases
+writes, and the middle-layer database and the corpus keep every binding. Emit
+refuses before writing anything while a judgment is unanswered or impossible,
+naming each one and sending you back to ``map --check``. A project still
+carrying the demo facility's databases
 or knowledge pages is refused before anything is written, with one ``rm`` line
 naming exactly what to remove; run it and emit again. Finally ``osprey build``
 copies the emitted files into the deployment --- the running stack keeps its

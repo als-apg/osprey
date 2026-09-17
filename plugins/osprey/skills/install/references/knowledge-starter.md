@@ -168,9 +168,20 @@ types none of them.
    a flat export that records no sub-machine name.
 4. **Map.** `osprey mml map --init` writes `data/mml/mapping.yaml`: every slot the export
    states a fact for is pre-filled, every other slot is `null`. This file is the only
-   place a decision about this facility is recorded.
+   place a decision about this facility is recorded. Where the export leaves a family's
+   shape ambiguous it also carries a `judgments:` block, one `null` slot per question,
+   listed family by family under **Judgment required** in `PROFILE.md`.
 5. **Fill every `null`.** A `null` direction or facility token blocks the emit. Ask the
-   user for what the export does not say. Nothing here is guessed.
+   user for what the export does not say. Nothing here is guessed. A `judgments:` slot
+   is a question for the user in their own machine's terms, and there are three kinds:
+   - A field carrying more channel rows than the family has devices. Each extra row is
+     answered `drop`, `device` (one more device of the family, which every broadcast
+     field also reaches), or `field: <Name>` to give the row a field of its own.
+   - A device the export binds no channel to: `drop` or `keep`.
+   - A PV shared across devices, typically magnets on one supply: `keep_all`, or
+     `{<lowest ordinal>: <owning ordinal>}` to keep it on one device alone. An owner
+     answer may leave a member with no channel of its own — allowed, and `PROFILE.md`
+     says how many members that is before the user answers.
 6. **Review every derived slot, with the user.** `map --init` marks prose it built from
    export facts `provenance: derived`, and prose the export itself carried `imported`;
    a direction it voted is `derived` too. Read each `derived` description against the
@@ -180,6 +191,8 @@ types none of them.
    on purpose also needs `override: true`.
 7. **Check.** `osprey mml map --check --no-derived` exits non-zero while any slot is
    still `derived` and names each one, so a clean run is the evidence step 6 happened.
+   It refuses a judgment left `null` or answered in a way the export cannot carry, and
+   so does emit.
    Plain `--check` is the one to run while the review is still in progress.
 8. **Emit.** `osprey mml emit` writes `data/channel_databases/middle_layer.json` (and
    `data/channel_databases/tiers/tier3/middle_layer.json` where a `tiers/` directory
