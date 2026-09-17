@@ -1990,7 +1990,7 @@ TRIGGERS_YML = """\
 # (Retries fire on *dispatch failure* — i.e. when the dispatcher cannot reach
 # the worker — via the per-trigger `on_error: retry` policy. That path is not
 # exercised by a curl against a healthy stack; see the docs and the unit test
-# tests/unit/dispatch/test_server_routes.py for the retry/backoff behaviour.)
+# tests/dispatch/test_server_routes.py for the retry/backoff behaviour.)
 
 dispatcher:
   # The dispatcher forwards each fired trigger to this worker. The compose
