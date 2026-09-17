@@ -927,6 +927,54 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     )
 
 
+def any_armed_target_checks_limits(section: Any) -> bool:
+    """Whether some target that arms writes also has limits checking on.
+
+    The question a deployment-level caller asks before it demands a channel-
+    limits database: only a target that both writes and checks limits opens
+    that file, so only such a target makes its absence matter.
+
+    The pairing is per target, and that is the whole point — the two leaves have
+    to be read off the SAME machine. A deployment can arm its simulator while
+    only its read-only live block checks limits, and separate
+    :func:`any_target_writes_enabled` and
+    :func:`most_restrictive_limits_posture` folds would answer "armed" and
+    "checked" from those two different blocks and report a pairing no target
+    has.
+
+    The reachable set is :func:`session_posture`'s, read the same way: every
+    :func:`configured_targets` when the deployment renders the switch
+    (:func:`switch_capable`), and otherwise the single connector
+    ``control_system.type`` builds, asked by *type* so a block belonging to a
+    machine no session here reaches cannot vote.
+
+    ``enabled`` alone decides the limits half, because that is the leaf that
+    decides whether a validator exists at all —
+    :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator._from_posture`
+    builds none for anything else, and a target with no validator consults no
+    database. ``allow_unlisted_channels`` governs what a built validator does
+    with a channel the database omits, which is a different question.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes.
+
+    Returns:
+        ``True`` when at least one reachable target arms writes and states
+        ``limits_checking.enabled: true``. Never raises.
+    """
+    if switch_capable(section):
+        return any(
+            target_writes_enabled(section, target)
+            and target_limits_posture(section, target).enabled is True
+            for target in configured_targets(section)
+        )
+    built = resolve_control_system_type(section)
+    return (
+        type_writes_enabled(section, built) and type_limits_posture(section, built).enabled is True
+    )
+
+
 def incomplete_limits_blocks(section: Any) -> list[str]:
     """Every half-written per-type limits block in a rendered section, named.
 

@@ -678,26 +678,31 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     (hence ``repo_root=None``) — rewriting it repo-relative would silently
     re-point the mount at a file that is not there.
 
-    Refusals are gated on :func:`~osprey_connectors.types.any_target_writes_enabled`
-    because that is what gates the mount itself. The mount is rendered per
-    Bluesky lane, on each lane's own target posture
-    (:func:`_bluesky_lane_write_posture`), so a deployment whose
-    deployment-wide key is ``false`` still mounts this file into a lane whose
-    ``control_system.connector.<type>.writes_enabled`` arms it. Reading the flat
-    key here would skip both refusals on exactly that config and hand the
-    template a mount it does not have: with the path unset the render emits a
-    bind with no source, and with it set but unstaged a build-time refusal
-    degrades into a container that comes up enforcing an unreadable file. The
-    union predicate — the same one the web terminal's write gate reads — is what
-    keeps the refusal and the mount describing the same deployment.
+    Refusals are gated on
+    :func:`~osprey_connectors.types.any_armed_target_checks_limits`: a target
+    opens this file only when it both arms writes and has
+    ``limits_checking.enabled`` on, so that pairing is what makes the file's
+    absence a fault rather than a posture. Both halves are read off the SAME
+    target, and the write half is a union over the targets a session here can
+    select rather than the flat key — the mount is rendered per Bluesky lane,
+    on each lane's own target posture (:func:`_bluesky_lane_write_posture`), so
+    a deployment whose deployment-wide key is ``false`` still mounts this file
+    into a lane whose ``control_system.connector.<type>.writes_enabled`` arms
+    it. Reading the flat key would let that config refuse nothing and then
+    render an armed lane binding a file that is not on the host, which the
+    container runtime creates as an empty directory.
 
-    A deployment with no armed target never enforces limits against this file,
-    so an unset or not-yet-staged path is a posture there, not a fault. One that
-    arms a target without a limits database is the one unsafe combination — the
-    same one ``bluesky_bridge.validation._assert_limits_readable_if_writable``
-    refuses to start on — and catching it here turns an unhealthy container an
-    hour into a deploy into a refusal while the operator still has the config in
-    front of them.
+    A limits database is therefore optional, exactly as it is at runtime. A
+    deployment with no armed target never opens it; neither does one that arms
+    writes with limits checking off for every armed target, where the connector
+    builds no validator and consults no database. Both leave an unset or
+    not-yet-staged path a posture rather than a fault, and the render carries
+    no mount — a bind source that does not exist would otherwise materialise as
+    a stray empty directory. Checking that is ON for an armed target is the
+    combination that needs the file, the same rule
+    ``bluesky_bridge.validation._assert_limits_readable_if_writable`` starts
+    on, and catching it here turns an unhealthy container an hour into a deploy
+    into a refusal while the operator still has the config in front of them.
 
     :param config: The loaded project config
     :type config: dict
@@ -710,30 +715,34 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         will be read under; ``""`` for the repo root itself
     :type deployed_config_dir: str
     :return: ``{"source": ..., "target": ...}``, or ``None`` when the key names
-        no path at all and no target arms writes
+        no path at all, or names one that is not on this host and no armed
+        target checks limits — there is nothing to mount either way, and a bind
+        source that is not there is worse than no bind at all
     :rtype: dict[str, str] or None
-    :raises DeploymentPreconditionError: Some target arms writes and the key is
-        unset, is not a string, or names a file that is not on this host
+    :raises DeploymentPreconditionError: Some target arms writes with limits
+        checking on for it, and the key is unset, is not a string, or names a
+        file that is not on this host
     """
-    from osprey_connectors.types import any_target_writes_enabled
+    from osprey_connectors.types import any_armed_target_checks_limits
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
-    writes_enabled = any_target_writes_enabled(control_system)
+    limits_required = any_armed_target_checks_limits(control_system)
 
     if not isinstance(raw, str) or not raw.strip():
-        if writes_enabled:
+        if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
                     f"At least one control target arms writes_enabled (from "
                     f"control_system.writes_enabled or a "
                     f"control_system.connector.<type>.writes_enabled that "
-                    f"overrides it), so the channel-limits database is mounted "
-                    f"into the services that write — but "
-                    f"{LIMITS_DATABASE_CONFIG_KEY} names no path (found: "
-                    f"{raw!r}). There is nothing to mount, so those services "
-                    f"would come up with no limits to enforce."
+                    f"overrides it) AND has limits_checking.enabled on, so the "
+                    f"channel-limits database is mounted into the services that "
+                    f"write — but {LIMITS_DATABASE_CONFIG_KEY} names no path "
+                    f"(found: {raw!r}). There is nothing to mount, so those "
+                    f"services would come up checking writes against a database "
+                    f"they cannot read."
                 ),
                 remedy=(
                     f"Set {LIMITS_DATABASE_CONFIG_KEY} to the limits file, "
@@ -741,14 +750,18 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     "    control_system:\n"
                     "      limits_checking:\n"
                     "        database_path: data/channel_limits.json\n"
-                    "Or disarm every target — control_system.writes_enabled: "
-                    "false with no control_system.connector.<type>."
-                    "writes_enabled: true overriding it — to deploy read-only, "
-                    "which needs no limits database."
+                    "Or turn limits checking off for the armed target — "
+                    "limits_checking.enabled: false, deployment-wide or in that "
+                    "target's control_system.connector.<type> block — which "
+                    "needs no limits database. Disarming every target "
+                    "(control_system.writes_enabled: false with no "
+                    "control_system.connector.<type>.writes_enabled: true "
+                    "overriding it) needs none either."
                 ),
             )
-        # Read-only and unconfigured: nothing to spell, and nothing that would
-        # consume the strings if they were spelled.
+        # Unconfigured, and nothing here opens a limits database: nothing to
+        # spell, and nothing that would consume the strings if they were
+        # spelled.
         return None
 
     configured = Path(raw).expanduser()
@@ -769,33 +782,40 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         target = str(PurePosixPath(_CONTAINER_PROJECT_ROOT) / relative)
         on_host = Path(config_dir) / configured
 
-    if writes_enabled and not on_host.is_file():
-        raise DeploymentPreconditionError(
-            reason=(
-                f"At least one control target arms writes_enabled (from "
-                f"control_system.writes_enabled or a "
-                f"control_system.connector.<type>.writes_enabled that overrides "
-                f"it), so the channel-limits database is mounted into the "
-                f"services that write — but "
-                f"{LIMITS_DATABASE_CONFIG_KEY} is {raw!r} and there is no file "
-                f"at {on_host}. A bind source that does not exist is created by "
-                f"the container runtime as an empty directory, so the deployment "
-                f"would come up enforcing an unreadable limits database."
-            ),
-            remedy=(
-                f"Put the limits database at {on_host}, or point "
-                f"{LIMITS_DATABASE_CONFIG_KEY} at where it already is, and "
-                "rebuild. The limits database is authored in the build "
-                "profile's `data/` tree and copied into the deployment by "
-                "`osprey build`, so a path that is right in the profile and "
-                "absent here usually means the build has not been re-run."
-            ),
-        )
+    if not on_host.is_file():
+        if limits_required:
+            raise DeploymentPreconditionError(
+                reason=(
+                    f"At least one control target arms writes_enabled (from "
+                    f"control_system.writes_enabled or a "
+                    f"control_system.connector.<type>.writes_enabled that "
+                    f"overrides it) AND has limits_checking.enabled on, so the "
+                    f"channel-limits database is mounted into the services that "
+                    f"write — but {LIMITS_DATABASE_CONFIG_KEY} is {raw!r} and "
+                    f"there is no file at {on_host}. A bind source that does not "
+                    f"exist is created by the container runtime as an empty "
+                    f"directory, so the deployment would come up checking writes "
+                    f"against a limits database it cannot read."
+                ),
+                remedy=(
+                    f"Put the limits database at {on_host}, or point "
+                    f"{LIMITS_DATABASE_CONFIG_KEY} at where it already is, and "
+                    "rebuild. The limits database is authored in the build "
+                    "profile's `data/` tree and copied into the deployment by "
+                    "`osprey build`, so a path that is right in the profile and "
+                    "absent here usually means the build has not been re-run. To "
+                    "deploy without one, set limits_checking.enabled: false for "
+                    "the armed target — a target that checks no limits opens no "
+                    "database."
+                ),
+            )
+        # Configured, absent, and nothing here will open it. No mount is
+        # recorded rather than the strings for a file that is not there: the
+        # container runtime creates a missing bind source as an empty
+        # directory, and the template renders the volume only when this key
+        # reaches it.
+        return None
 
-    # Returned even when the file is absent and writes are disabled: the
-    # strings are still the right answer for that configured path, the mount
-    # they describe is writes-gated in the template, and an operator staging
-    # the file later changes nothing about how it is spelled.
     return {"source": source, "target": target}
 
 
@@ -1193,13 +1213,13 @@ def _lane_target(block, control_system):
     test the worker applies to the same key
     (:func:`~osprey.services.bluesky_bridge.queue_backend._declared_lane_target`).
     On a hand-edited config a target of any other type would otherwise be a
-    lane this gate resolves one way and the runtime another — the build gating
-    a machine the worker does not come up on.
+    lane this render resolves one way and the runtime another — a lane rendered
+    for a machine the worker does not come up on.
 
-    One spelling, because two readers act on the answer and a disagreement
-    between them is a lane described as one machine and gated as another: the
-    template's write posture below, and the limits gate
-    (:func:`_refuse_lane_writes_without_limits`) that refuses the build.
+    One spelling, because the answer decides what the lane is described as: the
+    template's write posture below reads it, and a lane resolved one way here
+    and another by the worker would render a machine the worker never comes up
+    on.
 
     :param block: The lane's ``services.<lane>`` block
     :type block: dict
@@ -2643,14 +2663,11 @@ def _write_staged_devices(source, staged_path):
 class _DerivedDevices:
     """Whether this render stages a roster-derived plan-device file, and from what.
 
-    The derivation decision, made ONCE per render and consulted by everything
-    that has to know it: :func:`_stage_bluesky_devices`, which acts on it, and
-    the per-lane limits-posture gate in :func:`prepare_compose_files`, which
-    refuses the build before any service directory is written. Both have to
-    agree about whether a derived file lands — a gate that guessed differently
-    would either refuse a browse-only build or wave a derived one through — so
-    the answer is computed in one place rather than re-derived from the config
-    at each site.
+    The derivation decision, made ONCE per render for
+    :func:`_stage_bluesky_devices`, which acts on it, and for anything else
+    that has to know whether a derived file lands. Computed in one place rather
+    than re-derived from the config at each site, so no two readers can
+    disagree about what this render stages.
 
     ``roster`` is carried because the decision and its FACT come from the same
     read: the line an operator is handed names the source
@@ -2662,8 +2679,8 @@ class _DerivedDevices:
     :ivar derives: True iff a roster-derived device file will be staged when
         the bluesky service directory is rendered. It says what the DECISION
         is, not that a render has happened: this is a pure function of the
-        config plus the filesystem, so the gate can read it before the service
-        loop starts and get the same answer the staging step will act on.
+        config plus the filesystem, so a reader that asks before the service
+        loop starts gets the same answer the staging step will act on.
     :ivar is_mock: True when the control system is the mock, which has no
         channels to drive whatever else is configured
     :ivar configured: ``bluesky.devices_file`` as the profile spelled it, or
@@ -2718,7 +2735,7 @@ def _plan_derived_devices(config):
        :func:`_stage_bluesky_devices` for what each of those is reported as.
 
     The roster read is memoized per source file, so calling this once per lane
-    and once more for the gate costs one parse of the corpus or database.
+    costs one parse of the corpus or database.
 
     :param config: The render config
     :type config: dict
@@ -2898,8 +2915,9 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     namespace is a name a plan MAY reference, never a write that has happened;
     the gates that decide whether a write lands sit on the write path — the
     connector's per-put reference monitor and the bridge's arming + limits
-    facade — and the build refuses outright, per lane, when a target has writes
-    enabled without an enabled limits posture. Withholding the machine's own
+    facade. A derived device moves through the same connector as any other
+    channel write and meets the same checks there, including the optional,
+    per-target limits check. Withholding the machine's own
     channels from the namespace would add no gate: it would only make the
     channels an agent is allowed to READ invisible to it, and push operators
     back to hand-authored device files that nothing keeps in step with the
@@ -3555,101 +3573,6 @@ def clean_deployment(compose_files, config=None, repo_root=None):
     logger.debug("Cleanup completed")
 
 
-def _refuse_lane_writes_without_limits(config):
-    """Refuse a build that would hand an armed lane a derived device set with no
-    limits checking behind it.
-
-    Only when this render DERIVES the device file
-    (:func:`_plan_derived_devices`). A device set the operator authored is their
-    own list of what the worker may move, and this build does not second-guess
-    it; a derived one is OSPREY's list, mounting a settable for every channel
-    the facility states is writable — so the build that chose that list is
-    where the posture behind it has to hold.
-
-    Asked PER LANE, against the target that lane is bound to at render time
-    (:func:`_lane_target`), and never as a deployment-wide fold. A deployment
-    can arm its virtual accelerator and leave its live machine read-only, or
-    check limits on one and not the other; an ``any()``-style answer over both
-    would let an enabled simulator vouch for a live lane that enforces nothing
-    — which is precisely the lane the refusal exists for.
-
-    The condition is one leaf: writes armed for the lane's target
-    (:func:`~osprey_connectors.types.target_writes_enabled`) while
-    ``limits_checking.enabled`` for that same target is not ``True``
-    (:func:`~osprey_connectors.types.target_limits_posture`). ``enabled`` alone,
-    because that is the leaf deciding whether a validator is built at all —
-    ``LimitsValidator._from_posture`` returns ``None`` for anything else, and
-    nothing bounds a setpoint after that. ``allow_unlisted_channels`` is a
-    deliberate facility choice about channels the database does not list, which
-    the shipped presets set true, and is not this gate's business.
-
-    Evaluated before the service loop in :func:`prepare_compose_files`, so a
-    refusal costs no half-written build context.
-
-    :param config: The render config
-    :type config: dict
-    :raises DeploymentPreconditionError: A deployed lane arms writes for its
-        target while limits checking is not on for that target, and this render
-        would derive that lane's device set
-    """
-    from osprey_connectors.types import (
-        target_limits_posture,
-        target_writes_enabled,
-        target_writes_enabled_key,
-    )
-
-    deployed = {str(name) for name in (config.get("deployed_services") or [])}
-    lanes = [lane for lane in _BLUESKY_LANE_KEYS if lane in deployed]
-    if not lanes:
-        # Nothing to arm, so nothing to refuse -- and asked first, because the
-        # roster read below is a corpus parse or a database query and a
-        # deployment running no plan lane should not pay for one.
-        return
-
-    plan = _plan_derived_devices(config)
-    if not plan.derives:
-        return
-
-    # `services` is a dict here or the plan derives nothing: a non-mapping makes
-    # `_configured_devices_file` answer None, which is the `configured is None`
-    # arm of `_plan_derived_devices`.
-    services = config.get("services") or {}
-    control_system = config.get("control_system") or {}
-
-    for lane in lanes:
-        block = services.get(lane)
-        if not isinstance(block, dict):
-            continue
-        target = _lane_target(block, control_system)
-        if not target_writes_enabled(control_system, target):
-            continue
-        posture = target_limits_posture(control_system, target)
-        if posture.enabled is True:
-            continue
-        raise DeploymentPreconditionError(
-            reason=(
-                f"The queueserver worker's plan devices are derived from "
-                f"{plan.roster.source.describe()}, so lane '{lane}' comes up holding a "
-                f"settable for every channel this facility states is writable. That "
-                f"lane serves the {target!r} target, which arms writes "
-                f"({target_writes_enabled_key(control_system, target)}), while limits "
-                f"checking is not on for it: {posture.key('enabled')} is "
-                f"{posture.enabled!r}. Limits checking that is not on builds no "
-                f"validator at all, so every one of those devices would take whatever "
-                f"value a plan asks for, with no channel-limits database consulted."
-            ),
-            remedy=(
-                f"Set {posture.key('enabled')} to true and rebuild, so the {target!r} "
-                f"target enforces the limits database on the channels this build "
-                f"derived. To bring lane '{lane}' up browse-only instead, set "
-                f"{target_writes_enabled_key(control_system, target)} to false. To keep "
-                f"the writes and choose the device set yourself, author a device file "
-                f"and point {BLUESKY_DEVICES_CONFIG_KEY} at it — an authored set is the "
-                f"operator's own list, and nothing is derived for it."
-            ),
-        )
-
-
 def prepare_compose_files(
     config_path,
     dev_mode=False,
@@ -3722,13 +3645,11 @@ def prepare_compose_files(
     :return: Tuple of (config dict, list of compose file paths)
     :rtype: tuple[dict, list[str]]
     :raises RuntimeError: If configuration loading fails
-    :raises DeploymentPreconditionError: Writes are enabled and
-        ``control_system.limits_checking.database_path`` names no path, or names
-        a file that is not on this host; or a deployed plan lane whose device
-        set this render derives arms writes for its target while limits checking
-        is not on for that target
-        (:func:`_refuse_lane_writes_without_limits`). Nothing has been rendered
-        when either raises.
+    :raises DeploymentPreconditionError: Some target arms writes with limits
+        checking on for it, and
+        ``control_system.limits_checking.database_path`` names no path or names
+        a file that is not on this host (:func:`resolve_limits_mount`). Nothing
+        has been rendered when it raises.
     """
     # Fail before any work when --dev cannot be honored: every precondition is
     # a path check away, so there is no reason to surface it seven services in.
@@ -3765,10 +3686,10 @@ def prepare_compose_files(
     # which a Jinja context can hold but cannot derive, and a template that
     # built the strings itself would have to be re-taught the rule every time
     # another service mounted the same file. Recorded only when the key names a
-    # path: a read-only deployment with no limits database has nothing to spell,
-    # and the template's mount is writes-gated anyway. When writes ARE enabled,
-    # `resolve_limits_mount` either sets this key or refuses the render, so a
-    # writable deployment can never reach the template without it.
+    # path that is on this host: a limits database is optional — a deployment
+    # that arms no target, or that checks no limits on the targets it arms, has
+    # nothing to spell — and the template renders the volume only for a lane
+    # that is armed AND handed this key.
     limits_mount = resolve_limits_mount(config, config["config_dir"], deployed_config_dir)
     if limits_mount is not None:
         config["limits_mount"] = limits_mount
@@ -3804,14 +3725,6 @@ def prepare_compose_files(
     else:
         logger.warning("No deployed_services list found, no services will be processed")
         deployed_service_names = []
-
-    # The per-lane limits gate, before anything is written. A lane whose device
-    # set THIS render derives must not come up armed for writes with limits
-    # checking off for its target: the derived set is OSPREY's list of what the
-    # worker may move, so the build that chose it is where the posture behind it
-    # is checked. Asked once here rather than per service, and per lane rather
-    # than deployment-wide — see the function for why a fold would not do.
-    _refuse_lane_writes_without_limits(config)
 
     # Record which env-chain files this render found, beside the compose files
     # it explains. Written for every render, including one that deploys no

@@ -6895,13 +6895,16 @@ def test_inject_project_metadata_passes_config_dir_keys_through(tmp_path: Path) 
 # staying in step at both entry-point shapes - a deploy reading a config from
 # `build/`, and a build rendering from a staging tree that becomes it.
 #
-# Refusals ride on the union over the targets a session here can select
-# (`any_target_writes_enabled`), because that is what gates the mount: the
-# template mounts the file per Bluesky lane, off each lane's own target posture,
-# so a deployment-wide `writes_enabled: false` with an armed
-# `connector.<type>.writes_enabled` still mounts it. A deployment with no armed
-# target never opens the file, so an unset or not-yet-staged path there is a
-# posture and not a fault.
+# A limits database is optional. Refusals ride on one target both arming
+# writes and having `limits_checking.enabled` on
+# (`any_armed_target_checks_limits`), because that pairing is what opens the
+# file: a target that checks no limits builds no validator and reads no
+# database. The write half is a union over the targets a session here can
+# select rather than the flat key, since the template mounts the file per
+# Bluesky lane off each lane's own target posture -- so a deployment-wide
+# `writes_enabled: false` with an armed `connector.<type>.writes_enabled` still
+# mounts it. Where nothing opens the file, an unset or not-yet-staged path is a
+# posture and not a fault, and no mount is recorded at all.
 # ---------------------------------------------------------------------------
 
 LIMITS_KEY = "control_system.limits_checking.database_path"
@@ -7040,13 +7043,13 @@ def test_limits_mount_never_rewrites_an_absolute_path(
     assert config["limits_mount"] == {"source": str(absolute), "target": str(absolute)}
 
 
-def test_limits_mount_refuses_a_writable_deployment_with_no_configured_path(
+def test_limits_mount_refuses_a_checking_writable_deployment_with_no_configured_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Writes on, no path: refuse the render rather than deploy unguarded.
+    """Writes on, checking on, no path: refuse rather than deploy unguarded.
 
-    The alternative is a stack that comes up writable with nothing to check
-    writes against, which the bridge's own startup guard would then refuse an
+    The alternative is a stack that comes up writable and checking writes
+    against nothing, which the bridge's own startup guard would then refuse an
     hour later from inside a container log.
     """
     config_path = _write_config(
@@ -7065,7 +7068,7 @@ def test_limits_mount_refuses_a_writable_deployment_with_no_configured_path(
     assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key to set"
 
 
-def test_limits_mount_refuses_a_writable_deployment_whose_file_is_absent(
+def test_limits_mount_refuses_a_checking_writable_deployment_whose_file_is_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A configured-but-unstaged path is caught at render, naming the path.
@@ -7141,11 +7144,13 @@ def test_limits_mount_refuses_a_per_target_writable_deployment_whose_file_is_abs
 def test_limits_mount_refuses_a_per_target_writable_deployment_with_no_configured_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Armed per target, no path: refused, not rendered as an empty bind.
+    """Armed per target and checking limits, no path: refused.
 
-    Without the refusal the key is absent from the render context and the
-    template's per-lane mount spells a bind with neither source nor target -
-    a compose file that does not parse, produced from a config that does.
+    Without the refusal this lane comes up with limits checking on and no
+    database behind it: the connector's empty-DB failsafe then blocks every
+    write, which reads as a lane that is silently broken rather than as the
+    config error it is. The template itself renders no volume for a context
+    without the key, so nothing downstream would report it.
     """
     config_path = _write_config(
         tmp_path,
@@ -7207,32 +7212,37 @@ def test_limits_mount_refuses_a_writable_deployment_with_a_non_string_path(
 
 
 @pytest.mark.parametrize(
-    ("database_path", "expect_key"),
+    ("database_path", "staged", "expect_key"),
     [
-        (None, False),
-        (DEFAULT_LIMITS_RELPATH, True),
+        (None, False, False),
+        (DEFAULT_LIMITS_RELPATH, False, False),
+        (DEFAULT_LIMITS_RELPATH, True, True),
     ],
-    ids=["unset", "configured-but-unstaged"],
+    ids=["unset", "configured-but-unstaged", "configured-and-staged"],
 )
 def test_limits_mount_never_refuses_a_read_only_deployment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     database_path: object,
+    staged: bool,
     expect_key: bool,
 ) -> None:
-    """Writes off: no refusal either way, whatever the key says.
+    """Writes off: no refusal in any of the three shapes.
 
     A read-only deployment never opens the limits database, and the template's
     mount is gated on the same switch - so neither an unset key nor an unstaged
-    file is a fault here. The strings are still recorded when the key names a
-    path, because they are the right answer for that path whenever it IS
-    staged; only "no path at all" leaves nothing to record.
+    file is a fault here. The strings are recorded once the file is on the
+    host, because they are the right answer for that path whenever a lane is
+    later armed; a path with no file behind it records nothing, so no render
+    can bind a source the container runtime would create as a directory.
     """
     config_path = _write_config(
         tmp_path,
         deployed_services=[],
         control_system=_limits_config(database_path, writes_enabled=False),
     )
+    if staged:
+        _stage_limits_file(tmp_path)
 
     monkeypatch.chdir(tmp_path)
     config, _ = prepare_compose_files(str(config_path))
@@ -7240,6 +7250,131 @@ def test_limits_mount_never_refuses_a_read_only_deployment(
     assert ("limits_mount" in config) is expect_key
     if expect_key:
         assert config["limits_mount"]["source"] == f"./{DEFAULT_LIMITS_RELPATH}"
+
+
+def _unchecked_limits_config(database_path: object) -> dict:
+    """Armed deployment-wide with limits checking explicitly off."""
+    return {
+        "writes_enabled": True,
+        "limits_checking": {
+            "enabled": False,
+            "allow_unlisted_channels": False,
+            "database_path": database_path,
+        },
+    }
+
+
+def test_limits_mount_lets_an_armed_deployment_that_checks_no_limits_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Checking off is a posture, so an armed deployment needs no database.
+
+    Limits checking is opt-in per target and the connector's per-write check is
+    the enforcement point: a target with `enabled: false` builds no validator
+    and opens no file. Demanding a database of it would make one mandatory for
+    every deployment that arms writes, which is not what the runtime asks for.
+    """
+    config_path = _write_config(
+        tmp_path,
+        deployed_services=[],
+        control_system=_unchecked_limits_config(None),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    config, _ = prepare_compose_files(str(config_path))
+
+    assert "limits_mount" not in config, "there is no database, so there is nothing to mount"
+
+
+def test_limits_mount_absent_for_an_unchecked_armed_deployment_whose_file_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A path nothing will open, pointing at nothing, mounts nothing.
+
+    The configured string is honoured only once the file is there. Handing the
+    template a bind source that does not exist would have the container runtime
+    create it as an empty directory beside the operator's config - a stray
+    directory standing in for a database this deployment never reads.
+    """
+    config_path = _write_config(
+        tmp_path,
+        deployed_services=[],
+        control_system=_unchecked_limits_config(DEFAULT_LIMITS_RELPATH),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    config, _ = prepare_compose_files(str(config_path))
+
+    assert "limits_mount" not in config
+    assert not (tmp_path / DEFAULT_LIMITS_RELPATH).exists(), (
+        "the render must not create the bind source it declined to mount"
+    )
+
+
+def test_limits_mount_refuses_when_only_the_armed_target_checks_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both leaves are read off the SAME target, not folded across targets.
+
+    Here the armed VA checks limits while the read-only live block does not.
+    An answer folded over every target would see one armed target and one
+    checking target and could report a pairing that no single machine has; the
+    lane that opens the database is the VA, so the absent file is fatal.
+    """
+    control_system = {
+        "type": "virtual_accelerator",
+        "writes_enabled": False,
+        "connector": {
+            "virtual_accelerator": {
+                "writes_enabled": True,
+                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            },
+            "epics": {
+                "writes_enabled": False,
+                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+            },
+        },
+        "limits_checking": {"database_path": DEFAULT_LIMITS_RELPATH},
+    }
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
+        prepare_compose_files(str(config_path))
+
+    assert str(tmp_path / DEFAULT_LIMITS_RELPATH) in excinfo.value.reason
+
+
+def test_limits_mount_lets_an_armed_unchecked_target_build_beside_a_checking_read_only_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mirror image: the target that checks limits is the one nobody arms.
+
+    A fold that asked "is anything armed" and "is anything checking" separately
+    would refuse this build over a read-only machine's posture. Nothing here
+    opens the database, so its absence is not a fault.
+    """
+    control_system = {
+        "type": "virtual_accelerator",
+        "writes_enabled": False,
+        "connector": {
+            "virtual_accelerator": {
+                "writes_enabled": True,
+                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+            },
+            "epics": {
+                "writes_enabled": False,
+                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            },
+        },
+        "limits_checking": {"database_path": DEFAULT_LIMITS_RELPATH},
+    }
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    config, _ = prepare_compose_files(str(config_path))
+
+    assert "limits_mount" not in config
 
 
 def test_limits_mount_absent_when_no_control_system_block_exists(
@@ -8806,424 +8941,38 @@ class TestImagePinVersion:
 
 
 # ---------------------------------------------------------------------------
-# The per-lane limits gate (``_refuse_lane_writes_without_limits``)
+# A derived device set behind an armed lane
 #
-# A derived device set is OSPREY's own list of what the queueserver worker may
-# move, so the build that chose that list refuses to hand it to a lane that
-# arms writes with limits checking off for its target. Per LANE-TARGET
-# throughout: a deployment can arm its simulator and leave its live machine
-# read-only, and a deployment-wide fold would let the one vouch for the other.
+# OSPREY requires no channel-limits database. Limits checking is opt-in per
+# target, and the connector's per-write check is the enforcement point -- so a
+# build that derives the worker's device set from the facility's own roster
+# renders whatever posture the config states, armed or not.
 # ---------------------------------------------------------------------------
 
 
-def _gate(config: dict) -> None:
-    from osprey.deployment.compose_generator import _refuse_lane_writes_without_limits
-
-    _refuse_lane_writes_without_limits(config)
-
-
-def _arm_writes(config: dict, *, limits_enabled: bool | None) -> dict:
-    """Arm the deployment-wide write posture, with ``limits_checking`` as given.
-
-    The single-lane shape: no per-connector block, so the baseline target reads
-    the deployment-wide keys — which is what a facility that has never had a
-    second machine has always had.
-    """
-    control_system = config["control_system"]
-    control_system["writes_enabled"] = True
-    limits: dict = {"database_path": "data/channel_limits.json"}
-    if limits_enabled is not None:
-        limits["enabled"] = limits_enabled
-        limits["allow_unlisted_channels"] = False
-    control_system["limits_checking"] = limits
-    return config
-
-
-def test_the_gate_refuses_an_armed_lane_whose_target_checks_no_limits(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The refusal names the lane and the key that has to be set.
-
-    An operator handed this line has to be able to act on it without going
-    looking: which lane came up armed, and the config key whose value made it
-    unsafe -- not "the build", and not a key some other block overrides.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _arm_writes(_graph_devices_config(tmp_path), limits_enabled=False)
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(config)
-
-    message = str(excinfo.value)
-    assert "control_system.limits_checking.enabled" in message, (
-        f"the refusal must name the leaf's own key, got: {message}"
-    )
-    assert "'bluesky'" in message, f"the refusal must name the lane, got: {message}"
-    assert "'va'" in message, f"the refusal must name the target the lane serves: {message}"
-
-
-def test_the_gate_refuses_a_lane_whose_target_states_no_limits_posture_at_all(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """Silence is not permission: an unstated ``enabled`` refuses like a false one.
-
-    ``None`` is a deployment that never configured limits checking, which the
-    validator reads as no validator at all -- the same unbounded worker a
-    ``false`` gives, so the gate cannot treat the two differently.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _arm_writes(_graph_devices_config(tmp_path), limits_enabled=None)
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(config)
-
-    assert "limits_checking.enabled" in str(excinfo.value)
-
-
-def test_the_gate_lets_the_shipped_demo_posture_build(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The preset every demo deploys keeps building.
-
-    ``allow_unlisted_channels: true`` beside ``enabled: true`` is what the
-    control-assistant preset ships for its simulator: a deliberate facility
-    choice about channels the limits database does not list, and NOT the leaf
-    this gate reads. A gate that folded it in would refuse the one deployment
-    shape everybody starts from.
-
-    The posture is READ OUT of the preset rather than restated here, because
-    the value of this test is drift protection on that file: a preset edit that
-    turned the simulator's ``enabled`` off has to fail here rather than ship a
-    demo the gate refuses at build time.
-    """
-    from osprey.cli.build_profile_presets import _presets_dir
-
-    preset = yaml.safe_load((_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8"))[
-        "config"
-    ]
-    prefix = "control_system.connector.virtual_accelerator.limits_checking"
-    assert preset[f"{prefix}.enabled"] is True, (
-        "the demo's simulator must ship with limits checking on -- if this preset "
-        "changed deliberately, the gate now refuses the shipped demo"
-    )
-
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(tmp_path)
-    config["control_system"]["writes_enabled"] = True
-    config["control_system"]["limits_checking"] = {
-        "database_path": "data/channel_limits.json",
-        "enabled": preset[f"{prefix}.enabled"],
-        "allow_unlisted_channels": preset[f"{prefix}.allow_unlisted_channels"],
-    }
-
-    _gate(config)
-
-
-def test_the_gate_lets_the_shipped_stand_in_posture_build(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The stand-in the preset deploys keeps building, on the posture it inherits.
-
-    The control-assistant preset makes the stand-in its baseline
-    (``control_system.type: live_standin``), arms the deployment-wide limits
-    pair, and writes NO ``connector.live_standin.limits_checking`` block of
-    its own: the preset's comment promises that the hardware-shaped stand-in
-    inherits the strict pair the real machine gets. The sibling test above
-    pins the simulator's per-type block; this one pins the inheritance. Both
-    halves are READ OUT of the preset, so a preset edit that handed the
-    stand-in a block of its own, or turned the global pair off, fails here
-    rather than shipping a demo the gate refuses at build time.
-
-    The lane is bound to ``standin`` the way the real single-lane build is:
-    the injector writes ``services.bluesky.target`` for the stand-in baseline
-    because it runs two soft IOCs. Writes are armed on the deployment-wide
-    key, since no shipped preset writes the stand-in's own ``writes_enabled``
-    leaf and the gate reads no limits for a lane whose target is unarmed.
-    """
-    from osprey.cli.build_profile_presets import _presets_dir
-
-    preset = yaml.safe_load((_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8"))[
-        "config"
-    ]
-    assert preset["control_system.type"] == "live_standin", (
-        "this test pins the stand-in baseline the preset ships; if the baseline moved "
-        "deliberately, pin the new one"
-    )
-    assert preset["control_system.limits_checking.enabled"] is True, (
-        "the deployment-wide pair is the stand-in's posture -- if this preset changed "
-        "deliberately, the gate now refuses the shipped demo"
-    )
-    standin_prefix = "control_system.connector.live_standin.limits_checking."
-    assert [key for key in preset if key.startswith(standin_prefix)] == [], (
-        "the preset promises the stand-in INHERITS the deployment-wide pair; a block of "
-        "its own replaces that pair rather than merging with it"
-    )
-
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(tmp_path, control_system_type="live_standin")
-    config["services"]["bluesky"]["target"] = "standin"
-    config["control_system"]["writes_enabled"] = True
-    config["control_system"]["limits_checking"] = {
-        "database_path": "data/channel_limits.json",
-        "enabled": preset["control_system.limits_checking.enabled"],
-        "allow_unlisted_channels": preset["control_system.limits_checking.allow_unlisted_channels"],
-    }
-
-    _gate(config)
-
-
-def test_the_gate_lets_a_read_only_lane_derive_without_limits(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """Writes off is the other half of the condition, and it builds.
-
-    A browse-only lane holds no settable it may move, so a derived device set
-    behind an unconfigured ``limits_checking`` is not the unbounded worker this
-    gate exists for. Dropping the write-posture leaf and refusing on the
-    derivation alone would take every read-only deployment offline over a
-    validator none of them needs.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(tmp_path)
-    assert _plan(config).derives is True, "the gate is only about a DERIVED device set"
-    assert config["control_system"]["writes_enabled"] is False, "the lane must be browse-only"
-    assert "limits_checking" not in config["control_system"], "and state no limits posture"
-
-    _gate(config)
-
-
-def test_the_gate_reads_the_baseline_target_for_a_lane_that_names_none(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """A single-lane render writes no ``target``, and still gets gated.
-
-    The build injector writes a lane target only where the lane is a sibling
-    (or a stand-in baseline), so the common deployment has a lane block with no
-    target key at all. Falling back to anything but the deployment's own
-    baseline would gate a machine this lane does not serve -- here the VA block
-    is the one that decides, and it is the one that must answer.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(tmp_path)
-    assert "target" not in config["services"]["bluesky"], "the fixture must spell no target"
-    config["control_system"]["connector"] = {
-        "virtual_accelerator": {
-            "writes_enabled": True,
-            "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
-        }
-    }
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(config)
-
-    assert "control_system.connector.virtual_accelerator.limits_checking.enabled" in str(
-        excinfo.value
-    )
-
-
-def test_the_gate_reads_the_baseline_target_for_a_non_string_target() -> None:
-    """A target that is not a non-empty string is a lane that declares none.
-
-    The worker applies exactly that test to the same key
-    (``_declared_lane_target``), and a hand-edited config is where the two
-    readers meet: anything looser here would gate the lane on the deployment
-    baseline resolved from a target the worker never sees, while the worker
-    comes up on the baseline's own block. The gate has to fall back where the
-    runtime falls back.
-    """
-    from osprey.deployment.compose_generator import _lane_target
-    from osprey_connectors.types import baseline_target
-
-    control_system = {"type": "virtual_accelerator"}
-
-    assert _lane_target({"target": 123}, control_system) == baseline_target(control_system)
-    assert _lane_target({"target": ""}, control_system) == baseline_target(control_system)
-    assert _lane_target({"target": "live"}, control_system) == "live"
-
-
-def test_the_gate_does_not_apply_to_a_mock_deployment(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """A mock control system derives nothing, so an armed one still builds.
-
-    Nothing a mock lane writes reaches a machine, and the build stages no
-    derived device set for it at all -- so the condition this gate reads is
-    never met there. Pinned because the mock is the shape every contributor
-    develops against, and a gate that folded it in would refuse the one
-    deployment that cannot be unsafe.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _arm_writes(
-        _graph_devices_config(tmp_path, control_system_type="mock"), limits_enabled=False
-    )
-    assert _plan(config).derives is False, "a mock deployment derives no device set"
-
-    _gate(config)
-
-
-def test_the_gate_names_the_stand_ins_own_block_for_a_stand_in_lane(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The stand-in is a third machine, and it answers from its own block.
-
-    ``standin`` resolves to the ``live_standin`` connector rather than to the
-    VA's or the live machine's, so a lane bound to it must be gated on
-    ``control_system.connector.live_standin`` -- naming either of the other two
-    would hand an operator a key that does not govern the lane that refused.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(
-        tmp_path, lanes=("bluesky_standin",), deployed_services=("bluesky_standin",)
-    )
-    config["services"]["bluesky_standin"]["target"] = "standin"
-    config["control_system"]["connector"] = {
-        "live_standin": {
-            "writes_enabled": True,
-            "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
-        }
-    }
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(config)
-
-    message = str(excinfo.value)
-    assert "control_system.connector.live_standin.limits_checking.enabled" in message, (
-        f"the stand-in's own block is the one that governs this lane, got: {message}"
-    )
-    assert "'standin'" in message, f"the refusal must name the target the lane serves: {message}"
-
-
-def test_the_gate_does_not_apply_to_an_authored_device_set(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """An authored file is the operator's own list, armed lane or not.
-
-    The gate exists because a DERIVED set is OSPREY's choice of what the worker
-    may move. A file the operator wrote is theirs, and refusing it would be the
-    build second-guessing a device list it did not choose -- so the same config
-    that refuses above builds here.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
-    config = _arm_writes(_graph_devices_config(tmp_path), limits_enabled=False)
-
-    _gate(config)
-
-
-def test_the_gate_does_not_apply_when_nothing_is_derived(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """No roster, no derived device set, nothing for this gate to be about.
-
-    A facility that never described its channels leaves the worker honestly
-    browse-only; refusing that build would turn an absence into an error on
-    exactly the deployments that have no settables to bound.
-    """
-    config = _arm_writes(_devices_config(tmp_path), limits_enabled=False)
-
-    _gate(config)
-
-
-def _two_lane_config(tmp_path: Path, *, live_limits_enabled: bool) -> dict:
-    """A VA-baseline deployment with a second lane on the live machine.
-
-    The VA target is armed AND checks limits; the live target is armed and
-    checks limits only as asked. That is the shape a deployment-wide fold gets
-    wrong: ``any()`` over the two targets sees the VA's ``enabled: true`` and
-    reports a deployment that checks limits.
-    """
-    config = _graph_devices_config(
-        tmp_path,
-        lanes=("bluesky", "bluesky_live"),
-        deployed_services=("bluesky", "bluesky_live"),
-    )
-    config["services"]["bluesky_live"]["target"] = "live"
-    config["control_system"]["connector"] = {
-        "virtual_accelerator": {
-            "writes_enabled": True,
-            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
-        },
-        "epics": {
-            "writes_enabled": True,
-            "limits_checking": {
-                "enabled": live_limits_enabled,
-                "allow_unlisted_channels": False,
-            },
-        },
-    }
-    return config
-
-
-def test_the_gate_names_the_live_lane_when_only_the_simulator_checks_limits(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The any()-fold mask, refused: an enabled VA does not vouch for the live lane.
-
-    ``most_restrictive_limits_posture`` folds every reachable target into one
-    answer, and its ``enabled`` is true when ANY target has it on -- so a
-    deployment whose simulator checks limits and whose live machine does not
-    reads as checked. Per lane-target, the live lane is the one that refuses,
-    and the refusal has to name IT rather than the deployment.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(_two_lane_config(tmp_path, live_limits_enabled=False))
-
-    message = str(excinfo.value)
-    assert "'bluesky_live'" in message, f"the LIVE lane is the failing one, got: {message}"
-    assert "'bluesky'" not in message.replace("'bluesky_live'", ""), (
-        f"the VA lane checks limits and must not be named as failing: {message}"
-    )
-    assert "control_system.connector.epics.limits_checking.enabled" in message, (
-        f"the key named must be the live target's own, got: {message}"
-    )
-
-
-def test_the_gate_passes_a_two_lane_deployment_where_both_targets_check_limits(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """Both lanes armed and both checking limits is a build, not a refusal."""
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-
-    _gate(_two_lane_config(tmp_path, live_limits_enabled=True))
-
-
-def test_the_gate_ignores_a_lane_block_that_is_not_deployed(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """A lane left out of ``deployed_services`` runs no container to be unsafe.
-
-    The build writes a block per lane it injected, and an operator can drop one
-    from ``deployed_services`` without rebuilding. Refusing on the block alone
-    would gate a bridge nobody starts.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _two_lane_config(tmp_path, live_limits_enabled=False)
-    config["deployed_services"] = ["bluesky"]
-
-    _gate(config)
-
-
-def test_prepare_compose_files_refuses_before_it_writes_any_build_context(
+def test_an_armed_lane_that_checks_no_limits_builds_with_a_derived_device_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cold_roster_cache: None
 ) -> None:
-    """The gate runs in the render entry point, ahead of the service loop.
+    """The render that derives the device set does not second-guess the posture.
 
-    A refusal that arrived mid-loop would leave a half-written build zone
-    behind -- some service contexts rendered against a posture the build has
-    just decided it will not ship. Asserting on the absence of the output tree
-    is what pins the ordering rather than only the wording.
+    A derived set is OSPREY's list of what the queueserver worker MAY move, not
+    a write that has happened: a derived device goes through the same connector
+    as any other channel write and meets the same optional, per-target limits
+    check there. A build that refused this config would make limits checking
+    mandatory for every facility that lets OSPREY derive its devices, which is
+    the opposite of the opt-in the connector implements.
     """
     repo = tmp_path / "repo"
     (repo / "services" / "bluesky").mkdir(parents=True)
     (repo / "services" / "bluesky" / "docker-compose.yml.j2").write_text(
         _DEVICES_GATE_TEMPLATE, encoding="utf-8"
     )
+    # A render that is not refused goes on to the root compose file, which the
+    # packaged templates supply at deploy time; a stand-in is enough here.
+    (repo / "services" / "docker-compose.yml.j2").write_text(
+        "networks:\n  osprey-network:\n", encoding="utf-8"
+    )
     _corpus(repo / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    # Staged so the earlier mount precondition (`resolve_limits_mount`) is
-    # satisfied: what this test is about is the lane gate behind it.
-    (repo / "data" / "channel_limits.json").write_text("{}", encoding="utf-8")
     config_path = repo / "config.yml"
     yaml_writer = YAML()
     with open(config_path, "w") as fh:
@@ -9246,7 +8995,6 @@ def test_prepare_compose_files_refuses_before_it_writes_any_build_context(
                     "limits_checking": {
                         "enabled": False,
                         "allow_unlisted_channels": False,
-                        "database_path": "data/channel_limits.json",
                     },
                 },
             },
@@ -9254,12 +9002,12 @@ def test_prepare_compose_files_refuses_before_it_writes_any_build_context(
         )
     monkeypatch.chdir(repo)
 
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        prepare_compose_files(str(config_path))
+    config, compose_files = prepare_compose_files(str(config_path))
 
-    assert "'bluesky'" in str(excinfo.value)
-    assert not (repo / "build").exists(), (
-        "the refusal must land before any build context is written"
+    assert _plan(config).derives is True, "the render under test must DERIVE the device set"
+    assert compose_files, "the armed, unchecked lane must render its compose files"
+    assert "limits_mount" not in config, (
+        "no limits database is configured, so nothing is mounted for one"
     )
 
 

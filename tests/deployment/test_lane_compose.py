@@ -117,9 +117,9 @@ def _lane_block(
 
 #: The finished channel-limits bind mount ``resolve_limits_mount`` computes for
 #: a deployment whose config is read from the repo root. Both halves reach the
-#: template as strings the generator already resolved, so a context that leaves
-#: the key out is not a render any deployment can produce — a writable one can
-#: never reach the template without it.
+#: template as strings the generator already resolved. A deployment with no
+#: limits database to mount is handed no such key at all, armed or not, which
+#: the render below pins.
 LIMITS_MOUNT: dict[str, str] = {
     "source": "./data/channel_limits.json",
     "target": "/app/project/data/channel_limits.json",
@@ -1014,6 +1014,53 @@ def test_only_the_lane_whose_target_is_armed_mounts_the_limits_db() -> None:
     assert _limits_mounts(rendered, "bluesky-va-queueserver") == [LIMITS_DB_MOUNT]
     assert _limits_mounts(rendered, "bluesky-bridge") == []
     assert _limits_mounts(rendered, "queueserver") == []
+
+
+def test_an_armed_lane_renders_without_a_limits_db_when_none_is_configured() -> None:
+    """A limits database is optional, so an armed render must tolerate its absence.
+
+    Limits checking is per target and off by default, and a target that checks
+    no limits opens no database — so the generator hands the template no
+    ``limits_mount`` for such a deployment. The armed lane still renders: it
+    simply carries no limits volume. A template that spelled the key
+    unconditionally would raise ``UndefinedError`` instead and make a supported
+    posture unbuildable.
+    """
+    context = _context(
+        lanes={"bluesky": _lane_block(BLUESKY_PORT)},
+        deployed_services=["bluesky", "virtual_accelerator"],
+        writes_enabled=True,
+    )
+    assert context.pop("limits_mount") == LIMITS_MOUNT, (
+        "the armed context carries the mount, so removing it is what this pins"
+    )
+
+    rendered = _render(context)
+
+    assert _limits_mounts(rendered, "bluesky-bridge") == []
+    assert _limits_mounts(rendered, "queueserver") == []
+    assert rendered["services"]["bluesky-bridge"]["volumes"], (
+        "the rest of the armed lane's volumes must still render"
+    )
+
+
+def test_a_lane_that_declares_no_usable_target_falls_back_to_the_baseline() -> None:
+    """A target that is not a non-empty string is a lane that declares none.
+
+    The worker applies exactly that test to the same key
+    (``_declared_lane_target``), and a hand-edited config is where the two
+    readers meet: anything looser here would render the lane for a target the
+    worker never sees, while the worker comes up on the baseline's own block.
+    The render has to fall back where the runtime falls back.
+    """
+    from osprey.deployment.compose_generator import _lane_target
+    from osprey_connectors.types import baseline_target
+
+    control_system = {"type": "virtual_accelerator"}
+
+    assert _lane_target({"target": 123}, control_system) == baseline_target(control_system)
+    assert _lane_target({"target": ""}, control_system) == baseline_target(control_system)
+    assert _lane_target({"target": "live"}, control_system) == "live"
 
 
 # ---------------------------------------------------------------------------

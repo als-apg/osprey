@@ -483,7 +483,14 @@ services:
       # never needs to know the host-side location.
       - {{ svc.plan_dir }}:/app/project/plans:ro
 {% endif %}
-{% if svc.writes_enabled %}
+{#- The limits mount is gated on the KEY as well as on the writes posture,
+    because a channel-limits database is optional. A deployment with no
+    `control_system.limits_checking.database_path`, or one whose armed targets
+    all have `limits_checking.enabled` off, is handed no `limits_mount` at all:
+    those targets build no validator and open no database. Such a lane renders
+    with no volume here rather than binding a source the container runtime
+    would create as an empty directory. #}
+{% if svc.writes_enabled and limits_mount is defined %}
       # Channel limits DB: only meaningful once writes are
       # enabled — a read-only deploy never opens it. Mounted under the SAME
       # /app/project root as config.yml above so a relative
@@ -813,7 +820,10 @@ services:
 {% if svc.plan_dir %}
       - {{ svc.plan_dir }}:/app/project/plans:ro
 {% endif %}
-{% if svc.writes_enabled %}
+{#- Gated on the KEY as well as on the writes posture, for the reason the
+    bridge's copy of this mount states: a channel-limits database is optional,
+    and a deployment that has none is handed no `limits_mount` to spell. #}
+{% if svc.writes_enabled and limits_mount is defined %}
       # The per-put reference monitor moved into this container with the
       # RunEngine, so the limits DB has to come with it: without the file the
       # empty-DB failsafe blocks every write and no plan can move anything.

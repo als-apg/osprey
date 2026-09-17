@@ -39,6 +39,7 @@ from osprey_connectors.types import (
     TARGET_VA,
     VIRTUAL_ACCELERATOR,
     LimitsPosture,
+    any_armed_target_checks_limits,
     incomplete_limits_blocks,
     most_restrictive_limits_posture,
     target_limits_posture,
@@ -1009,6 +1010,88 @@ class TestMostRestrictive:
         section = _standin_deployment()
         before = copy.deepcopy(section)
         most_restrictive_limits_posture(section)
+        assert section == before
+
+
+class TestAnyArmedTargetChecksLimits:
+    """Whether some ONE target both arms writes and checks limits.
+
+    The question a deployment-level caller asks before it demands a channel-
+    limits database: only a target that writes and checks opens that file. Both
+    leaves are read off the same target, which is what separates this from
+    asking :func:`any_target_writes_enabled` and
+    :func:`most_restrictive_limits_posture` separately — those two folds can
+    report an armed machine and a checking machine that are not the same
+    machine.
+    """
+
+    @staticmethod
+    def _armed(section: dict[str, Any], target_type: str, armed: bool) -> dict[str, Any]:
+        section["connector"][target_type]["writes_enabled"] = armed
+        return section
+
+    def test_a_read_only_deployment_needs_no_limits_database(self) -> None:
+        """Nothing writes, so nothing consults the database, however strict."""
+        assert any_armed_target_checks_limits(_va_baseline_deployment()) is False
+
+    def test_an_armed_checking_target_answers_true(self) -> None:
+        """The pairing this exists to find, on one machine."""
+        section = self._armed(_va_baseline_deployment(), VIRTUAL_ACCELERATOR, True)
+        assert any_armed_target_checks_limits(section) is True
+
+    def test_an_armed_target_that_checks_no_limits_answers_false(self) -> None:
+        """Checking off builds no validator, so an armed target opens no file."""
+        section = _va_baseline_deployment()
+        section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(False, True)
+        assert any_armed_target_checks_limits(self._armed(section, VIRTUAL_ACCELERATOR, True)) is (
+            False
+        )
+
+    def test_a_checking_target_does_not_vouch_for_an_armed_one(self) -> None:
+        """The armed machine and the checking machine have to be the same one.
+
+        Here the VA arms writes with checking off while the live block checks
+        limits and writes nothing. Two separate folds would see "something is
+        armed" and "something checks limits" and report a database this
+        deployment never opens.
+        """
+        section = _va_baseline_deployment()
+        section[LIMITS_CHECKING_LEAF] = _block(True, False)
+        section["connector"][VIRTUAL_ACCELERATOR][LIMITS_CHECKING_LEAF] = _block(False, True)
+        section["connector"][VIRTUAL_ACCELERATOR]["writes_enabled"] = True
+        section["connector"][EPICS]["writes_enabled"] = False
+
+        assert any_armed_target_checks_limits(section) is False
+
+    def test_a_deployment_wide_arming_reaches_every_target(self) -> None:
+        """A flat ``writes_enabled`` arms the targets that wrote no leaf of their own."""
+        section = _va_baseline_deployment()
+        section["writes_enabled"] = True
+        assert any_armed_target_checks_limits(section) is True
+
+    def test_a_single_connector_deployment_is_read_by_type(self) -> None:
+        """Without the switch, the one connector ``type`` builds is the answer.
+
+        A mock deployment's ``live`` names a machine the config never described,
+        so reading it by target would answer from the deployment-wide block for
+        a machine no session here reaches.
+        """
+        section = _mock_deployment()
+        section["writes_enabled"] = True
+        assert any_armed_target_checks_limits(section) is True
+
+        section[LIMITS_CHECKING_LEAF] = _block(False, True)
+        assert any_armed_target_checks_limits(section) is False
+
+    def test_an_unstated_posture_is_not_checking(self) -> None:
+        """Silence builds no validator, so it opens no database either."""
+        assert any_armed_target_checks_limits({"writes_enabled": True}) is False
+
+    def test_asking_does_not_mutate_the_section(self) -> None:
+        """Resolvers read a shared, once-loaded config; none of them may write to it."""
+        section = _standin_deployment()
+        before = copy.deepcopy(section)
+        any_armed_target_checks_limits(section)
         assert section == before
 
 
