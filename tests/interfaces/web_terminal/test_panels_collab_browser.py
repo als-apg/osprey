@@ -179,15 +179,6 @@ def _live_server(
 # Page helpers
 # ---------------------------------------------------------------------------
 
-_DISMISS_RAIL_HINT = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
-
-
-def _new_page(browser) -> Page:
-    """A page with the onboarding-tour invite pre-dismissed (it would eat clicks)."""
-    page = browser.new_page()
-    page.add_init_script(_DISMISS_RAIL_HINT)
-    return page
-
 
 # Passive in-flight counter around window.fetch, installed before the app
 # boots. The panel write helpers (panel-commands.js) are fire-and-forget by
@@ -233,7 +224,7 @@ def _wait_for_fetch_quiescence(page: Page, *, timeout: float = 10.0) -> None:
 
 def _open_page(browser, base_url: str) -> Page:
     """Open a page and wait for the rail and the dock grid to be up."""
-    page = _new_page(browser)
+    page = browser.new_page()
     page.add_init_script(_FETCH_COUNTER_JS)
     page.goto(base_url, wait_until="domcontentloaded")
     expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
@@ -993,7 +984,7 @@ def test_slow_restore_reports_nothing_before_the_layout_is_final(tmp_path, chrom
         project_cwd=str(workspace),
         panels_delay=2.0,
     ) as (base_url, _app):
-        page = _new_page(chromium_browser)
+        page = chromium_browser.new_page()
         posts = _track_panel_posts(page)
         panels_response: list[float] = []
 
@@ -1079,7 +1070,7 @@ def test_occupancy_read_back_distinguishes_unknown_from_empty(tmp_path, chromium
         page.close()
 
         # --- unknown: a client with no dock shell at all.
-        dockless = _new_page(chromium_browser)
+        dockless = chromium_browser.new_page()
         dockless.route("**/dockview-core*", lambda route: route.abort())
         dockless.goto(base_url, wait_until="domcontentloaded")
         expect(

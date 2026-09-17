@@ -230,13 +230,6 @@ def _live_server(
 # Page helpers
 # ---------------------------------------------------------------------------
 
-#: Seeded into every page before load: marks the onboarding tour as already
-#: dismissed. Under the default `once` policy the invite card (scrim + modal)
-#: would otherwise overlay the shell on the fresh profile these tests run
-#: under and intercept the tab clicks and drags they drive. The tour has its
-#: own dedicated coverage (tour.test.mjs).
-_DISMISS_RAIL_HINT = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
-
 
 def _open_page(browser, base_url: str) -> Page:
     """Open a new browser page and wait for the rail + dock grid to render.
@@ -247,7 +240,6 @@ def _open_page(browser, base_url: str) -> Page:
     stable starting DOM.
     """
     page = browser.new_page()
-    page.add_init_script(_DISMISS_RAIL_HINT)
     page.goto(base_url, wait_until="domcontentloaded")
     # Artifacts is always enabled and the DEFAULT_PANEL_FALLBACK, so its rail
     # button appears quickly after the async init path completes. Iframes also
@@ -1893,7 +1885,6 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
             app.state.visible_panels = ["data-viz"]
 
             page = chromium_browser.new_page()
-            page.add_init_script(_DISMISS_RAIL_HINT)
             page.goto(base_url, wait_until="domcontentloaded")
             expect(page.locator('button[data-panel-id="data-viz"]')).to_be_attached(timeout=10_000)
 
@@ -1942,7 +1933,6 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             app.state.visible_panels = ["artifacts"]
 
             page = chromium_browser.new_page()
-            page.add_init_script(_DISMISS_RAIL_HINT)
             page.goto(base_url, wait_until="domcontentloaded")
             expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
 
