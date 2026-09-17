@@ -7424,3 +7424,31 @@ def test_ci_check_builds_into_an_empty_dist__mutation_moves_it_after_the_build()
     assert clean < build, "the clean no longer precedes the build; this mutation is stale"
     lines.insert(build, lines.pop(clean))
     assert _dist_clean_missing("\n".join(lines)) == ["a dist/ clean before the build"]
+
+
+def _twine_verdict_missing(source: str) -> list[str]:
+    """What the twine check is missing (empty = its own status decides)."""
+    checks = [line for line in _command_lines(source) if TWINE_CHECK_COMMAND in line]
+    if not checks:
+        return ["a twine check"]
+    return [f"twine's own status on {line.strip()!r}" for line in checks if "|" in line]
+
+
+def test_ci_check_reports_twines_own_verdict() -> None:
+    """The checker decides, and says why. A pipeline reports its last command's
+    status, so anything downstream of twine answers for it — and twine reports
+    per artifact, so a downstream match on a passing line is satisfied by one
+    good artifact beside a broken one."""
+    assert _twine_verdict_missing(_script_source(CI_CHECK_SCRIPT)) == [], (
+        f"{CI_CHECK_SCRIPT} decides the twine check with something other than twine: "
+        f"{_twine_verdict_missing(_script_source(CI_CHECK_SCRIPT))}"
+    )
+
+
+def test_ci_check_reports_twines_own_verdict__mutation_restores_the_grep() -> None:
+    source = _script_source(CI_CHECK_SCRIPT)
+    mutated = source.replace(
+        f"{TWINE_CHECK_COMMAND};", f'{TWINE_CHECK_COMMAND} 2>&1 | grep -q "PASSED";'
+    )
+    assert mutated != source, "the twine invocation moved; this mutation is stale"
+    assert _twine_verdict_missing(mutated) != []
