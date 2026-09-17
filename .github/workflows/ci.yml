@@ -5518,6 +5518,10 @@ jobs:
       # One module, named by path: a path that stops existing exits pytest 4
       # and reds the step, whereas a marker that is renamed silently selects
       # nothing.
+      #
+      # The module carries its own collection floor (`MIN_COLLECTED_TESTS`,
+      # asserted by its final test), so a file that survives a refactor while
+      # losing tests to it reds the step rather than passing on what is left.
       run: |
         uv run pytest tests/va/e2e/test_bluesky_lanes.py \
           -v --tb=short --junitxml=junit-va-bluesky-deploy-e2e.xml
