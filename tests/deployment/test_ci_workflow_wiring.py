@@ -5940,6 +5940,317 @@ def test_live_va_lane_fails_on_any_skipped_test__mutation_drops_the_gate(job_nam
 
 
 # ---------------------------------------------------------------------------
+# The virtual accelerator image: one recipe, four lanes
+# ---------------------------------------------------------------------------
+#
+# Four lanes boot a container of this image, and Actions jobs are isolated, so
+# each of them builds one. What they share is the recipe and the layer cache,
+# and every way of breaking that sharing is silent: a lane building under a
+# different tag boots nothing and fails somewhere else, a lane whose cache key
+# diverges pays for a second copy of identical layers, and a build that never
+# rotates its export directory saves back the layers it restored instead of
+# the ones it produced. None of the three reds a job on its own.
+
+VA_IMAGE_ACTION = "./.github/actions/build-virtual-accelerator-image"
+VA_IMAGE_ACTION_YML = (
+    REPO_ROOT / ".github" / "actions" / "build-virtual-accelerator-image" / "action.yml"
+)
+VA_IMAGE_TAG = "osprey-va-full:latest"
+VA_CACHE_DIR = "/tmp/va-buildx-cache"
+VA_CACHE_EXPORT_DIR = "/tmp/va-buildx-cache-new"
+VA_CACHE_KEY_PREFIX = "va-full-buildx-"
+#: The fixture constant the built tag has to agree with, read from source
+#: rather than restated, for the reason the xdist pairing is read from source.
+VA_E2E_CONFTEST = REPO_ROOT / "tests" / "va" / "e2e" / "conftest.py"
+VA_E2E_IMAGE_CONSTANT = "IMAGE"
+
+
+def _load_va_image_action() -> dict[str, Any]:
+    with VA_IMAGE_ACTION_YML.open() as f:
+        loaded = yaml.safe_load(f)
+    assert loaded is not None, f"{VA_IMAGE_ACTION_YML} parsed to None"
+    return loaded
+
+
+@pytest.fixture()
+def va_image_action() -> dict[str, Any]:
+    return _load_va_image_action()
+
+
+def _va_image_jobs(wf: dict[str, Any]) -> set[str]:
+    """Jobs that name the virtual accelerator image, derived rather than listed.
+
+    Derived for the reason the diagnostics set is: a hand-kept list is what the
+    next lane forgets to join. A job cannot inherit this image from another
+    job, so naming it and having to build it are one requirement.
+    """
+    return {name for name, job in _jobs(wf).items() if VA_IMAGE_TAG in json.dumps(job)}
+
+
+def _sole_step_whose_script(steps: list[dict[str, Any]], needle: str, what: str) -> int:
+    found = [i for i, step in enumerate(steps) if needle in str(step.get("run", ""))]
+    assert len(found) == 1, f"expected exactly one step that {what}; found {len(found)}"
+    return found[0]
+
+
+def _module_constant(path: Path, name: str) -> str:
+    for node in ast.parse(path.read_text()).body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name for target in node.targets
+        ):
+            return str(ast.literal_eval(node.value))
+    raise AssertionError(f"{path} has no module-level `{name}` assignment")
+
+
+def _va_action_steps(wf: dict[str, Any], job_name: str) -> list[int]:
+    steps = _jobs(wf)[job_name]["steps"]
+    return [i for i, step in enumerate(steps) if step.get("uses") == VA_IMAGE_ACTION]
+
+
+def test_every_virtual_accelerator_lane_builds_through_the_shared_action(
+    workflow: dict[str, Any],
+) -> None:
+    """Every lane that needs this image gets it from the one shared recipe.
+
+    At the baseline the four are ``target-switch-e2e``,
+    ``target-switch-agentic-e2e``, ``va-live-e2e`` and
+    ``va-bluesky-deploy-e2e``, and the set is derived rather than listed: a
+    fifth lane joins it by naming the image, not by being added here.
+    """
+    wrong = {
+        name: len(_va_action_steps(workflow, name)) for name in sorted(_va_image_jobs(workflow))
+    }
+    wrong = {name: count for name, count in wrong.items() if count != 1}
+    assert wrong == {}, (
+        f"these jobs name {VA_IMAGE_TAG} but do not build it through the shared action "
+        f"exactly once: {wrong}. Add `uses: {VA_IMAGE_ACTION}`."
+    )
+    overridden = sorted(
+        name
+        for name in _va_image_jobs(workflow)
+        for index in _va_action_steps(workflow, name)
+        if "with" in _jobs(workflow)[name]["steps"][index]
+    )
+    assert overridden == [], (
+        f"the action declares no inputs, so a `with:` at the call sites in {overridden} is a "
+        f"lane asking for a different image than its siblings build."
+    )
+
+
+def test_every_virtual_accelerator_lane_builds_through_the_shared_action__mutation_drops_the_action_from_a_lane() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[VA_LIVE_JOB]["steps"]
+    # The job still names the tag in its cleanup step, so it stays in the set.
+    del steps[_va_action_steps(mutated, VA_LIVE_JOB)[0]]
+    with pytest.raises(AssertionError):
+        test_every_virtual_accelerator_lane_builds_through_the_shared_action(mutated)
+
+
+def test_every_virtual_accelerator_lane_builds_through_the_shared_action__mutation_overrides_the_tag_at_a_call_site() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[VA_BLUESKY_JOB]["steps"]
+    steps[_va_action_steps(mutated, VA_BLUESKY_JOB)[0]]["with"] = {
+        "tag": "osprey-va-full:experiment"
+    }
+    with pytest.raises(AssertionError):
+        test_every_virtual_accelerator_lane_builds_through_the_shared_action(mutated)
+
+
+def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(
+    va_image_action: dict[str, Any],
+) -> None:
+    """The recipe itself, pinned where the two quiet failures live.
+
+    ``--cache-to`` and the rotation have no other witness. Without the export
+    the cache never advances; without the rotation the job's cache save writes
+    back the layers it restored instead of the ones it produced. Both stay
+    green, and both cost a full build on every run that follows.
+    """
+    assert va_image_action["runs"]["using"] == "composite"
+    steps = va_image_action["runs"]["steps"]
+
+    unshelled = [
+        step.get("name") for step in steps if "run" in step and step.get("shell") != "bash"
+    ]
+    assert unshelled == [], (
+        f"every `run:` step of a composite action needs `shell: bash`; {unshelled} lack it, "
+        f"which is a workflow-parse error at the moment a lane calls the action."
+    )
+
+    cache = [i for i, step in enumerate(steps) if "actions/cache@" in str(step.get("uses", ""))]
+    assert len(cache) == 1, f"expected exactly one cache step; found {len(cache)}"
+    cache_with = steps[cache[0]]["with"]
+    assert cache_with["path"] == VA_CACHE_DIR
+    assert cache_with["key"].startswith(VA_CACHE_KEY_PREFIX), (
+        f"a lane-specific cache key prefix buys a second copy of identical layers against "
+        f"the repository's cache quota; got {cache_with['key']}"
+    )
+    for hashed in (
+        "docker/virtual-accelerator/Containerfile",
+        "pyproject.toml",
+        "packages/osprey-connectors/pyproject.toml",
+    ):
+        assert hashed in cache_with["key"], f"the cache key no longer hashes {hashed}"
+
+    build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", f"builds {VA_IMAGE_TAG}")
+    script = steps[build]["run"]
+    assert f"--cache-from type=local,src={VA_CACHE_DIR}" in script
+    assert f"--cache-to type=local,dest={VA_CACHE_EXPORT_DIR},mode=max" in script
+
+    rotate = _sole_step_whose_script(
+        steps,
+        f"mv {VA_CACHE_EXPORT_DIR} {VA_CACHE_DIR}",
+        "rotates the export directory in",
+    )
+    assert rotate > build, (
+        "the rotation must follow the build: run first, it deletes the restored cache and "
+        "then fails its own `mv`."
+    )
+
+
+def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_drops_the_rotation() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_va_image_action())
+    steps = mutated["runs"]["steps"]
+    steps.pop(
+        _sole_step_whose_script(
+            steps, f"mv {VA_CACHE_EXPORT_DIR} {VA_CACHE_DIR}", "rotates the cache"
+        )
+    )
+    with pytest.raises(AssertionError):
+        test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+
+
+def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_changes_the_built_tag() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_va_image_action())
+    steps = mutated["runs"]["steps"]
+    build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", "builds the image")
+    steps[build]["run"] = steps[build]["run"].replace(VA_IMAGE_TAG, "osprey-va-full:experiment")
+    with pytest.raises(AssertionError):
+        test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+
+
+def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_gives_the_cache_a_lane_prefix() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_va_image_action())
+    for step in mutated["runs"]["steps"]:
+        if "actions/cache@" in str(step.get("uses", "")):
+            step["with"]["key"] = f"target-switch-{step['with']['key']}"
+    with pytest.raises(AssertionError):
+        test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(mutated)
+
+
+def test_the_action_builds_the_tag_the_live_fixtures_boot(va_image_action: dict[str, Any]) -> None:
+    """A pairing, not a second copy of a string.
+
+    ``tests/va/e2e/conftest.py`` assigns ``IMAGE`` as a literal with no
+    environment override, and every module in that directory boots what it
+    names — so a tag that drifts on either side leaves four lanes building an
+    image nothing starts. Read from source rather than imported: that conftest
+    executes ``scripts/va/sweep_check.py`` through ``importlib`` at import
+    time, which is exactly what this module's other source-reading pins avoid.
+    """
+    image = _module_constant(VA_E2E_CONFTEST, VA_E2E_IMAGE_CONSTANT)
+    _sole_step_whose_script(
+        va_image_action["runs"]["steps"],
+        f"--tag {image}",
+        f"builds the `{VA_E2E_IMAGE_CONSTANT}` the live fixtures boot ({image})",
+    )
+
+
+def test_the_action_builds_the_tag_the_live_fixtures_boot__mutation_builds_a_tag_no_fixture_boots() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_va_image_action())
+    steps = mutated["runs"]["steps"]
+    build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", "builds the image")
+    steps[build]["run"] = steps[build]["run"].replace(VA_IMAGE_TAG, "osprey-va-full:experiment")
+    with pytest.raises(AssertionError):
+        test_the_action_builds_the_tag_the_live_fixtures_boot(mutated)
+
+
+def test_every_virtual_accelerator_lane_removes_the_image_it_built(
+    workflow: dict[str, Any],
+) -> None:
+    """The one piece that cannot move into the action, pinned at each call site.
+
+    A composite action has no ``post:`` hook, so the only always-run step it
+    can contribute is one that runs where the action runs — before the lane's
+    tests rather than after them. The removal is therefore a lane step, and
+    every lane needs its own.
+    """
+    missing = []
+    for name in sorted(_va_image_jobs(workflow)):
+        steps = _jobs(workflow)[name]["steps"]
+        action = _va_action_steps(workflow, name)
+        removals = [
+            i
+            for i, step in enumerate(steps)
+            if step.get("if") == "always()"
+            and f"docker rmi -f {VA_IMAGE_TAG}" in str(step.get("run", ""))
+        ]
+        if not removals or not action or max(removals) < action[0]:
+            missing.append(name)
+    assert missing == [], (
+        f"these jobs build {VA_IMAGE_TAG} but never remove it on every outcome: {missing}. "
+        f"Add an `if: always()` step running `docker rmi -f {VA_IMAGE_TAG}` after the build."
+    )
+
+
+def test_every_virtual_accelerator_lane_removes_the_image_it_built__mutation_makes_a_removal_conditional() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    for step in _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]:
+        if f"docker rmi -f {VA_IMAGE_TAG}" in str(step.get("run", "")):
+            # The removal survives, but stops running on a red lane.
+            del step["if"]
+    with pytest.raises(AssertionError):
+        test_every_virtual_accelerator_lane_removes_the_image_it_built(mutated)
+
+
+def test_no_lane_builds_the_virtual_accelerator_image_inline(workflow: dict[str, Any]) -> None:
+    """The guard against arriving back here by the route that got us here.
+
+    A fifth lane that pastes the build block rather than calling the action
+    reintroduces every divergence the action exists to prevent, and nothing
+    else would red.
+    """
+    inline = sorted(
+        name
+        for name, job in _jobs(workflow).items()
+        for step in job.get("steps") or []
+        if f"--tag {VA_IMAGE_TAG}" in str(step.get("run", ""))
+    )
+    assert inline == [], (
+        f"these jobs build {VA_IMAGE_TAG} inline: {inline}. Use `uses: {VA_IMAGE_ACTION}` "
+        f"instead, so the tag, the cache key and the rotation stay one recipe."
+    )
+
+
+def test_no_lane_builds_the_virtual_accelerator_image_inline__mutation_pastes_the_build_back() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[VA_LIVE_JOB]["steps"].append(
+        {
+            "name": "Build the virtual accelerator image (staged context)",
+            "run": f"docker buildx build --tag {VA_IMAGE_TAG} .",
+        }
+    )
+    with pytest.raises(AssertionError):
+        test_no_lane_builds_the_virtual_accelerator_image_inline(mutated)
+
+
+# ---------------------------------------------------------------------------
 # deploy-e2e skips Dependabot; lint proves the lockfile before sync can heal it
 # ---------------------------------------------------------------------------
 
