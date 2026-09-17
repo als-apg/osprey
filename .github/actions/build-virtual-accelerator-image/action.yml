@@ -2,12 +2,27 @@ name: Build the virtual accelerator image
 description: >-
   Build `osprey-va-full:latest` from the checked-out source into the calling
   job's local image store, through a layer cache every lane that needs the
-  image shares. Requires a buildx builder (`docker/setup-buildx-action`) and
-  a synced project venv, both of which the caller sets up.
+  image shares. Sets up the Buildx builder it needs, which stays the job's
+  default builder afterwards, so a later `docker buildx build` in the same
+  job builds on it too. Requires a synced project venv, which the caller
+  sets up.
 
 runs:
   using: composite
   steps:
+    - name: Set up Docker Buildx
+      # `type=local` layer caching is what needs this: the plain docker
+      # builder cannot import or export one, and `--cache-to type=local`
+      # against it errors rather than skipping the export quietly.
+      #
+      # The builder is the job's default from here on, not this action's
+      # alone: the setup switches to it in the runner's buildx state, which
+      # every later step of the job reads. That is the guarantee the switch
+      # lanes' `bench-ioc:latest` build rests on — it runs after this action
+      # and caches through the same driver with no setup step of its own. A
+      # build that has to precede this action still needs one.
+      uses: docker/setup-buildx-action@v3
+
     - name: Cache the virtual accelerator image layers
       uses: actions/cache@v6
       with:
