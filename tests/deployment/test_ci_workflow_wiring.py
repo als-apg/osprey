@@ -3476,9 +3476,10 @@ def _browser_lane_named_files(wf: dict[str, Any]) -> set[str]:
 
 #: The number of browser-marked modules in the tree. A discovery that reads
 #: the marker wrongly still returns a plausible-looking list, and every guard
-#: below it would then pass over the difference; a suite deliberately deleted
-#: lowers this by hand.
-BROWSER_SUITE_FLOOR = 37
+#: below it would then pass over the difference, so the floor is worth what
+#: the distance between it and the count is worth: a suite added raises this
+#: and a suite deliberately deleted lowers it, both by hand.
+BROWSER_SUITE_FLOOR = 40
 
 
 def test_browser_suite_discovery_has_a_floor() -> None:
