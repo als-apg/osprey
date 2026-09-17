@@ -58,7 +58,6 @@ from tests.integration._qmd_ariel_support import open_migrated_repository, qmd_a
 
 pytestmark = [
     pytest.mark.dockerbuild,
-    pytest.mark.integration,
     pytest.mark.asyncio,
     pytest.mark.xdist_group("docker"),
 ]

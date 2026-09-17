@@ -467,7 +467,6 @@ def _matplotlib_available() -> bool:
     return find_spec("matplotlib") is not None
 
 
-@pytest.mark.integration
 @pytest.mark.skipif(
     not _matplotlib_available(),
     reason="matplotlib is a project dependency; only skipped in a stripped environment",

@@ -801,7 +801,6 @@ async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
 # ============================================================================
 
 
-@pytest.mark.integration
 async def test_save_artifact_no_name_error_in_subprocess(tmp_path):
     """REGRESSION: save_artifact() must not raise NameError in subprocess mode.
 
@@ -833,7 +832,6 @@ async def test_save_artifact_no_name_error_in_subprocess(tmp_path):
     assert "save_artifact" not in result.stderr or "Artifact saved" in result.stdout
 
 
-@pytest.mark.integration
 async def test_save_artifact_creates_manifest_in_subprocess(tmp_path):
     """REGRESSION: save_artifact() in subprocess must create artifacts/manifest.json.
 
@@ -875,7 +873,6 @@ async def test_save_artifact_creates_manifest_in_subprocess(tmp_path):
     assert content["beam_current"] == 500.2
 
 
-@pytest.mark.integration
 async def test_save_artifact_collected_into_execution_result(tmp_path):
     """REGRESSION: _execute_via_local() must populate ExecutionResult.artifacts.
 
@@ -910,7 +907,6 @@ async def test_save_artifact_collected_into_execution_result(tmp_path):
     assert art["path"].exists(), f"Collected artifact path does not exist: {art['path']}"
 
 
-@pytest.mark.integration
 async def test_multiple_save_artifact_calls_in_subprocess(tmp_path):
     """REGRESSION: Multiple save_artifact() calls in one subprocess all persist."""
     from osprey.mcp_server.python_executor.executor import _execute_via_local
@@ -951,7 +947,6 @@ save_artifact("<h1>Third</h1></h1>", title="Third Artifact", description="html")
     assert types["Third Artifact"] == "html"
 
 
-@pytest.mark.integration
 async def test_save_artifact_string_type_detection_in_subprocess(tmp_path):
     """REGRESSION: Smart type detection works inside the subprocess save_artifact()."""
     from osprey.mcp_server.python_executor.executor import _execute_via_local
@@ -999,7 +994,6 @@ save_artifact([1, 2, 3], title="List Data")
 # ============================================================================
 
 
-@pytest.mark.integration
 async def test_subprocess_can_read_workspace_files_by_relative_path(tmp_path):
     """REGRESSION: User code must be able to open workspace files by relative path.
 
@@ -1060,7 +1054,6 @@ print(f"Loaded: {data['channels']}")
     assert "SR:CURRENT" in result.stdout
 
 
-@pytest.mark.integration
 async def test_subprocess_outputs_still_written_to_execution_folder(tmp_path):
     """Execution metadata and artifacts still go to execution_folder after cwd fix."""
     from osprey.mcp_server.python_executor.executor import _execute_via_local
@@ -1345,7 +1338,6 @@ async def test_execute_tool_description_has_no_hardcoded_list():
     )
 
 
-@pytest.mark.integration
 def test_enumeration_probe_works_against_a_real_interpreter():
     """The enumeration snippet actually runs and reports names on a live interpreter."""
     from osprey.mcp_server.python_executor.executor import resolve_agent_interpreter

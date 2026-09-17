@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 # xdist_group("docker"): this module starts a real container, and the docker
 # group is what keeps every such file on one xdist worker — two testcontainers
 # sessions starting at once race their own reapers over the port publisher.
-pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
+pytestmark = [pytest.mark.xdist_group("docker")]
 
 
 # ---------------------------------------------------------------------------
