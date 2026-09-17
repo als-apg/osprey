@@ -388,7 +388,10 @@ def seeded_prefixes(database_url: str):
     in a test module -- records its prefix here *before* inserting, so a run
     interrupted halfway through a seed still has its partial rows deleted, and
     the finalizer issues one ``DELETE ... LIKE '<prefix>%'`` per recorded
-    prefix.
+    prefix. It needs no counterpart for the per-model embedding tables or for
+    ``attachment_files``: both declare their ``entry_id`` foreign key
+    ``ON DELETE CASCADE``, so one delete from ``enhanced_entries`` removes the
+    dependent rows.
 
     It is a plain (synchronous) fixture on purpose: the pool fixtures it would
     otherwise reuse are function-scoped, and an async fixture of package scope

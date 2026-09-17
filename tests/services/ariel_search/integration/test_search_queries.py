@@ -24,6 +24,10 @@ pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.xdist_gr
 #: to narrow returns a row a correct one does not.
 KEYWORD_PREFIX = "search-kw-"
 
+#: Rows carrying a real embedding, seeded only where a local embedding
+#: service answers.
+SEMANTIC_PREFIX = "semantic-"
+
 
 @pytest.fixture
 async def seeded_repository(repository, seed_entry_factory, seeded_prefixes):
@@ -203,9 +207,35 @@ class TestSemanticSearchWithRealEmbeddings:
 
     @pytest.fixture
     async def seeded_repository_with_embeddings(
-        self, repository, migrated_pool, seed_entry_factory, integration_ariel_config
+        self,
+        repository,
+        migrated_pool,
+        seed_entry_factory,
+        integration_ariel_config,
+        seeded_prefixes,
     ):
-        """Repository with test entries and their embeddings."""
+        """Repository seeded with three entries and their embeddings.
+
+        The three rows are about topics far enough apart that a query about one
+        ranks above the others: beam loss at injection, orbit deviation after a
+        position-monitor reading, and vacuum maintenance.
+
+        The embedding rows need no ledger entry of their own.
+        ``text_embeddings_nomic_embed_text.entry_id`` is a foreign key onto
+        ``enhanced_entries(entry_id)`` declared ``ON DELETE CASCADE``, so
+        deleting an entry takes its embedding with it.
+
+        Args:
+            repository: Repository over the migrated test database.
+            migrated_pool: Pool over the migrated test database.
+            seed_entry_factory: Factory building a single logbook entry.
+            integration_ariel_config: ARIEL configuration for that database.
+            seeded_prefixes: Package ledger of the entry-id prefixes to delete
+                at teardown.
+
+        Returns:
+            The repository, with the three entries and their embeddings stored.
+        """
         if not is_ollama_available():
             pytest.skip("Ollama not available - run 'ollama pull nomic-embed-text'")
 
@@ -216,21 +246,22 @@ class TestSemanticSearchWithRealEmbeddings:
         # Create entries about different topics
         entries = [
             seed_entry_factory(
-                entry_id="semantic-001",
+                entry_id=f"{SEMANTIC_PREFIX}001",
                 raw_text="Beam loss detected at sector 5. The injection efficiency dropped to 82% due to instability in the storage ring.",
                 author="operator1",
             ),
             seed_entry_factory(
-                entry_id="semantic-002",
+                entry_id=f"{SEMANTIC_PREFIX}002",
                 raw_text="Beam position monitors showing orbit deviation. Correcting with steering magnets.",
                 author="physicist1",
             ),
             seed_entry_factory(
-                entry_id="semantic-003",
+                entry_id=f"{SEMANTIC_PREFIX}003",
                 raw_text="Vacuum system maintenance completed. Pressure in sector 7 now at 1e-10 Torr.",
                 author="technician1",
             ),
         ]
+        seeded_prefixes.add(SEMANTIC_PREFIX)
 
         # Insert entries into database
         for entry in entries:
@@ -329,24 +360,6 @@ class TestSemanticSearchWithRealEmbeddings:
                 else:
                     dim = len(embedding)
                 assert dim == 768
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up semantic search test data."""
-        async with migrated_pool.connection() as conn:
-            # Clean up embeddings first (foreign key constraint)
-            try:
-                await conn.execute("""
-                    DELETE FROM text_embeddings_nomic_embed_text
-                    WHERE entry_id LIKE 'semantic-%'
-                """)
-            except Exception:
-                pass  # Table may not exist
-
-            # Clean up entries
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'semantic-%'
-            """)
 
 
 class TestSearchQueryStructure:
