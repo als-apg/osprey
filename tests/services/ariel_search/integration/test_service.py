@@ -20,6 +20,13 @@ import pytest
 pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 
+#: The two rows the agent-execution probe searches over.
+AGENT_PREFIX = "agent-integ-"
+
+#: The single row the keyword-mode probe searches over.
+SEARCH_MODE_PREFIX = "search-mode-"
+
+
 class TestServiceIntegration:
     """Test ARIELSearchService with real database."""
 
@@ -57,7 +64,7 @@ class TestAgentIntegration:
     """Test agent execution with mocked LLM (INT-002)."""
 
     async def test_agent_execution_with_mocked_llm(
-        self, repository, integration_ariel_config, seed_entry_factory
+        self, repository, integration_ariel_config, seed_entry_factory, seeded_prefixes
     ):
         """Real agent execution flow with LLM responses mocked.
 
@@ -74,15 +81,16 @@ class TestAgentIntegration:
         # Create test entries
         entries = [
             seed_entry_factory(
-                entry_id="agent-integ-001",
+                entry_id=f"{AGENT_PREFIX}001",
                 raw_text="Beam current dropped to 450mA after vacuum event.",
             ),
             seed_entry_factory(
-                entry_id="agent-integ-002",
+                entry_id=f"{AGENT_PREFIX}002",
                 raw_text="RF cavity frequency adjusted for optimal beam lifetime.",
             ),
         ]
 
+        seeded_prefixes.add(AGENT_PREFIX)
         for entry in entries:
             await repository.upsert_entry(entry)
 
@@ -106,14 +114,6 @@ class TestAgentIntegration:
         assert hasattr(result, "search_modes_used")
 
         await pool.close()
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up agent test data."""
-        async with migrated_pool.connection() as conn:
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'agent-integ-%'
-            """)
 
 
 class TestHealthCheckMessages:
@@ -196,7 +196,7 @@ class TestServiceSearchModes:
     """Test service handles different search modes."""
 
     async def test_service_keyword_search(
-        self, integration_ariel_config, repository, seed_entry_factory
+        self, integration_ariel_config, repository, seed_entry_factory, seeded_prefixes
     ):
         """Service performs keyword search correctly."""
         from osprey.services.ariel_search.database.connection import create_connection_pool
@@ -204,9 +204,10 @@ class TestServiceSearchModes:
 
         # Add test entry
         entry = seed_entry_factory(
-            entry_id="search-mode-001",
+            entry_id=f"{SEARCH_MODE_PREFIX}001",
             raw_text="Vacuum pump maintenance completed successfully.",
         )
+        seeded_prefixes.add(SEARCH_MODE_PREFIX)
         await repository.upsert_entry(entry)
 
         pool = await create_connection_pool(integration_ariel_config.database)
@@ -223,11 +224,3 @@ class TestServiceSearchModes:
         assert hasattr(result, "entries")
 
         await pool.close()
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up search mode test data."""
-        async with migrated_pool.connection() as conn:
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'search-mode-%'
-            """)
