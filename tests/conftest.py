@@ -15,7 +15,7 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
-from tests import _env_scope_guard, ci_diagnostics
+from tests import _env_scope_guard, _repo_cleanliness, ci_diagnostics
 from tests._env_scope_guard import restore_module_environment
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
@@ -226,10 +226,13 @@ _REAL_DEPLOYMENT_LANES = ("tests/e2e/", "tests/va/e2e/")
 #: before any fixture has run.
 _AGENT_DATA_MARKER = _REPO_ROOT / "var" / "agent_data"
 
-#: Whether that directory was already there when this conftest was imported.
-#: A pre-existing one belongs to a real local deployment, so nothing about it
-#: is the suite's business and the creator hook stays quiet for the session.
-_AGENT_DATA_PRE_EXISTED = _AGENT_DATA_MARKER.exists()
+#: The directory as it was when this conftest was imported — the only moment
+#: guaranteed to precede every test and every higher-scoped fixture. A
+#: directory that was already there belongs to a real local deployment, and
+#: what is IN it is that deployment's business; what this run adds to it is
+#: this suite's, because the first leak would otherwise leave the guard
+#: disarmed for every run after it.
+_AGENT_DATA_BASELINE = _repo_cleanliness.snapshot(_AGENT_DATA_MARKER)
 
 #: The first test in THIS worker whose teardown found the directory there,
 #: ``None`` while none has. Recorded by :func:`pytest_runtest_teardown` and
@@ -238,14 +241,15 @@ _AGENT_DATA_FIRST_SEEN: str | None = None
 
 
 def pytest_runtest_teardown(item):
-    """Timestamp the appearance of ``<repo>/var/agent_data`` against a test.
+    """Timestamp this run's mark on ``<repo>/var/agent_data`` against a test.
 
     The guard below runs once per worker at session teardown and can only
     report *that* the directory appeared, which is the least useful half of the
     finding: the run is over, and the reader is left grepping a whole tree of
     app fixtures for whichever one resolved the agent-data root to the
     checkout. This narrows it to a window instead — the first test that ran
-    with the directory already present.
+    with this run's mark on the directory, whether or not the directory itself
+    was there before the run started.
 
     Deliberately reported as an upper bound rather than as blame. The writer is
     typically not the test named: the last one measured was a uvicorn daemon
@@ -255,14 +259,14 @@ def pytest_runtest_teardown(item):
     created it. What the name is good for is bounding the search — nothing in
     this worker before it can be the cause.
 
-    One ``stat`` per test, and only until the first hit — cheap enough to leave
-    armed for every lane rather than gated behind a flag nobody would set
-    before the leak had already cost them an afternoon.
+    One ``stat`` and one directory listing per test, and only until the first
+    hit — cheap enough to leave armed for every lane rather than gated behind a
+    flag nobody would set before the leak had already cost them an afternoon.
     """
     global _AGENT_DATA_FIRST_SEEN
-    if _AGENT_DATA_PRE_EXISTED or _AGENT_DATA_FIRST_SEEN is not None:
+    if _AGENT_DATA_FIRST_SEEN is not None:
         return
-    if _AGENT_DATA_MARKER.exists():
+    if _repo_cleanliness.what_this_run_did(_AGENT_DATA_BASELINE, _AGENT_DATA_MARKER):
         worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
         _AGENT_DATA_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
 
@@ -349,10 +353,15 @@ def no_agent_data_in_the_repo(request):
     every test at once, at the cost of overriding the resolver patch most
     store-touching tests use to redirect that root.
 
-    Only a directory the RUN created is a failure. One that was already there
-    belongs to a real local deployment and is none of the suite's business —
-    checking for creation rather than existence is what keeps this from firing
-    on a developer who has actually run OSPREY in this checkout.
+    Only what the RUN did is a failure. A directory that was already there is
+    not one — that is what keeps this from firing on a developer who has
+    actually run OSPREY in this checkout — but an entry this run put INTO it
+    is, because a directory left behind by an interrupted run is
+    indistinguishable from one a developer owns, and keying on existence hands
+    the guard's silence to the first leak that happens here. The consequence is
+    worth stating plainly: a live local deployment writing into that directory
+    while the suite runs is now named as a failure. The message names the entry
+    that appeared, so that case can be recognised for what it is.
 
     The real-deployment lanes (``tests/e2e/``, ``tests/va/e2e/``) are exempt:
     they run agents and servers with this checkout as the project root, so the
@@ -364,11 +373,11 @@ def no_agent_data_in_the_repo(request):
     real_deployment_lane = any(
         item.nodeid.startswith(_REAL_DEPLOYMENT_LANES) for item in request.session.items
     )
-    existed = marker.exists()
     yield
     if real_deployment_lane:
         return
-    if not existed and marker.exists():
+    clause = _repo_cleanliness.what_this_run_did(_AGENT_DATA_BASELINE, marker)
+    if clause:
         culprit = (
             "\nalready present by the end of "
             f"{_AGENT_DATA_FIRST_SEEN} — the writer is at or before that point, "
@@ -377,7 +386,7 @@ def no_agent_data_in_the_repo(request):
             else ""
         )
         raise AssertionError(
-            f"the test run created {marker} — something resolved the agent-data root "
+            f"the test run {clause} — something resolved the agent-data root "
             "to the repository. A test that writes the posture store or a control-target "
             "state file must stamp OSPREY_AGENT_DATA_ROOT at a tmp path (see "
             "session_posture_leak_guard) rather than leave it to resolve_shared_data_root()."
