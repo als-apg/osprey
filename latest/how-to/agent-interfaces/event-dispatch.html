@@ -788,7 +788,7 @@ an HTTP error, or rejecting the dispatcher’s token — and it re-dispatches up
 <code class="docutils literal notranslate"><span class="pre">max_retries</span></code> with <code class="docutils literal notranslate"><span class="pre">backoff_sec</span></code> between attempts. It does <em>not</em> retry a
 run that the agent itself ends in error, so firing a trigger against a healthy
 stack never exercises it; the behaviour is covered by
-<code class="docutils literal notranslate"><span class="pre">tests/unit/dispatch/test_server_routes.py</span></code>.</p>
+<code class="docutils literal notranslate"><span class="pre">tests/dispatch/test_server_routes.py</span></code>.</p>
 </div>
 </details></section>
 <section id="reaching-the-machine">
