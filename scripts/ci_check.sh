@@ -216,8 +216,12 @@ else
 fi
 echo ""
 
+# twine prints one verdict line per artifact and exits non-zero when any of
+# them failed, so its status is the check and is read directly. Funnelled
+# through a grep for the happy word, a run goes green as soon as ONE artifact
+# passes, and the grep swallows the message explaining the one that did not.
 echo "→ Checking package with twine..."
-if ! uvx twine check dist/* 2>&1 | grep -q "PASSED"; then
+if ! uvx twine check dist/*; then
     FAILED_CHECKS+=("twine-check")
     echo "❌ Twine check failed"
 else
