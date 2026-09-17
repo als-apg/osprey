@@ -958,6 +958,66 @@ class TestMigrationRunnerRun:
         assert follower.events == []
         assert "Failed to apply migration core_schema: boom" in caplog.text
 
+    async def test_applied_migration_commits_once_with_its_bookkeeping(self, fake_pool) -> None:
+        """`up()` and `mark_applied()` share ONE transaction, committed together.
+
+        Not two, and not zero: the bookkeeping row has to land in the same
+        commit as the schema change it records, or a crash between them leaves
+        a migration that ran but is not marked -- and the drop-then-create ones
+        then run a second time against the state they already made.
+        """
+        migration = RecordingMigration("core_schema")
+        runner = make_runner(pool=fake_pool)
+        runner._get_enabled_migrations = lambda: [migration]  # type: ignore[method-assign]
+
+        assert await runner.run() == ["core_schema"]
+        assert migration.events == ["is_applied", "up", "mark_applied"]
+        assert fake_pool.conn.transactions == ["BEGIN", "COMMIT"]
+
+    async def test_failed_migration_rolls_its_whole_body_back(self, fake_pool) -> None:
+        """A failing `up()` leaves NOTHING behind -- the regression this guards.
+
+        The pool runs with ``autocommit=True``, so before the runner opened a
+        transaction every statement inside ``up()`` was durable the moment it
+        returned. `text_embedding_hnsw_index` drops the superseded IVFFlat index
+        before creating the HNSW one, and the create is an index build -- the
+        statement most likely to run out of shared memory on a large table. The
+        drop therefore committed and the create failed, and the deployment was
+        left with no vector index at all and no migration row to say so.
+
+        Asserting ROLLBACK rather than merely "it raised" is the point: the
+        exception was always raised, and the index was destroyed anyway.
+        """
+        failing = RecordingMigration("text_embedding_hnsw_index", up_error=RuntimeError("boom"))
+        runner = make_runner(pool=fake_pool)
+        runner._get_enabled_migrations = lambda: [failing]  # type: ignore[method-assign]
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await runner.run()
+
+        assert failing.events == ["is_applied", "up"]
+        assert "mark_applied" not in failing.events
+        assert fake_pool.conn.transactions == ["BEGIN", "ROLLBACK"]
+
+    async def test_skipped_migration_rolls_back_rather_than_committing(self, fake_pool) -> None:
+        """A skip unwinds whatever `up()` managed before it gave up.
+
+        `MigrationSkippedError` is raised from inside `up()` (pgvector missing),
+        possibly after earlier statements in the same body have run. It is
+        downgraded to a warning and the run continues, so the transaction must
+        still unwind -- otherwise a skip is a silent way to commit half a
+        migration under a reassuring log line.
+        """
+        skipped = RecordingMigration(
+            "text_embedding", up_error=MigrationSkippedError("pgvector is not available")
+        )
+        runner = make_runner(pool=fake_pool)
+        runner._get_enabled_migrations = lambda: [skipped]  # type: ignore[method-assign]
+
+        assert await runner.run() == []
+        assert "mark_applied" not in skipped.events
+        assert fake_pool.conn.transactions == ["BEGIN", "ROLLBACK"]
+
     async def test_run_migrations_helper_drives_a_runner(self, fake_pool, monkeypatch) -> None:
         """The module-level convenience function is a thin wrapper over run()."""
         migration = RecordingMigration("core_schema")
