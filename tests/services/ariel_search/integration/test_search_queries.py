@@ -20,8 +20,13 @@ import pytest
 pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 
+#: Keyword-search rows: four texts and authors chosen so a search that fails
+#: to narrow returns a row a correct one does not.
+KEYWORD_PREFIX = "search-kw-"
+
+
 @pytest.fixture
-async def seeded_repository(repository, seed_entry_factory):
+async def seeded_repository(repository, seed_entry_factory, seeded_prefixes):
     """Repository seeded with four entries whose texts and authors discriminate.
 
     The rows are chosen rather than arbitrary. ``search-kw-002`` and
@@ -30,35 +35,41 @@ async def seeded_repository(repository, seed_entry_factory):
     that fails to narrow on the second term, or on the author, therefore returns
     a row that a correct one does not.
 
+    The rows outlive the test that seeded them: they are removed once, after the
+    package's last test, by the ledger's finalizer.
+
     Args:
         repository: Repository over the migrated test database.
         seed_entry_factory: Factory building a single logbook entry.
+        seeded_prefixes: Package ledger of the entry-id prefixes to delete at
+            teardown.
 
     Returns:
         The repository, with the four entries upserted.
     """
     entries = [
         seed_entry_factory(
-            entry_id="search-kw-001",
+            entry_id=f"{KEYWORD_PREFIX}001",
             raw_text="The vacuum chamber pressure dropped unexpectedly during the experiment.",
             author="operator1",
         ),
         seed_entry_factory(
-            entry_id="search-kw-002",
+            entry_id=f"{KEYWORD_PREFIX}002",
             raw_text="Beam alignment was adjusted to correct the orbit deviation.",
             author="physicist1",
         ),
         seed_entry_factory(
-            entry_id="search-kw-003",
+            entry_id=f"{KEYWORD_PREFIX}003",
             raw_text="The undulator gap was changed to optimize photon flux.",
             author="scientist1",
         ),
         seed_entry_factory(
-            entry_id="search-kw-004",
+            entry_id=f"{KEYWORD_PREFIX}004",
             raw_text="Beam loss was recorded during the morning shift.",
             author="oper_smith",
         ),
     ]
+    seeded_prefixes.add(KEYWORD_PREFIX)
     for entry in entries:
         await repository.upsert_entry(entry)
     return repository
@@ -164,18 +175,6 @@ class TestKeywordQuerySyntax:
         entry_ids = [entry["entry_id"] for entry, _score, _highlights in results]
         assert "search-kw-004" in entry_ids
         assert "search-kw-002" not in entry_ids
-
-
-class TestKeywordSearchCleanup:
-    """Clean up keyword search test data."""
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up test entries."""
-        async with migrated_pool.connection() as conn:
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'search-kw-%'
-            """)
 
 
 # ==============================================================================
