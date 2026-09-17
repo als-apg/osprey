@@ -15,10 +15,14 @@ different kinds of thing:
   against the exemplar's ~20 hand-authored files, which exist to pin paths
   rather than content. Every path the exemplar names must be present.
 * The files ``init`` RENDERS from packaged material — ``profile.yml``,
-  ``personas/*.yml``, ``.env.example``, ``triggers.yml`` — are compared BYTE
-  FOR BYTE too. That is the full TR-4 contract: the packaged prose is the
-  exemplar's, down to where it wraps, so a preset edit that drifts from the
-  specification fails here rather than shipping.
+  ``personas/*.yml``, ``.env.example`` — are compared BYTE FOR BYTE too.
+  That is the full TR-4 contract: the packaged prose is the exemplar's, down
+  to where it wraps, so a preset edit that drifts from the specification
+  fails here rather than shipping.
+* ``triggers.yml`` is copied from the package rather than rendered, and the
+  exemplar reads that same file, so the one thing there is to prove about it
+  — that the copy comes through unchanged — is proved where the copy is
+  made, in ``test_source_zone_materialization.py``.
 """
 
 from __future__ import annotations
@@ -307,7 +311,6 @@ RENDERED_FILES = (
     "personas/readwrite.yml",
     "personas/admin.yml",
     ".env.example",
-    "triggers.yml",
 )
 
 
