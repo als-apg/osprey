@@ -55,7 +55,7 @@ import requests
 from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.interfaces.web_terminal.session_handoff import ERROR_SESSION_ATTACHED_ELSEWHERE
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 
 # The stack, the waits and the vocabulary all come from the sibling suite. The
 # brief for this task is explicit that there must be ONE chip stack fixture in
@@ -66,6 +66,7 @@ from tests.interfaces.web_terminal.test_posture_toggle_browser import (
     CARD,
     CHIP,
     CHIP_SHORT,
+    CHIP_STATE,
     MODAL_CONFIRM,
     MODAL_TITLE,
     NAMES,
@@ -253,6 +254,24 @@ async (path) => {
   if (!entry) throw new Error('the hub page loads no app.js module entrypoint');
   const api = await import(entry.src.replace('/app.js', '/api.js'));
   window.__ctcExtra = api.createEventSource(path, {});
+}
+"""
+
+#: Installed into a settled page: records every value `data-pending` ever
+#: takes on the chip, including the one it already has. `switching…` is a
+#: sticky state — nothing resolves a wait for a terminus that was never
+#: written, so a point-in-time check would in fact be enough — but a log is
+#: what makes the assertion read as "never" rather than "not just now".
+_PENDING_PROBE = """
+() => {
+  const chip = document.querySelector('#control-target-chip');
+  if (!chip) throw new Error('no chip to probe');
+  const seen = [];
+  window.__ctcPending = seen;
+  if (chip.dataset.pending !== undefined) seen.push(chip.dataset.pending);
+  new MutationObserver(() => {
+    if (chip.dataset.pending !== undefined) seen.push(chip.dataset.pending);
+  }).observe(chip, { attributes: true, attributeFilter: ['data-pending'] });
 }
 """
 
@@ -649,5 +668,99 @@ def test_a_real_handoff_and_the_simple_view_leave_the_deployment_where_it_is(
                 "flipping the view re-derived the deployment's generation",
                 final,
             )
+        finally:
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# (7) the machine already held is not a switch
+# ---------------------------------------------------------------------------
+
+
+def test_the_machine_already_held_is_offered_no_switch_and_pends_nothing(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """The machine the deployment stands on is offered no gesture, and pends none.
+
+    Two halves of one fact, which is why they are one lane. The roster answers
+    ``already_active`` for the machine of record, so the popover renders it as
+    the card and not as a row — a card has no Switch slot, so there is no
+    gesture here that could ask for the target the deployment is already on.
+
+    A request for it can still arrive: the agent's own tool makes one, and so
+    does a client whose roster went stale between the render it read and the
+    confirm it sent. The route's answer is what keeps that from stranding every
+    watching page — nothing is written, no generation is minted, and the 202
+    carries the generation the fleet is already on. ``switching…`` is entered on
+    a pending request and left when a terminus resolves it, so a generation
+    minted here would leave a wait that nothing can ever end: no terminus is
+    coming, and the page would sit there until its local TTL reported
+    ``request_expired`` for a request that in fact succeeded.
+
+    The negative is not taken at an arbitrary moment. The chip's own read is
+    watched past the request, so the assertions below are made after the read
+    that would have carried a pending state has happened.
+
+    No reachability sweep is planted, deliberately: ``_switch_mutation`` answers
+    the already-held target before it reaches the convergence check or the gate,
+    so a sweep is not part of what this lane exercises and planting one would
+    suggest it was.
+    """
+    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
+        page, _session_id = _settled_chip(chromium_browser, base_url)
+        try:
+            # (i) the interface offers no way to ask for it.
+            _open_popover(page)
+            expect(page.locator(CARD)).to_have_attribute(
+                "data-target", ACTIVE_TARGET, timeout=TIMEOUT
+            )
+            expect(page.locator(f"{CARD} .ctc-switch")).to_have_count(0)
+            expect(_row(page, ACTIVE_TARGET)).to_have_count(0)
+            page.keyboard.press("Escape")
+            expect(page.locator(POPOVER)).to_have_count(0, timeout=TIMEOUT)
+
+            before = _read_record()
+            assert before is not None, "the hub started with no control-context record"
+            settled_state = page.locator(CHIP_STATE).inner_text()
+
+            page.evaluate(_PENDING_PROBE)
+            _install_probe(page)
+
+            # (ii) the request the shipped chip would send. No session id:
+            #      the chip stopped being a session surface, so its body
+            #      carries a target and nothing else.
+            answer = requests.post(
+                f"{base_url}/api/terminal/target",
+                json={"target": ACTIVE_TARGET},
+                timeout=60,
+            )
+            assert answer.status_code == 202, answer.text
+            body = answer.json()
+            assert body["target"] == ACTIVE_TARGET, body
+            assert body["generation"] == RECORD_GENERATION, body
+            assert body["request_id"], body
+            assert body["detail"] == control_context.unchanged_detail(
+                ACTIVE_TARGET, RECORD_GENERATION
+            ), body
+
+            # (iii) nothing moved, and no terminus was written for it.
+            after = _read_record()
+            assert after is not None
+            assert after.target == ACTIVE_TARGET, after
+            assert after.generation == RECORD_GENERATION, after
+            assert after.last_switch == before.last_switch, (
+                "a request that moved nothing wrote a terminus",
+                after.last_switch,
+            )
+
+            # (iv) and no page waits for it. The poll tick is the barrier:
+            #      the read that would have carried a pending state has
+            #      happened by the time these are taken.
+            _await_poll_tick(page)
+            assert page.evaluate("() => window.__ctcPending") == [], (
+                "the chip entered switching… for a request that moved nothing"
+            )
+            expect(page.locator(f"{CHIP}[data-pending]")).to_have_count(0)
+            assert page.locator(CHIP_STATE).inner_text() == settled_state
         finally:
             page.close()
