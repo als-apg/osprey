@@ -10,32 +10,49 @@ than ignored, because an ignored key is a decision that silently never lands.
 
 Nulls are structurally valid wherever the document may carry an undecided
 slot (a description, a facility token, a family's ``branch``/``class``, a
-direction). Rejecting them is the semantic checker's job, which also owns
-PN_LOCAL, permutation and cross-reference rules; keeping those out of here
-lets a freshly written skeleton parse before anyone has filled it in.
+direction, a judgment answer). Rejecting them is the semantic checker's job,
+which also owns PN_LOCAL, permutation and cross-reference rules; keeping those
+out of here lets a freshly written skeleton parse before anyone has filled it
+in.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal, overload
 
 __all__ = [
     "DIRECTION_VALUES",
+    "ROWS_BEYOND_KIND",
+    "SHARED_KIND",
+    "UNBOUND_KIND",
     "Branch",
     "Direction",
     "Facility",
     "Family",
+    "FamilyJudgments",
     "Field",
+    "FieldAnswer",
     "Mapping",
     "MappingError",
+    "OwnerMap",
+    "RowAnswer",
+    "SharedAnswer",
     "System",
+    "UnboundAnswer",
+    "judgment_key",
     "parse_mapping",
 ]
 
 #: The values a ``directions.*.direction`` slot may hold; ``None`` is undecided.
 DIRECTION_VALUES: frozenset[str | None] = frozenset({"read", "write", None})
+
+#: The document spelling of each judgment kind: the key a family's ``judgments``
+#: entry carries it under, and the word :func:`judgment_key` renders it by.
+ROWS_BEYOND_KIND = "rows_beyond_devices"
+UNBOUND_KIND = "unbound_devices"
+SHARED_KIND = "shared_pvs"
 
 
 class MappingError(ValueError):
@@ -126,6 +143,91 @@ class Direction:
 
 
 @dataclass(frozen=True)
+class FieldAnswer:
+    """The ``{field: <name>}`` answer: move a row into a field of its own."""
+
+    name: str
+
+
+#: What one row beyond a family's devices may be answered with; ``None`` is
+#: undecided.
+RowAnswer = Literal["drop", "device"] | FieldAnswer
+
+#: What one device bound by no channel may be answered with; ``None`` is
+#: undecided.
+UnboundAnswer = Literal["drop", "keep"]
+
+
+@dataclass(frozen=True)
+class OwnerMap:
+    """One owning device per supply group, keyed by the group's lowest ordinal.
+
+    Ordinals are 1-based, as the document and ``PROFILE.md`` write them. A
+    group answered ``keep_all`` keeps its PV on every member.
+    """
+
+    owners: dict[int, int | Literal["keep_all"]]
+
+
+#: What a family's shared PVs may be answered with; ``None`` is undecided.
+SharedAnswer = Literal["keep_all"] | OwnerMap
+
+
+@dataclass(frozen=True)
+class FamilyJudgments:
+    """The reviewer's answers for one family, keyed by its raw token.
+
+    A family carries only the kinds that apply to it, so an absent kind is an
+    empty ``dict``. ``shared_pvs`` is one slot rather than a dict, so
+    ``shared_pvs_present`` tells an absent slot (no shared PVs in the export)
+    from a ``null`` one (a pending answer). Answers carry no ``provenance``:
+    the machine never pre-fills one, so a non-null answer is stated by
+    construction.
+    """
+
+    rows_beyond: dict[str, dict[str, RowAnswer | None]] = field(default_factory=dict)
+    unbound_devices: dict[int, UnboundAnswer | None] = field(default_factory=dict)
+    shared_pvs: SharedAnswer | None = None
+    shared_pvs_present: bool = False
+
+
+def judgment_key(
+    family: str,
+    kind: str | None = None,
+    field: str | None = None,
+    signal: str | None = None,
+    ordinal: object | None = None,
+) -> str:
+    """Render the document path of one judgment slot.
+
+    A signal goes in square brackets, because a PV name carries dots of its
+    own and the dotted rendering ``<key>: <message>`` would otherwise be
+    ambiguous.
+
+    Args:
+        family: The raw family token the slot lives under.
+        kind: ``rows_beyond_devices``, ``unbound_devices`` or ``shared_pvs``.
+        field: The field name, for a row beyond devices.
+        signal: The signal of that row, written in square brackets.
+        ordinal: A device ordinal or a supply group's lowest ordinal.
+
+    Returns:
+        The path, e.g.
+        ``judgments.DCCT.rows_beyond_devices.Monitor[SR:C03-BI{DCCT:1}Lifetime-I]``.
+    """
+    key = f"judgments.{family}"
+    if kind is not None:
+        key += f".{kind}"
+    if field is not None:
+        key += f".{field}"
+    if signal is not None:
+        key += f"[{signal}]"
+    if ordinal is not None:
+        key += f".{ordinal}"
+    return key
+
+
+@dataclass(frozen=True)
 class Mapping:
     """A structurally valid ``mapping.yaml``.
 
@@ -139,6 +241,7 @@ class Mapping:
     branches: dict[str, Branch] = field(default_factory=dict)
     families: dict[str, Family] = field(default_factory=dict)
     directions: dict[str, Direction] = field(default_factory=dict)
+    judgments: dict[str, FamilyJudgments] = field(default_factory=dict)
 
     def mapped(self, raw_family: str) -> str:
         """Return the token a raw family is known by downstream.
@@ -245,6 +348,14 @@ def _join(path: str, name: object) -> str:
     return f"{path}.{name}" if path else str(name)
 
 
+@overload
+def _str(body: dict, name: str, path: str, *, nullable: Literal[True]) -> str | None: ...
+
+
+@overload
+def _str(body: dict, name: str, path: str, *, nullable: Literal[False]) -> str: ...
+
+
 def _str(body: dict, name: str, path: str, *, nullable: bool) -> str | None:
     value = body.get(name)
     if value is None and nullable:
@@ -268,10 +379,15 @@ def _type_name(value: Any) -> str:
     return "null" if value is None else type(value).__name__
 
 
+def _shown(value: Any) -> str:
+    """Name a refused answer: the word itself when it is one, else its type."""
+    return repr(value) if isinstance(value, str) else _type_name(value)
+
+
 # -- blocks -------------------------------------------------------------------
 
 _TOP_REQUIRED = frozenset({"facility", "systems", "section_order", "families", "directions"})
-_TOP_OPTIONAL = frozenset({"branches"})
+_TOP_OPTIONAL = frozenset({"branches", "judgments"})
 _FACILITY_KEYS = frozenset({"token", "title", "description", "provenance"})
 _SYSTEM_KEYS = frozenset({"name", "description", "provenance"})
 _BRANCH_KEYS = frozenset({"parent", "description"})
@@ -280,7 +396,10 @@ _FAMILY_OPTIONAL = frozenset({"rename", "branch", "class"})
 _FIELD_KEYS = frozenset({"description", "provenance"})
 _DIRECTION_REQUIRED = frozenset({"direction", "provenance"})
 _DIRECTION_OPTIONAL = frozenset({"override"})
-_NONE = frozenset()
+_NONE: frozenset[str] = frozenset()
+_JUDGMENT_KINDS = frozenset({ROWS_BEYOND_KIND, UNBOUND_KIND, SHARED_KIND})
+_FIELD_ANSWER_KEYS = frozenset({"field"})
+_ROW_ANSWERS = "drop, device, a field: entry or null"
 
 
 def _facility(value: Any) -> Facility:
@@ -333,7 +452,7 @@ def _fields(value: Any, key: str) -> dict[str, Field]:
 def _channels(body: dict, path: str) -> int:
     value = body["channels"]
     # bool is an int subclass; a YAML ``true`` is not a count.
-    if isinstance(value, bool) or not isinstance(value, int):
+    if not isinstance(value, int) or isinstance(value, bool):
         raise MappingError(f"{path}.channels", f"must be an integer, got {_type_name(value)}")
     if value < 0:
         raise MappingError(f"{path}.channels", f"must not be negative, got {value}")
@@ -385,6 +504,95 @@ def _directions(value: Any) -> dict[str, Direction]:
     return directions
 
 
+def _row_answer(value: Any, key: str) -> RowAnswer | None:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        _keys(value, key, _FIELD_ANSWER_KEYS, _NONE)
+        return FieldAnswer(name=_str(value, "field", key, nullable=False))
+    if value == "drop":
+        return "drop"
+    if value == "device":
+        return "device"
+    raise MappingError(key, f"must be {_ROW_ANSWERS}, got {_shown(value)}")
+
+
+def _rows_beyond(value: Any, family: str) -> dict[str, dict[str, RowAnswer | None]]:
+    kind = ROWS_BEYOND_KIND
+    rows: dict[str, dict[str, RowAnswer | None]] = {}
+    for name, body, _ in _entries(value, judgment_key(family, kind)):
+        answers: dict[str, RowAnswer | None] = {}
+        for signal, answer in body.items():
+            key = judgment_key(family, kind, name, signal)
+            if not isinstance(signal, str):
+                raise MappingError(key, f"key must be a signal, got {_type_name(signal)}")
+            answers[signal] = _row_answer(answer, key)
+        rows[name] = answers
+    return rows
+
+
+def _unbound_answer(value: Any, key: str) -> UnboundAnswer | None:
+    if value is None:
+        return None
+    if value == "drop":
+        return "drop"
+    if value == "keep":
+        return "keep"
+    raise MappingError(key, f"must be drop, keep or null, got {_shown(value)}")
+
+
+def _unbound_devices(value: Any, family: str) -> dict[int, UnboundAnswer | None]:
+    kind = UNBOUND_KIND
+    unbound: dict[int, UnboundAnswer | None] = {}
+    for ordinal, answer in _dict(value, judgment_key(family, kind)).items():
+        key = judgment_key(family, kind, ordinal=ordinal)
+        if isinstance(ordinal, bool) or not isinstance(ordinal, int):
+            raise MappingError(key, f"key must be a device ordinal, got {_type_name(ordinal)}")
+        unbound[ordinal] = _unbound_answer(answer, key)
+    return unbound
+
+
+def _shared_pvs(value: Any, family: str) -> SharedAnswer | None:
+    kind = SHARED_KIND
+    key = judgment_key(family, kind)
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        owners: dict[int, int | Literal["keep_all"]] = {}
+        for group, owner in value.items():
+            slot = judgment_key(family, kind, ordinal=group)
+            if isinstance(group, bool) or not isinstance(group, int):
+                raise MappingError(slot, f"key must be a device ordinal, got {_type_name(group)}")
+            if owner == "keep_all":
+                owners[group] = "keep_all"
+                continue
+            if isinstance(owner, bool) or not isinstance(owner, int):
+                raise MappingError(
+                    slot, f"must be a device ordinal or keep_all, got {_shown(owner)}"
+                )
+            owners[group] = owner
+        return OwnerMap(owners=owners)
+    if value == "keep_all":
+        return "keep_all"
+    raise MappingError(key, f"must be keep_all, an owner map or null, got {_shown(value)}")
+
+
+def _judgments(value: Any) -> dict[str, FamilyJudgments]:
+    judgments: dict[str, FamilyJudgments] = {}
+    for family, body, path in _entries(value, "judgments"):
+        _keys(body, path, _NONE, _JUDGMENT_KINDS)
+        rows = body.get(ROWS_BEYOND_KIND, _MISSING)
+        unbound = body.get(UNBOUND_KIND, _MISSING)
+        shared = body.get(SHARED_KIND, _MISSING)
+        judgments[family] = FamilyJudgments(
+            rows_beyond={} if rows is _MISSING else _rows_beyond(rows, family),
+            unbound_devices={} if unbound is _MISSING else _unbound_devices(unbound, family),
+            shared_pvs=None if shared is _MISSING else _shared_pvs(shared, family),
+            shared_pvs_present=shared is not _MISSING,
+        )
+    return judgments
+
+
 def parse_mapping(data: dict) -> Mapping:
     """Parse a loaded ``mapping.yaml`` document, checking structure only.
 
@@ -403,6 +611,7 @@ def parse_mapping(data: dict) -> Mapping:
         raise MappingError("<document>", f"must be a mapping, got {_type_name(data)}")
     _keys(data, "", _TOP_REQUIRED, _TOP_OPTIONAL)
     branches = data.get("branches", _MISSING)
+    judgments = data.get("judgments", _MISSING)
     return Mapping(
         facility=_facility(data["facility"]),
         systems=_systems(data["systems"]),
@@ -410,4 +619,5 @@ def parse_mapping(data: dict) -> Mapping:
         branches={} if branches is _MISSING else _branches(branches),
         families=_families(data["families"]),
         directions=_directions(data["directions"]),
+        judgments={} if judgments is _MISSING else _judgments(judgments),
     )

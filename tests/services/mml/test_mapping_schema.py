@@ -17,10 +17,14 @@ from osprey.services.mml.mapping import (
     Direction,
     Facility,
     Family,
+    FamilyJudgments,
     Field,
+    FieldAnswer,
     Mapping,
     MappingError,
+    OwnerMap,
     System,
+    judgment_key,
     parse_mapping,
 )
 
@@ -72,6 +76,22 @@ def _document() -> dict:
         "directions": {
             "BPMx.Monitor": {"direction": "read", "provenance": "derived", "override": False},
             "bpmx.Setpoint": {"direction": None, "provenance": "stated", "override": True},
+        },
+        "judgments": {
+            "DCCT": {
+                "rows_beyond_devices": {
+                    "Monitor": {
+                        "Z:C03-BI{DCCT:1}Lifetime-I": {"field": "Lifetime"},
+                        "Z:C03-BI{DCCT:1}I:Total-I": "drop",
+                        "Z:C03-BI{DCCT:1}I:Spare-I": None,
+                    },
+                    "Setpoint": {"Z:C03-BI{DCCT:1}Ref-SP": "device"},
+                },
+            },
+            "TUNE": {"unbound_devices": {3: "drop", 4: "keep", 5: None}},
+            "SM1": {"shared_pvs": None},
+            "SM2": {"shared_pvs": "keep_all"},
+            "SM3": {"shared_pvs": {2: 2, 5: "keep_all"}},
         },
     }
 
@@ -230,6 +250,108 @@ class TestProvenanceSlots:
             ("directions.BPMx.Monitor", "derived"),
             ("directions.bpmx.Setpoint", "stated"),
         ]
+
+
+class TestJudgments:
+    """The judgments block round-trips every accepted answer spelling."""
+
+    def test_the_block_is_optional(self):
+        """A mapping without the block parses with no judgments."""
+        data = _document()
+        del data["judgments"]
+        assert parse_mapping(data).judgments == {}
+
+    def test_the_block_is_accepted_anywhere(self):
+        """judgments may sit among the top-level keys in any position."""
+        data = _document()
+        first = {"judgments": data.pop("judgments"), **data}
+        assert next(iter(first)) == "judgments"
+        assert parse_mapping(first).judgments == parse_mapping(_document()).judgments
+
+    def test_rows_beyond_devices(self):
+        """Each row answer keeps its field, its signal and its spelling."""
+        fam = parse_mapping(_document()).judgments["DCCT"]
+        assert fam == FamilyJudgments(
+            rows_beyond={
+                "Monitor": {
+                    "Z:C03-BI{DCCT:1}Lifetime-I": FieldAnswer("Lifetime"),
+                    "Z:C03-BI{DCCT:1}I:Total-I": "drop",
+                    "Z:C03-BI{DCCT:1}I:Spare-I": None,
+                },
+                "Setpoint": {"Z:C03-BI{DCCT:1}Ref-SP": "device"},
+            },
+            unbound_devices={},
+            shared_pvs=None,
+            shared_pvs_present=False,
+        )
+
+    def test_unbound_devices_are_keyed_by_integer_ordinal(self):
+        """YAML integer keys stay integers, and every word round-trips."""
+        fam = parse_mapping(_document()).judgments["TUNE"]
+        assert fam == FamilyJudgments(unbound_devices={3: "drop", 4: "keep", 5: None})
+
+    def test_shared_pvs_null_slot(self):
+        """A null shared_pvs slot is present and undecided."""
+        fam = parse_mapping(_document()).judgments["SM1"]
+        assert fam.shared_pvs is None
+        assert fam.shared_pvs_present is True
+
+    def test_shared_pvs_absent_slot(self):
+        """A family with no shared_pvs key has no slot at all."""
+        fam = parse_mapping(_document()).judgments["DCCT"]
+        assert fam.shared_pvs is None
+        assert fam.shared_pvs_present is False
+
+    def test_shared_pvs_keep_all(self):
+        """keep_all is carried as the word itself."""
+        assert parse_mapping(_document()).judgments["SM2"].shared_pvs == "keep_all"
+
+    def test_shared_pvs_owner_map(self):
+        """An owner map keeps integer group keys and both owner spellings."""
+        fam = parse_mapping(_document()).judgments["SM3"]
+        assert fam.shared_pvs == OwnerMap({2: 2, 5: "keep_all"})
+        assert fam.shared_pvs_present is True
+
+    def test_families_keep_document_order(self):
+        """The block preserves document order, like every other block."""
+        assert list(parse_mapping(_document()).judgments) == ["DCCT", "TUNE", "SM1", "SM2", "SM3"]
+
+    def test_answers_carry_no_provenance(self):
+        """Judgment slots add nothing to the provenance walk."""
+        data = _document()
+        with_block = list(parse_mapping(data).provenance_slots())
+        del data["judgments"]
+        assert with_block == list(parse_mapping(data).provenance_slots())
+
+    def test_judgments_are_frozen(self):
+        """Judgment value objects refuse attribute assignment."""
+        m = parse_mapping(_document())
+        for obj in (m.judgments["SM1"], m.judgments["SM3"].shared_pvs):
+            with pytest.raises(dataclasses.FrozenInstanceError):
+                obj.shared_pvs = "keep_all"  # type: ignore[misc]
+
+
+class TestJudgmentKey:
+    """judgment_key renders the document path of one judgment slot."""
+
+    def test_row_beyond_devices(self):
+        """A signal goes in square brackets, so its dots stay unambiguous."""
+        key = judgment_key("DCCT", "rows_beyond_devices", "Monitor", "SR:C03-BI{DCCT:1}Lifetime-I")
+        assert key == "judgments.DCCT.rows_beyond_devices.Monitor[SR:C03-BI{DCCT:1}Lifetime-I]"
+
+    def test_unbound_device(self):
+        """An unbound device is named by its ordinal."""
+        key = judgment_key("TUNE", "unbound_devices", ordinal=3)
+        assert key == "judgments.TUNE.unbound_devices.3"
+
+    def test_shared_pvs_slot_and_group(self):
+        """The shared_pvs slot and one of its groups."""
+        assert judgment_key("SM1", "shared_pvs") == "judgments.SM1.shared_pvs"
+        assert judgment_key("SM1", "shared_pvs", ordinal=2) == "judgments.SM1.shared_pvs.2"
+
+    def test_family_alone(self):
+        """A family entry is named without a kind."""
+        assert judgment_key("SM1") == "judgments.SM1"
 
 
 class TestMissingKeys:
@@ -463,6 +585,135 @@ class TestWrongTypes:
         data = _document()
         data["branches"]["Kicker"]["parent"] = None
         _raises(data, "branches.Kicker.parent")
+
+
+class TestMalformedJudgments:
+    """Every malformed judgment spelling is refused at its own key."""
+
+    def test_block_not_a_dict(self):
+        """The block itself is a mapping of families."""
+        data = _document()
+        data["judgments"] = ["DCCT"]
+        _raises(data, "judgments")
+
+    def test_non_string_family_key(self):
+        """A family key YAML parsed to a non-string is refused."""
+        data = _document()
+        data["judgments"][3] = data["judgments"].pop("SM1")
+        _raises(data, "judgments.3")
+
+    def test_family_entry_not_a_dict(self):
+        """A family entry holds its kinds, never an answer of its own."""
+        data = _document()
+        data["judgments"]["SM1"] = "keep_all"
+        _raises(data, "judgments.SM1")
+
+    def test_unknown_kind(self):
+        """A misspelt kind is refused, not ignored."""
+        data = _document()
+        data["judgments"]["TUNE"]["unbound_device"] = {3: "drop"}
+        _raises(data, "judgments.TUNE.unbound_device")
+
+    def test_rows_beyond_devices_not_a_dict(self):
+        """rows_beyond_devices is keyed by field."""
+        data = _document()
+        data["judgments"]["DCCT"]["rows_beyond_devices"] = ["Monitor"]
+        _raises(data, "judgments.DCCT.rows_beyond_devices")
+
+    def test_field_entry_not_a_dict(self):
+        """A field entry is keyed by signal."""
+        data = _document()
+        data["judgments"]["DCCT"]["rows_beyond_devices"]["Setpoint"] = "drop"
+        _raises(data, "judgments.DCCT.rows_beyond_devices.Setpoint")
+
+    def test_non_string_signal(self):
+        """A signal key YAML parsed to a non-string is refused."""
+        data = _document()
+        data["judgments"]["DCCT"]["rows_beyond_devices"]["Setpoint"] = {7: "drop"}
+        _raises(data, "judgments.DCCT.rows_beyond_devices.Setpoint[7]")
+
+    @pytest.mark.parametrize("answer", ["keep", "keep_all", True, 3, ["drop"]])
+    def test_row_answer_vocabulary(self, answer):
+        """A row answer is drop, device, a field: entry or null."""
+        data = _document()
+        rows = data["judgments"]["DCCT"]["rows_beyond_devices"]
+        rows["Setpoint"]["Z:C03-BI{DCCT:1}Ref-SP"] = answer
+        _raises(data, "judgments.DCCT.rows_beyond_devices.Setpoint[Z:C03-BI{DCCT:1}Ref-SP]")
+
+    def test_field_answer_without_a_name(self):
+        """A field: entry names the field it creates."""
+        data = _document()
+        rows = data["judgments"]["DCCT"]["rows_beyond_devices"]
+        rows["Setpoint"]["Z:C03-BI{DCCT:1}Ref-SP"] = {}
+        _raises(data, "judgments.DCCT.rows_beyond_devices.Setpoint[Z:C03-BI{DCCT:1}Ref-SP].field")
+
+    def test_field_answer_name_not_a_string(self):
+        """A field: name is a string."""
+        data = _document()
+        rows = data["judgments"]["DCCT"]["rows_beyond_devices"]
+        rows["Setpoint"]["Z:C03-BI{DCCT:1}Ref-SP"] = {"field": None}
+        _raises(data, "judgments.DCCT.rows_beyond_devices.Setpoint[Z:C03-BI{DCCT:1}Ref-SP].field")
+
+    def test_field_answer_stray_key(self):
+        """A field: entry carries nothing else."""
+        data = _document()
+        rows = data["judgments"]["DCCT"]["rows_beyond_devices"]
+        rows["Setpoint"]["Z:C03-BI{DCCT:1}Ref-SP"] = {"field": "Ref", "provenance": "stated"}
+        _raises(
+            data,
+            "judgments.DCCT.rows_beyond_devices.Setpoint[Z:C03-BI{DCCT:1}Ref-SP].provenance",
+        )
+
+    def test_unbound_devices_not_a_dict(self):
+        """unbound_devices is keyed by ordinal."""
+        data = _document()
+        data["judgments"]["TUNE"]["unbound_devices"] = [3]
+        _raises(data, "judgments.TUNE.unbound_devices")
+
+    @pytest.mark.parametrize("ordinal", ["3", 3.0, True])
+    def test_unbound_key_is_an_integer(self, ordinal):
+        """An ordinal is a YAML integer, never a bool, float or string."""
+        data = _document()
+        data["judgments"]["TUNE"]["unbound_devices"] = {ordinal: "drop"}
+        _raises(data, f"judgments.TUNE.unbound_devices.{ordinal}")
+
+    @pytest.mark.parametrize("answer", ["device", "keep_all", 1, {"field": "X"}])
+    def test_unbound_answer_vocabulary(self, answer):
+        """An unbound device is answered drop, keep or null."""
+        data = _document()
+        data["judgments"]["TUNE"]["unbound_devices"][3] = answer
+        _raises(data, "judgments.TUNE.unbound_devices.3")
+
+    @pytest.mark.parametrize("answer", ["keep", "drop", 2, True, ["keep_all"]])
+    def test_shared_pvs_vocabulary(self, answer):
+        """shared_pvs is keep_all, an owner map or null."""
+        data = _document()
+        data["judgments"]["SM2"]["shared_pvs"] = answer
+        _raises(data, "judgments.SM2.shared_pvs")
+
+    @pytest.mark.parametrize("group", ["2", 2.0, True])
+    def test_owner_map_key_is_an_integer(self, group):
+        """A group is keyed by the lowest ordinal of its members."""
+        data = _document()
+        data["judgments"]["SM3"]["shared_pvs"] = {group: 2}
+        _raises(data, f"judgments.SM3.shared_pvs.{group}")
+
+    @pytest.mark.parametrize("owner", ["2", "keep", 2.0, True, None, {"field": "X"}])
+    def test_owner_map_value(self, owner):
+        """An owner is a device ordinal or keep_all."""
+        data = _document()
+        data["judgments"]["SM3"]["shared_pvs"] = {2: owner}
+        _raises(data, "judgments.SM3.shared_pvs.2")
+
+    def test_message_names_the_key(self):
+        """str() leads with the bracketed path an operator has to edit."""
+        data = _document()
+        rows = data["judgments"]["DCCT"]["rows_beyond_devices"]
+        rows["Setpoint"]["Z:C03-BI{DCCT:1}Ref-SP"] = "keep"
+        err = _raises(data, "judgments.DCCT.rows_beyond_devices.Setpoint[Z:C03-BI{DCCT:1}Ref-SP]")
+        assert str(err).startswith(
+            "judgments.DCCT.rows_beyond_devices.Setpoint[Z:C03-BI{DCCT:1}Ref-SP]: "
+        )
 
 
 class TestMappingError:
