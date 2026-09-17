@@ -79,6 +79,7 @@ import yaml
 from osprey.jupyter_kernel import HINT_TARGET_CHANGED, HINT_WRITES_OFF
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context, write_server_report
+from tests.interfaces._browser import open_hub_page, rail_entry
 from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
 from tests.interfaces.conftest import _apply_all, _run_app_server
 
@@ -227,38 +228,22 @@ def _live_server(workspace_dir: Path):
 
 
 def _open_page(browser, base_url: str) -> Page:
-    """Open the terminal and wait for the rail and the dock grid to render.
+    """The hub at this suite's viewport, rail and dock grid up.
 
     Args:
         browser: The function-scoped chromium fixture.
         base_url: The live server's address.
 
     Returns:
-        A page whose rail and dockview grid are both on screen.
+        A page wide enough that JupyterLab keeps its left sidebar open inside
+        the panel tile.
     """
-    page = browser.new_page(viewport=_VIEWPORT)
-    page.goto(base_url, wait_until="domcontentloaded")
-    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-        timeout=10_000
-    )
-    expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
-    return page
-
-
-def _rail_entry(page: Page, panel_id: str):
-    """The rail button for *panel_id*, healthy or not."""
-    return page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')
+    return open_hub_page(browser, base_url, viewport=_VIEWPORT)
 
 
 def _enabled_rail_entry(page: Page, panel_id: str):
-    """The rail button for *panel_id*, only once its health poll settled healthy.
-
-    The rail signals availability with the ``disabled`` CSS class rather than
-    the HTML attribute (``panel-rail.js`` ``setEntryEnabled``), so the enabled
-    state is a class assertion — the same handle the sibling dock suite waits
-    on.
-    """
-    return page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]:not(.disabled)')
+    """The rail button for *panel_id*, only once its health poll settled healthy."""
+    return rail_entry(page, panel_id, enabled_only=True)
 
 
 def _lab(page: Page):
@@ -408,7 +393,7 @@ def test_notebooks_panel_opens_jupyterlab_and_runs_cells_on_a_real_kernel(
         expect(_enabled_rail_entry(page, "jupyter")).to_be_attached(timeout=60_000)
 
         # A rail click takes the focused tile over (one panel per tile).
-        _rail_entry(page, "jupyter").click()
+        rail_entry(page, "jupyter").click()
         expect(page.locator('.tile-tab[aria-label="JUPYTER"]')).to_have_count(1, timeout=10_000)
 
         lab = _lab(page)
