@@ -382,10 +382,18 @@ class TestEnumReadings:
 # --------------------------------------------------------------------------------------
 
 
-async def _write_with_validator(validator, value=10.0, readback=10.0, **kwargs):
-    """Drive one write through a connector wired with the given validator."""
+async def _write_with_validator(
+    validator, value=10.0, readback=10.0, *, device_error=None, **kwargs
+):
+    """Drive one write through a connector wired with the given validator.
+
+    ``device_error`` makes the ``DeviceProxy`` lookup itself raise, which is
+    what an unreachable device looks like from inside the write's offload.
+    """
     proxy = _make_proxy(read_value=readback)
     mock_tango = _make_tango(proxy)
+    if device_error is not None:
+        mock_tango.DeviceProxy.side_effect = device_error
     with (
         patch.dict(sys.modules, {"tango": mock_tango}),
         patch(_LIMITS_PATCH, return_value=validator),
@@ -667,6 +675,72 @@ class TestWriteTextIsDisplayOnly:
             "NO_ALARM",
             0,
         )
+
+
+# --------------------------------------------------------------------------------------
+# A device that cannot be reached
+# --------------------------------------------------------------------------------------
+
+
+class TestUnreachableDevice:
+    """A ``DeviceProxy`` that cannot be built, on each path that builds one.
+
+    Creating a proxy is itself a database round trip, so a device that is
+    down, or a name no database knows, fails there rather than at the read or
+    the write. The connector does not translate what PyTango raised — the
+    transport's own error is the answer — so a read hands it to the caller
+    unchanged, while a write turns it into the word the write contract owns.
+    """
+
+    async def test_read_hands_the_proxy_failure_to_the_caller(self, connector):
+        conn, _ = connector
+        conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
+        with pytest.raises(RuntimeError, match="not exported"):
+            await conn.read_channel(_ADDRESS)
+
+    async def test_a_proxy_that_could_not_be_built_is_not_cached(self, connector):
+        """A device unreachable for one call is reachable on the next."""
+        conn, proxy = connector
+        conn._tango.DeviceProxy.side_effect = [RuntimeError("device is not exported"), proxy]
+
+        with pytest.raises(RuntimeError):
+            await conn.read_channel(_ADDRESS)
+        assert not conn._proxies
+
+        result = await conn.read_channel(_ADDRESS)
+        assert result.value == 42.0
+        assert list(conn._proxies) == ["sr/power_supply/ps01"]
+
+    async def test_an_unreachable_device_is_an_invalid_channel(self, connector):
+        conn, _ = connector
+        conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
+        assert await conn.validate_channel(_ADDRESS) is False
+
+    async def test_a_write_to_an_unreachable_device_is_failed(self, connector):
+        conn, proxy = connector
+        conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
+        result = await conn.write_channel(_ADDRESS, 10.0)
+        assert result.outcome is WriteOutcome.FAILED
+        assert result.notes == "TANGO did not take the value"
+        assert _ADDRESS in result.error_message
+        assert result.observed_value is None
+        proxy.read_attribute.assert_not_called()
+
+    async def test_a_device_unreachable_during_validation_refuses_the_write(self):
+        """An unmade ``max_step`` check is not permission to write."""
+
+        def validate_against_a_fresh_read(address, _value, *, read_current=None):
+            read_current(address)
+
+        validator = _make_limits_validator()
+        validator.validate = MagicMock(side_effect=validate_against_a_fresh_read)
+
+        result, proxy = await _write_with_validator(
+            validator, device_error=RuntimeError("device is not exported")
+        )
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "VALIDATION_ERROR"
+        proxy.write_attribute.assert_not_called()
 
 
 # --------------------------------------------------------------------------------------
