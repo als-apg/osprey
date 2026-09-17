@@ -323,8 +323,8 @@ DENIED: tuple[Denied, ...] = (
                 # description.
                 "tests/models/test_providers_litellm_delegating.py",
                 # Cases that assert the literal's absence, and so have to spell it.
+                "tests/dispatch/test_dashboard_config_injection.py",
                 "tests/registry/test_pyat_specialist_agent.py",
-                "tests/unit/dispatch/test_dashboard_config_injection.py",
                 # A byte-faithful copy of the shipped plugin manifest, whose author
                 # field is the project's own.
                 "tests/scripts/test_plugin_version.py",
