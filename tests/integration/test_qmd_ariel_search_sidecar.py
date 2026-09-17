@@ -86,7 +86,6 @@ from tests.integration._qmd_ariel_support import (
 # concurrent reaper starts race the Docker daemon's port mapper.
 pytestmark = [
     pytest.mark.dockerbuild,
-    pytest.mark.integration,
     pytest.mark.asyncio,
     pytest.mark.xdist_group("docker"),
 ]

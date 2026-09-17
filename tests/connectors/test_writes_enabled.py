@@ -242,7 +242,6 @@ class TestMockWritesDisabledViaBaseClass:
         assert not hasattr(connector, "_enable_writes")
 
 
-@pytest.mark.integration
 class TestWriteBlockedIntegration:
     """Integration test: full write path with real MockConnector."""
 

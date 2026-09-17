@@ -17,7 +17,7 @@ import pytest
 # database: the session ``database_url`` fixture prefers a running dev Postgres with
 # ONE shared ``ariel_test`` database over a per-worker container, so parallel workers
 # would otherwise collide on migrations/seed/truncate.
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
+pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 
 @pytest.fixture

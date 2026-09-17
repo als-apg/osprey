@@ -51,7 +51,7 @@ from tests._container_support import is_docker_available, start_or_skip, stop_qu
 # worker ever has a testcontainers session open — each worker runs its own
 # session and its own ryuk reaper, and two concurrent starts race the Docker
 # daemon's port mapper (see tests/README.md, "Containers").
-pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
+pytestmark = [pytest.mark.xdist_group("docker")]
 
 # The tag the compose template pins for the `tiled` service. Pinned here too,
 # and not read from the template: this module's assertions are statements about

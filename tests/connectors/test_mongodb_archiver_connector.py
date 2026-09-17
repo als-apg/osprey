@@ -25,7 +25,6 @@ from osprey.port_layout import default_port
 pytestmark = pytest.mark.xdist_group("docker")
 
 
-@pytest.mark.integration
 class TestConnectDisconnectLifecycle:
     """Tests for connect/disconnect lifecycle."""
 
@@ -178,7 +177,6 @@ class TestConnectDisconnectLifecycle:
         assert connector._collection is None
 
 
-@pytest.mark.integration
 class TestImportErrorHandling:
     """Tests for import error handling when pymongo is missing."""
 
@@ -209,7 +207,6 @@ class TestImportErrorHandling:
             assert "archiver-mongodb" not in str(exc_info.value)
 
 
-@pytest.mark.integration
 class TestGetDataMethod:
     """Tests for get_data method."""
 
@@ -367,7 +364,6 @@ class TestGetDataMethod:
         await connector.disconnect()
 
 
-@pytest.mark.integration
 class TestGetDataErrorHandling:
     """Tests for error handling in get_data method."""
 
@@ -396,7 +392,6 @@ class TestGetDataErrorHandling:
         await connector.disconnect()
 
 
-@pytest.mark.integration
 class TestMetadataMethods:
     """Tests for metadata methods."""
 
@@ -510,7 +505,6 @@ class TestMetadataMethods:
             await connector.get_metadata("BEAM:CURRENT")
 
 
-@pytest.mark.integration
 class TestFactoryIntegration:
     """Tests for factory integration."""
 

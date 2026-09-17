@@ -52,7 +52,6 @@ from tests.integration._qmd_ariel_support import (
 # a run has a single testcontainers session and a single ryuk reaper.
 pytestmark = [
     pytest.mark.dockerbuild,
-    pytest.mark.integration,
     pytest.mark.xdist_group("docker"),
 ]
 

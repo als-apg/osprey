@@ -165,7 +165,6 @@ def _make_test_project(tmp_path: Path, subagent_model: str = _SUBAGENT_MODEL) ->
     return render
 
 
-@pytest.mark.integration
 async def test_in_context_backend_basic(tmp_path):
     """InContextBackend runs a real query end-to-end and returns a WorkflowOutput."""
     render = _make_test_project(tmp_path)
@@ -192,7 +191,6 @@ async def test_in_context_backend_basic(tmp_path):
     assert trace_input.get("_inner_model_id") == _EXPECTED_WIRE
 
 
-@pytest.mark.integration
 async def test_in_context_backend_records_wire_id(tmp_path):
     """Backend records the wire id half of its provider/wire_id model string."""
     render = _make_test_project(tmp_path)
