@@ -5950,11 +5950,24 @@ def test_live_va_lane_fails_on_any_skipped_test__mutation_drops_the_gate(job_nam
 # diverges pays for a second copy of identical layers, and a build that never
 # rotates its export directory saves back the layers it restored instead of
 # the ones it produced. None of the three reds a job on its own.
+#
+# Two more pieces sit either side of the recipe. The builder is the action's,
+# and is the job's default afterwards, so a lane's own later build inherits
+# it; the removal cannot be the action's at all, because a composite action
+# has no post hook, so each lane calls a second action and says which of its
+# own builds that call has to cover.
 
 VA_IMAGE_ACTION = "./.github/actions/build-virtual-accelerator-image"
 VA_IMAGE_ACTION_YML = (
     REPO_ROOT / ".github" / "actions" / "build-virtual-accelerator-image" / "action.yml"
 )
+VA_REMOVE_ACTION = "./.github/actions/remove-virtual-accelerator-images"
+VA_REMOVE_ACTION_YML = (
+    REPO_ROOT / ".github" / "actions" / "remove-virtual-accelerator-images" / "action.yml"
+)
+#: Matched as a prefix, so a version bump of the setup action does not have
+#: to be made here as well.
+BUILDX_ACTION = "docker/setup-buildx-action@"
 VA_IMAGE_TAG = "osprey-va-full:latest"
 VA_CACHE_DIR = "/tmp/va-buildx-cache"
 VA_CACHE_EXPORT_DIR = "/tmp/va-buildx-cache-new"
@@ -5965,11 +5978,19 @@ VA_E2E_CONFTEST = REPO_ROOT / "tests" / "va" / "e2e" / "conftest.py"
 VA_E2E_IMAGE_CONSTANT = "IMAGE"
 
 
-def _load_va_image_action() -> dict[str, Any]:
-    with VA_IMAGE_ACTION_YML.open() as f:
+def _load_action_yml(path: Path) -> dict[str, Any]:
+    with path.open() as f:
         loaded = yaml.safe_load(f)
-    assert loaded is not None, f"{VA_IMAGE_ACTION_YML} parsed to None"
+    assert loaded is not None, f"{path} parsed to None"
     return loaded
+
+
+def _load_va_image_action() -> dict[str, Any]:
+    return _load_action_yml(VA_IMAGE_ACTION_YML)
+
+
+def _load_va_remove_action() -> dict[str, Any]:
+    return _load_action_yml(VA_REMOVE_ACTION_YML)
 
 
 @pytest.fixture()
@@ -5977,14 +5998,29 @@ def va_image_action() -> dict[str, Any]:
     return _load_va_image_action()
 
 
-def _va_image_jobs(wf: dict[str, Any]) -> set[str]:
-    """Jobs that name the virtual accelerator image, derived rather than listed.
+@pytest.fixture()
+def va_remove_action() -> dict[str, Any]:
+    return _load_va_remove_action()
 
-    Derived for the reason the diagnostics set is: a hand-kept list is what the
-    next lane forgets to join. A job cannot inherit this image from another
-    job, so naming it and having to build it are one requirement.
+
+def _va_image_jobs(wf: dict[str, Any]) -> set[str]:
+    """Jobs with business in this image, derived rather than listed.
+
+    Derived for the reason the diagnostics set is: a hand-kept list is what
+    the next lane forgets to join. A job cannot inherit this image from
+    another job, so naming it, building it and removing it are one
+    requirement. Calling either shared action counts as naming it — a lane
+    that calls both mentions the tag nowhere in its own body, because
+    ``yaml.safe_load`` has already dropped the comments that do.
     """
-    return {name for name, job in _jobs(wf).items() if VA_IMAGE_TAG in json.dumps(job)}
+    return {
+        name
+        for name, job in _jobs(wf).items()
+        if any(
+            needle in json.dumps(job)
+            for needle in (VA_IMAGE_TAG, VA_IMAGE_ACTION, VA_REMOVE_ACTION)
+        )
+    }
 
 
 def _sole_step_whose_script(steps: list[dict[str, Any]], needle: str, what: str) -> int:
@@ -6002,9 +6038,13 @@ def _module_constant(path: Path, name: str) -> str:
     raise AssertionError(f"{path} has no module-level `{name}` assignment")
 
 
-def _va_action_steps(wf: dict[str, Any], job_name: str) -> list[int]:
+def _steps_using(wf: dict[str, Any], job_name: str, action: str) -> list[int]:
     steps = _jobs(wf)[job_name]["steps"]
-    return [i for i, step in enumerate(steps) if step.get("uses") == VA_IMAGE_ACTION]
+    return [i for i, step in enumerate(steps) if step.get("uses") == action]
+
+
+def _va_action_steps(wf: dict[str, Any], job_name: str) -> list[int]:
+    return _steps_using(wf, job_name, VA_IMAGE_ACTION)
 
 
 def test_every_virtual_accelerator_lane_builds_through_the_shared_action(
@@ -6148,6 +6188,122 @@ def test_the_shared_action_pins_the_tag_the_cache_and_the_rotation__mutation_giv
         test_the_shared_action_pins_the_tag_the_cache_and_the_rotation(mutated)
 
 
+def test_the_shared_action_sets_up_the_builder_before_it_builds(
+    va_image_action: dict[str, Any],
+) -> None:
+    """The builder is a precondition of the build, not a companion to it.
+
+    ``--cache-to type=local`` needs a driver the default docker builder does
+    not provide, and it errors rather than skipping the export — so the setup
+    is a precondition of the build, and a setup placed after it is no setup at
+    all.
+    """
+    steps = va_image_action["runs"]["steps"]
+    setup = [i for i, step in enumerate(steps) if BUILDX_ACTION in str(step.get("uses", ""))]
+    assert len(setup) == 1, (
+        f"expected exactly one `{BUILDX_ACTION}` step in the action; found {len(setup)}"
+    )
+    build = _sole_step_whose_script(steps, f"--tag {VA_IMAGE_TAG}", f"builds {VA_IMAGE_TAG}")
+    assert setup[0] < build, (
+        f"the builder setup is a precondition of the build, not a companion to it: it sits at "
+        f"index {setup[0]} and the build at index {build}, and `--cache-to type=local` against "
+        f"the default docker builder errors rather than skipping the export."
+    )
+
+
+def test_the_shared_action_sets_up_the_builder_before_it_builds__mutation_drops_the_builder_setup() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_va_image_action())
+    steps = mutated["runs"]["steps"]
+    steps.pop(next(i for i, step in enumerate(steps) if BUILDX_ACTION in str(step.get("uses", ""))))
+    with pytest.raises(AssertionError):
+        test_the_shared_action_sets_up_the_builder_before_it_builds(mutated)
+
+
+def test_the_shared_action_sets_up_the_builder_before_it_builds__mutation_sets_the_builder_up_after_the_build() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_va_image_action())
+    steps = mutated["runs"]["steps"]
+    setup = next(i for i, step in enumerate(steps) if BUILDX_ACTION in str(step.get("uses", "")))
+    steps.append(steps.pop(setup))
+    with pytest.raises(AssertionError):
+        test_the_shared_action_sets_up_the_builder_before_it_builds(mutated)
+
+
+def test_no_virtual_accelerator_lane_sets_up_its_own_builder(workflow: dict[str, Any]) -> None:
+    """The builder these lanes build on is the action's, and only the action's.
+
+    The set is derived, so this constrains only the lanes that use this image:
+    ``qmd-sidecar-e2e`` builds a different image, never calls the action and
+    keeps its own setup step.
+    """
+    own = {}
+    for name in sorted(_va_image_jobs(workflow)):
+        setups = [
+            step.get("name")
+            for step in _jobs(workflow)[name]["steps"]
+            if BUILDX_ACTION in str(step.get("uses", ""))
+        ]
+        if setups:
+            own[name] = setups
+    assert own == {}, (
+        f"the action sets up the builder these lanes build on, so a lane that sets up its own "
+        f"creates a second BuildKit container and hands its later builds a builder the "
+        f"action's cache was not exported through: {own}"
+    )
+
+
+def test_no_virtual_accelerator_lane_sets_up_its_own_builder__mutation_gives_a_lane_its_own_builder() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[VA_LIVE_JOB]["steps"].append(
+        {"name": "Set up Docker Buildx", "uses": "docker/setup-buildx-action@v3"}
+    )
+    with pytest.raises(AssertionError):
+        test_no_virtual_accelerator_lane_sets_up_its_own_builder(mutated)
+
+
+def test_every_lane_builds_after_the_shared_builder(workflow: dict[str, Any]) -> None:
+    """A lane's own later build runs on the builder the action set up.
+
+    These lanes have no builder of their own, so the one their bench IOC build
+    runs on is the action's; a build placed before the action call gets the
+    default docker driver and its ``--cache-to type=local`` errors out.
+    """
+    early = {}
+    for name in sorted(_va_image_jobs(workflow)):
+        steps = _jobs(workflow)[name]["steps"]
+        action = _va_action_steps(workflow, name)
+        if not action:
+            continue
+        builds = [
+            i for i, step in enumerate(steps) if "docker buildx build" in str(step.get("run", ""))
+        ]
+        too_early = [i for i in builds if i < action[0]]
+        if too_early:
+            early[name] = too_early
+    assert early == {}, (
+        f"these lanes build before the action that sets the builder up, so the build gets the "
+        f"default docker driver and its `--cache-to type=local` errors out: {early}"
+    )
+
+
+def test_every_lane_builds_after_the_shared_builder__mutation_moves_a_bench_build_before_the_action() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]
+    build = next(
+        i for i, step in enumerate(steps) if "docker buildx build" in str(step.get("run", ""))
+    )
+    steps.insert(0, steps.pop(build))
+    with pytest.raises(AssertionError):
+        test_every_lane_builds_after_the_shared_builder(mutated)
+
+
 def test_the_action_builds_the_tag_the_live_fixtures_boot(va_image_action: dict[str, Any]) -> None:
     """A pairing, not a second copy of a string.
 
@@ -6180,28 +6336,29 @@ def test_the_action_builds_the_tag_the_live_fixtures_boot__mutation_builds_a_tag
 def test_every_virtual_accelerator_lane_removes_the_image_it_built(
     workflow: dict[str, Any],
 ) -> None:
-    """The one piece that cannot move into the action, pinned at each call site.
+    """The one piece that cannot move into the build action, pinned at each call site.
 
-    A composite action has no ``post:`` hook, so the only always-run step it
-    can contribute is one that runs where the action runs — before the lane's
-    tests rather than after them. The removal is therefore a lane step, and
-    every lane needs its own.
+    A composite action has no ``post:`` hook, so the removal cannot be a step
+    the build action contributes — the only always-run step an action can
+    contribute is one that runs where the action runs, before the lane's tests
+    rather than after them. It is a second action, and the ``if:`` belongs at
+    the call site because a composite action cannot carry a condition on its
+    caller's behalf.
     """
     missing = []
     for name in sorted(_va_image_jobs(workflow)):
         steps = _jobs(workflow)[name]["steps"]
-        action = _va_action_steps(workflow, name)
+        build = _va_action_steps(workflow, name)
         removals = [
             i
-            for i, step in enumerate(steps)
-            if step.get("if") == "always()"
-            and f"docker rmi -f {VA_IMAGE_TAG}" in str(step.get("run", ""))
+            for i in _steps_using(workflow, name, VA_REMOVE_ACTION)
+            if steps[i].get("if") == "always()"
         ]
-        if not removals or not action or max(removals) < action[0]:
+        if not removals or not build or max(removals) < build[0]:
             missing.append(name)
     assert missing == [], (
         f"these jobs build {VA_IMAGE_TAG} but never remove it on every outcome: {missing}. "
-        f"Add an `if: always()` step running `docker rmi -f {VA_IMAGE_TAG}` after the build."
+        f"Add `uses: {VA_REMOVE_ACTION}` with `if: always()` after the build."
     )
 
 
@@ -6209,12 +6366,155 @@ def test_every_virtual_accelerator_lane_removes_the_image_it_built__mutation_mak
     None
 ):
     mutated = copy.deepcopy(_load_workflow())
-    for step in _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]:
-        if f"docker rmi -f {VA_IMAGE_TAG}" in str(step.get("run", "")):
-            # The removal survives, but stops running on a red lane.
-            del step["if"]
+    steps = _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]
+    for index in _steps_using(mutated, TARGET_SWITCH_JOB, VA_REMOVE_ACTION):
+        # The removal survives, but stops running on a red lane.
+        del steps[index]["if"]
     with pytest.raises(AssertionError):
         test_every_virtual_accelerator_lane_removes_the_image_it_built(mutated)
+
+
+def test_each_lane_removes_every_image_it_built(workflow: dict[str, Any]) -> None:
+    """``extra-tags`` is derived from the lane's own ``--tag`` flags.
+
+    It is not a lane preference: it is the list of images this lane built that
+    the shared removal cannot know about. So a lane that gains a second build
+    gains its removal, and a lane that loses one stops asking for a removal
+    with no subject. At the baseline the two switch lanes build
+    ``bench-ioc:latest`` and pass it; the other two build nothing else and
+    pass nothing.
+    """
+    unpaired = {}
+    for name in sorted(_va_image_jobs(workflow)):
+        steps = _jobs(workflow)[name]["steps"]
+        built = {VA_IMAGE_TAG}
+        for step in steps:
+            built.update(re.findall(r"--tag\s+(\S+)", str(step.get("run", ""))))
+        removed = {VA_IMAGE_TAG}
+        for index in _steps_using(workflow, name, VA_REMOVE_ACTION):
+            removed.update(str((steps[index].get("with") or {}).get("extra-tags", "")).split())
+        if built != removed:
+            unpaired[name] = {"built": sorted(built), "removed": sorted(removed)}
+    assert unpaired == {}, (
+        f"every image a lane builds is an image that lane removes, and `extra-tags` carries "
+        f"the ones the shared removal cannot know about: {unpaired}"
+    )
+
+
+def test_each_lane_removes_every_image_it_built__mutation_drops_the_extra_tag() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[TARGET_SWITCH_JOB]["steps"]
+    for index in _steps_using(mutated, TARGET_SWITCH_JOB, VA_REMOVE_ACTION):
+        del steps[index]["with"]
+    with pytest.raises(AssertionError):
+        test_each_lane_removes_every_image_it_built(mutated)
+
+
+def test_each_lane_removes_every_image_it_built__mutation_asks_for_a_tag_the_lane_never_built() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    steps = _jobs(mutated)[VA_LIVE_JOB]["steps"]
+    for index in _steps_using(mutated, VA_LIVE_JOB, VA_REMOVE_ACTION):
+        steps[index]["with"] = {"extra-tags": "bench-ioc:latest"}
+    with pytest.raises(AssertionError):
+        test_each_lane_removes_every_image_it_built(mutated)
+
+
+def test_the_removal_action_removes_exact_tags_only(va_remove_action: dict[str, Any]) -> None:
+    """The guardrail the script's own comment claims, made load-bearing.
+
+    Exact tags only, never a prune or a wildcard. The action removes images on
+    behalf of four lanes at once, so a sweep introduced here would reach
+    whatever else the runner holds — on shared self-hosted runners too.
+    """
+    assert va_remove_action["runs"]["using"] == "composite"
+    steps = va_remove_action["runs"]["steps"]
+
+    unshelled = [
+        step.get("name") for step in steps if "run" in step and step.get("shell") != "bash"
+    ]
+    assert unshelled == [], (
+        f"every `run:` step of a composite action needs `shell: bash`; {unshelled} lack it, "
+        f"which is a workflow-parse error at the moment a lane calls the action."
+    )
+
+    inputs = va_remove_action.get("inputs") or {}
+    assert set(inputs) == {"extra-tags"}, (
+        f"the only thing a lane knows that the action does not is which further tags it built; "
+        f"got {sorted(inputs)}"
+    )
+    assert not inputs["extra-tags"].get("required"), (
+        "a lane that built only the shared image calls this action with no `with:` at all, so "
+        "the input cannot be required."
+    )
+    assert inputs["extra-tags"].get("default") == "", (
+        f"the default has to be the empty string: an empty unquoted expansion contributes zero "
+        f"words and the loop runs once. Got {inputs['extra-tags'].get('default')!r}."
+    )
+
+    script = "\n".join(str(step.get("run", "")) for step in steps)
+    assert VA_IMAGE_TAG in script, (
+        f"every caller builds {VA_IMAGE_TAG}, so the action removes it without being asked."
+    )
+    for sweep in ("prune", "-a ", "--all", "*"):
+        assert sweep not in script, (
+            f"exact tags only: `{sweep}` in this script reaches whatever else the runner holds, "
+            f"which is the container-ops guardrail every lane here observes."
+        )
+
+
+def test_the_removal_action_removes_exact_tags_only__mutation_sweeps_by_pattern() -> None:
+    mutated = copy.deepcopy(_load_va_remove_action())
+    mutated["runs"]["steps"][0]["run"] = "docker image prune -af"
+    with pytest.raises(AssertionError):
+        test_the_removal_action_removes_exact_tags_only(mutated)
+
+
+def test_the_removal_action_removes_exact_tags_only__mutation_requires_the_extra_tags() -> None:
+    mutated = copy.deepcopy(_load_va_remove_action())
+    mutated["inputs"]["extra-tags"]["required"] = True
+    del mutated["inputs"]["extra-tags"]["default"]
+    with pytest.raises(AssertionError):
+        test_the_removal_action_removes_exact_tags_only(mutated)
+
+
+def test_no_lane_removes_the_virtual_accelerator_image_inline(workflow: dict[str, Any]) -> None:
+    """The removal's counterpart to the inline-build guard.
+
+    A fifth lane that pastes the removal rather than calling the action
+    reintroduces the divergence the action ends, and nothing else would red.
+    Scoped to this one tag on purpose: other lanes in this workflow
+    legitimately run their own ``docker rmi``, and two of them even sweep by
+    pattern, which is exactly why the exact-tags assertion above is scoped to
+    the action rather than to the workflow.
+    """
+    inline = sorted(
+        name
+        for name, job in _jobs(workflow).items()
+        for step in job.get("steps") or []
+        if f"rmi -f {VA_IMAGE_TAG}" in str(step.get("run", ""))
+    )
+    assert inline == [], (
+        f"these jobs remove {VA_IMAGE_TAG} inline: {inline}. Use "
+        f"`uses: {VA_REMOVE_ACTION}` instead, so the tags removed stay paired with the tags "
+        f"built."
+    )
+
+
+def test_no_lane_removes_the_virtual_accelerator_image_inline__mutation_pastes_the_removal_back() -> (
+    None
+):
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[VA_LIVE_JOB]["steps"].append(
+        {
+            "name": "Clean up the target images",
+            "if": "always()",
+            "run": f"docker rmi -f {VA_IMAGE_TAG} || true",
+        }
+    )
+    with pytest.raises(AssertionError):
+        test_no_lane_removes_the_virtual_accelerator_image_inline(mutated)
 
 
 def test_no_lane_builds_the_virtual_accelerator_image_inline(workflow: dict[str, Any]) -> None:
