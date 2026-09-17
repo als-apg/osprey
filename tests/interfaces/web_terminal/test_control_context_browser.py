@@ -182,6 +182,81 @@ def _await_poll_tick(page: Page) -> float:
     return page.evaluate("() => window.__ctcProbe.reads[window.__ctcProbe.reads.length - 1]")
 
 
+#: The one server-sent stream the hub's modules read. `panel-sse.js`, the
+#: activity strip `session.js` wires, and the chip all name this URL, and
+#: `createEventSource` (api.js) is what makes that one socket instead of
+#: three.
+FILES_EVENT_STREAM = "/api/files/events"
+
+#: Seeded at document start, so the count covers the page's FIRST socket:
+#: every `EventSource` the page constructs is kept, with the URL it was
+#: opened on. Counting CONSTRUCTIONS rather than opens is the point — a
+#: module that pays for its own connection has already paid by the time the
+#: socket opens, and a duplicate that never opens is still a duplicate under
+#: the browser's per-host cap.
+_STREAM_PROBE = """
+(function () {
+  const Original = window.EventSource;
+  if (!Original) return;
+  const streams = [];
+  window.__ctcStreams = streams;
+  window.EventSource = new Proxy(Original, {
+    construct(target, args) {
+      const stream = new target(...args);
+      streams.push(stream);
+      return stream;
+    },
+  });
+})();
+"""
+
+
+def _live_streams(page: Page, path: str) -> int:
+    """How many event-stream sockets this page is holding open on *path*.
+
+    LIVE rather than constructed: `readyState === 2` is CLOSED, and api.js
+    replaces a socket the browser has given up on with a fresh one, so a
+    reconnection is one socket held and not two. Counting corpses would
+    redden this lane for the behaviour it is not about.
+    """
+    return page.evaluate(
+        "(path) => (window.__ctcStreams || []).filter("
+        "(stream) => stream.url.includes(path) && stream.readyState !== 2).length",
+        path,
+    )
+
+
+def _await_stream_open(page: Page, path: str) -> None:
+    """Block until one of this page's sockets on *path* is OPEN.
+
+    The readiness barrier for everything below: until a stream is open the
+    page is not subscribed to anything, so a count taken before it means
+    only that the page has not got there yet.
+    """
+    page.wait_for_function(
+        "(path) => (window.__ctcStreams || []).some("
+        "(stream) => stream.url.includes(path) && stream.readyState === 1)",
+        arg=path,
+        timeout=TIMEOUT,
+    )
+
+
+#: Subscribe to the stream through the page's OWN copy of api.js — the module
+#: instance app.js loaded, reached by rewriting the entrypoint's `src`, so the
+#: URL is the one app.js's relative `./api.js` resolved to under whatever
+#: prefix this deployment serves. A second copy fetched under any other URL
+#: would carry its own `sharedStreams` map and prove the opposite of what
+#: this asks.
+_ADD_SUBSCRIBER = """
+async (path) => {
+  const entry = document.querySelector('script[type="module"][src$="/js/app.js"]');
+  if (!entry) throw new Error('the hub page loads no app.js module entrypoint');
+  const api = await import(entry.src.replace('/app.js', '/api.js'));
+  window.__ctcExtra = api.createEventSource(path, {});
+}
+"""
+
+
 # ---------------------------------------------------------------------------
 # (1) a switch in one tab, on the frame, in the other
 # ---------------------------------------------------------------------------
@@ -260,6 +335,86 @@ def test_a_switch_in_one_tab_reaches_the_other_before_its_next_poll(
         f"which is within drift of the next one ({IDLE_POLL_MS} ms) — this proves nothing "
         f"about the pushed frame. Reads: {probe['reads']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# (6) one stream for the whole page
+# ---------------------------------------------------------------------------
+
+
+def test_one_event_stream_serves_the_whole_page_across_a_switch(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """Three modules, one socket: the page never pays for the stream twice.
+
+    ``panel-sse.js``, the activity strip ``session.js`` wires and the chip all
+    read ``/api/files/events`` on one page, and ``createEventSource``
+    (``api.js``) is what makes that one socket rather than three. So the number
+    this test takes is a number about the whole PAGE, not about the chip: it is
+    the count of live event-stream sockets the page is holding, and it is
+    asserted at three moments, each ruling out a different way of regaining a
+    second connection.
+
+    At rest after boot, first — whichever modules mounted, they share. Then
+    after one more subscriber is added through the page's OWN ``api.js``: the
+    sharing is a module-registry fact (``sharedStreams`` is a Map inside one
+    loaded copy of that module), so a second copy of it fetched under any other
+    URL, or a subscriber that reached ``EventSource`` directly, shows up here
+    and nowhere else. Then after the deployment moves under the page, because
+    the chip follows a switch by re-READING and must not follow it by
+    re-subscribing.
+
+    The switch is made in a second tab so this page stays a pure watcher: the
+    tab that made the gesture also runs a fast poll while its switch is out,
+    and a lane about connections should not have to reason about which of a
+    page's own timers is running.
+
+    A live controls server is planted so the switch gate has a reachability
+    sweep to read; without one no row offers Switch at all.
+    """
+    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, root):
+        _publish_report(root)
+        watcher, _watcher_session = _settled_chip(
+            chromium_browser, base_url, init_script=_STREAM_PROBE
+        )
+        switcher, _switcher_session = _settled_chip(chromium_browser, base_url)
+        try:
+            _await_stream_open(watcher, FILES_EVENT_STREAM)
+            assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
+                "a settled hub page holds more than one event-stream socket"
+            )
+
+            # A second subscriber, through the page's own api.js.
+            watcher.evaluate(_ADD_SUBSCRIBER, FILES_EVENT_STREAM)
+            assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
+                "subscribing again opened a second socket instead of sharing the one open"
+            )
+
+            # The deployment moves, from the other tab.
+            _open_popover(switcher)
+            _row(switcher, SWITCH_TARGET).locator(".ctc-switch").click()
+            expect(switcher.locator(MODAL_TITLE)).to_have_text(
+                f"Switch to {NAMES[SWITCH_TARGET]}?", timeout=TIMEOUT
+            )
+            switcher.locator(MODAL_CONFIRM).click()
+            expect(switcher.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
+
+            # The watcher learned about it — so the frame really did arrive on a
+            # socket this page is holding — and it learned without opening one.
+            expect(watcher.locator(CHIP_SHORT)).to_have_text(NAMES[SWITCH_TARGET], timeout=TIMEOUT)
+            assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
+                "following the switch cost the page a second socket"
+            )
+
+            # The page's own subscribers keep the socket after ours leaves.
+            watcher.evaluate("() => window.__ctcExtra.stop()")
+            assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
+                "the socket closed when the test's subscriber left, so the page's "
+                "own modules were not sharing it"
+            )
+        finally:
+            switcher.close()
+            watcher.close()
 
 
 # ---------------------------------------------------------------------------
