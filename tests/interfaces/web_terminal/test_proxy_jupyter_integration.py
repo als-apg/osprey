@@ -36,7 +36,6 @@ from fastapi.testclient import TestClient
 from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
-from osprey.audit import writer
 from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.interfaces.common_middleware import compute_url_prefix
 from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
@@ -90,19 +89,13 @@ KERNEL_WS_PROTOCOL_V1 = "v1.kernel.websocket.jupyter.org"
 def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """The environment a sidecar launch reads, and a root to keep it all under.
 
-    The redirections at the end are what keep this module's own records out of
-    the repository, and both have to be made HERE rather than left to the
-    directory-wide autouse fixtures that already do the same job for every
-    other app test. Those are function-scoped, and pytest sets a module-scoped
-    fixture up before any function-scoped one: ``proxied`` enters the app's
-    lifespan, and ``started_session`` posts a session through it, while
-    ``conftest._isolate_audit_zone`` has not run yet. Unredirected in that
-    window the app files ``http_mutation`` and ``web_auth`` lines under
-    ``var/audit/`` in the checkout.
-
-    ``writer.audit_dir`` is the ledger's single seam, the same one the
-    directory's autouse fixture uses — pointed at this module's own tmp root
-    here, and re-pointed at each test's ``tmp_path`` there.
+    This module's own records land in the zone ``_isolate_module_audit_zone``
+    (tests/interfaces/conftest.py) holds open for the whole module. It is
+    module-scoped, so the ledger's seam is already redirected before this
+    fixture is built — which is the window that matters here, the one in which
+    ``proxied`` enters the app's lifespan and ``started_session`` posts a
+    session through it, both of them module-scoped and so both set up before
+    any per-test redirection has been made.
 
     The agent-data stamp is set for the SIDECAR, which is a real subprocess:
     a monkeypatched resolver does not cross that boundary, and the sidecar is
@@ -122,7 +115,6 @@ def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         environment.setenv("OSPREY_AUDIT_IDENTITY", AUDIT_IDENTITY)
         environment.setenv(TERMINAL_FAMILY_PROBE, "reachable-from-the-terminal")
         environment.setenv(OSPREY_AGENT_DATA_ROOT, str(agent_data))
-        environment.setattr(writer, "audit_dir", lambda: root / "audit" / "var" / "audit")
         yield root
 
 
