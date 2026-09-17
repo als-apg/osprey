@@ -47,6 +47,10 @@ ADDRESSES_PER_CATEGORY = 6
 
 SWEEP_TIMEOUT_S = 30.0
 
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 4
+
 
 def _representative_addresses(all_addresses: set[str]) -> dict[str, list[str]]:
     """Pick a small, deterministic, sorted slice of ``all_addresses`` per category."""
@@ -106,6 +110,20 @@ class TestFinderLiveReads:
             f"connected but returned no value: {result.missing_value}"
         )
         assert result.connected == result.total == len(addresses)
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_finder_live_reads.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS
 
 
 if __name__ == "__main__":
