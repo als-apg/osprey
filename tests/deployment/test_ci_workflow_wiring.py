@@ -7357,3 +7357,70 @@ def test_the_gate_reads_its_targets_from_the_declared_files__mutation_drops_a_tr
     mutated.write_text(f"[tool.mypy]\nfiles = {json.dumps(trimmed)}\n")
     gate = _load_mypy_gate()
     assert gate.declared_targets(mutated) != pyproject["tool"]["mypy"]["files"]
+
+
+# ---------------------------------------------------------------------------
+# the local package step judges this tree's artifacts, by twine's own verdict
+# ---------------------------------------------------------------------------
+#
+# ci.yml's `package` job gets both properties from the runner for nothing: a
+# fresh checkout hands it an empty dist/, and a `run:` step fails its job on a
+# non-zero exit. The local mirror is handed neither. dist/ is gitignored, so it
+# outlives a branch switch and holds the artifacts of other commits; and a
+# shell pipeline reports the status of its LAST command, so a verdict read
+# through a grep is the grep's verdict rather than the checker's.
+
+DIST_CLEAN_COMMAND = "rm -rf dist"
+PACKAGE_BUILD_COMMAND = "uv build"
+TWINE_CHECK_COMMAND = "uvx twine check dist/*"
+
+
+def _command_lines(source: str) -> list[str]:
+    """*source*'s lines with comments and blanks dropped.
+
+    The rules below are about what the script RUNS, so a comment beside a step
+    stays free to quote the command it explains without standing in for it.
+    """
+    return [
+        line for line in source.splitlines() if line.strip() and not line.lstrip().startswith("#")
+    ]
+
+
+def _dist_clean_missing(source: str) -> list[str]:
+    """What the package step's clean is missing (empty = it precedes the build)."""
+    lines = _command_lines(source)
+    build = next((i for i, line in enumerate(lines) if PACKAGE_BUILD_COMMAND in line), None)
+    if build is None:
+        return ["a package build"]
+    if not any(DIST_CLEAN_COMMAND in line for line in lines[:build]):
+        return ["a dist/ clean before the build"]
+    return []
+
+
+def test_ci_check_builds_into_an_empty_dist() -> None:
+    """The step checks what this tree built, not what the directory happens to
+    hold. `uv build` writes into dist/ without clearing it and dist/ is
+    gitignored, so without the clean the twine check below can be answered by a
+    wheel from another commit — and answered green."""
+    assert _dist_clean_missing(_script_source(CI_CHECK_SCRIPT)) == [], (
+        f"{CI_CHECK_SCRIPT} builds the package without emptying dist/ first: "
+        f"add `{DIST_CLEAN_COMMAND}` above `{PACKAGE_BUILD_COMMAND}`"
+    )
+
+
+def test_ci_check_builds_into_an_empty_dist__mutation_drops_the_clean() -> None:
+    source = _script_source(CI_CHECK_SCRIPT)
+    mutated = "\n".join(line for line in source.splitlines() if DIST_CLEAN_COMMAND not in line)
+    assert mutated != source, f"no dist/ clean in {CI_CHECK_SCRIPT}; this mutation is stale"
+    assert _dist_clean_missing(mutated) == ["a dist/ clean before the build"]
+
+
+def test_ci_check_builds_into_an_empty_dist__mutation_moves_it_after_the_build() -> None:
+    """Order is the whole rule: a clean that runs after the build deletes the
+    artifacts the next step was going to check."""
+    lines = _command_lines(_script_source(CI_CHECK_SCRIPT))
+    clean = next(i for i, line in enumerate(lines) if DIST_CLEAN_COMMAND in line)
+    build = next(i for i, line in enumerate(lines) if PACKAGE_BUILD_COMMAND in line)
+    assert clean < build, "the clean no longer precedes the build; this mutation is stale"
+    lines.insert(build, lines.pop(clean))
+    assert _dist_clean_missing("\n".join(lines)) == ["a dist/ clean before the build"]
