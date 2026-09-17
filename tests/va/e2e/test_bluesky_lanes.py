@@ -311,6 +311,11 @@ def _served(port: int) -> bool:
     directory's session fixture publishes on a different port, so one process
     cannot be a client of both (the reason the directory conftest's own
     readiness probe is a subprocess).
+
+    It leaves through ``os._exit`` for that file's other reason: a bare
+    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
+    still on its exit hooks and wedges a process that has held a Channel
+    Access context.
     """
     code = (
         "import sys, epics\n"
