@@ -6,6 +6,8 @@ with ``MiddleLayerDatabase``, so what is pinned is what the loader sees: system
 order from ``section_order``, sorted families and fields, zero-channel families
 omitted, the ``setup`` block, the per-field key allowlist, blank and broadcast
 slots, prose under ``_description`` and the top-level ``_provenance`` string.
+The emitter reads judged views, so the last class pins what a reviewer's
+answers do to the database the loader sees.
 """
 
 from __future__ import annotations
@@ -18,7 +20,15 @@ import pytest
 from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
 from osprey.services.mml.emit.channel_db import FIELD_METADATA_KEYS, build_channel_db
 from osprey.services.mml.emit.context import EmitContext, build_context
-from osprey.services.mml.mapping.schema import Facility, Family, Field, Mapping, System
+from osprey.services.mml.mapping.schema import (
+    Facility,
+    Family,
+    FamilyJudgments,
+    Field,
+    FieldAnswer,
+    Mapping,
+    System,
+)
 from osprey.services.mml.systems import EXPORTS_KEY, IMPORT_ORDER_KEY
 
 #: Every key a field dict may carry, per the FR4 allowlist.
@@ -75,6 +85,7 @@ def _mapping(
     systems: dict[str, tuple[str, str | None]],
     section_order: tuple[str, ...],
     families: list[Family],
+    judgments: dict[str, FamilyJudgments] | None = None,
 ) -> Mapping:
     return Mapping(
         facility=Facility(token="quokka", title=None, description=None, provenance="human"),
@@ -84,6 +95,7 @@ def _mapping(
         },
         section_order=section_order,
         families={family.raw: family for family in families},
+        judgments=judgments or {},
     )
 
 
@@ -499,3 +511,90 @@ class TestProvenance:
         second = json.dumps(build_channel_db(ao, mapping, ctx), sort_keys=False)
 
         assert first == second
+
+
+class TestJudgedViews:
+    """The emitter reads judged views, so an answered judgment reaches the database."""
+
+    def test_moved_rows_become_fields_of_their_own(self, tmp_path: Path) -> None:
+        """A DCCT's three PVs on one device become three one-slot fields carrying its unit."""
+        ao = {
+            "RING": {
+                "DCCT": {
+                    "DeviceList": [1, 1],
+                    "Monitor": {
+                        "ChannelNames": ["SR:DCCT:Current", "SR:DCCT:Lifetime", "SR:DCCT:Total"],
+                        "HWUnits": "mA",
+                    },
+                }
+            }
+        }
+        mapping = _mapping(
+            {"RING": ("SR", "Ring")},
+            ("SR",),
+            [
+                _family(
+                    "DCCT",
+                    fields={"Monitor": "Beam current", "Lifetime": None, "Total": None},
+                )
+            ],
+            judgments={
+                "DCCT": FamilyJudgments(
+                    rows_beyond={
+                        "Monitor": {
+                            "SR:DCCT:Lifetime": FieldAnswer("Lifetime"),
+                            "SR:DCCT:Total": FieldAnswer("Total"),
+                        }
+                    }
+                )
+            },
+        )
+
+        db = build_channel_db(ao, mapping, _ctx(tmp_path, ao))
+        loaded = _load(tmp_path, db)
+
+        family = db["SR"]["DCCT"]
+        assert list(family) == ["_description", "setup", "Lifetime", "Monitor", "Total"]
+        assert family["setup"] == {"DeviceList": [[1, 1]]}
+        assert [family[name]["ChannelNames"] for name in ("Monitor", "Lifetime", "Total")] == [
+            ["SR:DCCT:Current"],
+            ["SR:DCCT:Lifetime"],
+            ["SR:DCCT:Total"],
+        ]
+        assert [family[name]["HWUnits"] for name in ("Monitor", "Lifetime", "Total")] == [
+            "mA",
+            "mA",
+            "mA",
+        ]
+        assert loaded.get_channel("SR:DCCT:Lifetime")["HWUnits"] == "mA"
+        assert loaded.get_statistics()["total_channels"] == 3
+
+    def test_a_dropped_device_leaves_the_setup_block_and_its_family_scalar(
+        self, tmp_path: Path
+    ) -> None:
+        """A TUNE's third device goes; its scalar ``Position`` states the family, so it stays."""
+        ao = {
+            "RING": {
+                "TUNE": {
+                    "DeviceList": [[1, 1], [1, 2], [1, 3]],
+                    "Position": 0,
+                    "Status": [1, 1, 1],
+                    "Monitor": {"ChannelNames": ["SR:TUNE:X", "SR:TUNE:Y"]},
+                }
+            }
+        }
+        mapping = _mapping(
+            {"RING": ("SR", "Ring")},
+            ("SR",),
+            [_family("TUNE", fields={"Monitor": "Measured tune"})],
+            judgments={"TUNE": FamilyJudgments(unbound_devices={3: "drop"})},
+        )
+
+        db = build_channel_db(ao, mapping, _ctx(tmp_path, ao))
+
+        assert db["SR"]["TUNE"]["setup"] == {
+            "DeviceList": [[1, 1], [1, 2]],
+            "Status": [1, 1],
+            "Position": 0,
+        }
+        assert db["SR"]["TUNE"]["Monitor"]["ChannelNames"] == ["SR:TUNE:X", "SR:TUNE:Y"]

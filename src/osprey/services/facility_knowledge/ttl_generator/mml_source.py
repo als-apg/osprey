@@ -32,8 +32,11 @@ Rules:
   mapping's ``<raw family>.<field>`` direction directs every subfield, and the
   model refuses any undirected group and any repeated device IRI.
 
-The module is pure and depends on the standard library, the family view and
-the mapping schema; it imports no rdflib, neo4j or YAML.
+Every view this module walks is a judged view, so the reviewer's judgment
+answers are already applied to the lists it reads.
+
+The module is pure and depends on the standard library, the family view, the
+judgment half and the mapping schema; it imports no rdflib, neo4j or YAML.
 """
 
 from __future__ import annotations
@@ -42,7 +45,8 @@ import math
 from dataclasses import replace
 from typing import Any
 
-from osprey.services.mml.family import FamilyView, FieldView, family_views, system_bodies
+from osprey.services.mml.family import FamilyView, FieldView, system_bodies
+from osprey.services.mml.judgments import judged_family_views
 from osprey.services.mml.mapping.schema import Family, Mapping, System
 
 from .model import (
@@ -356,7 +360,7 @@ def build_graph_model(ao: dict, mapping: Mapping, section_order: list[str]) -> G
     ordered = mapping.ordered_systems(present, section_order)
     for raw_system in (raw for _, raws in ordered for raw in raws):
         section_ordinal = 0
-        for view in family_views(raw_system, ao[raw_system]):
+        for view in judged_family_views(raw_system, ao[raw_system], mapping):
             family_bindings, family_groups = bindings_for_family(view, mapping)
             by_device: dict[str, list[str]] = {}
             for binding in family_bindings:

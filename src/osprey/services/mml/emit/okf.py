@@ -22,6 +22,8 @@ Rules:
   provenance keys and is serialised through ``OKFDocument``.
 * Pages are written only when their bytes change, atomically, so a second
   write of the same inputs changes no byte.
+* Family views are judged views, so a reviewer's judgment answers are already
+  applied to the device counts and field tables written here.
 * Systems are visited in ``section_order`` (mapped names), families in the
   ``ao.json`` key order; ``_``-prefixed and non-dict ``ao`` entries are
   bookkeeping, never systems or families.
@@ -37,7 +39,8 @@ from osprey.services.facility_knowledge.okf.document import OKFDocument
 from osprey.services.facility_knowledge.okf.index import regenerate_indexes
 from osprey.services.mml.canonical import write_if_changed
 from osprey.services.mml.emit.context import EmitContext
-from osprey.services.mml.family import FamilyView, family_views, system_bodies
+from osprey.services.mml.family import FamilyView, system_bodies
+from osprey.services.mml.judgments import judged_family_views
 from osprey.services.mml.mapping.schema import Mapping
 
 __all__ = ["FACILITY_PAGE", "FAMILIES_DIR", "write_okf_bundle"]
@@ -99,7 +102,7 @@ def write_okf_bundle(
     pages.append(facility_path)
 
     for raw_system in systems:
-        for view in family_views(raw_system, ao[raw_system]):
+        for view in judged_family_views(raw_system, ao[raw_system], mapping):
             if view.channel_count == 0:
                 continue
             doc = _family_page(view, mapping, ctx)

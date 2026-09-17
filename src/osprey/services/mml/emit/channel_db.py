@@ -4,6 +4,9 @@
 into the depth-3 dict ``MiddleLayerDatabase.load_database`` reads: systems,
 then families, then fields.
 
+Families are read through :func:`~osprey.services.mml.judgments.judged_family_views`,
+so the reviewer's judgment answers are already applied to every list written here.
+
 Rules:
 
 * Top-level system keys are the mapped system names, inserted in
@@ -36,7 +39,8 @@ import copy
 from typing import Any
 
 from osprey.services.mml.emit.context import EmitContext
-from osprey.services.mml.family import FamilyView, family_views, system_bodies
+from osprey.services.mml.family import FamilyView, system_bodies
+from osprey.services.mml.judgments import judged_family_views
 from osprey.services.mml.mapping.schema import Mapping
 
 __all__ = ["FIELD_METADATA_KEYS", "PROVENANCE_KEY", "build_channel_db"]
@@ -86,7 +90,7 @@ def build_channel_db(ao: dict, mapping: Mapping, ctx: EmitContext) -> dict:
     for name, raw_systems in mapping.ordered_systems(present):
         families: dict[str, dict] = {}
         for raw_system in raw_systems:
-            for view in family_views(raw_system, ao[raw_system]):
+            for view in judged_family_views(raw_system, ao[raw_system], mapping):
                 entry = _family_entry(view, mapping)
                 if entry is None:
                     continue

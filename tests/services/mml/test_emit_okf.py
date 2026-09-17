@@ -5,7 +5,9 @@
 The cases pin the page set, the front matter every page carries, the facility
 body's omission of lines the accelerator data lacks, the family field table,
 that the bundle passes ``osprey knowledge validate`` semantics and advertises no
-dangling concept, and that a second write changes no byte.
+dangling concept, and that a second write changes no byte. The pages are
+written from judged views, so a reviewer's answer reaches the device count a
+family page states.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from osprey.services.mml.mapping.schema import (
     Direction,
     Facility,
     Family,
+    FamilyJudgments,
     Field,
     Mapping,
     System,
@@ -47,7 +50,12 @@ def _family(raw: str, *, rename: str | None = None, description: str | None = No
     )
 
 
-def _mapping(**facility) -> Mapping:
+def _mapping(
+    *,
+    families: dict[str, Family] | None = None,
+    judgments: dict[str, FamilyJudgments] | None = None,
+    **facility,
+) -> Mapping:
     fac = {"token": "quokka", "title": "Quokka", "description": "The Quokka facility."}
     fac.update(facility)
     return Mapping(
@@ -57,7 +65,9 @@ def _mapping(**facility) -> Mapping:
             "BOOST": System(raw="BOOST", name="BR", description="Booster.", provenance="human"),
         },
         section_order=("SR", "BR"),
-        families={
+        families=families
+        if families is not None
+        else {
             "BPMx": _family("BPMx", rename="BPMX"),
             "HCM": _family("HCM"),
             "Empty": _family("Empty"),
@@ -67,6 +77,7 @@ def _mapping(**facility) -> Mapping:
             "HCM.Monitor": Direction(direction="read", provenance="derived", override=False),
             "HCM.Setpoint": Direction(direction="write", provenance="derived", override=False),
         },
+        judgments=judgments or {},
     )
 
 
@@ -356,3 +367,29 @@ class TestBundle:
         _emit(tmp_path, ctx)
 
         assert {p: p.read_bytes() for p in bundle.rglob("*") if p.is_file()} == before
+
+
+class TestJudgedViews:
+    """A family page counts the devices the reviewer settled on, not the exported ones."""
+
+    def test_a_dropped_device_is_not_counted_on_the_family_page(self, tmp_path: Path, ctx) -> None:
+        """A TUNE exports three devices and binds two, so the answered page says two."""
+        ao = _ao()
+        ao["RING"]["TUNE"] = {
+            "DeviceList": [[1, 1], [1, 2], [1, 3]],
+            "Position": 0,
+            "Monitor": {"ChannelNames": ["SR:TUNE:X", "SR:TUNE:Y"]},
+        }
+        mapping = _mapping(
+            families={
+                "BPMx": _family("BPMx", rename="BPMX"),
+                "HCM": _family("HCM"),
+                "Empty": _family("Empty"),
+                "TUNE": _family("TUNE"),
+            },
+            judgments={"TUNE": FamilyJudgments(unbound_devices={3: "drop"})},
+        )
+
+        body = _doc(_emit(tmp_path, ctx, ao=ao, mapping=mapping) / "families" / "SR-TUNE.md").body
+
+        assert "- Devices: 2\n- Channels: 2" in body

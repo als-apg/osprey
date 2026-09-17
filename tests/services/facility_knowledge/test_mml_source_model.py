@@ -7,9 +7,16 @@ proposal states (one binding per non-blank slot per key, protocol and subfield
 per key, broadcast, partial lists, prose from the mapping, the scalar-only
 ``HWUnits``/``DataType`` rule) and each model refusal (undirected group,
 duplicate device IRI) is pinned here on small normalised bodies.
+
+``build_graph_model`` walks judged views, so the last class pins what a
+reviewer's answers do to the device and binding grain, and that the corpus, the
+channel database and the OKF bundle come out counting the same things.
 """
 
 from __future__ import annotations
+
+import json
+from pathlib import Path
 
 import pytest
 
@@ -24,12 +31,17 @@ from osprey.services.facility_knowledge.ttl_generator.model import (
     ChannelBinding,
     GraphModel,
 )
+from osprey.services.mml.emit.channel_db import build_channel_db
+from osprey.services.mml.emit.context import EmitContext, build_context
+from osprey.services.mml.emit.okf import write_okf_bundle
 from osprey.services.mml.family import FamilyView
 from osprey.services.mml.mapping.schema import (
     Direction,
     Facility,
     Family,
+    FamilyJudgments,
     Field,
+    FieldAnswer,
     Mapping,
     System,
 )
@@ -59,6 +71,8 @@ def _mapping(
     systems: dict[str, str] | None = None,
     families: dict[str, Family] | None = None,
     directions: dict[str, str | None] | None = None,
+    judgments: dict[str, FamilyJudgments] | None = None,
+    facility_description: str | None = None,
 ) -> Mapping:
     systems = systems if systems is not None else {"RING": "SR"}
     families = (
@@ -67,7 +81,12 @@ def _mapping(
         else {"BPMx": _family("BPMx", fields={"Monitor": "Horizontal position"})}
     )
     return Mapping(
-        facility=Facility(token=FACILITY, title=None, description=None, provenance="stated"),
+        facility=Facility(
+            token=FACILITY,
+            title=None,
+            description=facility_description,
+            provenance="stated",
+        ),
         systems={
             raw: System(raw=raw, name=name, description=f"{name} system", provenance="stated")
             for raw, name in systems.items()
@@ -78,6 +97,7 @@ def _mapping(
             key: Direction(direction=value, provenance="stated", override=False)
             for key, value in (directions or {}).items()
         },
+        judgments=judgments or {},
     )
 
 
@@ -489,3 +509,160 @@ class TestBuildGraphModel:
         model = build_graph_model(ao, mapping, ["SR"])
         units = {b.full_pv: dict(b.extra_properties).get("HWUnits") for b in model.bindings}
         assert units == {"M1": None, "M2": None, "S1": "Amps", "S2": "Amps", "R1": "A", "R2": "B"}
+
+
+def _dcct_body() -> dict:
+    return {
+        "DeviceList": [1, 1],
+        "Monitor": {
+            "ChannelNames": ["SR:DCCT:Current", "SR:DCCT:Lifetime", "SR:DCCT:Total"],
+            "HWUnits": "mA",
+        },
+    }
+
+
+def _tune_body() -> dict:
+    return {
+        "DeviceList": [[1, 1], [1, 2], [1, 3]],
+        "Position": 0,
+        "Monitor": {"ChannelNames": ["SR:TUNE:X", "SR:TUNE:Y"]},
+    }
+
+
+def _judged_mapping(**overrides) -> Mapping:
+    defaults = {
+        "families": {
+            "DCCT": _family(
+                "DCCT", fields={"Monitor": "current", "Lifetime": "lifetime", "Total": "charge"}
+            ),
+            "TUNE": _family("TUNE", fields={"Monitor": "measured tune"}),
+        },
+        "directions": {
+            "DCCT.Monitor": "read",
+            "DCCT.Lifetime": "read",
+            "DCCT.Total": "read",
+            "TUNE.Monitor": "read",
+        },
+        "judgments": {
+            "DCCT": FamilyJudgments(
+                rows_beyond={
+                    "Monitor": {
+                        "SR:DCCT:Lifetime": FieldAnswer("Lifetime"),
+                        "SR:DCCT:Total": FieldAnswer("Total"),
+                    }
+                }
+            ),
+            "TUNE": FamilyJudgments(unbound_devices={3: "drop"}),
+        },
+        "facility_description": "The Quokka facility.",
+    }
+    defaults.update(overrides)
+    return _mapping(**defaults)
+
+
+def _ctx(tmp_path: Path, ao: dict) -> EmitContext:
+    ao_path = tmp_path / "ao.json"
+    mapping_path = tmp_path / "mapping.yaml"
+    ao_path.write_bytes(json.dumps(ao).encode())
+    mapping_path.write_bytes(b"facility:\n  token: quokka\n")
+    return build_context(ao_path, mapping_path, ao)
+
+
+def _db_channel_count(family: dict) -> int:
+    """Count the non-blank channel slots one emitted family dict carries."""
+    return sum(
+        1
+        for name, field in family.items()
+        if not name.startswith("_") and name != "setup"
+        for key in ("ChannelNames", "TangoNames")
+        if key in field
+        for slot in field[key]
+        if slot
+    )
+
+
+class TestJudgedViews:
+    """The model is built from judged views, and the three lanes count the same grain."""
+
+    def test_moved_rows_stay_on_one_device_and_keep_its_unit(self):
+        """A DCCT's three PVs become three fields of one device, each carrying ``mA``."""
+        ao = _ao(RING={"DCCT": _dcct_body()})
+
+        model = build_graph_model(ao, _judged_mapping(), ["SR"])
+
+        assert [d.iri.removeprefix(DEVICE_IRI_PREFIX) for d in model.devices] == [
+            f"{FACILITY}_SR_DCCT_1"
+        ]
+        assert {b.full_pv: _extras(b)["HWUnits"] for b in model.bindings} == {
+            "SR:DCCT:Current": "mA",
+            "SR:DCCT:Lifetime": "mA",
+            "SR:DCCT:Total": "mA",
+        }
+
+    def test_a_dropped_device_leaves_the_model(self):
+        """A TUNE exports three devices and binds two, so the model holds two."""
+        ao = _ao(RING={"TUNE": _tune_body()})
+
+        model = build_graph_model(ao, _judged_mapping(), ["SR"])
+
+        assert [d.iri.removeprefix(DEVICE_IRI_PREFIX) for d in model.devices] == [
+            f"{FACILITY}_SR_TUNE_1",
+            f"{FACILITY}_SR_TUNE_2",
+        ]
+        assert [binding.full_pv for binding in model.bindings] == ["SR:TUNE:X", "SR:TUNE:Y"]
+
+    def test_a_promoted_row_mints_a_device_the_broadcast_reaches(self):
+        """The fourth device the answer mints is bound by its own row and by the broadcast."""
+        ao = _ao(
+            RING={
+                "PAIR": {
+                    "DeviceList": [[1, 1], [1, 2], [1, 3]],
+                    "Monitor": {"ChannelNames": ["SR:P1:AM", "SR:P2:AM", "SR:P3:AM", "SR:P4:AM"]},
+                    "Setpoint": {"ChannelNames": ["SR:PAIR:SP"]},
+                }
+            }
+        )
+        mapping = _judged_mapping(
+            families={"PAIR": _family("PAIR", fields={"Monitor": "readback", "Setpoint": "set"})},
+            directions={"PAIR.Monitor": "read", "PAIR.Setpoint": "write"},
+            judgments={"PAIR": FamilyJudgments(rows_beyond={"Monitor": {"SR:P4:AM": "device"}})},
+        )
+
+        model = build_graph_model(ao, mapping, ["SR"])
+
+        assert [d.iri.removeprefix(DEVICE_IRI_PREFIX) for d in model.devices] == [
+            f"{FACILITY}_SR_PAIR_1",
+            f"{FACILITY}_SR_PAIR_2",
+            f"{FACILITY}_SR_PAIR_3",
+            f"{FACILITY}_SR_PAIR_4",
+        ]
+        by_iri = {binding.iri: binding for binding in model.bindings}
+        fourth = model.devices[3]
+        assert [by_iri[iri].full_pv for iri in fourth.binding_iris] == ["SR:P4:AM", "SR:PAIR:SP"]
+        assert _extras(by_iri[fourth.binding_iris[1]])["broadcast"] == 1
+
+    def test_the_corpus_the_database_and_the_bundle_count_the_same_grain(
+        self, tmp_path: Path
+    ) -> None:
+        """One judged grain reaches all three lanes, so their counts agree family by family."""
+        ao = _ao(RING={"DCCT": _dcct_body(), "TUNE": _tune_body()})
+        mapping = _judged_mapping()
+        ctx = _ctx(tmp_path, ao)
+
+        model = build_graph_model(ao, mapping, ["SR"])
+        db = build_channel_db(ao, mapping, ctx)
+        write_okf_bundle(ao, None, mapping, ctx, tmp_path / "bundle")
+        pages = {
+            raw: (tmp_path / "bundle" / "families" / f"SR-{raw}.md").read_text(encoding="utf-8")
+            for raw in ("DCCT", "TUNE")
+        }
+
+        devices = {"DCCT": 1, "TUNE": 2}
+        channels = {"DCCT": 3, "TUNE": 2}
+        assert len(model.devices) == sum(devices.values())
+        assert len(model.bindings) == sum(channels.values())
+        for raw in ("DCCT", "TUNE"):
+            assert len(db["SR"][raw]["setup"]["DeviceList"]) == devices[raw]
+            assert _db_channel_count(db["SR"][raw]) == channels[raw]
+            assert f"- Devices: {devices[raw]}" in pages[raw]
+            assert f"- Channels: {channels[raw]}" in pages[raw]
