@@ -20,9 +20,12 @@ Rules:
   different decided verdicts; every undecided vote is listed as well.
 * Free text is folded to one line and ``|`` is escaped, so a table row stays
   one row.
+* Every ordinal the page prints is 1-based, the numbering the mapping speaks:
+  shared-PV owners, disabled devices and every judgment ordinal. The records
+  behind them keep their 0-based indices.
 
-The module is pure and depends on the standard library and the census and vote
-records only.
+The module is pure and depends on the standard library and the census,
+judgment and vote records only.
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from typing import Any
 
 from osprey.services.mml.census import Census, SharedPV, SystemCensus
 from osprey.services.mml.directions import Vote
+from osprey.services.mml.judgments import PendingJudgments, SupplyGroup
 
 __all__ = ["HAZARD_HEADINGS", "SYSTEM_HEADINGS", "TITLE", "render_profile"]
 
@@ -48,6 +52,7 @@ SYSTEM_HEADINGS: tuple[str, ...] = (
     "Disabled devices",
     "MemberOf census",
     "Direction votes",
+    "Judgment required",
     "Descriptions",
     "Hazards",
     "Position and DeviceType coverage",
@@ -113,12 +118,78 @@ def _shared_pv_lines(shared: Iterable[SharedPV]) -> list[str]:
     for item in shared:
         lines.append(f"- {_code(item.pv)}")
         lines.extend(
-            f"  - `({_inline(o.system)}, {_inline(o.family)}, {_inline(o.field)}, {o.index})`"
+            f"  - `({_inline(o.system)}, {_inline(o.family)}, {_inline(o.field)}, {o.index + 1})`"
             for o in item.owners
         )
     if not lines:
         return [_NONE]
-    return ["Owners are `(system, family, field, index)`; the index is 0-based.", "", *lines]
+    return ["Owners are `(system, family, field, index)`; the index is 1-based.", "", *lines]
+
+
+def _member(ordinal: int, row: tuple[int, int] | None) -> str:
+    """Render one device as its 1-based ordinal and its ``DeviceList`` row."""
+    if row is None:
+        return str(ordinal)
+    return f"{ordinal} `[{row[0]}, {row[1]}]`"
+
+
+def _group_lines(group: SupplyGroup) -> list[str]:
+    """Render one supply group: its answer, its members, its PVs, what it strands.
+
+    A group of sixty devices carries too many members and PVs for one line, so
+    each fact takes its own, under the answer the group takes.
+    """
+    members = ", ".join(
+        _member(ordinal, row)
+        for ordinal, row in zip(group.ordinals, group.device_rows, strict=True)
+    )
+    stranded = group.group_only_members
+    strands = (
+        f"    - {stranded} of its {len(group.ordinals)} members carry no channel outside this group"
+    )
+    if stranded:
+        strands += (
+            f"; an owner answer leaves {stranded - 1} of them bound by nothing when the owner is"
+            f" one of them, else {stranded}"
+        )
+    return [
+        f"  - supply group {group.lowest}: `keep_all | {{{group.lowest}: <owning ordinal>}}`",
+        f"    - members {members}",
+        f"    - PVs {', '.join(_code(pv) for pv in group.pvs)}",
+        strands + ".",
+    ]
+
+
+def _family_judgment_lines(pending: PendingJudgments) -> list[str]:
+    lines = [
+        f"  - row beyond devices {_code(row.field)} {_code(', '.join(row.keys))}"
+        f" {_code(row.signal)}: `drop | device | field: <Name>`"
+        for row in pending.rows_beyond
+    ]
+    if lines:
+        lines.append(
+            "  - `device` adds a device to the family, which every broadcast field also reaches."
+        )
+    lines.extend(
+        f"  - unbound device ordinal {_member(ordinal, row)}: `drop | keep`"
+        for ordinal, row in zip(pending.unbound_devices, pending.unbound_rows, strict=True)
+    )
+    for group in pending.groups:
+        lines.extend(_group_lines(group))
+    return lines
+
+
+def _judgment_lines(pending: Iterable[PendingJudgments], *, system_prefix: bool) -> list[str]:
+    """Render what the reviewer still has to answer, one block per family."""
+    lines: list[str] = []
+    for item in pending:
+        name = _dotted(item.system, item.family) if system_prefix else _code(item.family)
+        plural = "" if item.n_devices == 1 else "s"
+        lines.append(f"- {name}, {item.n_devices} device{plural}")
+        lines.extend(_family_judgment_lines(item))
+    if not lines:
+        return [_NONE]
+    return ["Ordinals are the 1-based export ordinals the `judgments:` block takes.", "", *lines]
 
 
 def _dotted(*parts: Any) -> str:
@@ -250,8 +321,8 @@ def _system_lines(
             ),
         ),
         "Disabled devices": _table(
-            ("Family", "Disabled indices (0-based)"),
-            ((f.name, ", ".join(str(i) for i in f.disabled_devices)) for f in disabled),
+            ("Family", "Disabled devices (1-based ordinal)"),
+            ((f.name, ", ".join(str(i + 1) for i in f.disabled_devices)) for f in disabled),
         ),
         "MemberOf census": _table(
             ("Tag", "Owners"),
@@ -267,6 +338,7 @@ def _system_lines(
             ),
         ),
         "Direction votes": _votes_lines(system.name, votes),
+        "Judgment required": _judgment_lines(system.pending, system_prefix=False),
         "Descriptions": [
             *_block(
                 "Families with native descriptions",
@@ -347,6 +419,7 @@ def render_profile(census: Census, votes: Mapping[tuple[str, str], Vote]) -> str
             _bullets(_code(token) for token in census.illegal_system_tokens),
         ),
         *_block("Shared PVs", 3, _shared_pv_lines(census.shared_pvs)),
+        *_block("Judgment required", 3, _judgment_lines(census.pending, system_prefix=True)),
     ]
     for system in census.systems:
         lines.extend(_system_lines(census, system, ordered))

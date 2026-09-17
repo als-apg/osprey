@@ -4,7 +4,9 @@
 votes into Markdown: a facility section with the totals, the PN_LOCAL-illegal
 system tokens and every shared PV, then one section per sub-machine carrying
 every FR2 item. The synthetic export here has two systems that share a PV,
-disagree on one direction and leave another undecided.
+disagree on one direction and leave another undecided, and pends no judgment;
+a second export pends one of each kind, so both sides of every judgment block
+are pinned.
 """
 
 from __future__ import annotations
@@ -75,11 +77,56 @@ def _render() -> str:
     return render_profile(take_census(ao, _ad()), vote_directions(ao))
 
 
+def _pending_ao() -> dict:
+    """One system pending every judgment kind, one pending nothing."""
+    return {
+        "_import_order": ["SR", "LTB"],
+        "SR": {
+            "DCCT": {
+                "FamilyName": "DCCT",
+                "DeviceList": [[1, 1]],
+                "Monitor": {
+                    "ChannelNames": ["SR:DCCT:AveI-I", "SR:DCCT:Lifetime-I"],
+                },
+            },
+            "TUNE": {
+                "FamilyName": "TUNE",
+                "DeviceList": [[1, 1], [1, 2], [1, 3]],
+                "Monitor": {"ChannelNames": ["SR:TUNE:Vx-I", "SR:TUNE:Vy-I"]},
+            },
+            "QM": {
+                "FamilyName": "QM",
+                "DeviceList": [[1, 1], [1, 2]],
+                "Monitor": {"ChannelNames": ["p", "p"]},
+                "Setpoint": {"ChannelNames": ["q", "q"]},
+            },
+        },
+        "LTB": {
+            "BPM": {
+                "FamilyName": "BPM",
+                "DeviceList": [[1, 1]],
+                "X": {"ChannelNames": ["LTB:BPM1:X"]},
+            }
+        },
+    }
+
+
+def _pending_render() -> str:
+    ao = _pending_ao()
+    return render_profile(take_census(ao, None), vote_directions(ao))
+
+
 def _section(text: str, system: str) -> str:
     start = text.index(f"## System `{system}`")
     rest = text[start + 1 :]
     end = rest.find("\n## ")
     return rest if end == -1 else rest[:end]
+
+
+def _judgments(text: str, system: str | None = None) -> str:
+    """Slice the ``Judgment required`` block out of one section."""
+    section = text[: text.index("## System `")] if system is None else _section(text, system)
+    return section.split("### Judgment required")[1].split("### ")[0]
 
 
 class TestHeadings:
@@ -114,6 +161,7 @@ class TestHeadings:
             "Disabled devices",
             "MemberOf census",
             "Direction votes",
+            "Judgment required",
             "Descriptions",
             "Hazards",
             "Position and DeviceType coverage",
@@ -142,8 +190,8 @@ class TestContent:
     def test_shared_pv_owner_lines(self):
         """The shared PV lists every owner, in the facility and both systems."""
         text = _render()
-        owner_sr = "  - `(SR, HCM, Readback, 0)`"
-        owner_br = "  - `(BR, HCM, Readback, 0)`"
+        owner_sr = "  - `(SR, HCM, Readback, 1)`"
+        owner_br = "  - `(BR, HCM, Readback, 1)`"
         facility = text[: text.index("## System `SR`")]
         assert "- `SHARED:RB`" in facility
         assert owner_sr in facility and owner_br in facility
@@ -152,17 +200,19 @@ class TestContent:
             assert "- `SHARED:RB`" in section
             assert owner_sr in section and owner_br in section
 
-    def test_shared_pv_owners_say_the_index_is_zero_based(self):
-        """Every corpus token is 1-based, so the raw slot index says which it is."""
+    def test_shared_pv_owners_say_the_index_is_one_based(self):
+        """Every ordinal the page prints is the 1-based one the mapping takes."""
         text = _render()
 
-        assert "Owners are `(system, family, field, index)`; the index is 0-based." in text
+        assert "Owners are `(system, family, field, index)`; the index is 1-based." in text
 
     def test_fields_devices_and_disabled(self):
         """Fields show their keys, device counts their source, Status 0 its index."""
         sr = _section(_render(), "SR")
         assert "| HCM | Readback | ChannelNames, TangoNames |" in sr
-        assert "| BPM | 1 |" in sr  # disabled device index 1
+        disabled = sr.split("### Disabled devices")[1].split("### MemberOf census")[0]
+        assert "| Family | Disabled devices (1-based ordinal) |" in disabled
+        assert "| BPM | 2 |" in disabled  # the 0-based index 1
         br = _section(_render(), "BR")
         assert "| HCM | 1 | fallback |" in br
         assert "- BPM" in br.split("### Families with arrays from setup")[1]
@@ -213,12 +263,87 @@ class TestContent:
         assert "a\\|b c" in text
 
 
+class TestJudgmentRequired:
+    """The judgments a reviewer still owes, per system and facility-wide."""
+
+    def test_a_row_beyond_devices_names_its_field_key_signal_and_answers(self):
+        """Each extra row is one question, with the three answers it takes."""
+        block = _judgments(_pending_render(), "SR")
+        assert (
+            "  - row beyond devices `Monitor` `ChannelNames` `SR:DCCT:Lifetime-I`:"
+            " `drop | device | field: <Name>`"
+        ) in block
+        assert "- `DCCT`, 1 device\n" in block
+
+    def test_a_device_answer_says_broadcast_fields_reach_the_new_device(self):
+        """The consequence of `device` is stated where the answer is offered."""
+        assert (
+            "  - `device` adds a device to the family, which every broadcast field also reaches."
+        ) in _judgments(_pending_render(), "SR")
+
+    def test_an_unbound_device_prints_its_export_ordinal(self):
+        """The ordinal is the export one, the same key the mapping takes."""
+        block = _judgments(_pending_render(), "SR")
+        assert "- `TUNE`, 3 devices\n" in block
+        assert "  - unbound device ordinal 3 `[1, 3]`: `drop | keep`" in block
+        assert "Ordinals are the 1-based export ordinals the `judgments:` block takes." in block
+
+    def test_an_unbound_device_without_a_device_list_row_prints_the_ordinal_alone(self):
+        """A row the export did not state numerically leaves the ordinal bare."""
+        ao = _pending_ao()
+        ao["SR"]["TUNE"]["DeviceList"] = [[1, 1], [1, 2], ["", ""]]
+        text = render_profile(take_census(ao, None), vote_directions(ao))
+        assert "  - unbound device ordinal 3: `drop | keep`" in _judgments(text, "SR")
+
+    def test_a_supply_group_names_its_members_rows_pvs_and_answers(self):
+        """One group per index set, each fact on its own line under the answer."""
+        block = _judgments(_pending_render(), "SR")
+        assert "  - supply group 1: `keep_all | {1: <owning ordinal>}`" in block
+        assert "    - members 1 `[1, 1]`, 2 `[1, 2]`" in block
+        assert "    - PVs `p`, `q`" in block
+
+    def test_a_supply_group_states_what_an_owner_answer_strands(self):
+        """Both members of `Monitor [p, p]`/`Setpoint [q, q]` carry nothing else."""
+        assert (
+            "    - 2 of its 2 members carry no channel outside this group; an owner answer"
+            " leaves 1 of them bound by nothing when the owner is one of them, else 2."
+        ) in _judgments(_pending_render(), "SR")
+
+    def test_a_group_stranding_nobody_drops_the_consequence_clause(self):
+        """With nothing stranded the owner clause says nothing, so it is not printed."""
+        ao = _pending_ao()
+        ao["SR"]["QM"]["Setpoint"]["ChannelNames"] = ["q", "r"]
+        text = render_profile(take_census(ao, None), vote_directions(ao))
+        assert ("    - 0 of its 2 members carry no channel outside this group.") in _judgments(
+            text, "SR"
+        )
+        assert "bound by nothing" not in _judgments(text, "SR")
+
+    def test_the_facility_roll_up_prefixes_every_family_with_its_system(self):
+        """The same families appear facility-wide, system-first."""
+        facility = _judgments(_pending_render())
+        for name in ("`SR.DCCT`, 1 device", "`SR.TUNE`, 3 devices", "`SR.QM`, 2 devices"):
+            assert f"- {name}\n" in facility
+
+    def test_a_system_pending_nothing_says_none(self):
+        """LTB asks nothing, and says so rather than omitting the block."""
+        assert _judgments(_pending_render(), "LTB").strip() == "None."
+
+    def test_a_pending_free_export_says_none_in_every_block(self):
+        """An export whose grain is decidable by rule pends nothing anywhere."""
+        text = _render()
+        assert _judgments(text).strip() == "None."
+        for system in ("SR", "BR"):
+            assert _judgments(text, system).strip() == "None."
+
+
 class TestDeterminism:
     """Rendering is a pure function of its inputs."""
 
     def test_second_render_is_byte_identical(self):
         """Two renders of the same census are byte-identical."""
         assert _render().encode() == _render().encode()
+        assert _pending_render().encode() == _pending_render().encode()
 
     def test_vote_dict_order_does_not_matter(self):
         """Reversing the votes dict does not change the output."""

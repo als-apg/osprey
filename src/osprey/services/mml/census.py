@@ -1,6 +1,6 @@
 """The import census: everything ``PROFILE.md`` reports about a merged export.
 
-``take_census(ao, ad)`` walks a merged, normalised ``ao``
+``take_census(ao, ad, mapping)`` walks a merged, normalised ``ao``
 (``{system: {family: body}}`` plus ``_``-prefixed bookkeeping keys such as
 ``_exports`` and ``_import_order``) and the merged ``ad``, and returns one
 frozen :class:`Census`. The profile renderer prints it; the import-chain tests
@@ -18,25 +18,35 @@ Rules:
   ``(system, family, field, index)`` slots as exported, so a 1-row broadcast
   list is one owner, and the same string under both channel keys at one index
   is one owner.
+* Pending judgments are read from the **raw** views, because the profile is
+  rendered at import, before any mapping exists. Every other number follows the
+  reviewer's answers when a mapping is given, and the export as imported when
+  it is not.
 * A Position slot is real when it is a finite number; ``None``, a string
   (including ``"Inf"``/``"-Inf"``/``"NaN"``) or an unaligned array is a stand-in.
   A DeviceType slot is real when it is a non-blank string. The coverage totals
   count every family, as the per-system coverage table does, so the four
   coverage rows sum to ``devices``.
 
-The module is pure and depends on the standard library, ``FamilyView`` and the
-Turtle local-name pattern.
+The module is pure and depends on the standard library, ``FamilyView``, the
+pending judgments and the Turtle local-name pattern.
 """
 
 from __future__ import annotations
 
 import math
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from osprey.services.facility_knowledge.ttl_generator.model import PN_LOCAL
 from osprey.services.mml.family import FamilyView, family_views, system_bodies
+from osprey.services.mml.judgments import (
+    PendingJudgments,
+    judged_family_views,
+    pending_judgments,
+)
+from osprey.services.mml.mapping.schema import Mapping
 
 __all__ = [
     "KNOWN_HANDLE_KEYS",
@@ -184,7 +194,13 @@ class ListLocation:
 
 @dataclass(frozen=True)
 class PartialList:
-    """A channel list that is neither 0-length, broadcast nor ``n_devices`` long."""
+    """A channel list too short for its family, whose gap the family still covers.
+
+    A list shorter than ``n_devices`` is a hazard only when every device it
+    misses is reached by another list of the family; when nothing reaches them
+    those devices are a pending judgment. A list longer than ``n_devices`` is a
+    pending judgment too, never a hazard.
+    """
 
     system: str
     family: str
@@ -265,6 +281,7 @@ class SystemCensus:
     setup_families: tuple[str, ...]
     fallback_families: tuple[str, ...]
     hazards: Hazards
+    pending: tuple[PendingJudgments, ...]
     ad_scalars: tuple[tuple[str, str | int | float], ...]
 
 
@@ -296,6 +313,7 @@ class Census:
 
     systems: tuple[SystemCensus, ...]
     shared_pvs: tuple[SharedPV, ...]
+    pending: tuple[PendingJudgments, ...]
     illegal_system_tokens: tuple[str, ...]
     totals: Totals
 
@@ -359,6 +377,14 @@ def _unit_kind(value: Any, n_devices: int) -> UnitKind | None:
     return "non-string"
 
 
+def _reach(view: FamilyView) -> int:
+    """Return how many devices the family's longest expanded channel list reaches."""
+    return max(
+        (len(field.slots(key)) for field in view.fields.values() for key in field.keys),
+        default=0,
+    )
+
+
 def _coverage(view: FamilyView, name: str, real: Any) -> tuple[int, int]:
     slots = view.aligned(name)
     if slots is None:
@@ -413,6 +439,7 @@ class _SystemWalk:
         self.owners = owners
         self.families: list[FamilyCensus] = []
         self.views: list[FamilyView] = []
+        self.pending: list[PendingJudgments] = []
         self.tags: dict[str, set[tuple[str, str | None]]] = {}
         self.handles: list[FunctionHandle] = []
         self.typos: list[KeyLocation] = []
@@ -437,6 +464,7 @@ class _SystemWalk:
         self.typos.extend(_typo_keys(system, family, body, handle_paths))
 
         fields = []
+        reach = _reach(view)
         for field in view.fields.values():
             fields.append(
                 FieldCensus(
@@ -448,7 +476,7 @@ class _SystemWalk:
                     field.description,
                 )
             )
-            self._field(view, field)
+            self._field(view, field, reach)
 
         position = _coverage(view, "Position", _is_real_number)
         device_type = _coverage(view, "DeviceType", _is_text)
@@ -471,6 +499,17 @@ class _SystemWalk:
             )
         )
 
+    def pend(self, raw_views: Iterable[FamilyView]) -> None:
+        """Take the pending judgments from the raw views of the system.
+
+        What the reviewer was asked is a property of the export alone, so a walk
+        counting judged views still reports the judgments the raw export pends.
+        """
+        for view in raw_views:
+            pending = pending_judgments(view)
+            if not pending.is_empty:
+                self.pending.append(pending)
+
     def _tag(self, tags: Any, family: str, field: str | None) -> None:
         if not isinstance(tags, list):
             tags = [tags]
@@ -478,7 +517,7 @@ class _SystemWalk:
             if isinstance(tag, str):
                 self.tags.setdefault(tag, set()).add((family, field))
 
-    def _field(self, view: FamilyView, field: Any) -> None:
+    def _field(self, view: FamilyView, field: Any, reach: int) -> None:
         system, family, name = self.name, view.raw_name, field.name
         body = field.body
         if "MemberOf" in body:
@@ -500,7 +539,7 @@ class _SystemWalk:
                 self.empty.append(location)
             elif len(expanded) != len(raw):
                 self.broadcast.append(location)
-            elif len(raw) != view.n_devices:
+            elif len(raw) < view.n_devices and reach >= view.n_devices:
                 self.partial.append(
                     PartialList(system, family, name, key, len(raw), view.n_devices)
                 )
@@ -544,6 +583,7 @@ class _SystemWalk:
             setup_families=tuple(f.name for f in self.families if f.arrays_source == "setup"),
             fallback_families=tuple(f.name for f in self.families if f.n_devices_from_fallback),
             hazards=hazards,
+            pending=tuple(self.pending),
             ad_scalars=ad_scalars,
         )
 
@@ -556,7 +596,7 @@ def _list_key(item: ListLocation | PartialList) -> tuple:
     return (item.family, item.field, item.key)
 
 
-def take_census(ao: dict, ad: dict | None) -> Census:
+def take_census(ao: dict, ad: dict | None, mapping: Mapping | None = None) -> Census:
     """Take the census of a merged, normalised export.
 
     Args:
@@ -564,6 +604,9 @@ def take_census(ao: dict, ad: dict | None) -> Census:
             ``_``-prefixed bookkeeping keys. It is not modified.
         ad: The merged AD keyed by system, a flat AD when one system was
             imported, or ``None``. It is not modified.
+        mapping: The mapping whose judgment answers every count, hazard and
+            owner follows, or ``None`` to read the export as it was imported.
+            The pending judgments are read from the raw export either way.
 
     Returns:
         The frozen census.
@@ -574,8 +617,11 @@ def take_census(ao: dict, ad: dict | None) -> Census:
     walks: list[_SystemWalk] = []
     for system in systems:
         walk = _SystemWalk(system, owners)
-        for view in family_views(system, ao[system]):
+        body = ao[system]
+        raw = list(family_views(system, body))
+        for view in raw if mapping is None else judged_family_views(system, body, mapping):
             walk.add(view)
+        walk.pend(raw)
         walks.append(walk)
 
     system_censuses = tuple(
@@ -621,6 +667,7 @@ def take_census(ao: dict, ad: dict | None) -> Census:
             for pv, slots in sorted(owners.items())
             if len(slots) > 1
         ),
+        pending=tuple(pending for census in system_censuses for pending in census.pending),
         illegal_system_tokens=tuple(s for s in systems if PN_LOCAL.fullmatch(s) is None),
         totals=totals,
     )

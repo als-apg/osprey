@@ -7,6 +7,12 @@ grain, the ``MemberOf`` tags, description coverage, the hazards, the
 Position/DeviceType coverage, the AD scalars and the import-walk totals.
 Inputs here are normalised bodies, so each case shows the exact spelling the
 census reads.
+
+Two of those readings answer to a reviewer. The pending judgments are always
+detected from the raw export, because the profile is written at import; every
+count, hazard and owner follows the reviewer's answers once a mapping is handed
+in. The hazard the judgments take over from is the partial channel list, so the
+shapes that now pend are pinned as not being hazards any more.
 """
 
 from __future__ import annotations
@@ -23,6 +29,12 @@ from osprey.services.mml.census import (
     Census,
     Owner,
     take_census,
+)
+from osprey.services.mml.mapping.schema import (
+    Facility,
+    FamilyJudgments,
+    FieldAnswer,
+    Mapping,
 )
 from osprey.services.mml.normalize import normalize_family
 
@@ -48,6 +60,36 @@ def _system(census: Census, name: str):
 def _family(census: Census, system: str, name: str):
     (found,) = (f for f in _system(census, system).families if f.name == name)
     return found
+
+
+def _dcct() -> dict:
+    """One device carrying two channels past it, as NSLS-II exports DCCT."""
+    return {
+        "FamilyName": "DCCT",
+        "DeviceList": [[1, 1]],
+        "Monitor": {
+            "HWUnits": "mA",
+            "ChannelNames": ["SR:DCCT:AveI-I", "SR:DCCT:Lifetime-I", "SR:DCCT:I:Total-I"],
+        },
+    }
+
+
+def _tune() -> dict:
+    """Three devices with only two of them reached, as NSLS-II exports TUNE."""
+    return {
+        "FamilyName": "TUNE",
+        "DeviceList": [[1, 1], [1, 2], [1, 3]],
+        "Monitor": {"HWUnits": "Tune", "ChannelNames": ["SR:TUNE:Vx-I", "SR:TUNE:Vy-I"]},
+    }
+
+
+def _mapping(judgments: dict[str, FamilyJudgments]) -> Mapping:
+    return Mapping(
+        facility=Facility(token="quokka", title=None, description=None, provenance="human"),
+        systems={},
+        section_order=(),
+        judgments=judgments,
+    )
 
 
 class TestShape:
@@ -284,6 +326,38 @@ class TestStructuralHazards:
         assert _system(take_census(ao, None), "SR").hazards.zero_channel_families == ("BEND",)
 
 
+class TestNarrowedPartialLists:
+    """A short list is a hazard only where the family covers what it misses."""
+
+    def test_a_short_list_another_field_reaches_is_listed(self):
+        """Device 3 is bound by W, so X's gap is a shape hazard, not a question."""
+        body = _bpm(
+            DeviceList=[[1, 1], [1, 2], [1, 3]],
+            X={"ChannelNames": ["X1", "X2"]},
+            W={"ChannelNames": ["W1", "W2", "W3"]},
+        )
+        hazards = _system(take_census({"SR": {"BPM": body}}, None), "SR").hazards
+        assert [(p.field, p.key, p.length, p.n_devices) for p in hazards.partial_channel_lists] == [
+            ("X", "ChannelNames", 2, 3)
+        ]
+
+    def test_a_short_list_nothing_reaches_past_is_a_judgment(self):
+        """The TUNE shape: device 3 is pending, so no hazard is reported for it."""
+        body = _bpm(DeviceList=[[1, 1], [1, 2], [1, 3]], X={"ChannelNames": ["X1", "X2"]})
+        system = _system(take_census({"SR": {"BPM": body}}, None), "SR")
+        assert system.hazards.partial_channel_lists == ()
+        assert [p.unbound_devices for p in system.pending] == [(3,)]
+
+    def test_a_list_longer_than_the_devices_is_a_judgment(self):
+        """The DCCT shape: rows past the devices are pending, never a hazard."""
+        system = _system(take_census({"SR": {"DCCT": _dcct()}}, None), "SR")
+        assert system.hazards.partial_channel_lists == ()
+        assert [r.signal for r in system.pending[0].rows_beyond] == [
+            "SR:DCCT:Lifetime-I",
+            "SR:DCCT:I:Total-I",
+        ]
+
+
 class TestSharedPVs:
     """Every PV bound by two or more owners, with all owners."""
 
@@ -310,6 +384,43 @@ class TestSharedPVs:
         body = _bpm()
         body["X"]["TangoNames"] = ["SR:BPM1:X", "t2"]
         assert take_census({"SR": {"BPM": body}}, None).shared_pvs == ()
+
+
+class TestPendingJudgments:
+    """What the raw export asks its reviewer, per family and per system."""
+
+    def test_rows_beyond_devices_and_unbound_devices(self):
+        """Each pending family carries its own rows, ordinals and device count."""
+        census = take_census({"SR": {"DCCT": _dcct(), "TUNE": _tune()}}, None)
+        pending = _system(census, "SR").pending
+        assert [(p.family, p.n_devices, p.unbound_devices) for p in pending] == [
+            ("DCCT", 1, ()),
+            ("TUNE", 3, (3,)),
+        ]
+        assert [(r.field, r.keys, r.index, r.signal) for r in pending[0].rows_beyond] == [
+            ("Monitor", ("ChannelNames",), 1, "SR:DCCT:Lifetime-I"),
+            ("Monitor", ("ChannelNames",), 2, "SR:DCCT:I:Total-I"),
+        ]
+
+    def test_families_asking_nothing_are_absent(self):
+        """A family whose grain is decidable by rule pends no entry at all."""
+        census = take_census({"SR": {"BPM": _bpm(), "TUNE": _tune()}}, None)
+        assert [p.family for p in _system(census, "SR").pending] == ["TUNE"]
+
+    def test_the_facility_roll_up_follows_system_order(self):
+        """Census.pending lists every system's families in import order."""
+        ao = {"BR": {"TUNE": _tune()}, "SR": {"DCCT": _dcct()}, "_import_order": ["SR", "BR"]}
+        assert [(p.system, p.family) for p in take_census(ao, None).pending] == [
+            ("SR", "DCCT"),
+            ("BR", "TUNE"),
+        ]
+
+    def test_an_answered_judgment_is_still_pending(self):
+        """Pending is what the export asked, so a mapping never shortens it."""
+        ao = {"SR": {"TUNE": _tune()}}
+        mapping = _mapping({"TUNE": FamilyJudgments(unbound_devices={3: "drop"})})
+        census = take_census(ao, None, mapping)
+        assert [(p.family, p.unbound_devices) for p in census.pending] == [("TUNE", (3,))]
 
 
 class TestCoverage:
@@ -419,6 +530,47 @@ class TestTotals:
         }
 
 
+class TestJudgedTotals:
+    """With a mapping, every count follows the answers the reviewer wrote."""
+
+    def test_a_supply_group_kept_whole_changes_nothing(self):
+        """``keep_all`` leaves the export's own grain, so the census is unchanged."""
+        body = {"DeviceList": [[1, 1], [1, 2]], "Monitor": {"ChannelNames": ["SR:Q", "SR:Q"]}}
+        ao = {"SR": {"QM": body}}
+        mapping = _mapping({"QM": FamilyJudgments(shared_pvs="keep_all", shared_pvs_present=True)})
+        raw, judged = take_census(ao, None), take_census(ao, None, mapping)
+        assert judged.totals == raw.totals
+        assert judged.shared_pvs == raw.shared_pvs
+        assert judged == raw
+
+    def test_a_dropped_device_leaves_the_device_count(self):
+        """TUNE's unreached device 3 goes; nothing was bound to it, so bindings hold."""
+        ao = {"SR": {"TUNE": _tune()}}
+        mapping = _mapping({"TUNE": FamilyJudgments(unbound_devices={3: "drop"})})
+        raw, judged = take_census(ao, None).totals, take_census(ao, None, mapping).totals
+        assert (judged.devices, judged.bindings) == (raw.devices - 1, raw.bindings)
+        assert _family(take_census(ao, None, mapping), "SR", "TUNE").n_devices == 2
+
+    def test_a_moved_row_becomes_a_field_of_its_own(self):
+        """DCCT's lifetime row is a field now, so the same PVs sit in one more field."""
+        ao = {"SR": {"DCCT": _dcct()}}
+        mapping = _mapping(
+            {
+                "DCCT": FamilyJudgments(
+                    rows_beyond={"Monitor": {"SR:DCCT:Lifetime-I": FieldAnswer("Lifetime")}}
+                )
+            }
+        )
+        census = take_census(ao, None, mapping)
+        raw = take_census(ao, None).totals
+        assert (census.totals.fields, census.totals.bindings, census.totals.distinct_pvs) == (
+            raw.fields + 1,
+            raw.bindings,
+            raw.distinct_pvs,
+        )
+        assert [f.name for f in _family(census, "SR", "DCCT").fields] == ["Monitor", "Lifetime"]
+
+
 class TestDialectFixture:
     """The committed system-keyed dialect export, normalised, end to end."""
 
@@ -464,5 +616,5 @@ class TestDialectFixture:
         assert (hcm.position_real, hcm.position_stand_in) == (2, 1)
         assert ring.setup_families == ("HCM", "BEND")
         assert ring.families_with_descriptions == (("QF", "Focusing quadrupoles"),)
-        assert census.totals.system_families == 4
-        assert census.totals.families == 4
+        assert census.totals.system_families == 5
+        assert census.totals.families == 5
