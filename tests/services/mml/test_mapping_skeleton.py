@@ -17,7 +17,11 @@ import yaml
 from osprey.services.mml.directions import vote_directions
 from osprey.services.mml.mapping.branches import is_pn_local
 from osprey.services.mml.mapping.schema import parse_mapping
-from osprey.services.mml.mapping.skeleton import build_skeleton, dump_yaml
+from osprey.services.mml.mapping.skeleton import (
+    build_skeleton,
+    count_judgment_slots,
+    dump_yaml,
+)
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "mml"
 
@@ -53,6 +57,42 @@ def _ao() -> dict:
                 "DeviceList": [[1, 1], [1, 2]],
                 "Setpoint": _field("SR:HCM:SP", Description="Corrector current."),
             },
+        },
+    }
+
+
+def _rows(n: int) -> list[list[int]]:
+    return [[1, i + 1] for i in range(n)]
+
+
+def _pending_ao() -> dict:
+    """An export whose families pend one judgment of every kind.
+
+    ``BEND`` lives in both systems with different device counts, the shape
+    NSLS-II's four LTB bends and sixty storage-ring bends have: it pends rows
+    beyond its devices in SR and an unbound device in BR, and must still come
+    out as one entry. ``SQ`` pends the same signal in both systems plus one of
+    its own, ``SM1`` shares a PV between its two devices and ``HCM`` pends
+    nothing.
+    """
+    return {
+        "_import_order": ["SR", "BR"],
+        "SR": {
+            "BEND": {
+                "DeviceList": _rows(2),
+                "Monitor": _field("SR:BEND1:I", "SR:BEND2:I", "SR:BEND:Spare-I"),
+                "Setpoint": _field("SR:BEND1:SP", "SR:BEND2:SP", "SR:BEND:Extra-SP"),
+            },
+            "SQ": {"DeviceList": _rows(1), "Monitor": _field("SQ1:I", "SQ:Shared-I")},
+            "SM1": {"DeviceList": _rows(2), "Monitor": _field("SR:SM1:I", "SR:SM1:I")},
+        },
+        "BR": {
+            "BEND": {"DeviceList": _rows(3), "Monitor": _field("BR:BEND1:I", "BR:BEND2:I")},
+            "SQ": {
+                "DeviceList": _rows(1),
+                "Monitor": _field("BR:SQ1:I", "SQ:Shared-I", "BR:SQ:Own-I"),
+            },
+            "HCM": {"DeviceList": _rows(2), "Setpoint": _field("BR:HCM1:SP", "BR:HCM2:SP")},
         },
     }
 
@@ -270,9 +310,11 @@ class TestDirections:
 class TestDocument:
     """The whole document parses and dumps stably."""
 
-    def test_no_branches_key(self):
-        """branches is omitted, never written as null."""
-        assert "branches" not in _skeleton()
+    def test_omitted_keys_are_absent_not_null(self):
+        """An optional top-level block the export has nothing for is omitted."""
+        document = _skeleton()
+        assert "branches" not in document
+        assert "judgments" not in document
 
     def test_round_trips_through_parse_mapping(self):
         """The skeleton parses with the structural schema."""
@@ -313,3 +355,68 @@ class TestDocument:
         assert mapping.facility.token == "Quokka"
         assert mapping.section_order == ("RING",)
         assert mapping.families
+
+
+class TestJudgments:
+    """The judgments block asks once per pending slot, unioned across systems."""
+
+    def test_absent_when_nothing_pends(self):
+        """An export pending no judgment carries no block at all."""
+        assert "judgments" not in _skeleton()
+        assert count_judgment_slots(_skeleton()) == 0
+
+    def test_written_after_directions_and_last(self):
+        """The block is the document's last key, after directions."""
+        document = _skeleton(_pending_ao(), ad=None)
+        assert list(document)[-1] == "judgments"
+        text = dump_yaml(document)
+        assert text.index("directions:") < text.index("judgments:")
+
+    def test_one_entry_per_family_unioned_across_systems(self):
+        """A family in two systems gets one entry carrying both systems' kinds."""
+        bend = _skeleton(_pending_ao(), ad=None)["judgments"]["BEND"]
+        assert list(bend) == ["rows_beyond_devices", "unbound_devices"]
+        assert bend["rows_beyond_devices"] == {
+            "Monitor": {"SR:BEND:Spare-I": None},
+            "Setpoint": {"SR:BEND:Extra-SP": None},
+        }
+        assert bend["unbound_devices"] == {3: None}
+
+    def test_a_signal_pending_in_two_systems_is_one_slot(self):
+        """Signals are a union: the shared one asks once, each own one asks too."""
+        judgments = _skeleton(_pending_ao(), ad=None)["judgments"]
+        assert judgments["SQ"] == {
+            "rows_beyond_devices": {"Monitor": {"SQ:Shared-I": None, "BR:SQ:Own-I": None}}
+        }
+
+    def test_shared_pvs_is_one_null_slot_per_family(self):
+        """A family with supply groups asks once, however many groups it has."""
+        assert _skeleton(_pending_ao(), ad=None)["judgments"]["SM1"] == {"shared_pvs": None}
+
+    def test_family_pending_nothing_has_no_entry(self):
+        """A family whose lists are all aligned is absent from the block."""
+        judgments = _skeleton(_pending_ao(), ad=None)["judgments"]
+        assert "HCM" not in judgments
+        assert list(judgments) == ["BEND", "SQ", "SM1"]
+
+    def test_counts_every_null_slot(self):
+        """count_judgment_slots counts rows, ordinals and one per shared family."""
+        # BEND two rows and one ordinal, SQ two rows, SM1 one supply.
+        assert count_judgment_slots(_skeleton(_pending_ao(), ad=None)) == 6
+
+    def test_round_trips_through_parse_mapping(self):
+        """The written block parses, with a real int ordinal key."""
+        document = _skeleton(_pending_ao(), ad=None)
+        mapping = parse_mapping(yaml.safe_load(dump_yaml(document)))
+        bend = mapping.judgments["BEND"]
+        assert bend.rows_beyond["Monitor"] == {"SR:BEND:Spare-I": None}
+        assert bend.unbound_devices == {3: None}
+        assert mapping.judgments["SM1"].shared_pvs_present
+        assert mapping.judgments["SM1"].shared_pvs is None
+
+    def test_inputs_not_modified(self):
+        """Detecting judgments only reads the export."""
+        ao = _pending_ao()
+        before = json.dumps(ao, sort_keys=True)
+        build_skeleton(ao, None, vote_directions(ao))
+        assert json.dumps(ao, sort_keys=True) == before

@@ -22,6 +22,12 @@ Rules:
 * ``directions`` holds one ``<raw family>.<field>`` slot per signal group,
   filled from the vote as ``derived`` (``None`` when undecided), with
   ``override: false``.
+* ``judgments`` is written last and only when a family pends one, keyed by raw
+  family in the same merged order, then by kind, then by field and export
+  order. Its slots are the union across the systems carrying the family, so a
+  signal or ordinal pending in two systems is one slot and a family with any
+  supply group gets one ``shared_pvs``. A family with nothing pending has no
+  entry; nothing pending anywhere omits the block, as ``branches`` is omitted.
 
 Grain numbers come from :class:`~osprey.services.mml.family.FamilyView`. The
 module has no I/O; :func:`dump_yaml` only serialises.
@@ -36,9 +42,11 @@ import yaml
 
 from osprey.services.mml.directions import Vote
 from osprey.services.mml.family import FamilyView, family_views, system_bodies
+from osprey.services.mml.judgments import pending_judgments
 from osprey.services.mml.mapping.branches import is_pn_local
+from osprey.services.mml.mapping.schema import ROWS_BEYOND_KIND, SHARED_KIND, UNBOUND_KIND
 
-__all__ = ["build_skeleton", "dump_yaml", "section_order"]
+__all__ = ["build_skeleton", "count_judgment_slots", "dump_yaml", "section_order"]
 
 #: Provenance of prose and directions generated from export facts.
 DERIVED = "derived"
@@ -209,6 +217,57 @@ def _family(raw: str, views: list[FamilyView]) -> dict:
     return entry
 
 
+def _judgments(views: dict[str, list[FamilyView]]) -> dict[str, dict]:
+    """Return the pending judgment slots of every family, unioned over systems.
+
+    Args:
+        views: Raw family views keyed by raw family token, in the merged family
+            order, each list holding the views of the systems carrying it.
+
+    Returns:
+        ``{raw family: {kind: slots}}`` in family order, then kind order, with
+        every slot ``None``. A family pending nothing has no entry, so an
+        export pending nothing yields an empty dict.
+    """
+    block: dict[str, dict] = {}
+    for raw, family in views.items():
+        pending = [pending_judgments(view) for view in family]
+        rows: dict[str, dict[str, None]] = {}
+        for item in pending:
+            for row in item.rows_beyond:
+                rows.setdefault(row.field, {})[row.signal] = None
+        ordinals = sorted({ordinal for item in pending for ordinal in item.unbound_devices})
+        entry: dict[str, Any] = {}
+        if rows:
+            entry[ROWS_BEYOND_KIND] = rows
+        if ordinals:
+            entry[UNBOUND_KIND] = dict.fromkeys(ordinals)
+        if any(item.groups for item in pending):
+            entry[SHARED_KIND] = None
+        if entry:
+            block[raw] = entry
+    return block
+
+
+def count_judgment_slots(document: dict) -> int:
+    """Return how many judgment slots a skeleton asks its reviewer to answer.
+
+    Args:
+        document: A mapping document, e.g. from :func:`build_skeleton`. A
+            document with no ``judgments`` block asks nothing.
+
+    Returns:
+        One per row signal, one per unbound ordinal and one per family with
+        shared PVs -- the number of null slots the block was written with.
+    """
+    total = 0
+    for entry in document.get("judgments", {}).values():
+        total += sum(len(signals) for signals in entry.get(ROWS_BEYOND_KIND, {}).values())
+        total += len(entry.get(UNBOUND_KIND, {}))
+        total += 1 if SHARED_KIND in entry else 0
+    return total
+
+
 def build_skeleton(ao: dict, ad: dict | None, votes: dict[tuple[str, str], Vote]) -> dict:
     """Build the ``mapping.yaml`` skeleton for a merged export.
 
@@ -221,7 +280,8 @@ def build_skeleton(ao: dict, ad: dict | None, votes: dict[tuple[str, str], Vote]
 
     Returns:
         The document as plain dicts and lists, in the order it should be
-        written; it parses with
+        written, with ``judgments`` last and only when something pends; it
+        parses with
         :func:`~osprey.services.mml.mapping.schema.parse_mapping`.
     """
     order = _systems(ao)
@@ -245,13 +305,17 @@ def build_skeleton(ao: dict, ad: dict | None, votes: dict[tuple[str, str], Vote]
                 "override": False,
             }
 
-    return {
+    document: dict[str, Any] = {
         "facility": _facility(ad, order),
         "systems": systems,
         "section_order": section_order(ao, systems),
         "families": families,
         "directions": directions,
     }
+    judgments = _judgments(views)
+    if judgments:
+        document["judgments"] = judgments
+    return document
 
 
 def dump_yaml(data: dict) -> str:
