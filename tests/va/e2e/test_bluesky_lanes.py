@@ -95,6 +95,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_f
 from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context
+from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
@@ -580,6 +581,15 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
     did not supply it would refuse to start at all -- which is the contract
     ``test_live_lane_refuses_to_start_without_its_addressing`` asserts against
     this very file.
+
+    Readiness is two gates per lane, not one. A bridge answering 200 on
+    ``/health`` says nothing about its queue: the RE worker environment opens
+    in a background task the health probe deliberately excludes, and the
+    manager validates every ``item_add`` against ``plans_allowed``, which is
+    empty until that environment is up. The second gate is
+    :func:`wait_for_worker_environment`, the same one the single-lane deploy
+    suites owe their enqueues; without it the first queue test lands in the
+    window where every plan is "not in the list of allowed plans".
     """
     base = tmp_path_factory.mktemp("bluesky_lane_e2e")
     _remove_stale_deployment()
@@ -602,6 +612,16 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
             except RuntimeError as exc:
                 logs = _docker("logs", "--tail", "60", LANE_CONTAINERS[lane][0], timeout=60)
                 pytest.fail(f"{exc}\n--- {lane} bridge logs ---\n{logs.stdout}\n{logs.stderr}")
+        for lane, base_url in BRIDGE_URLS.items():
+            try:
+                wait_for_worker_environment(base_url)
+            except AssertionError as exc:
+                tails = [
+                    f"--- {name} logs ---\n{tail.stdout}\n{tail.stderr}"
+                    for name in LANE_CONTAINERS[lane][:2]
+                    for tail in (_docker("logs", "--tail", "60", name, timeout=60),)
+                ]
+                pytest.fail(f"lane {lane!r}: {exc}\n" + "\n".join(tails))
 
         env = _env_values(repo)
         limits = json.loads(
