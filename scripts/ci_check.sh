@@ -201,7 +201,13 @@ echo "📦 Step 4/4: Package Build"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
+# dist/ is gitignored, so it outlives a branch switch and accumulates the
+# artifacts of other commits; `uv build` adds to the directory rather than
+# replacing it. The twine check below globs dist/, so anything left there is
+# reported as this tree's. CI's package job is handed an empty dist/ by a
+# fresh checkout; here it has to be made one.
 echo "→ Building package..."
+rm -rf dist
 if ! uv build --quiet; then
     FAILED_CHECKS+=("package-build")
     echo "❌ Package build failed"
