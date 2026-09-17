@@ -1622,6 +1622,13 @@ jobs:
     # here spends model tokens, so there is nothing for a label to protect,
     # and a lane that only runs on labelled pull requests proves nothing on
     # the ones that break it.
+    # No actor guard either. The lanes that exclude `dependabot[bot]` do so
+    # because they resolve an Actions secret, which a Dependabot run cannot
+    # see; this one resolves none. Its only credential is the run's own
+    # GITHUB_TOKEN, read-only on a Dependabot run — and read-only is the
+    # access reading the mirror takes. Excluding Dependabot here would take
+    # the model-free proof off the pull requests that move the dependency
+    # set, which is where it is worth the most.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Not measured on a runner: no lane has run these ten files on their own.
     # Sized against tiled-roundtrip-e2e (30), the closest shape here — one
