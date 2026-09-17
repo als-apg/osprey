@@ -50,7 +50,7 @@
       "MemberOf": ["HCM", "Monitor"],
       "Mode": "Online",
       "DataType": "Scalar",
-      "ChannelNames": ["MN-CH1:Current-Mon", "MN-CH2:Current-Mon"],
+      "ChannelNames": ["MN-CH1:Current-Mon", "MN-CH2:Current-Mon", "MN-CH:Sum-Mon", "MN-CH:Spare-Mon"],
       "Units": "Hardware",
       "HWUnits": "Amps",
       "PhysicsUnits": "rad"

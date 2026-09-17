@@ -12,6 +12,8 @@
   },
   "BOOST": {
     "BPM": {"FamilyName": "BPM", "MemberOf": ["BPM"], "setup": {"DeviceList": [[1, 1], [1, 2]], "Status": [true, false], "CommonNames": " "},
-      "X": {"MemberOf": ["BPM", "Monitor"], "ChannelNames": ["BS:BPM1:X", " "], "HWUnits": "mm"}}
+      "X": {"MemberOf": ["BPM", "Monitor"], "ChannelNames": ["BS:BPM1:X", " "], "HWUnits": "mm"}},
+    "TUNE": {"FamilyName": "TUNE", "MemberOf": ["TUNE", "Diagnostic"], "DeviceList": [[1, 1], [1, 2], [1, 3]],
+      "Monitor": {"MemberOf": ["TUNE", "Monitor"], "ChannelNames": ["BS:TUNE1:Freq", "BS:TUNE2:Freq"], "HWUnits": "kHz"}}
   }
 }

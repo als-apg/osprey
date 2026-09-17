@@ -18,16 +18,24 @@ on every input form:
 - a **shared PV** bound by two different devices (not counting broadcast rows);
 - `HWUnits` in all three shapes: `[]`, a plain string such as `"Amps"`, and a per-device list.
 
+The seven mappings together answer every judgment a reviewer can be asked, so each
+answer word is used somewhere: `drop` and the `{field: <name>}` answer in `casedup/`,
+`device` in `paired/`, `keep` in `dialect/`, `keep_all` in `dialect/`, `mat/`, `paired/`
+and `wrapped/`, and an owner map naming one device of a supply group in `wrapped/`. A
+mapping whose export raises no judgment carries no `judgments:` block at all (`tango/`
+and `dualkey/`); where the block is present it is the mapping's last top-level key,
+after `directions:`.
+
 `tests/services/mml/test_fixtures_wellformed.py` checks all of the above.
 
 | Directory | Form | System token | What it is for |
 |-----------|------|--------------|----------------|
 | `tango/` | flat `export.json` | `--system RING` | A Tango facility: every field carries `TangoNames` only, never `ChannelNames`. Also has a one-device family whose `DeviceList` is a flat pair and whose channel list is a bare string. |
 | `dualkey/` | flat `export.json` | `--system STOR` | `ChannelNames` and `TangoNames` staged on the same field (`SF.Monitor`, and a broadcast pair on `SF.Setpoint`), the way Elettra's `elettrainit.m` stages both on one field. |
-| `casedup/` | flat `export.json` | `--system MAIN` | Two families in one system whose names differ only by case, `BPMx` and `bpmx`, the shape SIRIUS uses. The mapping resolves them with `rename`. |
-| `wrapped/` | `{"ao": {...}}` | `--system INJ` | A flat AO wrapped under a single `ao` key. Also has the MML `On` / `OnControl` field pair with no `MemberOf` tags, so the direction vote has an undecided field. |
-| `dialect/` | system-keyed `export.json` (at most 30 lines) | its own keys `RING`, `BOOST`; refuses `--system` | The system-keyed JSON dialect: quoted `"inf"` / `"-inf"` / `"NaN"` strings (bare `inf` is not JSON), bare `NaN` and `Infinity` tokens, `HW2PhysicsFcn: 1`, bare-string function handles, a `function_handle` record under the typo key `HW2PhysicSDcn`, a `Handles` key, whitespace blanks, JSON booleans in `Status`, family arrays under `setup` with one family keeping them at family level, and a system `_description`. |
-| `paired/` | `quokka.ring.ao.json` + `quokka.ring.ad.json` | none needed: `AD.SubMachine` = `RING` | The exporter's paired output. The `_export` block names no sub-machine, so the system token must come from the sibling `.ad.json`. The AD file carries the machine scalars (`Machine`, energy, circumference, harmonic number, MCF, lattice). |
+| `casedup/` | flat `export.json` | `--system MAIN` | Two families in one system whose names differ only by case, `BPMx` and `bpmx`, the shape SIRIUS uses. The mapping resolves them with `rename`. `CH.Monitor` also lists four channels for two devices, so its last two rows are judgments: `MN-CH:Sum-Mon` becomes the field `SumCurrent` and `MN-CH:Spare-Mon` is dropped. A minted field inherits the row's own `MemberOf` and `HWUnits`, so `SumCurrent` reads `HCM`, `Monitor` and `Amps` from `CH.Monitor`. |
+| `wrapped/` | `{"ao": {...}}` | `--system INJ` | A flat AO wrapped under a single `ao` key. Also has the MML `On` / `OnControl` field pair with no `MemberOf` tags, so the direction vote has an undecided field. `QM.Monitor` reads `IJ:QM2:RB` on devices 2 and 3, a supply group whose `shared_pvs` answer is the owner map `{2: 2}`: device 2 owns the readback, device 3's slot goes blank, and device 3 keeps its own `On` and `OnControl` plus the broadcast `Setpoint`. |
+| `dialect/` | system-keyed `export.json` (at most 30 lines) | its own keys `RING`, `BOOST`; refuses `--system` | The system-keyed JSON dialect: quoted `"inf"` / `"-inf"` / `"NaN"` strings (bare `inf` is not JSON), bare `NaN` and `Infinity` tokens, `HW2PhysicsFcn: 1`, bare-string function handles, a `function_handle` record under the typo key `HW2PhysicSDcn`, a `Handles` key, whitespace blanks, JSON booleans in `Status`, family arrays under `setup` with one family keeping them at family level, and a system `_description`. `TUNE` in `BOOST` lists two channels for three devices, so its third device is a judgment: ordinal 3 answers `keep`, which mints a device bound to nothing and pads the emitted channel list with a blank slot. |
+| `paired/` | `quokka.ring.ao.json` + `quokka.ring.ad.json` | none needed: `AD.SubMachine` = `RING` | The exporter's paired output. The `_export` block names no sub-machine, so the system token must come from the sibling `.ad.json`. The AD file carries the machine scalars (`Machine`, energy, circumference, harmonic number, MCF, lattice). `SQ.Monitor` lists four channels for three devices, so its last row is a judgment: `QK:SQ4:RB` answers `device` and becomes a fourth device, which the broadcast `SQ.Setpoint` then reaches too. |
 | `mat/` | `quokka_booster.mat` (MATLAB v7) | none needed: `AD.SubMachine` = `BOOSTER` | A `saveao`-style `.mat` with `AO` and `AD` variables: padded char matrices with an all-blank row, cell arrays, a single-row char matrix as a broadcast list, an empty double `[]`, logical `Status` and a non-finite `Range`. `build_mat.py` wrote it with `scipy.io.savemat`; rerun it to regenerate, so no test needs MATLAB. |
 
 ## Real facility exports

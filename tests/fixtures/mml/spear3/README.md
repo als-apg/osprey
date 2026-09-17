@@ -15,7 +15,9 @@ National Accelerator Laboratory: the storage ring, as the paired
 Shapes worth knowing: `TUNE` broadcasts one channel to every device, `RF.Monitor` and
 `RF.Setpoint` share one record, and `MachineParameters`, `ShuntCurrent` and `ShuntRelay`
 each stage the same record as monitor and setpoint. `HCM` and `VCM` list 78 devices but
-stage channels for 76 and 74 of them.
+stage channels for 76 and 74 of them. Seventeen families share power-supply records
+between magnets, which is every judgment the export asks for; all seventeen are
+answered `keep_all`, so every device keeps its reading.
 
 Import it with:
 

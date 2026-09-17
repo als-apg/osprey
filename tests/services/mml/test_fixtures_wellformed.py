@@ -5,6 +5,9 @@ test-local walker that follows the MML shape rules from the proposal directly,
 deliberately independent of ``osprey.services.mml``: a fixture that silently lost
 its broadcast row or its zero-channel family would otherwise let a loader or
 census test pass for the wrong reason.
+
+The ``mapping.yaml`` committed beside each export is read the same way, so the
+answers a reviewer writes stay pinned next to the shapes that raise them.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import yaml
 from scipy.io import loadmat
 from scipy.io.matlab import mat_struct
 
@@ -204,6 +208,61 @@ def _walk(node: Any, path: tuple[str, ...] = ()):
 
 
 # ---------------------------------------------------------------------------
+# Judgment answers, read straight out of the committed mapping documents.
+# ---------------------------------------------------------------------------
+
+#: Every form a judgment answer may take, as the contract words them.
+ANSWER_FORMS = frozenset({"drop", "device", "keep", "keep_all", "field:", "owner"})
+
+#: The fixtures whose export raises no judgment, so their mapping carries no block.
+FIXTURES_WITHOUT_JUDGMENTS = ("tango", "dualkey")
+
+
+def _mapping(name: str) -> dict[str, Any]:
+    """Return a fixture's committed mapping document in file order.
+
+    ``yaml.safe_load`` keeps this module independent of the product parser and
+    leaves the document's own key order intact, so the block order of the file
+    is what the contract sees.
+    """
+    return yaml.safe_load((FIXTURES / name / "mapping.yaml").read_text(encoding="utf-8"))
+
+
+def _judgment_answers(document: dict[str, Any]) -> list[Any]:
+    """Return every answer written in one mapping's ``judgments`` block."""
+    answers: list[Any] = []
+    for family in (document.get("judgments") or {}).values():
+        for signals in (family.get("rows_beyond_devices") or {}).values():
+            answers.extend(signals.values())
+        answers.extend((family.get("unbound_devices") or {}).values())
+        if "shared_pvs" in family:
+            shared = family["shared_pvs"]
+            answers.extend(shared.values() if isinstance(shared, dict) else [shared])
+    return answers
+
+
+def _answer_form(answer: Any) -> str:
+    """Name the contract form of one answer; an unknown answer names itself."""
+    if isinstance(answer, str) and answer in ANSWER_FORMS:
+        return answer
+    if isinstance(answer, dict) and set(answer) == {"field"}:
+        return "field:"
+    if isinstance(answer, int) and not isinstance(answer, bool):
+        return "owner"
+    return repr(answer)
+
+
+def _answer_forms(name: str) -> set[str]:
+    """Return the answer forms one fixture's mapping uses."""
+    return {_answer_form(answer) for answer in _judgment_answers(_mapping(name))}
+
+
+def _top_level_keys(name: str) -> list[str]:
+    """Return one mapping's top-level keys in the order the file writes them."""
+    return list(_mapping(name))
+
+
+# ---------------------------------------------------------------------------
 # Tests.
 # ---------------------------------------------------------------------------
 
@@ -268,6 +327,56 @@ class TestFlatForms:
         entries = {key: value for key, value in data.items() if not key.startswith("_")}
         assert entries and all(_is_family(value) for value in entries.values())
         assert "submachine" not in data.get("_export", {})
+
+
+class TestJudgmentContract:
+    """The synthetic mappings together answer every judgment a reviewer can be asked."""
+
+    def test_the_answers_span_every_form_and_add_none_of_their_own(self):
+        """Across the synthetic mappings each answer form is used, and nothing else is."""
+        forms = set().union(*(_answer_forms(name) for name in ALL_FIXTURES))
+
+        assert forms == set(ANSWER_FORMS)
+
+    def test_a_row_beyond_the_devices_becomes_a_field_of_its_own(self):
+        """Some ``{field: <name>}`` answer names a non-empty field."""
+        minted = [
+            answer
+            for name in ALL_FIXTURES
+            for answer in _judgment_answers(_mapping(name))
+            if _answer_form(answer) == "field:"
+        ]
+
+        assert minted
+        assert all(isinstance(a["field"], str) and a["field"].strip() for a in minted)
+
+    def test_a_supply_group_names_one_owning_device(self):
+        """Some ``shared_pvs`` answer is an owner map of 1-based ordinals, not ``keep_all``."""
+        maps = [
+            family["shared_pvs"]
+            for name in ALL_FIXTURES
+            for family in (_mapping(name).get("judgments") or {}).values()
+            if isinstance(family.get("shared_pvs"), dict)
+        ]
+
+        assert maps
+        for owners in maps:
+            assert owners
+            assert all(isinstance(group, int) and group >= 1 for group in owners)
+            assert all(owner == "keep_all" or owner >= 1 for owner in owners.values())
+
+    @pytest.mark.parametrize("name", ALL_FIXTURES)
+    def test_the_judgments_block_closes_the_mapping(self, name):
+        """A mapping that carries judgments writes them as its last top-level key."""
+        keys = _top_level_keys(name)
+
+        if "judgments" in keys:
+            assert keys[-1] == "judgments"
+
+    @pytest.mark.parametrize("name", FIXTURES_WITHOUT_JUDGMENTS)
+    def test_a_mapping_with_nothing_to_answer_carries_no_block(self, name):
+        """An export that raises no judgment leaves the block out of the mapping."""
+        assert "judgments" not in _top_level_keys(name)
 
 
 class TestTango:

@@ -57,8 +57,11 @@ families:
     - SQ
     description: Skew quadrupole trims on one shared supply
     provenance: stated
-    channels: 3
+    channels: 7
     fields:
+      Monitor:
+        description: 'Field Monitor: 4 channels via ChannelNames, hardware units Amps.'
+        provenance: stated
       Setpoint:
         description: 'Field Setpoint: 3 channels via ChannelNames, one channel broadcast
           to every device, hardware units Amps.'
@@ -80,7 +83,18 @@ directions:
     direction: write
     provenance: stated
     override: false
+  SQ.Monitor:
+    direction: read
+    provenance: stated
+    override: false
   SQ.Setpoint:
     direction: write
     provenance: stated
     override: false
+judgments:
+  HCM:
+    shared_pvs: keep_all
+  SQ:
+    rows_beyond_devices:
+      Monitor:
+        QK:SQ4:RB: device

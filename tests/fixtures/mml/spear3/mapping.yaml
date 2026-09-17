@@ -1077,3 +1077,38 @@ directions:
     direction: read
     provenance: stated
     override: false
+judgments:
+  BDM:
+    shared_pvs: keep_all
+  BEND:
+    shared_pvs: keep_all
+  BTSBPMx:
+    shared_pvs: keep_all
+  QD:
+    shared_pvs: keep_all
+  QDX:
+    shared_pvs: keep_all
+  QDY:
+    shared_pvs: keep_all
+  QDZ:
+    shared_pvs: keep_all
+  QF:
+    shared_pvs: keep_all
+  QFC:
+    shared_pvs: keep_all
+  QFX:
+    shared_pvs: keep_all
+  QFY:
+    shared_pvs: keep_all
+  QFZ:
+    shared_pvs: keep_all
+  SD:
+    shared_pvs: keep_all
+  SDM:
+    shared_pvs: keep_all
+  SF:
+    shared_pvs: keep_all
+  SFM:
+    shared_pvs: keep_all
+  SkewQuad:
+    shared_pvs: keep_all

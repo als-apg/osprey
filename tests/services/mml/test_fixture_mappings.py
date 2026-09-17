@@ -6,6 +6,10 @@ scratch deployment repo exactly as a user would, place the committed mapping
 over it, and require ``osprey mml map --check --no-derived`` to pass -- so a
 later change to the mapping schema or its semantic rules cannot silently
 orphan a fixture that downstream chain tests rely on.
+
+The two real-facility exports also pin how much judgment they ask of their
+reviewer, so a detection change that quietly stops pending something -- or
+starts pending more -- shows up here rather than in the committed answers.
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ import shutil
 from pathlib import Path
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
@@ -82,3 +87,27 @@ def test_committed_mapping_passes_check_without_derived(repo: Path, name: str) -
     assert "Traceback" not in result.output
     assert result.exit_code == 0, result.output
     assert "passes the check" in result.output
+
+
+def _unanswered_slots(document: dict) -> int:
+    """Return how many judgment slots a freshly written skeleton left null."""
+    total = 0
+    for family in document.get("judgments", {}).values():
+        for field in family.get("rows_beyond_devices", {}).values():
+            total += sum(1 for answer in field.values() if answer is None)
+        total += sum(1 for answer in family.get("unbound_devices", {}).values() if answer is None)
+        total += 1 if family.get("shared_pvs", "answered") is None else 0
+    return total
+
+
+@pytest.mark.parametrize(("name", "slots"), [("nsls2", 13), ("spear3", 17)])
+def test_real_export_asks_for_a_fixed_number_of_judgments(
+    repo: Path, name: str, slots: int
+) -> None:
+    _import(repo, name)
+
+    result = CliRunner().invoke(cli, ["mml", "map", "--init", "--force"], catch_exceptions=False)
+
+    assert result.exit_code == 0, result.output
+    document = yaml.safe_load((repo / "data" / "mml" / "mapping.yaml").read_text(encoding="utf-8"))
+    assert _unanswered_slots(document) == slots

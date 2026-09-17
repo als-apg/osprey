@@ -90,6 +90,12 @@ families:
       Monitor:
         description: Averaged stored-beam current (mA).
         provenance: stated
+      Lifetime:
+        description: Beam lifetime reported by the DCCT electronics.
+        provenance: stated
+      Total:
+        description: Total stored-beam current summed over all bunches (mA).
+        provenance: stated
   HCM:
     class: HCorrector
     aliases:
@@ -600,6 +606,14 @@ directions:
     direction: read
     provenance: stated
     override: false
+  DCCT.Lifetime:
+    direction: read
+    provenance: stated
+    override: false
+  DCCT.Total:
+    direction: read
+    provenance: stated
+    override: false
   HCM.Monitor:
     direction: read
     provenance: stated
@@ -948,3 +962,32 @@ directions:
     direction: write
     provenance: stated
     override: false
+judgments:
+  BEND:
+    shared_pvs: keep_all
+  DCCT:
+    rows_beyond_devices:
+      Monitor:
+        SR:C03-BI{DCCT:1}Lifetime-I: {field: Lifetime}
+        SR:C03-BI{DCCT:1}I:Total-I: {field: Total}
+  SH1:
+    shared_pvs: keep_all
+  SH3:
+    shared_pvs: keep_all
+  SH4:
+    shared_pvs: keep_all
+  SL1:
+    shared_pvs: keep_all
+  SL2:
+    shared_pvs: keep_all
+  SL3:
+    shared_pvs: keep_all
+  SM1:
+    shared_pvs: keep_all
+  SM2:
+    shared_pvs: keep_all
+  SQ:
+    shared_pvs: keep_all
+  TUNE:
+    unbound_devices:
+      3: drop

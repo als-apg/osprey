@@ -80,3 +80,6 @@ directions:
     direction: write
     provenance: stated
     override: false
+judgments:
+  HCM:
+    shared_pvs: keep_all

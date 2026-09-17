@@ -8,15 +8,18 @@ pinned here is one facility installed the way a facility is installed:
 * the chain stays green and a second pass changes no byte of any emitted file
   except the DuckDB one, whose ``channels`` row count is the export's distinct
   PVs and whose ``systems`` row count is ``section_order``, after each pass;
-* nothing is lost between the export and the artifacts — the channel strings of
-  the export, the corpus's ``fullPv`` literals and the channel database's
-  channels are one set, and the binding count agrees between the corpus, the
-  census and ``knowledge build-index``;
+* nothing is lost between the export and the artifacts — the channel strings
+  the reviewer's answers keep, the corpus's ``fullPv`` literals and the channel
+  database's channels are one set, and the binding count agrees between the
+  corpus, the judged census and ``knowledge build-index``;
 * every mapped family arrives in all three places a deployment reads it (the
   channel database, the corpus as a class-typed device population, and an OKF
   family page), carrying the prose and the types the agent answers from;
 * the forms only some facilities have — Tango names, both channel keys on one
-  field, two families differing only by case — survive as themselves.
+  field, two families differing only by case — survive as themselves;
+* what the reviewer answered about a row beyond a family's devices, a device
+  bound by no channel and a PV shared by several devices is what the corpus,
+  the channel database, the DuckDB copy and the family page hold.
 
 Two facility-scale numbers ride on the ALS export, which never enters the repo:
 with ``OSPREY_ALS_MML_EXPORT`` and ``OSPREY_ALS_MML_MAPPING`` set, the same
@@ -272,23 +275,61 @@ def chain(request: pytest.FixtureRequest, chains: Callable[[str], Chain]) -> Cha
 # ===================================================================
 
 
-def _signal_groups(ao: dict[str, Any]) -> Iterator[tuple[str, str, str, dict[str, Any]]]:
-    """Yield ``(system, family, field, body)`` for every channel-bearing group."""
+def _families(ao: dict[str, Any]) -> Iterator[tuple[str, str, dict[str, Any]]]:
+    """Yield ``(system, family, body)`` for every family body the export holds."""
     for system, families in ao.items():
         if system.startswith("_") or not isinstance(families, dict):
             continue
-        for family, fields in families.items():
-            if family.startswith("_") or not isinstance(fields, dict):
+        for family, body in families.items():
+            if family.startswith("_") or not isinstance(body, dict):
                 continue
-            for field, body in fields.items():
-                if not isinstance(body, dict):
-                    continue
-                if any(key in body for key in CHANNEL_KEYS):
-                    yield system, family, field, body
+            yield system, family, body
 
 
-def _slots(body: dict[str, Any]) -> Iterator[tuple[int, str]]:
-    """Yield ``(index, address)`` for every non-blank slot of every channel key."""
+def _channel_fields(body: dict[str, Any]) -> Iterator[tuple[str, dict[str, Any]]]:
+    """Yield ``(field, body)`` for every channel-bearing field of a family body."""
+    for field, field_body in body.items():
+        if not isinstance(field_body, dict):
+            continue
+        if any(key in field_body for key in CHANNEL_KEYS):
+            yield field, field_body
+
+
+def _signal_groups(ao: dict[str, Any]) -> Iterator[tuple[str, str, str, dict[str, Any]]]:
+    """Yield ``(system, family, field, body)`` for every channel-bearing group."""
+    for system, family, body in _families(ao):
+        for field, field_body in _channel_fields(body):
+            yield system, family, field, field_body
+
+
+def _device_count(body: dict[str, Any]) -> int:
+    """How many devices one family body states, counted as the import walk counts.
+
+    ``DeviceList`` states one row per device, and a bare pair of numbers is one
+    row; the array may sit on the family or in its setup block. A body stating
+    no device list falls back to its longest channel list, which leaves no slot
+    beyond the devices at all.
+    """
+    rows = body.get("DeviceList")
+    if rows is None:
+        for key in ("setup", "_setup"):
+            setup = body.get(key)
+            if isinstance(setup, dict) and "DeviceList" in setup:
+                rows = setup["DeviceList"]
+                break
+    if isinstance(rows, list) and rows:
+        return len(rows) if all(isinstance(row, list) for row in rows) else 1
+    lengths = [
+        len(value) if isinstance(value, list) else 1
+        for _, field_body in _channel_fields(body)
+        for key in CHANNEL_KEYS
+        if isinstance(value := field_body.get(key), str | list)
+    ]
+    return max(lengths, default=0)
+
+
+def _slots(body: dict[str, Any]) -> Iterator[tuple[str, int, str]]:
+    """Yield ``(key, index, address)`` for every non-blank slot of every channel key."""
     for key in CHANNEL_KEYS:
         value = body.get(key)
         items = [value] if isinstance(value, str) else value
@@ -296,20 +337,53 @@ def _slots(body: dict[str, Any]) -> Iterator[tuple[int, str]]:
             continue
         for index, item in enumerate(items):
             if isinstance(item, str) and item.strip():
-                yield index, item.strip()
+                yield key, index, item.strip()
 
 
-def _exported_addresses(ao: dict[str, Any]) -> set[str]:
-    """Every stripped, non-blank channel string the export carries."""
-    return {address for _, _, _, body in _signal_groups(ao) for _, address in _slots(body)}
+def _dropped_rows(document: dict[str, Any]) -> set[tuple[str, str, str]]:
+    """Every ``(raw family, field, signal)`` the reviewer answered ``drop``."""
+    dropped: set[tuple[str, str, str]] = set()
+    for family, entry in (document.get("judgments") or {}).items():
+        for field, signals in (entry.get("rows_beyond_devices") or {}).items():
+            for signal, answer in signals.items():
+                if answer == "drop":
+                    dropped.add((family, field, signal))
+    return dropped
+
+
+def _kept_addresses(ao: dict[str, Any], document: dict[str, Any]) -> set[str]:
+    """Every non-blank channel string the export carries and judgment keeps.
+
+    A ``drop`` answer cuts one row beyond a family's devices, never a channel
+    string: it reaches a slot only where that slot sits past the family's
+    device count, and only in the system whose device count it sits past. The
+    same PV bound to a device of the family, or beyond the devices in one
+    system but on a device in another, stays. So an address leaves the facility
+    only when every slot carrying it is a dropped row.
+
+    The whole reading is re-derived from ``ao.json`` and the mapping document,
+    so this never agrees with the emitter by sharing its reading of them.
+    """
+    dropped = _dropped_rows(document)
+    kept: dict[str, bool] = {}
+    for _, family, body in _families(ao):
+        beyond = _device_count(body)
+        for field, field_body in _channel_fields(body):
+            for _, index, address in _slots(field_body):
+                cut = index >= beyond and (family, field, address) in dropped
+                kept[address] = kept.get(address, False) or not cut
+    return {address for address, survives in kept.items() if survives}
 
 
 def _owners(ao: dict[str, Any]) -> dict[str, set[tuple[str, str, str, int]]]:
-    """Every channel string's ``(system, family, field, index)`` owners."""
+    """Every channel string's ``(system, family, field, ordinal)`` owners.
+
+    Ordinals are 1-based, as the document and ``PROFILE.md`` write them.
+    """
     owners: dict[str, set[tuple[str, str, str, int]]] = {}
     for system, family, field, body in _signal_groups(ao):
-        for index, address in _slots(body):
-            owners.setdefault(address, set()).add((system, family, field, index))
+        for _, index, address in _slots(body):
+            owners.setdefault(address, set()).add((system, family, field, index + 1))
     return owners
 
 
@@ -333,6 +407,20 @@ def _duck_units(root: Path) -> dict[str, str]:
         connection.close()
 
 
+def _duck_channel(root: Path, name: str) -> dict[str, Any]:
+    """One ``channels`` row of the DuckDB copy, keyed by column name."""
+    import duckdb
+
+    connection = duckdb.connect(str(root / "data/channel_databases/middle_layer.duckdb"), True)
+    try:
+        cursor = connection.execute("SELECT * FROM channels WHERE channel_name = ?", [name])
+        row = cursor.fetchone()
+        assert row is not None, f"{name} holds no row of the DuckDB copy"
+        return dict(zip([column[0] for column in cursor.description], row, strict=True))
+    finally:
+        connection.close()
+
+
 def _exported_units(ao: dict[str, Any]) -> dict[str, set[str]]:
     """Every channel string's possible hardware units, read off the export alone.
 
@@ -348,7 +436,7 @@ def _exported_units(ao: dict[str, Any]) -> dict[str, set[str]]:
             unit = distinct.pop() if len(distinct) == 1 else ""
         else:
             unit = value.strip() if isinstance(value, str) else ""
-        for _, address in _slots(body):
+        for _, _, address in _slots(body):
             found.setdefault(address, set()).add(unit)
     return found
 
@@ -372,8 +460,26 @@ def _integral_slots(ao: dict[str, Any]) -> Iterator[tuple[str, str, str, Any]]:
                             yield system, family, key, item
 
 
-def _census_bindings(root: Path) -> int:
-    """The import walk's own binding count, after broadcast expansion."""
+def _census_bindings(root: Path, mapping: Mapping) -> int:
+    """The import walk's own binding count, judged and broadcast-expanded.
+
+    The census is the one production reader this module leans on, because the
+    binding count is what the import walk itself claims. Handing it the mapping
+    keeps that claim on the judged grain the emitters write.
+    """
+    from osprey.services.mml.canonical import read_canonical
+    from osprey.services.mml.census import take_census
+
+    ao, ad = read_canonical(root / "data" / "mml")
+    return take_census(ao, ad, mapping).totals.bindings
+
+
+def _raw_census_bindings(root: Path) -> int:
+    """The same count on the export's own grain, before any answer is applied.
+
+    What one answer costs the facility is the distance between this count and
+    the judged one.
+    """
     from osprey.services.mml.canonical import read_canonical
     from osprey.services.mml.census import take_census
 
@@ -416,6 +522,46 @@ def _build_index_counts(root: Path, ttl: Path, output: Path) -> dict[str, int]:
     return counts
 
 
+def _binding_field(graph: Graph, binding: URIRef) -> str:
+    """The field name a binding's ``bindingId`` ends in.
+
+    The last segment is ``<field>_<subfield>``, and the subfield names the
+    channel key the slot came from — ``val`` for a CA name, ``tango`` for a
+    Tango one — so the field is everything before the final underscore.
+    """
+    return str(_objects(graph, binding, "bindingId")[0]).rsplit(":", 1)[-1].rsplit("_", 1)[0]
+
+
+def _device_bindings(chain: Chain, prefix: str) -> dict[str, list[str]]:
+    """Every device IRI under ``prefix``, mapped to its bindings' field names."""
+    return {
+        str(device): sorted(
+            _binding_field(chain.graph, URIRef(str(binding)))
+            for binding in _objects(chain.graph, device, "hasBinding")
+        )
+        for device in _devices(chain.graph)
+        if str(device).startswith(prefix)
+    }
+
+
+def _device_prefix(chain: Chain, section: str, token: str) -> str:
+    """The IRI every device of one family in one sub-machine starts with."""
+    return f"{DEVICE_IRI_PREFIX}{chain.token}_{section}_{token}_"
+
+
+def _profile_blocks(profile: str, heading: str) -> str:
+    """Every ``PROFILE.md`` block under one heading, at any level, run together."""
+    kept: list[str] = []
+    inside = False
+    for line in profile.splitlines():
+        if line.startswith("#"):
+            inside = line.strip().lstrip("# ") == heading
+            continue
+        if inside:
+            kept.append(line)
+    return "\n".join(kept)
+
+
 def _shared_pv_section(profile: str) -> str:
     """The facility-wide ``Shared PVs`` block of ``PROFILE.md``."""
     lines = profile.splitlines()
@@ -455,7 +601,7 @@ class TestTheChainRuns:
         assert second.artifacts == first.artifacts
 
     def test_duckdb_counts_hold_after_each_pass(self, chain: Chain) -> None:
-        distinct = len(_exported_addresses(chain.ao))
+        distinct = len(_kept_addresses(chain.ao, chain.document))
         systems = len(chain.mapping.section_order)
 
         for index, record in enumerate(chain.passes):
@@ -502,7 +648,7 @@ class TestTheChainRuns:
 
 class TestZeroLoss:
     def test_the_export_the_corpus_and_the_database_hold_one_set(self, chain: Chain) -> None:
-        exported = _exported_addresses(chain.ao)
+        exported = _kept_addresses(chain.ao, chain.document)
         corpus = set(_full_pvs(chain.graph))
         database = {entry["channel"] for entry in chain.database.get_all_channels()}
 
@@ -511,7 +657,7 @@ class TestZeroLoss:
         assert database == exported, f"channel database differs by {database ^ exported}"
 
     def test_the_corpus_binds_every_non_blank_slot(self, chain: Chain) -> None:
-        expected = _census_bindings(chain.root)
+        expected = _census_bindings(chain.root, chain.mapping)
 
         assert len(_bindings(chain.graph)) == expected
         assert len(_full_pvs(chain.graph)) == expected
@@ -521,8 +667,8 @@ class TestZeroLoss:
     ) -> None:
         counts = _build_index_counts(chain.root, chain.ttl, tmp_path / "index.json")
 
-        assert counts["bindings"] == _census_bindings(chain.root)
-        assert counts["channels"] == len(_exported_addresses(chain.ao))
+        assert counts["bindings"] == _census_bindings(chain.root, chain.mapping)
+        assert counts["channels"] == len(_kept_addresses(chain.ao, chain.document))
 
     def test_the_profile_lists_every_shared_pv_with_all_its_owners(self, chain: Chain) -> None:
         shared = {
@@ -726,7 +872,7 @@ class TestFacilitySpecificForms:
         addresses = {entry["channel"] for entry in chain.database.get_all_channels()}
 
         assert protocols == {"tango"}
-        assert addresses == _exported_addresses(chain.ao)
+        assert addresses == _kept_addresses(chain.ao, chain.document)
 
     def test_a_dual_key_field_binds_both_keys_per_slot(
         self, chains: Callable[[str], Chain]
@@ -746,7 +892,7 @@ class TestFacilitySpecificForms:
         assert set(body) >= set(CHANNEL_KEYS), "the fixture lost its dual-key field"
         assert by_protocol["ca"] and by_protocol["tango"]
         assert not by_protocol["ca"] & by_protocol["tango"]
-        assert len(_bindings(chain.graph)) == _census_bindings(chain.root)
+        assert len(_bindings(chain.graph)) == _census_bindings(chain.root, chain.mapping)
 
     def test_list_channel_names_answers_per_protocol(self, chains: Callable[[str], Chain]) -> None:
         database = chains("dualkey").database
@@ -787,6 +933,178 @@ class TestFacilitySpecificForms:
 
         assert "MML export" in line
         assert "mapping file" in line
+
+
+class TestTheReviewersJudgment:
+    """What the reviewer answered is what the artifacts hold.
+
+    The three questions a skeleton asks — a row beyond a family's devices, a
+    device bound by no channel, a PV shared by several devices — are answered
+    in the committed fixtures, and each answer is readable in the corpus, the
+    channel database, the DuckDB copy and the family page.
+    """
+
+    def test_a_row_carved_into_a_field_stands_beside_the_field_it_left(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """NSLS-II's DCCT reads three quantities off one device, one field each."""
+        chain = chains("nsls2")
+        prefix = _device_prefix(chain, "StorageRing", "DCCT")
+        exported = set(chain.ao["StorageRing"]["DCCT"]["Monitor"]["ChannelNames"])
+
+        bindings = _device_bindings(chain, prefix)
+        family = chain.database.data["StorageRing"]["DCCT"]
+
+        assert list(bindings.values()) == [["Lifetime", "Monitor", "Total"]]
+        landed = [family[field]["ChannelNames"] for field in ("Lifetime", "Monitor", "Total")]
+        assert all(len(slots) == 1 for slots in landed), landed
+        assert {slots[0] for slots in landed} == exported
+
+    def test_a_carved_out_field_keeps_the_units_of_the_field_it_left(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """A carved row is served in the hardware unit its own field states."""
+        chain = chains("nsls2")
+        units = _duck_units(chain.root)
+
+        family = chain.database.data["StorageRing"]["DCCT"]
+        for field in ("Lifetime", "Monitor", "Total"):
+            channel = family[field]["ChannelNames"][0]
+            assert units[channel] == "mA", field
+
+    def test_a_dropped_device_leaves_the_family_at_its_bound_devices(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """NSLS-II drops its third tune device, and nothing counts it again."""
+        chain = chains("nsls2")
+        prefix = _device_prefix(chain, "StorageRing", "TUNE")
+        exported = chain.ao["StorageRing"]["TUNE"]["DeviceList"]
+
+        bindings = _device_bindings(chain, prefix)
+        page = (chain.bundle / "families" / "StorageRing-TUNE.md").read_text(encoding="utf-8")
+
+        assert len(exported) == 3, "the fixture lost the device the reviewer drops"
+        assert len(chain.database.data["StorageRing"]["TUNE"]["setup"]["DeviceList"]) == 2
+        assert sorted(bindings.values()) == [["Monitor"], ["Monitor"]]
+        assert "- Devices: 2" in page
+
+    def test_the_profile_files_both_shapes_as_questions_for_the_reviewer(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """A shape a reviewer must rule on is asked about, not filed as a hazard.
+
+        ``PROFILE.md`` is rendered by ``import``, off the raw export and before
+        any answer exists. A one-device family whose channel list runs to three
+        rows, and a three-device family whose longest list reaches two, are both
+        questions rather than partial lists, so they stand under ``Judgment
+        required`` with the words the ``judgments:`` block takes.
+        """
+        chain = chains("nsls2")
+
+        asked = _profile_blocks(chain.profile, "Judgment required")
+        partial = _profile_blocks(chain.profile, "Partial channel lists")
+
+        assert "`StorageRing.DCCT`, 1 device" in asked
+        for signal in chain.ao["StorageRing"]["DCCT"]["Monitor"]["ChannelNames"][1:]:
+            assert f"row beyond devices `Monitor` `ChannelNames` `{signal}`" in asked
+        assert "`StorageRing.TUNE`, 3 devices" in asked
+        assert "unbound device ordinal 3" in asked
+        assert "DCCT" not in partial
+        assert "TUNE" not in partial
+
+    def test_a_carved_field_inherits_the_metadata_of_the_field_it_left(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """A new field is served like its source, and says which family it serves."""
+        chain = chains("casedup")
+        source = chain.ao["MAIN"]["CH"]["Monitor"]
+
+        carved = chain.database.data["MAIN"]["CH"]["SumCurrent"]
+        row = _duck_channel(chain.root, "MN-CH:Sum-Mon")
+
+        assert carved["MemberOf"] == source["MemberOf"]
+        assert carved["HWUnits"] == source["HWUnits"]
+        assert row["units"] == source["HWUnits"]
+        assert row["member_of"] == ", ".join(source["MemberOf"])
+
+    def test_a_row_answered_device_mints_a_device_the_broadcast_reaches(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """A fourth skew quad is a device, and the shared setpoint drives it too."""
+        chain = chains("paired")
+        prefix = _device_prefix(chain, "RING", "SQ")
+
+        bindings = _device_bindings(chain, prefix)
+
+        assert bindings[f"{prefix}4"] == ["Monitor", "Setpoint"]
+        assert sum(len(fields) for fields in bindings.values()) == 8
+        assert chain.database.data["RING"]["SQ"]["Setpoint"]["ChannelNames"] == ["QK:SQ:SP"] * 4
+
+    def test_a_kept_device_is_a_device_with_nothing_bound_to_it(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """A device the reviewer keeps is addressable, and answers with nothing."""
+        chain = chains("dialect")
+        prefix = _device_prefix(chain, "BOOST", "TUNE")
+
+        bindings = _device_bindings(chain, prefix)
+        channels = chain.database.data["BOOST"]["TUNE"]["Monitor"]["ChannelNames"]
+
+        assert bindings[f"{prefix}3"] == []
+        assert channels == ["BS:TUNE1:Freq", "BS:TUNE2:Freq", ""]
+        assert chain.database.list_channel_names("BOOST", "TUNE", "Monitor", devices=[3]) == []
+
+    def test_a_shared_pv_answered_by_owner_reaches_that_device_alone(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """Two Quokka quadrupoles read one record, and the owner answers for it."""
+        chain = chains("wrapped")
+        prefix = _device_prefix(chain, "INJ", "QM")
+        database = chain.database
+
+        bindings = _device_bindings(chain, prefix)
+        channels = database.data["INJ"]["QM"]["Monitor"]["ChannelNames"]
+
+        assert channels == ["IJ:QM1:RB", "IJ:QM2:RB", ""]
+        assert database.list_channel_names("INJ", "QM", "Monitor", devices=[2]) == ["IJ:QM2:RB"]
+        assert database.list_channel_names("INJ", "QM", "Monitor", devices=[3]) == []
+        assert bindings[f"{prefix}3"] == ["On", "OnControl", "Setpoint"]
+
+    def test_an_owner_answer_costs_a_binding_and_no_channel(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """A device the answer passes over gives up its slot, never the PV.
+
+        The facility keeps every channel string it exported, because the owning
+        device still binds the shared one; only the binding the other device
+        made to it leaves the count.
+        """
+        chain = chains("wrapped")
+        kept = _kept_addresses(chain.ao, chain.document)
+
+        assert _census_bindings(chain.root, chain.mapping) == _raw_census_bindings(chain.root) - 1
+        assert "IJ:QM2:RB" in kept
+        assert "IJ:QM2:RB" in _duck_units(chain.root)
+
+    def test_the_profile_asks_about_a_supply_group_and_lists_both_its_owners(
+        self, chains: Callable[[str], Chain]
+    ) -> None:
+        """A shared PV is a question, and every device that carries it is named.
+
+        ``PROFILE.md`` is rendered by ``import``, off the raw export and before
+        any answer exists, so both devices stand under ``Shared PVs`` however
+        the reviewer later answers, and the group they form stands under
+        ``Judgment required`` with the words the ``judgments:`` block takes.
+        """
+        chain = chains("wrapped")
+
+        asked = _profile_blocks(chain.profile, "Judgment required")
+        shared = _shared_pv_section(chain.profile)
+
+        assert "supply group 2: `keep_all | {2: <owning ordinal>}`" in asked
+        assert "PVs `IJ:QM2:RB`" in asked
+        assert "(INJ, QM, Monitor, 2)" in shared
+        assert "(INJ, QM, Monitor, 3)" in shared
 
 
 class TestTheDerivedViews:
@@ -916,9 +1234,9 @@ def test_the_als_export_chains_to_its_pinned_counts(tmp_path: Path) -> None:
 
     chain = run_chain(tmp_path / "als", (str(export),), (), mapping, name="als")
 
-    assert _census_bindings(chain.root) == ALS_BINDINGS
+    assert _census_bindings(chain.root, chain.mapping) == ALS_BINDINGS
     assert len(_bindings(chain.graph)) == ALS_BINDINGS
-    assert len(_exported_addresses(chain.ao)) == ALS_DISTINCT_PVS
+    assert len(_kept_addresses(chain.ao, chain.document)) == ALS_DISTINCT_PVS
     counts = _build_index_counts(chain.root, chain.ttl, tmp_path / "index.json")
     assert counts == {"bindings": ALS_BINDINGS, "channels": ALS_DISTINCT_PVS}
     for record in chain.passes:

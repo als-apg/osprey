@@ -72,3 +72,7 @@ directions:
     direction: write
     provenance: stated
     override: false
+judgments:
+  QM:
+    shared_pvs:
+      2: 2

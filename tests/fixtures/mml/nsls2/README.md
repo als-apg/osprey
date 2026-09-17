@@ -14,6 +14,15 @@ each as the paired `<machine>.<submachine>.ao.json` / `.ad.json` files the shipp
 | `nsls2.ltb.ad.json` | LTB Accelerator Data |
 | `mapping.yaml` | Reviewed mapping for both systems; `SQ` and `TUNE` are new classes under `Quadrupole` and `Instrumentation` |
 
+Shapes worth knowing: the export asks its reviewer for thirteen judgments. Ten
+families share power-supply records between magnets and are answered `keep_all`,
+so every device keeps its reading. `DCCT` lists one device but stages three
+`Monitor` channels, and the two beyond it become fields of their own, `Lifetime`
+and `Total`. Both carry the export's `mA`, because the unit sits on the whole
+`Monitor` field and the export states no other for them -- true of the total
+current, not of a lifetime. `TUNE` lists three devices and stages channels for
+two, and the third is dropped.
+
 Import both systems at once:
 
 ```

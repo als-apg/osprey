@@ -63,6 +63,17 @@ families:
       X:
         description: 'Field X: 1 channel via ChannelNames, hardware units mm.'
         provenance: stated
+  TUNE:
+    class: Instrumentation
+    aliases:
+    - TUNE
+    description: Booster tune monitors; the third device has no channel of its own.
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: 'Field Monitor: 2 channels via ChannelNames, hardware units kHz.'
+        provenance: stated
 directions:
   HCM.Monitor:
     direction: read
@@ -84,3 +95,13 @@ directions:
     direction: read
     provenance: stated
     override: false
+  TUNE.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+judgments:
+  HCM:
+    shared_pvs: keep_all
+  TUNE:
+    unbound_devices:
+      3: keep

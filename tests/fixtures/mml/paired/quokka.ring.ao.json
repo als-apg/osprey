@@ -72,6 +72,15 @@
       "Units": "Hardware",
       "HWUnits": "Amps",
       "PhysicsUnits": "1/m^2"
+    },
+    "Monitor": {
+      "MemberOf": ["SKEWQUAD", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "ChannelNames": ["QK:SQ1:RB", "QK:SQ2:RB", "QK:SQ3:RB", "QK:SQ4:RB"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "1/m^2"
     }
   },
   "KICKER": {
