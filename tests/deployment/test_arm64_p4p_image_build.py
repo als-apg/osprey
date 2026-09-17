@@ -205,7 +205,29 @@ requires_arm64_builder = pytest.mark.skipif(
 
 
 @pytest.fixture(scope="module")
-def image_context(tmp_path_factory: pytest.TempPathFactory) -> Path:
+def no_gateway_endpoint() -> Iterator[None]:
+    """Export the catalog's one gateway endpoint variable as an empty string.
+
+    A run that names no gateway exports the variable empty rather than
+    leaving it out, and empty is a value: the config resolver keeps
+    ``${VAR}`` verbatim only while the variable is unset, so an empty export
+    substitutes and reaches the provider chain as an endpoint of ``""``.
+    This module renders a deployment to read its image ``Dockerfile``, which
+    is not a fact about any site's host, so the render below has to complete
+    under that.
+
+    Module-scoped because the render it guards is
+    :func:`image_context`, which is module-scoped too;
+    :class:`pytest.MonkeyPatch` is the non-fixture form of the
+    function-scoped ``monkeypatch``, which a module fixture cannot request.
+    """
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("ALS_APG_BASE_URL", "")
+        yield
+
+
+@pytest.fixture(scope="module")
+def image_context(tmp_path_factory: pytest.TempPathFactory, no_gateway_endpoint: None) -> Path:
     """A built hello-world deployment repo's image build context.
 
     Resolved through the production helper rather than spelled here, exactly as
@@ -214,7 +236,9 @@ def image_context(tmp_path_factory: pytest.TempPathFactory) -> Path:
     nothing about the shipped build path. ``--no-git`` because nothing here
     reads history, ``--skip-deps``/``--skip-lifecycle`` because only the render
     is wanted — that combination is docker-free, so this fixture works on hosts
-    where the build test below skips.
+    where the build test below skips. The provider is named for the same
+    reason: it is not what this module asserts about, so it is the one
+    built-in that needs no endpoint supplied to it.
     """
     repo = tmp_path_factory.mktemp("arm64_p4p_image_build") / PROJECT_NAME
     runner = CliRunner()
@@ -226,7 +250,7 @@ def image_context(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "--preset",
             "hello-world",
             "--set",
-            "provider=als-apg",
+            "provider=anthropic",
             "--set",
             "model=haiku",
             "--no-git",
