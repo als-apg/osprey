@@ -510,6 +510,36 @@ def chromium_browser() -> Iterator[Browser]:
         pw.stop()
 
 
+@pytest.fixture(autouse=True, scope="module")
+def _isolate_module_audit_zone(tmp_path_factory):
+    """Hold the ledger's seam redirected for a whole test module.
+
+    The fixture below does this per test, which covers every app built in a
+    test body. It cannot cover an app built by a MODULE-scoped fixture:
+    pytest sets every higher-scoped fixture up first, so such an app enters
+    its lifespan, serves requests and is torn down while the per-test
+    redirection has not been made. ``web_terminal``'s notebook-panel module
+    is that shape, and every record it fires -- ``http_mutation`` per
+    state-changing request, ``web_auth`` per authenticated one -- is filed in
+    that window.
+
+    Module-scoped rather than session-scoped on purpose. A session-scoped
+    redirection made anywhere under this directory could not be undone at the
+    directory's edge: it would still be installed for every test that runs
+    after this tree in the same worker, including the suites in
+    ``tests/audit`` that call the real ``writer.audit_dir()`` and assert what
+    it resolves to. A module-scoped one is torn down with the module that
+    needed it.
+
+    ``pytest.MonkeyPatch.context()`` rather than the ``monkeypatch`` fixture,
+    which is function-scoped and cannot be requested here.
+    """
+    zone = tmp_path_factory.mktemp("module-audit-zone") / "var" / "audit"
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(writer, "audit_dir", lambda: zone)
+        yield zone
+
+
 @pytest.fixture(autouse=True)
 def _isolate_audit_zone(tmp_path, monkeypatch):
     """Keep every record an interface-app test fires out of the live ledger.
