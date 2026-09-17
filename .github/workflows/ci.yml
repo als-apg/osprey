@@ -5557,6 +5557,10 @@ jobs:
       # subject of this lane, and a path that stops existing exits pytest 4 and
       # reds the step, whereas a renamed marker would silently select nothing.
       #
+      # Each module carries its own collection floor (`MIN_COLLECTED_TESTS`,
+      # asserted by its final test), so a file that survives a refactor while
+      # losing tests to it reds the step rather than passing on what is left.
+      #
       # Ordered cheapest first — the six that share the session container, then
       # the parity module with its own two boots — so a failure in the cheap
       # set is reported before the expensive work starts.
