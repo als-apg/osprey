@@ -188,6 +188,10 @@ HTTP_TIMEOUT_S = 30.0
 #: test is WHICH lane ran it, not how it scanned.
 PLAN_POINTS = 3
 
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 13
+
 
 # ---------------------------------------------------------------------------
 # Process + HTTP helpers
@@ -1307,3 +1311,17 @@ def test_lanes_off_renders_no_second_lane_containers(single_lane_repo: Path) -> 
         "a lanes-off build made the operator supply live-lane addressing it has "
         "no live lane to use it for"
     )
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_bluesky_lanes.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS
