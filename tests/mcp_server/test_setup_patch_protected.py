@@ -121,7 +121,6 @@ PROTECTED_CASES = [
 ]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("file,key_path", PROTECTED_CASES)
 async def test_protected_key_is_refused(render, file, key_path):
     """The envelope names the key, the file it did not touch, and the real channel."""
@@ -140,7 +139,6 @@ async def test_protected_key_is_refused(render, file, key_path):
     assert SENTINEL not in json.dumps(ctx["envelope"]), "the rejected value must not be echoed"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("key_path", RUNTIME_WRITE_PATH_KEYS)
 async def test_every_runtime_write_path_key_is_refused(render, key_path):
     """Repointing a runtime-write path moves what a safety layer treats as writable.
@@ -156,7 +154,6 @@ async def test_every_runtime_write_path_key_is_refused(render, key_path):
         await fn(file="config.yml", key_path=key_path, value=SENTINEL)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("file,key_path", PROTECTED_CASES)
 async def test_refusal_leaves_both_files_byte_identical(render, file, key_path):
     """Nothing is rewritten — not even round-tripped back to the same values."""
@@ -168,7 +165,6 @@ async def test_refusal_leaves_both_files_byte_identical(render, file, key_path):
     assert _snapshot(render) == before
 
 
-@pytest.mark.unit
 async def test_refusal_writes_one_audit_record(render):
     """One ledger line, naming the surface, the key and the owning channel."""
     fn = _get_setup_patch()
@@ -187,7 +183,6 @@ async def test_refusal_writes_one_audit_record(render):
     assert SENTINEL not in json.dumps(record), "the audit trail is not a place for the value"
 
 
-@pytest.mark.unit
 async def test_each_refusal_appends_its_own_record(render):
     """The log counts attempts — a retried refusal is a second line, not an overwrite."""
     fn = _get_setup_patch()
@@ -201,7 +196,6 @@ async def test_each_refusal_appends_its_own_record(render):
     ]
 
 
-@pytest.mark.unit
 async def test_refusal_emits_activity(render):
     """The operator sees the attempt in the feed, with the file and key but no value."""
     fn = _get_setup_patch()
@@ -219,7 +213,6 @@ async def test_refusal_emits_activity(render):
         assert SENTINEL not in piece, f"value leaked into the activity feed: {piece!r}"
 
 
-@pytest.mark.unit
 async def test_an_unprotected_key_still_patches(render):
     """The gate is a gate, not a wall: an ordinary key goes through untouched."""
     fn = _get_setup_patch()
@@ -235,7 +228,6 @@ async def test_an_unprotected_key_still_patches(render):
     assert notify.call_args.kwargs["detail"] == "config.yml: ui.theme"
 
 
-@pytest.mark.unit
 async def test_an_unprotected_mcp_key_still_patches(render):
     """The `.mcp.json` branch is gated on the same table, not on the file."""
     fn = _get_setup_patch()
@@ -249,7 +241,6 @@ async def test_an_unprotected_mcp_key_still_patches(render):
     assert on_disk["mcpServers"]["demo"]["disabled"] is True
 
 
-@pytest.mark.unit
 async def test_a_protected_key_is_refused_even_when_the_file_is_missing(render):
     """Existence-independence: no ``not_found`` oracle in front of the gate."""
     (render / ".mcp.json").unlink()
@@ -262,7 +253,6 @@ async def test_a_protected_key_is_refused_even_when_the_file_is_missing(render):
     assert len(_audit_records(render)) == 1
 
 
-@pytest.mark.unit
 async def test_a_protected_key_is_refused_even_when_the_file_is_unparseable(render):
     """A broken target cannot downgrade the refusal into an ``internal_error``."""
     (render / ".mcp.json").write_text("{ this is not json")
@@ -275,7 +265,6 @@ async def test_a_protected_key_is_refused_even_when_the_file_is_unparseable(rend
     assert _snapshot(render) == before
 
 
-@pytest.mark.unit
 async def test_the_file_allowlist_still_answers_first(render):
     """A file no writer may patch is a validation error, whatever the key says."""
     fn = _get_setup_patch()
@@ -285,7 +274,6 @@ async def test_the_file_allowlist_still_answers_first(render):
     assert _audit_records(render) == []
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("key_path", ["", "control_system..writes_enabled", "/control_system"])
 async def test_key_path_validation_still_answers_first(render, key_path):
     """A malformed path is not a protected key — it is not a key at all."""
@@ -296,7 +284,6 @@ async def test_key_path_validation_still_answers_first(render, key_path):
     assert _audit_records(render) == []
 
 
-@pytest.mark.unit
 async def test_a_broken_audit_recorder_does_not_rescue_the_write(render):
     """Reporting is best-effort; the refusal is not.
 
@@ -322,7 +309,6 @@ async def test_a_broken_audit_recorder_does_not_rescue_the_write(render):
     assert _snapshot(render) == before
 
 
-@pytest.mark.unit
 async def test_a_broken_activity_emit_does_not_rescue_the_write(render):
     """Same for the feed: an unreachable Web Terminal must not mask the refusal."""
     before = _snapshot(render)

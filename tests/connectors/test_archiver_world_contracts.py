@@ -82,7 +82,8 @@ from osprey.simulation.archiver_seed import (
 )
 from osprey.simulation.procedural import DEFAULT_NOISE_LEVEL
 from osprey.simulation.series import epoch_seconds_array
-from tests._container_support import is_docker_available, start_or_skip, stop_quietly
+from tests._container_support import is_docker_available
+from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 
 # ---------------------------------------------------------------------------
 # The world under test
@@ -275,10 +276,6 @@ def mongo():
     """
     if not is_docker_available():
         pytest.skip("Docker not available — needed to seed and read a real store.")
-    try:
-        from testcontainers.mongodb import MongoDbContainer
-    except ImportError:
-        pytest.skip("testcontainers[mongodb] not installed")
 
     username, password = "worlduser", "worldpass123"
     command = [
@@ -289,24 +286,21 @@ def mongo():
         "--setParameter",
         "ttlMonitorSleepSecs=1",
     ]
-    container = start_or_skip(
-        lambda: MongoDbContainer("mongo:7", username=username, password=password).with_command(
-            command
-        ),
-        label="mongodb-world-contracts",
-    )
-    try:
+    with started_mongo(
+        "mongodb-world-contracts",
+        username=username,
+        password=password,
+        command=command,
+    ) as (host, port):
         yield {
-            "host": container.get_container_host_ip(),
-            "port": int(container.get_exposed_port(27017)),
+            "host": host,
+            "port": port,
             "username": username,
             "password": password,
-            "auth_db": "admin",
+            "auth_db": MONGO_AUTH_DB,
             "database": "archiver_world_db",
             "collection": "pv_history",
         }
-    finally:
-        stop_quietly(container)
 
 
 @pytest.fixture(scope="module")

@@ -87,13 +87,11 @@ def sequence(monkeypatch):
     return calls
 
 
-@pytest.mark.unit
 def test_wire_name_is_channel_finder():
     """The paradigm ships under the shared channel-finder name, not a graph-specific one."""
     assert cf_graph_server.mcp.name == "channel-finder"
 
 
-@pytest.mark.unit
 def test_instructions_route_the_agent_through_the_read_path():
     """The agent is told to search the index first, to learn the shapes before
     writing Cypher, and that results are bounded."""
@@ -105,13 +103,11 @@ def test_instructions_route_the_agent_through_the_read_path():
     assert "bounded" in instructions
 
 
-@pytest.mark.unit
 def test_create_server_returns_the_module_instance(sequence, project):
     """Tool modules register on the module-level ``mcp``; the factory must return that one."""
     assert cf_graph_server.create_server() is cf_graph_server.mcp
 
 
-@pytest.mark.unit
 def test_startup_initialises_the_context_before_importing_tools(sequence, project):
     """Context first, tools second — the tools read the store through the context."""
 
@@ -120,7 +116,6 @@ def test_startup_initialises_the_context_before_importing_tools(sequence, projec
     assert sequence == ["server_context", "tool_imports"]
 
 
-@pytest.mark.unit
 def test_startup_never_initialises_workspace_singletons(sequence, project):
     """The forbidden step is armed to raise, and ``create_server()`` never trips it."""
     import osprey.mcp_server.startup as startup
@@ -133,7 +128,6 @@ def test_startup_never_initialises_workspace_singletons(sequence, project):
     assert sequence == ["server_context", "tool_imports"]
 
 
-@pytest.mark.unit
 def test_startup_leaves_a_usable_graph_context(sequence, project):
     """A project with no ``services.graphdb`` block still starts — unconfigured, not broken."""
     from osprey.mcp_server.graph.server_context import get_server_context
@@ -143,7 +137,6 @@ def test_startup_leaves_a_usable_graph_context(sequence, project):
     assert get_server_context().configured is False
 
 
-@pytest.mark.unit
 def test_entry_point_delegates_to_run_cf_main(monkeypatch):
     """``python -m …channel_finder_graph`` goes through the shared channel-finder entry."""
     from osprey.mcp_server.channel_finder_graph import __main__ as entry
@@ -160,7 +153,6 @@ _TOOLS_DIR = Path(cf_graph_server.__file__).parent / "tools"
 _MISSING = [name for name in TOOL_MODULES if not (_TOOLS_DIR / f"{name}.py").exists()]
 
 
-@pytest.mark.unit
 @pytest.mark.skipif(bool(_MISSING), reason=f"tool modules not written yet: {_MISSING}")
 def test_create_server_registers_every_tool(project):
     """The real startup registers all four tools — and pulls in ``graph.server`` doing it.

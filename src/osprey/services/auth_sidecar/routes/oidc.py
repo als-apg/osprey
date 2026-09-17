@@ -785,6 +785,61 @@ def _claims_options(settings: AuthSettings) -> dict[str, dict[str, list[str]]]:
     }
 
 
+def _claims_request(settings: AuthSettings, binding: RoleBinding) -> dict[str, Any] | None:
+    """The OIDC ``claims`` request parameter, or ``None`` when it is not asked for.
+
+    OIDC Core §5.4 lets a provider deliver scope-requested claims from the
+    UserInfo endpoint rather than in the ID token, and a provider that reads
+    the section strictly (Connect2id, for one) does exactly that under the
+    code flow. This sidecar reads the identity only from the signed ID token
+    and never calls UserInfo, so against such a provider ``scopes`` alone
+    produces a token with no identity claim and every login is refused. The
+    ``claims`` parameter (§5.5) is the spec's own way to ask for a claim *in
+    the ID token*, and this is that request — built from the claims this
+    sidecar actually reads, so a deployment turns it on with one boolean and
+    never hand-writes claims JSON that could drift from what the callback
+    checks.
+
+    Every member goes under ``id_token``, never ``userinfo``. The identity
+    claim is **essential**: without it the login is refused, which is what
+    the spec's ``essential`` means. ``email_verified`` is asked for
+    voluntarily when the identity is an address, because
+    :func:`token_admissible` reads it. The role-binding claim is asked for
+    voluntarily when the deployment binds roles, because
+    :func:`_resolved_role` needs it — voluntary, not essential, because its
+    absence has its own audited category and a provider refusing the whole
+    request over a missing group claim would hide it.
+
+    ``hd`` is not requested: it is Google's own claim and Google sends it
+    unasked, while naming it to a provider that does not know it invites a
+    refusal of the whole request for a claim that is only ever corroboration.
+
+    Off by default (:data:`~osprey.services.auth_sidecar.app.ENV_OIDC_CLAIMS_IN_ID_TOKEN`):
+    the parameter is optional in the spec, many providers ignore it, and one
+    may reject an authorization request that carries it. With the flag off
+    the authorization URL is exactly what it was before this existed.
+
+    Args:
+        settings: The deployment's settings; ``oidc_claims_in_id_token`` is
+            the switch and ``oidc_claim`` the identity claim asked for.
+        binding: The deployment's role binding, whose ``claim`` is added
+            when :attr:`RoleBinding.configured`.
+
+    Returns:
+        The parameter as a mapping ready for :func:`json.dumps`, or ``None``
+        when the deployment does not ask for it.
+    """
+    if not settings.oidc_claims_in_id_token:
+        return None
+    identity = (settings.oidc_claim or "").strip()
+    id_token: dict[str, Any] = {identity: {"essential": True}}
+    if identity == "email":
+        id_token[EMAIL_VERIFIED_CLAIM] = None
+    if binding.configured and binding.claim and binding.claim != identity:
+        id_token[binding.claim] = None
+    return {"id_token": id_token}
+
+
 def _current_session(request: Request) -> SessionState:
     """The browser's auth session, or a fresh one.
 
@@ -908,8 +963,17 @@ async def oidc_login(
     # Deliberately not `authorize_redirect`, which is these three steps with the
     # state value kept inside it. The state is what binds this handshake to the
     # user whose card was clicked, so this route needs it in hand.
+    #
+    # Authlib forwards any extra keyword into the authorization URL's query,
+    # which is how the OIDC `claims` request parameter travels when the
+    # deployment asks for one. Passed only then, so a deployment that does not
+    # sends the same URL it always has.
+    extra: dict[str, str] = {}
+    claims_request = _claims_request(settings, _role_binding(request))
+    if claims_request is not None:
+        extra["claims"] = json.dumps(claims_request, separators=(",", ":"))
     try:
-        authorization = await client.create_authorization_url(redirect_uri)
+        authorization = await client.create_authorization_url(redirect_uri, **extra)
     except httpx.HTTPError:
         logger.warning("oidc login failed: the issuer's discovery document is unreachable")
         raise HTTPException(

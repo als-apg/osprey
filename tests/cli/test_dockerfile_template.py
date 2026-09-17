@@ -31,6 +31,7 @@ from click.testing import CliRunner
 
 from osprey.cli.main import cli
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port, layout_ports
+from tests.deployment._pip_probe import primer_pip_argv
 from tests.deployment._proxy_idiom import assert_apt_runs_carry_proxy_idiom
 
 # The site-extension contract: exactly these quoted build ARGs, with these
@@ -38,6 +39,7 @@ from tests.deployment._proxy_idiom import assert_apt_runs_carry_proxy_idiom
 EXPECTED_ARGS = {
     "OSPREY_PIP_SPEC": "osprey-framework",
     "OSPREY_DEV": "",
+    "OSPREY_PIP_PRE": "",
     "PIP_NO_PROXY": "",
     "PIP_INDEX_URL": "",
     "PIP_EXTRA_INDEX_URL": "",
@@ -329,6 +331,45 @@ class TestDockerfileContent:
         assert "pip install --no-cache-dir osprey-framework" in deps
         assert "exit 1" in deps
 
+    def test_deps_run_admits_prereleases_when_the_pin_is_one(self, hello_project, tmp_path):
+        """A beta framework pin exists only beside a beta ``osprey-connectors``,
+        and plain pip never picks a pre-release for a requirement that names
+        none — so under ``OSPREY_PIP_PRE=1`` the primer install carries
+        ``--pre`` and the whole resolve admits pre-releases."""
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        argv = primer_pip_argv(
+            deps,
+            tmp_path,
+            {"OSPREY_PIP_SPEC": "osprey-framework==2026.9.0b2", "OSPREY_PIP_PRE": "1"},
+        )
+        assert "--pre" in argv, argv
+        assert "osprey-framework==2026.9.0b2" in argv
+
+    def test_deps_run_stays_strict_for_a_stable_pin(self, hello_project, tmp_path):
+        """Without the flag nothing admits pre-releases: a stable pin must not
+        let any transitive dependency resolve to a beta."""
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        argv = primer_pip_argv(
+            deps, tmp_path, {"OSPREY_PIP_SPEC": "osprey-framework==2026.9.0", "OSPREY_PIP_PRE": ""}
+        )
+        assert "--pre" not in argv, argv
+
+    def test_deps_run_maps_the_bypass_list_only_when_it_is_set(self, hello_project):
+        """An unset ``PIP_NO_PROXY`` leaves an inherited bypass list alone.
+
+        The RUN opens by bridging the uppercase proxy names onto the lowercase
+        ones apt reads, and the site's bypass list is layered on top of that.
+        Exporting it unguarded writes an empty ``NO_PROXY``/``no_proxy`` over
+        the bridge whenever the deployment declares no list — which is every
+        build that did not ask for one, and the failure is an apt fetch that
+        goes through a proxy the build host meant it to bypass.
+        """
+        deps = self._deps_run_body((hello_project / "Dockerfile").read_text())
+        assert (
+            '[ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"'
+            in deps
+        ), f"the bypass-list export is not gated on the ARG being set:\n{deps}"
+
     def test_wheel_run_force_reinstalls_and_checks(self, hello_project):
         """The wheel RUN reinstalls osprey from the staged wheel with
         ``--no-deps --force-reinstall`` and validates with ``pip check``."""
@@ -402,7 +443,9 @@ class TestDockerfileContent:
             flags=re.MULTILINE,
         )
         assert match, "missing the manifest COPY sibling idiom"
-        deps_pos = text.index('pip install --no-cache-dir "$OSPREY_PIP_SPEC"')
+        deps_pos = text.index(
+            'pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "$OSPREY_PIP_SPEC"'
+        )
         assert match.start() < deps_pos, "manifest COPY must precede the deps RUN"
 
     def test_deps_run_installs_manifest_before_toolchain_purge(self, hello_project):

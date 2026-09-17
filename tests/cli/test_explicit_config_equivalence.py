@@ -391,7 +391,7 @@ def _retired_upstream_link_deltas(*documents: str) -> tuple[Delta, ...]:
         for document in documents
         for path, fixture in (
             ("web.docs_url", "https://als-apg.github.io/osprey"),
-            ("web.feedback.email", "thellert@lbl.gov"),
+            ("web.feedback.email", "alice@example.com"),
             ("web.feedback.github_repo", "als-apg/osprey"),
         )
     )
@@ -505,7 +505,12 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     # presets already render `hooks.debug: true`, so they gain nothing.
     "hello-world/unset": (
         Delta(document="root", path="hooks.debug", fixture=ABSENT, live=False),
-        *_entry_publish_deltas("root"),
+        # hello-world dropped the two ARIEL logbook rows for a server it
+        # disables, so where the fixture carries `entry_create` the live render
+        # carries nothing, and `entry_publish` — which the fixture predates and
+        # every other ARIEL-gating preset gained — never reaches this cell at
+        # all, so no delta declares it here.
+        Delta(document="root", path="approval.tools.entry_create", fixture="always", live=ABSENT),
         *_rail_tool_deltas("root"),
     ),
     "ariel-standalone/unset": _standalone_catalog_delta()

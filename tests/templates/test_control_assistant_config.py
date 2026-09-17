@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from tests._config_render_context import CONFIG_TEMPLATE, MINIMAL_CONFIG_CONTEXT
 
 import osprey.profiles
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
@@ -39,12 +40,9 @@ from osprey.cli.build_profile_archiver import _expand_dotted
 from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.build_profile_resolve import resolve_build_profile
 from osprey.cli.templates.manager import TemplateManager, _enable_flags
-from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.providers import load_provider_catalog
-from osprey.profiles.web_panels import BUILTIN_PANELS
 
 PRESET = "control-assistant"
-CONFIG_TEMPLATE = "project/config.yml.j2"
 PRESET_PATH = Path(osprey.profiles.__file__).parent / "presets" / f"{PRESET}.yml"
 
 
@@ -64,14 +62,12 @@ def _ctx(profile: BuildProfile) -> dict[str, Any]:
     """
     mode = profile.channel_finder_mode or ""
     return {
-        "project_name": "demo",
-        "project_root": "/repos/demo",
+        **MINIMAL_CONFIG_CONTEXT,
+        # This module renders against the packaged catalog on purpose: what it
+        # pins is what the preset ships, not what a test catalog reads like.
+        "provider_catalog": load_provider_catalog(None).entries,
         "default_provider": profile.provider,
         "default_model": profile.model,
-        "port_base": DEFAULT_PORT_BASE,
-        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
-        "provider_catalog": load_provider_catalog(None).entries,
-        "builtin_panels": sorted(BUILTIN_PANELS),
         "selected_web_panels": list(profile.web_panels),
         "default_panel": profile.default_panel,
         "panel_presets": profile.panel_presets,

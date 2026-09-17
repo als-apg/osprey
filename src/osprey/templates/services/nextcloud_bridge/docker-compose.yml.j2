@@ -1,3 +1,11 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+-#}
 {#- The network axis — this service's network membership and the file-level
     stanza that matches it — is rendered by the shared macro rather than spelled
     out here, so every service template states the same topology the same way
@@ -11,6 +19,10 @@
     way. With none declared it emits nothing and this file renders exactly
     as it did before the axis existed. -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- The site's build settings — a proxy CA, pip's bypass list, an internal
+    package index — are rendered by the shared macro rather than spelled out
+    per template, so every image OSPREY builds is handed the same set. -#}
+{%- import "services/_site_image_args.j2" as site -%}
 # The nextcloud-bridge service polls Nextcloud Talk rooms and dispatches
 # mentions of the bot account through the osprey.dispatch pair (see
 # src/osprey/bridges/nextcloud_talk/). It is a poller, not a server: it opens
@@ -73,9 +85,13 @@ services:
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{{- site.build_args(site_image_build_args | default({})) }}
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
+{%- if osprey_pip_pre | default(false) %}
+        OSPREY_PIP_PRE: "1"
+{%- endif %}
 {% if 'event_dispatcher' in deployed_services %}
     # Only when the dispatch pair is co-deployed: the bridge's boot sequence
     # reconciles in-flight runs against the dispatcher before accepting a single

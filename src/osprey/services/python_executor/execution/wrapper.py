@@ -1560,7 +1560,15 @@ if not _execution_dir.exists():
         The table covers three kinds of route: the control-system client
         libraries themselves, the process-spawning surface that could shell out
         to ``caput``, and ``ctypes``, which reaches Channel Access without
-        importing any client package at all. Each patched attribute is also
+        importing any client package at all. The ``ctypes`` rows are gated
+        rather than refused outright, because a readonly run reads through
+        ``osprey.runtime`` and its EPICS connector is pyepics, which reaches
+        Channel Access by loading ``libca`` through ``ctypes``: a load is let
+        through only while pyepics' own ``initialize_libca`` is on the stack,
+        and the handle it gets back has its put entry points refused, so the
+        raw route through the library is closed like every other spelling.
+        Every other load refuses, pyepics present or not. Each patched
+        attribute is also
         followed back to the module that defined it, so a write a package
         merely re-exports refuses under both of its spellings. That step is
         what covers the defining modules no table can enumerate — PyTango
@@ -1605,6 +1613,55 @@ if not _execution_dir.exists():
                 raise RuntimeError("@@REFUSAL@@")
 
 
+            # The shared-library loaders are the one refusal with an exception:
+            # pyepics, which ``osprey.runtime`` reads through, reaches Channel
+            # Access by loading ``libca`` via ``ctypes``. A load is permitted
+            # only while pyepics' own ``initialize_libca`` is on the stack —
+            # matched by code object, not by name, so a same-named function
+            # opens nothing — and the handle it returns has its put entry
+            # points refused, so the raw route through the library is closed
+            # as every other spelling is. Absent pyepics, every load refuses.
+            _osprey_gated_loader_rows = ("ctypes", "ctypes.LibraryLoader")
+            _osprey_handle_put_symbols = ("ca_array_put", "ca_array_put_callback")
+
+
+            def _osprey_pyepics_is_loading(_sys=_osprey_sys, _max_depth=8):
+                \"\"\"True while ``epics.ca.initialize_libca`` is a near caller.\"\"\"
+                _code = getattr(
+                    getattr(_sys.modules.get("epics.ca"), "initialize_libca", None),
+                    "__code__",
+                    None,
+                )
+                if _code is None:
+                    return False
+                # Frame 0 is this function, frame 1 the gated loader.
+                _frame = _sys._getframe(2)
+                for _ in range(_max_depth):
+                    if _frame is None:
+                        return False
+                    if _frame.f_code is _code:
+                        return True
+                    _frame = _frame.f_back
+                return False
+
+
+            def _osprey_gate_loader(_original):
+                def _osprey_gated_load(*_args, **_kwargs):
+                    if not _osprey_pyepics_is_loading():
+                        _osprey_readonly_refuse()
+                    _handle = _original(*_args, **_kwargs)
+                    try:
+                        for _symbol in _osprey_handle_put_symbols:
+                            setattr(_handle, _symbol, _osprey_readonly_refuse)
+                    except Exception:
+                        # A handle whose put symbols cannot be closed is not
+                        # handed out at all.
+                        _osprey_readonly_refuse()
+                    return _handle
+
+                return _osprey_gated_load
+
+
             def _osprey_resolve(dotted):
                 \"\"\"Import the longest importable prefix of *dotted*, then walk attributes.
 
@@ -1641,7 +1698,11 @@ if not _execution_dir.exists():
                         if not hasattr(_osprey_obj, _osprey_attr):
                             continue
                         _osprey_original = getattr(_osprey_obj, _osprey_attr)
-                        setattr(_osprey_obj, _osprey_attr, _osprey_readonly_refuse)
+                        if _osprey_dotted in _osprey_gated_loader_rows:
+                            _osprey_replacement = _osprey_gate_loader(_osprey_original)
+                        else:
+                            _osprey_replacement = _osprey_readonly_refuse
+                        setattr(_osprey_obj, _osprey_attr, _osprey_replacement)
                         # A re-export leaves a second spelling behind that no
                         # table can name for every binding: PyTango defines
                         # its writes in ``tango.device_proxy`` and
@@ -1666,9 +1727,7 @@ if not _execution_dir.exists():
                                 and getattr(_osprey_home, _osprey_name, None)
                                 is _osprey_original
                             ):
-                                setattr(
-                                    _osprey_home, _osprey_name, _osprey_readonly_refuse
-                                )
+                                setattr(_osprey_home, _osprey_name, _osprey_replacement)
                         except Exception as _osprey_home_error:
                             # Secondary, best-effort step: the attribute the
                             # table names already refuses. A failure here — an
@@ -1701,6 +1760,7 @@ if not _execution_dir.exists():
                     )
 
             del _osprey_importlib, _osprey_sys, _osprey_targets, _osprey_resolve
+            del _osprey_gated_loader_rows, _osprey_gate_loader
         """
         return textwrap.dedent(guard).strip().replace("@@REFUSAL@@", READONLY_REFUSAL)
 
@@ -1905,7 +1965,26 @@ if not _execution_dir.exists():
 """
 
     def _get_cleanup_and_export(self) -> str:
-        """Get cleanup and results export code."""
+        """Generate the tail of the script: cleanup, persistence, and the exit.
+
+        The ``except``/``finally`` of the output-capture block come first —
+        the failure record, the restored streams, the captured output echoed
+        to the real pipes, and the guards taken off. The persistence section
+        then runs at module level: ``results.json``, the figures, and last of
+        all ``execution_metadata.json``, the record the executor reads the
+        run's outcome from.
+
+        The process then leaves with :func:`os._exit`, the way
+        ``osprey_connectors.ipc.host`` does, rather than through interpreter
+        shutdown. A control-system client holds native state whose shutdown
+        hooks can block or crash the process — pyepics' ``finalize_libca``
+        wedges once Channel Access was used from a worker thread, which the
+        EPICS connector always does — and a child that will not exit is
+        reported by the executor as a timeout long after its script finished.
+        Everything the executor reads is on disk or already flushed to the
+        pipes by then, so the abrupt exit costs nothing; the exit code stays 0
+        because the outcome is read from the record, not from the status.
+        """
 
         # Output captured content so the host process can see it
         host_output_section = textwrap.dedent(
@@ -2053,23 +2132,42 @@ if not _execution_dir.exists():
         """
         ).strip()
 
-        # Combine all parts properly (4-space indent to sit inside the finally block)
-        indented_host_section = "\n".join(
-            "    " + line if line.strip() else line for line in host_output_section.split("\n")
-        )
-        indented_guard_restore = "\n".join(
-            "    " + line if line.strip() else line for line in guard_restore_section.split("\n")
-        )
-        indented_error_handling = "\n".join(
-            "    " + line if line.strip() else line for line in metadata_error_handling.split("\n")
-        )
+        # The exit wraps the whole persistence section so that every path
+        # through the tail ends here: a record written, a record that could
+        # not be written, or a persistence step that raised before the record
+        # was reached. The last case is the one the interpreter would
+        # otherwise report through a non-zero status, so it keeps that status
+        # — with the traceback printed first, since ``os._exit`` prints
+        # nothing.
+        exit_section = textwrap.dedent(
+            """
+            except BaseException:
+                traceback.print_exc()
+                _osprey_exit_status = 1
+            finally:
+                # Leave without interpreter shutdown: a control-system client's
+                # shutdown hooks can block or crash the process, and everything
+                # the executor reads is persisted or flushed by now.
+                sys.stdout.flush()
+                sys.stderr.flush()
+                os._exit(_osprey_exit_status)
+        """
+        ).strip()
+
+        def indent(block: str, spaces: int) -> str:
+            pad = " " * spaces
+            return "\n".join(pad + line if line.strip() else line for line in block.split("\n"))
 
         return "\n".join(
             [
                 base_cleanup,
-                indented_host_section,
-                indented_guard_restore,
-                file_persistence_section,
-                indented_error_handling,
+                # 4-space indent to sit inside the finally block
+                indent(host_output_section, 4),
+                indent(guard_restore_section, 4),
+                "_osprey_exit_status = 0",
+                "try:",
+                indent(file_persistence_section, 4),
+                indent(metadata_error_handling, 8),
+                exit_section,
             ]
         )

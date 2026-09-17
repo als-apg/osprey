@@ -446,14 +446,6 @@ def _pty_pid(app: Any, session_id: str) -> int:
     return pid
 
 
-#: Seeded into every page before load: marks the onboarding tour as already
-#: dismissed. Under the default `once` policy the invite card (scrim + modal)
-#: would otherwise overlay the shell on the fresh profile these tests run
-#: under and swallow every chip and popover click this suite drives. The tour
-#: has its own dedicated coverage (tour.test.mjs).
-_DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
-
-
 def _row(page: Page, target: str) -> Any:
     """The popover row for *target*.
 
@@ -469,7 +461,9 @@ def _toggle(page: Page, target: str) -> Any:
     return _row(page, target).locator(".ctc-toggle")
 
 
-def _settled_chip(browser: Browser, base_url: str) -> tuple[Page, str | None]:
+def _settled_chip(
+    browser: Browser, base_url: str, *, init_script: str | None = None
+) -> tuple[Page, str | None]:
     """Open the hub and wait until the chip speaks for a writable deployment.
 
     A visible chip already means the whole chain ran: the module mounted and
@@ -483,6 +477,17 @@ def _settled_chip(browser: Browser, base_url: str) -> tuple[Page, str | None]:
     reaching this line proves the record is there and this terminal may write
     it — while it is false the popover locks every toggle.
 
+    Args:
+        browser: The chromium instance the suite runs against; one page is
+            opened on it per call.
+        base_url: The hub this page loads.
+        init_script: An optional probe, seeded at document start — before
+            ``goto`` — rather than evaluated once the page is settled. A probe
+            that has to see the page's FIRST socket, fetch or frame cannot be
+            installed after ``goto``: by then the module graph has already run
+            and the thing it meant to count has already happened. Default
+            ``None``, which is every call site that only wants a settled chip.
+
     Returns:
         (page, session_id) — the id ``terminal.js`` settled on, which is
         ``None`` in a view whose terminal never connects. Nothing the chip does
@@ -490,7 +495,8 @@ def _settled_chip(browser: Browser, base_url: str) -> tuple[Page, str | None]:
         respawned.
     """
     page = browser.new_page()
-    page.add_init_script(_DISMISS_TOUR)
+    if init_script:
+        page.add_init_script(init_script)
     page.goto(base_url, wait_until="domcontentloaded")
 
     expect(page.locator(CHIP)).to_be_visible(timeout=TIMEOUT)

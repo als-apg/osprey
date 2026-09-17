@@ -58,9 +58,11 @@ sentinels and expanded at materialization, so a byte-comparison against a live
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
 expansions.
 
-``providers.yml`` is the fourth thing not frozen. Init copies the packaged
-catalog beside the profile verbatim, so the fixture reads that file rather than
-holding a second copy of it; see :func:`packaged_providers_yml`.
+``providers.yml`` and ``triggers.yml`` are the fourth and fifth things not
+frozen. Init copies the packaged provider catalog and the packaged tutorial
+trigger file into the repo verbatim, so the fixture reads both rather than
+holding a second copy of either; see :func:`packaged_providers_yml` and
+:func:`packaged_tutorial_triggers_yml`.
 
 Usage::
 
@@ -75,6 +77,7 @@ Usage::
 from __future__ import annotations
 
 import contextlib
+import importlib.resources
 import os
 import re
 import subprocess
@@ -428,6 +431,11 @@ config:
   # Same machine model as the mock connector, so `osprey sim apply` stays
   # consistent whichever connector is active.
   control_system.connector.virtual_accelerator.simulation_file: data/simulation/machine.json
+  # Fractional noise on the synthesised readings. Unset falls through to
+  # `control_system.connector.mock.noise_level`, and then to the simulator's
+  # own 0.01; `0` serves the channels flat, which is what a comparison of two
+  # reads wants. It reaches the container as VA_NOISE_LEVEL.
+  # control_system.connector.virtual_accelerator.noise_level: 0.01
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
   # `control-assistant-va-readwrite` persona is exactly this key.
@@ -484,6 +492,32 @@ config:
   # control_system.connector.epics.pva_channels: ["*:IMAGE*", "*:ARRAY*"]
   # control_system.connector.epics.pva_gateway.address: your-pva-gateway.example.com
   # control_system.connector.epics.pva_gateway.use_name_server: false
+  # DOOCS connector: no coordinates of its own. doocs4py reaches the ENS the
+  # facility's own DOOCS environment already names, so the empty coordinate set
+  # is the point of this block rather than an omission — what is left is the
+  # four leaves every connector type answers.
+  # Write posture for the DOOCS machine. Same tri-state as the epics leaf
+  # above: stating it pins it, and only a literal true arms writes.
+  # control_system.connector.doocs.writes_enabled: false
+  # Limits posture for the DOOCS machine alone, both leaves required.
+  # control_system.connector.doocs.limits_checking.enabled: true
+  # control_system.connector.doocs.limits_checking.allow_unlisted_channels: false
+  # Property the target switch reads to prove this machine is reachable.
+  # control_system.connector.doocs.probe_channel: FACILITY/DEVICE/LOCATION/PROPERTY
+  # TANGO connector: one coordinate of its own, the device database, spelled
+  # `host:port`. Leave `tango_host` unset and PyTango reads the TANGO_HOST the
+  # environment already carries; write it to name a database that environment
+  # does not.
+  # Not a deployment port: 10000 is TANGO's own convention for the device
+  # database, not a port this deployment publishes.
+  # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
+  # Seconds a device call waits before it is given up on.
+  # control_system.connector.tango.timeout: 5.0
+  # The same four leaves as every other connector type, for the TANGO machine.
+  # control_system.connector.tango.writes_enabled: false
+  # control_system.connector.tango.limits_checking.enabled: true
+  # control_system.connector.tango.limits_checking.allow_unlisted_channels: false
+  # control_system.connector.tango.probe_channel: sys/tg_test/1/ampli
   # Target switch: how a running session moves between the connectors above.
   #
   # Seconds in-flight operations get to finish on the old target before it is
@@ -516,6 +550,26 @@ config:
   # `archiver.type: epics_archiver`.
   # archiver.epics_archiver.url: https://your-archiver.example.com:8443
   # archiver.epics_archiver.timeout: 60
+  # Only when a reverse proxy in front of the appliance publishes its
+  # `/retrieval` servlet under another prefix; the bare appliance needs no line.
+  # archiver.epics_archiver.retrieval_path: /retrieval
+  # MongoDB archiver pointed at a store this deployment does NOT run. The
+  # coordinates above are derived from `va_archiver:`; spell them here instead
+  # to read an archive someone else keeps, and drop the `va_archiver:` block so
+  # this deployment does not record a second history beside it.
+  # archiver.mongodb_archiver.host: your-mongo.example.com
+  # archiver.mongodb_archiver.port: 27017
+  # archiver.mongodb_archiver.name: your-archive-database
+  # archiver.mongodb_archiver.collection: your-archive-collection
+  # archiver.mongodb_archiver.auth: your-auth-database
+  # archiver.mongodb_archiver.username: your-readonly-user
+  # archiver.mongodb_archiver.password_env: OSPREY_ARCHIVER_PASSWORD
+  # archiver.mongodb_archiver.timeout: 60
+  # DOOCS local history: like the DOOCS connector it takes no coordinates and
+  # reaches the ENS the environment names. Both knobs are optional — a centered
+  # moving average over this many seconds, and the read budget.
+  # archiver.doocs_archiver.avg_window: 20
+  # archiver.doocs_archiver.timeout: 60
 
   # ── Scan plans (Bluesky) ───────────────────────────────────────────────────
   # Both servers are off by default in OSPREY. Turn them on so the agent can
@@ -713,11 +767,6 @@ config:
   ariel.enhancement_modules.text_embedding.models:
     - name: nomic-embed-text
       dimension: 768
-  # IVFFlat `lists` for the vector index, chosen when the index is created.
-  # Rule of thumb: rows/1000 for corpora up to a million entries. It cannot be
-  # derived — `osprey ariel migrate` runs against an empty table — and changing
-  # it later needs the index dropped and recreated.
-  # ariel.enhancement_modules.text_embedding.index_lists: 224
   # qmd export: one markdown file per entry into the mirror tree the sidecar
   # indexes. On for the same reason `hybrid` above is; an enabled export with
   # no mirror_path is refused at startup.
@@ -1110,10 +1159,15 @@ config:
       # publishes the identity claim under `profile` or `email`; add whatever
       # scope yours publishes it under. `openid` cannot be dropped: without it
       # the provider issues no ID token and the sidecar refuses every login.
+      # If every login fails with "no usable claim" although the scope was
+      # requested, the provider serves scope claims from UserInfo rather than
+      # in the ID token (OIDC Core §5.4); `claims_in_id_token: true` asks for
+      # them in the token instead.
       #   oidc:
       #     issuer: https://idp.example.org
       #     claim: preferred_username
       #     scopes: [openid, profile, email]
+      #     claims_in_id_token: false
     # Which tier a user lands on is pinned per entry below. Single sign-on can
     # pick it instead by mapping provider groups onto declared roles — see
     # "Let single sign-on pick the tier" in the multi-user login guide.
@@ -1371,6 +1425,18 @@ panel_presets: {}
 #
 # gchat_bridge:
 #   trigger: gchat-question
+
+# --- Microsoft Teams bridge --------------------------------------------------
+# Answers questions asked from a Microsoft Teams channel or chat. The trigger
+# name must match one declared in the dispatch triggers file.
+#
+# The Azure credentials and destinations are runtime env, not profile keys:
+# declare TEAMS_APP_ID, TEAMS_APP_SECRET, TEAMS_TENANT_ID,
+# TEAMS_SERVICEBUS_CONNECTION_STRING and TEAMS_SERVICEBUS_QUEUE under
+# `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud).
+#
+# teams_bridge:
+#   trigger: teams-question
 """
 
 #: Deployment coordinates, filled in. Where this repo runs once it leaves the
@@ -1906,104 +1972,28 @@ config:
 # SOURCE zone — dispatch triggers
 # ─────────────────────────────────────────────────────────────────────────────
 
-TRIGGERS_YML = """\
-# triggers.yml
-#
-# Four control-system-free demonstration triggers shipped with the
-# control-assistant preset. Each illustrates one event-dispatch concept so a
-# new user can exercise the pipeline end-to-end without any facility hardware:
-#
-#   1. hello-dispatch    — anatomy of a trigger + first successful round-trip
-#   2. triage-event      — a webhook payload becomes the agent's context
-#   3. save-report       — tool use, a short multi-turn loop, and persistence
-#   4. denied-tool-demo  — the worker's server-side tool denylist (safety)
-#
-# The dispatcher answers on this deployment's dispatcher port:
-# `deployment.port_base` + 10, which is 10010 unless the deployment moved its
-# port block. Fire one with (`osprey up` mints EVENT_DISPATCHER_TOKEN into this
-# repo's .env; load it first:
-# export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
-#   curl -X POST http://localhost:10010/webhook/hello-dispatch \\
-#     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
-#     -H "Content-Type: application/json" -d '{}'
-#
-# Watch progress stream in the dashboard at http://localhost:10010/dashboard
-#
-# (Retries fire on *dispatch failure* — i.e. when the dispatcher cannot reach
-# the worker — via the per-trigger `on_error: retry` policy. That path is not
-# exercised by a curl against a healthy stack; see the docs and the unit test
-# tests/unit/dispatch/test_server_routes.py for the retry/backoff behaviour.)
 
-dispatcher:
-  # The dispatcher forwards each fired trigger to this worker. The compose
-  # template names the single worker "dispatch-worker-1", one port above the
-  # dispatcher itself — `deployment.port_base` + 11, so 10011 at the default
-  # base. Moving the block moves both. Under `dispatch.network: host` the build
-  # rewrites this line to the worker's host address instead.
-  # (Multi-worker load distribution is not yet implemented — see docs.)
-  dispatch_target: http://dispatch-worker-1:10011
-  max_concurrent_runs: 2
-  max_queue_depth: 50
+def packaged_tutorial_triggers_yml() -> str:
+    """The packaged ``tutorial_triggers.yml``, which ``osprey init`` copies verbatim.
 
-triggers:
-  # 1. Anatomy + minimal end-to-end check: webhook in, one sentence out, no tools.
-  - name: hello-dispatch
-    source: webhook
-    action:
-      prompt: >-
-        Reply with a single friendly sentence confirming the event-dispatch
-        pipeline is working end to end. Do not use any tools.
-      allowed_tools: []
+    Read rather than frozen, for the same reason the provider catalog is: the
+    package owns this file's content, so a copy here would prove only that
+    someone remembered to update two places. What the byte comparison
+    downstream is for is that init copies the trigger file through unchanged,
+    and that is what reading it here asserts.
 
-  # 2. The webhook JSON body arrives as the agent's context. Zero tools keeps
-  #    this cheap and focused on the payload lesson. Try it with a realistic
-  #    event body, e.g.:
-  #      curl -X POST http://localhost:10010/webhook/triage-event \\
-  #        -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
-  #        -H "Content-Type: application/json" \\
-  #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0}'
-  - name: triage-event
-    source: webhook
-    action:
-      prompt: >-
-        An automated monitor fired this event and handed you its JSON payload as
-        context. In plain language: summarize what the event reports, say whether
-        it looks normal or concerning given any threshold in the payload, and
-        outline what you would investigate first. Do not use any tools — reason
-        only from the payload.
-      allowed_tools: []
+    Resolved the way the CLI resolves it
+    (``osprey.cli.build_profile_presets._triggers_dir``), so the exemplar and
+    the emission it is compared against read one file.
+    """
+    package = importlib.resources.files("osprey.profiles.triggers")
+    return (Path(str(package)) / "tutorial_triggers.yml").read_text(encoding="utf-8")
 
-  # 3. Tool use + a short multi-turn loop + persistence via the workspace MCP
-  #    artifact tool. Artifacts land in the worker's mounted workspace volume,
-  #    so they survive the run. This is the sanctioned persistence channel: the
-  #    preset's memory guard intentionally blocks arbitrary file writes, so the
-  #    agent persists through the artifact tool.
-  - name: save-report
-    source: webhook
-    action:
-      prompt: >-
-        Investigate this event and save a short status report. First take a
-        quick look at the working directory (Glob/Read) to ground yourself, then
-        use the workspace artifact tool to save a concise markdown report
-        (content_type markdown) summarizing the event payload and what you would
-        do next. Confirm the artifact you created.
-      allowed_tools:
-        - Glob
-        - Read
-        - mcp__osprey_workspace__artifact_register
-        - mcp__osprey_workspace__create_document
 
-  # 4. Requests a tool the worker blocks server-side; teaches the denylist.
-  - name: denied-tool-demo
-    source: webhook
-    action:
-      prompt: >-
-        Attempt to fetch https://example.com with WebFetch and report what
-        happens. WebFetch is on the worker's server-side denylist, so the run is
-        rejected regardless of the tools this trigger requests — demonstrating
-        that the denylist is enforced independently of the trigger config.
-      allowed_tools: [WebFetch]
-"""
+#: The demonstration triggers the ``control-assistant`` preset ships, which
+#: ``init`` writes into a new repo as ``triggers.yml``. Resolved at import,
+#: because :data:`BASE_SOURCE_FILES` is built at import.
+TRIGGERS_YML = packaged_tutorial_triggers_yml()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2097,6 +2087,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 # ARGO_API_KEY=your-argo-api-key-here
 # STANFORD_API_KEY=your-stanford-api-key-here
 # ALS_APG_API_KEY=your-als-apg-api-key-here
+# ASKSAGE_API_KEY=your-asksage-api-key-here
 
 # Gateway endpoints. These providers front a gateway that is your own host, so
 # OSPREY ships no default: switch to one of them and it will not start until
@@ -2360,9 +2351,9 @@ CI_EXTRA_YML = """\
 #
 # .gitlab-ci.yml is emitted by `osprey scaffold ci` and will be overwritten the
 # next time it runs. This file never is — put anything facility-specific here:
-# extra tests, an IOC smoke check, a notification hook. It is included after
-# the scaffolded pipeline, so it can also override a job by redefining it under
-# the same name.
+# extra tests, an IOC smoke check, a notification hook. A job you add here runs
+# beside the scaffolded ones; reusing a scaffolded job's name merges the two and
+# the scaffolded pipeline's own keys win, so give a job of your own its own name.
 #
 # Example:
 #
@@ -2407,8 +2398,9 @@ GITLAB_CI_YML = """\
 # =============================================================================
 
 include:
-  # Facility-owned jobs, layered on top of everything below. Guarded by
-  # `exists` so a repo that deleted the file still has a valid pipeline.
+  # Facility-owned jobs. They run beside everything below and lose on every key
+  # this file sets. Guarded by `exists` so a repo that deleted the file still
+  # has a valid pipeline.
   - local: ci-extra.yml
     rules:
       - exists:
@@ -3136,8 +3128,10 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
 
     files = dict(BASE_SOURCE_FILES)
     files["profile.yml"] = profile.replace(_DEPLOY_BLOCK_MARKER + "\n", deploy_block)
-    # The provider catalog init writes beside the profile. Not in
-    # BASE_SOURCE_FILES because it is read from the package rather than frozen.
+    # The provider catalog init writes beside the profile, read from the
+    # package rather than frozen for the reason `triggers.yml` is: the
+    # package owns the content, and a copy here would prove only that
+    # someone remembered to update two places.
     files["providers.yml"] = packaged_providers_yml()
     if with_ci:
         files.update(CI_PIPELINE_FILES)

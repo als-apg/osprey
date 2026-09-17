@@ -141,6 +141,7 @@ def _add_search_modules(
     from osprey.registry import get_registry
 
     registry = get_registry()
+    registry.initialize(silent=True)
     for name in registry.list_ariel_search_modules():
         if not config.is_search_module_enabled(name):
             continue

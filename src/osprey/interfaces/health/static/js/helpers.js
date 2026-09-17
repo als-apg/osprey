@@ -2,21 +2,23 @@
 /*
  * System Health dashboard — pure, framework-free helpers.
  *
- * No imports: every function here is self-contained and side-effect-free apart
+ * Every function defined here is self-contained and side-effect-free apart
  * from DOM node construction. Keep it that way so the module stays trivially
  * testable in isolation. Ported from an earlier integration-status dashboard,
  * with the DOM builder aligned to the okf panel's el(tag, attrs, children)
  * signature and every status mapped to a CSS class name — never an inline
  * color literal.
+ *
+ * The rules this dashboard shares with the web terminal's health bar item —
+ * how a check name is shown, how severe a status is, which status wins — are
+ * not defined here. That item shows the same checks and this bundle is served
+ * through the panel proxy rather than to that page, so every shared rule lives
+ * in the design system and is re-exported below for this dashboard's own
+ * importers.
  */
 
-/**
- * Status severity, highest wins. `worst()` reduces a set of statuses to the
- * most severe present; an unknown status is treated as 0 (ok-like).
- *
- * @type {Record<string, number>}
- */
-export const STATUS_PRIORITY = { error: 3, warning: 2, skip: 1, ok: 0 };
+export { fmtName } from "/design-system/js/check-name.js";
+export { STATUS_RANK, worstStatus } from "/design-system/js/check-status.js";
 
 /** @type {HTMLDivElement | null} */
 let escDiv = null;
@@ -62,40 +64,6 @@ export function el(tag, attrs, children) {
     }
   }
   return node;
-}
-
-/**
- * Reduce a list of check results to the single worst status present. An empty
- * list is `"ok"`.
- *
- * @param {{status: string}[]} results
- * @returns {string}
- */
-export function worst(results) {
-  return results.reduce(
-    (w, c) => ((STATUS_PRIORITY[c.status] || 0) > (STATUS_PRIORITY[w] || 0) ? c.status : w),
-    "ok",
-  );
-}
-
-/**
- * Humanize a check name for display: drop the row's OWN `"<category>."` prefix
- * and title-case the remaining underscore/space separated words.
- * `fmtName("control_system.beam_current", "control_system")` → `"Beam Current"`.
- *
- * A check name is free-form, so a dot in it is not a category marker by
- * itself — only the category the row actually carries is stripped, or a name
- * that merely spells a dot loses its leading word. Existing capitalisation
- * survives: the regex only ever raises a lowercase letter.
- *
- * @param {string} name
- * @param {string} [category]
- * @returns {string}
- */
-export function fmtName(name, category) {
-  const prefix = category ? `${category}.` : "";
-  const s = prefix && name.startsWith(prefix) ? name.slice(prefix.length) : name;
-  return s.replace(/_/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }
 
 /**

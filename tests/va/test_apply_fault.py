@@ -18,6 +18,12 @@ on CI; the route-table tests need no server and run everywhere.
 
 The address set here is deliberately disjoint from every other module's, so two
 servers alive in one pytest session can never answer for each other's names.
+
+The other two apply faults -- BPM reading errors and magnet calibration -- are
+model state rather than a route, and need no wire: the model is seeded with
+them, holds them as writable variables, and the physics bridge reads them back
+on every push and every write. ``TestApplyFaultsLiveInTheModel`` pins that the
+bridge serves whatever the model holds now, and keeps no copy of its own.
 """
 
 from __future__ import annotations
@@ -50,11 +56,14 @@ os.environ.setdefault("EPICS_CA_SERVER_PORT", _free_port())
 os.environ.setdefault("EPICS_CAS_SERVER_PORT", os.environ["EPICS_CA_SERVER_PORT"])
 os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
 
+from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge  # noqa: E402
+from osprey.services.virtual_accelerator.lattice import orbit_response  # noqa: E402
 from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
     RECORD_TYPE_ANALOG,
 )
+from osprey.services.virtual_accelerator.model.pyat import PyATRingModel  # noqa: E402
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb  # noqa: E402
 from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E402
     MODE_ECHO,
@@ -66,7 +75,7 @@ from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E4
 
 # Floor for this module's own test count -- a guard against a refactor that
 # leaves the file importable but empty, which would otherwise pass silently.
-MIN_COLLECTED_TESTS = 16
+MIN_COLLECTED_TESTS = 22
 
 CA_TIMEOUT_S = 10.0
 SETTLE_TIMEOUT_S = 10.0
@@ -400,6 +409,85 @@ class TestFaultRouting:
         path = CohostWritePath(records, stuck_setpoints=STUCK_SETPOINTS)
 
         assert STUCK_SP in path.routes
+
+
+# The real ring's addresses, because the model-held faults are shown on
+# `PyATRingModel`. Nothing here is served over a wire, so they cannot collide
+# with any live server's names.
+FAULT_BPM_X = "SR:DIAG:BPM:01:POSITION:X"
+FAULT_CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+
+
+class _ReadingRecord:
+    """A BPM readback record reduced to the one method the bridge calls."""
+
+    def __init__(self) -> None:
+        self.value: float | None = None
+
+    def set(self, value: float) -> None:
+        self.value = value
+
+
+def _served(model: PyATRingModel) -> tuple[PhysicsBridge, _ReadingRecord]:
+    """A bridge over ``model`` with one bound BPM reading."""
+    bridge = PhysicsBridge(model=model)
+    reading = _ReadingRecord()
+    bridge.bind({FAULT_BPM_X: reading})
+    return bridge, reading
+
+
+class TestApplyFaultsLiveInTheModel:
+    """The BPM-reading and magnet-calibration apply faults, without a server.
+
+    Seeded through ``PyATRingModel``, writable through its public ``set()``
+    like any other variable, and read back by the bridge each time it serves
+    -- so the value the model holds now is the only one a client ever sees.
+    """
+
+    def test_a_seeded_bpm_fault_reaches_the_served_reading(self) -> None:
+        bridge, reading = _served(PyATRingModel(bpm_errors={"BPM01": {"offset_x": 50e-6}}))
+        bridge.on_setpoint(FAULT_CORRECTOR_SP, 5.0)
+
+        true_position = bridge.bpm_positions()[FAULT_BPM_X]
+        assert reading.value == pytest.approx(true_position - 50e-6, abs=1e-12)
+
+    def test_a_bpm_fault_written_to_the_model_is_served_on_the_next_push(self) -> None:
+        model = PyATRingModel()
+        bridge, reading = _served(model)
+
+        model.set({"BPM01.gain_x": 2.0})
+        bridge.on_setpoint(FAULT_CORRECTOR_SP, 10.0)
+
+        true_position = bridge.bpm_positions()[FAULT_BPM_X]
+        assert reading.value == pytest.approx(2.0 * true_position, abs=1e-12)
+
+    def test_a_calibration_written_to_the_model_scales_the_next_setpoint(self) -> None:
+        # The effective current a polarity-flipped magnet delivers is the
+        # exact oracle: magnet_cal(10.0, factor=-1.0) == -10.0.
+        model = PyATRingModel()
+        bridge, _reading = _served(model)
+
+        model.set({"HCM01.cal_factor": -1.0})
+        bridge.on_setpoint(FAULT_CORRECTOR_SP, 10.0)
+
+        expected = orbit_response("HCM01", -10.0)["BPM01"][0]
+        assert bridge.bpm_positions()[FAULT_BPM_X] == pytest.approx(expected, abs=1e-12)
+
+    def test_a_model_reset_restores_the_seeded_fault(self) -> None:
+        model = PyATRingModel(bpm_errors={"BPM01": {"offset_x": 50e-6}})
+        bridge, reading = _served(model)
+
+        model.set({"BPM01.offset_x": -30e-6})
+        model.reset()
+        bridge.on_setpoint(FAULT_CORRECTOR_SP, 5.0)
+
+        true_position = bridge.bpm_positions()[FAULT_BPM_X]
+        assert reading.value == pytest.approx(true_position - 50e-6, abs=1e-12)
+
+    @pytest.mark.parametrize("seed_kwarg", ["bpm_errors", "corrector_gains"])
+    def test_the_bridge_takes_no_fault_seed_of_its_own(self, seed_kwarg: str) -> None:
+        with pytest.raises(TypeError, match=seed_kwarg):
+            PhysicsBridge(model=PyATRingModel(), **{seed_kwarg: {}})
 
 
 class TestLiveStuckEchoPair:

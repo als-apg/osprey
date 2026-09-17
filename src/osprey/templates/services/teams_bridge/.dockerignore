@@ -1,0 +1,24 @@
+# Build-context hygiene for the teams-bridge image.
+#
+# The Dockerfile only needs the locally-built osprey wheel (*.whl) from this
+# context; everything else here is either build metadata or not needed at
+# image-build time. Keeping them out of the build context speeds the build
+# and avoids baking a stale .env — or an Azure credential — into the image.
+# The bot secret and the Service Bus connection string arrive as runtime
+# environment, never copied in.
+**/__pycache__/
+*.pyc
+.git/
+.env
+*.json
+# The Azure Functions relay. It is published to Azure Functions with `func
+# azure functionapp publish` and runs there, in front of the Service Bus queue
+# this image's bridge drains — it is never baked into the bridge image, and an
+# image carrying it would only invite someone to run the two halves as one.
+# Excluded as a directory in its own right: the `*.json` line above happens to
+# cover its host.json, but not function_app.py, validation.py or
+# requirements.txt.
+relay/
+# Compose files + templates are runtime/deploy artifacts, not image inputs.
+docker-compose.yml
+*.j2

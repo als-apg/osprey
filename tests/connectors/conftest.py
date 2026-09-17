@@ -3,16 +3,19 @@
 Fixtures defined here are automatically available to all test files in
 ``tests/connectors/`` and any subdirectories.
 
-The MongoDB fixtures spin up a real container via testcontainers and
-skip cleanly when Docker is unavailable, matching the pattern used by
-``tests/services/ariel_search/conftest.py``.
+The MongoDB fixtures hand their tests the credentials, database and
+collection names the connector needs, and delegate the bring-up to the shared
+recipe in ``tests/_mongo_container.py``: the image pin, the start, the
+readiness wait and the teardown all live there, as does the skip on a host with
+no container engine.
 """
 
 from datetime import datetime, timedelta
 
 import pytest
 
-from tests._container_support import is_docker_available, start_or_skip, stop_quietly
+from tests._container_support import is_docker_available
+from tests._mongo_container import MONGO_AUTH_DB, started_mongo
 
 
 @pytest.fixture(scope="session")
@@ -28,37 +31,21 @@ def mongodb_container():
             "to run MongoDB archiver integration tests."
         )
 
-    try:
-        from testcontainers.mongodb import MongoDbContainer
-    except ImportError:
-        pytest.skip("testcontainers[mongodb] not installed")
-
     username = "testuser"
     password = "testpass123"
     db_name = "test_archiver_db"
     collection_name = "test_archiver_collection"
-    auth_db = "admin"
 
-    container = start_or_skip(
-        lambda: MongoDbContainer("mongo:7", username=username, password=password),
-        label="mongodb",
-    )
-
-    host = container.get_container_host_ip()
-    port = int(container.get_exposed_port(27017))
-
-    try:
+    with started_mongo("mongodb", username=username, password=password) as (host, port):
         yield {
             "host": host,
             "port": port,
             "username": username,
             "password": password,
-            "auth_db": auth_db,
+            "auth_db": MONGO_AUTH_DB,
             "db_name": db_name,
             "collection_name": collection_name,
         }
-    finally:
-        stop_quietly(container)
 
 
 @pytest.fixture(scope="function")

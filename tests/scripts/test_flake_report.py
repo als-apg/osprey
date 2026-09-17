@@ -74,7 +74,7 @@ class TestParseTestFailures:
     def test_prose_mentioning_error_is_not_a_test_failure(self):
         """Only paths under tests/ or src/ count, so log chatter is ignored."""
         log = (
-            "2026-08-17T22:49:28Z echo ERROR ALS-APG endpoint probe failed\n"
+            "2026-08-17T22:49:28Z echo ERROR gateway endpoint probe failed\n"
             "2026-08-17T23:05:15Z ##[error]Process completed with exit code 1.\n"
             "2026-08-16T05:27:40Z [gw2] [ 11%] PASSED tests/services/test_database.py::test_up\n"
         )

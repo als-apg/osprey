@@ -23,8 +23,6 @@ import pytest
 from osprey.services.bluesky_bridge import qserver_startup
 from osprey.services.bluesky_bridge import queue_backend as qb
 
-pytestmark = pytest.mark.unit
-
 # A live baseline that arms its simulator and nothing else: the deployment a
 # facility runs when it wants an agent that may move the virtual accelerator
 # while the real machine stays read-only.

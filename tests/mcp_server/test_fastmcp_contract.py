@@ -111,8 +111,6 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     return project
 
 
-pytestmark = pytest.mark.unit
-
 #: The declared floor. Bumping the pin in ``pyproject.toml`` should bump this in
 #: the same commit — that is the point of asserting it twice.
 FASTMCP_FLOOR = (3, 4, 4)

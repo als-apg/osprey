@@ -28,7 +28,6 @@ def _reset_config_builder_globals():
     cfg_mod._config_cache = orig_cache
 
 
-@pytest.mark.unit
 async def test_load_osprey_config(tmp_path, monkeypatch):
     """load_osprey_config reads config.yml from working directory."""
     monkeypatch.chdir(tmp_path)
@@ -42,7 +41,6 @@ async def test_load_osprey_config(tmp_path, monkeypatch):
     assert config["control_system"]["writes_enabled"] is True
 
 
-@pytest.mark.unit
 async def test_load_osprey_config_from_env(tmp_path, monkeypatch):
     """load_osprey_config reads from OSPREY_CONFIG env var."""
     config_file = tmp_path / "custom_config.yml"
@@ -55,7 +53,6 @@ async def test_load_osprey_config_from_env(tmp_path, monkeypatch):
     assert config["control_system"]["type"] == "epics"
 
 
-@pytest.mark.unit
 async def test_load_osprey_config_missing_file(tmp_path, monkeypatch):
     """load_osprey_config returns empty dict when config.yml is missing."""
     monkeypatch.chdir(tmp_path)
@@ -69,7 +66,6 @@ async def test_load_osprey_config_missing_file(tmp_path, monkeypatch):
     assert config == {}
 
 
-@pytest.mark.unit
 async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
     """load_osprey_config resolves ${VAR:-default} env var placeholders."""
     monkeypatch.chdir(tmp_path)
@@ -81,16 +77,15 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
     # CS_TYPE not set → should use default "mock"
     monkeypatch.delenv("CS_TYPE", raising=False)
     # CS_HOST set → should resolve
-    monkeypatch.setenv("CS_HOST", "epics-server.lbl.gov")
+    monkeypatch.setenv("CS_HOST", "epics-server.example.com")
 
     from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
     assert config["control_system"]["type"] == "mock"
-    assert config["control_system"]["host"] == "epics-server.lbl.gov"
+    assert config["control_system"]["host"] == "epics-server.example.com"
 
 
-@pytest.mark.unit
 async def test_make_error_format():
     """make_error raises fastmcp ToolError with the standard envelope as message."""
     import json
@@ -113,7 +108,6 @@ async def test_make_error_format():
     assert len(envelope["suggestions"]) == 2
 
 
-@pytest.mark.unit
 async def test_make_error_no_suggestions():
     """make_error with no suggestions raises with empty suggestions list."""
     import json
@@ -154,7 +148,6 @@ def _reset_config_globals():
     cfg_mod._config_cache = orig_cache
 
 
-@pytest.mark.unit
 @pytest.mark.usefixtures("_reset_config_globals")
 async def test_create_server_primes_config_builder(tmp_path, monkeypatch):
     """create_server() primes ConfigBuilder when OSPREY_CONFIG is set."""
@@ -173,7 +166,6 @@ async def test_create_server_primes_config_builder(tmp_path, monkeypatch):
     assert builder.raw_config["control_system"]["type"] == "mock"
 
 
-@pytest.mark.unit
 @pytest.mark.usefixtures("_reset_config_globals")
 async def test_create_server_works_without_osprey_config(tmp_path, monkeypatch):
     """create_server() still works when OSPREY_CONFIG is not set."""

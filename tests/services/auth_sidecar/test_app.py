@@ -582,9 +582,9 @@ class TestSettingsParsing:
         assert settings.shared("bob") is False
 
     PRINCIPAL_LISTS = [
-        ('["domain:lbl.gov"]', {"domain:lbl.gov"}),
-        ('["self","user:carol@lbl.gov"]', {"self", "user:carol@lbl.gov"}),
-        ('["domain:lbl.gov","user:a@b.gov"]', {"domain:lbl.gov", "user:a@b.gov"}),
+        ('["domain:example.com"]', {"domain:example.com"}),
+        ('["self","user:carol@example.com"]', {"self", "user:carol@example.com"}),
+        ('["domain:example.com","user:a@b.gov"]', {"domain:example.com", "user:a@b.gov"}),
         ('["roster"]', {"roster"}),
         ('["self"]', {"self"}),
         ('["domain:x.org","roster"]', {"domain:x.org", "roster"}),
@@ -699,10 +699,10 @@ class TestSettingsParsing:
         assert "mallory" not in settings.roster_access
 
     def test_every_roster_user_gets_a_resolved_set(self) -> None:
-        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='["domain:lbl.gov"]')
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='["domain:example.com"]')
         settings = AuthSettings.from_env(env)
         assert settings.roster_access == {
-            "alice": frozenset({"domain:lbl.gov"}),
+            "alice": frozenset({"domain:example.com"}),
             "bob": OWNER_ONLY,
         }
 
@@ -727,8 +727,8 @@ class TestSettingsParsing:
 
     def test_surrounding_whitespace_does_not_make_a_rule_unreadable(self) -> None:
         """An env line can pick up padding on its way through the compose file."""
-        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='  ["domain:lbl.gov"]  ')
-        assert AuthSettings.from_env(env).access("alice") == frozenset({"domain:lbl.gov"})
+        env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='  ["domain:example.com"]  ')
+        assert AuthSettings.from_env(env).access("alice") == frozenset({"domain:example.com"})
 
     def test_a_repeated_member_is_the_same_rule(self) -> None:
         env = dict(PASSWORD_ENV, OSPREY_AUTH_ROSTER_ACCESS_ALICE='["self","self","roster"]')
@@ -747,7 +747,7 @@ class TestSettingsParsing:
             PASSWORD_ENV,
             OSPREY_AUTH_USERS="alice,bob,carol",
             OSPREY_AUTH_ROSTER_ACCESS_ALICE="nonsense",
-            OSPREY_AUTH_ROSTER_ACCESS_BOB='["domain:lbl.gov"]',
+            OSPREY_AUTH_ROSTER_ACCESS_BOB='["domain:example.com"]',
             OSPREY_AUTH_ROSTER_ACCESS_CAROL='{"any": true}',
         )
 
@@ -755,7 +755,7 @@ class TestSettingsParsing:
             settings = AuthSettings.from_env(env)
 
         assert settings.access("alice") == frozenset()
-        assert settings.access("bob") == frozenset({"domain:lbl.gov"})
+        assert settings.access("bob") == frozenset({"domain:example.com"})
         assert settings.access("carol") == frozenset()
         assert "OSPREY_AUTH_ROSTER_ACCESS_ALICE" in caplog.text
         assert "OSPREY_AUTH_ROSTER_ACCESS_CAROL" in caplog.text
@@ -774,7 +774,7 @@ class TestSettingsParsing:
 
         with TestClient(app) as client:
             assert client.get(HEALTH_PATH).json()["configured"] is True
-        assert app.state.settings.card_admits("alice", "alice@lbl.gov") is False
+        assert app.state.settings.card_admits("alice", "alice@example.com") is False
 
 
 class TestCardAdmits:
@@ -788,8 +788,8 @@ class TestCardAdmits:
         PASSWORD_ENV,
         OSPREY_AUTH_USERS="alice,bob,console",
         OSPREY_AUTH_OIDC_CLAIM="email",
-        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@lbl.gov",
-        OSPREY_AUTH_OIDC_SUBJECT_BOB="bob@lbl.gov",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@example.com",
+        OSPREY_AUTH_OIDC_SUBJECT_BOB="bob@example.com",
     )
 
     @staticmethod
@@ -800,29 +800,31 @@ class TestCardAdmits:
         )
 
     def test_a_user_principal_admits_exactly_that_identity(self) -> None:
-        settings = self._settings('["user:carol@lbl.gov"]')
-        assert settings.card_admits("console", "carol@lbl.gov") is True
-        assert settings.card_admits("console", "carol@als.lbl.gov") is False
-        assert settings.card_admits("console", "dave@lbl.gov") is False
+        settings = self._settings('["user:carol@example.com"]')
+        assert settings.card_admits("console", "carol@example.com") is True
+        assert settings.card_admits("console", "carol@lab.example.com") is False
+        assert settings.card_admits("console", "dave@example.com") is False
 
     def test_a_user_principal_follows_the_claims_case_rule(self) -> None:
         """``email`` names a mailbox, so the roster is not pinned to one spelling."""
-        assert self._settings('["user:carol@lbl.gov"]').card_admits("console", "Carol@LBL.GOV")
+        assert self._settings('["user:carol@example.com"]').card_admits(
+            "console", "Carol@EXAMPLE.COM"
+        )
 
     def test_a_domain_principal_admits_any_mailbox_in_that_domain(self) -> None:
-        settings = self._settings('["domain:lbl.gov"]')
-        assert settings.card_admits("console", "dave@lbl.gov") is True
-        assert settings.card_admits("console", "dave@als.lbl.gov") is False
+        settings = self._settings('["domain:example.com"]')
+        assert settings.card_admits("console", "dave@example.com") is True
+        assert settings.card_admits("console", "dave@lab.example.com") is False
         assert settings.card_admits("console", "dave@example.org") is False
 
     def test_a_domain_principal_folds_only_ascii_case(self) -> None:
-        """``Alice@LBL.GOV`` is in ``lbl.gov``; the local part is never examined."""
-        assert self._settings('["domain:lbl.gov"]').card_admits("console", "Alice@LBL.GOV")
+        """``Alice@EXAMPLE.COM`` is in ``example.com``; the local part is never examined."""
+        assert self._settings('["domain:example.com"]').card_admits("console", "Alice@EXAMPLE.COM")
 
     def test_a_domain_principal_refuses_an_identity_with_no_mailbox(self) -> None:
-        settings = self._settings('["domain:lbl.gov"]')
-        assert settings.card_admits("console", "@lbl.gov") is False
-        assert settings.card_admits("console", "lbl.gov") is False
+        settings = self._settings('["domain:example.com"]')
+        assert settings.card_admits("console", "@example.com") is False
+        assert settings.card_admits("console", "example.com") is False
         assert settings.card_admits("console", "") is False
 
     def test_a_unicode_domain_never_matches_a_punycode_assertion(self) -> None:
@@ -834,38 +836,38 @@ class TestCardAdmits:
     def test_a_roster_principal_admits_any_mapped_roster_identity(self) -> None:
         """``access: any`` is opened by whoever the roster maps, not by the card's own user."""
         settings = self._settings("any")
-        assert settings.card_admits("console", "bob@lbl.gov") is True
-        assert settings.card_admits("console", "alice@lbl.gov") is True
+        assert settings.card_admits("console", "bob@example.com") is True
+        assert settings.card_admits("console", "alice@example.com") is True
 
     def test_a_roster_principal_refuses_an_identity_mapped_nowhere(self) -> None:
         settings = self._settings("any")
-        assert settings.card_admits("console", "carol@lbl.gov") is False
+        assert settings.card_admits("console", "carol@example.com") is False
 
     def test_a_roster_principal_does_not_need_the_card_to_be_mapped(self) -> None:
         """``console`` maps to no subject of its own and is still opened by the roster."""
         settings = self._settings("any")
         assert settings.oidc_subject("console") is None
-        assert settings.card_admits("console", "alice@lbl.gov") is True
+        assert settings.card_admits("console", "alice@example.com") is True
 
     def test_one_covering_member_is_enough_in_a_mixed_set(self) -> None:
-        settings = self._settings('["domain:example.org","user:carol@lbl.gov"]')
-        assert settings.card_admits("console", "carol@lbl.gov") is True
+        settings = self._settings('["domain:example.org","user:carol@example.com"]')
+        assert settings.card_admits("console", "carol@example.com") is True
         assert settings.card_admits("console", "dave@example.org") is True
-        assert settings.card_admits("console", "dave@lbl.gov") is False
+        assert settings.card_admits("console", "dave@example.com") is False
 
     def test_self_admits_nobody(self) -> None:
         """The owner's own login is the ordinary path, not an admission rule."""
-        settings = self._settings('["self","user:carol@lbl.gov"]')
-        assert settings.card_admits("console", "carol@lbl.gov") is True
-        assert settings.card_admits("console", "alice@lbl.gov") is False
+        settings = self._settings('["self","user:carol@example.com"]')
+        assert settings.card_admits("console", "carol@example.com") is True
+        assert settings.card_admits("console", "alice@example.com") is False
 
     def test_an_owner_only_card_admits_nobody(self) -> None:
         settings = AuthSettings.from_env(self.ROSTER_ENV)
-        assert settings.card_admits("alice", "alice@lbl.gov") is False
-        assert settings.card_admits("alice", "bob@lbl.gov") is False
+        assert settings.card_admits("alice", "alice@example.com") is False
+        assert settings.card_admits("alice", "bob@example.com") is False
 
     @pytest.mark.parametrize(
-        "identity", ["alice@lbl.gov", "bob@lbl.gov", "carol@lbl.gov", "console", ""]
+        "identity", ["alice@example.com", "bob@example.com", "carol@example.com", "console", ""]
     )
     def test_an_unreadable_rule_admits_nobody(self, identity: str) -> None:
         """The empty set is the whole point of the fail-closed degrade.
@@ -882,11 +884,11 @@ class TestCardAdmits:
 
     def test_a_card_off_the_roster_admits_nobody(self) -> None:
         settings = self._settings("any")
-        assert settings.card_admits("mallory", "alice@lbl.gov") is False
+        assert settings.card_admits("mallory", "alice@example.com") is False
 
     def test_every_member_is_evaluated_rather_than_short_circuited(self) -> None:
         """No early break, so nothing about which principal admitted leaks through timing."""
-        settings = self._settings('["domain:lbl.gov","user:carol@example.org","roster"]')
+        settings = self._settings('["domain:example.com","user:carol@example.org","roster"]')
         seen: list[str] = []
         original = settings._principal_covers
 
@@ -895,8 +897,8 @@ class TestCardAdmits:
             return original(member, identity)
 
         object.__setattr__(settings, "_principal_covers", recording)
-        assert settings.card_admits("console", "dave@lbl.gov") is True
-        assert seen == ["domain:lbl.gov", "roster", "user:carol@example.org"]
+        assert settings.card_admits("console", "dave@example.com") is True
+        assert seen == ["domain:example.com", "roster", "user:carol@example.org"]
 
 
 class TestOwnerAdmitted:
@@ -911,10 +913,10 @@ class TestOwnerAdmitted:
 
     def test_self_beside_another_principal_keeps_the_owner_in(self) -> None:
         """The distinction the member exists to express."""
-        assert self._settings('["self","domain:lbl.gov"]').owner_admitted("alice") is True
+        assert self._settings('["self","domain:example.com"]').owner_admitted("alice") is True
 
     def test_a_card_handed_to_a_domain_alone_locks_its_owner_out(self) -> None:
-        assert self._settings('["domain:lbl.gov"]').owner_admitted("alice") is False
+        assert self._settings('["domain:example.com"]').owner_admitted("alice") is False
 
     def test_an_unreadable_rule_admits_no_owner(self) -> None:
         assert self._settings("ANY").owner_admitted("alice") is False
@@ -935,31 +937,34 @@ class TestSubjectMatches:
         PASSWORD_ENV,
         OSPREY_AUTH_USERS="alice,bob,carol",
         OSPREY_AUTH_OIDC_CLAIM="email",
-        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@lbl.gov",
-        OSPREY_AUTH_OIDC_SUBJECT_BOB="shared@lbl.gov",
-        OSPREY_AUTH_OIDC_SUBJECT_CAROL="shared@lbl.gov",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@example.com",
+        OSPREY_AUTH_OIDC_SUBJECT_BOB="shared@example.com",
+        OSPREY_AUTH_OIDC_SUBJECT_CAROL="shared@example.com",
     )
 
     def test_a_mapped_identity_names_its_entry(self) -> None:
         settings = AuthSettings.from_env(self.ENV)
-        assert settings.subject_matches("alice@lbl.gov") == (("alice", "alice@lbl.gov"),)
+        assert settings.subject_matches("alice@example.com") == (("alice", "alice@example.com"),)
 
     def test_an_unmapped_identity_matches_nothing(self) -> None:
-        assert AuthSettings.from_env(self.ENV).subject_matches("dave@lbl.gov") == ()
+        assert AuthSettings.from_env(self.ENV).subject_matches("dave@example.com") == ()
 
     def test_two_entries_on_one_identity_both_surface(self) -> None:
         """Ambiguity is returned, never resolved by declaration order."""
         settings = AuthSettings.from_env(self.ENV)
-        assert [name for name, _ in settings.subject_matches("shared@lbl.gov")] == ["bob", "carol"]
+        assert [name for name, _ in settings.subject_matches("shared@example.com")] == [
+            "bob",
+            "carol",
+        ]
 
     def test_the_claims_case_rule_applies(self) -> None:
         settings = AuthSettings.from_env(self.ENV)
-        assert [name for name, _ in settings.subject_matches("Alice@LBL.GOV")] == ["alice"]
+        assert [name for name, _ in settings.subject_matches("Alice@EXAMPLE.COM")] == ["alice"]
 
     def test_a_case_sensitive_claim_is_compared_byte_for_byte(self) -> None:
         """``sub`` is an opaque identifier: two spellings are two accounts."""
         env = dict(self.ENV, OSPREY_AUTH_OIDC_CLAIM="sub")
-        assert AuthSettings.from_env(env).subject_matches("Alice@LBL.GOV") == ()
+        assert AuthSettings.from_env(env).subject_matches("Alice@EXAMPLE.COM") == ()
 
 
 class TestSharedStores:

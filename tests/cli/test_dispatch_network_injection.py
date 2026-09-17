@@ -5,9 +5,9 @@ they talk to each other over addresses the build emits, so a half on the compose
 bridge and a half on the host network could not reach each other. This module
 covers what injection does with that single value:
 
-* bridge (the default, set or omitted) — every artifact byte-for-byte what it
-  was before the axis existed, pinned against a render captured from the
-  pre-axis injector;
+* bridge (the default, set or omitted) — every artifact byte-for-byte the
+  bridge render pinned below, because the axis is opt-in and leaving it
+  unset means unchanged;
 * host — the mode written into BOTH service blocks, the triggers file's
   ``dispatch_target`` rewritten off the compose DNS name onto ``localhost``, and
   the per-worker port rule recorded in the worker's service config for the
@@ -26,17 +26,14 @@ from ruamel.yaml import YAML
 from osprey.cli.build_cmd import _inject_dispatch
 from osprey.cli.build_profile import DispatchConfig
 
-# The exact config.yml this injection renders for the profile built by
-# ``_dispatch()`` below, captured from the injector as it stood before the
-# network axis existed and re-pinned when the injector joined the shared config
-# writer, whose style indents block sequences under their key. Any byte of
-# drift in the default (bridge) render is a regression, not a refresh: the
-# axis is opt-in and unset means unchanged.
+# The exact config.yml this injection renders for the profile ``_dispatch()``
+# builds below, in the default (bridge) topology. Any byte of drift is a
+# regression, not a refresh: the axis is opt-in, and unset means unchanged.
 #
 # ``max_turns`` sits in the worker's block beside the two clock budgets and is
 # written on every deploy exactly as they are, so it belongs in the pinned
 # bytes rather than in an exception beside them.
-PRE_AXIS_CONFIG_YML = """\
+BRIDGE_RENDER_CONFIG_YML = """\
 deployed_services:
   - postgresql
   - event_dispatcher
@@ -46,8 +43,8 @@ services:
   event_dispatcher:
     path: ./services/event_dispatcher
     port: 10010
-    facility_name: ALS
-    channel_strip_prefix: 'ALS:'
+    facility_name: ERF
+    channel_strip_prefix: 'ERF:'
     additional_dirs:
       - src: triggers.yml
         dst: triggers.yml
@@ -68,12 +65,12 @@ web:
       health_endpoint: /health
 """
 
-# The dispatcher block of the copied triggers file, likewise captured from the
-# pre-axis injector (the surrounding file is re-indented by the round-trip that
-# patches the pool limits — that reshaping predates this axis and is not what
-# these tests pin). Host mode changes the ``dispatch_target`` line and nothing
-# else about this region.
-PRE_AXIS_TRIGGERS_DISPATCHER = """\
+# The dispatcher block of the copied triggers file in the default (bridge)
+# topology, comments included. The surrounding file is re-indented by the
+# round-trip that patches the pool limits; that reshaping belongs to the
+# round-trip rather than to the network axis, so only this region is pinned.
+# Host mode changes the ``dispatch_target`` line and nothing else about it.
+BRIDGE_TRIGGERS_DISPATCHER = """\
 dispatcher:
   # The dispatcher forwards each fired trigger to this worker. The compose
   # template names the single worker "dispatch-worker-1", one port above the
@@ -105,11 +102,11 @@ def _project(tmp_path: Path) -> tuple[Path, Path]:
 
 
 def _dispatch(**overrides: object) -> DispatchConfig:
-    """Build the DispatchConfig the pinned render above was captured from."""
+    """Return the DispatchConfig the pinned renders above describe, with *overrides* applied."""
     base: dict = {
         "triggers": "tutorial_triggers.yml",
-        "facility_name": "ALS",
-        "channel_strip_prefix": "ALS:",
+        "facility_name": "ERF",
+        "channel_strip_prefix": "ERF:",
     }
     base.update(overrides)
     return DispatchConfig(**base)  # type: ignore[arg-type]
@@ -132,16 +129,14 @@ def _dispatcher_block(project_path: Path) -> dict:
 class TestBridgeDefault:
     """With the axis unset, nothing about the build changes."""
 
-    def test_omitted_network_renders_the_pre_axis_config_byte_for_byte(
-        self, tmp_path: Path
-    ) -> None:
+    def test_omitted_network_renders_the_bridge_config_byte_for_byte(self, tmp_path: Path) -> None:
         """A profile with no ``dispatch.network`` renders the pinned bytes."""
         project_path, profile_dir = _project(tmp_path)
 
         _inject_dispatch(_dispatch(), profile_dir=profile_dir, project_path=project_path)
 
         rendered = (project_path / "config.yml").read_text(encoding="utf-8")
-        assert rendered == PRE_AXIS_CONFIG_YML
+        assert rendered == BRIDGE_RENDER_CONFIG_YML
 
     def test_spelled_bridge_renders_the_same_bytes_as_omitting_it(self, tmp_path: Path) -> None:
         """Writing the default out explicitly is the same build as leaving it out.
@@ -158,7 +153,7 @@ class TestBridgeDefault:
         )
 
         rendered = (project_path / "config.yml").read_text(encoding="utf-8")
-        assert rendered == PRE_AXIS_CONFIG_YML
+        assert rendered == BRIDGE_RENDER_CONFIG_YML
 
     def test_neither_half_carries_a_network_key(self, tmp_path: Path) -> None:
         """The default is left to the schema and the template, not written out."""
@@ -181,7 +176,7 @@ class TestBridgeDefault:
             "http://dispatch-worker-1:10011"
         )
 
-    def test_dispatcher_block_is_written_out_pre_axis_byte_for_byte(self, tmp_path: Path) -> None:
+    def test_the_dispatcher_block_is_written_out_byte_for_byte(self, tmp_path: Path) -> None:
         """The patched region of the triggers file is unchanged, comments included.
 
         The host-mode rewrite rides on the same round-trip that patches the pool
@@ -193,7 +188,7 @@ class TestBridgeDefault:
         _inject_dispatch(_dispatch(), profile_dir=profile_dir, project_path=project_path)
 
         copied = (project_path / "triggers.yml").read_text(encoding="utf-8")
-        assert PRE_AXIS_TRIGGERS_DISPATCHER in copied
+        assert BRIDGE_TRIGGERS_DISPATCHER in copied
 
 
 class TestHostMode:
@@ -223,8 +218,8 @@ class TestHostMode:
         dispatcher = services["event_dispatcher"]
         assert dispatcher["path"] == "./services/event_dispatcher"
         assert dispatcher["port"] == 10010
-        assert dispatcher["facility_name"] == "ALS"
-        assert dispatcher["channel_strip_prefix"] == "ALS:"
+        assert dispatcher["facility_name"] == "ERF"
+        assert dispatcher["channel_strip_prefix"] == "ERF:"
         assert dispatcher["additional_dirs"] == [{"src": "triggers.yml", "dst": "triggers.yml"}]
         worker = services["dispatch_worker"]
         assert worker["path"] == "./services/dispatch_worker"
@@ -256,7 +251,7 @@ class TestHostMode:
             _dispatch(network="host"), profile_dir=profile_dir, project_path=project_path
         )
 
-        expected = PRE_AXIS_TRIGGERS_DISPATCHER.replace(
+        expected = BRIDGE_TRIGGERS_DISPATCHER.replace(
             "dispatch_target: http://dispatch-worker-1:10011",
             "dispatch_target: http://localhost:10011",
         )

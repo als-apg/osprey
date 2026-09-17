@@ -17,17 +17,12 @@ same class object and its fate is the ``tango.DeviceProxy`` row's fate; the
 alias rows are canonicalised before the lookup rather than duplicated.
 """
 
-import pytest
-
 from osprey.services.python_executor.write_surface import (
     _CLIENT_WRITE_TARGETS,
     _LIMITS_REFUSED,
     _LIMITS_UNWRAPPABLE,
     _LIMITS_WRAPPED,
 )
-
-pytestmark = pytest.mark.unit
-
 
 #: The buckets, by the name a failure should print.
 _BUCKETS = {

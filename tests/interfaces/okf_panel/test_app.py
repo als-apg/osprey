@@ -83,7 +83,7 @@ def test_concept_slash_id_round_trips(client):
     body = r.json()
     assert body["id"] == "control-system/channel-finding"
     assert body["frontmatter"]["title"] == "Channel Finding"
-    assert "GEECS" in body["body"]
+    assert "Example Research Facility" in body["body"]
 
 
 def test_concept_missing_id_returns_404(client):
@@ -101,12 +101,12 @@ def test_concept_path_traversal_returns_404(client):
 
 
 def test_search_returns_title_and_snippet(client):
-    data = client.get("/api/search", params={"q": "GEECS"}).json()
+    data = client.get("/api/search", params={"q": "Example Research Facility"}).json()
     ids = [r["id"] for r in data["results"]]
     assert "control-system/channel-finding" in ids
     hit = next(r for r in data["results"] if r["id"] == "control-system/channel-finding")
     assert hit["title"] == "Channel Finding"
-    assert "GEECS" in hit["snippet"]
+    assert "Example Research Facility" in hit["snippet"]
 
 
 def test_search_without_sidecar_scores_every_hit_null(client):
@@ -116,7 +116,7 @@ def test_search_without_sidecar_scores_every_hit_null(client):
     ranked and unranked presentations by reading it, so a missing key would be
     a different contract than an unranked one.
     """
-    results = client.get("/api/search", params={"q": "GEECS"}).json()["results"]
+    results = client.get("/api/search", params={"q": "Example Research Facility"}).json()["results"]
     assert results
     assert all(r["score"] is None for r in results)
     assert all(set(r) == {"id", "title", "snippet", "score"} for r in results)
@@ -268,7 +268,7 @@ def test_unavailable_sidecar_falls_back_to_substring_search():
     client.is_available = lambda: False  # type: ignore[method-assign]
     c = TestClient(app)
 
-    results = c.get("/api/search", params={"q": "GEECS"}).json()["results"]
+    results = c.get("/api/search", params={"q": "Example Research Facility"}).json()["results"]
     assert [r["score"] for r in results] == [None] * len(results)
     assert results
 
@@ -301,7 +301,7 @@ async def test_slow_search_does_not_block_the_rest_of_the_panel():
         started = time.monotonic()
 
         async def search():
-            await client.get("/api/search", params={"q": "GEECS"})
+            await client.get("/api/search", params={"q": "Example Research Facility"})
             return time.monotonic() - started
 
         async def concept():
@@ -358,7 +358,7 @@ def test_malformed_search_settings_degrade_to_substring_not_to_a_dead_panel(monk
 
     assert app.state.bundle.qmd_client is None
     assert c.get("/health").json()["configured"] is True
-    assert c.get("/api/search", params={"q": "GEECS"}).json()["results"]
+    assert c.get("/api/search", params={"q": "Example Research Facility"}).json()["results"]
     assert any("misconfigured" in r.message for r in caplog.records)
 
 
@@ -382,7 +382,7 @@ def test_unreadable_config_degrades_to_substring_not_to_a_dead_panel(monkeypatch
 
     assert app.state.bundle.qmd_client is None
     assert c.get("/health").json()["configured"] is True
-    assert c.get("/api/search", params={"q": "GEECS"}).json()["results"]
+    assert c.get("/api/search", params={"q": "Example Research Facility"}).json()["results"]
     assert any("misconfigured" in r.message for r in caplog.records)
 
 

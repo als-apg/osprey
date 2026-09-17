@@ -48,8 +48,6 @@ from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import session_posture
 from tests._control_context_fixtures import write_control_context, write_payload
 
-pytestmark = pytest.mark.unit
-
 # ---------------------------------------------------------------------------
 # the four axes
 # ---------------------------------------------------------------------------

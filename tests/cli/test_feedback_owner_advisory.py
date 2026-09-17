@@ -124,7 +124,7 @@ class TestOwnerBlock:
     def test_an_owner_naming_only_itself_does_not_silence_a_half_move(self):
         """A `name:` with no destination redirects nothing."""
         advisories = feedback_owner_advisories(
-            _config(owner={"name": "ALS Controls"}, email=FACILITY_EMAIL)
+            _config(owner={"name": "Example Controls"}, email=FACILITY_EMAIL)
         )
         assert len(advisories) == 1
 

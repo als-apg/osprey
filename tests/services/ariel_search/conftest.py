@@ -525,6 +525,31 @@ class _FakeCursor:
         return list(self.rows) if size is None else list(self.rows[:size])
 
 
+class _FakeTransaction:
+    """``conn.transaction()`` stand-in that records how the block ENDED.
+
+    Constructing the object is not entering it, so the outcome is appended from
+    ``__aexit__``: ``COMMIT`` when the block left cleanly, ``ROLLBACK`` when an
+    exception carried it out. That distinction is the whole point of the double
+    -- the migration runner's contract is that a failing ``up()`` leaves nothing
+    behind, and only the rollback record proves it.
+
+    Exceptions propagate (``__aexit__`` returns False), matching psycopg: the
+    transaction undoes its work and the error still reaches the caller.
+    """
+
+    def __init__(self, log: list[str]) -> None:
+        self._log = log
+
+    async def __aenter__(self) -> _FakeTransaction:
+        self._log.append("BEGIN")
+        return self
+
+    async def __aexit__(self, exc_type: object, *_rest: object) -> bool:
+        self._log.append("ROLLBACK" if exc_type is not None else "COMMIT")
+        return False
+
+
 class _FakeConnection:
     """Connection stand-in supporting every acquisition shape in the package.
 
@@ -549,6 +574,7 @@ class _FakeConnection:
         self.recorder = recorder if recorder is not None else _SQLRecorder(results, rows_for)
         self.error = error
         self.cursors: list[_FakeCursor] = []
+        self.transactions: list[str] = []
 
     @property
     def calls(self) -> list[tuple[str, Any]]:
@@ -567,6 +593,13 @@ class _FakeConnection:
 
     async def __aexit__(self, *exc_info: object) -> bool:
         return False
+
+    def transaction(self) -> _FakeTransaction:
+        """Hand out a transaction block that records COMMIT vs ROLLBACK.
+
+        Read ``conn.transactions`` for the ordered outcomes.
+        """
+        return _FakeTransaction(self.transactions)
 
     def cursor(self, row_factory: Any = None) -> _FakeCursor:
         """Hand out a cursor; ``row_factory`` is recorded, never applied."""

@@ -38,8 +38,6 @@ from osprey.services.python_executor.execution.net_guard import (
 )
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
-pytestmark = pytest.mark.unit
-
 
 @functools.cache
 def _h5py_importable() -> bool:

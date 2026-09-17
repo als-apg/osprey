@@ -117,10 +117,11 @@ Tests hierarchical channel finder performance and accuracy:
 
 ## Local-only tests (skipped in CI)
 
-The default GitHub Actions runner has Docker, Python, and ``ALS_APG_API_KEY``
-— but no Postgres, no Ollama, no Confluence access, and no SQLite-backed
-research databases. These tests skip cleanly in CI but are runnable
-locally with the right backend stack:
+The default GitHub Actions runner has Docker, Python, and both halves of the
+als-apg credential (``ALS_APG_API_KEY`` and ``ALS_APG_BASE_URL``) — but no
+Postgres, no Ollama, no Confluence access, and no SQLite-backed research
+databases. These tests skip cleanly in CI but are runnable locally with the
+right backend stack:
 
 | File | Skip reason in CI | Local requirements |
 | --- | --- | --- |
@@ -225,7 +226,10 @@ use, so you can iterate without Docker or a live run:
 .venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k floor
 
 # Judge rubric — hand-written conclusions, one failing control per criterion.
-# Needs the judge provider's credentials (ALS_APG_API_KEY), nothing else.
+# Needs the judge provider's credentials — ALS_APG_API_KEY and
+# ALS_APG_BASE_URL — and nothing else. With either half missing the judge
+# builds no self-contained config and falls back to whatever config.yml the
+# run supplies.
 .venv/bin/pytest tests/e2e/test_plan_stack_agentic.py -k judge
 ```
 
@@ -252,11 +256,23 @@ als-apg/haiku in 2026-04 — if the model or provider changes, re-tune
 E2E tests require API access. Set the appropriate environment variable:
 
 ```bash
-# For ALS-APG (CI default — the ALS-APG gateway, reachable from anywhere)
+# For als-apg (the CI default gateway, reachable from anywhere). This gateway
+# has no packaged endpoint, so both halves are required: with no URL there is
+# no route.
 export ALS_APG_API_KEY="your-key"
+export ALS_APG_BASE_URL="https://your-gateway.example.org/v1"
 
-# For CBORG (local dev only — IP allowlist blocks GitHub Actions runners)
+# For CBORG (local dev only — IP allowlist blocks GitHub Actions runners).
+# The key is all a lane needs; the endpoint ships in the provider catalog.
 export CBORG_API_KEY="your-key"
+
+# For AMSC i2 (the provider matrix only). The key is all a lane needs; the
+# endpoint ships in the provider catalog.
+export AMSC_I2_API_KEY="your-key"
+
+# Optional: point these lanes at a different host than the catalog's.
+export CBORG_BASE_URL="https://your-endpoint.example.org/v1"
+export AMSC_I2_BASE_URL="https://your-endpoint.example.org/v1"
 
 # Or for Anthropic
 export ANTHROPIC_API_KEY="your-key"
@@ -267,15 +283,22 @@ export ANTHROPIC_API_KEY="your-key"
 The lanes that `osprey init` a real deployment repo and run an agent against it
 (`test_claude_code_build_integration.py`, `test_dispatch_tutorial.py`,
 `test_dispatch_allowlist_parity.py`, `test_dispatch_overlay_visibility.py`)
-build with one provider. It is named in one place — `OSPREY_E2E_PROVIDER`,
-defaulting to the gateway this project's own runners hold a key for:
+build with one provider, and you say which — `OSPREY_E2E_PROVIDER` is required:
 
 ```bash
 export OSPREY_E2E_PROVIDER="my-gateway"
 ```
 
-The `requires_*` marker on each lane still gates on the default gateway's key,
-so a facility driving its own gateway deselects by marker or supplies both.
+Nothing stands behind it. A run under `tests/e2e/` that sets neither it nor the
+benchmark override `OSPREY_E2E_FORCE_PROVIDER` stops before it runs a test, with
+a message naming both variables and the providers OSPREY registers — a gateway
+belongs to whoever runs it, so an unnamed run is refused rather than sent to
+whichever one a default happened to point at. CI names it once, at workflow
+level in `ci.yml`.
+
+Each of these lanes then skips only when the provider it was told to build with
+has no credential, and the skip reason names that provider and the environment
+variable holding its key.
 
 ### Provider × model matrix (opt-in)
 
@@ -357,7 +380,11 @@ async def test_my_workflow(e2e_project_factory):
    dry-verify both halves offline — the floor against hand-built traces, the
    judge against one passing conclusion plus one failing control per criterion —
    before you spend a live run. See `test_plan_stack_agentic.py`.
-3. **Mark appropriately** - use `@pytest.mark.e2e`, `@pytest.mark.slow`, `@pytest.mark.requires_*`
+3. **Mark appropriately** - use `@pytest.mark.e2e`, `@pytest.mark.slow`, `@pytest.mark.requires_*`.
+   Which credential marker depends on what the test builds with: `requires_e2e_provider`
+   when it builds with `e2e_provider()` and therefore follows the run, the
+   gateway-specific marker (`requires_als_apg`, `requires_cborg`, …) when the test
+   pins a provider itself.
 4. **Clean validation** - verify actual outputs (files, code content) not just LLM responses
 
 ## CI/CD Integration
@@ -377,7 +404,10 @@ jobs:
     steps:
       - run: pytest tests/e2e/ -v
     env:
+      # Both halves: the gateway ships no built-in endpoint, so a runner
+      # holding only the key has no route.
       ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      ALS_APG_BASE_URL: ${{ vars.ALS_APG_BASE_URL }}
 ```
 
 ## Troubleshooting

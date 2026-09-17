@@ -337,7 +337,7 @@ def test_the_pair_address_contract_is_what_the_bridge_templates_render() -> None
     from osprey.cli.build_cmd import _DISPATCH_PAIR_ADDRESS_VARS
     from osprey.cli.build_injectors import _locate_pkg_services
 
-    for bridge in ("gchat_bridge", "nextcloud_bridge"):
+    for bridge in ("gchat_bridge", "nextcloud_bridge", "teams_bridge"):
         template = (_locate_pkg_services() / bridge / "docker-compose.yml.j2").read_text(
             encoding="utf-8"
         )
@@ -345,7 +345,7 @@ def test_the_pair_address_contract_is_what_the_bridge_templates_render() -> None
             assert f"{variable}:" in template, f"{bridge} no longer renders {variable}"
 
 
-@pytest.mark.parametrize("bridge", ["gchat_bridge", "nextcloud_bridge"])
+@pytest.mark.parametrize("bridge", ["gchat_bridge", "nextcloud_bridge", "teams_bridge"])
 def test_host_dispatch_pair_with_a_bridge_resident_chat_bridge_fails(
     bridge: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -369,7 +369,7 @@ def test_host_dispatch_pair_with_a_bridge_resident_chat_bridge_fails(
     assert "WORKER_URL -> http://dispatch-worker-1:9190" in message
 
 
-@pytest.mark.parametrize("bridge", ["gchat_bridge", "nextcloud_bridge"])
+@pytest.mark.parametrize("bridge", ["gchat_bridge", "nextcloud_bridge", "teams_bridge"])
 def test_host_mode_chat_bridge_against_a_network_joined_pair_fails(
     bridge: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

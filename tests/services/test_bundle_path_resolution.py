@@ -69,14 +69,14 @@ def _mcp_server_resolution(raw: str, config_dir: Path) -> Path:
 
 def _cli_resolution(raw: str, monkeypatch) -> Path:
     """Resolve *raw* the way ``osprey knowledge <cmd>`` does with no BUNDLE arg."""
-    import osprey.utils.config as config_module
-    from osprey.cli.knowledge_cmd import _resolve_bundle
+    from osprey.cli import knowledge_cmd
 
     monkeypatch.setattr(
-        config_module,
+        knowledge_cmd,
         "get_config_value",
         lambda key, default=None: raw if key == CONFIG_KEY else default,
     )
+    _resolve_bundle = knowledge_cmd._resolve_bundle
     return _resolve_bundle(None)
 
 

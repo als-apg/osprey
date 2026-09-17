@@ -8,16 +8,27 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from collections.abc import Sequence
 from pathlib import Path, PurePath
 
-from watchdog.events import FileSystemEvent, FileSystemEventHandler
+from watchdog.events import DirModifiedEvent, FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 from watchdog.observers.api import BaseObserver
 
-from osprey.interfaces.fs_watch import ChangeStamp, ObserverFactory, one_level_listing
+from osprey.interfaces.fs_watch import (
+    ChangeStamp,
+    ObserverFactory,
+    Reconciler,
+    entry_stamp,
+    evict_subtree,
+    one_level_listing,
+    reconcile_interval_seconds,
+    reconcile_targets,
+    refresh_listing,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +133,7 @@ def resolve_store_rel(store_dir: Path, workspace_dir: Path) -> PurePath | None:
     handler would drop every event and silently black out the file panel.
     There is no meaningful concealment to do in that configuration.
     """
+    store_rel: PurePath
     if store_dir.is_relative_to(workspace_dir):
         store_rel = store_dir.relative_to(workspace_dir)
     else:
@@ -193,9 +205,24 @@ class _WorkspaceHandler(FileSystemEventHandler):
         self._last_event: dict[str, float] = {}
         self._debounce_seconds = 0.1
         self._listings: dict[str, dict[str, ChangeStamp]] = {}
+        # The directories a diff found changed one level below a tracked one.
+        # Each is owed a frame of its own, and the next pass drains the set by
+        # reading them.
+        self._pending_descent: set[str] = set()
+        # The listing map has two writers: the observer's emitter thread and the
+        # reconciliation thread. A dispatch reads a listing, scans the
+        # directory, writes it back and then announces the difference, and two
+        # of those interleaved would announce a change against a listing that
+        # already holds it. Re-entrant because a reconciliation pass enters this
+        # handler through :meth:`on_any_event` and so takes the lock twice.
+        self._dispatch_lock = threading.RLock()
 
     def on_any_event(self, event: FileSystemEvent) -> None:
-        src_path = Path(event.src_path)
+        with self._dispatch_lock:
+            self._dispatch(event)
+
+    def _dispatch(self, event: FileSystemEvent) -> None:
+        src_path = Path(os.fsdecode(event.src_path))
 
         # Filter ignored paths
         if self._is_ignored(src_path):
@@ -221,6 +248,20 @@ class _WorkspaceHandler(FileSystemEventHandler):
         if self._is_concealed(relative):
             return
 
+        # A directory that leaves by rename. One event stands for the whole
+        # subtree: the diff of the vanished source announces what it held, and
+        # the listings it leaves behind — its own and every one beneath it — go
+        # with it. A destination inside the watched tree is evicted as well, so
+        # that it is rebuilt by its next frame rather than answered from
+        # whatever stood there before.
+        if event.is_directory and event.event_type == "moved":
+            self._broadcast_directory_diff(src_path, relative)
+            evict_subtree(self._listings, src_path)
+            dest_path = getattr(event, "dest_path", "")
+            if dest_path:
+                evict_subtree(self._listings, Path(os.fsdecode(dest_path)))
+            return
+
         # A coalesced frame: FSEvents may report a burst of writes inside a
         # directory as one ``modified`` event on the directory itself, with no
         # per-file event behind it. Forwarded as-is it says a directory changed
@@ -236,13 +277,14 @@ class _WorkspaceHandler(FileSystemEventHandler):
             self._broadcast_directory_diff(src_path, relative)
             return
 
-        # A directory that is gone keeps no listing. This is the ordinary way
-        # one leaves: a deletion is delivered as its own event, and only a
-        # *frame* for a path that no longer exists is answered by the diff
-        # above. Evicting here rather than only there is what keeps the map
-        # bounded by the tree rather than by the watcher's lifetime.
+        # A directory that is gone keeps no listing, and neither does anything
+        # that was under it — whether it left by rename, which the single event
+        # above stands for, or by deletion. What the map holds is decided by the
+        # tree rather than by how finely the removal was reported, so it stays
+        # bounded by the tree rather than by the watcher's lifetime. The
+        # deletion itself is still announced by the broadcast below.
         if event.is_directory and simple_type == "deleted":
-            self._listings.pop(str(src_path), None)
+            evict_subtree(self._listings, src_path)
 
         # Debounce: skip duplicate events for the same path within 100ms
         if not self._claim_debounce_slot(str(src_path)):
@@ -255,6 +297,73 @@ class _WorkspaceHandler(FileSystemEventHandler):
                 "is_dir": event.is_directory,
             }
         )
+        self._record_in_parent(src_path, simple_type)
+
+    def _record_in_parent(self, path: Path, simple_type: str) -> None:
+        """Write what was just announced about *path* into its parent's listing.
+
+        Only where the parent has a listing at all — an untracked directory has
+        nothing to diff against and gains nothing from a single name.
+
+        This is what stops a reconciliation pass from announcing a change the
+        stream already delivered: the pass diffs the directory against this
+        listing, and a change recorded here is no longer a difference. It is
+        written *after* the broadcast rather than consulted before it, so it can
+        only suppress a second announcement, never a first.
+
+        A frame the stream delivers late, after a pass announced the same
+        change, is still a duplicate the panel absorbs — the same duplicate the
+        per-file event and its parent's coalesced frame already produce outside
+        the debounce window.
+        """
+        listing = self._listings.get(str(path.parent))
+        if listing is None:
+            return
+        stamp = None if simple_type == "deleted" else entry_stamp(path)
+        if stamp is None:
+            listing.pop(path.name, None)
+        else:
+            listing[path.name] = stamp
+
+    def prime(self, directory: Path) -> None:
+        """Take *directory*'s listing into the map without announcing anything.
+
+        What is already in the workspace when the watcher starts is not a
+        change. Without this the first reconciliation pass would have no listing
+        to diff against and would announce every entry of the workspace root as
+        ``created``.
+        """
+        with self._dispatch_lock:
+            if directory.is_dir():
+                self._listings[str(directory)] = one_level_listing(directory)
+
+    def reconcile(self, roots: Sequence[Path]) -> None:
+        """Re-read what this handler tracks and announce what the stream did not.
+
+        The notification stream is the fast trigger and the only one that can go
+        quiet. This is the slow one: each directory in *roots*, then every
+        directory the handler already holds a listing for, is dispatched as the
+        coalesced directory frame the stream owes it — through
+        :meth:`on_any_event`, so ``_is_ignored``, the workspace-relative guard
+        and ``_is_concealed`` run for the directory exactly as they do for a
+        delivered frame, and ``_broadcast_child`` re-applies both for every
+        child. A reconciled frame can no more reach a concealed store than a
+        delivered one can.
+
+        The bound is the map, not the tree: one listing per directory already
+        tracked, plus the roots, plus one level of descent for the directories a
+        previous pass found changed — once each per pass. No pass recurses and
+        no pass adds a key a delivered frame would not have added, so a churning
+        workspace can grow neither the map nor the cost of a pass. A subtree the
+        stream has never mentioned is picked up one level per pass from the
+        nearest tracked ancestor, so the panel converges on it rather than
+        stopping at its name.
+
+        The sequence is built first because dispatching mutates the map.
+        """
+        with self._dispatch_lock:
+            for directory in reconcile_targets(roots, self._listings, self._pending_descent):
+                self.on_any_event(DirModifiedEvent(str(directory)))
 
     def _is_ignored(self, path: Path) -> bool:
         """Whether *path* is one of the paths the file panel never shows."""
@@ -283,21 +392,19 @@ class _WorkspaceHandler(FileSystemEventHandler):
         against, so its contents are announced as ``created``. A file panel
         converges on what is there either way, and re-announcing a file that
         was already listed costs a redundant frame — where staying silent
-        would lose the change the frame was reporting.
+        would lose the change the frame was reporting. That first listing is a
+        baseline rather than a report of change, so what it holds is announced
+        but not descended into, and whatever afterwards moves in it is
+        scheduled by the next diff.
 
-        One listing is kept per directory that still exists: a directory whose
-        frame finds it already gone is dropped after its contents are announced
-        as deleted, and one that leaves the ordinary way is dropped by its own
-        deletion event, so a workspace that churns cannot grow the map without
-        bound.
+        The map is left to :func:`~osprey.interfaces.fs_watch.refresh_listing`,
+        which keeps one listing per directory that still exists: a directory
+        whose frame finds it already gone is dropped there, after its contents
+        are announced as deleted here. A directory that leaves the ordinary way
+        is dropped by its own deletion event instead, so a workspace that churns
+        cannot grow the map without bound.
         """
-        key = str(directory)
-        previous = self._listings.get(key)
-        current = one_level_listing(directory)
-        if directory.is_dir():
-            self._listings[key] = current
-        else:
-            self._listings.pop(key, None)
+        previous, current = refresh_listing(self._listings, directory)
 
         if previous is None:
             for name, stamp in current.items():
@@ -306,15 +413,24 @@ class _WorkspaceHandler(FileSystemEventHandler):
 
         for name, stamp in current.items():
             if name not in previous:
-                self._broadcast_child(directory, relative, name, "created", stamp[0])
+                announced = self._broadcast_child(directory, relative, name, "created", stamp[0])
             elif previous[name] != stamp:
-                self._broadcast_child(directory, relative, name, "modified", stamp[0])
+                announced = self._broadcast_child(directory, relative, name, "modified", stamp[0])
+            else:
+                continue
+            # One frame for a parent says only that a child directory exists, so
+            # a child whose stamp moved is owed a frame of its own. Both guards
+            # are what bound the descent and keep it out of a concealed store:
+            # the stamp moved against a listing that existed, and the child is
+            # one this handler may speak about at all.
+            if announced and stamp[0]:
+                self._pending_descent.add(str(directory / name))
         for name in sorted(previous.keys() - current.keys()):
             self._broadcast_child(directory, relative, name, "deleted", previous[name][0])
 
     def _broadcast_child(
         self, directory: Path, relative: Path, name: str, simple_type: str, is_dir: bool
-    ) -> None:
+    ) -> bool:
         """Broadcast one child of a rescanned directory, ignore rules applied.
 
         The rescan reaches children the per-file path never filtered, so the
@@ -324,18 +440,26 @@ class _WorkspaceHandler(FileSystemEventHandler):
         The child shares one debounce slot with its own per-file event: a write
         delivers both that event and a frame for the parent directory, and
         whichever arrives first is the one that announces the change.
+
+        Returns:
+            Whether the child is one this handler may speak about at all:
+            ``False`` only when the ignore list or concealment dropped it. A
+            claimed debounce slot answers ``True``, because it says another
+            trigger has already announced this change — not that the child is
+            invisible.
         """
         child = directory / name
         if self._is_ignored(child):
-            return
+            return False
         child_relative = relative / name
         if self._is_concealed(child_relative):
-            return
+            return False
         if not self._claim_debounce_slot(str(child)):
-            return
+            return True
         self._broadcaster.broadcast(
             {"type": simple_type, "path": str(child_relative), "is_dir": is_dir}
         )
+        return True
 
     def _claim_debounce_slot(self, key: str) -> bool:
         """Whether *key* may be announced now, claiming its slot if so.
@@ -382,23 +506,43 @@ class WorkspaceWatcher:
         self._concealed = tuple(concealed)
         self._observer_factory = observer_factory
         self._observer: BaseObserver | None = None
+        self._handler: _WorkspaceHandler | None = None
+        self._reconciler: Reconciler | None = None
 
     def start(self) -> None:
-        """Start watching the workspace directory."""
+        """Start watching the workspace directory.
+
+        Two triggers: the observer, and the reconciliation pass that re-reads
+        the tracked directories on an interval so a frame the notification
+        stream never delivers still reaches the panel.
+        """
         if not self._workspace_dir.exists():
             self._workspace_dir.mkdir(parents=True, exist_ok=True)
 
         handler = _WorkspaceHandler(
             self._workspace_dir, self._broadcaster, concealed=self._concealed
         )
+        self._handler = handler
+        # Before the observer is armed, so that nothing which happens after the
+        # baseline can fall between the two.
+        handler.prime(self._workspace_dir)
         self._observer = self._observer_factory()
         self._observer.schedule(handler, str(self._workspace_dir), recursive=True)
         self._observer.daemon = True
         self._observer.start()
+        self._reconciler = Reconciler(
+            reconcile_interval_seconds(),
+            lambda: handler.reconcile((self._workspace_dir,)),
+        )
+        self._reconciler.start()
 
     def stop(self) -> None:
         """Stop the file watcher."""
+        if self._reconciler is not None:
+            self._reconciler.stop()
+            self._reconciler = None
         if self._observer is not None:
             self._observer.stop()
             self._observer.join(timeout=5)
             self._observer = None
+        self._handler = None

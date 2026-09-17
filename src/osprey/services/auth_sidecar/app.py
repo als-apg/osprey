@@ -64,6 +64,7 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.sessions import SessionMiddleware
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from osprey.config_guards import is_positive_int
 from osprey.deployment.web_terminals.personas import env_var_suffix, env_var_suffix_collisions
 
 # The session-lifetime default is defined once, in the stdlib-only web_auth
@@ -149,6 +150,24 @@ ENV_OIDC_SCOPES = "OSPREY_AUTH_OIDC_SCOPES"
 Set from the rendered ``modules.web_terminals.auth.oidc.scopes``. Absent means
 the sidecar's own :data:`~osprey.services.auth_sidecar.app.DEFAULT_OIDC_SCOPES`
 apply, so the default lives in one place."""
+ENV_OIDC_CLAIMS_IN_ID_TOKEN = "OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN"
+"""Whether to ask the IdP, in so many words, to put our claims in the ID token.
+
+Set from the rendered ``modules.web_terminals.auth.oidc.claims_in_id_token``.
+Off unless a deployment turns it on, because it is a request parameter many
+providers do not implement and one of them may reject the whole authorization
+request for carrying it.
+
+The reason it exists: OIDC Core §5.4 lets a provider serve scope-requested
+claims from **UserInfo** rather than in the ID token, and a strict reading of it
+(Connect2id, for one) does exactly that. This sidecar reads the identity only
+from the signed ID token and never calls UserInfo — deliberately, see
+:mod:`osprey.services.auth_sidecar.routes.oidc` — so against such a provider
+``scopes`` alone yields a token with no identity claim in it and every login is
+refused. Turning this on adds the OIDC ``claims`` request parameter naming the
+claims this deployment actually reads, which is the spec's own way to ask for
+them in the ID token.
+"""
 ENV_OIDC_SUBJECT_PREFIX = "OSPREY_AUTH_OIDC_SUBJECT_"
 """Per-user expected IdP identity: ``OSPREY_AUTH_OIDC_SUBJECT_<SUFFIX>``."""
 
@@ -259,12 +278,22 @@ def _is_unrecognized_flag(raw: str | None) -> bool:
 
 
 def _positive_int(raw: str | None, default: int) -> int:
-    """Read a positive int from the environment, falling back to ``default``."""
+    """Read a positive int from the environment, falling back to ``default``.
+
+    What counts as positive is
+    :func:`osprey.config_guards.is_positive_int`'s definition, shared with
+    every other surface that reads an integer config value.
+
+    This parser falls back rather than refusing, so a typo does not stop the
+    sidecar from coming up. The surface that refuses is the codec check: a
+    lifetime the session codec cannot be built from is reported as unservable
+    with ``OSPREY_AUTH_SESSION_LIFETIME`` named.
+    """
     try:
         value = int(str(raw).strip())
     except (TypeError, ValueError):
         return default
-    return value if value > 0 else default
+    return value if is_positive_int(value) else default
 
 
 def _logged_value(value: str) -> str:
@@ -421,6 +450,10 @@ class AuthSettings:
         oidc_client_secret_var: Likewise for the client secret.
         oidc_claim: Which ID-token claim carries the identity to map onto a
             roster user.
+        oidc_claims_in_id_token: Whether the authorization request carries an
+            OIDC ``claims`` parameter asking for the claims this deployment
+            reads to be delivered in the ID token. See
+            :data:`ENV_OIDC_CLAIMS_IN_ID_TOKEN` for why a deployment needs it.
         oidc_subjects: ``{username: expected claim value}`` from the roster.
         web_theme: The deployment's ``web.theme`` value — a family or a
             concrete theme id — for the login page to resolve through the design
@@ -452,6 +485,7 @@ class AuthSettings:
     oidc_client_secret_var: str = DEFAULT_OIDC_CLIENT_SECRET_ENV
     oidc_claim: str = DEFAULT_OIDC_CLAIM
     oidc_scopes: tuple[str, ...] = DEFAULT_OIDC_SCOPES
+    oidc_claims_in_id_token: bool = False
     oidc_subjects: Mapping[str, str] = field(default_factory=dict)
     roster_access: Mapping[str, frozenset[str]] = field(default_factory=dict)
     web_theme: str = ""
@@ -530,6 +564,7 @@ class AuthSettings:
             oidc_client_secret_var=client_secret_var,
             oidc_claim=(source.get(ENV_OIDC_CLAIM) or "").strip() or DEFAULT_OIDC_CLAIM,
             oidc_scopes=oidc_scopes,
+            oidc_claims_in_id_token=_flag(source.get(ENV_OIDC_CLAIMS_IN_ID_TOKEN)),
             oidc_subjects=oidc_subjects,
             roster_access=roster_access,
             web_theme=(source.get(ENV_WEB_THEME) or "").strip(),

@@ -21,7 +21,8 @@ rather than the prompt line:
     is synchronous, and an ``applying`` block carries the ``expires_at`` only
     the publishing server can compute
   - ``publish_targets``, which re-renders the display metadata a narrowed
-    session outgrew, on the same merge terms
+    session outgrew: the same merge terms as its siblings, except that the
+    ``targets`` block itself is replaced whole rather than merged
   - the in-flight marker reader in its new home, still importable from
     ``tools/control_target.py`` under its old name
 
@@ -45,9 +46,10 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context
+from tests.mcp_server._report_root import state_root as state_root  # noqa: F401
 
 TARGETS_META = {
-    "live": {"label": "ALS storage ring", "endpoint": "gw:5064", "real_machine": True},
+    "live": {"label": "Example storage ring", "endpoint": "gw:5064", "real_machine": True},
     "va": {"label": "Virtual accelerator", "endpoint": "localhost:5074", "real_machine": False},
     "standin": {"label": "Live stand-in", "endpoint": "localhost:5084", "real_machine": False},
 }
@@ -67,22 +69,6 @@ REPORT_FIELDS = {
     "targets",
     "updated_at",
 }
-
-
-@pytest.fixture(autouse=True)
-def state_root(tmp_path, monkeypatch):
-    """Anchor the state directory in tmp_path instead of a real deployment.
-
-    The environment stamp is cleared as well as the config derivation patched,
-    so this fixture pins the directory whichever of the two resolution rules
-    ``state_dir`` is applying. ``OSPREY_POSTURE_SESSION`` is cleared too: the
-    session a report carries is read from the environment, and a test that
-    inherited the runner's would assert against the machine it ran on.
-    """
-    monkeypatch.delenv("OSPREY_AGENT_DATA_ROOT", raising=False)
-    monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    return tmp_path
 
 
 @pytest.fixture
@@ -839,11 +825,18 @@ class TestPublishPostureRealign:
 
 
 class TestPublishTargets:
-    """Display metadata is re-rendered by the writer, never by a reader."""
+    """Display metadata is re-rendered by the writer, never by a reader.
+
+    The ``targets`` block is replaced whole rather than merged, so a slot the
+    caller leaves out is written empty: a half-updated block would let one
+    target name its old gateway beside another naming its new one. Everything
+    else in the report — the binding, the children, the sibling publication
+    blocks, the report's own identity — is another writer's, and survives.
+    """
 
     NARROWED = {
         "live": {
-            "label": "ALS storage ring",
+            "label": "Example storage ring",
             "endpoint": "gw:5065",
             "real_machine": True,
             "selected_role": "read_only",
@@ -859,6 +852,15 @@ class TestPublishTargets:
         assert targets["live"]["endpoint"] == "gw:5065"
         assert targets["live"]["selected_role"] == "read_only"
 
+    def test_an_omitted_slot_is_written_empty_not_dropped(self, started):
+        """A slot the caller does not name still exists, emptied of the old render."""
+        target_state.publish_targets({"live": {"label": "Live", "endpoint": "gw:5065"}})
+
+        targets = target_state.read()["targets"]
+        assert set(targets) == set(target_state.TARGET_NAMES)
+        assert targets["va"] == {"label": "", "endpoint": "", "real_machine": False}
+        assert targets["standin"] == {"label": "", "endpoint": "", "real_machine": False}
+
     def test_the_sibling_blocks_survive(self, started):
         target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_APPLIED})
         target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
@@ -873,8 +875,8 @@ class TestPublishTargets:
         assert report["last_posture_realign"]["state"] == "done"
         assert report["children"] == [901]
 
-    def test_the_binding_is_untouched(self, started):
-        """This publisher says what a target IS, never which one a child reached."""
+    def test_the_binding_and_the_reporting_pid_are_untouched(self, started):
+        """This publisher says what a target IS, never who reported it or what a child reached."""
         target_state.publish_switch("live", 4)
 
         target_state.publish_targets(self.NARROWED)
@@ -882,6 +884,7 @@ class TestPublishTargets:
         report = target_state.read()
         assert report["applied_target"] == "live"
         assert report["applied_generation"] == 4
+        assert report["server_pid"] == started
 
     def test_an_empty_selected_role_is_dropped(self, started):
         target_state.publish_targets({"live": {"label": "Live", "selected_role": ""}})

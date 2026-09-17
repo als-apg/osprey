@@ -9,7 +9,7 @@ one per concern:
 - :mod:`osprey.cli.build_profile_schema` — the nested config dataclasses a
   ``profile.yml`` deserializes into (``mcp_servers``, ``lifecycle``, ``env``,
   ``services``, ``dispatch``, ``bluesky``, ``virtual_accelerator``,
-  ``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``).
+  ``bluesky_web``, ``nextcloud_bridge``, ``gchat_bridge``, ``teams_bridge``).
 - :mod:`osprey.cli.build_profile_presets` — discovery of the bundled preset and
   trigger YAMLs, plus CLI-spelling normalization.
 - :mod:`osprey.cli.build_profile_merge` — ``extends`` chain resolution, deep
@@ -69,6 +69,7 @@ from .build_profile_schema import (
     McpServerDef,
     NextcloudBridgeProfileConfig,
     ServiceDef,
+    TeamsBridgeProfileConfig,
     VAConfig,
 )
 
@@ -88,6 +89,7 @@ __all__ = [
     "McpServerDef",
     "NextcloudBridgeProfileConfig",
     "ServiceDef",
+    "TeamsBridgeProfileConfig",
     "VAConfig",
     "_KNOWN_PROFILE_KEYS",
     "_apply_exclude",

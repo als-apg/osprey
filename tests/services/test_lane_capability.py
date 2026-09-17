@@ -37,8 +37,6 @@ from osprey.services.bluesky_bridge import app as bridge_app_module
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.queue_backend import Capability, QueueBackend
 
-pytestmark = pytest.mark.unit
-
 # The wire keys the capability object carries. Pinned as a set because every
 # consumer branches on these names: the JS panel client, the MCP queue tools,
 # and `/health` itself.

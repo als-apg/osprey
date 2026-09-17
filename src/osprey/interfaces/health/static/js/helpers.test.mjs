@@ -7,15 +7,20 @@
 import { test, expect, describe } from 'vitest';
 
 import {
-  STATUS_PRIORITY,
+  STATUS_RANK,
   esc,
   el,
-  worst,
+  worstStatus,
   fmtName,
   fmtMs,
   msCls,
   byCategory,
 } from './helpers.js';
+import { fmtName as sharedFmtName } from '/design-system/js/check-name.js';
+import {
+  STATUS_RANK as sharedStatusRank,
+  worstStatus as sharedWorstStatus,
+} from '/design-system/js/check-status.js';
 
 describe('esc', () => {
   test('escapes HTML metacharacters so server data cannot inject markup', () => {
@@ -79,29 +84,43 @@ describe('el', () => {
   });
 });
 
-describe('worst', () => {
+describe('worstStatus', () => {
   test('reduces to the single most-severe status present', () => {
-    expect(worst([{ status: 'ok' }, { status: 'warning' }, { status: 'ok' }])).toBe('warning');
-    expect(worst([{ status: 'warning' }, { status: 'error' }])).toBe('error');
-    expect(worst([{ status: 'ok' }, { status: 'skip' }])).toBe('skip');
+    expect(worstStatus([{ status: 'ok' }, { status: 'warning' }, { status: 'ok' }])).toBe('warning');
+    expect(worstStatus([{ status: 'warning' }, { status: 'error' }])).toBe('error');
+    expect(worstStatus([{ status: 'ok' }, { status: 'skip' }])).toBe('skip');
   });
 
   test('an empty list is ok', () => {
-    expect(worst([])).toBe('ok');
+    expect(worstStatus([])).toBe('ok');
   });
 
   test('priority order is error > warning > skip > ok', () => {
-    expect(STATUS_PRIORITY.error).toBeGreaterThan(STATUS_PRIORITY.warning);
-    expect(STATUS_PRIORITY.warning).toBeGreaterThan(STATUS_PRIORITY.skip);
-    expect(STATUS_PRIORITY.skip).toBeGreaterThan(STATUS_PRIORITY.ok);
+    expect(STATUS_RANK.error).toBeGreaterThan(STATUS_RANK.warning);
+    expect(STATUS_RANK.warning).toBeGreaterThan(STATUS_RANK.skip);
+    expect(STATUS_RANK.skip).toBeGreaterThan(STATUS_RANK.ok);
     // error must win regardless of position in the list.
-    expect(worst([{ status: 'error' }, { status: 'warning' }, { status: 'skip' }])).toBe('error');
-    expect(worst([{ status: 'skip' }, { status: 'warning' }, { status: 'error' }])).toBe('error');
+    expect(worstStatus([{ status: 'error' }, { status: 'warning' }, { status: 'skip' }])).toBe(
+      'error',
+    );
+    expect(worstStatus([{ status: 'skip' }, { status: 'warning' }, { status: 'error' }])).toBe(
+      'error',
+    );
   });
 
   test('an unknown status is treated as ok-like (priority 0)', () => {
-    expect(worst([{ status: 'ok' }, { status: 'mystery' }])).toBe('ok');
-    expect(worst([{ status: 'mystery' }, { status: 'warning' }])).toBe('warning');
+    expect(worstStatus([{ status: 'ok' }, { status: 'mystery' }])).toBe('ok');
+    expect(worstStatus([{ status: 'mystery' }, { status: 'warning' }])).toBe('warning');
+  });
+
+  // The web terminal's health bar item ranks the same statuses and cannot
+  // import this bundle, so the order and its reducer live in the design system
+  // and this module re-exports them. Asserting identity — not behaviour — is
+  // what makes a future second copy a failure here rather than a quiet
+  // divergence on two surfaces.
+  test('are the design system\'s own, not copies of them', () => {
+    expect(worstStatus).toBe(sharedWorstStatus);
+    expect(STATUS_RANK).toBe(sharedStatusRank);
   });
 });
 
@@ -124,6 +143,14 @@ describe('fmtName', () => {
 
   test('a single word is capitalized', () => {
     expect(fmtName('latency', 'network')).toBe('Latency');
+  });
+
+  // The web terminal's health bar item lists the same check names and cannot
+  // import this bundle, so the rule lives in the design system and this module
+  // re-exports it. Asserting identity — not behaviour — is what makes a future
+  // second copy a failure here rather than a quiet divergence on two surfaces.
+  test('is the design system\'s function itself, not a copy of it', () => {
+    expect(fmtName).toBe(sharedFmtName);
   });
 });
 

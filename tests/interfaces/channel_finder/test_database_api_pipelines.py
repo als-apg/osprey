@@ -170,11 +170,11 @@ class TestHierarchicalExplore:
         mock_db.naming_pattern = "{system}"
         with (
             patch(_DB_PATCH, return_value=mock_db),
-            patch(_FACILITY_PATCH, return_value="ALS"),
+            patch(_FACILITY_PATCH, return_value="ERF"),
         ):
             resp = client.get("/api/explore/hierarchy-info")
         assert resp.status_code == 200
-        assert resp.json()["facility_name"] == "ALS"
+        assert resp.json()["facility_name"] == "ERF"
 
 
 class TestHierarchicalCrud:
@@ -333,7 +333,7 @@ class TestGraphParadigmRoutes:
 
     def test_info_reports_the_paradigm_and_its_tools(self, client):
         install_graph_paradigm(client)
-        client.app.state.facility_name = "ALS"
+        client.app.state.facility_name = "ERF"
         resp = client.get("/api/info")
         assert resp.status_code == 200
         data = resp.json()
@@ -343,7 +343,7 @@ class TestGraphParadigmRoutes:
         assert data["db_path"] is None
         assert "read_cypher" in data["tools"]
         assert "get_schema" in data["tools"]
-        assert data["metadata"]["facility_name"] == "ALS"
+        assert data["metadata"]["facility_name"] == "ERF"
 
     @staticmethod
     def _set_ttl_filename(client, name: str | None) -> None:
@@ -411,7 +411,7 @@ class TestGraphParadigmRoutes:
         mock_db.chunk_database.return_value = [[], []]
         with (
             patch(_DB_PATCH, return_value=mock_db),
-            patch(_FACILITY_PATCH, return_value="ALS"),
+            patch(_FACILITY_PATCH, return_value="ERF"),
         ):
             resp = client.get("/api/info")
 

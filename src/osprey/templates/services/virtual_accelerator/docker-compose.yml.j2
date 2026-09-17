@@ -1,9 +1,22 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+      PYTHONPATH=src ./.venv/bin/python tests/deployment/test_va_compose_instances.py
+-#}
 {#- The env passthrough axis — the host variables a service's `env:` key
     names — is rendered by the shared macro rather than hand-written per
     template, so every service hands a variable to its container the same
     way. With none declared it emits nothing and this file renders exactly
     as it did before the axis existed. -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- The site's build settings — a proxy CA, pip's bypass list, an internal
+    package index — are rendered by the shared macro rather than spelled out
+    per template, so every image OSPREY builds is handed the same set. -#}
+{%- import "services/_site_image_args.j2" as site -%}
 {#- The INSTANCE axis. An instance is one soft-IOC container — one simulated
     machine, on its own Channel Access port — and this file renders one per
     instance.
@@ -95,6 +108,13 @@ services:
 {%- set svc = services[instance_key] %}
 {%- set instance = instance_key | replace('_', '-') %}
 {%- set port = svc.port | default(5064) if loop.first else svc.port | int %}
+{#- `pva_port` is the pvAccess server port, the one the model surface is served
+    on, and unlike `port` EVERY instance defaults it: it is published on the
+    host for instance 1 alone (see `ports:` below), so two instances binding the
+    same number, each inside its own container, collide nowhere. A null block
+    lands on the default for the reason it does for `port`. -#}
+{%- set pva_port = svc.pva_port | default(5075) %}
+{%- set bind_address = deployment.bind_address | default('127.0.0.1') %}
 {#- A blank line BETWEEN instances and none before the first: the rendered
     file is read and diffed by operators, and two hundred-line service
     definitions run together read as one. Nothing is emitted on a
@@ -120,9 +140,13 @@ services:
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{{- site.build_args(site_image_build_args | default({})) }}
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
+{%- if osprey_pip_pre | default(false) %}
+        OSPREY_PIP_PRE: "1"
+{%- endif %}
 {%- endif %}
 {%- if loop.first %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
@@ -153,13 +177,36 @@ services:
       osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"
     restart: unless-stopped
     ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ port }}:{{ port }}/tcp"
+      - "{{ bind_address }}:{{ port }}:{{ port }}/tcp"
+{#- INSTANCE 1 ONLY publishes the pvAccess port. The model surface is bound to
+    instance 1: whatever a session's control target, its model reads and writes
+    address the `virtual_accelerator` instance. A stand-in publish would open a
+    host port nothing reads — and, the two instances defaulting to one PVA port,
+    publish that host port twice, which docker refuses at run time. -#}
+{%- if instance_key == 'virtual_accelerator' %}
+      # pvAccess, for the model surface. Clients reach it by name server
+      # (EPICS_PVA_NAME_SERVERS=<host>:<port>), which is TCP, so TCP is all
+      # that is published: there is no UDP search to answer.
+      - "{{ bind_address }}:{{ pva_port }}:{{ pva_port }}/tcp"
+{%- endif %}
     environment:
       # EPICS_CA_SERVER_PORT is the standard EPICS server-side CA port
       # override, read directly by the CA library at iocInit — no
       # entrypoint.py change needed to make services.{{ instance_key }}.port
       # actually control what the IOC binds to.
       EPICS_CA_SERVER_PORT: "{{ port }}"
+      # EPICS_PVAS_SERVER_PORT is the standard server-side pvAccess port
+      # override: the port this IOC's PVA server binds.
+      EPICS_PVAS_SERVER_PORT: "{{ pva_port }}"
+{#- INSTANCE 1 ONLY carries the write token, for the reason it alone publishes
+    the PVA port above: the model surface is instance 1's. A stand-in holding
+    the credential would be a second machine able to accept model writes that
+    nothing is meant to send it. -#}
+{%- if instance_key == 'virtual_accelerator' %}
+      # The credential a model write must present. Passthrough from the project
+      # .env: compose resolves it, so the secret is never written into this file.
+      VA_MODEL_WRITE_TOKEN: "${VA_MODEL_WRITE_TOKEN:-}"
+{%- endif %}
       # Build-time stuck-readback apply fault (entrypoint.py reads it): a
       # comma-separated list of :SP addresses whose readback is frozen (SP still
       # latches, RB never follows). Passthrough from the project .env; unset →
@@ -192,8 +239,15 @@ services:
       # noise the synthesised channels carry. Empty means the entrypoint's own
       # defaults (1.0 s, 0.01); a value out of range is refused at boot rather
       # than clamped, so a typo shows up in `docker logs`.
+      #
+      # The noise level's surface is the config key
+      # `control_system.connector.virtual_accelerator.noise_level` (falling
+      # through to the mock connector's), rendered here as the interpolation's
+      # default by compose_generator's `_va_noise_level`; the variable is how
+      # that value reaches the container, and a deployment that exports it in
+      # its own .env still wins.
       VA_POLL_INTERVAL_S: "${VA_POLL_INTERVAL_S:-}"
-      VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-}"
+      VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-{{ va_noise_level | default('') }}}"
       # Facility-neutral source configuration (entrypoint.py + Dockerfile CMD
       # read these): the entrypoint module to run, the channel manifest, and
       # whether the PyAT lattice is constructed. Passthrough from the project

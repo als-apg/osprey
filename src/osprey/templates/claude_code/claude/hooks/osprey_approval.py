@@ -2009,7 +2009,9 @@ def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> s
 
         nb_bytes = nbformat.writes(nb).encode()
 
-        store = ArtifactStore()
+        # The hook is a one-shot process, so it must not start a gallery of its
+        # own: a gallery already running picks the notebook up from the shared store.
+        store = ArtifactStore(auto_launch=False)
         entry = store.save_file(
             file_content=nb_bytes,
             filename="pre_execution_review.ipynb",

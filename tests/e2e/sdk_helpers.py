@@ -37,6 +37,7 @@ import yaml
 from osprey.port_layout import BLOCK_SIZE
 from tests import ci_diagnostics
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.provider import build_provider
 
 # SDK imports — skip entire module if not installed
 try:
@@ -355,16 +356,12 @@ def init_project(
     setup. ``CliRunner`` is also a unit-test harness; an e2e fixture
     should exercise the same entry point real users invoke.
 
-    Suite-wide override (CBORG model-matrix, issue #259): when
-    ``OSPREY_E2E_FORCE_PROVIDER`` is set it replaces the per-callsite
-    ``provider`` so the *entire* tests/e2e/ suite can be pointed at one
-    provider without editing each fixture. Paired with
-    ``OSPREY_E2E_FORCE_MODEL`` (honored in ``_resolve_project_spec``), which
-    collapses all tiers onto a single model id.
+    The suite-wide override of that pinned choice is resolved by
+    :func:`tests.e2e.provider.build_provider`, which states the precedence.
     """
     from osprey.build.build_tiers import default_tier_for_mode, tier_mode_conflict
 
-    provider = os.environ.get("OSPREY_E2E_FORCE_PROVIDER", provider)
+    provider = build_provider(provider)
     if channel_finder_mode is None and _preset_channel_finder_mode(template) == "graph":
         channel_finder_mode = "hierarchical"
     effective_tier = tier

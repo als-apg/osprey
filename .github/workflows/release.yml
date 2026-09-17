@@ -22,9 +22,128 @@ permissions:
   id-token: write  # Required for trusted publishing to PyPI
 
 jobs:
+  # Nothing else in this workflow runs a test, so without this job a tag can
+  # publish a tree whose agentic lanes never ran. Those eight lanes are gated
+  # on the `full-ci` label, and `all-checks-passed` counts a conditionally
+  # skipped lane as a pass — so an unlabeled release PR merges fully green
+  # having proved nothing about the agent paths. This is where that is caught,
+  # before the wheel is built.
+  verify-full-ci:
+    name: Verify Full CI On The Tagged Tree
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref_name, 'v')
+    # A job-level block REPLACES the workflow's scopes rather than extending
+    # them. Reading another workflow's runs needs `actions: read`; nothing here
+    # writes anything.
+    permissions:
+      actions: read
+      contents: read
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0  # the tree comparison below walks the tag's parents
+
+    - name: Require a green full-ci run on this tree
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        TAG_SHA: ${{ github.sha }}
+        TAG_NAME: ${{ github.ref_name }}
+      run: |
+        python3 - <<'PY'
+        import json, os, subprocess, sys
+
+        # Job-name prefixes keyed by ci.yml job id: the gate matches on a
+        # prefix because `agentic-per-preset` is a matrix that renders one job
+        # per preset. tests/deployment/test_ci_workflow_wiring.py pins this map
+        # against ci.yml, so a renamed lane fails a unit test, not a release.
+        REQUIRED = {
+            "agentic-per-preset": "Tier 3 — Agentic flow",
+            "e2e-tests": "E2E Tests",
+            "dispatch-deploy-e2e": "Dispatch Deploy E2E",
+            "dispatch-overlay-e2e": "Dispatch Overlay E2E",
+            "scan-agentic-e2e": "Scan Stack Agentic E2E",
+            "nextcloud-talk-bridge-e2e": "Nextcloud Talk Bridge E2E",
+            "gchat-bridge-e2e": "Google Chat Bridge E2E",
+            "target-switch-agentic-e2e": "Control-Target Switch Agentic E2E",
+        }
+        REPO, TAG_SHA, TAG = os.environ["REPO"], os.environ["TAG_SHA"], os.environ["TAG_NAME"]
+
+        def git(*args):
+            return subprocess.run(["git", *args], capture_output=True, text=True,
+                                  check=True).stdout.strip()
+
+        def api(path, paginate=False):
+            cmd = ["gh", "api", *(["--paginate", "--slurp"] if paginate else []), path]
+            done = subprocess.run(cmd, capture_output=True, text=True)
+            if done.returncode:
+                sys.exit(f"::error::gh api {path} failed: {done.stderr.strip()}")
+            return json.loads(done.stdout)
+
+        # A `--merge` merge commit has a different sha from the PR head whose
+        # run carried the label, and a tag may sit a commit or two above it.
+        # What the lanes actually proved is a TREE, so any nearby commit with
+        # the tagged commit's tree is an equally good place to find the run.
+        tag_tree = git("rev-parse", TAG_SHA + "^{tree}")
+        nearby = git("log", "--first-parent", "-n", "3", "--format=%H", TAG_SHA).split()
+        nearby += git("rev-parse", TAG_SHA + "^@").split()
+        candidates, seen = [], set()
+        for raw in [TAG_SHA, *nearby]:
+            sha = git("rev-parse", raw + "^{commit}")  # full form, so dedupe works
+            if sha in seen:
+                continue
+            seen.add(sha)
+            if git("rev-parse", sha + "^{tree}") == tag_tree:
+                candidates.append(sha)
+
+        def missing_lanes(run_id):
+            """Lane ids whose job is absent, skipped, or not successful."""
+            pages = api(f"repos/{REPO}/actions/runs/{run_id}/jobs?per_page=100", paginate=True)
+            jobs = [j for page in pages for j in page.get("jobs", [])]
+            bad = {}
+            for lane, prefix in REQUIRED.items():
+                matches = [j for j in jobs if j["name"].startswith(prefix)]
+                if not matches:
+                    bad[lane] = "no such job in the run"
+                elif any(j["conclusion"] != "success" for j in matches):
+                    bad[lane] = ", ".join(sorted({str(j["conclusion"]) for j in matches}))
+            return bad
+
+        # Every successful run on a same-tree commit is checked, not only the
+        # newest: a later re-run without the label is green and empty, and it
+        # must not hide the labeled run that actually did the work.
+        report = []
+        for sha in candidates:
+            runs = api(f"repos/{REPO}/actions/workflows/ci.yml/runs?head_sha={sha}&per_page=20")
+            for run in runs.get("workflow_runs", []):
+                if run["conclusion"] != "success":
+                    continue
+                bad = missing_lanes(run["id"])
+                if not bad:
+                    print(f"✅ every model-spending lane passed on {sha[:12]}: {run['html_url']}")
+                    sys.exit(0)
+                report.append(f"  {run['html_url']} — " +
+                              "; ".join(f"{k}: {v}" for k, v in sorted(bad.items())))
+
+        print(f"::error::no CI run proves the agentic lanes on the tree tagged {TAG}")
+        print("Trees checked: " + ", ".join(s[:12] for s in candidates))
+        print("\n".join(report) if report else "  no successful ci.yml run on any of them")
+        print("A lane reported `skipped` did not run: the `full-ci` label was missing.")
+        print("Run the lanes against this tree, by either route:")
+        print("  gh pr edit <release-notes PR> --add-label full-ci   # before merging it")
+        print(f"  gh workflow run ci.yml --ref {TAG} -f revalidate_secret_lanes=true")
+        print("Then re-push the tag, which retriggers this workflow:")
+        print(f"  git push --delete origin {TAG} && git push origin {TAG}")
+        print(f"  (git tag -f {TAG} <sha> in between, if the tag has to move)")
+        sys.exit(1)
+        PY
+
   build:
     name: Build Distribution
     runs-on: ubuntu-latest
+    needs: [verify-full-ci]
     if: startsWith(github.ref_name, 'v')
 
     steps:
@@ -120,7 +239,10 @@ jobs:
 
   publish-to-pypi:
     name: Publish to PyPI
-    needs: [build, validate-install-docs, verify-pypi-resolvable]
+    # `verify-full-ci` already gates `build`, so this repeats it — deliberately.
+    # The publish is the one step nobody can take back, and a future edit that
+    # re-wires the chain above must not be able to un-gate it silently.
+    needs: [verify-full-ci, build, validate-install-docs, verify-pypi-resolvable]
     if: startsWith(github.ref_name, 'v')
     runs-on: ubuntu-latest
     environment:

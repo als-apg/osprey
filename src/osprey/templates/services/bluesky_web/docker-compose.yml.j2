@@ -1,9 +1,21 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+-#}
 {#- The env passthrough axis — the host variables a service's `env:` key
     names — is rendered by the shared macro rather than hand-written per
     template, so every service hands a variable to its container the same
     way. With none declared it emits nothing and this file renders exactly
     as it did before the axis existed. -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- The site's build settings — a proxy CA, pip's bypass list, an internal
+    package index — are rendered by the shared macro rather than spelled out
+    per template, so every image OSPREY builds is handed the same set. -#}
+{%- import "services/_site_image_args.j2" as site -%}
 # The bluesky-web service owns the browser-facing FastAPI sidecar (see
 # src/osprey/interfaces/bluesky_web/) that serves the operator web panels and
 # same-origin read-proxies the bluesky bridge.
@@ -27,9 +39,13 @@ services:
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{{- site.build_args(site_image_build_args | default({})) }}
 {% if dev_mode | default(false) %}
         OSPREY_DEV: "1"
 {% endif %}
+{%- if osprey_pip_pre | default(false) %}
+        OSPREY_PIP_PRE: "1"
+{%- endif %}
 {% if 'bluesky' in deployed_services %}
     # Only when the bluesky bridge (Task 1.x) is co-deployed: order the
     # sidecar's startup after the bridge's healthcheck, so the read-proxy and
@@ -81,10 +97,16 @@ services:
     ports:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}:{{ services.bluesky_web.port | default(osprey_ports.bluesky_web, true) }}"
     environment:
-      # The connector-backed sidecar reads config.yml at runtime. CWD is the
-      # image WORKDIR (/app), not the project dir, so without CONFIG_FILE this
-      # falls back to /app/config.yml — mirrors the bluesky bridge's identical
-      # CONFIG_FILE convention.
+      # Not a config-loader input here: the sidecar's own config read goes
+      # through OSPREY_CONFIG and the working directory and ignores this
+      # variable by design (osprey_connectors.workspace.resolve_config_path),
+      # tolerating a config it does not find. What this names is the mounted
+      # config whose DIRECTORY the /channels route reads the build-time
+      # channels.json out of. Without it that route resolves ./channels.json
+      # against the image WORKDIR (/app) rather than the mount under
+      # /app/project, so the sidecar still starts and every panel still
+      # serves — the channel catalog alone answers 404, and the plan form's
+      # channel fields offer no autocomplete.
       CONFIG_FILE: /app/project/config.yml
       TZ: {{ system.timezone }}
       # Reach the co-deployed bluesky bridge by its in-network compose service

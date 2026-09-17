@@ -17,7 +17,7 @@ import pytest
 # database: the session ``database_url`` fixture prefers a running dev Postgres with
 # ONE shared ``ariel_test`` database over a per-worker container, so parallel workers
 # would otherwise collide on migrations/seed/truncate.
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
+pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 
 class TestIngestionPipeline:
@@ -34,7 +34,7 @@ class TestIngestionPipeline:
         )
 
     async def test_full_pipeline_adapter_to_storage(
-        self, repository, sample_entries_path, integration_ariel_config
+        self, repository, sample_entries_path, integration_ariel_config, seeded_prefixes
     ):
         """Test complete ingestion flow: load -> adapt -> store -> retrieve.
 
@@ -71,6 +71,7 @@ class TestIngestionPipeline:
         async for entry in adapter.fetch_entries(limit=3):
             entries_fetched.append(entry)
             # Store in repository
+            seeded_prefixes.add(entry["entry_id"])
             await repository.upsert_entry(entry)
 
         assert len(entries_fetched) > 0, "No entries fetched from adapter"
@@ -203,7 +204,7 @@ class TestIngestionPipeline:
         assert len(categories) > 0
 
     async def test_stored_entry_has_enhancement_status(
-        self, repository, sample_entries_path, integration_ariel_config
+        self, repository, sample_entries_path, integration_ariel_config, seeded_prefixes
     ):
         """Stored entries have enhancement_status field."""
         from osprey.services.ariel_search.config import ARIELConfig
@@ -233,6 +234,7 @@ class TestIngestionPipeline:
         if entry is None:
             pytest.skip("No entries in fixture")
 
+        seeded_prefixes.add(entry["entry_id"])
         await repository.upsert_entry(entry)
 
         # Retrieve and check enhancement_status
@@ -331,18 +333,3 @@ class TestIngestionWithTimeFilters:
             limited_entries.append(entry)
 
         assert len(limited_entries) <= 3
-
-
-class TestIngestionCleanup:
-    """Clean up ingestion test data."""
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up test entries created during ingestion tests."""
-        async with migrated_pool.connection() as conn:
-            # Delete entries created by ALSAdapter (source_system = 'ALS eLog')
-            # Only delete test entries (IDs from fixture are numeric strings)
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE source_system = 'ALS eLog'
-                AND entry_id ~ '^[0-9]+$'
-            """)

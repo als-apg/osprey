@@ -69,7 +69,7 @@ def write_report(directory, server_pid, **overrides):
         "applied_target": "va",
         "applied_generation": 3,
         "targets": {
-            "live": {"label": "ALS storage ring", "endpoint": "epics://", "real_machine": True},
+            "live": {"label": "Example storage ring", "endpoint": "epics://", "real_machine": True},
             "va": {
                 "label": "Virtual accelerator",
                 "endpoint": "pva://vasrv",

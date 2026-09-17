@@ -425,7 +425,7 @@ _SCALE_SETTABLES = 1_000
 
 _SCALE_READABLES = 12_000
 """Readable entries in the synthetic scale document. Together with the
-settables that is ~13k entries -- the ALS-scale projection, an order of
+settables that is ~13k entries -- the facility-scale projection, an order of
 magnitude above the 512 settable / 822 readable set the deployment starts
 from, and covering the ~12.8k fields the env format left out."""
 

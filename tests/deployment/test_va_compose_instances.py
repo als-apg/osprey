@@ -27,6 +27,10 @@ Two claims are tested here, and the first one is the anchor:
 The scenario mounts are the deliberate exception: both instances read the same
 model and the same active-scenario state, which is what lets one
 ``osprey sim apply`` be observed on both machines at once.
+
+The model surface is the opposite exception: it belongs to instance 1 alone.
+Every instance is told its pvAccess server port, but only instance 1 publishes
+it on the host and receives the model write token.
 """
 
 from __future__ import annotations
@@ -75,14 +79,19 @@ def _instance_block(
     *,
     image: str | None = None,
     env: list[str] | None = None,
+    pva_port: int | None = None,
 ) -> dict[str, Any]:
     """One ``services.<instance>`` block, as the build writes it.
 
     Both instances declare the same service ``path``: the stand-in is the same
     IOC image serving a perturbed copy of the same machine, so there is one
-    service directory and no second image to build.
+    service directory and no second image to build. ``pva_port`` is omitted
+    unless asked for, because no build writes it yet and the template's default
+    is what every existing render reaches.
     """
     block: dict[str, Any] = {"path": "./services/virtual_accelerator", "port": port}
+    if pva_port is not None:
+        block["pva_port"] = pva_port
     if image is not None:
         block["image"] = image
     if env is not None:
@@ -242,8 +251,9 @@ def test_va_compose_null_instance_block_still_defaults_the_port() -> None:
         )
     )
     service = rendered["services"]["virtual-accelerator"]
-    assert service["ports"] == ["127.0.0.1:5064:5064/tcp"]
+    assert service["ports"] == ["127.0.0.1:5064:5064/tcp", "127.0.0.1:5075:5075/tcp"]
     assert service["environment"]["EPICS_CA_SERVER_PORT"] == "5064"
+    assert service["environment"]["EPICS_PVAS_SERVER_PORT"] == "5075"
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +332,11 @@ def test_va_compose_container_names_are_namespaced_per_instance(
 def test_va_compose_publishes_each_instance_on_its_own_port(
     two_instances: dict[str, Any],
 ) -> None:
-    assert two_instances["services"]["virtual-accelerator"]["ports"] == ["127.0.0.1:5064:5064/tcp"]
+    """Channel Access on each instance's own port; PVA on instance 1 alone."""
+    assert two_instances["services"]["virtual-accelerator"]["ports"] == [
+        "127.0.0.1:5064:5064/tcp",
+        "127.0.0.1:5075:5075/tcp",
+    ]
     assert two_instances["services"]["live-standin"]["ports"] == ["127.0.0.1:5074:5074/tcp"]
 
 
@@ -573,6 +587,113 @@ def test_va_compose_hands_each_instance_its_own_env_passthrough() -> None:
     assert "NO_PROXY" not in baseline
     assert standin["NO_PROXY"] == "${NO_PROXY}"
     assert "HTTP_PROXY" not in standin
+
+
+# ---------------------------------------------------------------------------
+# The model surface: pvAccess port and write token
+#
+# The model RPC is served over pvAccess and reached by name server (TCP), never
+# by UDP search, so the render has exactly two jobs for it: tell each IOC which
+# PVA server port to bind, and publish that port on the host for instance 1 —
+# the one machine the model surface is bound to — together with the write
+# credential. The stand-in binds a PVA port inside its own container but neither
+# publishes it nor receives the credential.
+# ---------------------------------------------------------------------------
+
+MODEL_TOKEN_LINE = 'VA_MODEL_WRITE_TOKEN: "${VA_MODEL_WRITE_TOKEN:-}"'
+
+
+def test_va_compose_single_instance_publishes_channel_access_and_pva() -> None:
+    """One instance publishes its CA port and the default PVA port, TCP only."""
+    rendered = _render(
+        _context(
+            instances={"virtual_accelerator": _instance_block(5064)},
+            deployed_services=["virtual_accelerator"],
+        )
+    )
+    service = rendered["services"]["virtual-accelerator"]
+    assert service["ports"] == ["127.0.0.1:5064:5064/tcp", "127.0.0.1:5075:5075/tcp"]
+    assert service["environment"]["EPICS_PVAS_SERVER_PORT"] == "5075"
+
+
+def test_va_compose_single_instance_passes_the_model_write_token_through() -> None:
+    """The credential is a host passthrough, resolved by compose, never rendered.
+
+    Asserted on the raw text because the ``${VAR:-}`` literal is the contract:
+    a render that substituted a value would write the secret into the file.
+    """
+    rendered = _render_text(
+        _context(
+            instances={"virtual_accelerator": _instance_block(5064)},
+            deployed_services=["virtual_accelerator"],
+        )
+    )
+    assert _text_lines(rendered, "VA_MODEL_WRITE_TOKEN:") == [MODEL_TOKEN_LINE]
+
+
+def test_va_compose_standin_publishes_only_its_channel_access_port() -> None:
+    """The stand-in binds a PVA port but publishes none and holds no token.
+
+    Both instances default to the same PVA port, so publishing the stand-in's
+    would collide with instance 1's host port; and the model surface is bound
+    to instance 1, so the stand-in has no credential to carry. Exactly one token
+    line in the whole file is what separates the two.
+    """
+    text = _render_text(
+        _context(
+            instances=STANDIN_INSTANCES,
+            deployed_services=["virtual_accelerator", "live_standin"],
+        )
+    )
+    rendered = yaml.safe_load(text)
+    baseline = rendered["services"]["virtual-accelerator"]
+    standin = rendered["services"]["live-standin"]
+
+    assert standin["ports"] == ["127.0.0.1:5074:5074/tcp"]
+    assert standin["environment"]["EPICS_PVAS_SERVER_PORT"] == "5075"
+    assert "VA_MODEL_WRITE_TOKEN" not in standin["environment"]
+    assert baseline["environment"]["VA_MODEL_WRITE_TOKEN"] == "${VA_MODEL_WRITE_TOKEN:-}"
+    assert _text_lines(text, "VA_MODEL_WRITE_TOKEN:") == [MODEL_TOKEN_LINE]
+
+
+def test_va_compose_pva_port_override_renders_through() -> None:
+    """A configured ``pva_port`` reaches both the publish and the server env."""
+    rendered = _render(
+        _context(
+            instances={"virtual_accelerator": _instance_block(5064, pva_port=5085)},
+            deployed_services=["virtual_accelerator"],
+        )
+    )
+    service = rendered["services"]["virtual-accelerator"]
+    assert service["ports"] == ["127.0.0.1:5064:5064/tcp", "127.0.0.1:5085:5085/tcp"]
+    assert service["environment"]["EPICS_PVAS_SERVER_PORT"] == "5085"
+
+
+def test_va_compose_standin_pva_port_override_stays_unpublished() -> None:
+    """A stand-in ``pva_port`` sets its server port and still publishes nothing."""
+    rendered = _render(
+        _context(
+            instances={
+                "virtual_accelerator": _instance_block(5064),
+                "live_standin": _instance_block(5074, pva_port=5076),
+            },
+            deployed_services=["virtual_accelerator", "live_standin"],
+        )
+    )
+    standin = rendered["services"]["live-standin"]
+    assert standin["ports"] == ["127.0.0.1:5074:5074/tcp"]
+    assert standin["environment"]["EPICS_PVAS_SERVER_PORT"] == "5076"
+
+
+def test_va_compose_pva_publish_follows_the_bind_address() -> None:
+    """The PVA publish binds where the CA publish does, not a hardcoded loopback."""
+    context = _context(
+        instances={"virtual_accelerator": _instance_block(5064)},
+        deployed_services=["virtual_accelerator"],
+    )
+    context["deployment"] = {"bind_address": "0.0.0.0"}
+    service = _render(context)["services"]["virtual-accelerator"]
+    assert service["ports"] == ["0.0.0.0:5064:5064/tcp", "0.0.0.0:5075:5075/tcp"]
 
 
 def _regenerate() -> None:

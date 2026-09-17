@@ -12,8 +12,6 @@ import pytest
 from osprey.services.python_executor.analysis.safety_checks import quick_safety_check
 from osprey.services.python_executor.execution.path_policy import path_policy_issues
 
-pytestmark = pytest.mark.unit
-
 
 @pytest.fixture
 def roots(tmp_path):

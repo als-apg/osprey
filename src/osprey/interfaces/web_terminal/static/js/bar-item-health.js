@@ -10,6 +10,9 @@
  * type has a builder before the first reconcile asks for one.
  */
 
+import { fmtName } from '/design-system/js/check-name.js';
+import { worstStatus } from '/design-system/js/check-status.js';
+
 import { withPrefix } from './api.js';
 import { registerBarPopover } from './bar-host.js';
 import { defineBarItem } from './bar-items.js';
@@ -33,14 +36,6 @@ const HEALTH_DEFAULT_INTERVAL_S = 60;
 const HEALTH_WARMING_INTERVAL_S = 3;
 /** Floor on the cadence, so a misconfigured interval cannot turn into a busy loop. */
 const HEALTH_MIN_INTERVAL_S = 5;
-
-/**
- * Severity order of a check's status, worst last. The same table the SYSTEM
- * dashboard keeps beside itself (`helpers.js`), restated here because that
- * bundle is served through the panel proxy, not to this page.
- * @type {Readonly<Record<string, number>>}
- */
-const STATUS_RANK = Object.freeze({ ok: 0, skip: 1, warning: 2, error: 3 });
 
 /**
  * One check as the envelope carries it.
@@ -192,19 +187,6 @@ function subscribeHealth(listener) {
 }
 
 /**
- * The worst status in a list of checks, `ok` for none.
- * @param {readonly HealthCheck[]} checks
- * @returns {string}
- */
-function worstOf(checks) {
-  let worst = 'ok';
-  for (const check of checks) {
-    if ((STATUS_RANK[check.status] ?? 0) > (STATUS_RANK[worst] ?? 0)) worst = check.status;
-  }
-  return worst;
-}
-
-/**
  * A status as a dot tone.
  * @param {string} status
  * @returns {'off' | 'ok' | 'warn' | 'err'}
@@ -243,18 +225,6 @@ function readHealth(snap) {
   const warnings = counted.filter((r) => r.status === 'warning').length;
   if (warnings) return { tone: 'warn', word: `${warnings} warning${warnings === 1 ? '' : 's'}` };
   return { tone: 'ok', word: 'ok' };
-}
-
-/**
- * Humanize a check name: drop the leading `category.` and title-case the
- * rest, so `epics.beam_current` reads `Beam Current`. The dashboard's rule.
- * @param {string} name
- * @returns {string}
- */
-function checkTitle(name) {
-  const dot = name.indexOf('.');
-  const bare = dot > -1 ? name.slice(dot + 1) : name;
-  return bare.replace(/_/g, ' ').replace(/\b[a-z]/g, (c) => c.toUpperCase());
 }
 
 /**
@@ -408,7 +378,7 @@ function buildSystemHealth(ctx) {
           rows.appendChild(
             row(
               toneOf(check.status),
-              checkTitle(String(check.name ?? '')),
+              fmtName(String(check.name ?? ''), String(check.category ?? '')),
               '',
               typeof check.value === 'string' && check.value ? check.value : String(check.message ?? '')
             )
@@ -418,7 +388,7 @@ function buildSystemHealth(ctx) {
         for (const [category, checks] of byCategory(snap.results)) {
           const counted = checks.filter((c) => c.status !== 'skip');
           const passed = counted.filter((c) => c.status === 'ok').length;
-          const worst = worstOf(checks);
+          const worst = worstStatus(checks);
           const loudest = checks.find((c) => c.status === worst && worst !== 'ok');
           rows.appendChild(
             row(

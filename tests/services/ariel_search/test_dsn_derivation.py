@@ -92,7 +92,6 @@ def rearmed_connection_string_warning(monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("preset", ARIEL_PRESETS)
 def test_presets_write_no_ariel_database_uri(preset: str) -> None:
     """No shipped preset writes the DSN out — there is nothing to drift."""
@@ -108,7 +107,6 @@ def test_presets_write_no_ariel_database_uri(preset: str) -> None:
     )
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("preset", ARIEL_PRESETS)
 def test_presets_declare_what_the_dsn_derives_from(preset: str) -> None:
     """Deriving is only honest if the source keys are actually written."""
@@ -124,7 +122,6 @@ def test_presets_declare_what_the_dsn_derives_from(preset: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("preset", ARIEL_PRESETS)
 def test_dsn_follows_a_post_render_port_host_edit(preset: str) -> None:
     """Editing services.postgresql after render moves the DSN with it.
@@ -146,7 +143,6 @@ def test_dsn_follows_a_post_render_port_host_edit(preset: str) -> None:
     assert after_edit.database.uri == "postgresql://ariel:ariel@localhost:15432/ariel"
 
 
-@pytest.mark.unit
 def test_dsn_follows_username_and_database_name() -> None:
     """Every derived field comes from services.postgresql, not just the port."""
     uri = resolve_ariel_dsn(
@@ -157,7 +153,6 @@ def test_dsn_follows_username_and_database_name() -> None:
     assert uri == "postgresql://logbook:ariel@localhost:6543/olog"
 
 
-@pytest.mark.unit
 def test_password_reads_the_env_the_compose_service_reads(monkeypatch) -> None:
     """The DSN password is the same ARIEL_DB_PASSWORD Postgres was started with."""
     monkeypatch.setenv("ARIEL_DB_PASSWORD", "password-from-dotenv")
@@ -169,7 +164,6 @@ def test_password_reads_the_env_the_compose_service_reads(monkeypatch) -> None:
     )
 
 
-@pytest.mark.unit
 def test_missing_services_block_falls_back_to_shipped_defaults(monkeypatch) -> None:
     """A config with no services block still yields a connectable local DSN."""
     monkeypatch.delenv("ARIEL_DB_PASSWORD", raising=False)
@@ -179,7 +173,6 @@ def test_missing_services_block_falls_back_to_shipped_defaults(monkeypatch) -> N
     assert resolve_ariel_dsn({"database": {}}, {}) == default
 
 
-@pytest.mark.unit
 def test_derived_port_follows_the_base_the_caller_resolved(monkeypatch) -> None:
     """The port comes from the CALLER's base, never from the layout's default.
 
@@ -197,7 +190,6 @@ def test_derived_port_follows_the_base_the_caller_resolved(monkeypatch) -> None:
     assert default_port("postgres", base=base) == 20800
 
 
-@pytest.mark.unit
 def test_an_explicit_port_host_still_wins_over_the_layout() -> None:
     """A project that moved its Postgres keeps its own number at any base."""
     base = resolve_port_base({"deployment": {"port_base": 20000}})
@@ -212,7 +204,6 @@ def test_an_explicit_port_host_still_wins_over_the_layout() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_explicit_uri_wins_untouched() -> None:
     """An explicit DSN is passed through verbatim, services block or not."""
     external = "postgresql://reader:pw@logbook-db.example.org:5433/facility_olog"
@@ -225,7 +216,6 @@ def test_explicit_uri_wins_untouched() -> None:
     assert config.database.uri == external
 
 
-@pytest.mark.unit
 def test_explicit_uri_ignores_a_port_host_edit() -> None:
     """A project that wrote its own DSN keeps it when the local Postgres moves."""
     ariel_section = {"database": {"uri": "postgresql://ariel:pw@localhost:5432/ariel"}}
@@ -243,7 +233,6 @@ def test_explicit_uri_ignores_a_port_host_edit() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_overrides_replace_the_derived_host_and_port() -> None:
     """ARIEL_DATABASE_HOST and ARIEL_DATABASE_PORT address the derived store.
 
@@ -261,7 +250,6 @@ def test_overrides_replace_the_derived_host_and_port() -> None:
     assert uri == "postgresql://ariel:ariel@postgresql:5432/ariel"
 
 
-@pytest.mark.unit
 def test_each_override_stands_alone() -> None:
     """Setting one leaves the other on its derived value."""
     services = {"username": "ariel", "database_name": "ariel", "port_host": 15432}
@@ -273,7 +261,6 @@ def test_each_override_stands_alone() -> None:
     assert port_only == "postgresql://ariel:ariel@localhost:5432/ariel"
 
 
-@pytest.mark.unit
 def test_overrides_leave_an_explicit_uri_verbatim() -> None:
     """An authored DSN names a store this deployment may not run at all.
 
@@ -291,7 +278,6 @@ def test_overrides_leave_an_explicit_uri_verbatim() -> None:
     assert uri == external
 
 
-@pytest.mark.unit
 def test_overrides_leave_the_legacy_connection_string_verbatim(
     rearmed_connection_string_warning,
 ) -> None:
@@ -307,7 +293,6 @@ def test_overrides_leave_the_legacy_connection_string_verbatim(
     assert uri == legacy
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("blank", ["", "   ", "\t"])
 def test_a_blank_override_is_unset(blank: str) -> None:
     """A rendered-but-empty variable means "no override", not an empty host.
@@ -325,7 +310,6 @@ def test_a_blank_override_is_unset(blank: str) -> None:
     assert uri == "postgresql://ariel:ariel@localhost:15432/ariel"
 
 
-@pytest.mark.unit
 def test_a_non_integer_port_override_is_refused() -> None:
     """A port that is not a number is a config error, not a silent fallback."""
     with pytest.raises(ValueError, match="ARIEL_DATABASE_PORT"):
@@ -336,7 +320,6 @@ def test_a_non_integer_port_override_is_refused() -> None:
         )
 
 
-@pytest.mark.unit
 def test_overrides_come_from_the_env_mapping_the_caller_passed(monkeypatch) -> None:
     """A caller acting ON a project reads that project's env, not the ambient one.
 
@@ -379,7 +362,6 @@ def _write_project_config(tmp_path: Path, ariel: dict[str, Any], port_host: int)
     return config_path
 
 
-@pytest.mark.unit
 def test_web_interface_derives_the_dsn(tmp_path) -> None:
     """The web app reads the same derived DSN as every other entry point."""
     from osprey.interfaces.ariel.app import load_ariel_config
@@ -391,7 +373,6 @@ def test_web_interface_derives_the_dsn(tmp_path) -> None:
     assert ariel_config["database"]["uri"] == "postgresql://ariel:ariel@localhost:15432/ariel"
 
 
-@pytest.mark.unit
 def test_container_overrides_reach_the_panel_through_the_resolver(tmp_path, monkeypatch) -> None:
     """The panel gets the container address from the resolver, not a rewrite.
 
@@ -412,7 +393,6 @@ def test_container_overrides_reach_the_panel_through_the_resolver(tmp_path, monk
     )
 
 
-@pytest.mark.unit
 def test_the_panel_leaves_an_explicit_uri_alone(tmp_path, monkeypatch) -> None:
     """Behaviour change: the old regex rewrote an authored URI as well.
 
@@ -437,7 +417,6 @@ def test_the_panel_leaves_an_explicit_uri_alone(tmp_path, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_legacy_connection_string_is_honored_as_the_uri(
     caplog, rearmed_connection_string_warning
 ) -> None:
@@ -466,7 +445,6 @@ def test_legacy_connection_string_is_honored_as_the_uri(
     )
 
 
-@pytest.mark.unit
 def test_legacy_connection_string_warns_once_per_process(
     caplog, rearmed_connection_string_warning
 ) -> None:
@@ -487,7 +465,6 @@ def test_legacy_connection_string_warns_once_per_process(
     )
 
 
-@pytest.mark.unit
 def test_deriving_the_dsn_stays_silent(caplog, rearmed_connection_string_warning) -> None:
     """Deriving is the normal path — it is not a deprecation event."""
     with caplog.at_level(logging.DEBUG, logger="osprey"):
@@ -507,7 +484,6 @@ def test_deriving_the_dsn_stays_silent(caplog, rearmed_connection_string_warning
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_readonly_role_is_the_username_with_the_ro_suffix(monkeypatch) -> None:
     """The role name is derived from the one place the owner is declared."""
     monkeypatch.setenv("ARIEL_DB_READONLY_PASSWORD", "ro-from-dotenv")
@@ -519,7 +495,6 @@ def test_readonly_role_is_the_username_with_the_ro_suffix(monkeypatch) -> None:
     assert uri == "postgresql://logbook_ro:ro-from-dotenv@localhost:6543/olog"
 
 
-@pytest.mark.unit
 def test_readonly_password_falls_back_to_the_shipped_default(monkeypatch) -> None:
     """Mirrors ``${ARIEL_DB_READONLY_PASSWORD:-ariel_ro}`` in the compose
     service and the init script, so the agent stays launchable before a deploy
@@ -531,7 +506,6 @@ def test_readonly_password_falls_back_to_the_shipped_default(monkeypatch) -> Non
     )
 
 
-@pytest.mark.unit
 def test_the_two_roles_differ_only_in_identity(monkeypatch) -> None:
     """Same host, same port, same database — a different login."""
     monkeypatch.setenv("ARIEL_DB_PASSWORD", "owner-secret")
@@ -546,7 +520,6 @@ def test_the_two_roles_differ_only_in_identity(monkeypatch) -> None:
     )
 
 
-@pytest.mark.unit
 def test_store_address_overrides_apply_to_the_readonly_rung_too(monkeypatch) -> None:
     """A process inside the compose network reaches the same Postgres by
     service name with either identity."""
@@ -559,7 +532,6 @@ def test_store_address_overrides_apply_to_the_readonly_rung_too(monkeypatch) -> 
     )
 
 
-@pytest.mark.unit
 def test_an_explicit_uri_is_returned_verbatim_for_either_role() -> None:
     """A DSN the project wrote down names one identity on a database osprey did
     not provision — there is no ``_ro`` role there to invent."""
@@ -569,7 +541,6 @@ def test_an_explicit_uri_is_returned_verbatim_for_either_role() -> None:
     assert resolve_ariel_dsn({"database": {"uri": explicit}}, None, role="readonly") == explicit
 
 
-@pytest.mark.unit
 def test_database_config_carries_both_identities(monkeypatch) -> None:
     """``from_dict`` fills the read-only DSN on the same path that fills the
     ingestion one, so a project cannot end up with one and not the other."""
@@ -582,7 +553,6 @@ def test_database_config_carries_both_identities(monkeypatch) -> None:
     assert config.readonly_uri == "postgresql://ariel_ro:ro-secret@localhost:5432/ariel"
 
 
-@pytest.mark.unit
 def test_an_explicit_uri_leaves_no_readonly_identity() -> None:
     """Recorded as absent rather than as a duplicate of the ingestion DSN: a
     copy would silently connect the SQL tool as whatever the explicit URI names.

@@ -197,7 +197,6 @@ def concurrent_agent_events():
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_no_filters(basic_events, tmp_path):
     """Returns all events when no filters are applied."""
     fn = _get_session_log()
@@ -214,7 +213,6 @@ async def test_no_filters(basic_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_agent_filter(basic_events, tmp_path):
     """Agent filter returns lifecycle events + tool_calls with matching agent_id."""
     fn = _get_session_log()
@@ -235,7 +233,6 @@ async def test_agent_filter(basic_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_agent_excludes_outside_calls(basic_events, tmp_path):
     """Tool calls from main agent are excluded by agent filter."""
     fn = _get_session_log()
@@ -252,7 +249,6 @@ async def test_agent_excludes_outside_calls(basic_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_tool_filter(basic_events, tmp_path):
     """Tool filter matches by substring on tool name."""
     fn = _get_session_log()
@@ -269,7 +265,6 @@ async def test_tool_filter(basic_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_errors_only(basic_events, tmp_path):
     """errors_only returns only tool_call events with is_error=true."""
     fn = _get_session_log()
@@ -287,7 +282,6 @@ async def test_errors_only(basic_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_event_type_filter(basic_events, tmp_path):
     """event_type filter returns only events of that type."""
     fn = _get_session_log()
@@ -304,7 +298,6 @@ async def test_event_type_filter(basic_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_last_n(basic_events, tmp_path):
     """last_n returns only the last N events."""
     fn = _get_session_log()
@@ -323,7 +316,6 @@ async def test_last_n(basic_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_last_n_clamped_to_200(basic_events, tmp_path):
     """Values > 200 for last_n are clamped to 200."""
     fn = _get_session_log()
@@ -339,7 +331,6 @@ async def test_last_n_clamped_to_200(basic_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_combined_filters(basic_events, tmp_path):
     """Agent + errors_only filters work together."""
     fn = _get_session_log()
@@ -356,7 +347,6 @@ async def test_combined_filters(basic_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_empty_events(tmp_path):
     """Returns empty events list when TranscriptReader returns nothing."""
     fn = _get_session_log()
@@ -373,7 +363,6 @@ async def test_empty_events(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_no_transcript(tmp_path):
     """Returns empty events list when no transcript found."""
     fn = _get_session_log()
@@ -395,7 +384,6 @@ async def test_no_transcript(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_agent_id_filter(concurrent_agent_events, tmp_path):
     """agent_id filter returns only events for a specific agent instance."""
     fn = _get_session_log()
@@ -418,7 +406,6 @@ async def test_agent_id_filter(concurrent_agent_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_since_filter(concurrent_agent_events, tmp_path):
     """since excludes events before the timestamp."""
     fn = _get_session_log()
@@ -437,7 +424,6 @@ async def test_since_filter(concurrent_agent_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_before_filter(concurrent_agent_events, tmp_path):
     """before excludes events after the timestamp."""
     fn = _get_session_log()
@@ -456,7 +442,6 @@ async def test_before_filter(concurrent_agent_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_since_before_combined(concurrent_agent_events, tmp_path):
     """since + before creates a time-range filter."""
     fn = _get_session_log()
@@ -475,7 +460,6 @@ async def test_since_before_combined(concurrent_agent_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_list_agents_mode(concurrent_agent_events, tmp_path):
     """list_agents returns compact agent summary with tool/error counts."""
     fn = _get_session_log()
@@ -502,7 +486,6 @@ async def test_list_agents_mode(concurrent_agent_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_agent_id_correlation(concurrent_agent_events, tmp_path):
     """Two concurrent same-type agents are correctly disambiguated via agent_id."""
     fn = _get_session_log()
@@ -522,7 +505,6 @@ async def test_agent_id_correlation(concurrent_agent_events, tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_time_window_fallback(tmp_path):
     """Old data without agent_id on tool_calls falls back to time-window matching."""
     # Events without agent_id on tool_calls (simulating pre-TranscriptReader data)
@@ -570,7 +552,6 @@ async def test_time_window_fallback(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_since_invalid_format(tmp_path):
     """Bad timestamp returns validation error, not crash."""
     fn = _get_session_log()
@@ -589,7 +570,6 @@ async def test_since_invalid_format(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_transcript_is_read_from_the_agents_render_dir(tmp_path, monkeypatch):
     """The reader is pointed at the RENDER — the directory the agent runs in.
 

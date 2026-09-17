@@ -28,7 +28,12 @@ import yaml
 from click.testing import CliRunner
 from rich.console import Console
 
-from osprey.cli.build_profile import resolve_build_profile
+from osprey.cli.build_profile import (
+    GChatBridgeProfileConfig,
+    NextcloudBridgeProfileConfig,
+    TeamsBridgeProfileConfig,
+    resolve_build_profile,
+)
 from osprey.cli.build_profile_model import BuildProfile
 from osprey.cli.main import cli
 from osprey.cli.phase_reporter import PhaseReporter, install_reporter
@@ -215,8 +220,8 @@ def test_a_card_admitting_a_domain_says_shared() -> None:
     entry through the same predicate the deployment does, so a principal list
     carries the marker too — it used to compare the raw key against `"any"` and
     show a domain-admitting card as though it were the operator's own."""
-    assert "password · shared" in line_with(_roster_card(["domain:lbl.gov"]), "ops")
-    assert "password · shared" in line_with(_roster_card(["user:alice@lbl.gov"]), "ops")
+    assert "password · shared" in line_with(_roster_card(["domain:example.com"]), "ops")
+    assert "password · shared" in line_with(_roster_card(["user:alice@example.com"]), "ops")
     assert "password · shared" in line_with(_roster_card("any"), "ops")
 
 
@@ -307,6 +312,29 @@ def test_the_services_group_names_the_injected_stack(exemplar_lines: list[str]) 
     assert f"web :{_PORTS['bluesky_web']}" in bluesky
     dispatch = line_with(exemplar_lines, "dispatch")
     assert "1 worker · triggers " in dispatch
+
+
+def test_the_services_group_names_every_chat_bridge_the_profile_carries() -> None:
+    # One row per bridge block, each naming its platform the way its
+    # documentation does — the card is where an operator confirms the bridge
+    # they authored is the bridge the build will deploy.
+    profile = BuildProfile(
+        name="bridged",
+        nextcloud_bridge=NextcloudBridgeProfileConfig(),
+        gchat_bridge=GChatBridgeProfileConfig(),
+        teams_bridge=TeamsBridgeProfileConfig(),
+    )
+    named = [
+        row["value"]
+        for row in card_rows(profile, {})
+        if row["group"] == "services" and row["label"] == "bridge"
+    ]
+    assert named == ["Nextcloud Talk", "Google Chat", "Microsoft Teams"]
+
+
+def test_a_profile_without_a_teams_block_gets_no_teams_row() -> None:
+    lines = format_profile_card(BuildProfile(name="unbridged"), {})
+    assert not any("Microsoft Teams" in line for line in lines)
 
 
 # ---------------------------------------------------------------------------

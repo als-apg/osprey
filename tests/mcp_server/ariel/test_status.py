@@ -4,8 +4,6 @@ import json
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import ARIELStatusResult, EmbeddingTableInfo
 from tests.mcp_server.ariel.conftest import get_tool_fn
@@ -26,7 +24,6 @@ def _setup_registry(tmp_path, monkeypatch):
     initialize_ariel_context()
 
 
-@pytest.mark.unit
 async def test_status_healthy(tmp_path, monkeypatch):
     """Status returns health information when DB is connected."""
     _setup_registry(tmp_path, monkeypatch)
@@ -71,7 +68,6 @@ async def test_status_healthy(tmp_path, monkeypatch):
     assert "keyword" in data["enabled_search_modules"]
 
 
-@pytest.mark.unit
 async def test_status_db_error(tmp_path, monkeypatch):
     """Status handles DB errors gracefully."""
     _setup_registry(tmp_path, monkeypatch)
@@ -105,7 +101,6 @@ async def test_status_db_error(tmp_path, monkeypatch):
     assert len(data["errors"]) > 0
 
 
-@pytest.mark.unit
 async def test_status_service_exception(tmp_path, monkeypatch):
     """Service exception returns standard error format."""
     _setup_registry(tmp_path, monkeypatch)

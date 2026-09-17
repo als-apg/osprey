@@ -146,7 +146,6 @@ def _patch_load_config(config: dict):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_returns_all_sections(project_dir):
     """setup_inspect returns all expected top-level keys."""
     fn = _get_setup_inspect()
@@ -170,7 +169,6 @@ async def test_inspect_returns_all_sections(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_config_content(project_dir):
     """setup_inspect returns the parsed config."""
     fn = _get_setup_inspect()
@@ -183,7 +181,6 @@ async def test_inspect_config_content(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_mcp_servers(project_dir):
     """setup_inspect returns .mcp.json content."""
     fn = _get_setup_inspect()
@@ -195,7 +192,6 @@ async def test_inspect_mcp_servers(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_rules_and_agents(project_dir):
     """setup_inspect lists rule files and agent files."""
     fn = _get_setup_inspect()
@@ -209,7 +205,6 @@ async def test_inspect_rules_and_agents(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_skills(project_dir):
     """setup_inspect lists skill directories."""
     fn = _get_setup_inspect()
@@ -221,7 +216,6 @@ async def test_inspect_skills(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_workspace(project_dir):
     """setup_inspect reports workspace existence and subdirs."""
     fn = _get_setup_inspect()
@@ -235,7 +229,6 @@ async def test_inspect_workspace(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_workspace_is_the_repos_agent_data_root(tmp_path):
     """The workspace section reports durable state, not a sibling of the render.
 
@@ -265,7 +258,6 @@ async def test_inspect_workspace_is_the_repos_agent_data_root(tmp_path):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_env_masking(project_dir):
     """setup_inspect masks sensitive environment variables."""
     fn = _get_setup_inspect()
@@ -293,7 +285,6 @@ async def test_inspect_env_masking(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_hooks_from_settings(project_dir):
     """setup_inspect extracts hooks from settings.json."""
     fn = _get_setup_inspect()
@@ -310,7 +301,6 @@ async def test_inspect_hooks_from_settings(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_yaml_file(project_dir):
     """setup_patch modifies a YAML config value."""
     fn = _get_setup_patch()
@@ -330,7 +320,6 @@ async def test_patch_yaml_file(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_json_file(project_dir):
     """setup_patch modifies a JSON config value."""
     fn = _get_setup_patch()
@@ -352,7 +341,6 @@ async def test_patch_json_file(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_yaml_type_conversion(project_dir):
     """setup_patch YAML-parses values for type conversion."""
     fn = _get_setup_patch()
@@ -371,7 +359,6 @@ async def test_patch_yaml_type_conversion(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_creates_nested_keys(project_dir):
     """setup_patch creates intermediate keys that don't exist."""
     fn = _get_setup_patch()
@@ -392,7 +379,6 @@ async def test_patch_creates_nested_keys(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_whitelist_enforcement(project_dir):
     """setup_patch rejects files not in the whitelist."""
     fn = _get_setup_patch()
@@ -407,7 +393,6 @@ async def test_patch_whitelist_enforcement(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_rejects_traversal(project_dir):
     """setup_patch rejects key_path with '..' traversal."""
     fn = _get_setup_patch()
@@ -422,7 +407,6 @@ async def test_patch_rejects_traversal(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_rejects_absolute_path(project_dir):
     """setup_patch rejects key_path starting with / or ~."""
     fn = _get_setup_patch()
@@ -431,7 +415,6 @@ async def test_patch_rejects_absolute_path(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_rejects_empty_key_path(project_dir):
     """setup_patch rejects empty key_path."""
     fn = _get_setup_patch()
@@ -440,7 +423,6 @@ async def test_patch_rejects_empty_key_path(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_the_hot_path_is_classified_hot_but_no_longer_patchable(project_dir):
     """The one hot key is protected, so the classification is asserted directly.
 
@@ -469,7 +451,6 @@ async def test_the_hot_path_is_classified_hot_but_no_longer_patchable(project_di
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_cold_change_classification(project_dir):
     """setup_patch classifies unknown paths as cold changes."""
     fn = _get_setup_patch()
@@ -486,7 +467,6 @@ async def test_patch_cold_change_classification(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_patch_file_not_found(project_dir):
     """setup_patch returns error when target file doesn't exist."""
     fn = _get_setup_patch()
@@ -497,7 +477,6 @@ async def test_patch_file_not_found(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_reports_the_unexpanded_config(project_dir, monkeypatch):
     """No resolved ``${VAR}`` value reaches the payload — the placeholder does."""
     fn = _get_setup_inspect()
@@ -537,7 +516,6 @@ async def test_inspect_reports_the_unexpanded_config(project_dir, monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_masks_a_secret_typed_into_the_config(project_dir):
     """A literal under a sensitive key name is masked, placeholders or not."""
     fn = _get_setup_inspect()
@@ -565,7 +543,6 @@ async def test_inspect_masks_a_secret_typed_into_the_config(project_dir):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_inspect_masks_secrets_in_the_mcp_servers_blob(project_dir):
     """`.mcp.json` gets the same walk: it carries per-server env blocks."""
     fn = _get_setup_inspect()

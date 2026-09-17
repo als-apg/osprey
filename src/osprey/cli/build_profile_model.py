@@ -59,6 +59,7 @@ from .build_profile_schema import (
     NextcloudBridgeProfileConfig,
     ProfileProvenance,
     ServiceDef,
+    TeamsBridgeProfileConfig,
     VAConfig,
     env_names_errors,
     http_errors,
@@ -350,6 +351,7 @@ class BuildProfile:
     bluesky_web: BlueskyWebConfig | None = None
     nextcloud_bridge: NextcloudBridgeProfileConfig | None = None
     gchat_bridge: GChatBridgeProfileConfig | None = None
+    teams_bridge: TeamsBridgeProfileConfig | None = None
     va_archiver: VAArchiverConfig | None = None
     """The stored archive a simulated deployment keeps its history in
     (``va_archiver:``).
@@ -1820,6 +1822,15 @@ class BuildProfile:
                     "gchat_bridge",
                     self.gchat_bridge.trigger,
                     "every Chat message",
+                    profile_dir,
+                )
+            )
+        if self.teams_bridge is not None:
+            errors.extend(
+                self._validate_chat_bridge(
+                    "teams_bridge",
+                    self.teams_bridge.trigger,
+                    "every Teams message",
                     profile_dir,
                 )
             )

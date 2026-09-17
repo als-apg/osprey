@@ -30,11 +30,15 @@
 #   OSPREY_DEV          "1" relaxes the deps layer: if the pinned OSPREY_PIP_SPEC
 #                       is unreleased and fails to install, fall back to the
 #                       latest published osprey-framework instead of failing.
+#   OSPREY_PIP_PRE      "1" when OSPREY_PIP_SPEC pins a pre-release: the deps
+#                       layer then resolves with --pre, since the framework's
+#                       paired osprey-connectors beta is admitted no other way.
 #   CLAUDE_CLI_VERSION  Claude Code CLI version to pin (default: this
 #                       project's claude_code.cli_version). Bump deliberately
 #                       — an unpinned upstream release could silently change
 #                       agent behavior between image builds.
-#   PIP_NO_PROXY        hosts exempted from any proxy during pip install
+#   PIP_NO_PROXY        hosts exempted from any proxy during pip install. Unset
+#                       (the default), the build host's own NO_PROXY stands.
 #   PIP_INDEX_URL       package index the deps layer resolves from, for sites
 #                       that mirror PyPI internally. It is pip's own environment
 #                       name, so the declared ARG reaches pip directly; empty
@@ -49,6 +53,11 @@
 FROM python:3.12-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
 ARG OSPREY_DEV=""
+# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
+# connectors ship as a pair from one tag, and pip never picks a pre-release
+# for a requirement that names none (the framework's own connectors
+# requirement), so the deps layer then resolves as a whole with --pre.
+ARG OSPREY_PIP_PRE=""
 ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
 ARG PIP_NO_PROXY=""
 ARG PIP_INDEX_URL=""
@@ -171,8 +180,8 @@ COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 # parses one, so an unconfigured build resolves from PyPI exactly as it did
 # before these args existed.
 RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_proxy:-${HTTPS_PROXY:-}}" no_proxy="${no_proxy:-${NO_PROXY:-}}"; \
-    export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
-    && printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
+    [ -z "$PIP_NO_PROXY" ] || export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY"; \
+    printf 'setuptools<84\n' > /tmp/deps-ctx/pip-constraints.txt \
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
@@ -180,7 +189,7 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
            git+*) pip install --no-cache-dir "osprey-connectors @ ${OSPREY_PIP_SPEC}#subdirectory=packages/osprey-connectors" \
                   || echo "WARNING: could not pre-install osprey-connectors from the git spec; resolving from PyPI" ;; \
          esac; } \
-    && { pip install --no-cache-dir "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
+    && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
          || if [ "$OSPREY_DEV" = "1" ]; then \
                 echo "WARNING: pin unreleased, priming with latest" \
                 && pip install --no-cache-dir osprey-framework {{ pip_dependency_args | default("") }}; \

@@ -59,6 +59,22 @@ def tmp_project(tmp_path):
 
 
 @pytest.fixture
+def stub_reviewer_options(monkeypatch):
+    """Stand in for the reviewer's options builder.
+
+    The command builds them in its own body, so a test that drives it with a
+    faked agent loop reaches the real builder — which refuses these fixture
+    projects, none of which names a provider. What the options are does not
+    matter to those tests: the loop they run is a stub.
+    """
+    monkeypatch.setattr(
+        "osprey.cli.audit_cmd._reviewer_options",
+        lambda project_dir, model, budget: object(),
+        raising=True,
+    )
+
+
+@pytest.fixture
 def tmp_profile(tmp_path):
     """Create a minimal profile YAML."""
     profile = tmp_path / "test-profile.yml"
@@ -202,7 +218,9 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    def test_audit_project_success(self, mock_asyncio, runner, tmp_project, sample_report):
+    def test_audit_project_success(
+        self, mock_asyncio, runner, tmp_project, sample_report, stub_reviewer_options
+    ):
         report_json = sample_report.model_dump_json()
         mock_asyncio.run.return_value = (report_json, 0.01, 5)
 
@@ -211,7 +229,9 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    def test_audit_json_output(self, mock_asyncio, runner, tmp_project, sample_report):
+    def test_audit_json_output(
+        self, mock_asyncio, runner, tmp_project, sample_report, stub_reviewer_options
+    ):
         report_json = sample_report.model_dump_json()
         mock_asyncio.run.return_value = (report_json, 0.01, 5)
 
@@ -222,7 +242,9 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    def test_audit_verbose(self, mock_asyncio, runner, tmp_project, sample_report):
+    def test_audit_verbose(
+        self, mock_asyncio, runner, tmp_project, sample_report, stub_reviewer_options
+    ):
         report_json = sample_report.model_dump_json()
         mock_asyncio.run.return_value = (report_json, 0.05, 10)
 
@@ -241,7 +263,9 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    def test_audit_invalid_json_output(self, mock_asyncio, runner, tmp_project):
+    def test_audit_invalid_json_output(
+        self, mock_asyncio, runner, tmp_project, stub_reviewer_options
+    ):
         mock_asyncio.run.return_value = ("Not valid JSON at all", None, None)
 
         result = runner.invoke(self._get_audit_cmd(), [str(tmp_project)])
@@ -249,7 +273,9 @@ class TestAuditCLI:
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
-    def test_audit_markdown_fenced_json(self, mock_asyncio, runner, tmp_project, sample_report):
+    def test_audit_markdown_fenced_json(
+        self, mock_asyncio, runner, tmp_project, sample_report, stub_reviewer_options
+    ):
         report_json = sample_report.model_dump_json()
         fenced = f"```json\n{report_json}\n```"
         mock_asyncio.run.return_value = (fenced, 0.01, 5)
@@ -280,7 +306,7 @@ class TestBuildFlag:
     @patch("osprey.cli.audit_cmd.asyncio")
     @patch("osprey.cli.audit_cmd.click.get_current_context")
     def test_build_flag_invokes_build_cmd(
-        self, mock_ctx, mock_asyncio, runner, tmp_profile, sample_report
+        self, mock_ctx, mock_asyncio, runner, tmp_profile, sample_report, stub_reviewer_options
     ):
         report_json = sample_report.model_dump_json()
         mock_asyncio.run.return_value = (report_json, 0.01, 5)
@@ -333,9 +359,24 @@ class TestReviewerProvider:
         assert captured["setting_sources"] == []
 
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
+    def test_a_project_that_names_no_provider_is_refused(self, runner, tmp_project):
+        """A project whose config.yml sets no provider has nothing to run on.
+
+        The builder already says so, but it was called from inside the event
+        loop, so the sentence reached the operator as a traceback.
+        """
+        result = runner.invoke(self._get_audit_cmd(), [str(tmp_project)])
+
+        flat = " ".join(result.output.split())
+        assert result.exit_code == 1
+        assert "Traceback" not in result.output
+        assert "The reviewer has no provider to run on" in flat
+        assert "set `provider:` in profile.yml and run `osprey build`" in flat
+
+    @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
     def test_default_model_is_the_projects_sonnet_tier(
-        self, mock_asyncio, runner, tmp_project, sample_report, monkeypatch
+        self, mock_asyncio, runner, tmp_project, sample_report, monkeypatch, stub_reviewer_options
     ):
         mock_asyncio.run.return_value = (sample_report.model_dump_json(), 0.01, 5)
         seen: dict = {}
@@ -359,7 +400,7 @@ class TestReviewerProvider:
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
     def test_an_explicit_model_still_wins(
-        self, mock_asyncio, runner, tmp_project, sample_report, monkeypatch
+        self, mock_asyncio, runner, tmp_project, sample_report, monkeypatch, stub_reviewer_options
     ):
         mock_asyncio.run.return_value = (sample_report.model_dump_json(), 0.01, 5)
         monkeypatch.setattr(
@@ -385,7 +426,7 @@ class TestReviewerProvider:
     @patch("osprey.cli.audit_cmd._SDK_AVAILABLE", True)
     @patch("osprey.cli.audit_cmd.asyncio")
     def test_a_bare_profile_in_a_repo_runs_from_the_repos_build(
-        self, mock_asyncio, runner, tmp_path, sample_report, monkeypatch
+        self, mock_asyncio, runner, tmp_path, sample_report, monkeypatch, stub_reviewer_options
     ):
         """The render under ``build/`` holds ``config.yml``; the repo root does
         not, so resolving from the root is a FileNotFoundError on any real repo."""

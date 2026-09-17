@@ -50,6 +50,10 @@ RELOAD_WAIT_BOUND_S = 3.0  # generous margin over the documented ~1-2s poll boun
 BASELINE_TORR = 5e-8
 BURST_THRESHOLD_TORR = 1e-6  # well above baseline+noise, well below the burst override
 
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 2
+
 
 async def _wait_until(connector, address: str, predicate, *, bound_s: float) -> float:
     """Poll ``address`` until ``predicate(value)`` is true or ``bound_s`` elapses.
@@ -145,3 +149,17 @@ class TestScenarioReload:
             # And the sp-echo write is STILL untouched by this second switch.
             still_unaffected_rb = (await connector.read_channel(VAC_WRITABLE_RB)).value
             assert still_unaffected_rb == pytest.approx(SESSION_WRITE_VALUE)
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_scenario_reload.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS

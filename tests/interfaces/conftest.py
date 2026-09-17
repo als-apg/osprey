@@ -408,6 +408,13 @@ def launch_graph_channel_finder(
 #: and its scoped variants needs neither the scope nor an ordering, and the
 #: bare key is written too so a page that enumerates storage still sees it.
 #:
+#: This is the only seed in the tree. A suite that also writes the bare key
+#: in an init script of its own adds nothing — the wrapper above already
+#: answers for it, scoped or not — and states the narrower of the two
+#: behaviours next to code that needs the wider one, which is how the next
+#: copy comes to be written. ``test_shared_tour_seam_contract.py`` is what
+#: keeps the count at one.
+#:
 #: A browser test that wants the invite opts out in its own page-level init
 #: script, which runs after the context's, by putting back the reader this one
 #: parked on ``Storage.prototype.getItem.osprey_real``. Clearing the key is not
@@ -501,6 +508,36 @@ def chromium_browser() -> Iterator[Browser]:
     finally:
         browser.close()
         pw.stop()
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _isolate_module_audit_zone(tmp_path_factory):
+    """Hold the ledger's seam redirected for a whole test module.
+
+    The fixture below does this per test, which covers every app built in a
+    test body. It cannot cover an app built by a MODULE-scoped fixture:
+    pytest sets every higher-scoped fixture up first, so such an app enters
+    its lifespan, serves requests and is torn down while the per-test
+    redirection has not been made. ``web_terminal``'s notebook-panel module
+    is that shape, and every record it fires -- ``http_mutation`` per
+    state-changing request, ``web_auth`` per authenticated one -- is filed in
+    that window.
+
+    Module-scoped rather than session-scoped on purpose. A session-scoped
+    redirection made anywhere under this directory could not be undone at the
+    directory's edge: it would still be installed for every test that runs
+    after this tree in the same worker, including the suites in
+    ``tests/audit`` that call the real ``writer.audit_dir()`` and assert what
+    it resolves to. A module-scoped one is torn down with the module that
+    needed it.
+
+    ``pytest.MonkeyPatch.context()`` rather than the ``monkeypatch`` fixture,
+    which is function-scoped and cannot be requested here.
+    """
+    zone = tmp_path_factory.mktemp("module-audit-zone") / "var" / "audit"
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(writer, "audit_dir", lambda: zone)
+        yield zone
 
 
 @pytest.fixture(autouse=True)

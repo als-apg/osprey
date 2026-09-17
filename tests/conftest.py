@@ -7,6 +7,7 @@ This module provides shared fixtures and utilities for all Osprey tests.
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -14,7 +15,7 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
-from tests import _env_scope_guard, ci_diagnostics
+from tests import _env_scope_guard, _repo_cleanliness, ci_diagnostics
 from tests._env_scope_guard import restore_module_environment
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
@@ -225,10 +226,13 @@ _REAL_DEPLOYMENT_LANES = ("tests/e2e/", "tests/va/e2e/")
 #: before any fixture has run.
 _AGENT_DATA_MARKER = _REPO_ROOT / "var" / "agent_data"
 
-#: Whether that directory was already there when this conftest was imported.
-#: A pre-existing one belongs to a real local deployment, so nothing about it
-#: is the suite's business and the creator hook stays quiet for the session.
-_AGENT_DATA_PRE_EXISTED = _AGENT_DATA_MARKER.exists()
+#: The directory as it was when this conftest was imported — the only moment
+#: guaranteed to precede every test and every higher-scoped fixture. A
+#: directory that was already there belongs to a real local deployment, and
+#: what is IN it is that deployment's business; what this run adds to it is
+#: this suite's, because the first leak would otherwise leave the guard
+#: disarmed for every run after it.
+_AGENT_DATA_BASELINE = _repo_cleanliness.snapshot(_AGENT_DATA_MARKER)
 
 #: The first test in THIS worker whose teardown found the directory there,
 #: ``None`` while none has. Recorded by :func:`pytest_runtest_teardown` and
@@ -237,14 +241,15 @@ _AGENT_DATA_FIRST_SEEN: str | None = None
 
 
 def pytest_runtest_teardown(item):
-    """Timestamp the appearance of ``<repo>/var/agent_data`` against a test.
+    """Timestamp this run's mark on ``<repo>/var/agent_data`` against a test.
 
     The guard below runs once per worker at session teardown and can only
     report *that* the directory appeared, which is the least useful half of the
     finding: the run is over, and the reader is left grepping a whole tree of
     app fixtures for whichever one resolved the agent-data root to the
     checkout. This narrows it to a window instead — the first test that ran
-    with the directory already present.
+    with this run's mark on the directory, whether or not the directory itself
+    was there before the run started.
 
     Deliberately reported as an upper bound rather than as blame. The writer is
     typically not the test named: the last one measured was a uvicorn daemon
@@ -254,14 +259,14 @@ def pytest_runtest_teardown(item):
     created it. What the name is good for is bounding the search — nothing in
     this worker before it can be the cause.
 
-    One ``stat`` per test, and only until the first hit — cheap enough to leave
-    armed for every lane rather than gated behind a flag nobody would set
-    before the leak had already cost them an afternoon.
+    One ``stat`` and one directory listing per test, and only until the first
+    hit — cheap enough to leave armed for every lane rather than gated behind a
+    flag nobody would set before the leak had already cost them an afternoon.
     """
     global _AGENT_DATA_FIRST_SEEN
-    if _AGENT_DATA_PRE_EXISTED or _AGENT_DATA_FIRST_SEEN is not None:
+    if _AGENT_DATA_FIRST_SEEN is not None:
         return
-    if _AGENT_DATA_MARKER.exists():
+    if _repo_cleanliness.what_this_run_did(_AGENT_DATA_BASELINE, _AGENT_DATA_MARKER):
         worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
         _AGENT_DATA_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
 
@@ -348,10 +353,15 @@ def no_agent_data_in_the_repo(request):
     every test at once, at the cost of overriding the resolver patch most
     store-touching tests use to redirect that root.
 
-    Only a directory the RUN created is a failure. One that was already there
-    belongs to a real local deployment and is none of the suite's business —
-    checking for creation rather than existence is what keeps this from firing
-    on a developer who has actually run OSPREY in this checkout.
+    Only what the RUN did is a failure. A directory that was already there is
+    not one — that is what keeps this from firing on a developer who has
+    actually run OSPREY in this checkout — but an entry this run put INTO it
+    is, because a directory left behind by an interrupted run is
+    indistinguishable from one a developer owns, and keying on existence hands
+    the guard's silence to the first leak that happens here. The consequence is
+    worth stating plainly: a live local deployment writing into that directory
+    while the suite runs is now named as a failure. The message names the entry
+    that appeared, so that case can be recognised for what it is.
 
     The real-deployment lanes (``tests/e2e/``, ``tests/va/e2e/``) are exempt:
     they run agents and servers with this checkout as the project root, so the
@@ -363,11 +373,11 @@ def no_agent_data_in_the_repo(request):
     real_deployment_lane = any(
         item.nodeid.startswith(_REAL_DEPLOYMENT_LANES) for item in request.session.items
     )
-    existed = marker.exists()
     yield
     if real_deployment_lane:
         return
-    if not existed and marker.exists():
+    clause = _repo_cleanliness.what_this_run_did(_AGENT_DATA_BASELINE, marker)
+    if clause:
         culprit = (
             "\nalready present by the end of "
             f"{_AGENT_DATA_FIRST_SEEN} — the writer is at or before that point, "
@@ -376,7 +386,7 @@ def no_agent_data_in_the_repo(request):
             else ""
         )
         raise AssertionError(
-            f"the test run created {marker} — something resolved the agent-data root "
+            f"the test run {clause} — something resolved the agent-data root "
             "to the repository. A test that writes the posture store or a control-target "
             "state file must stamp OSPREY_AGENT_DATA_ROOT at a tmp path (see "
             "session_posture_leak_guard) rather than leave it to resolve_shared_data_root()."
@@ -942,6 +952,49 @@ def _has_cborg_api_key() -> bool:
     return bool(_os.environ.get("CBORG_API_KEY"))
 
 
+def _e2e_provider_availability() -> tuple[bool, str]:
+    """Whether the credential of the provider this run builds with is present.
+
+    Two facts meet here and neither is authored: which provider the run was
+    told to build with (``tests.e2e.provider``) and which variable holds that
+    provider's key (``PROVIDER_API_KEYS``, whose own comment calls it the single
+    source of truth). Gating on one gateway's key instead is what let a run
+    naming another provider, and holding its credential, skip anyway.
+
+    A run that named no provider reads as unavailable carrying the refusal's own
+    message rather than raising: the e2e collection hook owns ending such a
+    session, and keeping this predicate out of that business leaves the two free
+    of any hook ordering.
+    """
+    import os as _os
+
+    from osprey.models.provider_registry import PROVIDER_API_KEYS
+    from tests.e2e.provider import E2E_PROVIDER_ENV, e2e_provider
+
+    try:
+        provider = e2e_provider()
+    except RuntimeError as exc:
+        return False, str(exc)
+    if provider not in PROVIDER_API_KEYS:
+        known = ", ".join(sorted(PROVIDER_API_KEYS))
+        return False, (
+            f"{E2E_PROVIDER_ENV} names {provider!r}, which is not a provider OSPREY "
+            f"registers (known: {known})"
+        )
+    key_var = PROVIDER_API_KEYS[provider]
+    if key_var is None or _os.environ.get(key_var):
+        return True, ""
+    return False, f"{key_var} not set — the provider this run builds with is {provider!r}"
+
+
+def _has_e2e_provider_key() -> bool:
+    return _e2e_provider_availability()[0]
+
+
+def _e2e_provider_reason() -> str:
+    return _e2e_provider_availability()[1]
+
+
 def _is_ollama_available() -> bool:
     """True if a local Ollama server responds at localhost:11434."""
     try:
@@ -952,7 +1005,10 @@ def _is_ollama_available() -> bool:
         return False
 
 
-_RESOURCE_CHECKS: dict[str, tuple[callable, str]] = {
+# The second element is the skip reason: a fixed string, or a zero-arg callable
+# for a resource whose absence has more than one explanation to report.
+_RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] = {
+    "requires_e2e_provider": (_has_e2e_provider_key, _e2e_provider_reason),
     "requires_als_apg": (_has_als_apg_api_key, "ALS_APG_API_KEY not set"),
     "requires_anthropic": (_has_anthropic_api_key, "ANTHROPIC_API_KEY not set"),
     "requires_api": (
@@ -974,17 +1030,19 @@ def pytest_collection_modifyitems(config, items):
     missing resource adds a real `pytest.mark.skip(reason=...)`; satisfied
     markers are no-ops.
     """
-    cache: dict[str, bool] = {}
+    cache: dict[str, tuple[bool, str]] = {}
     for item in items:
         for marker_name, (predicate, reason) in _RESOURCE_CHECKS.items():
             if marker_name not in item.keywords:
                 continue
-            available = cache.get(marker_name)
-            if available is None:
+            resolved = cache.get(marker_name)
+            if resolved is None:
                 available = predicate()
-                cache[marker_name] = available
-            if not available:
-                item.add_marker(pytest.mark.skip(reason=reason))
+                text = "" if available else (reason() if callable(reason) else reason)
+                resolved = (available, text)
+                cache[marker_name] = resolved
+            if not resolved[0]:
+                item.add_marker(pytest.mark.skip(reason=resolved[1]))
 
 
 # ===================================================================

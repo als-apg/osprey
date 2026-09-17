@@ -718,8 +718,8 @@ class ARIELConfig:
             (see ``mcp_server.ariel.server.build_entry_url``), NOT parsed by
             ``from_dict`` — the ARIEL read tools render it with the URL-encoded
             ``entry_id`` so the agent links entries verbatim. Facility-neutral by
-            default (unset -> no ``entry_url`` emitted); the facility supplies the
-            value in its own config (for ALS, ``als-base.yml``).
+            default (unset -> no ``entry_url`` emitted); a facility supplies the
+            value in its own sibling base file.
     """
 
     database: DatabaseConfig

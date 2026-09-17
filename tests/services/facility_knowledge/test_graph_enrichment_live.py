@@ -59,8 +59,8 @@ logger = logging.getLogger(__name__)
 
 # xdist_group("docker") keeps every container-starting module on one xdist
 # worker: two testcontainers sessions starting at once race their own reapers
-# over the port publisher.  ``integration`` because this needs a real service.
-pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
+# over the port publisher.
+pytestmark = [pytest.mark.xdist_group("docker")]
 
 
 # ---------------------------------------------------------------------------

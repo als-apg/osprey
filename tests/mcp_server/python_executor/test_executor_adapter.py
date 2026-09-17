@@ -4,6 +4,7 @@ Tests the adapter module in isolation with mocked executors.
 Pattern: monkeypatch.chdir(tmp_path) -> write config.yml -> mock deps -> call adapter.
 """
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -93,7 +94,6 @@ def _deep_merge(base, overrides):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("configured", ["subprocess", "local", "container"])
 def test_config_resolves_every_accepted_method_to_subprocess(tmp_path, monkeypatch, configured):
     """Every accepted execution_method value resolves to the subprocess backend."""
@@ -103,7 +103,6 @@ def test_config_resolves_every_accepted_method_to_subprocess(tmp_path, monkeypat
     assert config["execution_method"] == "subprocess"
 
 
-@pytest.mark.unit
 def test_config_defaults_execution_method_to_subprocess(tmp_path, monkeypatch):
     """When execution_method missing, defaults to 'subprocess'."""
     monkeypatch.chdir(tmp_path)
@@ -112,7 +111,6 @@ def test_config_defaults_execution_method_to_subprocess(tmp_path, monkeypatch):
     assert config["execution_method"] == "subprocess"
 
 
-@pytest.mark.unit
 def test_config_rejects_unknown_execution_method(tmp_path, monkeypatch):
     """An unrecognised execution_method is a hard config error, not a silent default."""
     monkeypatch.chdir(tmp_path)
@@ -121,7 +119,6 @@ def test_config_rejects_unknown_execution_method(tmp_path, monkeypatch):
         _read_config()
 
 
-@pytest.mark.unit
 def test_config_reads_timeout(tmp_path, monkeypatch):
     """Adapter reads python_executor.execution_timeout_seconds."""
     monkeypatch.chdir(tmp_path)
@@ -130,7 +127,6 @@ def test_config_reads_timeout(tmp_path, monkeypatch):
     assert config["timeout"] == 120
 
 
-@pytest.mark.unit
 def test_config_timeout_default(tmp_path, monkeypatch):
     """When timeout config absent, the adapter falls back to the shared default."""
     monkeypatch.chdir(tmp_path)
@@ -139,7 +135,6 @@ def test_config_timeout_default(tmp_path, monkeypatch):
     assert config["timeout"] == DEFAULT_EXECUTION_TIMEOUT_SECONDS
 
 
-@pytest.mark.unit
 def test_config_timeout_default_matches_the_builder_default(tmp_path, monkeypatch):
     """Both ends of the executor timeout read the same constant."""
     monkeypatch.chdir(tmp_path)
@@ -158,7 +153,6 @@ def test_config_timeout_default_matches_the_builder_default(tmp_path, monkeypatc
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_agent_interpreter_prefers_project_venv(tmp_path):
     """Agent code runs in the project's own venv when the project ships one."""
     venv_python = tmp_path / ".venv" / "bin" / "python"
@@ -168,13 +162,11 @@ def test_agent_interpreter_prefers_project_venv(tmp_path):
     assert resolve_agent_interpreter(tmp_path) == venv_python
 
 
-@pytest.mark.unit
 def test_agent_interpreter_falls_back_to_sys_executable(tmp_path):
     """Without a project venv, agent code runs in the interpreter running OSPREY."""
     assert resolve_agent_interpreter(tmp_path) == Path(sys.executable)
 
 
-@pytest.mark.unit
 def test_agent_interpreter_defaults_to_resolved_project_root(tmp_path, monkeypatch):
     """Called with no argument, the helper resolves the project root itself."""
     venv_python = tmp_path / ".venv" / "bin" / "python"
@@ -188,7 +180,6 @@ def test_agent_interpreter_defaults_to_resolved_project_root(tmp_path, monkeypat
     assert resolve_agent_interpreter() == venv_python
 
 
-@pytest.mark.unit
 async def test_subprocess_spawned_with_resolved_interpreter(tmp_path, monkeypatch):
     """The resolved interpreter is the binary actually handed to the subprocess."""
     monkeypatch.chdir(tmp_path)
@@ -222,7 +213,6 @@ async def test_subprocess_spawned_with_resolved_interpreter(tmp_path, monkeypatc
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_execution_folder_created(tmp_path, monkeypatch):
     """Adapter creates timestamped folder in _agent_data/data/python_executions/."""
     monkeypatch.chdir(tmp_path)
@@ -238,7 +228,6 @@ def test_execution_folder_created(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_limits_validator_loaded_and_passed(tmp_path, monkeypatch):
     """LimitsValidator.from_config() is called when loading the validator."""
     monkeypatch.chdir(tmp_path)
@@ -270,7 +259,6 @@ def test_limits_validator_loaded_and_passed(tmp_path, monkeypatch):
     assert "TEST:PV" in validator.limits
 
 
-@pytest.mark.unit
 def test_limits_validator_disabled_gracefully(tmp_path, monkeypatch):
     """When limits_checking.enabled=false, returns None."""
     monkeypatch.chdir(tmp_path)
@@ -284,7 +272,6 @@ def test_limits_validator_disabled_gracefully(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_wrapper_includes_monkeypatch_when_validator_present(tmp_path, monkeypatch):
     """ExecutionWrapper.create_wrapper() output contains monkeypatch code when validator present."""
     monkeypatch.chdir(tmp_path)
@@ -319,7 +306,6 @@ def test_wrapper_includes_monkeypatch_when_validator_present(tmp_path, monkeypat
     assert "LimitsValidator" in wrapped
 
 
-@pytest.mark.unit
 def test_wrapper_omits_monkeypatch_when_no_validator(tmp_path, monkeypatch):
     """Wrapper output has no monkeypatch when validator is None."""
     monkeypatch.chdir(tmp_path)
@@ -336,7 +322,6 @@ def test_wrapper_omits_monkeypatch_when_no_validator(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("configured", ["subprocess", "local", "container"])
 async def test_every_configured_method_runs_the_subprocess_backend(
     tmp_path, monkeypatch, configured
@@ -364,7 +349,6 @@ async def test_every_configured_method_runs_the_subprocess_backend(
     assert result.stdout == "42\n"
 
 
-@pytest.mark.unit
 async def test_deprecated_container_method_still_executes(tmp_path, monkeypatch, caplog):
     """A legacy 'container' config warns once but still runs the code."""
     monkeypatch.chdir(tmp_path)
@@ -401,7 +385,6 @@ async def test_deprecated_container_method_still_executes(tmp_path, monkeypatch,
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_timeout_from_config(tmp_path, monkeypatch):
     """Adapter reads the configured timeout and applies it to the subprocess wait."""
     monkeypatch.chdir(tmp_path)
@@ -435,7 +418,6 @@ async def test_timeout_from_config(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_result_dataclass_populated():
     """ExecutionResult has correct fields when constructed."""
     result = ExecutionResult(
@@ -453,7 +435,6 @@ def test_result_dataclass_populated():
     assert result.execution_time_seconds == 1.5
 
 
-@pytest.mark.unit
 def test_result_dataclass_defaults():
     """ExecutionResult defaults are sensible."""
     result = ExecutionResult(success=False, stdout="", stderr="error")
@@ -468,7 +449,6 @@ def test_result_dataclass_defaults():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_subprocess_error_returns_failure_result(tmp_path, monkeypatch):
     """When subprocess fails, adapter returns failure result (no fallback)."""
     monkeypatch.chdir(tmp_path)
@@ -490,7 +470,6 @@ async def test_subprocess_error_returns_failure_result(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_figure_collection_from_execution_folder(execution_folder):
     """After execution, adapter scans figures/ dir and returns figure paths."""
     # Create some figure files
@@ -502,14 +481,12 @@ def test_figure_collection_from_execution_folder(execution_folder):
     assert all(f.suffix == ".png" for f in figures)
 
 
-@pytest.mark.unit
 def test_figure_collection_empty_folder(execution_folder):
     """Empty execution folder returns no figures."""
     figures = _collect_figures(execution_folder)
     assert figures == []
 
 
-@pytest.mark.unit
 def test_figure_collection_multiple_formats(execution_folder):
     """Collects PNG, JPG, JPEG, and SVG files."""
     (execution_folder / "figures" / "plot.png").write_bytes(b"PNG")
@@ -525,7 +502,6 @@ def test_figure_collection_multiple_formats(execution_folder):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_read_execution_metadata(execution_folder):
     """Reads execution_metadata.json from execution folder."""
     metadata = {"success": True, "stdout": "hello", "stderr": ""}
@@ -535,14 +511,12 @@ def test_read_execution_metadata(execution_folder):
     assert result == metadata
 
 
-@pytest.mark.unit
 def test_read_execution_metadata_missing(execution_folder):
     """Returns None when execution_metadata.json doesn't exist."""
     result = _read_execution_metadata(execution_folder)
     assert result is None
 
 
-@pytest.mark.unit
 def test_read_execution_metadata_invalid_json(execution_folder):
     """Returns None when execution_metadata.json is invalid JSON."""
     (execution_folder / "execution_metadata.json").write_text("not json{{{")
@@ -556,7 +530,6 @@ def test_read_execution_metadata_invalid_json(execution_folder):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_invalid_execution_method_returns_failure_result(tmp_path, monkeypatch):
     """An unknown execution_method surfaces as a failed execution, not a fallback run."""
     monkeypatch.chdir(tmp_path)
@@ -579,7 +552,6 @@ async def test_invalid_execution_method_returns_failure_result(tmp_path, monkeyp
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("mode", ["readonly", "readwrite"])
 async def test_execution_mode_exported_to_sandbox_env(tmp_path, monkeypatch, mode):
     """The declared mode is a runtime property of the subprocess, not just a
@@ -603,7 +575,6 @@ async def test_execution_mode_exported_to_sandbox_env(tmp_path, monkeypatch, mod
     assert mock_spawn.call_args.kwargs["env"]["OSPREY_EXECUTION_MODE"] == mode
 
 
-@pytest.mark.unit
 async def test_wrapper_built_with_execution_mode(tmp_path, monkeypatch):
     """The wrapper is told the mode so it can emit the readonly guard."""
     monkeypatch.chdir(tmp_path)
@@ -632,3 +603,74 @@ async def test_wrapper_built_with_execution_mode(tmp_path, monkeypatch):
         await execute_code("print(42)", "readonly", "test")
 
     assert seen.get("execution_mode") == "readonly"
+
+
+# ---------------------------------------------------------------------------
+# A sandbox that finished its script but never exited
+# ---------------------------------------------------------------------------
+#
+# The wrapper persists the execution record before the interpreter shuts down.
+# A child that then wedges in a library's shutdown hook is killed at the
+# timeout — but its script ran, and may have written to the machine. That run
+# is reported from its record, never as an empty-handed timeout.
+
+
+def _hanging_proc():
+    async def never_returns():
+        await asyncio.sleep(3600)
+
+    proc = AsyncMock()
+    proc.communicate = AsyncMock(side_effect=never_returns)
+    proc.returncode = None
+    return proc
+
+
+async def test_completed_script_is_reported_when_the_sandbox_fails_to_exit(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, {"python_executor": {"execution_timeout_seconds": 1}})
+    folder = tmp_path / "exec"
+    folder.mkdir()
+    monkeypatch.setattr(
+        "osprey.mcp_server.python_executor.executor._create_execution_folder", lambda: folder
+    )
+    (folder / "execution_metadata.json").write_text(
+        json.dumps({"success": True, "stdout": "Before: 0.0\nAfter: 0.1\n", "stderr": ""})
+    )
+
+    proc = _hanging_proc()
+    with patch(
+        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
+        new_callable=AsyncMock,
+        return_value=proc,
+    ):
+        result = await execute_code("print('x')", "readwrite", "test")
+
+    proc.kill.assert_called_once()
+    assert result.success is True
+    assert result.failure_kind is None
+    assert result.stdout == "Before: 0.0\nAfter: 0.1\n"
+    assert "did not exit" in result.stderr
+
+
+async def test_a_script_still_running_at_the_timeout_is_a_timeout(tmp_path, monkeypatch):
+    """No record on disk means the script itself never finished: the kill is the verdict."""
+    monkeypatch.chdir(tmp_path)
+    _write_config(tmp_path, {"python_executor": {"execution_timeout_seconds": 1}})
+    folder = tmp_path / "exec"
+    folder.mkdir()
+    monkeypatch.setattr(
+        "osprey.mcp_server.python_executor.executor._create_execution_folder", lambda: folder
+    )
+
+    proc = _hanging_proc()
+    with patch(
+        "osprey.mcp_server.python_executor.executor.asyncio.create_subprocess_exec",
+        new_callable=AsyncMock,
+        return_value=proc,
+    ):
+        result = await execute_code("while True: pass", "readonly", "test")
+
+    proc.kill.assert_called_once()
+    assert result.success is False
+    assert result.failure_kind == "timeout"
+    assert result.stdout == ""

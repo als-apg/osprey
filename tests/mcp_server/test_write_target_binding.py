@@ -309,7 +309,6 @@ async def _run_single(connector, *, when_resolved=None, channel="TEST:PV", value
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_write_proceeds_and_looks_unchanged_without_target_state(tmp_path, monkeypatch):
     """No record at all: the write runs, and the envelope is what it was.
 
@@ -337,7 +336,6 @@ async def test_write_proceeds_and_looks_unchanged_without_target_state(tmp_path,
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_write_proceeds_when_the_target_is_unchanged(tmp_path, monkeypatch):
     """A record that does not move across the call changes nothing."""
     _prepare(tmp_path, monkeypatch)
@@ -353,7 +351,6 @@ async def test_write_proceeds_when_the_target_is_unchanged(tmp_path, monkeypatch
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_same_target_respawn_does_not_trip_the_binding(tmp_path, monkeypatch):
     """A respawn replaces the child, not the target — the write goes through.
 
@@ -385,7 +382,6 @@ async def test_same_target_respawn_does_not_trip_the_binding(tmp_path, monkeypat
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_target_change_between_entry_and_write_is_refused(tmp_path, monkeypatch):
     """A switch landing mid-call refuses the write and names both bindings."""
     _prepare(tmp_path, monkeypatch)
@@ -410,7 +406,6 @@ async def test_target_change_between_entry_and_write_is_refused(tmp_path, monkey
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_generation_change_alone_is_refused(tmp_path, monkeypatch):
     """The generation is half the binding: moving it alone still refuses.
 
@@ -433,7 +428,6 @@ async def test_generation_change_alone_is_refused(tmp_path, monkeypatch):
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_batch_write_is_refused_before_the_connector_call(tmp_path, monkeypatch):
     """The batch path is bound exactly as the single-write path is."""
     _prepare(tmp_path, monkeypatch)
@@ -458,7 +452,6 @@ async def test_a_batch_write_is_refused_before_the_connector_call(tmp_path, monk
     connector.write_multiple_channels.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_record_appearing_mid_call_is_refused(tmp_path, monkeypatch):
     """A deployment that started publishing mid-call is a change, not a nothing.
 
@@ -485,7 +478,6 @@ async def test_a_record_appearing_mid_call_is_refused(tmp_path, monkeypatch):
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_record_disappearing_mid_call_is_refused(tmp_path, monkeypatch):
     """A record that vanished mid-call is a deployment that stopped, so refuse."""
     _prepare(tmp_path, monkeypatch)
@@ -504,7 +496,6 @@ async def test_a_record_disappearing_mid_call_is_refused(tmp_path, monkeypatch):
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_corrupt_record_reads_as_no_record_and_does_not_refuse(tmp_path, monkeypatch):
     """An unreadable record is "no answer" at both ends, so the write runs.
 
@@ -530,7 +521,6 @@ async def test_a_corrupt_record_reads_as_no_record_and_does_not_refuse(tmp_path,
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_a_switch_while_the_operator_was_deciding_is_refused(tmp_path, monkeypatch):
     """The render-to-click window: the stamp disagrees with entry, so refuse.
 
@@ -562,7 +552,6 @@ async def test_a_switch_while_the_operator_was_deciding_is_refused(tmp_path, mon
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_stamp_that_agrees_with_entry_lets_the_write_through(tmp_path, monkeypatch):
     """The ordinary approved write: prompt, entry and pre-write all agree."""
     _prepare(tmp_path, monkeypatch)
@@ -581,7 +570,6 @@ async def test_a_stamp_that_agrees_with_entry_lets_the_write_through(tmp_path, m
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_stamp_for_a_different_write_is_not_this_calls_approval(tmp_path, monkeypatch):
     """The stamp is keyed by the payload: another write's stamp is not consulted.
 
@@ -603,7 +591,6 @@ async def test_a_stamp_for_a_different_write_is_not_this_calls_approval(tmp_path
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_stamp_from_another_session_on_this_checkout_is_ignored(tmp_path, monkeypatch):
     """A second session's approval must not refuse — or authorize — this one.
 
@@ -628,7 +615,6 @@ async def test_a_stamp_from_another_session_on_this_checkout_is_ignored(tmp_path
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_prompt_rendered_on_an_unpublished_target_still_binds(tmp_path, monkeypatch):
     """A stamp naming no target is an answer, not an absence.
 
@@ -657,7 +643,6 @@ async def test_a_prompt_rendered_on_an_unpublished_target_still_binds(tmp_path, 
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_no_stamp_means_no_approval_comparison(tmp_path, monkeypatch):
     """An unstamped call is not refused: older renders must keep working.
 
@@ -679,7 +664,6 @@ async def test_no_stamp_means_no_approval_comparison(tmp_path, monkeypatch):
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_stamp_approved_for_a_different_confirmation_is_not_consulted(
     tmp_path, monkeypatch
 ):
@@ -709,7 +693,6 @@ async def test_a_stamp_approved_for_a_different_confirmation_is_not_consulted(
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_stamp_matching_this_calls_confirmation_binds(tmp_path, monkeypatch):
     """The same write with the same ``confirm`` finds its own approval.
 
@@ -753,7 +736,6 @@ def _tool_warnings(caplog):
     ]
 
 
-@pytest.mark.unit
 async def test_a_miss_with_this_servers_stamps_present_warns_about_the_render(
     tmp_path, monkeypatch, caplog
 ):
@@ -782,7 +764,6 @@ async def test_a_miss_with_this_servers_stamps_present_warns_about_the_render(
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_miss_with_only_another_sessions_stamps_stays_quiet(tmp_path, monkeypatch, caplog):
     """Two sessions share the directory: the other one's stamps prove nothing.
 
@@ -810,7 +791,6 @@ async def test_a_miss_with_only_another_sessions_stamps_stays_quiet(tmp_path, mo
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_miss_with_no_stamps_at_all_stays_quiet(tmp_path, monkeypatch, caplog):
     """A deployment whose policy never asks has no stamps and needs no advice."""
     _prepare(tmp_path, monkeypatch)
@@ -832,7 +812,6 @@ async def test_a_miss_with_no_stamps_at_all_stays_quiet(tmp_path, monkeypatch, c
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_a_serving_host_that_disagrees_with_the_file_refuses(tmp_path, monkeypatch):
     """A failed publish leaves the record behind; a write must not ride on it.
 
@@ -861,7 +840,6 @@ async def test_a_serving_host_that_disagrees_with_the_file_refuses(tmp_path, mon
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_serving_host_that_agrees_with_the_file_writes(tmp_path, monkeypatch):
     """The normal switched session: record and manager say the same thing."""
     _prepare(tmp_path, monkeypatch)
@@ -878,7 +856,6 @@ async def test_a_serving_host_that_agrees_with_the_file_writes(tmp_path, monkeyp
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_manager_that_never_started_is_not_consulted(tmp_path, monkeypatch):
     """An in-process deployment has no second opinion, and needs none.
 
@@ -909,7 +886,6 @@ async def test_a_manager_that_never_started_is_not_consulted(tmp_path, monkeypat
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_a_swap_in_flight_on_this_server_refuses_naming_the_pid(tmp_path, monkeypatch):
     """This server is between two targets, so no value may go out.
 
@@ -942,7 +918,6 @@ async def test_a_swap_in_flight_on_this_server_refuses_naming_the_pid(tmp_path, 
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_swap_in_flight_on_another_session_refuses_this_one_too(tmp_path, monkeypatch):
     """An in-flight swap stops every session, not only the one switching.
 
@@ -966,7 +941,6 @@ async def test_a_swap_in_flight_on_another_session_refuses_this_one_too(tmp_path
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_swap_in_flight_refuses_a_session_that_owns_no_report(tmp_path, monkeypatch):
     """A bare ``claude`` has no report of its own and is still held up.
 
@@ -987,7 +961,6 @@ async def test_a_swap_in_flight_refuses_a_session_that_owns_no_report(tmp_path, 
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_swap_reported_for_another_generation_does_not_refuse(tmp_path, monkeypatch):
     """A block naming a generation the record has moved past coordinates nothing.
 
@@ -1013,7 +986,6 @@ async def test_a_swap_reported_for_another_generation_does_not_refuse(tmp_path, 
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_stuck_swap_on_another_session_stops_holding_this_one_up(tmp_path, monkeypatch):
     """Past its own bound, an ``applying`` block holds up only its own session.
 
@@ -1036,7 +1008,6 @@ async def test_a_stuck_swap_on_another_session_stops_holding_this_one_up(tmp_pat
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_stuck_swap_on_this_server_still_refuses_this_server(tmp_path, monkeypatch):
     """The other half of the bound: a stuck swap of one's own is still stuck.
 
@@ -1063,7 +1034,6 @@ async def test_a_stuck_swap_on_this_server_still_refuses_this_server(tmp_path, m
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_failed_swap_refuses_this_servers_writes(tmp_path, monkeypatch):
     """FR-8: the session whose server could not follow is the one refused.
 
@@ -1092,7 +1062,6 @@ async def test_a_failed_swap_refuses_this_servers_writes(tmp_path, monkeypatch):
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_failed_swap_elsewhere_leaves_this_session_writing(tmp_path, monkeypatch):
     """FR-8's other half: a failure strands one session and no more.
 
@@ -1122,7 +1091,6 @@ async def test_a_failed_swap_elsewhere_leaves_this_session_writing(tmp_path, mon
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_server_bound_to_an_older_generation_refuses_its_own_session(tmp_path, monkeypatch):
     """The headline case: ``applied_generation != record.generation`` refuses.
 
@@ -1144,7 +1112,6 @@ async def test_a_server_bound_to_an_older_generation_refuses_its_own_session(tmp
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_a_fresh_server_that_has_bound_nothing_yet_does_not_refuse(tmp_path, monkeypatch):
     """A null binding is "not there yet", never "on the baseline".
 
@@ -1165,7 +1132,6 @@ async def test_a_fresh_server_that_has_bound_nothing_yet_does_not_refuse(tmp_pat
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_server_bound_where_the_record_says_writes(tmp_path, monkeypatch):
     """The settled deployment: report and record agree, so nothing is in the way."""
     _prepare(tmp_path, monkeypatch, session=THIS_SESSION)
@@ -1181,7 +1147,6 @@ async def test_a_server_bound_where_the_record_says_writes(tmp_path, monkeypatch
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_dead_servers_swap_does_not_refuse(tmp_path, monkeypatch):
     """Residue is not a fleet: a report whose server exited refuses nobody.
 
@@ -1202,7 +1167,6 @@ async def test_a_dead_servers_swap_does_not_refuse(tmp_path, monkeypatch):
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_without_a_record_there_is_no_convergence_to_judge(tmp_path, monkeypatch):
     """No record means no generation to be behind, so reports decide nothing.
 
@@ -1222,7 +1186,6 @@ async def test_without_a_record_there_is_no_convergence_to_judge(tmp_path, monke
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_a_stale_approval_is_reported_before_an_unsettled_fleet(tmp_path, monkeypatch):
     """Both refusals apply; the operator is told the one about their own click.
 

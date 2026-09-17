@@ -27,7 +27,6 @@ imported while a submodule that a caller does not touch is absent or failing.
 
 from __future__ import annotations
 
-import importlib
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -48,40 +47,31 @@ __all__ = [
     "render_json",
 ]
 
-#: Attribute name -> submodule it lives in.  Covers the public names in
-#: :data:`__all__` plus the two per-stage entry points a caller may want
-#: directly, so every submodule of the package is reachable by name.
-_EXPORTS = {
-    "OntologyCompileError": "errors",
-    "load_schema": "loader",
-    "schema_to_payload": "payload",
-    "CompiledOntology": "compile",
-    "compile_schema": "compile",
-    "render_json": "render",
-    "GENERATED_HEADER": "render",
-    "check_artifact": "check",
+#: Public name -> the submodule of this package that defines it. Entries are
+#: resolved on first attribute access, never at import.
+_LAZY_EXPORTS: dict[str, str] = {
+    "OntologyCompileError": ".errors",
+    "load_schema": ".loader",
+    "schema_to_payload": ".payload",
+    "CompiledOntology": ".compile",
+    "compile_schema": ".compile",
+    "render_json": ".render",
+    "GENERATED_HEADER": ".render",
+    "check_artifact": ".check",
 }
 
 
 def __getattr__(name: str) -> Any:
-    """Resolve a re-export by importing its submodule on first access.
-
-    Args:
-        name: Attribute being looked up on the package.
-
-    Returns:
-        The attribute, read from the submodule that defines it.
-
-    Raises:
-        AttributeError: *name* is not one of the package's exports.
-    """
-    module_name = _EXPORTS.get(name)
+    """Resolve a public name from its defining module on first access."""
+    module_name = _LAZY_EXPORTS.get(name)
     if module_name is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    module = importlib.import_module(f".{module_name}", __name__)
-    return getattr(module, name)
+    from importlib import import_module
+
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
 
 
 def __dir__() -> list[str]:
-    """List the package's exports alongside its real attributes."""
-    return sorted(set(globals()) | set(_EXPORTS))
+    return sorted({*globals(), *_LAZY_EXPORTS})

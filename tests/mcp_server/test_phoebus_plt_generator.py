@@ -3,7 +3,7 @@
 Structural-parity coverage for ``create_plt_from_config`` — the XML shape must
 match the retired ``phoebus_launch`` server's serializer (axis, per-PV
 color/trace/ring_size/request/<archive>, time span), and the archiver binding
-must be facility-neutral: no default archiver URL, and no ALS-specific string
+must be facility-neutral: no default archiver URL, and no site-specific string
 anywhere in the migrated source.
 """
 
@@ -36,7 +36,7 @@ def _minimal_config(**overrides) -> PlotConfig:
 
 # ── facility-neutral hygiene ────────────────────────────────────────────────
 def test_no_facility_specific_strings_in_migrated_source():
-    """grep-clean: the migrated files must not bake in an ALS-specific host."""
+    """grep-clean: the migrated files must not bake in a site-specific host."""
     for path in (
         Path(plt_generator.__file__),
         Path(plt_generator.__file__).with_name("models.py"),

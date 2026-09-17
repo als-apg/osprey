@@ -30,6 +30,7 @@ from osprey.services.ariel_search.models import (
     ARIELStatusResult,
     DiagnosticLevel,
     EmbeddingTableInfo,
+    EnhancedLogbookEntry,
     FacilityEntryCreateRequest,
     FacilityEntryCreateResult,
     SearchDiagnostic,
@@ -377,7 +378,9 @@ class ARIELSearchService:
         """Collect the tool descriptor of every registered search module.
 
         Uses the same registry listing as the capabilities API so the routable
-        modes and the advertised modes can never drift apart.
+        modes and the advertised modes can never drift apart. The listing is
+        taken from an initialized registry, so which modes are routable does not
+        depend on what else the process has already loaded.
 
         Returns:
             Mapping of module name to descriptor, in registry order. A module
@@ -387,6 +390,7 @@ class ARIELSearchService:
         from osprey.registry import get_registry
 
         registry = get_registry()
+        registry.initialize(silent=True)
         descriptors: dict[str, SearchToolDescriptor] = {}
         for name in registry.list_ariel_search_modules():
             module = registry.get_ariel_search_module(name)
@@ -693,7 +697,7 @@ class ARIELSearchService:
 
         # Optimistic local upsert
         raw_text = f"{request.subject}\n\n{request.details}" if request.details else request.subject
-        entry = {
+        entry: EnhancedLogbookEntry = {
             "entry_id": facility_entry_id,
             "source_system": source_system,
             "timestamp": now,

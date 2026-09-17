@@ -64,8 +64,8 @@ import yaml
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.port_layout import default_port
 from tests.e2e._volumes import remove_project_volumes
-from tests.e2e.conftest import e2e_provider
 from tests.e2e.profile_edits import set_pairs
+from tests.e2e.provider import e2e_provider
 
 #: This deploy's own thousand-port block — same convention as
 #: test_dispatch_deploy.py (20700) and test_web_bind.py (21000): a real
@@ -77,8 +77,11 @@ PORT_BASE = 21100
 DISPATCHER_URL = f"http://localhost:{default_port('dispatcher', base=PORT_BASE)}"
 TOKEN = "dev-token"  # matches the .env tokens written below
 
-# Container image build (Node + Claude CLI install) is slow on a cold cache.
-DEPLOY_UP_TIMEOUT_SEC = 900
+# Container image builds (Node + Claude CLI install; the project image and the
+# qmd sidecar, several GB each) run cold on every CI runner: about a quarter of
+# an hour on four cores before the first container exists. Same budget as the
+# identical command in test_dispatch_deploy.py.
+DEPLOY_UP_TIMEOUT_SEC = 1800
 HEALTH_TIMEOUT_SEC = 180.0
 RUN_TIMEOUT_SEC = 300.0
 
@@ -108,7 +111,8 @@ SURFACE_TOKEN = "SURFACE=e2e-generic-webhook"  # emitted only if surface_prompt 
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.requires_als_apg,
+    # Gates on the credential of whichever provider the run builds with.
+    pytest.mark.requires_e2e_provider,
     pytest.mark.slow,
     # dockerbuild: full dispatcher/worker image build + deploy -- runs in the
     # dedicated dispatch-overlay-e2e CI job, never the shared e2e-tests lane

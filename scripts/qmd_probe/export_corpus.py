@@ -1,4 +1,4 @@
-"""Render an ALS logbook JSONL snapshot into a qmd-indexable markdown mirror.
+"""Render a logbook JSONL snapshot into a qmd-indexable markdown mirror.
 
 This renderer is *probe-internal*: it exists to produce a corpus of realistic
 shape and scale for the scale probe, and deliberately does not share code with
@@ -24,7 +24,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 # Matches the production exporter's cap. Recorded here so the probe report can
-# state how many real entries actually hit it (at ALS scale: none).
+# state how many real entries actually hit it (at ~10^5 entries: none).
 BODY_CAP_BYTES = 256 * 1024
 TRUNCATION_MARKER = "\n\n[truncated]\n"
 
@@ -89,8 +89,7 @@ def render(entry: dict) -> str:
         f"# {subject or '(no subject)'}",
         "",
         f"Logged by {author or 'unknown'} on {stamp}.",
-        f"Category: {category or 'uncategorized'}. Level: {level or 'unknown'}. "
-        f"Source: ALS logbook.",
+        f"Category: {category or 'uncategorized'}. Level: {level or 'unknown'}. Source: logbook.",
         "",
         details,
     ]

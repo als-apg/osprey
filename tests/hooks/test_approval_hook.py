@@ -55,7 +55,6 @@ def _is_allow(result) -> bool:
     return output.get("permissionDecision") == "allow"
 
 
-@pytest.mark.unit
 def test_approval_disabled_passes_all(tmp_path, hook_runner, make_config):
     """When approval mode is 'disabled', all tools pass through."""
     config = make_config(
@@ -77,7 +76,6 @@ def test_approval_disabled_passes_all(tmp_path, hook_runner, make_config):
     assert _is_allow(result)  # All tools pass
 
 
-@pytest.mark.unit
 def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
     """Selective mode blocks channel_write (a write operation)."""
     config = make_config(
@@ -105,7 +103,6 @@ def test_selective_mode_blocks_write(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
     """Selective mode blocks python_execute in write mode."""
     config = make_config(
@@ -132,7 +129,6 @@ def test_selective_mode_blocks_python_write(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_selective_mode_allows_readonly_python(tmp_path, hook_runner, make_config):
     """Selective mode allows readonly python without write patterns."""
     config = make_config(
@@ -157,7 +153,6 @@ def test_selective_mode_allows_readonly_python(tmp_path, hook_runner, make_confi
     assert _is_allow(result)  # Readonly without write patterns passes
 
 
-@pytest.mark.unit
 def test_per_tool_skip_allows_read(tmp_path, hook_runner, make_config):
     """A per-tool skip policy lets channel_read through, even when the
     default_policy would otherwise prompt. Mirrors production config which
@@ -185,7 +180,6 @@ def test_per_tool_skip_allows_read(tmp_path, hook_runner, make_config):
     assert _is_allow(result)
 
 
-@pytest.mark.unit
 def test_channel_read_skip_emits_allow_decision(tmp_path, hook_runner, make_config):
     """DETERMINISTIC contract pin for the e2e read test (test_safety_reads.py).
 
@@ -223,7 +217,6 @@ def test_channel_read_skip_emits_allow_decision(tmp_path, hook_runner, make_conf
     assert output["permissionDecision"] == "allow"
 
 
-@pytest.mark.unit
 def test_channel_read_always_asks(tmp_path, hook_runner, make_config):
     """Paired contract: with ``default_policy: always`` and no ``tools`` map,
     even channel_read must `ask` — the fail-closed backstop (scenario 2d). This
@@ -251,7 +244,6 @@ def test_channel_read_always_asks(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_default_policy_always_blocks_all_tools(tmp_path, hook_runner, make_config):
     """`default_policy: always` (with no `tools` overrides) asks on every osprey tool."""
     config = make_config(
@@ -276,7 +268,6 @@ def test_default_policy_always_blocks_all_tools(tmp_path, hook_runner, make_conf
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_non_osprey_tools_pass_through(tmp_path, hook_runner, make_config):
     """Non-osprey tools bypass the approval hook entirely."""
     config = make_config(
@@ -298,7 +289,6 @@ def test_non_osprey_tools_pass_through(tmp_path, hook_runner, make_config):
     assert result is None  # Not an osprey tool
 
 
-@pytest.mark.unit
 def test_approval_ask_includes_tool_info(tmp_path, hook_runner, make_config):
     """Approval ask decision includes tool details for the operator."""
     config = make_config(
@@ -329,7 +319,6 @@ def test_approval_ask_includes_tool_info(tmp_path, hook_runner, make_config):
     assert "TEST:PV" in output["permissionDecisionReason"]
 
 
-@pytest.mark.unit
 def test_approval_python_write_creates_notebook(tmp_path, hook_runner, make_config):
     """Approval for python_execute with write patterns creates a pre-execution notebook."""
     config = make_config(
@@ -358,7 +347,6 @@ def test_approval_python_write_creates_notebook(tmp_path, hook_runner, make_conf
     assert "Python execution" in reason
 
 
-@pytest.mark.unit
 def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
     """If notebook creation fails in the hook, approval still works normally."""
     config = make_config(
@@ -389,7 +377,6 @@ def test_approval_notebook_failure_nonfatal(tmp_path, hook_runner, make_config):
 # ============================================================================
 
 
-@pytest.mark.unit
 def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_config):
     """Tango write_attribute pattern triggers approval via framework detection."""
     config = make_config(
@@ -413,7 +400,6 @@ def test_framework_pattern_detection_tango_write(tmp_path, hook_runner, make_con
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_framework_pattern_detection_labview_write(tmp_path, hook_runner, make_config):
     """LabVIEW set_control pattern triggers approval via framework detection."""
     config = make_config(
@@ -437,7 +423,6 @@ def test_framework_pattern_detection_labview_write(tmp_path, hook_runner, make_c
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_framework_pattern_detection_set_value(tmp_path, hook_runner, make_config):
     """EPICS .set_value() pattern triggers approval via framework detection."""
     config = make_config(
@@ -461,7 +446,6 @@ def test_framework_pattern_detection_set_value(tmp_path, hook_runner, make_confi
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_config):
     """Dict operations should not trigger write pattern detection."""
     config = make_config(
@@ -483,7 +467,6 @@ def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_co
     assert _is_allow(result)  # No approval needed
 
 
-@pytest.mark.unit
 def test_framework_pattern_detection_import_fallback(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -512,7 +495,6 @@ def test_framework_pattern_detection_import_fallback(
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
     """Config-driven custom patterns trigger approval via framework detection."""
     config = make_config(
@@ -542,7 +524,6 @@ def test_framework_pattern_config_driven(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_has_write_patterns_passes_config_to_framework(tmp_path, hook_runner, make_config):
     """Config patterns flow from hook config dict through to framework detection.
 
@@ -592,7 +573,6 @@ def test_has_write_patterns_passes_config_to_framework(tmp_path, hook_runner, ma
     assert output2["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_has_write_patterns_override_via_config(tmp_path, hook_runner, make_config):
     """Config with mode: override replaces framework patterns in the hook subprocess.
 
@@ -640,7 +620,6 @@ def test_has_write_patterns_override_via_config(tmp_path, hook_runner, make_conf
     assert _is_allow(result2)
 
 
-@pytest.mark.unit
 def test_fallback_merges_custom_patterns(hook_module):
     """Fallback path merges custom patterns with _FALLBACK_WRITE_PATTERNS by default.
 
@@ -675,7 +654,6 @@ def test_fallback_merges_custom_patterns(hook_module):
     assert len(patterns) == len(fallback_patterns) + 1
 
 
-@pytest.mark.unit
 def test_fallback_override_replaces_patterns(hook_module):
     """Fallback path with mode=override replaces _FALLBACK_WRITE_PATTERNS entirely."""
     fallback_patterns = hook_module("osprey_approval")._FALLBACK_WRITE_PATTERNS
@@ -709,7 +687,6 @@ def test_fallback_override_replaces_patterns(hook_module):
 # -- Config edge cases (gap fill) --
 
 
-@pytest.mark.unit
 def test_missing_approval_section_defaults_to_always(tmp_path, hook_runner, make_config):
     """Config without 'approval' key falls through to default_policy='always' (fail-closed).
 
@@ -743,7 +720,6 @@ def test_missing_approval_section_defaults_to_always(tmp_path, hook_runner, make
 # ============================================================================
 
 
-@pytest.mark.unit
 def test_custom_server_prefix_triggers_approval(tmp_path, hook_runner, make_config):
     """Custom server prefix in hook_config triggers approval under `default_policy: always`."""
     config = make_config(
@@ -777,7 +753,6 @@ def test_custom_server_prefix_triggers_approval(tmp_path, hook_runner, make_conf
 # ============================================================================
 
 
-@pytest.mark.unit
 def test_approval_enabled_false_allows_all(tmp_path, hook_runner, make_config):
     """When approval.enabled is false, all tools pass through."""
     tools_config = {**DEFAULT_TOOLS_CONFIG, "enabled": False}
@@ -795,7 +770,6 @@ def test_approval_enabled_false_allows_all(tmp_path, hook_runner, make_config):
     assert _is_allow(result)
 
 
-@pytest.mark.unit
 def test_tool_policy_always_asks(tmp_path, hook_runner, make_config):
     """Tool mapped to 'always' policy always requires approval."""
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
@@ -814,7 +788,6 @@ def test_tool_policy_always_asks(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_tool_policy_skip_allows(tmp_path, hook_runner, make_config):
     """Tool mapped to 'skip' policy is allowed without approval."""
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
@@ -831,7 +804,6 @@ def test_tool_policy_skip_allows(tmp_path, hook_runner, make_config):
     assert _is_allow(result)
 
 
-@pytest.mark.unit
 def test_tool_policy_selective_execute_write_mode_asks(tmp_path, hook_runner, make_config):
     """Selective policy for execute blocks write-mode execution."""
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
@@ -850,7 +822,6 @@ def test_tool_policy_selective_execute_write_mode_asks(tmp_path, hook_runner, ma
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_tool_policy_selective_execute_readonly_allows(tmp_path, hook_runner, make_config):
     """Selective policy for execute allows readonly code without write patterns."""
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
@@ -867,7 +838,6 @@ def test_tool_policy_selective_execute_readonly_allows(tmp_path, hook_runner, ma
     assert _is_allow(result)
 
 
-@pytest.mark.unit
 def test_tool_policy_selective_execute_write_patterns_asks(tmp_path, hook_runner, make_config):
     """Selective policy for execute blocks code with write patterns."""
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
@@ -886,7 +856,6 @@ def test_tool_policy_selective_execute_write_patterns_asks(tmp_path, hook_runner
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_unknown_tool_defaults_to_always(tmp_path, hook_runner, make_config):
     """Tools not in the tools map fall back to default_policy (always)."""
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
@@ -911,7 +880,6 @@ def test_unknown_tool_defaults_to_always(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_setup_patch_always_asks(tmp_path, hook_runner, make_config):
     """Workspace setup_patch tool requires approval through the hook."""
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
@@ -930,7 +898,6 @@ def test_setup_patch_always_asks(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_entry_create_always_asks(tmp_path, hook_runner, make_config):
     """ARIEL entry_create tool requires approval through the hook."""
     config = make_config({"approval": DEFAULT_TOOLS_CONFIG})
@@ -949,7 +916,6 @@ def test_entry_create_always_asks(tmp_path, hook_runner, make_config):
     assert output["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_entry_publish_always_asks(tmp_path, hook_runner, make_config):
     """Publishing an entry reaches the facility's logbook, so it prompts.
 
@@ -971,7 +937,6 @@ def test_entry_publish_always_asks(tmp_path, hook_runner, make_config):
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "tool_name",
     ["mcp__ring__channel_write", "mcp__ring__control_target_set"],
@@ -1007,7 +972,6 @@ def test_clone_approval_gated_tools_still_ask(tmp_path, hook_runner, make_config
 # ============================================================================
 
 
-@pytest.mark.unit
 def test_fallback_pattern_parity_with_framework(hook_module):
     """Fallback write patterns in the hook must match framework standard patterns.
 
@@ -1030,7 +994,6 @@ def test_fallback_pattern_parity_with_framework(hook_module):
     )
 
 
-@pytest.mark.unit
 def test_fallback_covers_p4p_write_idioms(hook_module):
     """The fallback list must carry the p4p (PVAccess) write spellings.
 
@@ -1053,7 +1016,6 @@ def test_fallback_covers_p4p_write_idioms(hook_module):
     assert r"\.post\s*\(" not in fallback_patterns
 
 
-@pytest.mark.unit
 def test_fallback_covers_the_doocs_write_idiom(hook_module):
     """The fallback list must carry the DOOCS write spelling.
 
@@ -1068,7 +1030,6 @@ def test_fallback_covers_the_doocs_write_idiom(hook_module):
     assert r"\.set\s*\(" not in fallback_patterns
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -1095,7 +1056,6 @@ def test_fallback_regexes_match_p4p_code(hook_module, code):
     assert any(_re.search(p, code) for p in fallback_patterns)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "stdin",
     ["", "{nope", "[]", "[1,2,3]"],
@@ -1128,7 +1088,6 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
 # ============================================================================
 
 
-@pytest.mark.unit
 def test_selective_readwrite_asks_without_write_patterns(tmp_path, hook_runner, make_config):
     """A readwrite run prompts even when the detector sees no write pattern.
 
@@ -1154,7 +1113,6 @@ def test_selective_readwrite_asks_without_write_patterns(tmp_path, hook_runner, 
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-@pytest.mark.unit
 def test_selective_readwrite_asks_for_aliased_caput(tmp_path, hook_runner, make_config):
     """``from epics import caput as _w`` evades every write regex; readwrite still asks."""
     config = make_config(
@@ -1284,7 +1242,6 @@ def _decision(result):
     return result["hookSpecificOutput"]["permissionDecision"]
 
 
-@pytest.mark.unit
 def test_readonly_execute_still_prompts_when_writes_are_not_armed(
     tmp_path, hook_runner, make_config
 ):
@@ -1308,7 +1265,6 @@ def test_readonly_execute_still_prompts_when_writes_are_not_armed(
     assert _decision(result) == "ask"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("short_name", ["queue_add", "queue_stop"], ids=["queue_add", "queue_stop"])
 def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(
     tmp_path, hook_runner, make_config, short_name
@@ -1335,7 +1291,6 @@ def test_the_queue_tools_that_no_layer_denies_keep_their_prompt(
     assert _decision(result) == "ask"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("control_system", "target", "decision"),
     [
@@ -1370,7 +1325,6 @@ def test_channel_write_follows_the_control_target(
     assert _decision(result) == decision
 
 
-@pytest.mark.unit
 def test_a_config_that_states_no_posture_prompts_exactly_as_before(
     tmp_path, hook_runner, make_config
 ):
@@ -1393,7 +1347,6 @@ def test_a_config_that_states_no_posture_prompts_exactly_as_before(
     assert _decision(result) == "ask"
 
 
-@pytest.mark.unit
 def test_an_unidentifiable_target_takes_the_most_restrictive_posture(
     tmp_path, hook_runner, make_config
 ):
@@ -1417,7 +1370,6 @@ def test_an_unidentifiable_target_takes_the_most_restrictive_posture(
     assert _decision(result) is None
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("services", "tool_input", "decision"),
     [
@@ -1468,7 +1420,6 @@ _BY_WRITES_CHECK = "osprey_writes_check denies it"
 _BY_LANE_GATE = "queue_start refuses before its bridge is called"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("control_system", "services", "tool_name", "tool_input", "target", "guarantor"),
     [
@@ -1594,7 +1545,6 @@ def test_a_defer_is_never_the_last_word(
         assert run("osprey_writes_check.py") == "deny"
 
 
-@pytest.mark.unit
 def test_a_recorded_narrowing_defers_and_writes_check_denies(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1633,3 +1583,41 @@ def test_a_recorded_narrowing_defers_and_writes_check_denies(
         "the narrowing is refused by writes_check, so the prompt must defer to that deny"
     )
     assert run("osprey_writes_check.py") == "deny"
+
+
+def test_pre_execution_notebook_is_saved_without_launching_the_gallery(
+    tmp_path, hook_module, monkeypatch
+):
+    """The review notebook lands in the store; no gallery server is started for it.
+
+    The hook is a one-shot process. A server thread started from it dies with
+    the process a few milliseconds later, so it can serve nobody, and its
+    teardown races the interpreter's exit. A gallery that is already running
+    picks the notebook up from the shared store; one that is not cannot be
+    started from here.
+    """
+    import osprey.infrastructure.server_launcher as launcher
+    from osprey.stores.artifact_store import ArtifactStore
+    from osprey_connectors.workspace import reset_config_cache, resolve_shared_data_root
+
+    config_path = tmp_path / "config.yml"
+    config_path.write_text(f"project_root: {tmp_path}\ncontrol_system:\n  type: mock\n")
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_path))
+    monkeypatch.setenv("CONFIG_FILE", str(config_path))
+    reset_config_cache()
+
+    launches: list[str] = []
+    monkeypatch.setattr(launcher, "ensure_artifact_server", lambda: launches.append("artifact"))
+    monkeypatch.setattr(launcher, "ensure_web_server", lambda key: launches.append(key))
+
+    hook = hook_module("osprey_approval")
+    hook._create_pre_execution_notebook("epics.caput('PV', 1.0)", "readonly", {})
+
+    saved = [
+        entry
+        for entry in ArtifactStore(workspace_root=resolve_shared_data_root()).list_entries()
+        if entry.tool_source == "osprey_approval"
+    ]
+    assert len(saved) == 1, "the review notebook was not saved"
+    assert saved[0].artifact_type == "notebook"
+    assert launches == []

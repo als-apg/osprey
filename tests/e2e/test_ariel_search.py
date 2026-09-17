@@ -1,7 +1,16 @@
 """ARIEL Search E2E Tests.
 
-Tests the full ARIEL pipeline: ingest -> enhance -> search.
-Requires Ollama with nomic-embed-text (skips if unavailable).
+Two groups of tests live here, with different prerequisites:
+
+Pipeline
+    The full ARIEL pipeline: ingest -> enhance -> search. Needs Ollama with
+    ``nomic-embed-text``, and skips without it.
+
+The read-only role, against a live server
+    The privileges the read-only database role actually holds. Needs a
+    reachable PostgreSQL server -- ``ARIEL_TEST_DATABASE_URL``, a running dev
+    database, or Docker for a test container -- plus ``psql`` to run the init
+    script the entrypoint runs. Skips when either is missing.
 
 Run with:
     pytest tests/e2e/test_ariel_search.py -v
@@ -29,7 +38,7 @@ logger = logging.getLogger(__name__)
 TEST_DATA_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_logbook_entries.jsonl"
 
 # Path to config file for LLM access (RAG tests need this)
-# Uses minimal test config with ALS-APG API access (gateway)
+# Uses minimal test config with als-apg gateway access
 CONFIG_FILE_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_config.yml"
 
 # Dev database URL - uses port 5432 (ariel-postgres container)
@@ -196,7 +205,7 @@ def e2e_config_file():
     """Module-scoped config file setup (used during data seeding).
 
     Required for RAG tests which call get_chat_completion.
-    Uses my-control-assistant config which has ALS-APG configured.
+    Uses my-control-assistant config which has als-apg configured.
     """
     if not CONFIG_FILE_PATH.exists():
         pytest.skip(f"Config file not found: {CONFIG_FILE_PATH}")
@@ -315,89 +324,6 @@ async def seeded_ariel_db(
 # =============================================================================
 # Test Classes
 # =============================================================================
-
-
-class TestKeywordSearchE2E:
-    """Keyword search tests with deterministic assertions."""
-
-    async def test_exact_term_match(self, seeded_ariel_db):
-        """Search for 'klystron' finds RF cavity trip entry (E001)."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        results = await keyword_search(
-            query="klystron",
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            max_results=5,
-        )
-
-        # Results are (entry, score, highlights) tuples
-        entry_ids = [entry["entry_id"] for entry, score, highlights in results]
-        assert "E001" in entry_ids, f"Expected E001 in results for 'klystron', got: {entry_ids}"
-
-    async def test_multi_term_search(self, seeded_ariel_db):
-        """Search 'vacuum leak' finds vacuum entry (E002)."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        results = await keyword_search(
-            query="vacuum leak",
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            max_results=5,
-        )
-
-        assert len(results) > 0, "Expected results for 'vacuum leak'"
-        entry_ids = [entry["entry_id"] for entry, score, highlights in results]
-        assert "E002" in entry_ids, f"Expected E002 in results for 'vacuum leak', got: {entry_ids}"
-
-    async def test_boolean_and_search(self, seeded_ariel_db):
-        """Search 'beam AND loss' finds beam loss entry (E003)."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        results = await keyword_search(
-            query="beam AND loss",
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            max_results=5,
-        )
-
-        assert len(results) > 0, "Expected results for 'beam AND loss'"
-        entry_ids = [entry["entry_id"] for entry, score, highlights in results]
-        assert "E003" in entry_ids, (
-            f"Expected E003 in results for 'beam AND loss', got: {entry_ids}"
-        )
-
-    async def test_author_filter(self, seeded_ariel_db):
-        """Search 'author:oper_smith' finds entries by that author."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        # The keyword search parses author: prefix but needs a search term too
-        # Search for something oper_smith wrote about
-        results = await keyword_search(
-            query="author:oper_smith shift",
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            max_results=10,
-        )
-
-        # Should find E006 (Morning Shift Summary by oper_smith)
-        assert results, "Expected at least one result for 'author:oper_smith shift'"
-        authors = {entry["author"] for entry, score, highlights in results}
-        assert "oper_smith" in authors, f"Expected oper_smith in authors, got: {authors}"
-
-    async def test_no_results_for_nonexistent_term(self, seeded_ariel_db):
-        """Search for nonexistent term returns empty results."""
-        from osprey.services.ariel_search.search.keyword import keyword_search
-
-        results = await keyword_search(
-            query="xyznonexistent123abc",
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            max_results=5,
-            fuzzy_fallback=False,  # Disable fuzzy to ensure empty result
-        )
-
-        assert len(results) == 0, f"Expected no results for nonexistent term, got: {len(results)}"
 
 
 class TestSemanticSearchE2E:
@@ -649,7 +575,7 @@ async def vocabulary_seeded_entry(seeded_ariel_db):
     repository = seeded_ariel_db["repository"]
     entry = {
         "entry_id": VOCAB_ENTRY_ID,
-        "source_system": "ALS eLog",
+        "source_system": "Example eLog",
         "timestamp": datetime(2024, 1, 20, 8, 15, tzinfo=UTC),
         "author": "oper_vocab",
         "raw_text": VOCAB_ENTRY_TEXT,

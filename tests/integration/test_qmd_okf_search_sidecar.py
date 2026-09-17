@@ -57,7 +57,6 @@ from tests.integration._qmd_okf_support import (
 # because concurrent reaper starts race the Docker daemon's port mapper.
 pytestmark = [
     pytest.mark.dockerbuild,
-    pytest.mark.integration,
     pytest.mark.xdist_group("docker"),
 ]
 

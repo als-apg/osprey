@@ -9,12 +9,9 @@ in-process producer writes, and unorderable against any other subsystem's.
 from datetime import datetime
 from datetime import datetime as _datetime
 
-import pytest
-
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 
 
-@pytest.mark.unit
 def test_start_time_parses_with_tzinfo():
     """``start_time`` in the emitted metadata is offset-aware."""
     namespace: dict = {"_datetime": _datetime}
@@ -25,7 +22,6 @@ def test_start_time_parses_with_tzinfo():
     assert start.utcoffset() is not None
 
 
-@pytest.mark.unit
 def test_no_naive_timestamp_left_in_the_emitted_wrapper():
     """Every ``end_time`` branch stamps an aware time too, not just ``start_time``."""
     source = ExecutionWrapper().create_wrapper("x = 1")

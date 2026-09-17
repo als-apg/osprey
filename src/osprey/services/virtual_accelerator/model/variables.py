@@ -34,14 +34,33 @@ both ``_set`` and ``_get`` convert it to
 :class:`~lume_pyat.exceptions.UnknownElementError`, which is what
 ``model.pyat``'s ``UnknownDeviceError`` names -- so a caller catching
 ``UnknownDeviceError`` catches these unchanged.
+
+**A discrete value gets its own writable.** ``lume_pyat`` binds only
+scalars, and a scalar's range admits every value between its bounds. A BPM
+polarity is a sign: ``-1`` or ``1``, with nothing in between that means a
+smaller polarity. :class:`PyATWritableEnumVariable` is the enum twin of
+:class:`~lume_pyat.actions.PyATWritableScalarVariable` -- the same binding
+and the same raw, unconverted read and write -- whose value is checked
+against a list of options instead of a range.
+
+**A quantity of the whole lattice binds no element.** Tunes, or beta at
+every BPM, belong to the solved ring rather than to any one element, and
+come out as arrays. :class:`PyATReadOnlyNDVariable` declares one -- a name,
+a shape, ``float64`` -- with ``element_name`` fixed at ``None``. It only
+declares the value. Computing it is the owning model's job, because what
+makes such a quantity affordable is *when* it is computed (on read, at most
+once per solve), and that is model state, not variable state.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+from lume.actions import ReadOnlyActionMixin, WritableActionMixin
+from lume.variables import EnumVariable, NDVariable
 from lume_pyat.actions import PyATWritableScalarVariable
 from lume_pyat.exceptions import UnknownElementError
+from lume_pyat.simulator import PyATSimulator
 from pydantic import PrivateAttr, model_validator
 
 from osprey.services.virtual_accelerator.lattice.calibration import AMPS_PER_RADIAN_KICK
@@ -55,11 +74,7 @@ from osprey.services.virtual_accelerator.lattice.strengths import (
     QUADRUPOLE_FAMILIES,
     SEXTUPOLE_FAMILIES,
     StrengthMap,
-    current_address,
 )
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from lume_pyat.simulator import PyATSimulator
 
 # Element attribute each family's write lands in -- see the module docstring
 # for why the whole array is declared rather than the index. Built from
@@ -209,11 +224,112 @@ class CurrentSetpointVariable(PyATWritableScalarVariable):
             fraction = field_error * float(element.Length) / float(element.BendingAngle) + 1.0
         else:
             fraction = float(element.PolynomB[2]) / self._strength_map.baked(self.element_name)
-        i_nom = self._strength_map.i_nom(current_address(self.family, self.device_id))
+        i_nom = self._strength_map.i_nom_for(self.family, self.device_id)
         return i_nom * fraction
+
+
+class PyATWritableEnumVariable(WritableActionMixin[PyATSimulator], EnumVariable):
+    """A settable discrete value bound to one attribute of one lattice element.
+
+    Binds, reads and writes exactly as
+    :class:`~lume_pyat.actions.PyATWritableScalarVariable` does; only the
+    validation differs, and that is inherited from ``EnumVariable``: a value
+    not in ``options`` is refused by ``LUMEModel.set`` before any write, and
+    a ``default_value`` not in ``options`` fails at definition.
+
+    Options must be numeric. ``LUMEPyATModel`` retains every writable's
+    default as ``float(default_value)``, so a non-numeric option could be
+    declared but never booted.
+
+    Attributes:
+        element_name: ``FamName`` of the target element.
+        attribute: The element attribute to read and write.
+        index: Position within ``attribute`` when it holds a sequence;
+            ``None`` for a scalar attribute.
+    """
+
+    element_name: str
+    attribute: str
+    index: int | None = None
+
+    @model_validator(mode="after")
+    def _require_a_default_value(self) -> PyATWritableEnumVariable:
+        """Reject a writable with no default, at definition time.
+
+        ``reset()`` writes every writable's ``default_value`` back to the
+        lattice, so a variable without one would push ``None`` there.
+        """
+        if self.default_value is None:
+            raise ValueError(
+                f"writable variable {self.name!r} needs a default_value: "
+                "it is what reset() writes back to the lattice"
+            )
+        return self
+
+    def _get(self, simulator: PyATSimulator) -> float:
+        """Read the bound attribute, unconverted.
+
+        Raises:
+            UnknownElementError: the lattice has no element ``element_name``.
+        """
+        value = getattr(simulator.element(self.element_name), self.attribute)
+        if self.index is not None:
+            value = value[self.index]
+        return float(value)
+
+    def _set(self, simulator: PyATSimulator, value: Any) -> None:
+        """Write the bound attribute, unconverted.
+
+        Raises:
+            UnknownElementError: the lattice has no element ``element_name``.
+            AttributeError: the element has no such attribute. pyAT elements
+                accept arbitrary attribute assignment, so the write would
+                otherwise land on a dead attribute and read back intact.
+                Through ``LUMEPyATModel`` this cannot be reached: the model
+                checks the same condition when it adopts the variable.
+        """
+        element = simulator.element(self.element_name)
+        if not hasattr(element, self.attribute):
+            raise AttributeError(
+                f"element {self.element_name!r} has no attribute {self.attribute!r} to write"
+            )
+        if self.index is None:
+            setattr(element, self.attribute, value)
+        else:
+            getattr(element, self.attribute)[self.index] = value
+
+
+class PyATReadOnlyNDVariable(ReadOnlyActionMixin[PyATSimulator], NDVariable):
+    """A read-only array derived from the whole solved lattice.
+
+    Declares a name, a shape and a ``float64`` dtype, which
+    ``LUMEModel.get`` checks every returned value against exactly, and
+    nothing more. The value is computed by the model that declares the
+    variable, never by the variable: see the module docstring.
+
+    Attributes:
+        element_name: Always ``None``. No single element carries the value,
+            so a model's per-element binding check has nothing to resolve.
+    """
+
+    element_name: None = None
+    read_only: bool = True
+
+    def _get(self, simulator: PyATSimulator) -> Any:
+        """Refuse. The owning model computes the value, not the variable.
+
+        Raises:
+            NotImplementedError: always.
+        """
+        raise NotImplementedError(
+            f"{self.name!r} is derived from the whole solved lattice; "
+            "read it through the model that declares it"
+        )
 
 
 __all__ = [
     "DECLARED_ATTRIBUTE",
     "CurrentSetpointVariable",
+    "PyATReadOnlyNDVariable",
+    "PyATWritableEnumVariable",
 ]

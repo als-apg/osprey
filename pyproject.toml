@@ -251,7 +251,17 @@ dev = [
     "pytest-timeout",  # Per-test hang-breaker: the model-matrix benchmark runner and the
                        # CI unit lane both pass --timeout (see .github/workflows/ci.yml)
     "pytest-xdist",  # Parallel test lanes in CI (-n 4; unit lane --dist loadgroup, e2e lane --dist loadfile)
-    "mypy",
+    # Pinned to the minor the checked-in baseline beside the gate was measured
+    # with. The baseline is a measurement; a checker free to move minors reports
+    # errors the diff did not introduce, so the pin is what makes a red gate mean
+    # the change under it.
+    "mypy>=1.19.1,<1.20",
+    # Stub distributions for the typeless third-party imports in src/. Without any
+    # one of them mypy stops with "errors prevented further checking" and examines
+    # no module at all.
+    "types-PyYAML",  # `yaml`
+    "types-Markdown",  # `markdown`
+    "types-aiofiles",  # `aiofiles`
     "pre-commit",
     # Pinned to the same minor the pre-commit hook uses. Ruff's formatter output
     # changes between minors, so an unpinned floor lets CI and the local hook
@@ -264,6 +274,7 @@ dev = [
     "psycopg-pool>=3.3.1,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
     "linkml-runtime>=1.11.1,<2",  # Ontology compiler + its tests; runtime use stays in the knowledge extra
+    "PyJWT[crypto]>=2.8",  # Teams relay token validation; its tests import jwt plainly, so a missing install must fail
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -298,6 +309,14 @@ gchat = [
     # (used by google-api-python-client) only honors HTTP(S)_PROXY env vars
     # when PySocks is installed, so this is required, not optional, on those hosts.
     "pysocks>=1.7",
+]
+
+# Microsoft Teams bridge (osprey.bridges.teams): Service Bus queue consumption
+# and image downscaling. Both are imported lazily by the adapter, so the unit
+# lanes run without this extra installed.
+teams = [
+    "azure-servicebus>=7.11",
+    "pillow>=10",
 ]
 
 # Facility knowledge / ontology support (LinkML schema loading for the ontology compiler)
@@ -340,7 +359,7 @@ screen-capture-linux = [
 # only through `pva`: the base package does not depend on it. Exact-pinned for
 # the same reason as lume-base and lume-pyat above -- a young package whose
 # surface is still settling, and the runner subclass is written against the
-# 0.1.2 contract specifically (the extension seams it overrides are not yet a
+# 0.1.4 contract specifically (the extension seams it overrides are not yet a
 # stable API).
 #
 # Both VA images install through the `virtual-accelerator` extra rather than
@@ -379,7 +398,7 @@ screen-capture-linux = [
 # for symmetry: its `ca` extra requires pcaspy with no marker of its own, so an
 # unmarked entry here would pull pcaspy onto every host through the back door
 # and defeat the marker above. Verified, not assumed -- resolving
-# `lume-pva-apg[ca,pva]==0.1.2` for macOS at 3.13 selects pcaspy 0.8.1, whose
+# `lume-pva-apg[ca,pva]==0.1.4` for macOS at 3.13 selects pcaspy 0.8.1, whose
 # only artifact at that interpreter and platform is the sdist. The two lines
 # must therefore stay marked together; marking one alone does nothing.
 #
@@ -389,7 +408,7 @@ screen-capture-linux = [
 # suites that reach it already treat all three server roots the same way.
 virtual-accelerator = [
     "pcaspy>=0.8.1; sys_platform == 'linux' and platform_machine == 'x86_64'",
-    "lume-pva-apg[ca,pva]==0.1.2; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "lume-pva-apg[ca,pva]==0.1.4; sys_platform == 'linux' and platform_machine == 'x86_64'",
     # Recorder-side (see the note above); deliberately UNMARKED, unlike the two
     # serving entries. That marker is not a house style to copy — it exists
     # because pcaspy publishes no usable wheel off linux/x86_64. These two do,
@@ -400,7 +419,7 @@ virtual-accelerator = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,knowledge,gchat]"
+    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,knowledge,gchat,teams]"
 ]
 
 [tool.uv.workspace]
@@ -451,7 +470,7 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 # package's upload date; neither is load-bearing beyond making the resolve
 # reproducible.
 [tool.uv]
-exclude-newer-package = { lume-pyat = "2026-08-06T00:00:00Z", lume-pva-apg = "2026-08-08T00:00:00Z" }
+exclude-newer-package = { lume-pyat = "2026-08-06T00:00:00Z", lume-pva-apg = "2026-09-13T00:00:00Z" }
 
 # Hatchling build configuration
 # The version comes from the git tag, not a literal — a release is cut by tagging.
@@ -495,6 +514,15 @@ packages = ["src/osprey"]
 # Development tool configurations
 [tool.mypy]
 python_version = "3.11"
+# The source roots, searched in this order. `osprey_connectors` also sits in the
+# environment as an installed wheel; naming its source here is what makes a run
+# over a single file resolve the same packages a whole-tree run resolves, so both
+# report the same errors. `explicit_package_bases` is the half that makes the
+# roots count: it derives each module's name from them rather than from the
+# directory the file happens to live in.
+mypy_path = "src:packages/osprey-connectors/src"
+explicit_package_bases = true
+files = ["src", "packages/osprey-connectors/src"]
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false  # Gradual typing
@@ -541,6 +569,15 @@ module = [
 ]
 ignore_missing_imports = true
 
+# Sphinx is never imported by this tree; mypy reaches it by following bokeh's
+# own property module, and bokeh ships types, so `ignore_missing_imports` does
+# not apply. Sphinx's source uses syntax newer than the `python_version` above,
+# and parsing it raises a syntax error that aborts the entire run — skipping it
+# is what keeps the check able to report on this repository.
+[[tool.mypy.overrides]]
+module = ["sphinx.*"]
+follow_imports = "skip"
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -v --tb=short --strict-markers --color=yes"
@@ -558,8 +595,6 @@ asyncio_mode = "auto"
 # WARNING: E2E tests MUST be run with 'pytest tests/e2e/' NOT 'pytest -m e2e'
 # See tests/e2e/README.md for details
 markers = [
-    "unit: Unit tests (mocked, no external dependencies)",
-    "integration: Integration tests (real external services)",
     "e2e: End-to-end workflow tests - WARNING: Use 'pytest tests/e2e/' not '-m e2e' (see tests/e2e/README.md)",
     "e2e_smoke: Quick smoke tests for critical workflows",
     "channel_finder_benchmark: Channel finder benchmark validation tests. Run on demand, in the benchmark job (`gh workflow run ci.yml -f run_benchmarks=true`), never on a PR: the LLM scoring lane is too expensive to gate on, and the search-index scale guard measures wall-clock latency, which four xdist workers sharing a runner distort past any budget worth keeping. Tests carrying it must be kept out of the unit lane — the LLM ones by living under tests/e2e/, the scale guard by an --ignore on the lane's own line",
@@ -574,6 +609,7 @@ markers = [
     "requires_google: Tests that require Google API key",
     "requires_cborg: Tests that require CBORG API key (local dev only — IP allowlist blocks GitHub Actions runners)",
     "requires_als_apg: Tests that require ALS-APG API key (the ALS-APG gateway; reachable from GitHub Actions runners)",
+    "requires_e2e_provider: Tests that build a deployment repo with the provider the run named in OSPREY_E2E_PROVIDER, and so need that provider's credential — the variable holding it comes from PROVIDER_API_KEYS, not from the test",
     "requires_ollama: Tests that require local Ollama service",
     "asyncio: Async test marker",
     "flaky: Rerun on failure to absorb nondeterminism outside the process — LLM sampling in e2e, OS event delivery in a couple of watcher tests (pytest-rerunfailures). Not for flaky unit tests; see tests/README.md",

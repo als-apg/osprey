@@ -156,7 +156,6 @@ async def _run_single(result, validator=None, **kwargs):
     return extract_response_dict(raw), connector
 
 
-@pytest.mark.unit
 async def test_channel_write_success(tmp_path, monkeypatch):
     """A confirmed write returns a success envelope naming the channel."""
     _prepare(tmp_path, monkeypatch)
@@ -169,7 +168,6 @@ async def test_channel_write_success(tmp_path, monkeypatch):
     assert data["summary"]["results"][0]["channel"] == "TEST:PV"
 
 
-@pytest.mark.unit
 async def test_channel_write_multiple_operations(tmp_path, monkeypatch):
     """Multiple write operations are all processed."""
     _prepare(tmp_path, monkeypatch)
@@ -185,7 +183,6 @@ async def test_channel_write_multiple_operations(tmp_path, monkeypatch):
     assert data["summary"]["outcomes"] == {"confirmed": 2}
 
 
-@pytest.mark.unit
 async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     """Write exceeding channel limits (via inline validator) returns structured error."""
     from osprey.errors import ChannelLimitsViolationError
@@ -233,7 +230,6 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
     assert any("Do NOT" in s for s in data["suggestions"])
 
 
-@pytest.mark.unit
 async def test_channel_write_leaves_max_step_to_the_connector(tmp_path, monkeypatch):
     """A max_step channel is not refused by the tool's own pre-check.
 
@@ -270,7 +266,6 @@ async def test_channel_write_leaves_max_step_to_the_connector(tmp_path, monkeypa
     connector.write_channel.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_channel_write_still_denies_a_bound_violation_on_a_max_step_channel(
     tmp_path, monkeypatch
 ):
@@ -305,7 +300,6 @@ async def test_channel_write_still_denies_a_bound_violation_on_a_max_step_channe
     connector.write_channel.assert_not_awaited()
 
 
-@pytest.mark.unit
 async def test_channel_write_connection_error(tmp_path, monkeypatch):
     """Connection error during write returns standard error format."""
     _prepare(tmp_path, monkeypatch)
@@ -323,7 +317,6 @@ async def test_channel_write_connection_error(tmp_path, monkeypatch):
     assert "suggestions" in data
 
 
-@pytest.mark.unit
 async def test_channel_write_connector_limits_violation(tmp_path, monkeypatch):
     """ChannelLimitsViolationError from the connector stays a limits_violation."""
     from osprey.errors import ChannelLimitsViolationError
@@ -357,7 +350,6 @@ async def test_channel_write_connector_limits_violation(tmp_path, monkeypatch):
     assert data["details"]["max_value"] == 100.0
 
 
-@pytest.mark.unit
 async def test_channel_write_empty_operations(tmp_path, monkeypatch):
     """Empty operations list returns validation error."""
     monkeypatch.chdir(tmp_path)
@@ -369,7 +361,6 @@ async def test_channel_write_empty_operations(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
     """Operation missing 'channel' key returns validation error."""
     monkeypatch.chdir(tmp_path)
@@ -422,7 +413,6 @@ _STATE_CASES = [
 ]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "expected_outcome,result_kwargs", _STATE_CASES, ids=[c[0] for c in _STATE_CASES]
 )
@@ -446,7 +436,6 @@ async def test_outcome_reaches_the_shipped_summary(
     assert _outcomes(data)["PV:SUBJECT"] == expected_outcome
 
 
-@pytest.mark.unit
 def test_state_cases_cover_every_documented_outcome():
     """The parametrisation above exercises the whole closed set, in order.
 
@@ -458,7 +447,6 @@ def test_state_cases_cover_every_documented_outcome():
     assert [member.value for member in WriteOutcome] == EXPECTED_OUTCOMES
 
 
-@pytest.mark.unit
 async def test_result_entry_carries_the_documented_fields(tmp_path, monkeypatch):
     """One result entry, nine keys — the whole agent-visible projection."""
     _prepare(tmp_path, monkeypatch)
@@ -499,7 +487,6 @@ async def test_result_entry_carries_the_documented_fields(tmp_path, monkeypatch)
     assert entry["error"] is None
 
 
-@pytest.mark.unit
 async def test_confirmed_result_projects_its_observed_value(tmp_path, monkeypatch):
     """Whatever the confirming re-read returned reaches the agent."""
     _prepare(tmp_path, monkeypatch)
@@ -514,7 +501,6 @@ async def test_confirmed_result_projects_its_observed_value(tmp_path, monkeypatc
     assert entry["observed_value"] == 42.0
 
 
-@pytest.mark.unit
 async def test_healthy_alarm_severity_zero_survives_the_projection(tmp_path, monkeypatch):
     """A REPORTED healthy severity of 0 is not collapsed into "not reported".
 
@@ -536,7 +522,6 @@ async def test_healthy_alarm_severity_zero_survives_the_projection(tmp_path, mon
     assert entries["PV:SILENT"]["alarm_status"] is None
 
 
-@pytest.mark.unit
 async def test_outcome_ignores_notes_text(tmp_path, monkeypatch):
     """Notes are display-only: rewording them cannot change the outcome.
 
@@ -557,7 +542,6 @@ async def test_outcome_ignores_notes_text(tmp_path, monkeypatch):
     assert outcomes == ["confirmed", "confirmed", "confirmed"]
 
 
-@pytest.mark.unit
 async def test_mixed_batch_reports_one_outcome_per_channel(tmp_path, monkeypatch):
     """A batch of unlike outcomes reports each channel's own word and counts."""
     _prepare(tmp_path, monkeypatch)
@@ -594,7 +578,6 @@ async def test_mixed_batch_reports_one_outcome_per_channel(tmp_path, monkeypatch
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_lone_mismatch_returns_rather_than_raising(tmp_path, monkeypatch):
     """A single write that came back different is REPORTED, not raised.
 
@@ -617,7 +600,6 @@ async def test_lone_mismatch_returns_rather_than_raising(tmp_path, monkeypatch):
     assert data["summary"]["outcomes"] == {"mismatch": 1}
 
 
-@pytest.mark.unit
 async def test_an_enum_member_projects_to_its_word(tmp_path, monkeypatch):
     """The production type, not a look-alike string, reaches the projection.
 
@@ -638,7 +620,6 @@ async def test_an_enum_member_projects_to_its_word(tmp_path, monkeypatch):
     assert data["summary"]["outcomes"] == {"mismatch": 1}
 
 
-@pytest.mark.unit
 async def test_a_connector_returning_too_few_results_fails_loudly(tmp_path, monkeypatch):
     """A dropped row is a write whose fate nobody reports, so refuse the report.
 
@@ -667,7 +648,6 @@ async def test_a_connector_returning_too_few_results_fails_loudly(tmp_path, monk
     assert "unreported" in message
 
 
-@pytest.mark.unit
 async def test_a_connector_returning_too_many_results_fails_loudly(tmp_path, monkeypatch):
     """An extra row is a write nobody asked for — the same loss of correspondence.
 
@@ -695,7 +675,6 @@ async def test_a_connector_returning_too_many_results_fails_loudly(tmp_path, mon
     assert "3 write result(s) for 2 operation(s)" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("outcome", ["unconfirmed", "unrequested"])
 async def test_lone_unconfirmed_write_returns(tmp_path, monkeypatch, outcome):
     """An unconfirmed or unchecked write reached the channel, so it reports."""
@@ -708,7 +687,6 @@ async def test_lone_unconfirmed_write_returns(tmp_path, monkeypatch, outcome):
     assert data["summary"]["results"][0]["outcome"] == outcome
 
 
-@pytest.mark.unit
 async def test_all_refused_is_write_refused(tmp_path, monkeypatch):
     """All-refused batch yields a typed write_refused envelope.
 
@@ -760,7 +738,6 @@ async def test_all_refused_is_write_refused(tmp_path, monkeypatch):
     assert data["details"]["reason"] == "WRITES_DISABLED"
 
 
-@pytest.mark.unit
 async def test_control_system_refusal_names_the_control_system(tmp_path, monkeypatch):
     """Who refused decides the wording of an all-refused envelope."""
     _prepare(tmp_path, monkeypatch)
@@ -783,7 +760,6 @@ async def test_control_system_refusal_names_the_control_system(tmp_path, monkeyp
     assert "the control system" in _exc_ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 async def test_a_single_refusal_envelope_says_what_the_refusal_said(tmp_path, monkeypatch):
     """The raised envelope replaces the results, so it must carry their reason.
 
@@ -822,7 +798,6 @@ async def test_a_single_refusal_envelope_says_what_the_refusal_said(tmp_path, mo
     assert "standin" in message
 
 
-@pytest.mark.unit
 async def test_all_failed_is_internal_error(tmp_path, monkeypatch):
     """All-failed batch (attempted, not refused) preserves internal_error.
 
@@ -858,7 +833,6 @@ async def test_all_failed_is_internal_error(tmp_path, monkeypatch):
     assert "caput failed: no connection" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_refused_and_failed_batch_raises_internal_error(tmp_path, monkeypatch):
     """Nothing reached a channel, but one write was attempted: not a pure refusal.
 
@@ -895,7 +869,6 @@ async def test_refused_and_failed_batch_raises_internal_error(tmp_path, monkeypa
     assert "caput failed: timeout" in _exc_ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 async def test_partial_refusal_reports_per_op(tmp_path, monkeypatch):
     """One refusal beside one confirmed write returns, and reports both.
 
@@ -924,7 +897,6 @@ async def test_partial_refusal_reports_per_op(tmp_path, monkeypatch):
     assert by_channel["PV:A"]["refusal_reason"] is None
 
 
-@pytest.mark.unit
 async def test_executed_channels_name_only_what_reached_a_channel(tmp_path, monkeypatch):
     """The activity highlight names every write that got a value onto a channel.
 
@@ -959,7 +931,6 @@ async def test_executed_channels_name_only_what_reached_a_channel(tmp_path, monk
     assert detail == "PV:CONFIRMED, PV:MISMATCH, PV:UNCONFIRMED, PV:UNREQUESTED"
 
 
-@pytest.mark.unit
 async def test_no_activity_highlight_when_nothing_executed(tmp_path, monkeypatch):
     """An all-negative call raises before it can claim a write happened."""
     _prepare(tmp_path, monkeypatch)
@@ -989,7 +960,6 @@ async def test_no_activity_highlight_when_nothing_executed(tmp_path, monkeypatch
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_omitted_confirm_leaves_the_keyword_absent(tmp_path, monkeypatch):
     """Omission is a sentinel: the keyword is left off, not passed as None.
 
@@ -1003,7 +973,6 @@ async def test_omitted_confirm_leaves_the_keyword_absent(tmp_path, monkeypatch):
     assert "confirm" not in connector.write_channel.call_args.kwargs
 
 
-@pytest.mark.unit
 async def test_explicit_confirm_false_is_forwarded(tmp_path, monkeypatch):
     """``confirm=False`` is a decision and must cross, not be read as omission.
 
@@ -1018,7 +987,6 @@ async def test_explicit_confirm_false_is_forwarded(tmp_path, monkeypatch):
     assert connector.write_channel.call_args.kwargs["confirm"] is False
 
 
-@pytest.mark.unit
 async def test_explicit_confirm_true_is_forwarded(tmp_path, monkeypatch):
     """A caller asking for confirmation gets it forwarded to the connector."""
     _prepare(tmp_path, monkeypatch)
@@ -1030,7 +998,6 @@ async def test_explicit_confirm_true_is_forwarded(tmp_path, monkeypatch):
     assert connector.write_channel.call_args.kwargs["confirm"] is True
 
 
-@pytest.mark.unit
 async def test_confirm_is_forwarded_on_a_batch(tmp_path, monkeypatch):
     """One confirm setting applies to every channel in the batch."""
     _prepare(tmp_path, monkeypatch)
@@ -1044,7 +1011,6 @@ async def test_confirm_is_forwarded_on_a_batch(tmp_path, monkeypatch):
     assert connector.write_multiple_channels.call_args.kwargs["confirm"] is False
 
 
-@pytest.mark.unit
 async def test_omitted_confirm_leaves_the_batch_keyword_absent(tmp_path, monkeypatch):
     """With no opinion named, each channel resolves its own setting."""
     _prepare(tmp_path, monkeypatch)
@@ -1058,7 +1024,6 @@ async def test_omitted_confirm_leaves_the_batch_keyword_absent(tmp_path, monkeyp
     assert "confirm" not in connector.write_multiple_channels.call_args.kwargs
 
 
-@pytest.mark.unit
 async def test_access_details_confirm_is_null_when_omitted(tmp_path, monkeypatch):
     """access_details reports what the caller asked for, not what was resolved."""
     _prepare(tmp_path, monkeypatch)
@@ -1068,7 +1033,6 @@ async def test_access_details_confirm_is_null_when_omitted(tmp_path, monkeypatch
     assert data["access_details"]["confirm"] is None
 
 
-@pytest.mark.unit
 async def test_access_details_confirm_echoes_an_explicit_request(tmp_path, monkeypatch):
     """An explicit setting is echoed back verbatim, False included."""
     _prepare(tmp_path, monkeypatch)
@@ -1084,7 +1048,6 @@ async def test_access_details_confirm_echoes_an_explicit_request(tmp_path, monke
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_oversize_observed_value_is_summarised(tmp_path, monkeypatch):
     """A waveform readback too large to inline arrives as a bounded summary.
 
@@ -1117,7 +1080,6 @@ async def test_oversize_observed_value_is_summarised(tmp_path, monkeypatch):
     assert observed["max"] == 9.0
 
 
-@pytest.mark.unit
 async def test_observed_value_within_the_budget_stays_inline(tmp_path, monkeypatch):
     """A short waveform is reported as the values themselves."""
     np = pytest.importorskip("numpy")
@@ -1138,7 +1100,6 @@ async def test_observed_value_within_the_budget_stays_inline(tmp_path, monkeypat
     assert data["summary"]["results"][0]["observed_value"] == [1.0, 2.0, 3.0]
 
 
-@pytest.mark.unit
 async def test_long_string_observed_value_stays_inline(tmp_path, monkeypatch):
     """A long string is one channel value, not a thousand elements.
 
@@ -1165,7 +1126,6 @@ async def test_long_string_observed_value_stays_inline(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_emitted_key_is_the_constant_the_rules_name(tmp_path, monkeypatch):
     """The tool emits the exact key its constant names.
 
@@ -1268,7 +1228,6 @@ def _real_validator(connector):
         yield
 
 
-@pytest.mark.unit
 async def test_unlisted_write_passes_on_a_target_whose_block_allows_it(tmp_path, monkeypatch):
     """Serving ``va``, the tool reads the simulator's own permissive block.
 
@@ -1290,7 +1249,6 @@ async def test_unlisted_write_passes_on_a_target_whose_block_allows_it(tmp_path,
     assert connector.write_channel.await_count == 1
 
 
-@pytest.mark.unit
 async def test_unlisted_write_is_refused_on_a_target_the_deployment_block_governs(
     tmp_path, monkeypatch
 ):

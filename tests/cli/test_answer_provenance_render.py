@@ -9,9 +9,9 @@ facility-specific source vocabulary:
   rendered into ``settings.json`` ``outputStyle``), and
 * both orchestrator personas — ``CLAUDE.md`` (control) and its ARIEL variant.
 
-This is the CI-enforceable half of the change (SC1/SC2/SC7): deterministic and
-no API key. The behavioral companion (``test_answer_provenance_scenario``) is
-local/advisory. See ``.claude/plans/answer-provenance-transparency/``.
+This is the deterministic, CI-enforced guard for the change (SC1/SC2/SC7): no
+API key. The verify-first behavior itself is exercised by the agentic preset
+lanes, not by a dedicated judge test.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from osprey.cli.init_cmd import init
 
 # Facility-specific *source identifiers* that must never leak into the shared,
 # facility-agnostic core prompts (SC7). ``concept_id`` / ``texkey`` are literal
-# ALS source-idiom tokens; the third pattern catches a hard-coded PV / channel
+# source-idiom tokens; the third pattern catches a hard-coded PV / channel
 # address like ``SR:C01-MG:PS1`` (uppercase run, colon, more address). Generic
 # English ("a channel address", "an entry ID") intentionally does NOT match.
 _FACILITY_ID_PATTERNS = (

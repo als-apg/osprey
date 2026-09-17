@@ -3,8 +3,6 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from osprey.mcp_server.ariel.server import ARIEL_NATIVE_SOURCE_SYSTEM
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.port_layout import default_port
@@ -37,7 +35,6 @@ def _setup_registry(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_entry_get_existing(tmp_path, monkeypatch):
     """Get an existing entry returns full entry data."""
     _setup_registry(tmp_path, monkeypatch)
@@ -60,7 +57,6 @@ async def test_entry_get_existing(tmp_path, monkeypatch):
     assert data["author"] == "Alice"
 
 
-@pytest.mark.unit
 async def test_entry_get_nonexistent(tmp_path, monkeypatch):
     """Get a nonexistent entry returns not_found error."""
     _setup_registry(tmp_path, monkeypatch)
@@ -79,7 +75,6 @@ async def test_entry_get_nonexistent(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_entry_get_empty_id():
     """Empty entry_id returns validation error."""
     fn = _get_entry_get()
@@ -94,7 +89,6 @@ async def test_entry_get_empty_id():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_entry_create_all_fields(tmp_path, monkeypatch):
     """Create entry with all fields succeeds."""
     _setup_registry(tmp_path, monkeypatch)
@@ -132,7 +126,6 @@ async def test_entry_create_all_fields(tmp_path, monkeypatch):
     assert call_args["metadata"]["created_via"] == "ariel-mcp"
 
 
-@pytest.mark.unit
 async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
     """Create entry with only required fields succeeds."""
     _setup_registry(tmp_path, monkeypatch)
@@ -154,7 +147,6 @@ async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
     assert call_args["author"] == "Anonymous"
 
 
-@pytest.mark.unit
 async def test_entry_create_empty_subject():
     """Empty subject returns validation error."""
     fn = _get_entry_create()
@@ -164,7 +156,6 @@ async def test_entry_create_empty_subject():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_entry_create_empty_details():
     """Empty details returns validation error."""
     fn = _get_entry_create()
@@ -174,7 +165,6 @@ async def test_entry_create_empty_details():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
     """Create entry with file_paths attaches files and returns attachment_count."""
     _setup_registry(tmp_path, monkeypatch)
@@ -213,7 +203,6 @@ async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
     assert mock_service.repository.upsert_entry.call_count == 2
 
 
-@pytest.mark.unit
 async def test_entry_create_with_invalid_file_path(tmp_path, monkeypatch):
     """Nonexistent file path returns validation error without creating entry."""
     _setup_registry(tmp_path, monkeypatch)
@@ -230,7 +219,6 @@ async def test_entry_create_with_invalid_file_path(tmp_path, monkeypatch):
     assert "not found" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_entry_create_with_oversized_file(tmp_path, monkeypatch):
     """Oversized file returns validation error."""
     _setup_registry(tmp_path, monkeypatch)
@@ -250,7 +238,6 @@ async def test_entry_create_with_oversized_file(tmp_path, monkeypatch):
     assert "exceeds" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_entry_create_file_paths_none(tmp_path, monkeypatch):
     """file_paths=None is backward compatible (no attachments)."""
     _setup_registry(tmp_path, monkeypatch)
@@ -283,7 +270,6 @@ async def test_entry_create_file_paths_none(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_entry_create_draft_default(tmp_path, monkeypatch):
     """Default call creates a draft file and returns a URL."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
@@ -308,7 +294,6 @@ async def test_entry_create_draft_default(tmp_path, monkeypatch):
     assert contents["subject"] == "Beam lost"
 
 
-@pytest.mark.unit
 async def test_entry_create_draft_all_fields(tmp_path, monkeypatch):
     """Draft mode with all optional fields populates them."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
@@ -335,7 +320,6 @@ async def test_entry_create_draft_all_fields(tmp_path, monkeypatch):
     assert contents["tags"] == ["injection", "kicker"]
 
 
-@pytest.mark.unit
 async def test_entry_create_draft_url_is_browser_resolvable(tmp_path, monkeypatch):
     """Without ARIEL_WEB_URL, the draft URL must be a web-terminal-relative
     proxy path — not an absolute container-internal address.
@@ -367,20 +351,19 @@ async def test_entry_create_draft_url_is_browser_resolvable(tmp_path, monkeypatc
     assert f"draft={data['draft_id']}" in url
 
 
-@pytest.mark.unit
 async def test_entry_create_draft_custom_web_url(tmp_path, monkeypatch):
     """ARIEL_WEB_URL env var overrides the default base URL in draft mode."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
 
     drafts_dir = tmp_path / "drafts"
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
-    monkeypatch.setenv("ARIEL_WEB_URL", "https://ariel.lbl.gov")
+    monkeypatch.setenv("ARIEL_WEB_URL", "https://ariel.example.com")
 
     fn = _get_entry_create()
     result = await fn(subject="Test", details="Details")
 
     data = json.loads(result)
-    assert "https://ariel.lbl.gov" in data["url"]
+    assert "https://ariel.example.com" in data["url"]
 
 
 # ---------------------------------------------------------------------------
@@ -388,7 +371,6 @@ async def test_entry_create_draft_custom_web_url(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
     """Direct mode with artifact_ids resolves and attaches PNG artifact."""
     _setup_registry(tmp_path, monkeypatch)
@@ -432,7 +414,6 @@ async def test_entry_create_with_artifact_ids_direct(tmp_path, monkeypatch):
     assert data["attachment_count"] == 1
 
 
-@pytest.mark.unit
 async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypatch):
     """HTML artifact is auto-converted to PNG via converter registry."""
     _setup_registry(tmp_path, monkeypatch)
@@ -487,7 +468,6 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
     assert data["attachment_count"] == 1
 
 
-@pytest.mark.unit
 async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
     """Markdown artifact is converted to PNG via converter registry."""
     _setup_registry(tmp_path, monkeypatch)
@@ -541,7 +521,6 @@ async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
     assert data["attachment_count"] == 1
 
 
-@pytest.mark.unit
 async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatch):
     """Unknown MIME type artifact falls back to text_to_png converter."""
     _setup_registry(tmp_path, monkeypatch)
@@ -595,7 +574,6 @@ async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatc
     assert data["attachment_count"] == 1
 
 
-@pytest.mark.unit
 async def test_entry_create_with_invalid_artifact_id(tmp_path, monkeypatch):
     """Invalid artifact_id returns validation error."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
@@ -623,7 +601,6 @@ async def test_entry_create_with_invalid_artifact_id(tmp_path, monkeypatch):
     assert "not found" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
     """Draft mode with artifact_ids stores attachment_paths in draft JSON."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
@@ -665,7 +642,6 @@ async def test_entry_create_draft_with_artifact_ids(tmp_path, monkeypatch):
     assert len(contents["attachment_paths"]) == 1
 
 
-@pytest.mark.unit
 async def test_entry_create_draft_with_file_paths(tmp_path, monkeypatch):
     """Draft mode with file_paths stores attachment_paths in draft JSON."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
@@ -696,7 +672,6 @@ async def test_entry_create_draft_with_file_paths(tmp_path, monkeypatch):
     assert contents["attachment_paths"][0].endswith("screenshot.png")
 
 
-@pytest.mark.unit
 async def test_entry_create_draft_with_relative_file_path(tmp_path, monkeypatch):
     """Draft mode resolves relative file_paths to absolute paths."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
@@ -735,7 +710,6 @@ async def test_entry_create_draft_with_relative_file_path(tmp_path, monkeypatch)
     assert stored_path.endswith("capture.png")
 
 
-@pytest.mark.unit
 async def test_entry_create_draft_with_invalid_file_path(tmp_path, monkeypatch):
     """Draft mode with nonexistent file_path returns validation error."""
     import osprey.mcp_server.ariel.tools.entry as entry_mod
@@ -766,7 +740,6 @@ def _get_entries_by_ids():
     return get_tool_fn(entries_by_ids)
 
 
-@pytest.mark.unit
 async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
     """Batch retrieval returns found entries (may be fewer than requested)."""
     _setup_registry(tmp_path, monkeypatch)
@@ -793,7 +766,6 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
     assert data["entries"][0]["entry_id"] == "e1"
 
 
-@pytest.mark.unit
 async def test_entries_by_ids_empty_list():
     """Empty list returns validation error."""
     fn = _get_entries_by_ids()
@@ -803,7 +775,6 @@ async def test_entries_by_ids_empty_list():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_entries_by_ids_max_limit_exceeded():
     """More than 50 IDs returns validation error."""
     fn = _get_entries_by_ids()
@@ -814,7 +785,6 @@ async def test_entries_by_ids_max_limit_exceeded():
     assert "50" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
     """Service failure returns standard error format."""
     _setup_registry(tmp_path, monkeypatch)

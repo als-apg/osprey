@@ -116,7 +116,7 @@ class TestCBORGProvider:
 
 
 class TestAlsApgProvider:
-    """ALS-APG (gateway) provider configuration.
+    """The ``als-apg`` gateway provider configuration.
 
     The gateway is a site's own host, so every case here has to name the
     endpoint the way a deployment does — there is nothing built in to fall

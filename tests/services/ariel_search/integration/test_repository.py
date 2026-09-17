@@ -17,16 +17,36 @@ import pytest
 # database: the session ``database_url`` fixture prefers a running dev Postgres with
 # ONE shared ``ariel_test`` database over a per-worker container, so parallel workers
 # would otherwise collide on migrations/seed/truncate.
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
+pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
 
 
+#: Rows the repository suite seeds and reads back, one family for the file.
+INTEG_PREFIX = "integ-"
+
+#: Rows the concurrency probes write, under their own family.
+CONCURRENT_PREFIX = "concurrent-"
+
+
+@pytest.fixture
+def _seed_integ_prefix(seeded_prefixes):
+    """Record the ``integ-`` family before any test of the class writes a row."""
+    seeded_prefixes.add(INTEG_PREFIX)
+
+
+@pytest.fixture
+def _seed_concurrent_prefix(seeded_prefixes):
+    """Record the ``concurrent-`` family before any test of the class writes a row."""
+    seeded_prefixes.add(CONCURRENT_PREFIX)
+
+
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryCRUD:
     """Test ARIELRepository CRUD operations with real database."""
 
     async def test_upsert_and_get_entry(self, repository, seed_entry_factory):
         """Test basic CRUD operations."""
         entry = seed_entry_factory(
-            entry_id="integ-crud-001",
+            entry_id=f"{INTEG_PREFIX}crud-001",
             raw_text="Test entry content for CRUD test",
         )
 
@@ -45,7 +65,7 @@ class TestRepositoryCRUD:
     async def test_upsert_updates_existing_entry(self, repository, seed_entry_factory):
         """Test upsert updates an existing entry."""
         entry = seed_entry_factory(
-            entry_id="integ-update-001",
+            entry_id=f"{INTEG_PREFIX}update-001",
             raw_text="Original content",
         )
         await repository.upsert_entry(entry)
@@ -76,7 +96,7 @@ class TestRepositoryCRUD:
         for i in range(3):
             await repository.upsert_entry(
                 seed_entry_factory(
-                    entry_id=f"integ-count-{i:03d}",
+                    entry_id=f"{INTEG_PREFIX}count-{i:03d}",
                     source_system=src,
                     author="integ-count-alice" if i == 0 else "integ-count-bob",
                     timestamp=base + timedelta(hours=i),
@@ -95,8 +115,8 @@ class TestRepositoryCRUD:
     async def test_get_entries_by_ids(self, repository, seed_entry_factory):
         """Test get_entries_by_ids returns requested entries."""
         entries = [
-            seed_entry_factory(entry_id="integ-batch-001", raw_text="Entry 1"),
-            seed_entry_factory(entry_id="integ-batch-002", raw_text="Entry 2"),
+            seed_entry_factory(entry_id=f"{INTEG_PREFIX}batch-001", raw_text="Entry 1"),
+            seed_entry_factory(entry_id=f"{INTEG_PREFIX}batch-002", raw_text="Entry 2"),
         ]
         for entry in entries:
             await repository.upsert_entry(entry)
@@ -107,6 +127,7 @@ class TestRepositoryCRUD:
         assert "integ-batch-002" in result_ids
 
 
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryTimeRange:
     """Test ARIELRepository time range queries."""
 
@@ -114,7 +135,7 @@ class TestRepositoryTimeRange:
         """Test search by time range returns entries."""
         now = datetime.now(UTC)
         entry = seed_entry_factory(
-            entry_id="integ-time-001",
+            entry_id=f"{INTEG_PREFIX}time-001",
             timestamp=now,
             raw_text="Time range test entry",
         )
@@ -138,7 +159,7 @@ class TestRepositoryTimeRange:
         # Create multiple entries
         for i in range(5):
             entry = seed_entry_factory(
-                entry_id=f"integ-limit-{i:03d}",
+                entry_id=f"{INTEG_PREFIX}limit-{i:03d}",
                 timestamp=now,
                 raw_text=f"Limit test entry {i}",
             )
@@ -151,10 +172,14 @@ class TestRepositoryTimeRange:
         """search_by_time_range filters by author when supplied."""
         base = datetime(2002, 2, 2, tzinfo=UTC)
         await repository.upsert_entry(
-            seed_entry_factory(entry_id="integ-auth-alice", author="integ-alice", timestamp=base)
+            seed_entry_factory(
+                entry_id=f"{INTEG_PREFIX}auth-alice", author="integ-alice", timestamp=base
+            )
         )
         await repository.upsert_entry(
-            seed_entry_factory(entry_id="integ-auth-bob", author="integ-bob", timestamp=base)
+            seed_entry_factory(
+                entry_id=f"{INTEG_PREFIX}auth-bob", author="integ-bob", timestamp=base
+            )
         )
 
         results = await repository.search_by_time_range(author="integ-alice", limit=100)
@@ -169,18 +194,20 @@ class TestRepositoryTimeRange:
         """search_by_time_range filters by source_system when supplied."""
         base = datetime(2003, 3, 3, tzinfo=UTC)
         await repository.upsert_entry(
-            seed_entry_factory(entry_id="integ-src-als", source_system="integ-ALS", timestamp=base)
+            seed_entry_factory(
+                entry_id=f"{INTEG_PREFIX}src-ex", source_system="integ-EX", timestamp=base
+            )
         )
         await repository.upsert_entry(
             seed_entry_factory(
-                entry_id="integ-src-other", source_system="integ-OTHER", timestamp=base
+                entry_id=f"{INTEG_PREFIX}src-other", source_system="integ-OTHER", timestamp=base
             )
         )
 
-        results = await repository.search_by_time_range(source_system="integ-ALS", limit=100)
+        results = await repository.search_by_time_range(source_system="integ-EX", limit=100)
 
         entry_ids = [e["entry_id"] for e in results]
-        assert "integ-src-als" in entry_ids
+        assert "integ-src-ex" in entry_ids
         assert "integ-src-other" not in entry_ids
 
     async def test_search_by_time_range_offset_paginates(self, repository, seed_entry_factory):
@@ -194,7 +221,7 @@ class TestRepositoryTimeRange:
         for i in range(3):
             await repository.upsert_entry(
                 seed_entry_factory(
-                    entry_id=f"integ-offset-{i:03d}",
+                    entry_id=f"{INTEG_PREFIX}offset-{i:03d}",
                     source_system=src,
                     timestamp=base + timedelta(hours=i),  # 002 newest, 000 oldest
                     raw_text=f"offset entry {i}",
@@ -218,13 +245,14 @@ class TestRepositoryHealth:
         assert isinstance(message, str)
 
 
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryEnhancement:
     """Test ARIELRepository enhancement status operations."""
 
     async def test_mark_enhancement_complete(self, repository, seed_entry_factory):
         """Test marking an enhancement as complete."""
         entry = seed_entry_factory(
-            entry_id="integ-enhance-001",
+            entry_id=f"{INTEG_PREFIX}enhance-001",
             raw_text="Entry for enhancement test",
         )
         await repository.upsert_entry(entry)
@@ -243,13 +271,14 @@ class TestRepositoryEnhancement:
         assert "total_entries" in stats
 
 
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryFuzzySearch:
     """Test ARIELRepository fuzzy search operations."""
 
     async def test_fuzzy_search_finds_similar_text(self, repository, seed_entry_factory):
         """Fuzzy search returns entries with similar text."""
         entry = seed_entry_factory(
-            entry_id="integ-fuzzy-001",
+            entry_id=f"{INTEG_PREFIX}fuzzy-001",
             raw_text="The beam alignment was adjusted for optimal performance",
         )
         await repository.upsert_entry(entry)
@@ -294,13 +323,14 @@ class TestRepositoryIncompleteEntries:
         assert isinstance(results, list)
 
 
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryEnhancementFailure:
     """Test ARIELRepository enhancement failure tracking."""
 
     async def test_mark_enhancement_failed(self, repository, seed_entry_factory):
         """mark_enhancement_failed records failure."""
         entry = seed_entry_factory(
-            entry_id="integ-fail-001",
+            entry_id=f"{INTEG_PREFIX}fail-001",
             raw_text="Entry for failure test",
         )
         await repository.upsert_entry(entry)
@@ -334,6 +364,7 @@ class TestRepositoryEmbeddings:
             await repository.validate_search_model_table("nonexistent_model_xyz")
 
 
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryFuzzyDateFilters:
     """Test ARIELRepository fuzzy search with date filters."""
 
@@ -341,7 +372,7 @@ class TestRepositoryFuzzyDateFilters:
         """fuzzy_search can filter by start_date."""
         now = datetime.now(UTC)
         entry = seed_entry_factory(
-            entry_id="integ-fuzzydate-001",
+            entry_id=f"{INTEG_PREFIX}fuzzydate-001",
             timestamp=now,
             raw_text="Fuzzy date filter test entry",
         )
@@ -359,7 +390,7 @@ class TestRepositoryFuzzyDateFilters:
         """fuzzy_search can filter by end_date."""
         now = datetime.now(UTC)
         entry = seed_entry_factory(
-            entry_id="integ-fuzzydate-002",
+            entry_id=f"{INTEG_PREFIX}fuzzydate-002",
             timestamp=now,
             raw_text="Fuzzy end date filter test entry",
         )
@@ -374,13 +405,14 @@ class TestRepositoryFuzzyDateFilters:
         assert isinstance(results, list)
 
 
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryMetadata:
     """Test ARIELRepository entries with various metadata."""
 
     async def test_entry_with_empty_metadata(self, repository, seed_entry_factory):
         """Entries with empty metadata can be stored and retrieved."""
         entry = seed_entry_factory(
-            entry_id="integ-meta-001",
+            entry_id=f"{INTEG_PREFIX}meta-001",
             raw_text="Entry with empty metadata",
         )
         entry["metadata"] = {}
@@ -393,7 +425,7 @@ class TestRepositoryMetadata:
     async def test_entry_with_rich_metadata(self, repository, seed_entry_factory):
         """Entries with rich metadata can be stored and retrieved."""
         entry = seed_entry_factory(
-            entry_id="integ-meta-002",
+            entry_id=f"{INTEG_PREFIX}meta-002",
             raw_text="Entry with rich metadata",
         )
         entry["metadata"] = {
@@ -409,6 +441,7 @@ class TestRepositoryMetadata:
         assert retrieved.get("metadata", {}).get("title") == "Test Title"
 
 
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryAttachmentPreservation:
     """Re-ingestion must not erase ARIEL-native (web-uploaded) attachments.
 
@@ -427,7 +460,7 @@ class TestRepositoryAttachmentPreservation:
             {"url": "/api/attachments/abc123", "type": "image/png", "filename": "shot.png"}
         ]
         entry = seed_entry_factory(
-            entry_id="integ-attach-preserve-001",
+            entry_id=f"{INTEG_PREFIX}attach-preserve-001",
             raw_text="Published entry with an ARIEL-only attachment",
             attachments=ariel_native,
         )
@@ -436,7 +469,7 @@ class TestRepositoryAttachmentPreservation:
         # Simulate the background poller re-ingesting the upstream entry, which has
         # no attachments (the logbook API never received the file).
         reingested = seed_entry_factory(
-            entry_id="integ-attach-preserve-001",
+            entry_id=f"{INTEG_PREFIX}attach-preserve-001",
             raw_text="Published entry with an ARIEL-only attachment",
             attachments=[],
         )
@@ -449,7 +482,7 @@ class TestRepositoryAttachmentPreservation:
     async def test_reingest_with_attachments_replaces(self, repository, seed_entry_factory):
         """A non-empty incoming attachment list still replaces (upstream wins when it has data)."""
         entry = seed_entry_factory(
-            entry_id="integ-attach-preserve-002",
+            entry_id=f"{INTEG_PREFIX}attach-preserve-002",
             raw_text="Entry",
             attachments=[{"url": "/api/attachments/old", "type": "image/png", "filename": "a.png"}],
         )
@@ -457,7 +490,7 @@ class TestRepositoryAttachmentPreservation:
 
         upstream = [{"url": "https://elog.example/img/1", "type": "image/png", "filename": "b.png"}]
         replacement = seed_entry_factory(
-            entry_id="integ-attach-preserve-002",
+            entry_id=f"{INTEG_PREFIX}attach-preserve-002",
             raw_text="Entry",
             attachments=upstream,
         )
@@ -468,6 +501,7 @@ class TestRepositoryAttachmentPreservation:
         assert retrieved["attachments"] == upstream
 
 
+@pytest.mark.usefixtures("_seed_integ_prefix")
 class TestRepositoryBulkOperations:
     """Test ARIELRepository bulk operations."""
 
@@ -475,7 +509,7 @@ class TestRepositoryBulkOperations:
         """Multiple entries can be upserted sequentially."""
         entries = [
             seed_entry_factory(
-                entry_id=f"integ-bulk-{i:03d}",
+                entry_id=f"{INTEG_PREFIX}bulk-{i:03d}",
                 raw_text=f"Bulk entry {i}",
             )
             for i in range(5)
@@ -556,6 +590,7 @@ class TestDatabaseErrorConditions:
         # Success either way - we're just verifying the mechanism
 
 
+@pytest.mark.usefixtures("_seed_concurrent_prefix")
 class TestConcurrentOperations:
     """Test concurrent database operations (INT-006)."""
 
@@ -571,7 +606,7 @@ class TestConcurrentOperations:
         # Create test entries first
         entries = [
             seed_entry_factory(
-                entry_id=f"concurrent-{i:03d}",
+                entry_id=f"{CONCURRENT_PREFIX}{i:03d}",
                 raw_text=f"Concurrent test entry {i}",
             )
             for i in range(10)
@@ -599,7 +634,7 @@ class TestConcurrentOperations:
         """Concurrent reads and writes don't corrupt data."""
         import asyncio
 
-        base_id = "concurrent-rw"
+        base_id = f"{CONCURRENT_PREFIX}rw"
 
         async def writer(idx: int):
             """Write operation."""
@@ -630,23 +665,3 @@ class TestConcurrentOperations:
         for i in range(5):
             entry = await repository.get_entry(f"{base_id}-{i:03d}")
             assert entry is not None
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up concurrent test entries."""
-        async with migrated_pool.connection() as conn:
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'concurrent-%'
-            """)
-
-
-class TestRepositoryCleanup:
-    """Clean up test data after integration tests."""
-
-    async def test_cleanup_test_entries(self, migrated_pool):
-        """Clean up test entries created during integration tests."""
-        async with migrated_pool.connection() as conn:
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'integ-%'
-            """)

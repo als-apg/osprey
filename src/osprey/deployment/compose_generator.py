@@ -969,6 +969,7 @@ _OSPREY_IMAGE_SUFFIXES: dict[str, str] = {
     "bluesky_web": "-bluesky-web",
     "gchat_bridge": "-gchat-bridge",
     "nextcloud_bridge": "-nextcloud-bridge",
+    "teams_bridge": "-teams-bridge",
 }
 
 #: Tag those images carry when nothing sets the tag axis — the one ``osprey up``
@@ -1283,6 +1284,31 @@ def _standin_perturbation(config, repo_root):
     return lattice, default_bpm_errors_for_lattice(lattice)
 
 
+def _va_noise_level(config):
+    """The noise the Virtual Accelerator's synthesised readings carry, as text.
+
+    A config key rather than a bare ``.env`` variable, because how noisy a
+    reading is belongs to the machine being simulated and is therefore the
+    facility's to state — and it falls through to
+    ``control_system.connector.mock.noise_level`` exactly as ``simulation_file``
+    beside it does, so a deployment describing one simulated machine describes
+    it once whichever connector serves it.
+
+    :param config: The config being rendered.
+    :return: The resolved level as the string the template interpolates, or
+        ``""`` when neither key is stated — which leaves the entrypoint's own
+        default in force.
+    :rtype: str
+    """
+    from osprey_connectors.types import MOCK, VIRTUAL_ACCELERATOR
+
+    connector = (config.get("control_system") or {}).get("connector") or {}
+    va_block = connector.get(VIRTUAL_ACCELERATOR) or {}
+    mock_block = connector.get(MOCK) or {}
+    level = va_block.get("noise_level", mock_block.get("noise_level"))
+    return "" if level is None else str(level)
+
+
 def _telemetry_link_host(config):
     """The host the dashboard's per-run telemetry link names, or ``None``.
 
@@ -1359,7 +1385,7 @@ def _inject_project_metadata(config):
     # can sit AHEAD of the checkout's lineage. A production build from a
     # development checkout is still refused earlier and more clearly by
     # `_resolve_pip_spec`; see `get_image_pin_version` for the full rationale.
-    from osprey.version import get_image_pin_version
+    from osprey.version import get_image_pin_version, is_prerelease
 
     osprey_version = get_image_pin_version(bool(config.get("dev_mode")))
 
@@ -1400,6 +1426,10 @@ def _inject_project_metadata(config):
         "repo_id": repo_identity(repo_root),
     }
     config_with_labels["osprey_version"] = osprey_version
+    # A beta framework exists only beside a beta connectors, which pip never
+    # picks for a requirement that names none: the service recipes take this
+    # as OSPREY_PIP_PRE=1 and resolve their deps layer with --pre.
+    config_with_labels["osprey_pip_pre"] = is_prerelease(osprey_version)
 
     # Which env-chain files this deployment repo has, for the templates that
     # deliver them to a container. A service reads the chain through an
@@ -1632,6 +1662,12 @@ def _inject_project_metadata(config):
     # project that has not asked for a second instance.
     _, config_with_labels["standin_bpm_errors_default"] = _standin_perturbation(config, repo_root)
 
+    # The Virtual Accelerator's noise level, resolved here for the same reason:
+    # the template cannot follow the fall-through from the VA connector block to
+    # the mock one (:func:`_va_noise_level`), and a second copy of that rule is
+    # a second answer waiting to disagree with the first.
+    config_with_labels["va_noise_level"] = _va_noise_level(config)
+
     # The host the dispatcher dashboard's per-run telemetry link names, derived
     # from the one external-origin authority (:func:`_telemetry_link_host`).
     # ``None`` renders no variable at all, which the dashboard reads as "hide
@@ -1699,6 +1735,70 @@ def render_template(template_path, config, out_dir):
     with open(output_filepath, "w") as f:
         f.write(rendered_content)
     return output_filepath
+
+
+def _stage_site_image_args_for_context(config, out_dir):
+    """The site build args a service's compose fragment renders, CA staged.
+
+    The three images ``osprey up`` builds from a command line of its own get
+    these as ``--build-arg`` flags
+    (:func:`osprey.deployment.container_lifecycle.site_image_build_args`). A
+    managed service image has no such command line — ``docker compose build``
+    builds it from its own rendered context — so the same values have to reach
+    it through the ``args:`` block of its compose fragment instead.
+
+    Staging and resolving are one step because the two halves have to agree:
+    ``COPY`` cannot reach outside the build context, so a rendered
+    ``OSPREY_SITE_CA`` must name the file staged NEXT TO the fragment that
+    names it, never the host path the operator configured.
+
+    Only build contexts that contain a ``Dockerfile`` get any of it, for the
+    reason :func:`_stage_dev_wheel_for_context` applies to the wheel: a
+    pure-image service (postgresql, openobserve) builds nothing, and a CA
+    staged into its context is dead weight that also churns the build-context
+    hash.
+
+    A render is not a build, and the two need not run on the same host: the
+    rendered value is the fixed context filename wherever the render happens,
+    so the compose a CI runner writes is the compose the deploy host writes.
+    Only the copy beside it is host-dependent, and the render that runs where
+    the bundle is stages it (``osprey up`` re-renders before it builds).
+
+    :param config: The deployment's raw config.
+    :type config: dict
+    :param out_dir: The service's build context — where the CA is staged.
+    :type out_dir: str
+    :return: ARG name -> value, empty when the deployment declares no axis.
+    :rtype: dict[str, str]
+    """
+    # Function-local: container_lifecycle imports this module at module level,
+    # and the same import back would close the cycle.
+    from osprey.deployment.container_lifecycle import SITE_CA_CONTEXT_FILENAME, _stage_site_ca
+
+    if not os.path.isfile(os.path.join(out_dir, "Dockerfile")):
+        return {}
+
+    resolved = {}
+    for arg_name, value in resolve_site_image_axes(config).items():
+        if arg_name == "OSPREY_SITE_CA":
+            try:
+                _stage_site_ca(value, out_dir)
+            except FileNotFoundError:
+                # A bundle that is not on THIS host does not stop a render:
+                # the deployment is rendered wherever a build runs, including
+                # hosts that never deploy it. The value still renders, because
+                # a fragment whose args depend on the rendering host is a
+                # deployment that silently loses its CA. What is left is a
+                # context with no copy in it, and the build that reads it says
+                # so where it happens, at the layer that installs the CA.
+                logger.warning(
+                    f"images.site_ca names {value}, which is not a readable file here, "
+                    f"so no CA was staged into {out_dir}. Building this context on a "
+                    "host without the bundle fails at the layer that installs it."
+                )
+            value = SITE_CA_CONTEXT_FILENAME
+        resolved[arg_name] = value
+    return resolved
 
 
 def _stage_dev_wheel_for_context(out_dir, dev_mode):
@@ -3049,6 +3149,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
     # pin-relaxing arg must only be emitted for a context that actually
     # received a wheel (see _stage_dev_wheel_for_context).
     wheel_staged = False
+    site_image_build_args: dict[str, str] = {}
     if source_dir != SERVICES_DIR:  # ignore the top level dir
         # Deep copy everything in source directory except templates. Skipped
         # when the output IS the source (see `renders_in_place` above): the
@@ -3068,6 +3169,10 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
         # This will override the PyPI osprey after standard installation.
         wheel_staged = _stage_dev_wheel_for_context(out_dir, dev_mode)
 
+        # The site's build settings, resolved and staged together with the
+        # context they are rendered next to (see the helper).
+        site_image_build_args = _stage_site_image_args_for_context(config, out_dir)
+
     # Create the docker compose file from the template. The render context
     # carries dev_mode so service templates can emit dev-only build args
     # (e.g. OSPREY_DEV) exactly when `osprey up --dev` runs AND the
@@ -3079,6 +3184,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
     render_config = {
         **config,
         "dev_mode": dev_mode and wheel_staged,
+        "site_image_build_args": site_image_build_args,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
         # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
         "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
@@ -3238,6 +3344,7 @@ def _incremental_setup_build_dir(
     # setup_build_dir: the rendered OSPREY_DEV build arg must reflect whether a
     # wheel actually landed in this context.
     wheel_staged = False
+    site_image_build_args: dict[str, str] = {}
     if source_dir != SERVICES_DIR:
         for file in os.listdir(source_dir):
             src_path = os.path.join(source_dir, file)
@@ -3263,13 +3370,16 @@ def _incremental_setup_build_dir(
                     logger.warning(f"Could not update {dst_path}: {e}")
 
         wheel_staged = _stage_dev_wheel_for_context(out_dir, dev_mode)
+        site_image_build_args = _stage_site_image_args_for_context(config, out_dir)
 
     # Create/update the docker compose file from the template (dev_mode,
     # channel_snapshot and bluesky_devices gated on staging success, exactly as
-    # in setup_build_dir).
+    # in setup_build_dir; the site build args are staged with the context they
+    # are rendered beside, same as there).
     render_config = {
         **config,
         "dev_mode": dev_mode and wheel_staged,
+        "site_image_build_args": site_image_build_args,
         "channel_snapshot": _stage_channel_snapshot(config, source_dir, out_dir),
         # The bluesky_web sidecar's roster grant (see the helper); [] elsewhere.
         "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(

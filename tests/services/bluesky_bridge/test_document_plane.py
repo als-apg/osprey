@@ -28,6 +28,8 @@ fail; it does.
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -42,8 +44,6 @@ from osprey.services.bluesky_bridge.document_plane import (
     DocumentPlaneError,
     RunDocumentRouter,
 )
-
-pytestmark = pytest.mark.unit
 
 # Generous relative to the ~0.1 s a local 0MQ hop actually takes; these are
 # upper bounds on a *failure*, not sleeps — the waits return as soon as the
@@ -102,10 +102,9 @@ def certificates(tmp_path: Path) -> dict[str, Path]:
     }
 
 
-@pytest.fixture
-def plane(certificates: dict[str, Path]):
+def _started_plane(certificates: dict[str, Path]) -> DocumentPlane:
     """A started document plane on kernel-assigned loopback ports."""
-    started = DocumentPlane(
+    return DocumentPlane(
         DocumentPlaneConfig(
             publish_address="tcp://127.0.0.1",
             subscribe_address="tcp://127.0.0.1",
@@ -113,14 +112,57 @@ def plane(certificates: dict[str, Path]):
             client_public_keys=certificates["allowed"],
         )
     ).start()
+
+
+@pytest.fixture
+def plane(certificates: dict[str, Path]):
+    """A started document plane, stopped when the test ends."""
+    started = _started_plane(certificates)
     try:
         yield started
     finally:
         started.stop()
 
 
-def _publisher(plane: DocumentPlane, certificates: dict[str, Path] | None = None):
-    """A ``Publisher`` aimed at *plane*, authenticated only if given certificates."""
+@pytest.fixture
+def publishers(plane):
+    """Every publisher a test opens, closed before the plane goes down.
+
+    ``Publisher`` owns a 0MQ context and a PUB socket and releases neither
+    until ``close()`` is called. Left to the garbage collector that teardown
+    runs at a time and on a thread nobody chose — and for a forged publisher it
+    runs against a CURVE handshake that never completed, while the proxy's own
+    context may be terminating on another thread. libzmq answers a context torn
+    down in that state by aborting the process, which arrives as a crashed test
+    worker rather than as a failing test. Depending on ``plane`` is what orders
+    this teardown ahead of the proxy's.
+
+    Publishers close in reverse order of opening, and each close is attempted
+    even if an earlier one raised, so one bad socket cannot strand the rest.
+    """
+    opened: list[Any] = []
+    try:
+        yield opened
+    finally:
+        _close_all(opened)
+
+
+def _close_all(opened: list[Any]) -> None:
+    """Close *opened* newest first, attempting every one."""
+    for publisher in reversed(opened):
+        try:
+            publisher.close()
+        except Exception:  # noqa: BLE001 — teardown reports, it does not fail
+            logging.getLogger(__name__).warning("publisher close failed", exc_info=True)
+
+
+def _publisher(
+    opened: list[Any], plane: DocumentPlane, certificates: dict[str, Path] | None = None
+):
+    """A ``Publisher`` aimed at *plane*, authenticated only if given certificates.
+
+    Registered with *opened* so the ``publishers`` fixture closes it.
+    """
     from bluesky.callbacks.zmq import ClientCurve, Publisher
 
     curve = None
@@ -129,7 +171,9 @@ def _publisher(plane: DocumentPlane, certificates: dict[str, Path] | None = None
             secret_path=certificates["client_secret"],
             server_public_key=certificates["server_public"],
         )
-    return Publisher(plane.publish_address, curve_config=curve)
+    publisher = Publisher(plane.publish_address, curve_config=curve)
+    opened.append(publisher)
+    return publisher
 
 
 def _wait_until(predicate, timeout: float = _DELIVERY_TIMEOUT) -> bool:
@@ -193,9 +237,9 @@ def _establish_link(publisher, plane: DocumentPlane) -> None:
     live_rows._clear()
 
 
-def test_rows_land_under_the_osprey_run_id(plane, certificates):
+def test_rows_land_under_the_osprey_run_id(plane, certificates, publishers):
     """A worker's documents become live rows keyed by the enqueued run id."""
-    publisher = _publisher(plane, certificates)
+    publisher = _publisher(publishers, plane, certificates)
     _establish_link(publisher, plane)
 
     run_uid = "run-engine-uid-1"
@@ -260,15 +304,15 @@ def _assert_refused(forged, authorized, label: str) -> None:
     assert document_plane.progress(run_id) is None
 
 
-def test_documents_without_the_client_key_are_rejected(plane, certificates):
+def test_documents_without_the_client_key_are_rejected(plane, certificates, publishers):
     """CurveZMQ, not network placement, is what protects the in-side socket."""
-    authorized = _publisher(plane, certificates)
+    authorized = _publisher(publishers, plane, certificates)
     _establish_link(authorized, plane)
 
-    _assert_refused(_publisher(plane, certificates=None), authorized, "unkeyed")
+    _assert_refused(_publisher(publishers, plane, certificates=None), authorized, "unkeyed")
 
 
-def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates):
+def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates, publishers):
     """A well-formed key the accepted-client directory doesn't list is still a stranger.
 
     This is the difference the pinned directory buys over ``CURVE_ALLOW_ANY``:
@@ -284,10 +328,11 @@ def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates):
     directory in the fixture — i.e. before startup — must make this test fail;
     it does.
     """
-    authorized = _publisher(plane, certificates)
+    authorized = _publisher(publishers, plane, certificates)
     _establish_link(authorized, plane)
 
     intruder = _publisher(
+        publishers,
         plane,
         {
             "client_secret": certificates["intruder_secret"],
@@ -297,9 +342,9 @@ def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates):
     _assert_refused(intruder, authorized, "unpinned")
 
 
-def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certificates):
+def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certificates, publishers):
     """A worker driven outside the queue is still recorded — under its only identity."""
-    publisher = _publisher(plane, certificates)
+    publisher = _publisher(publishers, plane, certificates)
     _establish_link(publisher, plane)
 
     run_uid = "unmanaged-run-uid"
@@ -313,9 +358,9 @@ def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certifi
     assert buffer["rows"] == [[0.5]]
 
 
-def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certificates):
+def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certificates, publishers):
     """A run's own declaration of its extent is what progress divides by."""
-    publisher = _publisher(plane, certificates)
+    publisher = _publisher(publishers, plane, certificates)
     _establish_link(publisher, plane)
 
     run_uid = "declared-run-uid"
@@ -334,7 +379,9 @@ def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certifica
     }
 
 
-def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(plane, certificates):
+def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(
+    plane, certificates, publishers
+):
     """The two halves are built by different modules from the same env contract.
 
     Every other test in this file builds its publisher by hand, which proves
@@ -354,6 +401,7 @@ def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(plane,
         }
     )
     assert publisher is not None
+    publishers.append(publisher)
     _establish_link(publisher, plane)
 
     run_uid = "worker-built-run-uid"
@@ -368,6 +416,59 @@ def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(plane,
     buffer = live_rows.get("worker-built-run")
     assert buffer is not None
     assert buffer["rows"] == [[4.2]]
+
+
+# ------------------------------------------------------------------- shutdown
+
+
+class TestTheDocumentPlaneSurvivesBeingRestarted:
+    """A plane is started and stopped many times in one process.
+
+    Once per process is what a deployed bridge does, but the suite starts and
+    stops planes constantly, and a shutdown path that leaves anything behind —
+    a thread, a socket, an authenticator — is cheap to miss at one cycle and
+    fatal at fifty. Each case builds its own planes rather than taking the
+    ``plane`` fixture, so the ordering between a publisher's teardown and its
+    plane's is written out here instead of being inherited: a publisher left
+    open across a plane's shutdown can abort the interpreter, which arrives as
+    a crashed worker rather than as a failing test (see ``publishers``).
+    """
+
+    _CYCLES = 50
+
+    def test_threads_return_to_their_baseline(self, certificates):
+        """Every thread a plane starts is gone once the plane is stopped."""
+        baseline = threading.active_count()
+
+        for _ in range(self._CYCLES):
+            _started_plane(certificates).stop()
+
+        settled = _wait_until(lambda: threading.active_count() <= baseline)
+        assert settled, (
+            f"threads outlived their planes (baseline {baseline}): "
+            f"{[t.name for t in threading.enumerate()]}"
+        )
+
+    def test_fifty_stops_survive_a_delivered_document(self, certificates):
+        """A plane that carried traffic still stops cleanly, fifty times over."""
+        for cycle in range(self._CYCLES):
+            # The previous cycle's link probe can land after that cycle cleared
+            # the buffers, and `_establish_link` reads a probe buffer as proof
+            # of a live link — so start each cycle from nothing, or a cycle
+            # could "establish" a link it never actually has.
+            live_rows._clear()
+            plane = _started_plane(certificates)
+            opened: list[Any] = []
+            try:
+                publisher = _publisher(opened, plane, certificates)
+                _establish_link(publisher, plane)
+                run_id = f"restart-cycle-{cycle}"
+                publisher("start", _start_doc(f"{run_id}-uid", run_id=run_id))
+                delivered = _wait_until(lambda key=run_id: live_rows.get(key) is not None)
+            finally:
+                _close_all(opened)
+                plane.stop()
+            assert delivered, f"cycle {cycle} never delivered its document"
 
 
 # --------------------------------------------------------------- configuration
@@ -570,3 +671,29 @@ def test_router_never_raises_on_a_malformed_document():
     router("event", {"seq_num": 1})  # no descriptor
     router("stop", {})  # no run_start
     assert live_rows.get("") is None
+
+
+def test_every_publisher_is_closed_even_when_one_refuses() -> None:
+    """The teardown closes all of them, newest first, whatever one of them does.
+
+    The order matters because a later publisher may have been built against
+    state an earlier one owns, and the completeness matters because a single
+    context left to the garbage collector is the whole defect: one refusing
+    socket must not strand the rest.
+    """
+
+    closed: list[str] = []
+
+    class Fake:
+        def __init__(self, name: str, refuses: bool = False) -> None:
+            self.name = name
+            self.refuses = refuses
+
+        def close(self) -> None:
+            closed.append(self.name)
+            if self.refuses:
+                raise RuntimeError("this socket will not close")
+
+    _close_all([Fake("first"), Fake("second", refuses=True), Fake("third")])
+
+    assert closed == ["third", "second", "first"]

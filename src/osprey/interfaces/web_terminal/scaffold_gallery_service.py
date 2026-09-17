@@ -362,6 +362,10 @@ class ScaffoldGalleryService:
             "  Restore the profile this project names — its manifest records the path as\n"
             "  build_args.profile_path_abs — or rebuild from the profile you want to own\n"
             "  this artifact, and try again.\n\n"
+            # Unconditional, and true on every topology that reaches here: a
+            # mounted store resolves to VOLUME, so DEGRADED means there is none
+            # — on a bare host as much as in a container. Naming the variable is
+            # therefore always a real way out, never a container-only aside.
             f"  {NO_DURABLE_STORE}"
         )
 

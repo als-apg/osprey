@@ -48,8 +48,8 @@ def _dispatch(**overrides: object) -> DispatchConfig:
         "dispatcher_port": 8020,
         "worker_port_base": 9190,
         "timeout_sec": 300,
-        "facility_name": "ALS",
-        "channel_strip_prefix": "ALS:",
+        "facility_name": "ERF",
+        "channel_strip_prefix": "ERF:",
     }
     base.update(overrides)
     return DispatchConfig(**base)  # type: ignore[arg-type]
@@ -80,8 +80,8 @@ def test_inject_dispatch_bundled_triggers(tmp_path: Path) -> None:
     config = _read_config(project_path)
     ed = config["services"]["event_dispatcher"]
     assert ed["port"] == 8020
-    assert ed["facility_name"] == "ALS"
-    assert ed["channel_strip_prefix"] == "ALS:"
+    assert ed["facility_name"] == "ERF"
+    assert ed["channel_strip_prefix"] == "ERF:"
     assert ed["path"] == "./services/event_dispatcher"
     # No pinned image: the service builds the project's local image (the compose
     # template defaults to ``<project>-dispatch:local`` + a ``build:`` section).

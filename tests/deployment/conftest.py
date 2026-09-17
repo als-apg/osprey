@@ -93,3 +93,26 @@ def compose_provider_is_docker_v2(monkeypatch):
     monkeypatch.setattr(
         container_lifecycle, "_compose_provider", lambda config=None: ComposeProvider.DOCKER_V2
     )
+
+
+@pytest.fixture(autouse=True)
+def no_prebuilt_switch_in_the_environment(monkeypatch):
+    """Isolate every test from a prebuilt-images switch exported in the shell.
+
+    ``container_lifecycle._resolve_prebuilt_images`` reads
+    ``OSPREY_PREBUILT_IMAGES`` out of the process environment ahead of the
+    deploy config, and a truthy answer takes the standalone ``compose build``
+    out of every dev-mode start. An operator on a host that cannot build has
+    every reason to export it; a test that inherits it is asserting on the
+    shell it ran in rather than on the code. Clearing it here makes the empty
+    environment one precondition the suite states once, so a build assertion
+    added later inherits it instead of having to remember it.
+
+    A test that is about the switch sets it in its own body and still gets
+    the answer it asked for. ``monkeypatch`` is function-scoped, so this
+    fixture and the test share one instance; autouse fixtures are set up
+    before the test body runs, and the undo stack is unwound in reverse at
+    teardown, so the later ``setenv`` wins for the duration of the test and
+    the environment is restored afterwards either way.
+    """
+    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)

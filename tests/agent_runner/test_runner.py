@@ -494,7 +494,7 @@ async def test_run_query_no_proxy_for_native_provider(project_dir: Path) -> None
     async_cm, _ = _make_mock_client()
     captured: list[ClaudeAgentOptions] = []
     proxy = MagicMock(return_value=9999)
-    native_env = {"CLAUDECODE": "", "ANTHROPIC_BASE_URL": "https://api.cborg.lbl.gov"}
+    native_env = {"CLAUDECODE": "", "ANTHROPIC_BASE_URL": "https://api.example.com"}
 
     with (
         patch(
@@ -513,7 +513,7 @@ async def test_run_query_no_proxy_for_native_provider(project_dir: Path) -> None
         await run_query(project_dir, "q", disallowed_tools=[])
 
     proxy.assert_not_called()
-    assert captured[0].env["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
+    assert captured[0].env["ANTHROPIC_BASE_URL"] == "https://api.example.com"
 
 
 @pytest.mark.asyncio

@@ -15,6 +15,30 @@
 
 import { test, expect, vi, afterEach } from 'vitest';
 
+// feedback.js's import graph reaches app.js, whose init GETs the pipeline info
+// at import time. Nothing serves this environment, so that request is answered
+// here — from `vi.hoisted`, which runs before the static import below is
+// evaluated and therefore before the GET is made. Any other URL is a dependency
+// this file has not declared, and fails loudly. Each test re-stubs `fetch` for
+// the endpoints it drives (see `stubFeedbackApi`).
+vi.hoisted(() => {
+  vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+    if (url !== '/api/info') throw new Error(`unstubbed fetch: ${url}`);
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({
+        pipeline_type: 'hierarchical',
+        metadata: {},
+        available_pipelines: ['hierarchical'],
+        db_path: null,
+        tools: [],
+        graph_store: null,
+      }),
+    };
+  }));
+});
+
 import { mountFeedback, unmountFeedback } from '../../../src/osprey/interfaces/channel_finder/static/js/feedback.js';
 
 afterEach(() => {

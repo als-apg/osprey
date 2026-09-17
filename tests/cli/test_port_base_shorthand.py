@@ -23,8 +23,6 @@ from osprey.cli.build_profile_resolve import (
 from osprey.errors import BuildProfileError
 from osprey.port_layout import PORT_BASE_CONFIG_KEY
 
-pytestmark = pytest.mark.unit
-
 
 def _minimal(**extra) -> dict:
     return {"name": "demo", **extra}

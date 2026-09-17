@@ -11,8 +11,8 @@
   },
   "devDependencies": {
     "typescript": "^7.0.2",
-    "vitest": "^4.1.11",
-    "happy-dom": "^20.11.6",
+    "vitest": "^5.0.0",
+    "happy-dom": "^20.14.0",
     "eslint": "^10",
     "@eslint/js": "^10",
     "globals": "^17"

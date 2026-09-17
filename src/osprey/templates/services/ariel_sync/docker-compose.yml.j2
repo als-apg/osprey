@@ -1,3 +1,11 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+-#}
 {#- Both shared axes — this service's network membership with the file-level
     `networks:` stanza that matches it, and the host variables its `env:` key
     names — are rendered by the shared macros rather than spelled out here, so

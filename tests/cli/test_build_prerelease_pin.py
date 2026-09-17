@@ -20,8 +20,6 @@ import pytest
 from osprey.cli.build_environment import _create_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 
-pytestmark = pytest.mark.unit
-
 
 @pytest.fixture
 def calls(monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
@@ -75,3 +73,25 @@ class TestAStablePin:
 
         assert "--prerelease" not in _install_cmd(calls)
         assert "tool" not in data
+
+
+class TestWithoutUv:
+    """The pip fallback (no ``uv`` on the build host) reaches the same resolve."""
+
+    @pytest.fixture
+    def pip_only(self, calls, monkeypatch):
+        monkeypatch.delenv("UV", raising=False)
+        monkeypatch.setattr("osprey.cli.build_environment.shutil.which", lambda name: None)
+        return calls
+
+    def test_a_prerelease_pin_admits_prereleases(self, pip_only, tmp_path):
+        _build(tmp_path / "project", "osprey-framework==2026.9.0b1")
+
+        cmd = _install_cmd(pip_only)
+        assert cmd[1:4] == ["-m", "pip", "install"], cmd
+        assert "--pre" in cmd
+
+    def test_a_stable_pin_stays_strict(self, pip_only, tmp_path):
+        _build(tmp_path / "project", "osprey-framework==2026.9.0")
+
+        assert "--pre" not in _install_cmd(pip_only)

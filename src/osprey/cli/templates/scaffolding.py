@@ -95,8 +95,8 @@ def provider_api_key_entries() -> list[dict[str, str]]:
     Derived from :data:`osprey.models.provider_registry.PROVIDER_API_KEYS`
     (the single source of truth for the provider list) so that
     ``env.example.j2`` cannot drift from the real provider set. Key-less
-    providers (ollama, vllm, ds4, asksage) are excluded — they have no API-key
-    env var to scaffold.
+    providers (ollama, vllm, ds4) are excluded — they have no API-key env var
+    to scaffold.
 
     Returns:
         Ordered list of ``{"provider": <name>, "var": <ENV_VAR>}`` dicts.

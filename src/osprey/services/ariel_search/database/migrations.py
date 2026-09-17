@@ -165,6 +165,11 @@ def model_to_table_name(model_name: str) -> str:
 # Migration runner
 # ---------------------------------------------------------------------------
 
+# Migrations constructed with the configured (model, dimension) pairs rather
+# than bare. Each writes per-model objects, so a name missing here would work
+# the hardcoded default table instead of the ones the deployment configured.
+MIGRATIONS_TAKING_EMBEDDING_MODELS = frozenset({"text_embedding", "text_embedding_hnsw_index"})
+
 # Format: (name, module_path, class_name, requires_module)
 # requires_module is None for core_schema (always runs), otherwise module name
 KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
@@ -196,6 +201,12 @@ KNOWN_MIGRATIONS: list[tuple[str, str, str, str | None]] = [
         "text_embedding",
         "osprey.services.ariel_search.enhancement.text_embedding.migration",
         "TextEmbeddingMigration",
+        "text_embedding",
+    ),
+    (
+        "text_embedding_hnsw_index",
+        "osprey.services.ariel_search.enhancement.text_embedding.hnsw_migration",
+        "TextEmbeddingHnswIndexMigration",
         "text_embedding",
     ),
     (
@@ -248,14 +259,12 @@ class MigrationRunner:
                 try:
                     module = importlib.import_module(module_path)
                     migration_class = getattr(module, class_name)
-                    # The text_embedding migration needs the configured
-                    # (model, dimension) pairs so `osprey ariel migrate` creates a
-                    # table per configured model, not just the hardcoded default.
-                    if name == "text_embedding":
+                    # These migrations need the configured (model, dimension)
+                    # pairs so `osprey ariel migrate` works a table per
+                    # configured model, not just the hardcoded default.
+                    if name in MIGRATIONS_TAKING_EMBEDDING_MODELS:
                         models = self._configured_embedding_models()
-                        migration = migration_class(
-                            models, index_lists=self._configured_index_lists()
-                        )
+                        migration = migration_class(models)
                     else:
                         migration = migration_class()
                     migrations.append(migration)
@@ -275,17 +284,6 @@ class MigrationRunner:
         if module_config and module_config.models:
             return [(m.name, m.dimension) for m in module_config.models]
         return None
-
-    def _configured_index_lists(self) -> int | None:
-        """Read ``text_embedding.index_lists``, or None to take the default.
-
-        Cannot be derived here: `osprey ariel migrate` creates the index before
-        any entry is embedded, so there is no row count to size it from.
-        """
-        module_config = self.config.enhancement_modules.get("text_embedding")
-        if module_config is None:
-            return None
-        return module_config.settings.get("index_lists")
 
     def _topological_sort(self, migrations: list[BaseMigration]) -> list[BaseMigration]:
         """Sort migrations by dependencies using topological sort.
@@ -360,8 +358,34 @@ class MigrationRunner:
 
                 logger.info(f"Applying migration: {migration.name}")
                 try:
-                    await migration.up(conn)
-                    await migration.mark_applied(conn)
+                    # One transaction per migration, covering `up()` AND the
+                    # bookkeeping row together. The pool is opened with
+                    # autocommit=True (`connection.py`), so without this every
+                    # statement inside `up()` commits on its own -- and a
+                    # migration that drops an index before creating its
+                    # replacement destroys the old one for good the moment the
+                    # create fails. Two in this registry do exactly that
+                    # (`text_embedding_hnsw_index`, and
+                    # `semantic_processor_search_index` on the FTS index), and
+                    # the create is an index build: it is the statement most
+                    # likely to fail on resources, which is precisely when the
+                    # drop must not have happened. Committing the two together
+                    # also closes the narrower hole where `up()` succeeded and
+                    # `mark_applied()` then failed, leaving a drop-then-create
+                    # migration to run a second time against the state it
+                    # already made.
+                    #
+                    # Every migration in KNOWN_MIGRATIONS is transactional DDL
+                    # (CREATE/DROP INDEX, CREATE TABLE, ALTER TABLE ... ADD
+                    # COLUMN, CREATE EXTENSION, CREATE FUNCTION). Nothing here
+                    # uses CREATE INDEX CONCURRENTLY, VACUUM or CREATE
+                    # DATABASE, which are the statements PostgreSQL forbids
+                    # inside a transaction block -- so a migration that needs
+                    # one of those cannot simply be added here; it needs its
+                    # own escape from this block, deliberately.
+                    async with conn.transaction():
+                        await migration.up(conn)
+                        await migration.mark_applied(conn)
                     applied.append(migration.name)
                     logger.info(f"Applied migration: {migration.name}")
                 except MigrationSkippedError as e:

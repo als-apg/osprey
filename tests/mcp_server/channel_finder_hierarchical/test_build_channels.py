@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     initialize_cf_hier_context,
 )
@@ -17,7 +15,6 @@ def _setup(tmp_path, monkeypatch):
     initialize_cf_hier_context()
 
 
-@pytest.mark.unit
 def test_build_channels_happy_path(tmp_path, monkeypatch):
     """Returns list of constructed channel addresses."""
     _setup(tmp_path, monkeypatch)
@@ -51,7 +48,6 @@ def test_build_channels_happy_path(tmp_path, monkeypatch):
     mock_db.build_channels_from_selections.assert_called_once_with(selections)
 
 
-@pytest.mark.unit
 def test_build_channels_with_invalid_channels(tmp_path, monkeypatch):
     """Inline validation separates valid and invalid channels."""
     _setup(tmp_path, monkeypatch)
@@ -81,7 +77,6 @@ def test_build_channels_with_invalid_channels(tmp_path, monkeypatch):
     assert data["invalid"] == ["SR:BPM:99:X"]
 
 
-@pytest.mark.unit
 def test_build_channels_value_error(tmp_path, monkeypatch):
     """ValueError from database returns validation_error."""
     _setup(tmp_path, monkeypatch)
@@ -105,7 +100,6 @@ def test_build_channels_value_error(tmp_path, monkeypatch):
     assert "Missing required level" in data["error_message"]
 
 
-@pytest.mark.unit
 def test_build_channels_internal_error(tmp_path, monkeypatch):
     """Unexpected exception returns internal_error."""
     _setup(tmp_path, monkeypatch)

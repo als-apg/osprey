@@ -1,3 +1,11 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+-#}
 {#- The network axis — network membership, published ports and the matching
     file-level stanza — comes from the shared macro rather than being spelled
     here, so every service template states the same topology the same way. -#}
@@ -8,6 +16,10 @@
     way. With none declared it emits nothing and this file renders exactly
     as it did before the axis existed. -#}
 {%- import "services/_env_axis.j2" as hostenv -%}
+{#- The site's build settings — a proxy CA, pip's bypass list, an internal
+    package index — are rendered by the shared macro rather than spelled out
+    per template, so every image OSPREY builds is handed the same set. -#}
+{%- import "services/_site_image_args.j2" as site -%}
 {#- Paths inside the container. Each is used twice (as a mount target and as
     the environment variable that tells the entrypoint where to look), so they
     are named once here: a volume mounted at one path while the process reads
@@ -64,6 +76,7 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{{- site.build_args(site_image_build_args | default({})) }}
 {%- if services.qmd.models_dir %}
         # Pre-staged models: the operator named a host directory that already
         # holds the three GGUF files, so the build must not fetch them. Without
@@ -129,8 +142,8 @@ services:
     volumes:
       # The index. A named volume rather than a bind: it is derived data the
       # sidecar owns end to end, it is large, and rebuilding it from scratch
-      # costs ~41 minutes at ALS scale — which is exactly why it must survive a
-      # container recreate.
+      # costs ~41 minutes — which is exactly why it must survive a container
+      # recreate.
       - qmd_index:{{ state_dir }}
       - ./build/services/qmd/index.yml:{{ index_config }}:ro
 {%- if services.qmd.models_dir %}

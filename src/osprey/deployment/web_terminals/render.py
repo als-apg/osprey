@@ -20,6 +20,7 @@ from urllib.parse import quote
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.bluesky_bridge_connection import LANE_KEYS, lane_env_prefix
+from osprey.config_guards import is_positive_int
 from osprey.deployment.compose_generator import (
     DISPATCH_WORKER_SERVICE_PREFIX,
     FIXED_SERVICE_AUDIT_IDENTITIES,
@@ -2004,8 +2005,12 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         ``auth_oidc_issuer`` (str or ``None``),
         ``auth_oidc_client_id_env``/``auth_oidc_client_secret_env`` (the env-var
         *names* the sidecar reads its OIDC client credentials from — never the
-        credentials themselves) and ``auth_oidc_claim`` (str or ``None``, the
-        ID-token claim carrying the identity to map onto a roster user); plus
+        credentials themselves), ``auth_oidc_claim`` (str or ``None``, the
+        ID-token claim carrying the identity to map onto a roster user),
+        ``auth_oidc_scopes`` (str or ``None``, the space-joined scope list the
+        login route requests) and ``auth_oidc_claims_in_id_token`` (bool,
+        whether the login route sends the OIDC ``claims`` request parameter
+        asking for those claims in the ID token); plus
         the TLS keys ``tls_enabled`` (bool), ``tls_port`` (int, the listener
         both nginx ``listen`` lines and the derived external origin follow,
         defaulting to :data:`TLS_LISTEN_PORT`), ``https_default_port``
@@ -2064,6 +2069,15 @@ def _auth_tls_context(web_terminals: dict[str, Any], *, base: int | None = None)
         # refuses a list without it, which keeps one rule in one place and
         # keeps a config edit from being the thing that removes it.
         "auth_oidc_scopes": _scope_list(oidc.get("scopes")),
+        # Whether the login route sends the OIDC `claims` request parameter
+        # asking for the claims the sidecar reads to be delivered in the ID
+        # token. A provider that follows OIDC Core §5.4 strictly serves
+        # scope-requested claims from UserInfo, which the sidecar never calls,
+        # so against one of those `scopes` alone yields a token with no
+        # identity claim. Off unless authored, and rendered only when on: the
+        # sidecar derives the parameter's contents itself from the claims it
+        # reads, so nothing here spells claims JSON.
+        "auth_oidc_claims_in_id_token": bool(oidc.get("claims_in_id_token", False)),
         "tls_enabled": bool(tls.get("enabled", False)),
         "tls_port": _port_int(tls.get("port"), TLS_LISTEN_PORT),
         # Carried alongside so the template's "is this the port a browser
@@ -2308,12 +2322,18 @@ def _tls_mount_target(tls: dict[str, Any]) -> str | None:
 def _positive_int(value: Any, default: int) -> int:
     """A config value read as a positive int, falling back to ``default``.
 
-    ``bool`` is excluded explicitly: it passes ``isinstance(..., int)``, and
-    ``auth.port: true`` becoming port 1 would be a baffling deployment.
+    What counts as a positive integer — ``bool`` excluded, because it passes
+    ``isinstance(..., int)`` and ``auth.port: true`` becoming port 1 would be a
+    baffling deployment — is
+    :func:`osprey.config_guards.is_positive_int`'s definition.
+
+    This reader falls back rather than refusing, unlike the guard's refusing
+    forms. Lint owns the diagnostic for an unusable value
+    (``web_terminals.invalid_session_lifetime``,
+    ``web_terminals.invalid_listener_port``), and :func:`_port_int` needs the
+    whole invalid domain to land on one default.
     """
-    if isinstance(value, int) and not isinstance(value, bool) and value > 0:
-        return value
-    return default
+    return value if is_positive_int(value) else default
 
 
 def _port_int(value: Any, default: int) -> int:
@@ -2335,19 +2355,38 @@ def _non_empty_str(value: Any, default: str) -> str:
     return value if isinstance(value, str) and value.strip() else default
 
 
+def _blank_scope_index(value: Any) -> int | None:
+    """The index of the first ``auth.oidc.scopes`` entry that is blank.
+
+    A blank entry is an authoring slip with no legitimate reading, and it is
+    the one unusable shape a reader can point at precisely. Only a list or
+    tuple carries indices, so every other shape — a bare string included —
+    returns ``None`` and is left to :func:`_scope_list` to judge.
+    """
+    if not isinstance(value, list | tuple):
+        return None
+    for index, item in enumerate(value):
+        if isinstance(item, str) and not item.strip():
+            return index
+    return None
+
+
 def _scope_list(value: Any) -> str | None:
     """``auth.oidc.scopes`` read as the space-separated string OAuth spells.
 
     A list of strings is the authored shape; a bare string is accepted as
     already-joined scopes, because that is what an operator who has copied the
-    line out of their IdP's documentation will write. Anything else — and an
-    empty list — reads as unset, which renders no env line and leaves the
-    sidecar's own default in force.
+    line out of their IdP's documentation will write. Anything else — an empty
+    list, and a list with a blank entry — reads as unset, which renders no env
+    line and leaves the sidecar's own default in force.
     """
     if isinstance(value, str):
         return " ".join(value.split()) or None
     if isinstance(value, list | tuple) and all(isinstance(item, str) for item in value):
-        return " ".join(item.strip() for item in value if item.strip()) or None
+        stripped = [item.strip() for item in value]
+        if not stripped or any(not item for item in stripped):
+            return None
+        return " ".join(stripped)
     return None
 
 

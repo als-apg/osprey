@@ -7,6 +7,12 @@ same-origin script/stylesheet subresource came back 4xx/5xx (the classic
 intentionally narrow by default — see the module-breakage rationale below —
 with an opt-in ``console.error`` arm and an ``allowlist`` escape hatch for
 known-benign noise.
+
+``wait_for_dock_settled`` is the other shared wait: it blocks until the dock has
+finished arranging the shell, for any suite that drives or photographs the
+web-terminal hub. ``open_hub_page`` is the hub's own entry point — it opens the
+page and waits for the panel rail and the dock grid together — and
+``rail_entry`` builds the locator for one of that rail's buttons.
 """
 
 from __future__ import annotations
@@ -15,11 +21,12 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import expect
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from playwright.sync_api import Page
+    from playwright.sync_api import Browser, Page
 
 # Bounded settle wait after `load` fires. Some interfaces (e.g. the web
 # terminal's SSE-backed panels) hold long-lived connections, so `networkidle`
@@ -28,6 +35,12 @@ _NETWORK_IDLE_TIMEOUT_MS = 5000
 
 _SCRIPT_STYLESHEET_RESOURCE_TYPES = ("script", "stylesheet")
 _SCRIPT_STYLESHEET_EXTENSIONS = (".js", ".css")
+
+# Bounds the hub's first render: the rail's fetch chain (/api/panels, then each
+# panel's config endpoint) and the dockview grid's first group, on a loaded
+# runner. Not a correctness gate -- a bound on a wait that would otherwise hang
+# the suite.
+_HUB_READY_TIMEOUT_MS = 10_000
 
 
 def _same_origin(url: str, origin: tuple[str, str | None, int | None]) -> bool:
@@ -129,3 +142,112 @@ def assert_page_loads_clean(
     if surviving:
         lines = "\n".join(f"  - [{kind}] {detail}" for kind, detail in surviving)
         raise AssertionError(f"Page did not load clean at {url}:\n{lines}")
+
+
+#: Resolves once the dock has finished arranging the shell: the boot layout is
+#: announced final AND the console has held its place for a frame after it. The
+#: announcement lands in the same frame as the last re-parent, so the flag alone
+#: is the boundary rather than the far side of it.
+DOCK_SETTLED_JS = """
+async (budgetMs) => {
+  const dock = await import('/static/js/dock-workspace.js');
+  const place = () => {
+    let out = '';
+    for (let n = document.querySelector('#operator-container'); n; n = n.parentElement) {
+      out += '>' + (n.id || n.className || n.tagName);
+    }
+    return out;
+  };
+  const frame = () => new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  const deadline = Date.now() + budgetMs;
+  let previous = null;
+  while (Date.now() < deadline) {
+    await frame();
+    const current = place();
+    if (dock.bootLayoutSettled() && current === previous) return true;
+    previous = current;
+  }
+  return false;
+}
+"""
+
+
+def wait_for_dock_settled(page: Page, *, budget_ms: int = 10_000) -> None:
+    """Block until the dock has finished arranging the shell.
+
+    The terminal card carrying both ``#terminal-container`` and
+    ``#operator-container`` is server-rendered into ``#dock-panel-sources`` and
+    re-parented twice on the way to its tile: once when the dock adopts the
+    subtree, and again when the boot layout is applied over the default
+    arrangement. The console mounts independently of either, so its textarea is
+    on screen and actionable before the shell is still.
+
+    Typing into it there is lost rather than delayed. Playwright checks
+    actionability and then writes, and a re-parent between those two steps takes
+    focus off the element, so the text is never inserted: the box reads empty,
+    ``submit`` finds no prompt and returns, and the turn never starts. The
+    equivalent hazard for a keystroke is the event landing on whatever the
+    detached node left behind.
+
+    Both moves are boot-only, so waiting for them here puts every re-parent
+    ahead of every interaction rather than between two of them.
+
+    Call this AFTER the page's own mount check, never before. The wait reads the
+    dock's state by importing its module, and a caller that has not yet waited
+    for anything makes that a cold fetch of a module graph still being loaded --
+    which fails outright rather than waiting, and reports a fetch error in place
+    of whatever the test was doing.
+    """
+    assert page.evaluate(DOCK_SETTLED_JS, budget_ms), (
+        "the dock never settled: the boot layout was not announced final, or the "
+        "console was still being re-parented when the wait ran out"
+    )
+
+
+def rail_entry(page: Page, panel_id: str, *, enabled_only: bool = False):
+    """The panel rail's button for *panel_id*.
+
+    Args:
+        page: An open hub page.
+        panel_id: The panel's id, as the rail stamps it on ``data-panel-id``.
+        enabled_only: Match only once the entry's health poll has settled
+            healthy. The rail signals availability with the ``disabled``
+            CSS class rather than the HTML attribute (``panel-rail.js``
+            ``setEntryEnabled``), so the enabled state is a class condition
+            on the selector, not an attribute one.
+
+    Returns:
+        A locator for the button, which may match nothing.
+    """
+    selector = f'button.panel-rail-button[data-panel-id="{panel_id}"]'
+    return page.locator(f"{selector}:not(.disabled)" if enabled_only else selector)
+
+
+def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = None) -> Page:
+    """Open the web terminal and wait for the rail and the dock grid to render.
+
+    Both waits are needed and neither implies the other: ``panel-manager.js``
+    builds the rail asynchronously (it fetches ``/api/panels`` and then each
+    panel's config endpoint) while ``dock-workspace.js`` builds the dockview
+    grid, so a page that has one is not yet a page that has the other. The
+    rail is waited on through the ``artifacts`` entry because that panel is
+    always enabled and is the default fallback, so it is the one entry a hub
+    is guaranteed to grow. It is matched as a button rather than by
+    ``data-panel-id`` alone: panel iframes carry the same attribute.
+
+    Args:
+        browser: The function-scoped chromium fixture. The page it hands back
+            already has the onboarding tour dismissed — see
+            ``conftest._DISMISS_TOUR`` — so nothing here seeds it.
+        base_url: The live server's address.
+        viewport: Page size, for a suite whose subject needs one. Omit it and
+            the browser's default is used.
+
+    Returns:
+        A page whose rail and dockview grid are both on screen.
+    """
+    page = browser.new_page(viewport=viewport) if viewport else browser.new_page()
+    page.goto(base_url, wait_until="domcontentloaded")
+    expect(rail_entry(page, "artifacts")).to_be_attached(timeout=_HUB_READY_TIMEOUT_MS)
+    expect(page.locator(".dv-groupview").first).to_be_visible(timeout=_HUB_READY_TIMEOUT_MS)
+    return page

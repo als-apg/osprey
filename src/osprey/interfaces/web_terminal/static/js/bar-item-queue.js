@@ -45,6 +45,23 @@ const QUEUE_ACTIVE_MANAGER_STATES = Object.freeze([
   'paused',
 ]);
 
+/**
+ * Manager states that affirmatively mean REST. Motion is derived from this
+ * list and not from the active one: the bridge owns the state vocabulary and
+ * it grows, so a state this bundle has never heard of is a state whose
+ * meaning the browser does not know — and the only safe reading of "the
+ * manager is doing something I cannot name" is that the queue is busy.
+ * @type {readonly string[]}
+ */
+const QUEUE_IDLE_MANAGER_STATES = Object.freeze(['idle']);
+
+/**
+ * Manager states already warned about, so a 1 s frame stream cannot flood the
+ * console with the same line.
+ * @type {Set<string>}
+ */
+const warnedManagerStates = new Set();
+
 /** Longest the stream waits between reconnects, ms. */
 const QUEUE_RECONNECT_MAX_MS = 30000;
 
@@ -205,7 +222,18 @@ function readQueue(snap) {
     };
   }
   const state = typeof status.manager_state === 'string' ? status.manager_state : '';
-  const active = QUEUE_ACTIVE_MANAGER_STATES.includes(state);
+  if (
+    !QUEUE_ACTIVE_MANAGER_STATES.includes(state) &&
+    !QUEUE_IDLE_MANAGER_STATES.includes(state) &&
+    !warnedManagerStates.has(state)
+  ) {
+    warnedManagerStates.add(state);
+    console.warn(
+      `[bar-item-queue] unknown manager state ${state || '(none reported)'}; ` +
+        'treating the queue as busy'
+    );
+  }
+  const active = !QUEUE_IDLE_MANAGER_STATES.includes(state);
   const stopPending = status.queue_stop_pending === true;
   const progress = running && running.progress && typeof running.progress === 'object'
     ? running.progress
@@ -230,13 +258,18 @@ function readQueue(snap) {
   } else if (state === 'starting_queue') {
     word = 'starting';
     tone = 'active';
-  } else if (active) {
+  } else if (QUEUE_ACTIVE_MANAGER_STATES.includes(state)) {
     word = 'running';
     tone = 'active';
   } else if (state && state !== 'idle') {
     // creating_environment, closing_environment, … — the manager is busy
     // with something that is not a plan.
     word = state.replace(/_/g, ' ');
+    tone = 'warn';
+  } else if (!state) {
+    // The bridge reported no state at all; the item says so rather than
+    // showing a queue at rest it has no evidence for.
+    word = 'unknown';
     tone = 'warn';
   }
   return { tone, word, plan, count, active, stopPending };

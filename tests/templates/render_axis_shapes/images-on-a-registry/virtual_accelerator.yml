@@ -65,12 +65,22 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:5064:5064/tcp"
+      # pvAccess, for the model surface. Clients reach it by name server
+      # (EPICS_PVA_NAME_SERVERS=<host>:<port>), which is TCP, so TCP is all
+      # that is published: there is no UDP search to answer.
+      - "127.0.0.1:5075:5075/tcp"
     environment:
       # EPICS_CA_SERVER_PORT is the standard EPICS server-side CA port
       # override, read directly by the CA library at iocInit — no
       # entrypoint.py change needed to make services.virtual_accelerator.port
       # actually control what the IOC binds to.
       EPICS_CA_SERVER_PORT: "5064"
+      # EPICS_PVAS_SERVER_PORT is the standard server-side pvAccess port
+      # override: the port this IOC's PVA server binds.
+      EPICS_PVAS_SERVER_PORT: "5075"
+      # The credential a model write must present. Passthrough from the project
+      # .env: compose resolves it, so the secret is never written into this file.
+      VA_MODEL_WRITE_TOKEN: "${VA_MODEL_WRITE_TOKEN:-}"
       # Build-time stuck-readback apply fault (entrypoint.py reads it): a
       # comma-separated list of :SP addresses whose readback is frozen (SP still
       # latches, RB never follows). Passthrough from the project .env; unset →
@@ -85,6 +95,13 @@ services:
       # noise the synthesised channels carry. Empty means the entrypoint's own
       # defaults (1.0 s, 0.01); a value out of range is refused at boot rather
       # than clamped, so a typo shows up in `docker logs`.
+      #
+      # The noise level's surface is the config key
+      # `control_system.connector.virtual_accelerator.noise_level` (falling
+      # through to the mock connector's), rendered here as the interpolation's
+      # default by compose_generator's `_va_noise_level`; the variable is how
+      # that value reaches the container, and a deployment that exports it in
+      # its own .env still wins.
       VA_POLL_INTERVAL_S: "${VA_POLL_INTERVAL_S:-}"
       VA_NOISE_LEVEL: "${VA_NOISE_LEVEL:-}"
       # Facility-neutral source configuration (entrypoint.py + Dockerfile CMD

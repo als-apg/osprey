@@ -20,7 +20,7 @@ resolution-markers = [
 
 [options.exclude-newer-package]
 lume-pyat = "2026-08-06T00:00:00Z"
-lume-pva-apg = "2026-08-08T00:00:00Z"
+lume-pva-apg = "2026-09-13T00:00:00Z"
 
 [manifest]
 members = [
@@ -525,6 +525,33 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/09/33/a41b1cca711242e45b8d944a0ed37798d8cea69972c879c9ba2b767010ed/awkward_cpp-53-cp314-cp314t-win32.whl", hash = "sha256:9ee37d5c05737325358ad7d960bea87d41c3e8eba84091fec5f4de26c949e931", size = 552323, upload-time = "2026-06-08T12:31:52.937Z" },
     { url = "https://files.pythonhosted.org/packages/dd/c8/b4c8a61d7cac8d983bad0954d969d8786b3c49f6a897a86979aa2fa7d6e8/awkward_cpp-53-cp314-cp314t-win_amd64.whl", hash = "sha256:c92580267dc929e772fd1729226a664cb837a9b95065c558e13b1130e6505f4d", size = 596751, upload-time = "2026-06-08T12:31:54.709Z" },
     { url = "https://files.pythonhosted.org/packages/44/a1/70ebfffd6c6edc6034a547838ee46287c65ed89f710592ddc39c76b4a5a8/awkward_cpp-53-cp314-cp314t-win_arm64.whl", hash = "sha256:1be0c1d87d9f4fdf94b767a061df849f1bb21579d302b2996fb101527fc80a97", size = 551257, upload-time = "2026-06-08T12:31:56.319Z" },
+]
+
+[[package]]
+name = "azure-core"
+version = "1.41.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a6/f3/b416179e408990df5db0d516283022dde0f5d0111d98c1a848e41853e81c/azure_core-1.41.0.tar.gz", hash = "sha256:f46ff5dfcd230f25cf1c19e8a34b8dc08a337b2503e268bb600a16c00db8ad5a", size = 381042, upload-time = "2026-05-07T23:30:54.302Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5b/db/325c6d7312d2200251c52323878281045aaffcb5586612296484e4280eaa/azure_core-1.41.0-py3-none-any.whl", hash = "sha256:522b4011e8180b1a3dcd2024396a4e7fe9ac37fb8597db47163d230b5efe892d", size = 220920, upload-time = "2026-05-07T23:30:56.357Z" },
+]
+
+[[package]]
+name = "azure-servicebus"
+version = "7.14.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "azure-core" },
+    { name = "isodate" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a8/d2/a5c11d4c955e2875de2383c1af8e43ce4899e8418b22e61d32d2bf103626/azure_servicebus-7.14.3.tar.gz", hash = "sha256:70a63384557aec0bee727740e7b25ded29e9e701b77611764577fd7402389402", size = 534786, upload-time = "2025-10-31T05:30:03.342Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/e9/d9fd0b2bef14d85b408c51802142b1c8b7bc3ab08514c89432547b1d87d3/azure_servicebus-7.14.3-py3-none-any.whl", hash = "sha256:386f8d32dae8881661ec8d791c38978eca2bbf7ea9f489d6cff8ad9cc6990234", size = 412522, upload-time = "2025-10-31T05:30:05.252Z" },
 ]
 
 [[package]]
@@ -2800,6 +2827,15 @@ wheels = [
 ]
 
 [[package]]
+name = "isodate"
+version = "0.7.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/54/4d/e940025e2ce31a8ce1202635910747e5a87cc3a6a6bb2d00973375014749/isodate-0.7.2.tar.gz", hash = "sha256:4cd1aa0f43ca76f4a6c6c0292a85f40b35ec2e43e315b59f06e6d32171a953e6", size = 29705, upload-time = "2024-10-08T23:04:11.5Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/aa/0aca39a37d3c7eb941ba736ede56d689e7be91cab5d9ca846bde3999eba6/isodate-0.7.2-py3-none-any.whl", hash = "sha256:28009937d8031054830160fce6d409ed342816b543597cece116d966c6d99e15", size = 22320, upload-time = "2024-10-08T23:04:09.501Z" },
+]
+
+[[package]]
 name = "isoduration"
 version = "20.11.0"
 source = { registry = "https://pypi.org/simple" }
@@ -3611,15 +3647,15 @@ wheels = [
 
 [[package]]
 name = "lume-pva-apg"
-version = "0.1.2"
+version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lume-base" },
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/01/4611d7a2b91c207304d9f6f4364a31190014925802c7145e7ccbdb1c0b91/lume_pva_apg-0.1.2.tar.gz", hash = "sha256:b375db188ecbed91697888f098d6d01364793ea4ba7e822befd150af963d673d", size = 76507, upload-time = "2026-08-07T19:13:48.613Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/28/d8/cf2769b3d176cd1fd5acddd332ad2c5b0d1588ef2223008d7ad28f948dd8/lume_pva_apg-0.1.4.tar.gz", hash = "sha256:6331d4fc0d8dc0f0827aa536c0d7cdc77b8f0f5a50ea78d8de06fde29937622e", size = 82426, upload-time = "2026-09-12T23:58:09.577Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/4b/12f8d4b30f62264fdfc1d298af4344324d07da75be42f5d348a8bcf90215/lume_pva_apg-0.1.2-py3-none-any.whl", hash = "sha256:36050520b1f93a987aef134b435d0d97081bc0b4a7f1e410cf916b2da4a72d23", size = 65086, upload-time = "2026-08-07T19:13:47.226Z" },
+    { url = "https://files.pythonhosted.org/packages/73/83/a81a3aaf0c241b2119ca2cf040fb5e966ac125b9309735ab05e4141c5bc2/lume_pva_apg-0.1.4-py3-none-any.whl", hash = "sha256:d2c22586b58763ec8201d9efad4248f2d1bb2f03d680b298203eff74457de79f", size = 71173, upload-time = "2026-09-12T23:58:08.346Z" },
 ]
 
 [package.optional-dependencies]
@@ -4925,6 +4961,7 @@ dependencies = [
 
 [package.optional-dependencies]
 all = [
+    { name = "azure-servicebus" },
     { name = "docker" },
     { name = "google-api-python-client" },
     { name = "google-auth" },
@@ -4941,6 +4978,7 @@ all = [
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
     { name = "pydata-sphinx-theme" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "pysocks" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -4960,6 +4998,9 @@ all = [
     { name = "sphinx-reredirects" },
     { name = "sphinxcontrib-jsmath" },
     { name = "testcontainers", extra = ["mongodb"] },
+    { name = "types-aiofiles" },
+    { name = "types-markdown" },
+    { name = "types-pyyaml" },
 ]
 ariel = [
     { name = "psycopg", extra = ["pool"] },
@@ -4976,6 +5017,7 @@ dev = [
     { name = "pre-commit" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
+    { name = "pyjwt", extra = ["crypto"] },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -4986,6 +5028,9 @@ dev = [
     { name = "ruff" },
     { name = "setuptools-scm" },
     { name = "testcontainers", extra = ["mongodb"] },
+    { name = "types-aiofiles" },
+    { name = "types-markdown" },
+    { name = "types-pyyaml" },
 ]
 docs = [
     { name = "graphviz" },
@@ -5016,6 +5061,10 @@ screen-capture-linux = [
 sheets = [
     { name = "gspread" },
 ]
+teams = [
+    { name = "azure-servicebus" },
+    { name = "pillow" },
+]
 virtual-accelerator = [
     { name = "aioca" },
     { name = "lume-pva-apg", extra = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux'" },
@@ -5032,6 +5081,8 @@ requires-dist = [
     { name = "aiohttp-socks", marker = "extra == 'ariel-proxy'", specifier = ">=0.8.0" },
     { name = "anthropic" },
     { name = "authlib", specifier = ">=1.7.2" },
+    { name = "azure-servicebus", marker = "extra == 'all'", specifier = ">=7.11" },
+    { name = "azure-servicebus", marker = "extra == 'teams'", specifier = ">=7.11" },
     { name = "bluesky", specifier = ">=1.15.1" },
     { name = "bluesky-queueserver-api", specifier = "==0.0.13" },
     { name = "bluesky-tiled-plugins", specifier = "==2.0.9" },
@@ -5072,15 +5123,15 @@ requires-dist = [
     { name = "linkml-runtime", marker = "extra == 'knowledge'", specifier = ">=1.11.1,<2" },
     { name = "litellm", specifier = ">=1.56.0" },
     { name = "lume-base", specifier = "==0.5.0" },
-    { name = "lume-pva-apg", extras = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = "==0.1.2" },
+    { name = "lume-pva-apg", extras = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = "==0.1.4" },
     { name = "lume-pyat", specifier = "==0.1.0" },
     { name = "markdown", specifier = ">=3.5" },
     { name = "markupsafe", specifier = ">=3.0.2" },
     { name = "matplotlib", specifier = ">=3.11.1" },
     { name = "mss", marker = "extra == 'all'", specifier = ">=10.2.0" },
     { name = "mss", marker = "extra == 'screen-capture-linux'", specifier = ">=10.2.0" },
-    { name = "mypy", marker = "extra == 'all'" },
-    { name = "mypy", marker = "extra == 'dev'" },
+    { name = "mypy", marker = "extra == 'all'", specifier = ">=1.19.1,<1.20" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19.1,<1.20" },
     { name = "myst-parser", marker = "extra == 'all'" },
     { name = "myst-parser", marker = "extra == 'docs'" },
     { name = "nbclient" },
@@ -5095,8 +5146,10 @@ requires-dist = [
     { name = "osprey-connectors", editable = "packages/osprey-connectors" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pcaspy", marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = ">=0.8.1" },
+    { name = "pillow", marker = "extra == 'all'", specifier = ">=10" },
     { name = "pillow", marker = "extra == 'all'", specifier = ">=12.3.0" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=12.3.0" },
+    { name = "pillow", marker = "extra == 'teams'", specifier = ">=10" },
     { name = "playwright", specifier = ">=1.61.0" },
     { name = "plotly", specifier = ">=6.9.0" },
     { name = "pre-commit", marker = "extra == 'all'" },
@@ -5113,6 +5166,8 @@ requires-dist = [
     { name = "pydata-sphinx-theme", marker = "extra == 'all'" },
     { name = "pydata-sphinx-theme", marker = "extra == 'docs'" },
     { name = "pyepics" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'all'", specifier = ">=2.8" },
+    { name = "pyjwt", extras = ["crypto"], marker = "extra == 'dev'", specifier = ">=2.8" },
     { name = "pymongo", specifier = ">=4.17.0" },
     { name = "pysocks", marker = "extra == 'all'", specifier = ">=1.7" },
     { name = "pysocks", marker = "extra == 'gchat'", specifier = ">=1.7" },
@@ -5166,6 +5221,12 @@ requires-dist = [
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'all'", specifier = ">=4.15.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.15.0" },
     { name = "tiled", extras = ["client"], specifier = ">=0.2.14" },
+    { name = "types-aiofiles", marker = "extra == 'all'" },
+    { name = "types-aiofiles", marker = "extra == 'dev'" },
+    { name = "types-markdown", marker = "extra == 'all'" },
+    { name = "types-markdown", marker = "extra == 'dev'" },
+    { name = "types-pyyaml", marker = "extra == 'all'" },
+    { name = "types-pyyaml", marker = "extra == 'dev'" },
     { name = "typing-extensions", specifier = ">=4.16.0" },
     { name = "unique-namer", specifier = ">=1.6.2" },
     { name = "urllib3", specifier = ">=2.7.0" },
@@ -5174,7 +5235,7 @@ requires-dist = [
     { name = "websocket-client", specifier = ">=1.7.0" },
     { name = "websockets", specifier = ">=14" },
 ]
-provides-extras = ["all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "knowledge", "screen-capture-linux", "sheets", "virtual-accelerator"]
+provides-extras = ["all", "ariel", "ariel-proxy", "dev", "docs", "gchat", "knowledge", "screen-capture-linux", "sheets", "teams", "virtual-accelerator"]
 
 [[package]]
 name = "overrides"
@@ -7976,6 +8037,33 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/da/22/b9c47b8655937b6877d40791b937931702ba9c5f9d28753199266aa96f50/typer_slim-0.23.1.tar.gz", hash = "sha256:dfe92a6317030ee2380f65bf92e540d7c77fefcc689e10d585b4925b45b5e06a", size = 4762, upload-time = "2026-02-13T10:04:26.416Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ad/8a/5764b851659345f34787f1b6eb30b9d308bbd6c294825cbe38b6b869c97a/typer_slim-0.23.1-py3-none-any.whl", hash = "sha256:8146d5df1eb89f628191c4c604c8464fa841885d0733c58e6e700ff0228adac5", size = 3397, upload-time = "2026-02-13T10:04:27.132Z" },
+]
+
+[[package]]
+name = "types-aiofiles"
+version = "25.1.0.20260518"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/df/42/f5b9b90162d2196f016b87228d6bf43f2c2c0c6501bfd5415001b3eb68bb/types_aiofiles-25.1.0.20260518.tar.gz", hash = "sha256:c0c95eb78755d4fa7b397d4f0332c632714dd7cd0d17f49b96e31d4d7a8d8c76", size = 14891, upload-time = "2026-05-18T06:05:27.804Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ca/3d/7a9ed9faafeae3aa3b5bc22fa5b979ff9cf3c83ecbe919b58eae07795b8c/types_aiofiles-25.1.0.20260518-py3-none-any.whl", hash = "sha256:f776bdfb4bec17f743d9ef042e61edf03bdcc7821fc08556fba9b63d873fdea9", size = 14377, upload-time = "2026-05-18T06:05:26.871Z" },
+]
+
+[[package]]
+name = "types-markdown"
+version = "3.10.2.20260712"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/eb/9520ed01687401b47265594955c0a9202a4f547795176de61bff77c8dfda/types_markdown-3.10.2.20260712.tar.gz", hash = "sha256:25aea17282490f35ab6b17a87771abd2f479185aaff8e8f4a0035043f02f2c52", size = 20185, upload-time = "2026-07-12T05:13:53.537Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9f/ea/a8dc2c8977870d27b8b44c4ba2952d765f9d39626e42d0083c871c1c1ebf/types_markdown-3.10.2.20260712-py3-none-any.whl", hash = "sha256:a551ddedde46e0eaca7059aa3d0e42db71afe2b53d8b58f72f2de63f3284f625", size = 25842, upload-time = "2026-07-12T05:13:52.702Z" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20260906"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/6e/abec85b9013db5b934b0280a6dd104904d84f7bcbaab2e2f3def87ac7463/types_pyyaml-6.0.12.20260906.tar.gz", hash = "sha256:f59c1cc05010b833d2d72287bbaa72610106b28d42d89a907313117faba85212", size = 18649, upload-time = "2026-09-06T06:35:35.362Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/c0/fc0644b7ddcfb969e95845837143cb5173ddd6e06ee4ba5fc493cd9329b7/types_pyyaml-6.0.12.20260906-py3-none-any.whl", hash = "sha256:bca893ff0d51df5c9053137d5d0e6ccd36e939a196356f1d5c16372422f5137b", size = 21282, upload-time = "2026-09-06T06:35:34.372Z" },
 ]
 
 [[package]]

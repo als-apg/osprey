@@ -48,8 +48,6 @@ from osprey.audit.protected import (
 from osprey.interfaces.common_middleware import HTTP_MUTATION_SURFACE, HttpAuditMiddleware
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
-pytestmark = pytest.mark.unit
-
 #: Two protected config keys, in two different blocks. Different blocks on
 #: purpose: a recorder that keyed on the top-level section would collapse two
 #: keys of the same block into one line and still pass a same-block fixture.

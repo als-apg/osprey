@@ -1,4 +1,16 @@
-"""Unit tests for the dispatch-worker failure-class taxonomy and stamping."""
+"""Unit tests for the dispatch-worker failure-class taxonomy and stamping.
+
+The three contracts the module guarantees to its stamp sites:
+  - ``classify_exception`` maps an exception to ``provider`` via the type-name
+    table, then the message-substring table, then defaults to ``run``, walking
+    the cause/context chain bounded and cycle-safe, and never returning
+    ``infrastructure``;
+  - ``is_budget_subtype`` reflects the verdict module's budget subtypes rather
+    than a second copy of them;
+  - ``_stamp`` writes the class and tool-call count in place, rejects an
+    unknown class without mutating, and bumps the registered counter hook
+    without letting a broken hook escape.
+"""
 
 from __future__ import annotations
 
@@ -65,6 +77,7 @@ def test_provider_exception_type_names_map_to_provider(type_name):
         "403 Forbidden",
         "Invalid API key provided",
         "expired credential",
+        "permission denied for this resource",
         "insufficient_quota for this key",
     ],
 )
@@ -89,6 +102,18 @@ def test_unknown_exception_defaults_to_run():
 
 def test_generic_runtime_error_defaults_to_run():
     assert fc.classify_exception(RuntimeError("tool raised")) == fc.FAILURE_RUN
+
+
+def test_generic_classification_never_returns_infrastructure():
+    # Worker-machinery faults are known at their call sites and stamped there,
+    # so nothing routed through the generic mapping may claim to be one —
+    # whichever of the other two classes it resolves to.
+    for exc in (
+        ValueError("agent produced bad output"),
+        RuntimeError("rate limit"),
+        _make_exc("RateLimitError", "429"),
+    ):
+        assert fc.classify_exception(exc) != fc.FAILURE_INFRASTRUCTURE
 
 
 def test_provider_cause_wrapped_in_generic_is_detected():

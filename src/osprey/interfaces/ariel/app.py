@@ -360,17 +360,6 @@ def _create_lifespan(config_path: str | Path | None = None):
         """
         logger.info("Starting ARIEL Web Interface...")
 
-        # Initialize framework-only registry so ARIEL search modules can
-        # resolve connectors and services via get_service() / get_connector().
-        try:
-            import osprey.registry.manager as _reg_mod
-
-            _reg_mod._registry = _reg_mod.RegistryManager(registry_path=None)
-            _reg_mod._registry.initialize(silent=True)
-            logger.info("Framework registry initialized for ARIEL")
-        except Exception as e:
-            logger.warning(f"Registry initialization failed (non-fatal): {e}")
-
         # Resolved before any database work, and never raising, so a broken
         # config.yml cannot be reported as an unreachable database.
         state = _resolve_config_state(config_path)
@@ -392,6 +381,27 @@ def _create_lifespan(config_path: str | Path | None = None):
 
         if state.errors:
             logger.warning(_config_banner(state.status, state.errors, state.remedy))
+
+        # The panel reads the registry the rest of its process reads: a
+        # deployment's registry carries the logbook adapter and the ARIEL
+        # modules that deployment registered, and a registry built without them
+        # is a different deployment. It is built from the config the panel
+        # actually read, so the two cannot disagree about which deployment this
+        # is. A config that names no application registry resolves to the
+        # framework registry, which is what a panel outside a deployment gets.
+        # A failure here is not fatal: the panel starts whatever its
+        # configuration turns out to be.
+        if state.path is None:
+            logger.info("Skipping registry initialization: no usable configuration")
+        else:
+            try:
+                from osprey.registry import get_registry
+
+                registry = get_registry(config_path=str(state.path))
+                registry.initialize(silent=True)
+                logger.info("Registry initialized for ARIEL")
+            except Exception as e:
+                logger.warning(f"Registry initialization failed (non-fatal): {e}")
 
         # Try to connect to the database; degrade gracefully if unavailable.
         # This runs whenever a config object exists, INDEPENDENT of

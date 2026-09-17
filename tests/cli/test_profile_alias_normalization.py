@@ -299,7 +299,7 @@ def test_a_preset_reached_through_a_local_parent_is_recorded(
 ) -> None:
     """The chain is followed through the facility's own files, not just presets.
 
-    An ALS-style profile extends a sibling ``*-base.yml``, and that file is what
+    A site profile extends a sibling ``*-base.yml``, and that file is what
     names the preset. The bundle was inherited down the whole chain before, so
     it is recorded from wherever on the chain the preset sits.
     """

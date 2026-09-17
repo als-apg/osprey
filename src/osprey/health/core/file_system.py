@@ -82,15 +82,19 @@ def file_system(
 
 
 def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
-    """The ``users_env`` row: ``.env.users`` still agrees with the env chain.
+    """The ``users_env`` row: ``.env.users`` can still run the web terminals.
 
     Every other row here, and every service in the deployment, reads ``.env``;
     the web terminals alone run with ``.env.users``, rendered from the chain
-    once. A key rotated in ``.env`` afterwards leaves every terminal failing
-    authentication on its first prompt while ``.env`` looks fine — the one
-    drift a healthy ``env_file`` row cannot reveal, so it gets a row of its own:
+    once. Two failures live in that gap and neither shows up anywhere else, so
+    they share a row:
 
     * no ``.env.users`` — no row (single-user deploys never have one);
+    * the chain does not set a variable the terminals cannot start without —
+      **error**, naming the variable, the provider asking for it and the
+      remedy. Agreement with the chain is not health here: a variable neither
+      the file nor the chain sets is one they agree on, which is why this half
+      is asked of the chain rather than of the comparison below;
     * agrees with the chain — ok;
     * a provider secret differs — **error**, naming the variable and the
       remedy (values never appear);
@@ -101,8 +105,12 @@ def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     if not users_env.is_file():
         return []
     try:
-        from osprey.deployment.web_terminals.env_production import users_env_drift
+        from osprey.deployment.web_terminals.env_production import (
+            users_env_drift,
+            users_env_required_problem,
+        )
 
+        required = users_env_required_problem(config, cwd)
         drift = users_env_drift(config, cwd)
     except Exception as exc:  # a config the drift check cannot interpret
         return [
@@ -114,6 +122,13 @@ def _check_users_env(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
                 details=str(exc),
             )
         ]
+    if required is not None:
+        # The deploy gate's own sentence, verbatim: it already names the
+        # variable, its provider and persona, what the absence costs and how to
+        # resolve it, and carries no value. Restating it here would be a second
+        # wording of the same refusal, free to drift from the one `osprey up`
+        # prints.
+        return [CheckResult("users_env", _CATEGORY, Status.ERROR, required)]
     if drift is None:
         return [CheckResult("users_env", _CATEGORY, Status.OK, ".env.users agrees with .env")]
     if drift.stale_vars:

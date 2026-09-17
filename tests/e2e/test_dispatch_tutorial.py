@@ -1,9 +1,9 @@
 """Real-token subprocess sweep over the shipped tutorial triggers (L1).
 
 Proves the bundled ``tutorial_triggers.yml`` triggers actually work end to end
-ACROSS PROCESSES with a real Claude Agent SDK run, using the provider named by
-``OSPREY_E2E_PROVIDER`` (defaulting to the ALS-APG gateway, reachable from
-GitHub Actions runners). For each token trigger this:
+ACROSS PROCESSES with a real Claude Agent SDK run, using the provider the run
+named in ``OSPREY_E2E_PROVIDER``; the lane skips when that provider's
+credential is absent. For each token trigger this:
 
   1. Builds a real control-assistant deployment repo once (module-scoped fixture).
   2. Loads the REAL shipped ``tutorial_triggers.yml`` and overrides ONLY
@@ -17,7 +17,7 @@ GitHub Actions runners). For each token trigger this:
 
 ``denied-tool-demo`` is intentionally NOT exercised here — it is covered
 strictly and token-free in the L0 floor
-(``tests/unit/dispatch_worker/test_dispatch_api.py`` denylist 403).
+(``tests/dispatch_worker/test_dispatch_api.py`` denylist 403).
 
 This supersedes the old ``tests/integration/test_golden_path.py`` (which fired
 its own inline trigger, used cborg, and never ran with tokens in CI): the
@@ -46,7 +46,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from tests.e2e.conftest import e2e_provider
+from tests.e2e.provider import e2e_provider
 from tests.e2e.sdk_helpers import HAS_SDK
 
 TOKEN = "tutorial-e2e-token"  # shared dispatcher<->worker bearer for the test
@@ -57,7 +57,9 @@ HEALTH_TIMEOUT_SEC = 45.0
 
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.requires_als_apg,
+    # The provider comes from the run, so the credential gate has to follow it
+    # rather than name one gateway: see tests/e2e/provider.py.
+    pytest.mark.requires_e2e_provider,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.flaky(reruns=2, reruns_delay=5),
 ]

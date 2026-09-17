@@ -5,15 +5,16 @@ UNSET — the shape a deployment that never heard of them gets. This suite pins
 the shapes that appear once they are set: the dispatch pair on the host
 namespace, the chat bridges beside it, a repo carrying a shared env-chain file,
 a two-worker stack fanning out across host ports, two services passing named
-host variables through to their containers, and every OSPREY-built image moved
-onto a registry and a released tag.
+host variables through to their containers, every OSPREY-built image moved
+onto a registry and a released tag, and every image OSPREY builds handed the
+site's own CA, proxy bypass list and package index.
 
 Each scenario is a small, named delta over that same default context, rendered
 through the same context builder and the same Environment (both imported from
 the defaults module, so a scenario golden and a default golden can differ only
 where the scenario differs). A scenario pins only the templates its delta
-reaches: four templates honor the network axis
-(``event_dispatcher``, ``dispatch_worker``, and the two bridges) and one renders
+reaches: five templates honor the network axis
+(``event_dispatcher``, ``dispatch_worker``, and the three bridges) and one renders
 the env chain, so rendering the other eight per scenario would commit eight
 copies of a file the defaults already pin. The ``env:`` axis is honored by every
 service template but declared per service, so its scenarios pin exactly the
@@ -22,7 +23,7 @@ own, because that file renders FOUR containers from one service block and the
 shape worth pinning there is that all four carry the names. The image axes are
 the exception — they are declared once for
 the whole stack, so that scenario reaches every template carrying an image this
-repo builds and pins all nine.
+repo builds and pins all ten.
 
 **What these catch that the substring suites cannot.** ``network: host`` is not
 one edit to one line — it moves a service's network attachment, deletes its
@@ -47,9 +48,14 @@ host, which is exactly why the host-mode worker is told to reach them at
 default 5080, so no scenario trips the build's OTEL-endpoint check either.
 
 **Update discipline** — the defaults module's applies here verbatim, with this
-suite's own regeneration command::
+suite's own regeneration command, which takes the scenarios to regenerate::
 
-    PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+    PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py bridge-on-host site-image-args
+
+Pass the scenarios the template edit actually touches: that is what keeps every
+other scenario's goldens out of the diff. With no arguments the whole set is
+re-rendered from whatever this worktree holds, which quietly reverts a render
+the checkout is behind on and buries the change under files it never touched.
 
 Never hand-edit a golden. Regenerate in the SAME reviewed change as the
 template edit that moved it, then account for every changed byte.
@@ -57,8 +63,10 @@ template edit that moved it, then account for every changed byte.
 
 from __future__ import annotations
 
+import shutil
+import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -99,6 +107,22 @@ _AXIS_TAG = "v1.2.3"
 #: Three of them on one service so author order is observable in the golden,
 #: one on another so the single-name shape is pinned too.
 _ENV_PASSTHROUGH = ("HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
+
+#: The site build args the ``site-image-args`` scenario declares — the mapping
+#: ``compose_generator._stage_site_image_args_for_context`` returns, with the CA
+#: already rewritten to the name it staged into the build context (the operator's
+#: host path never reaches a template, because ``COPY`` cannot leave the
+#: context). Declared as the render-context key rather than as ``images.*``
+#: because this suite renders templates straight through the Environment: the
+#: config-to-mapping-to-staged-file path is the subject of
+#: ``tests/deployment/test_compose_generator.py``, and what is pinned here is
+#: what each template does with the mapping once it has one.
+_SITE_IMAGE_BUILD_ARGS = {
+    "OSPREY_SITE_CA": "osprey-site-ca.crt",
+    "PIP_NO_PROXY": "internal.example.org,.example.org",
+    "PIP_INDEX_URL": "https://mirror.example.org/simple",
+    "PIP_EXTRA_INDEX_URL": "https://extra.example.org/simple",
+}
 
 #: The mirror path the ``ariel-sync-qmd-mirror`` scenario configures. Written
 #: repo-relative on purpose: an absolute value would be spelled into the golden
@@ -231,24 +255,26 @@ SCENARIOS: tuple[Scenario, ...] = (
         deployed=("event_dispatcher", "dispatch_worker", "mongodb", "openobserve"),
         templates=("event_dispatcher", "dispatch_worker"),
     ),
-    # A single service template flipped to host beside a same-mode pair. Both
-    # bridges are pinned because they are twins by intent — the axis and the two
+    # A single service template flipped to host beside a same-mode pair. Every
+    # bridge is pinned because they are twins by intent — the axis and the two
     # dispatch addresses are meant to be spelled identically in each, and only a
-    # baseline of both catches the day one of them drifts.
+    # baseline of all of them catches the day one of them drifts.
     Scenario(
         name="bridge-on-host",
         services={
             **_pair_blocks(on_host=True),
             "gchat_bridge": {"network": "host"},
             "nextcloud_bridge": {"network": "host"},
+            "teams_bridge": {"network": "host"},
         },
         deployed=(
             "event_dispatcher",
             "dispatch_worker",
             "gchat_bridge",
             "nextcloud_bridge",
+            "teams_bridge",
         ),
-        templates=("gchat_bridge", "nextcloud_bridge"),
+        templates=("gchat_bridge", "nextcloud_bridge", "teams_bridge"),
     ),
     # A repo carrying committed defaults alongside its local secrets. Axes
     # unset: this shape is about the env chain, and the worker is the one
@@ -316,7 +342,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     ),
     # Every OSPREY-built image moved onto a registry and a released tag — the
     # shape a deployment gets once CI's images and the compose documents are
-    # the same images. All eight are pinned in one scenario because the axes are
+    # the same images. All nine are pinned in one scenario because the axes are
     # stack-wide: a template left behind renders a tag nothing pushed, and the
     # deploy fails on that one service alone. ``bluesky`` earns its place twice
     # over — it is the only file where an axis-derived default and two
@@ -334,6 +360,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             "bluesky_web",
             "gchat_bridge",
             "nextcloud_bridge",
+            "teams_bridge",
             "mongodb",
         ),
         templates=(
@@ -346,6 +373,7 @@ SCENARIOS: tuple[Scenario, ...] = (
             "bluesky_web",
             "gchat_bridge",
             "nextcloud_bridge",
+            "teams_bridge",
         ),
         overrides={"images": {"registry": _AXIS_REGISTRY, "tag": _AXIS_TAG}},
     ),
@@ -384,6 +412,29 @@ SCENARIOS: tuple[Scenario, ...] = (
     # store is left out and the axes unset: the only delta from the default
     # render is the mirror, so the golden shows the mount and its companion
     # `OSPREY_ARIEL_MIRROR_DIR` arriving together and nothing else moving.
+    # Every image OSPREY builds handed the site's build settings. All seven
+    # recipe-carrying templates are pinned in one scenario because the settings
+    # are stack-wide: a template left behind builds its image against the
+    # public index and the default trust store, and the failure is one image
+    # out of seven dying at whichever fetch reaches the site proxy first.
+    # Nothing else is declared — `deployed_services` stays empty, exactly as
+    # the default context leaves it — so these goldens minus the default ones
+    # are exactly what declaring the settings does.
+    Scenario(
+        name="site-image-args",
+        services={},
+        deployed=(),
+        templates=(
+            "bluesky",
+            "bluesky_web",
+            "event_dispatcher",
+            "gchat_bridge",
+            "nextcloud_bridge",
+            "qmd",
+            "virtual_accelerator",
+        ),
+        overrides={"site_image_build_args": dict(_SITE_IMAGE_BUILD_ARGS)},
+    ),
     Scenario(
         name="ariel-sync-qmd-mirror",
         services={},
@@ -623,7 +674,7 @@ def test_host_mode_worker_port_is_the_address_the_build_routes_to() -> None:
 
 
 def test_bridges_on_host_address_the_pair_at_the_host() -> None:
-    """Both bridges reach the co-deployed pair at ``localhost``, same ports.
+    """Every bridge reaches the co-deployed pair at ``localhost``, same ports.
 
     The bridge follows ITS OWN axis here, and the substitution assumes the pair
     is on the host too — which the build's parity check guarantees and this
@@ -634,6 +685,7 @@ def test_bridges_on_host_address_the_pair_at_the_host() -> None:
     for key, compose_name in (
         ("gchat_bridge", "gchat-bridge"),
         ("nextcloud_bridge", "nextcloud-bridge"),
+        ("teams_bridge", "teams-bridge"),
     ):
         environment = _service_env("bridge-on-host", key, compose_name)
         assert environment["DISPATCHER_URL"] == f"http://localhost:{dispatch.dispatcher_port}"
@@ -695,6 +747,41 @@ def test_every_shape_lists_the_chain_its_repo_carried(case: tuple[Scenario, str]
         assert service["env_file"] == list(scenario.expected_chain), (
             f"{scenario.name}/{name} lists a chain its repo did not carry"
         )
+
+
+def test_every_built_image_is_handed_the_whole_site_set() -> None:
+    """All seven recipe-carrying images get every declared build arg.
+
+    Docker drops a ``--build-arg`` no recipe declares and compose passes only
+    what the fragment lists, so a template that carried some of the set would
+    build one image against the public index or the default trust store while
+    its siblings honoured the site. That image fails at whichever fetch reaches
+    the proxy first, and nothing about the other six says why.
+    """
+    scenario = _scenario("site-image-args")
+    for key in scenario.templates:
+        document = yaml.safe_load(_golden_text(scenario, key))
+        for service in document["services"].values():
+            build = service.get("build")
+            if not isinstance(build, dict):
+                continue
+            args = {name: str(value) for name, value in build["args"].items()}
+            assert _SITE_IMAGE_BUILD_ARGS.items() <= args.items(), (
+                f"{key}: {service.get('container_name', key)} is missing site build args"
+            )
+
+
+def test_a_deployment_that_declares_no_site_settings_renders_no_site_args() -> None:
+    """With the mapping empty every default golden's ``args:`` block is untouched.
+
+    The loop is in seven templates that every deployment renders, so an empty
+    mapping that still emitted a line — or a blank one — would move every
+    default baseline rather than only the deployments that asked for this.
+    """
+    for key in _scenario("site-image-args").templates:
+        default = (_DEFAULTS_DIR / f"{key}.yml").read_text(encoding="utf-8")
+        for name in _SITE_IMAGE_BUILD_ARGS:
+            assert name not in default, f"{key}'s default render carries {name}"
 
 
 def test_ariel_sync_reaches_a_co_deployed_store_by_its_network_alias() -> None:
@@ -947,13 +1034,13 @@ def test_every_service_template_hands_the_axis_to_every_container_it_renders() -
 
 
 def test_image_axes_move_every_osprey_built_image() -> None:
-    """All eight OSPREY-built images land on the declared registry and tag.
+    """All nine OSPREY-built images land on the declared registry and tag.
 
     Enumerated from the shipped suffix map rather than listed here, so an image
     added to the stack arrives in this assertion instead of being quietly left
     on ``:local`` — which is the whole failure this scenario exists to catch: a
-    deploy that pulls seven services from the registry and tries to run the
-    eighth from a tag the host never built.
+    deploy that pulls eight services from the registry and tries to run the
+    ninth from a tag the host never built.
     """
     from osprey.deployment.compose_generator import _OSPREY_IMAGE_SUFFIXES
 
@@ -972,7 +1059,7 @@ def test_image_axes_move_every_osprey_built_image() -> None:
                 rendered_images.add(image)
 
     assert rendered_images == expected, (
-        "the axis-set goldens do not carry exactly the eight built images — "
+        "the axis-set goldens do not carry exactly the nine built images — "
         f"missing {sorted(expected - rendered_images)}, "
         f"unexpected {sorted(rendered_images - expected)}"
     )
@@ -986,8 +1073,8 @@ def test_image_axes_leave_the_third_party_pins_alone() -> None:
     deploy time rather than anywhere near the config that caused it. The
     bluesky file is where the two kinds of image sit closest together — its
     bridge is built here, its store is pulled from upstream. The set-equality
-    above is the general form of this: no image outside the eight acquired the
-    prefix anywhere in the nine templates.
+    above is the general form of this: no image outside the nine acquired the
+    prefix anywhere in the ten templates.
     """
     axis = yaml.safe_load(_golden_text(_scenario("images-on-a-registry"), "bluesky"))
     default = yaml.safe_load((_DEFAULTS_DIR / "bluesky.yml").read_text(encoding="utf-8"))
@@ -1187,16 +1274,83 @@ def _service_env(scenario_name: str, key: str, compose_name: str) -> dict[str, s
     }
 
 
-def _regenerate() -> None:
-    """Overwrite every scenario golden. See this module's update discipline."""
+def _regenerate(names: Sequence[str] = ()) -> None:
+    """Overwrite the goldens of the scenarios in *names*, or of all of them.
+
+    See this module's update discipline. A run is filtered because a template
+    belongs to a handful of scenarios and not to the rest: re-rendering the
+    rest puts goldens the change never touched into its diff, written from
+    whatever this worktree holds rather than from what pinned them.
+
+    Only files whose bytes actually move are written, so a run that changes
+    nothing says so instead of printing the whole set back.
+
+    An unrecognized name exits rather than raising: this is a command-line
+    entry point, and a typo there should print what it could have been.
+    """
+    known = {scenario.name: scenario for scenario in SCENARIOS}
+    unknown = [name for name in names if name not in known]
+    if unknown:
+        raise SystemExit(
+            f"unknown scenario(s): {', '.join(unknown)}\n"
+            f"known scenarios: {', '.join(sorted(known))}"
+        )
+    selected = [known[name] for name in names] if names else list(SCENARIOS)
+
+    changed = 0
     with _axes_unset():
-        for scenario in SCENARIOS:
+        for scenario in selected:
             directory = _GOLDEN_DIR / scenario.name
             directory.mkdir(parents=True, exist_ok=True)
             for name, text in sorted(_render_scenario(scenario).items()):
-                (directory / name).write_text(text, encoding="utf-8")
-                print(f"wrote {directory / name}")
+                path = directory / name
+                if path.exists() and path.read_text(encoding="utf-8") == text:
+                    continue
+                path.write_text(text, encoding="utf-8")
+                changed += 1
+                print(f"wrote {path}")
+    print(f"{changed} golden(s) changed")
+
+
+def test_regenerating_one_scenario_leaves_the_others_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A filtered run rewrites the scenarios it names and nothing else.
+
+    Re-rendering every scenario on every regeneration means a one-template
+    edit also rewrites goldens that template is not in, from whatever the
+    running worktree holds — which silently reverts a render this checkout is
+    behind on. The copy under ``tmp_path`` is not politeness: a test that
+    edited a committed golden would leave the tree dirty for whoever ran it.
+    """
+    root = tmp_path / "render_axis_shapes"
+    shutil.copytree(_GOLDEN_DIR, root)
+    monkeypatch.setattr(sys.modules[__name__], "_GOLDEN_DIR", root)
+
+    bystander_scenario, named_scenario = SCENARIOS[0], SCENARIOS[1]
+    sentinel = "# sentinel\n"
+    bystander = sorted((root / bystander_scenario.name).glob("*.yml"))[0]
+    bystander.write_text(sentinel, encoding="utf-8")
+    named = sorted((root / named_scenario.name).glob("*.yml"))[0]
+    named.write_text(sentinel, encoding="utf-8")
+
+    _regenerate([named_scenario.name])
+
+    assert bystander.read_text(encoding="utf-8") == sentinel
+    with _axes_unset():
+        rendered = _render_scenario(named_scenario)
+    assert named.read_text(encoding="utf-8") == rendered[named.name]
+
+
+def test_regenerating_an_unknown_scenario_names_the_known_ones() -> None:
+    """A mistyped scenario refuses, and says what it could have been."""
+    with pytest.raises(SystemExit) as refusal:
+        _regenerate(["no-such-scenario"])
+
+    message = str(refusal.value)
+    assert "no-such-scenario" in message
+    assert SCENARIOS[0].name in message
 
 
 if __name__ == "__main__":
-    _regenerate()
+    _regenerate(sys.argv[1:])

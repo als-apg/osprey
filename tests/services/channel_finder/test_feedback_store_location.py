@@ -53,25 +53,16 @@ def test_config_template_yaml_still_parses():
     Rendered for real, in the mode that emits the block: the hierarchical
     pipeline is the one that writes a feedback store.
     """
-    from osprey.cli.templates.manager import TemplateManager, _enable_flags
-    from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
+    from osprey.cli.templates.manager import _enable_flags
+    from tests._config_render_context import MINIMAL_CONFIG_CONTEXT, render_config
 
     context = {
-        "project_name": "demo",
-        "project_root": "/repos/demo",
-        "default_provider": "anthropic",
-        "default_model": "haiku",
-        "port_base": DEFAULT_PORT_BASE,
-        "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
-        "provider_catalog": {"anthropic": {"base_url": "https://api.anthropic.com/v1"}},
-        "builtin_panels": [],
-        "selected_web_panels": [],
-        "ariel_server_on": False,
+        **MINIMAL_CONFIG_CONTEXT,
         "channel_finder_mode": "hierarchical",
         "default_pipeline": "hierarchical",
         **_enable_flags("hierarchical"),
     }
-    rendered = TemplateManager().jinja_env.get_template("project/config.yml.j2").render(**context)
+    rendered = render_config(**context)
 
     assert yaml.safe_load(rendered) is not None
     assert "store_path" in rendered

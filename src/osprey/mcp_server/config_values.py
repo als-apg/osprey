@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from osprey.config_guards import is_positive_int
+
 __all__ = ["positive_int"]
 
 
@@ -28,13 +30,12 @@ def positive_int(value: Any, default: int, key: str, *, logger: logging.Logger) 
             the component an operator is already reading.
 
     Returns:
-        The value when it is a positive integer, otherwise ``default``. ``bool``
-        is rejected explicitly — it is an ``int`` subclass, so
-        ``query_max_rows: true`` would otherwise resolve to a cap of one.
+        The value when it is a positive integer by
+        :func:`osprey.config_guards.is_positive_int`, otherwise ``default``.
     """
     if value is None:
         return default
-    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+    if not is_positive_int(value):
         logger.warning(
             "%s must be a positive integer, got %r — falling back to %s", key, value, default
         )

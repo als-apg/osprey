@@ -1797,6 +1797,27 @@ class TestDegradedTopology:
         with pytest.raises(ScaffoldClaimError):
             svc.unoverride(owned[0])
 
+    def test_the_refusal_names_the_store_variable_on_a_bare_host(self, degraded_project_dir):
+        """The way out is named where the refusal is read, container or not.
+
+        ``degraded_project_dir`` is a bare host: no volume, and no
+        ``CLAUDE_CONFIG_DIR`` in the environment. The no-durable-store sentence
+        has to carry the variable's name there too, because that is the only
+        place the operator is told what to set.
+        """
+        from osprey.cli.scaffold_cmd import ScaffoldClaimError
+        from osprey.interfaces.web_terminal.ownership import (
+            CLAUDE_CONFIG_ENV,
+            NO_DURABLE_STORE,
+        )
+
+        svc = ScaffoldGalleryService(degraded_project_dir)
+        with pytest.raises(ScaffoldClaimError) as excinfo:
+            svc.create_artifact("agents", "nowhere-to-put-this")
+
+        assert NO_DURABLE_STORE in str(excinfo.value)
+        assert CLAUDE_CONFIG_ENV in str(excinfo.value)
+
     def test_the_gallery_still_opens(self, degraded_project_dir):
         """Reads must keep working — a refused write is not a broken page."""
         svc = ScaffoldGalleryService(degraded_project_dir)

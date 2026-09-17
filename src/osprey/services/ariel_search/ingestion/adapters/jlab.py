@@ -1,6 +1,8 @@
-"""JLab Logbook ingestion adapter.
+"""JLab logbook reference format ingestion adapter.
 
-This module provides the adapter for Jefferson Lab electronic logbook system.
+This module provides the adapter for the JLab logbook reference format. It
+reads that format's JSON shape; a facility running such a logbook points the
+adapter at its own source URL.
 """
 
 import json
@@ -21,7 +23,7 @@ logger = get_logger("ariel")
 
 
 class JLabLogbookAdapter(FacilityAdapter):
-    """Adapter for Jefferson Lab electronic logbook system."""
+    """Adapter for the JLab logbook reference format."""
 
     def __init__(self, config: "ARIELConfig") -> None:
         """Initialize the adapter."""

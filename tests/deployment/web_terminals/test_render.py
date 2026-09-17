@@ -1922,6 +1922,35 @@ def test_auth_context_oidc_credential_env_var_names_have_defaults() -> None:
     assert context["auth_oidc_client_secret_env"] == "OSPREY_AUTH_OIDC_CLIENT_SECRET"
 
 
+@pytest.mark.parametrize(
+    "bad_lifetime",
+    [0, -1, True, "12h"],
+    ids=["zero", "negative", "bool", "string"],
+)
+def test_bad_session_lifetime_renders_the_default_and_lint_is_what_reports_it(
+    bad_lifetime: object,
+) -> None:
+    """An unusable `auth.session_lifetime` renders as the default rather than refusing,
+    and lint carries the diagnostic. Both surfaces read the same positive-integer
+    predicate, so the finding's claim that the render silently falls back stays true —
+    this reader falls back precisely because the refusing surface is that finding."""
+    # Arrange
+    from osprey.deployment.web_terminals.lint import _check_auth_session_lifetime
+
+    web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+    web_terminals["auth"] = {"session_lifetime": bad_lifetime}
+
+    # Act
+    context = _auth_tls_context(web_terminals)
+    findings = _check_auth_session_lifetime(web_terminals)
+
+    # Assert
+    assert context["auth_session_lifetime"] == 12 * 60 * 60
+    assert [(f.severity, f.code) for f in findings] == [
+        ("error", "web_terminals.invalid_session_lifetime")
+    ]
+
+
 def test_auth_context_unknown_method_raises_value_error() -> None:
     """An `auth.method` naming a method no sidecar implements is a hard error, not a
     forward-compatible passthrough: rendering it would emit an `auth_request` seam
@@ -3515,7 +3544,7 @@ def test_a_domain_card_renders_its_principals_not_the_roster_token() -> None:
     """
     # Arrange
     config = _auth_config(
-        ["alice", {"name": "ops-review", "index": 1, "access": ["domain:lbl.gov"]}]
+        ["alice", {"name": "ops-review", "index": 1, "access": ["domain:example.com"]}]
     )
 
     # Act
@@ -3523,7 +3552,7 @@ def test_a_domain_card_renders_its_principals_not_the_roster_token() -> None:
 
     # Assert
     key = f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix('ops-review')}"
-    assert lines == {key: '["domain:lbl.gov"]'}
+    assert lines == {key: '["domain:example.com"]'}
     assert "any" not in lines[key]
 
 
@@ -3532,14 +3561,16 @@ def test_a_mixed_principal_list_renders_sorted_and_keeps_self() -> None:
     churn the compose file on every build. `self` stays: beside another member
     it is one of the admitted principals, not a marker."""
     # Arrange
-    config = _auth_config([{"name": "ops", "index": 0, "access": ["user:carol@lbl.gov", "self"]}])
+    config = _auth_config(
+        [{"name": "ops", "index": 0, "access": ["user:carol@example.com", "self"]}]
+    )
 
     # Act
     lines = _access_lines(_compose(config))
 
     # Assert
     key = f"OSPREY_AUTH_ROSTER_ACCESS_{env_var_suffix('ops')}"
-    assert lines == {key: '["self","user:carol@lbl.gov"]'}
+    assert lines == {key: '["self","user:carol@example.com"]'}
 
 
 def test_the_roster_shorthands_render_byte_identically() -> None:
@@ -3663,6 +3694,7 @@ def test_auth_context_reads_the_oidc_scopes_and_leaves_them_none_when_unusable()
         == "openid groups"
     )
     assert _auth_tls_context(_with({"scopes": []}))["auth_oidc_scopes"] is None
+    assert _auth_tls_context(_with({"scopes": ["openid", "  "]}))["auth_oidc_scopes"] is None
     assert _auth_tls_context(_with({"scopes": {"openid": True}}))["auth_oidc_scopes"] is None
     assert _auth_tls_context(_with({}))["auth_oidc_scopes"] is None
 
@@ -3690,6 +3722,55 @@ def test_unauthored_oidc_scopes_render_no_env_line() -> None:
 
     # Assert
     assert not any(str(entry).startswith("OSPREY_AUTH_OIDC_SCOPES=") for entry in auth_env)
+
+
+def test_auth_context_reads_claims_in_id_token_as_a_plain_boolean() -> None:
+    """Authored true is on; absent, false or unusable is off.
+
+    A boolean rather than claims JSON: the sidecar derives the parameter from
+    the claims it reads, so the profile has nothing to spell but the switch.
+    """
+
+    # Arrange
+    def _with(oidc: dict[str, Any]) -> dict[str, Any]:
+        web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+        web_terminals["auth"] = {"method": "oidc", "oidc": oidc}
+        return web_terminals
+
+    # Act / Assert
+    assert _auth_tls_context(_with({"claims_in_id_token": True}))["auth_oidc_claims_in_id_token"]
+    assert (
+        _auth_tls_context(_with({"claims_in_id_token": False}))["auth_oidc_claims_in_id_token"]
+        is False
+    )
+    assert _auth_tls_context(_with({}))["auth_oidc_claims_in_id_token"] is False
+
+
+def test_authored_claims_in_id_token_reaches_the_sidecar_service() -> None:
+    """The switch renders as one env line the sidecar reads."""
+    # Act
+    auth_env = _compose(
+        _auth_config(
+            method="oidc",
+            oidc={"issuer": "https://sso.example.org", "claims_in_id_token": True},
+        )
+    )["services"]["auth"]["environment"]
+
+    # Assert
+    assert "OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN=true" in auth_env
+
+
+def test_unauthored_claims_in_id_token_renders_no_env_line() -> None:
+    """Off is the sidecar's own default, so nothing restates it in the render."""
+    # Act
+    auth_env = _compose(_auth_config(method="oidc", oidc={"issuer": "https://sso.example.org"}))[
+        "services"
+    ]["auth"]["environment"]
+
+    # Assert
+    assert not any(
+        str(entry).startswith("OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN=") for entry in auth_env
+    )
 
 
 def test_auth_sidecar_service_healthcheck_probes_its_own_health_route() -> None:

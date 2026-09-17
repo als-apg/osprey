@@ -23,7 +23,12 @@
     stored layout read-only for the session. JSON in an attribute, exactly as
     the shells carry data-bar-options; SINGLE-quoted because Jinja's tojson
     escapes ' (and < > &) but leaves " alone. -#}
-<html lang="en" data-bar-context='{{ bar_context|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not bar_header_visible %} data-header-bar="hidden"{% endif %}{% if not bar_status_visible %} data-status-bar="hidden"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
+{#- data-panel-labels is the registry's roster of built-in panel labels, which
+    panel-catalog.js reads at module load. It is stamped rather than fetched
+    because /api/panels answers for the ENABLED panels only and resolves after
+    that module's array is built, so it can never name the full roster the
+    rail's catalog list needs. Same single-quoted JSON, for the same reason. -#}
+<html lang="en" data-bar-context='{{ bar_context|tojson }}' data-panel-labels='{{ builtin_panel_labels|tojson }}' data-theme="{{ web_theme_id }}"{% if web_theme_mode %} data-theme-mode="{{ web_theme_mode }}"{% endif %} data-ui-mode="{{ web_ui_mode }}" data-rail-position="{{ web_rail_position }}"{% if storage_scope %} data-osprey-storage-scope="{{ storage_scope }}"{% endif %}{% if not bar_header_visible %} data-header-bar="hidden"{% endif %}{% if not bar_status_visible %} data-status-bar="hidden"{% endif %}{% if terminal_user and landing_url %} data-landing-url="{{ landing_url }}"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">

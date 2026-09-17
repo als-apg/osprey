@@ -6,7 +6,8 @@ registers it in ``deployed_services``), and prints a post-build hint. The
 injectors pair 1:1 with the service dataclasses in
 :mod:`osprey.cli.build_profile_schema` (``DispatchConfig``, ``BlueskyConfig``,
 ``BlueskyWebConfig``, ``VAConfig``, ``NextcloudBridgeProfileConfig``,
-``GChatBridgeProfileConfig``) plus ``VAArchiverConfig``, whose block lives in
+``GChatBridgeProfileConfig``, ``TeamsBridgeProfileConfig``) plus
+``VAArchiverConfig``, whose block lives in
 :mod:`osprey.cli.build_profile_archiver`.
 ``_copy_service_templates`` / ``_inject_profile_services`` handle the framework
 and facility-declared service templates.
@@ -40,6 +41,7 @@ if TYPE_CHECKING:
         DispatchConfig,
         GChatBridgeProfileConfig,
         NextcloudBridgeProfileConfig,
+        TeamsBridgeProfileConfig,
         VAConfig,
     )
     from osprey.cli.build_profile_archiver import VAArchiverConfig
@@ -153,6 +155,16 @@ def _user_owned_services(project_path: Path) -> set[str]:
     return {str(entry).split("/", 1)[1] for entry in owned if str(entry).startswith("services/")}
 
 
+#: Build residue a packaged service template may pick up in a source checkout
+#: and must never hand on to a project. A template directory holding importable
+#: Python — the Teams bridge ships its Azure Functions relay source beside its
+#: compose file, and the relay's own tests import that source by path — grows a
+#: ``__pycache__/`` the moment those tests run, and the recursive copy below
+#: would otherwise stamp one developer's byte-compiled artifacts into every
+#: project built from that checkout.
+_TEMPLATE_COPY_IGNORE = shutil.ignore_patterns("__pycache__")
+
+
 def _refresh_service_dir(src_dir: Path, dest_dir: Path, name: str, owned: set[str]) -> bool:
     """Copy a packaged service template into the project, honoring claims.
 
@@ -167,7 +179,7 @@ def _refresh_service_dir(src_dir: Path, dest_dir: Path, name: str, owned: set[st
         return False
     if dest_dir.exists():
         shutil.rmtree(dest_dir)
-    shutil.copytree(src_dir, dest_dir)
+    shutil.copytree(src_dir, dest_dir, ignore=_TEMPLATE_COPY_IGNORE)
     return True
 
 
@@ -931,9 +943,9 @@ def _refuse_unknown_lane_targets(config: Any) -> None:
     The one lane-target mistake no runtime signal can repair. A target that
     does not RESOLVE is a deployment that has not described its machine yet,
     and the bridge handles it by falling back to the deployment baseline — but
-    a target that is not spelled ``live`` or ``va`` is a typo, and a typo
-    resolves to the baseline forever while the author goes on believing the
-    lane serves what they wrote.
+    a target that is not one of :data:`~osprey_connectors.types.CONTROL_TARGETS`
+    is a typo, and a typo resolves to the baseline forever while the author goes
+    on believing the lane serves what they wrote.
 
     Raises:
         BuildProfileError: A lane block declares a target outside
@@ -1845,6 +1857,116 @@ def _inject_gchat_bridge(gchat_bridge: GChatBridgeProfileConfig, project_path: P
         "    Images:     `osprey up` builds the gchat-bridge image locally "
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_GCHAT_BRIDGE_IMAGE to use a published image."
+    )
+
+
+def _inject_teams_bridge(teams_bridge: TeamsBridgeProfileConfig, project_path: Path) -> None:
+    """Wire the Microsoft Teams bridge service into a built project.
+
+    1. Copy the bundled ``templates/services/teams_bridge/`` compose template
+       into ``<project>/services/teams_bridge/`` — the one bundled service
+       template with a nested directory, because the Azure Functions relay that
+       feeds its queue travels beside the compose file and has to reach the
+       deployment repo the operator publishes it from.
+    2. Write ``services.teams_bridge`` config + register it in
+       ``deployed_services`` (so ``find_service_config`` resolves it,
+       mirroring :func:`_inject_nextcloud_bridge`).
+    3. Print a post-build hint naming the Azure credentials the operator must
+       supply, and the one deployment rule the compose file cannot enforce
+       (one bridge per Service Bus queue).
+
+    Structurally a thin mirror of :func:`_inject_nextcloud_bridge` and
+    :func:`_inject_gchat_bridge` — the other chat channels — down to the single
+    ``trigger`` key the template reads with no ``| default``. Like them, this
+    must run *after* :func:`_inject_dispatch`, which is what puts
+    ``event_dispatcher`` / ``dispatch_worker`` into ``deployed_services``; the
+    compose template gates both its ``depends_on`` and its in-network
+    ``DISPATCHER_URL``/``WORKER_URL`` on their presence there.
+
+    Args:
+        teams_bridge: Validated bridge configuration from the build profile.
+            ``BuildProfile.validate`` has already established that a
+            ``dispatch:`` block exists and that ``trigger`` names a trigger
+            declared in the resolved triggers file.
+        project_path: Root of the built project.
+    """
+
+    # 1. Copy the bundled compose template (located the same way as service templates).
+    pkg_services = _locate_pkg_services()
+
+    src_dir = pkg_services / "teams_bridge"
+    if not src_dir.is_dir():
+        logger.warning("No package template for teams_bridge service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    _copy_shared_service_partials(dest_services_root)
+    dest_dir = dest_services_root / "teams_bridge"
+    _refresh_service_dir(src_dir, dest_dir, "teams_bridge", _user_owned_services(project_path))
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found. Skipping the teams_bridge config registration.")
+        return
+
+    config = load_config_document(config_path)
+
+    # ``trigger`` is the one key the compose template reads with NO ``| default``
+    # — it renders DISPATCH_TRIGGER straight from here, so a missing key must
+    # break the render loudly rather than silently firing another facility's
+    # trigger. No ``image`` key: the service builds the local
+    # <project>-teams-bridge image on first ``osprey up`` (the template's own
+    # ``| default`` supplies that tag). Override with
+    # OSPREY_TEAMS_BRIDGE_IMAGE, or set ``services.teams_bridge.image`` here, to
+    # use a prebuilt/published image.
+    config.setdefault("services", {})
+    anchored_put(
+        config["services"],
+        "teams_bridge",
+        _carry_authored_keys(
+            config["services"],
+            "teams_bridge",
+            {
+                "path": "./services/teams_bridge",
+                "trigger": teams_bridge.trigger,
+            },
+        ),
+    )
+    deployed = config.get("deployed_services", []) or []
+    if "teams_bridge" not in [str(s) for s in deployed]:
+        anchored_append(deployed, "teams_bridge")
+    config["deployed_services"] = deployed
+
+    save_config_document(config_path, config)
+
+    # 3. Post-build hint.
+    logger.debug("  ✓ Injected Microsoft Teams bridge (trigger %r)", teams_bridge.trigger)
+    logger.debug(
+        "    Credentials: set TEAMS_APP_ID, TEAMS_APP_SECRET, TEAMS_TENANT_ID, "
+        "TEAMS_SERVICEBUS_CONNECTION_STRING and TEAMS_SERVICEBUS_QUEUE in the "
+        "project .env before `osprey up`. These are user-supplied. Unlike the "
+        "dispatch tokens, deploy does not mint them, and the bridge aborts at "
+        "boot naming whichever is missing."
+    )
+    logger.debug(
+        "    Relay:       the bridge reads a Service Bus queue; nothing fills it "
+        "until the Azure Functions relay shipped in services/teams_bridge/relay/ "
+        "is published and registered as the bot's messaging endpoint. Its "
+        "connection string is Send-scoped and separate from the Listen-scoped "
+        "one the bridge uses."
+    )
+    logger.debug(
+        "    Queue:       deploy exactly ONE bridge per Service Bus queue. A "
+        "queue load-balances across its receivers, so a second deployment on the "
+        "same queue does not duplicate events. It silently splits them, and each "
+        "half answers only what it received. Give every deployment its own queue."
+    )
+    logger.debug(
+        "    Images:     `osprey up` builds the teams-bridge image locally "
+        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
+        "set OSPREY_TEAMS_BRIDGE_IMAGE to use a published image."
     )
 
 

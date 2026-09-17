@@ -105,6 +105,7 @@ _COMMENTED_TEMPLATE_KEYS: frozenset[str] = frozenset(
         "bluesky_web",
         "nextcloud_bridge",
         "gchat_bridge",
+        "teams_bridge",
     }
 )
 
@@ -370,7 +371,7 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 #   triggers: triggers/my-facility.yml
 #   worker_count: 1
 #   workspace_mode: isolated
-#   facility_name: ALS
+#   facility_name: Example Research Facility
 """,
     "bluesky": """
 # --- Bluesky bridge -----------------------------------------------------
@@ -470,6 +471,19 @@ _COMMENTED_TEMPLATES: dict[str, str] = {
 # gchat_bridge:
 #   trigger: gchat-question
 """,
+    "teams_bridge": """
+# --- Microsoft Teams bridge --------------------------------------------------
+# Answers questions asked from a Microsoft Teams channel or chat. The trigger
+# name must match one declared in the dispatch triggers file.
+#
+# The Azure credentials and destinations are runtime env, not profile keys:
+# declare TEAMS_APP_ID, TEAMS_APP_SECRET, TEAMS_TENANT_ID,
+# TEAMS_SERVICEBUS_CONNECTION_STRING and TEAMS_SERVICEBUS_QUEUE under
+# `env.required` (plus TEAMS_CLOUD for a non-public Azure cloud).
+#
+# teams_bridge:
+#   trigger: teams-question
+""",
     "deploy": """
 # --- Deployment coordinates --------------------------------------------------
 # Where this deployment is built, pushed, and run. Needed only once it leaves
@@ -515,6 +529,7 @@ _COMMENTED_TEMPLATE_ORDER: tuple[str, ...] = (
     "bluesky_web",
     "nextcloud_bridge",
     "gchat_bridge",
+    "teams_bridge",
 )
 
 # The six artifact-selection lists, in profile spelling. Each gets a generated
