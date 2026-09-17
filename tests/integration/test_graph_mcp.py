@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
 
 # xdist_group("docker"): this module starts real containers, and the docker
 # group is what keeps every such file on one xdist worker.
-pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
+pytestmark = [pytest.mark.xdist_group("docker")]
 
 
 # --- Verified counts for the shipped demo_machine.ttl -----------------------

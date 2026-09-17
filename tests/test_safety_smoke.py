@@ -274,7 +274,6 @@ def _get_channel_write():
 # ===========================================================================
 
 
-@pytest.mark.integration
 def test_1_read_channel_hooks_pass_through(smoke_env):
     """Reading a channel does not trigger any write hooks."""
     result, blocked_by = _run_hook_chain(
@@ -287,7 +286,6 @@ def test_1_read_channel_hooks_pass_through(smoke_env):
     assert blocked_by is None
 
 
-@pytest.mark.integration
 async def test_1_read_channel_tool_returns_data(smoke_env, monkeypatch):
     """channel_read tool returns mock data for any channel name."""
     monkeypatch.chdir(smoke_env["tmp_path"])
@@ -310,7 +308,6 @@ async def test_1_read_channel_tool_returns_data(smoke_env, monkeypatch):
 # ===========================================================================
 
 
-@pytest.mark.integration
 def test_2_valid_write_hooks_ask_approval(smoke_env):
     """A valid write to a channel within limits triggers the approval hook."""
     # Use DIAG:TEMP:SP — has limits (0-100) but no max_step constraint
@@ -324,7 +321,6 @@ def test_2_valid_write_hooks_ask_approval(smoke_env):
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-@pytest.mark.integration
 async def test_2_valid_write_tool_succeeds(smoke_env, monkeypatch):
     """channel_write tool executes a valid write against mock connector."""
     monkeypatch.chdir(smoke_env["tmp_path"])
@@ -346,7 +342,6 @@ async def test_2_valid_write_tool_succeeds(smoke_env, monkeypatch):
 # ===========================================================================
 
 
-@pytest.mark.integration
 def test_3_over_limit_write_hooks_deny(smoke_env):
     """A write exceeding channel limits is denied by the limits hook."""
     result, blocked_by = _run_hook_chain(
@@ -359,7 +354,6 @@ def test_3_over_limit_write_hooks_deny(smoke_env):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.integration
 async def test_3_over_limit_write_tool_rejects(smoke_env, monkeypatch):
     """channel_write tool's inline validator also rejects over-limit writes."""
     monkeypatch.chdir(smoke_env["tmp_path"])
@@ -378,7 +372,6 @@ async def test_3_over_limit_write_tool_rejects(smoke_env, monkeypatch):
 # ===========================================================================
 
 
-@pytest.mark.integration
 def test_4_readonly_channel_hooks_deny(smoke_env):
     """Writing to a non-writable channel is denied by the limits hook."""
     result, blocked_by = _run_hook_chain(
@@ -396,7 +389,6 @@ def test_4_readonly_channel_hooks_deny(smoke_env):
 # ===========================================================================
 
 
-@pytest.mark.integration
 def test_5_unlisted_channel_hooks_ask_approval(smoke_env):
     """Writing to a channel not in the limits DB passes limits (permissive) and reaches approval."""
     result, blocked_by = _run_hook_chain(
@@ -409,7 +401,6 @@ def test_5_unlisted_channel_hooks_ask_approval(smoke_env):
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-@pytest.mark.integration
 async def test_5_unlisted_channel_tool_succeeds(smoke_env, monkeypatch):
     """channel_write tool accepts writes to unlisted channels in permissive mode."""
     monkeypatch.chdir(smoke_env["tmp_path"])
@@ -429,7 +420,6 @@ async def test_5_unlisted_channel_tool_succeeds(smoke_env, monkeypatch):
 # ===========================================================================
 
 
-@pytest.mark.integration
 def test_6_python_caput_hooks_ask_approval(smoke_env):
     """Python code containing caput() triggers the approval hook."""
     result, blocked_by = _run_hook_chain(
@@ -447,7 +437,6 @@ def test_6_python_caput_hooks_ask_approval(smoke_env):
 # ===========================================================================
 
 
-@pytest.mark.integration
 def test_7_python_tango_hooks_ask_approval(smoke_env):
     """Python code with Tango write_attribute() triggers approval via framework detection."""
     result, blocked_by = _run_hook_chain(
@@ -465,7 +454,6 @@ def test_7_python_tango_hooks_ask_approval(smoke_env):
 # ===========================================================================
 
 
-@pytest.mark.integration
 def test_8_safe_python_hooks_pass_through(smoke_env):
     """Python code with no write patterns does not trigger any hooks."""
     result, blocked_by = _run_hook_chain(
@@ -482,7 +470,6 @@ def test_8_safe_python_hooks_pass_through(smoke_env):
 # ===========================================================================
 
 
-@pytest.mark.integration
 def test_9_writes_disabled_hooks_deny(smoke_env):
     """With writes_enabled: false, the writes_check hook denies all writes."""
     result, blocked_by = _run_hook_chain(
@@ -495,7 +482,6 @@ def test_9_writes_disabled_hooks_deny(smoke_env):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.integration
 def test_9_writes_disabled_python_readwrite_hooks_deny(smoke_env):
     """With writes_enabled: false, execute tool in readwrite mode is also denied."""
     result, blocked_by = _run_hook_chain(

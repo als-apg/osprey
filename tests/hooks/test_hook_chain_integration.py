@@ -126,7 +126,6 @@ def run_hook_chain(hook_runner, hook_names, tool_name, tool_input, config_path, 
     return None, None  # All hooks passed
 
 
-@pytest.mark.integration
 def test_writes_disabled_blocks_before_limits(tmp_path, hook_runner):
     """Writes-disabled hook blocks before limits hook ever runs."""
     config = _make_chain_config(
@@ -150,7 +149,6 @@ def test_writes_disabled_blocks_before_limits(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.integration
 def test_limits_violation_blocks_before_approval(tmp_path, hook_runner):
     """Limits violation blocks before approval hook runs."""
     config = _make_chain_config(
@@ -175,7 +173,6 @@ def test_limits_violation_blocks_before_approval(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.integration
 def test_valid_write_reaches_approval(tmp_path, hook_runner):
     """Valid write with enabled writes and valid limits reaches approval hook."""
     config = _make_chain_config(
@@ -200,7 +197,6 @@ def test_valid_write_reaches_approval(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-@pytest.mark.integration
 def test_valid_write_disabled_approval_passes_all(tmp_path, hook_runner):
     """Valid write with disabled approval passes all hooks."""
     config = _make_chain_config(
@@ -224,7 +220,6 @@ def test_valid_write_disabled_approval_passes_all(tmp_path, hook_runner):
     assert blocked_by is None
 
 
-@pytest.mark.integration
 def test_read_tool_skips_write_checks(tmp_path, hook_runner):
     """Read tools pass through all write-focused hooks."""
     config = _make_chain_config(
@@ -248,7 +243,6 @@ def test_read_tool_skips_write_checks(tmp_path, hook_runner):
     assert blocked_by is None
 
 
-@pytest.mark.integration
 def test_non_osprey_tool_passes_entire_chain(tmp_path, hook_runner):
     """Non-osprey tools pass through the entire hook chain untouched."""
     config = _make_chain_config(
@@ -271,7 +265,6 @@ def test_non_osprey_tool_passes_entire_chain(tmp_path, hook_runner):
     assert blocked_by is None
 
 
-@pytest.mark.integration
 def test_python_execute_chain_with_framework_patterns(tmp_path, hook_runner):
     """Full hook chain triggers approval for Tango write patterns through python_execute."""
     config = _make_chain_config(
@@ -294,7 +287,6 @@ def test_python_execute_chain_with_framework_patterns(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-@pytest.mark.integration
 def test_per_tool_chain_write_always(tmp_path, hook_runner):
     """Full hook chain with per-tool config asks approval for channel_write."""
     config_dict = {
@@ -329,7 +321,6 @@ def test_per_tool_chain_write_always(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "ask"
 
 
-@pytest.mark.integration
 def test_per_tool_chain_read_skip(tmp_path, hook_runner):
     """Full hook chain with per-tool config allows channel_read with skip policy."""
     config_dict = {
@@ -368,7 +359,6 @@ def test_per_tool_chain_read_skip(tmp_path, hook_runner):
 # ============================================================================
 
 
-@pytest.mark.integration
 def test_hook_invalid_json_stdin_exits_cleanly(hook_runner_raw):
     """Hook receiving invalid JSON on stdin exits with code 0 (fail-open).
 
@@ -387,7 +377,6 @@ def test_hook_invalid_json_stdin_exits_cleanly(hook_runner_raw):
     assert stdout.strip() == ""  # No output = allow
 
 
-@pytest.mark.integration
 def test_hook_empty_stdin_exits_cleanly(hook_runner_raw):
     """Hook receiving empty stdin exits with code 0."""
     returncode, stdout, stderr = hook_runner_raw(
@@ -406,7 +395,6 @@ def test_hook_empty_stdin_exits_cleanly(hook_runner_raw):
 # ============================================================================
 
 
-@pytest.mark.integration
 def test_error_guidance_fires_on_tool_error(hook_runner, make_config):
     """After a tool returns an error envelope, error_guidance injects additionalContext."""
     config = make_config({})
@@ -442,7 +430,6 @@ def test_error_guidance_fires_on_tool_error(hook_runner, make_config):
     assert "error-handling" in ctx.lower()
 
 
-@pytest.mark.integration
 def test_notebook_update_fires_on_notebook_edit(tmp_path, hook_runner):
     """After NotebookEdit, notebook cache hook deletes stale cached HTML."""
     # Create a fake notebook and its cached HTML
@@ -466,7 +453,6 @@ def test_notebook_update_fires_on_notebook_edit(tmp_path, hook_runner):
     assert not cached_html.exists()
 
 
-@pytest.mark.integration
 def test_notebook_update_no_cache_is_noop(tmp_path, hook_runner):
     """Notebook update hook is a no-op when no cached HTML exists."""
     nb_path = tmp_path / "test_notebook.ipynb"
@@ -482,7 +468,6 @@ def test_notebook_update_no_cache_is_noop(tmp_path, hook_runner):
     assert result is None  # Silent no-op
 
 
-@pytest.mark.integration
 def test_post_tool_use_hooks_independent(hook_runner, make_config):
     """PostToolUse hooks can fire independently for different tool matchers.
 
