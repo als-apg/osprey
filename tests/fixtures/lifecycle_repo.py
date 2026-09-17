@@ -58,9 +58,11 @@ sentinels and expanded at materialization, so a byte-comparison against a live
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
 expansions.
 
-``providers.yml`` is the fourth thing not frozen. Init copies the packaged
-catalog beside the profile verbatim, so the fixture reads that file rather than
-holding a second copy of it; see :func:`packaged_providers_yml`.
+``providers.yml`` and ``triggers.yml`` are the fourth and fifth things not
+frozen. Init copies the packaged provider catalog and the packaged tutorial
+trigger file into the repo verbatim, so the fixture reads both rather than
+holding a second copy of either; see :func:`packaged_providers_yml` and
+:func:`packaged_tutorial_triggers_yml`.
 
 Usage::
 
@@ -75,6 +77,7 @@ Usage::
 from __future__ import annotations
 
 import contextlib
+import importlib.resources
 import os
 import re
 import subprocess
@@ -1964,104 +1967,28 @@ config:
 # SOURCE zone — dispatch triggers
 # ─────────────────────────────────────────────────────────────────────────────
 
-TRIGGERS_YML = """\
-# triggers.yml
-#
-# Four control-system-free demonstration triggers shipped with the
-# control-assistant preset. Each illustrates one event-dispatch concept so a
-# new user can exercise the pipeline end-to-end without any facility hardware:
-#
-#   1. hello-dispatch    — anatomy of a trigger + first successful round-trip
-#   2. triage-event      — a webhook payload becomes the agent's context
-#   3. save-report       — tool use, a short multi-turn loop, and persistence
-#   4. denied-tool-demo  — the worker's server-side tool denylist (safety)
-#
-# The dispatcher answers on this deployment's dispatcher port:
-# `deployment.port_base` + 10, which is 10010 unless the deployment moved its
-# port block. Fire one with (`osprey up` mints EVENT_DISPATCHER_TOKEN into this
-# repo's .env; load it first:
-# export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
-#   curl -X POST http://localhost:10010/webhook/hello-dispatch \\
-#     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
-#     -H "Content-Type: application/json" -d '{}'
-#
-# Watch progress stream in the dashboard at http://localhost:10010/dashboard
-#
-# (Retries fire on *dispatch failure* — i.e. when the dispatcher cannot reach
-# the worker — via the per-trigger `on_error: retry` policy. That path is not
-# exercised by a curl against a healthy stack; see the docs and the unit test
-# tests/dispatch/test_server_routes.py for the retry/backoff behaviour.)
 
-dispatcher:
-  # The dispatcher forwards each fired trigger to this worker. The compose
-  # template names the single worker "dispatch-worker-1", one port above the
-  # dispatcher itself — `deployment.port_base` + 11, so 10011 at the default
-  # base. Moving the block moves both. Under `dispatch.network: host` the build
-  # rewrites this line to the worker's host address instead.
-  # (Multi-worker load distribution is not yet implemented — see docs.)
-  dispatch_target: http://dispatch-worker-1:10011
-  max_concurrent_runs: 2
-  max_queue_depth: 50
+def packaged_tutorial_triggers_yml() -> str:
+    """The packaged ``tutorial_triggers.yml``, which ``osprey init`` copies verbatim.
 
-triggers:
-  # 1. Anatomy + minimal end-to-end check: webhook in, one sentence out, no tools.
-  - name: hello-dispatch
-    source: webhook
-    action:
-      prompt: >-
-        Reply with a single friendly sentence confirming the event-dispatch
-        pipeline is working end to end. Do not use any tools.
-      allowed_tools: []
+    Read rather than frozen, for the same reason the provider catalog is: the
+    package owns this file's content, so a copy here would prove only that
+    someone remembered to update two places. What the byte comparison
+    downstream is for is that init copies the trigger file through unchanged,
+    and that is what reading it here asserts.
 
-  # 2. The webhook JSON body arrives as the agent's context. Zero tools keeps
-  #    this cheap and focused on the payload lesson. Try it with a realistic
-  #    event body, e.g.:
-  #      curl -X POST http://localhost:10010/webhook/triage-event \\
-  #        -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
-  #        -H "Content-Type: application/json" \\
-  #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0}'
-  - name: triage-event
-    source: webhook
-    action:
-      prompt: >-
-        An automated monitor fired this event and handed you its JSON payload as
-        context. In plain language: summarize what the event reports, say whether
-        it looks normal or concerning given any threshold in the payload, and
-        outline what you would investigate first. Do not use any tools — reason
-        only from the payload.
-      allowed_tools: []
+    Resolved the way the CLI resolves it
+    (``osprey.cli.build_profile_presets._triggers_dir``), so the exemplar and
+    the emission it is compared against read one file.
+    """
+    package = importlib.resources.files("osprey.profiles.triggers")
+    return (Path(str(package)) / "tutorial_triggers.yml").read_text(encoding="utf-8")
 
-  # 3. Tool use + a short multi-turn loop + persistence via the workspace MCP
-  #    artifact tool. Artifacts land in the worker's mounted workspace volume,
-  #    so they survive the run. This is the sanctioned persistence channel: the
-  #    preset's memory guard intentionally blocks arbitrary file writes, so the
-  #    agent persists through the artifact tool.
-  - name: save-report
-    source: webhook
-    action:
-      prompt: >-
-        Investigate this event and save a short status report. First take a
-        quick look at the working directory (Glob/Read) to ground yourself, then
-        use the workspace artifact tool to save a concise markdown report
-        (content_type markdown) summarizing the event payload and what you would
-        do next. Confirm the artifact you created.
-      allowed_tools:
-        - Glob
-        - Read
-        - mcp__osprey_workspace__artifact_register
-        - mcp__osprey_workspace__create_document
 
-  # 4. Requests a tool the worker blocks server-side; teaches the denylist.
-  - name: denied-tool-demo
-    source: webhook
-    action:
-      prompt: >-
-        Attempt to fetch https://example.com with WebFetch and report what
-        happens. WebFetch is on the worker's server-side denylist, so the run is
-        rejected regardless of the tools this trigger requests — demonstrating
-        that the denylist is enforced independently of the trigger config.
-      allowed_tools: [WebFetch]
-"""
+#: The demonstration triggers the ``control-assistant`` preset ships, which
+#: ``init`` writes into a new repo as ``triggers.yml``. Resolved at import,
+#: because :data:`BASE_SOURCE_FILES` is built at import.
+TRIGGERS_YML = packaged_tutorial_triggers_yml()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3196,8 +3123,10 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
 
     files = dict(BASE_SOURCE_FILES)
     files["profile.yml"] = profile.replace(_DEPLOY_BLOCK_MARKER + "\n", deploy_block)
-    # The provider catalog init writes beside the profile. Not in
-    # BASE_SOURCE_FILES because it is read from the package rather than frozen.
+    # The provider catalog init writes beside the profile, read from the
+    # package rather than frozen for the reason `triggers.yml` is: the
+    # package owns the content, and a copy here would prove only that
+    # someone remembered to update two places.
     files["providers.yml"] = packaged_providers_yml()
     if with_ci:
         files.update(CI_PIPELINE_FILES)
