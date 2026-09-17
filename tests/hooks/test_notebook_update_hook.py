@@ -74,7 +74,6 @@ def run_notebook_update_hook(hook_runner_raw):
     return _run
 
 
-@pytest.mark.unit
 def test_notebook_update_deletes_cache(tmp_path, run_notebook_update_hook):
     """Hook deletes the cached HTML for the edited notebook, and only that."""
     nb_path = tmp_path / "test_notebook.ipynb"
@@ -94,7 +93,6 @@ def test_notebook_update_deletes_cache(tmp_path, run_notebook_update_hook):
     assert nb_path.read_text() == "{}"
 
 
-@pytest.mark.unit
 def test_notebook_update_deletes_every_mode_of_the_cache(tmp_path, run_notebook_update_hook):
     """Both the connected and the offline render of the edited notebook go.
 
@@ -120,7 +118,6 @@ def test_notebook_update_deletes_every_mode_of_the_cache(tmp_path, run_notebook_
     assert other.read_text() == "<html>other</html>"
 
 
-@pytest.mark.unit
 def test_notebook_update_logs_invalidated_on_cache_hit(
     tmp_path, monkeypatch, run_notebook_update_hook
 ):
@@ -139,7 +136,6 @@ def test_notebook_update_logs_invalidated_on_cache_hit(
     assert f"path={nb_path}" in stderr
 
 
-@pytest.mark.unit
 def test_notebook_update_no_cache_leaves_tree_untouched(tmp_path, run_notebook_update_hook):
     """The cache-miss path is a pure no-op: nothing created, nothing removed."""
     nb_path = tmp_path / "uncached.ipynb"
@@ -155,7 +151,6 @@ def test_notebook_update_no_cache_leaves_tree_untouched(tmp_path, run_notebook_u
     assert snapshot(tmp_path) == before
 
 
-@pytest.mark.unit
 def test_notebook_update_logs_no_cache_on_cache_miss(
     tmp_path, monkeypatch, run_notebook_update_hook
 ):
@@ -170,7 +165,6 @@ def test_notebook_update_logs_no_cache_on_cache_miss(
     assert "status=invalidated" not in stderr
 
 
-@pytest.mark.unit
 def test_notebook_update_empty_path_exits_before_logging(
     tmp_path, monkeypatch, run_notebook_update_hook
 ):
@@ -182,13 +176,11 @@ def test_notebook_update_empty_path_exits_before_logging(
     assert "[notebook-update]" not in stderr
 
 
-@pytest.mark.unit
 def test_notebook_update_missing_key_no_error(tmp_path, run_notebook_update_hook):
     """Hook handles a tool_input with no notebook_path key at all."""
     run_notebook_update_hook({}, cwd=tmp_path)
 
 
-@pytest.mark.unit
 def test_notebook_update_swallows_unlink_failure(tmp_path, run_notebook_update_hook):
     """A cache entry that cannot be unlinked still exits 0 and blocks nothing.
 
@@ -210,7 +202,6 @@ def test_notebook_update_swallows_unlink_failure(tmp_path, run_notebook_update_h
     assert snapshot(tmp_path) == before
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "stdin",
     ["", "{nope", "[]", "[1,2,3]"],
@@ -301,7 +292,6 @@ def make_notebook(tmp_path, relpath, subdir=NOTEBOOKS_SUBDIR):
     return path
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "relpath, detail",
     [("scan.ipynb", "scan.ipynb"), ("runs/day2/scan.ipynb", "runs/day2/scan.ipynb")],
@@ -331,7 +321,6 @@ def test_notebooks_edit_posts_one_activity_frame(
     }
 
 
-@pytest.mark.unit
 def test_artifacts_edit_posts_nothing(
     tmp_path, monkeypatch, run_notebook_update_hook, activity_server
 ):
@@ -350,7 +339,6 @@ def test_artifacts_edit_posts_nothing(
     assert received == []
 
 
-@pytest.mark.unit
 def test_notebook_outside_agent_data_posts_nothing(
     tmp_path, monkeypatch, run_notebook_update_hook, activity_server
 ):
@@ -365,7 +353,6 @@ def test_notebook_outside_agent_data_posts_nothing(
     assert received == []
 
 
-@pytest.mark.unit
 def test_badge_survives_down_web_terminal(tmp_path, monkeypatch, run_notebook_update_hook):
     """No web terminal costs a badge, not the tool call — and not the cache.
 
@@ -383,7 +370,6 @@ def test_badge_survives_down_web_terminal(tmp_path, monkeypatch, run_notebook_up
     assert not cached_html.exists()
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "token, expected",
     [("panel-secret", "Bearer panel-secret"), ("  ", None), ("", None)],
@@ -406,7 +392,6 @@ def test_activity_request_carries_the_panel_token(hook_module, monkeypatch, toke
     assert request.headers.get("Authorization") == expected
 
 
-@pytest.mark.unit
 def test_activity_request_targets_the_configured_web_port(hook_module, monkeypatch):
     """The emit dials ``OSPREY_WEB_PORT`` on loopback."""
     hook = hook_module("osprey_notebook_update")

@@ -48,26 +48,22 @@ def patch_config():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_gallery_url_defaults(patch_config):
     with patch_config({}):
         assert http.gallery_url() == f"http://127.0.0.1:{default_port('artifact')}"
 
 
-@pytest.mark.unit
 def test_gallery_url_from_config(patch_config):
     with patch_config({"artifact_server": {"host": "0.0.0.0", "port": 9000}}):
         assert http.gallery_url() == "http://0.0.0.0:9000"
 
 
-@pytest.mark.unit
 def test_web_terminal_url_defaults(patch_config, monkeypatch):
     monkeypatch.delenv("OSPREY_WEB_PORT", raising=False)
     with patch_config({}):
         assert http.web_terminal_url() == f"http://127.0.0.1:{default_port('web')}"
 
 
-@pytest.mark.unit
 def test_web_terminal_url_env_overrides_config(patch_config, monkeypatch):
     """OSPREY_WEB_PORT wins over the config port (containerized deployments)."""
     monkeypatch.setenv("OSPREY_WEB_PORT", "12345")
@@ -75,7 +71,6 @@ def test_web_terminal_url_env_overrides_config(patch_config, monkeypatch):
         assert http.web_terminal_url() == "http://host.internal:12345"
 
 
-@pytest.mark.unit
 def test_phoebus_bridge_url_full_env_wins(patch_config, monkeypatch):
     """A full PHOEBUS_BRIDGE_URL short-circuits config entirely (trailing / stripped)."""
     monkeypatch.setenv("PHOEBUS_BRIDGE_URL", "http://phoebus.box:8080/")
@@ -83,7 +78,6 @@ def test_phoebus_bridge_url_full_env_wins(patch_config, monkeypatch):
         assert http.phoebus_bridge_url() == "http://phoebus.box:8080"
 
 
-@pytest.mark.unit
 def test_phoebus_bridge_url_port_env_overrides(patch_config, monkeypatch):
     monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
     monkeypatch.setenv("PHOEBUS_BRIDGE_PORT", "7000")
@@ -91,7 +85,6 @@ def test_phoebus_bridge_url_port_env_overrides(patch_config, monkeypatch):
         assert http.phoebus_bridge_url() == "http://1.2.3.4:7000"
 
 
-@pytest.mark.unit
 def test_phoebus_bridge_url_default(patch_config, monkeypatch):
     monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
     monkeypatch.delenv("PHOEBUS_BRIDGE_PORT", raising=False)
@@ -99,7 +92,6 @@ def test_phoebus_bridge_url_default(patch_config, monkeypatch):
         assert http.phoebus_bridge_url() == "http://127.0.0.1:7979"
 
 
-@pytest.mark.unit
 def test_phoebus_bridge_url_config_values(patch_config, monkeypatch):
     """With no env overrides, phoebus.host/phoebus.port answer (#829)."""
     monkeypatch.delenv("PHOEBUS_BRIDGE_URL", raising=False)
@@ -108,7 +100,6 @@ def test_phoebus_bridge_url_config_values(patch_config, monkeypatch):
         assert http.phoebus_bridge_url() == "http://127.0.0.1:19921"
 
 
-@pytest.mark.unit
 def test_phoebus_bridge_default_pure():
     """The shared config-half helper: configured, defaulted, and a bare `phoebus:` key."""
     assert http.phoebus_bridge_default({}) == "http://127.0.0.1:7979"
@@ -124,7 +115,6 @@ def test_phoebus_bridge_default_pure():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_post_json_sends_encoded_payload():
     with patch("urllib.request.urlopen") as urlopen:
         http.post_json("http://localhost:1/api", {"a": 1})
@@ -134,7 +124,6 @@ def test_post_json_sends_encoded_payload():
     assert req.headers["Content-type"] == "application/json"
 
 
-@pytest.mark.unit
 def test_post_json_swallows_unreachable():
     """An unreachable target is non-fatal: it logs a warning and returns None."""
     # Assert on the module logger, not caplog: full-suite logging reconfiguration
@@ -153,7 +142,6 @@ def test_post_json_swallows_unreachable():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_post_json_with_response_success():
     resp = MagicMock()
     resp.status = 200
@@ -166,7 +154,6 @@ def test_post_json_with_response_success():
     assert body == {"ok": True}
 
 
-@pytest.mark.unit
 def test_post_json_with_response_http_error_parses_body():
     """On an HTTPError the status code and parsed error body are returned."""
     err = urllib.error.HTTPError(url="http://x/y", code=403, msg="Forbidden", hdrs=None, fp=None)
@@ -177,7 +164,6 @@ def test_post_json_with_response_http_error_parses_body():
     assert body == {"detail": "not allowed"}
 
 
-@pytest.mark.unit
 def test_post_json_with_response_http_error_unparseable_body():
     """A non-JSON error body degrades to an empty dict, keeping the status code."""
     err = urllib.error.HTTPError(url="http://x/y", code=500, msg="ISE", hdrs=None, fp=None)
@@ -188,7 +174,6 @@ def test_post_json_with_response_http_error_unparseable_body():
     assert body == {}
 
 
-@pytest.mark.unit
 def test_post_json_with_response_unreachable_raises():
     """Connection-level failures propagate (caller distinguishes them)."""
     with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("down")):
@@ -201,7 +186,6 @@ def test_post_json_with_response_unreachable_raises():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_notify_panel_register_success():
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
@@ -211,7 +195,6 @@ def test_notify_panel_register_success():
     assert out == {"ok": True, "status": 200, "data": {"panel": "ok"}}
 
 
-@pytest.mark.unit
 def test_notify_panel_register_rejected_surfaces_detail():
     """A non-200 (server rejection) returns ok=False with the server detail."""
     with (
@@ -226,7 +209,6 @@ def test_notify_panel_register_rejected_surfaces_detail():
     assert out == {"ok": False, "status": 403, "detail": "not on allowlist"}
 
 
-@pytest.mark.unit
 def test_notify_panel_register_unreachable():
     """When the web terminal is down, register reports a friendly unreachable dict."""
     with (
@@ -237,7 +219,6 @@ def test_notify_panel_register_unreachable():
     assert out == {"ok": False, "status": None, "detail": "Web Terminal is not running."}
 
 
-@pytest.mark.unit
 def test_notify_panel_register_passes_health_endpoint():
     """The optional health_endpoint is forwarded in the payload."""
     captured: dict = {}
@@ -270,7 +251,6 @@ def _panels_response(payload: bytes) -> MagicMock:
     return cm
 
 
-@pytest.mark.unit
 def test_fetch_panels_returns_payload_with_freshness_fields():
     """The layout-report fields reach the caller unchanged."""
     body = (
@@ -290,7 +270,6 @@ def test_fetch_panels_returns_payload_with_freshness_fields():
     assert data["open_tiles_dock"] is True
 
 
-@pytest.mark.unit
 def test_fetch_panels_tolerates_server_without_freshness_fields():
     """An older server omitting the fields is not an error — keys are absent."""
     with (
@@ -302,7 +281,6 @@ def test_fetch_panels_tolerates_server_without_freshness_fields():
     assert data.get("open_tiles_age_s") is None
 
 
-@pytest.mark.unit
 def test_fetch_panels_unreachable_returns_none():
     """An unreachable web terminal yields None rather than raising."""
     with (
@@ -314,7 +292,6 @@ def test_fetch_panels_unreachable_returns_none():
     assert mock_logger.warning.called
 
 
-@pytest.mark.unit
 def test_fetch_panels_non_object_payload_returns_none():
     """A JSON body that is not an object is treated as unusable."""
     with (
@@ -329,7 +306,6 @@ def test_fetch_panels_non_object_payload_returns_none():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_notify_panel_arrange_posts_tiles_and_focus():
     """Tiles, focus and the agent attribution are sent to the arrange route."""
     captured: dict = {}
@@ -353,7 +329,6 @@ def test_notify_panel_arrange_posts_tiles_and_focus():
     }
 
 
-@pytest.mark.unit
 def test_notify_panel_arrange_preset_omits_tiles_and_focus():
     """A preset call sends only the preset name (plus attribution)."""
     captured: dict = {}
@@ -371,7 +346,6 @@ def test_notify_panel_arrange_preset_omits_tiles_and_focus():
     assert captured == {"source": "agent", "preset": "injection"}
 
 
-@pytest.mark.unit
 def test_notify_panel_arrange_success_returns_data():
     applied = {"status": "ok", "tiles": ["artifacts"], "focus": None, "prune_rail": False}
     with (
@@ -382,7 +356,6 @@ def test_notify_panel_arrange_success_returns_data():
     assert out == {"ok": True, "status": 200, "data": applied}
 
 
-@pytest.mark.unit
 def test_notify_panel_arrange_rejected_surfaces_detail():
     """A 422 from the route reaches the caller verbatim — never swallowed."""
     detail = "Unknown panel ids: ['bogus']. Valid panel ids: ['artifacts', 'lattice']"
@@ -394,7 +367,6 @@ def test_notify_panel_arrange_rejected_surfaces_detail():
     assert out == {"ok": False, "status": 422, "detail": detail}
 
 
-@pytest.mark.unit
 def test_notify_panel_arrange_stringifies_structured_detail():
     """FastAPI body-validation 422s carry a list; the contract stays textual."""
     structured = [{"loc": ["body", "tiles"], "msg": "value is not a valid list"}]
@@ -408,7 +380,6 @@ def test_notify_panel_arrange_stringifies_structured_detail():
     assert "value is not a valid list" in out["detail"]
 
 
-@pytest.mark.unit
 def test_notify_panel_arrange_unreachable():
     """A down web terminal is reported as such, not raised."""
     with (
@@ -424,7 +395,6 @@ def test_notify_panel_arrange_unreachable():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_notify_panel_visibility_posts_payload():
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
@@ -436,7 +406,6 @@ def test_notify_panel_visibility_posts_payload():
     assert payload == {"panel": "errors", "visible": True, "source": "agent"}
 
 
-@pytest.mark.unit
 def test_notify_panel_focus_includes_url_when_given():
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
@@ -447,7 +416,6 @@ def test_notify_panel_focus_includes_url_when_given():
     assert payload == {"panel": "p1", "url": "http://up", "source": "agent"}
 
 
-@pytest.mark.unit
 def test_notify_panel_focus_omits_url_when_none():
     with (
         patch.object(http, "web_terminal_url", return_value="http://wt"),
@@ -482,7 +450,6 @@ def panel_token(monkeypatch):
     return _apply
 
 
-@pytest.mark.unit
 def test_post_json_sends_bearer_when_token_set(panel_token):
     panel_token("panel-secret")
     with patch("urllib.request.urlopen") as urlopen:
@@ -493,7 +460,6 @@ def test_post_json_sends_bearer_when_token_set(panel_token):
     assert req.headers["Content-type"] == "application/json"
 
 
-@pytest.mark.unit
 def test_post_json_omits_authorization_when_token_unset(panel_token):
     """No carrier means no header at all — never a bare ``Bearer``."""
     panel_token(None)
@@ -503,7 +469,6 @@ def test_post_json_omits_authorization_when_token_unset(panel_token):
     assert req.get_header("Authorization") is None
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
 def test_post_json_omits_authorization_when_token_blank(panel_token, blank):
     """A blank carrier counts as absent — an uninterpolated compose var is ``""``."""
@@ -514,7 +479,6 @@ def test_post_json_omits_authorization_when_token_blank(panel_token, blank):
     assert req.get_header("Authorization") is None
 
 
-@pytest.mark.unit
 def test_bearer_survives_the_process_closing_its_own_carrier(panel_token):
     """An in-process app construction scrubs ``OSPREY_PANEL_TOKEN``; the
     client keeps the value it already saw.
@@ -535,7 +499,6 @@ def test_bearer_survives_the_process_closing_its_own_carrier(panel_token):
     assert after == "Bearer panel-secret"
 
 
-@pytest.mark.unit
 def test_latch_never_invents_a_token(panel_token):
     """A process that never held a carrier sends no bearer, latch or not."""
     panel_token(None)
@@ -544,7 +507,6 @@ def test_latch_never_invents_a_token(panel_token):
     assert http._panel_auth_headers() == {}
 
 
-@pytest.mark.unit
 def test_post_json_reads_token_at_request_time(panel_token):
     """The token is read per request, never captured once at import."""
     panel_token("first")
@@ -557,7 +519,6 @@ def test_post_json_reads_token_at_request_time(panel_token):
     assert (first, second) == ("Bearer first", "Bearer second")
 
 
-@pytest.mark.unit
 def test_post_json_401_stays_silent_and_non_fatal(panel_token):
     """A rejected credential degrades quietly: warn, return None, never raise."""
     panel_token("stale")
@@ -573,7 +534,6 @@ def test_post_json_401_stays_silent_and_non_fatal(panel_token):
     assert any("non-fatal" in msg for msg in logged)
 
 
-@pytest.mark.unit
 def test_post_json_with_response_sends_bearer(panel_token):
     panel_token("panel-secret")
     resp = MagicMock()
@@ -588,7 +548,6 @@ def test_post_json_with_response_sends_bearer(panel_token):
     assert req.headers["Content-type"] == "application/json"
 
 
-@pytest.mark.unit
 def test_post_json_with_response_omits_authorization_when_token_unset(panel_token):
     panel_token(None)
     resp = MagicMock()
@@ -601,7 +560,6 @@ def test_post_json_with_response_omits_authorization_when_token_unset(panel_toke
     assert urlopen.call_args.args[0].get_header("Authorization") is None
 
 
-@pytest.mark.unit
 def test_post_json_with_response_401_returns_status(panel_token):
     """A 401 is a status to report, not an exception — no retry, no raise."""
     panel_token("stale")
@@ -614,7 +572,6 @@ def test_post_json_with_response_401_returns_status(panel_token):
     assert urlopen.call_count == 1
 
 
-@pytest.mark.unit
 def test_notify_panel_register_surfaces_401_detail(panel_token):
     """The 401 reaches the tool as a normal rejection dict, not a crash."""
     panel_token("stale")
@@ -634,7 +591,6 @@ def test_notify_panel_register_surfaces_401_detail(panel_token):
     }
 
 
-@pytest.mark.unit
 def test_fetch_panels_sends_bearer(panel_token):
     panel_token("panel-secret")
     with (
@@ -648,7 +604,6 @@ def test_fetch_panels_sends_bearer(panel_token):
     assert req.get_header("Authorization") == "Bearer panel-secret"
 
 
-@pytest.mark.unit
 def test_fetch_panels_omits_authorization_when_token_unset(panel_token):
     panel_token(None)
     with (
@@ -659,7 +614,6 @@ def test_fetch_panels_omits_authorization_when_token_unset(panel_token):
     assert urlopen.call_args.args[0].get_header("Authorization") is None
 
 
-@pytest.mark.unit
 def test_fetch_panels_401_returns_none_silently(panel_token):
     """A rejected read is indistinguishable from an absent terminal: None, no raise."""
     panel_token("stale")
@@ -676,7 +630,6 @@ def test_fetch_panels_401_returns_none_silently(panel_token):
     assert urlopen.call_count == 1
 
 
-@pytest.mark.unit
 def test_fetch_panels_header_failure_degrades_to_none():
     """Building the credential header is inside the guard, not ahead of it.
 
@@ -698,7 +651,6 @@ def test_fetch_panels_header_failure_degrades_to_none():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_panel_auth_headers_fall_back_to_in_process_credentials(monkeypatch):
     """With no carrier in the environment, the bearer is the panel token this
     process already holds — the one a gallery auto-launched in-thread verifies,
@@ -718,7 +670,6 @@ def test_panel_auth_headers_fall_back_to_in_process_credentials(monkeypatch):
     assert http._panel_auth_headers() == {"Authorization": f"Bearer {held.panel_token}"}
 
 
-@pytest.mark.unit
 def test_panel_auth_headers_send_nothing_when_nothing_is_held(monkeypatch):
     """No carrier, no latch, no holder: no bearer at all, never a minted one."""
     from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, peek_web_credentials
@@ -730,7 +681,6 @@ def test_panel_auth_headers_send_nothing_when_nothing_is_held(monkeypatch):
     assert peek_web_credentials() is None  # the lookup did not populate anything
 
 
-@pytest.mark.unit
 def test_panel_auth_headers_prefer_the_carrier_over_the_holder(monkeypatch):
     """A carrier handed in by the launching process wins over the local holder."""
     from osprey.interfaces.web_auth import (

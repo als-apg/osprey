@@ -43,14 +43,12 @@ def _patch_request(return_value=None, side_effect=None) -> AsyncMock:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_dashboard_url_defaults(monkeypatch):
     monkeypatch.delenv("OSPREY_LATTICE_DASHBOARD_PORT", raising=False)
     with patch(f"{_MOD}.load_osprey_config", return_value={}):
         assert lt._get_dashboard_url() == f"http://127.0.0.1:{default_port('lattice')}"
 
 
-@pytest.mark.unit
 def test_dashboard_url_from_config(monkeypatch):
     monkeypatch.delenv("OSPREY_LATTICE_DASHBOARD_PORT", raising=False)
     with patch(
@@ -59,7 +57,6 @@ def test_dashboard_url_from_config(monkeypatch):
         assert lt._get_dashboard_url() == "http://h:9"
 
 
-@pytest.mark.unit
 def test_dashboard_url_env_overrides_port(monkeypatch):
     monkeypatch.setenv("OSPREY_LATTICE_DASHBOARD_PORT", "5555")
     with patch(f"{_MOD}.load_osprey_config", return_value={"lattice_dashboard": {"port": 8097}}):
@@ -84,7 +81,6 @@ def _mock_async_client(response):
     return patch("httpx.AsyncClient", return_value=cm), client
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("method", ["GET", "POST", "PUT", "DELETE"])
 async def test_dashboard_request_dispatches_method(method):
     resp = MagicMock()
@@ -99,7 +95,6 @@ async def test_dashboard_request_dispatches_method(method):
     verb.assert_awaited_once()
 
 
-@pytest.mark.unit
 async def test_dashboard_request_rejects_unknown_method():
     resp = MagicMock()
     patcher, _client = _mock_async_client(resp)
@@ -113,7 +108,6 @@ async def test_dashboard_request_rejects_unknown_method():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_lattice_init_happy():
     payload = {"summary": {"energy": 2.0}, "families": {"QF": {}, "SD": {}}}
     with _patch_request(return_value=payload) as req:
@@ -127,14 +121,12 @@ async def test_lattice_init_happy():
     assert req.call_args.kwargs["json_body"] == {"lattice_path": "als.m"}
 
 
-@pytest.mark.unit
 async def test_lattice_state_returns_raw():
     with _patch_request(return_value={"base_lattice": "als.m", "figures": {}}):
         result = await _fn(lt.lattice_state)()
     assert json.loads(result)["base_lattice"] == "als.m"
 
 
-@pytest.mark.unit
 async def test_lattice_set_param_happy():
     with _patch_request(return_value={}) as req:
         result = await _fn(lt.lattice_set_param)(family="QF", value=1.5)
@@ -148,14 +140,12 @@ async def test_lattice_set_param_happy():
     assert req.call_args.kwargs["json_body"] == {"family": "QF", "value": 1.5}
 
 
-@pytest.mark.unit
 async def test_lattice_refresh_all_fast_figures():
     with _patch_request(return_value={"launched": ["optics"]}) as req:
         await _fn(lt.lattice_refresh)()
     assert req.call_args.args == ("POST", "/api/refresh")
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("figure", ["da", "fma"])
 async def test_lattice_refresh_verification_figures(figure):
     with _patch_request(return_value={}) as req:
@@ -163,14 +153,12 @@ async def test_lattice_refresh_verification_figures(figure):
     assert req.call_args.args == ("POST", "/api/verify")
 
 
-@pytest.mark.unit
 async def test_lattice_refresh_named_figure():
     with _patch_request(return_value={}) as req:
         await _fn(lt.lattice_refresh)(figure="optics")
     assert req.call_args.args == ("POST", "/api/refresh/optics")
 
 
-@pytest.mark.unit
 async def test_lattice_set_baseline_happy():
     with _patch_request(return_value={"tunes": [0.1, 0.2]}):
         result = await _fn(lt.lattice_set_baseline)()
@@ -179,7 +167,6 @@ async def test_lattice_set_baseline_happy():
     assert data["baseline"] == {"tunes": [0.1, 0.2]}
 
 
-@pytest.mark.unit
 async def test_lattice_get_figure_happy():
     with _patch_request(return_value={"data": [], "layout": {}}) as req:
         result = await _fn(lt.lattice_get_figure)(name="optics")
@@ -187,7 +174,6 @@ async def test_lattice_get_figure_happy():
     assert req.call_args.args == ("GET", "/api/figures/optics")
 
 
-@pytest.mark.unit
 async def test_lattice_get_data_happy():
     with _patch_request(return_value={"s": [0, 1]}) as req:
         result = await _fn(lt.lattice_get_data)(name="optics")
@@ -195,14 +181,12 @@ async def test_lattice_get_data_happy():
     assert req.call_args.args == ("GET", "/api/data/optics")
 
 
-@pytest.mark.unit
 async def test_lattice_get_settings_happy():
     with _patch_request(return_value={"da": {"n_angles": 25}}):
         result = await _fn(lt.lattice_get_settings)()
     assert json.loads(result)["da"]["n_angles"] == 25
 
 
-@pytest.mark.unit
 async def test_lattice_update_settings_happy():
     with _patch_request(return_value={"da": {"n_angles": 25}}) as req:
         result = await _fn(lt.lattice_update_settings)(settings={"da": {"n_angles": 25}})
@@ -212,7 +196,6 @@ async def test_lattice_update_settings_happy():
     assert req.call_args.kwargs["json_body"] == {"settings": {"da": {"n_angles": 25}}}
 
 
-@pytest.mark.unit
 async def test_lattice_clear_baseline_happy():
     with _patch_request(return_value={"cleared": True}) as req:
         result = await _fn(lt.lattice_clear_baseline)()
@@ -249,7 +232,6 @@ _HTTP_ERROR_TOOLS = [
 ]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("tool_name, kwargs", _ALL_TOOLS)
 async def test_connect_error_maps_to_service_unavailable(tool_name, kwargs):
     """A dashboard that isn't running yields a service_unavailable envelope."""
@@ -258,7 +240,6 @@ async def test_connect_error_maps_to_service_unavailable(tool_name, kwargs):
             await _fn(getattr(lt, tool_name))(**kwargs)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("tool_name, kwargs", _ALL_TOOLS)
 async def test_generic_exception_maps_to_lattice_error(tool_name, kwargs):
     """An unexpected error falls through to a lattice_error envelope."""
@@ -268,7 +249,6 @@ async def test_generic_exception_maps_to_lattice_error(tool_name, kwargs):
     assert "kaboom" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("tool_name, kwargs", _HTTP_ERROR_TOOLS)
 async def test_http_status_error_maps_to_lattice_error(tool_name, kwargs):
     """A non-2xx dashboard response surfaces the body text in a lattice_error."""
@@ -278,7 +258,6 @@ async def test_http_status_error_maps_to_lattice_error(tool_name, kwargs):
     assert "server said no" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("tool_name, kwargs", _ALL_TOOLS)
 async def test_tool_error_passes_through_unwrapped(tool_name, kwargs):
     """A ToolError raised inside the request is re-raised as-is, not remapped."""
@@ -293,7 +272,6 @@ async def test_tool_error_passes_through_unwrapped(tool_name, kwargs):
             await _fn(getattr(lt, tool_name))(**kwargs)
 
 
-@pytest.mark.unit
 async def test_get_figure_http_error_includes_valid_names_hint():
     """The figure tool's error carries the 'call lattice_refresh first' guidance."""
     with _patch_request(side_effect=_http_status_error(status=404, text="not computed")):

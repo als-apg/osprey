@@ -24,9 +24,6 @@ import pytest
 
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 
-pytestmark = pytest.mark.unit
-
-
 #: Tools registered by a framework server but named nowhere in its registry
 #: entry. Empty: the nine workspace tools this baseline used to carry are now
 #: classified — the rail verbs and ``register_panel`` ask, ``artifact_pin`` and

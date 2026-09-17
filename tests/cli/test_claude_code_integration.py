@@ -619,20 +619,17 @@ class TestChannelFinderAgentTemplateFailGlobal:
             facility_name="TestFacility",
         )
 
-    @pytest.mark.unit
     def test_unknown_mode_fails_the_render_and_names_the_mode(self):
         manager = TemplateManager()
         with pytest.raises(TemplateRuntimeError, match="bogus"):
             self._render(manager.jinja_env, "bogus")
 
-    @pytest.mark.unit
     @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
     def test_each_registered_mode_still_renders(self, mode):
         manager = TemplateManager()
         rendered = self._render(manager.jinja_env, mode)
         assert "name: channel-finder" in rendered
 
-    @pytest.mark.unit
     def test_fail_global_is_registered_on_the_manager_environment(self):
         manager = TemplateManager()
         assert "fail" in manager.jinja_env.globals
@@ -648,7 +645,6 @@ class TestChannelFinderPipelineModeRefusal:
     ``permissions.allow`` and ship an agent that can call no tools at all.
     """
 
-    @pytest.mark.unit
     def test_resolve_servers_rejects_unknown_pipeline(self):
         from osprey.registry.mcp import resolve_servers
         from osprey.services.channel_finder.core.exceptions import PipelineModeError
@@ -656,7 +652,6 @@ class TestChannelFinderPipelineModeRefusal:
         with pytest.raises(PipelineModeError, match="bogus"):
             resolve_servers({}, {"channel_finder_pipeline": "bogus"})
 
-    @pytest.mark.unit
     @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
     def test_resolve_servers_allows_each_registered_pipeline_tool(self, mode):
         from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE, resolve_servers

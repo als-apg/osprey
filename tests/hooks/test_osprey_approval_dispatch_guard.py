@@ -8,8 +8,6 @@ unaffected: it falls through to the worker's context-aware ``can_use_tool``
 backstop, which decides.
 """
 
-import pytest
-
 DISPATCH_HOOK_CONFIG = {
     "server_prefixes": ["mcp__controls__"],
     "approval_prefixes": ["mcp__controls__"],
@@ -24,7 +22,6 @@ def _decision(result) -> str | None:
     return result.get("hookSpecificOutput", {}).get("permissionDecision")
 
 
-@pytest.mark.unit
 def test_allow_path_emits_no_decision_in_dispatch_context(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -47,7 +44,6 @@ def test_allow_path_emits_no_decision_in_dispatch_context(
     assert _decision(result) is None
 
 
-@pytest.mark.unit
 def test_allow_path_unchanged_outside_dispatch_context(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -69,7 +65,6 @@ def test_allow_path_unchanged_outside_dispatch_context(
     assert _decision(result) == "allow"
 
 
-@pytest.mark.unit
 def test_skip_policy_emits_no_decision_in_dispatch_context(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -98,7 +93,6 @@ def test_skip_policy_emits_no_decision_in_dispatch_context(
     assert _decision(result) is None
 
 
-@pytest.mark.unit
 def test_ask_path_still_asks_in_dispatch_context(tmp_path, hook_runner, make_config, monkeypatch):
     """The approval ask-gate for writes is untouched by the dispatch guard."""
     monkeypatch.setenv("OSPREY_DISPATCH_RUN", "1")

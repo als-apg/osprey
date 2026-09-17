@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     initialize_cf_hier_context,
 )
@@ -17,7 +15,6 @@ def _setup(tmp_path, monkeypatch):
     initialize_cf_hier_context()
 
 
-@pytest.mark.unit
 def test_get_options_happy_path(tmp_path, monkeypatch):
     """Returns options list for a valid level and selections."""
     _setup(tmp_path, monkeypatch)
@@ -45,7 +42,6 @@ def test_get_options_happy_path(tmp_path, monkeypatch):
     mock_db.get_options_at_level.assert_called_once_with("system", {})
 
 
-@pytest.mark.unit
 def test_get_options_with_selections(tmp_path, monkeypatch):
     """Passes selections dict through to database."""
     _setup(tmp_path, monkeypatch)
@@ -70,7 +66,6 @@ def test_get_options_with_selections(tmp_path, monkeypatch):
     mock_db.get_options_at_level.assert_called_once_with("family", {"system": "SR"})
 
 
-@pytest.mark.unit
 def test_get_options_value_error(tmp_path, monkeypatch):
     """ValueError from database returns validation_error."""
     _setup(tmp_path, monkeypatch)
@@ -92,7 +87,6 @@ def test_get_options_value_error(tmp_path, monkeypatch):
     assert "bogus" in data["error_message"]
 
 
-@pytest.mark.unit
 def test_get_options_internal_error(tmp_path, monkeypatch):
     """Unexpected exception returns internal_error."""
     _setup(tmp_path, monkeypatch)

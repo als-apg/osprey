@@ -43,7 +43,6 @@ def _no_writes():
     return {"has_writes": False, "has_reads": False, "detected_patterns": {}}
 
 
-@pytest.mark.unit
 async def test_execute_file_basic(tmp_path, monkeypatch):
     """Basic execution reads file, injects preamble, and returns summary."""
     monkeypatch.chdir(tmp_path)
@@ -86,7 +85,6 @@ async def test_execute_file_basic(tmp_path, monkeypatch):
     assert "hello world" in data["summary"]["output"]
 
 
-@pytest.mark.unit
 async def test_execute_file_relative_path(tmp_path, monkeypatch):
     """Relative file paths resolve against project root."""
     monkeypatch.chdir(tmp_path)
@@ -124,7 +122,6 @@ async def test_execute_file_relative_path(tmp_path, monkeypatch):
     assert data["summary"]["status"] == "Success"
 
 
-@pytest.mark.unit
 async def test_execute_file_not_found(tmp_path, monkeypatch):
     """Non-existent file returns file_not_found error."""
     monkeypatch.chdir(tmp_path)
@@ -143,7 +140,6 @@ async def test_execute_file_not_found(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_execute_file_not_python(tmp_path, monkeypatch):
     """Non-.py file returns validation_error."""
     monkeypatch.chdir(tmp_path)
@@ -166,7 +162,6 @@ async def test_execute_file_not_python(tmp_path, monkeypatch):
     assert "not a python file" in data["error_message"].lower()
 
 
-@pytest.mark.unit
 async def test_execute_file_outside_project_root(tmp_path, monkeypatch):
     """File outside project root returns validation_error (containment)."""
     monkeypatch.chdir(tmp_path)
@@ -191,7 +186,6 @@ async def test_execute_file_outside_project_root(tmp_path, monkeypatch):
     assert "outside" in data["error_message"].lower()
 
 
-@pytest.mark.unit
 async def test_execute_file_safety_check_blocks(tmp_path, monkeypatch):
     """File with dangerous code is blocked by safety checks."""
     monkeypatch.chdir(tmp_path)
@@ -227,7 +221,6 @@ async def test_execute_file_safety_check_blocks(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_execute_file_readonly_blocks_writes(tmp_path, monkeypatch):
     """File with write patterns in readonly mode is blocked."""
     monkeypatch.chdir(tmp_path)
@@ -267,7 +260,6 @@ async def test_execute_file_readonly_blocks_writes(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
     """Write patterns pass in readwrite mode."""
     monkeypatch.chdir(tmp_path)
@@ -315,7 +307,6 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
     assert data["summary"]["status"] == "Success"
 
 
-@pytest.mark.unit
 async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypatch):
     """The deployment kill switch refuses readwrite runs when writes are disabled.
 
@@ -366,7 +357,6 @@ async def test_execute_file_deployment_writes_disabled_blocks(tmp_path, monkeypa
     assert "writes_enabled" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("mode", ["ReadWrite", "READWRITE", "write", "read_write"])
 async def test_execute_file_rejects_unknown_execution_mode(tmp_path, monkeypatch, mode):
     """Modes outside {readonly, readwrite} are rejected before any gate runs."""
@@ -413,7 +403,6 @@ async def test_execute_file_rejects_unknown_execution_mode(tmp_path, monkeypatch
     assert "execution_mode" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 async def test_execute_file_script_args(tmp_path, monkeypatch):
     """Script args are injected into sys.argv preamble."""
     monkeypatch.chdir(tmp_path)
@@ -452,7 +441,6 @@ async def test_execute_file_script_args(tmp_path, monkeypatch):
     assert "sys.argv = [" in executed_code
 
 
-@pytest.mark.unit
 async def test_execute_file_empty(tmp_path, monkeypatch):
     """Empty file returns validation_error."""
     monkeypatch.chdir(tmp_path)
@@ -475,7 +463,6 @@ async def test_execute_file_empty(tmp_path, monkeypatch):
     assert "empty" in data["error_message"].lower()
 
 
-@pytest.mark.unit
 async def test_execute_file_encoding_error(tmp_path, monkeypatch):
     """Binary file returns clean validation error."""
     monkeypatch.chdir(tmp_path)
@@ -498,7 +485,6 @@ async def test_execute_file_encoding_error(tmp_path, monkeypatch):
     assert "utf-8" in data["error_message"].lower()
 
 
-@pytest.mark.unit
 async def test_execute_file_empty_path():
     """Empty file_path returns validation_error."""
     fn = _get_python_execute_file()
@@ -512,7 +498,6 @@ async def test_execute_file_empty_path():
     assert "no file path" in data["error_message"].lower()
 
 
-@pytest.mark.unit
 async def test_execute_file_readonly_refuses_epics_import(tmp_path, monkeypatch):
     """Same readonly import gate as ``execute``: the file's imports are walked."""
     monkeypatch.chdir(tmp_path)
@@ -535,7 +520,6 @@ async def test_execute_file_readonly_refuses_epics_import(tmp_path, monkeypatch)
     mock_exec.assert_not_called()
 
 
-@pytest.mark.unit
 async def test_execute_file_tool_description_has_no_container_claim():
     """The registered tool description says subprocess, not the old container claim."""
     from osprey.mcp_server.python_executor.server import mcp

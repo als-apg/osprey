@@ -36,8 +36,6 @@ ROOT_PRESETS = ("control-assistant", "hello-world", "ariel-standalone", "channel
 
 _ROW_RE = re.compile(r"^\s*approval\.tools\.([a-z_]+):", re.MULTILINE)
 
-pytestmark = pytest.mark.unit
-
 
 def _load_guard():
     """Import ``scripts/check_config_keys.py`` by path, as its own suite does."""

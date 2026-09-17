@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
@@ -17,7 +15,6 @@ def _setup(tmp_path, monkeypatch):
     initialize_cf_ml_context()
 
 
-@pytest.mark.unit
 def test_statistics_returns_stats(tmp_path, monkeypatch):
     """Happy path: returns database statistics."""
     _setup(tmp_path, monkeypatch)
@@ -45,7 +42,6 @@ def test_statistics_returns_stats(tmp_path, monkeypatch):
     assert data["total_families"] == 25
 
 
-@pytest.mark.unit
 def test_statistics_empty_database(tmp_path, monkeypatch):
     """Returns zero counts for empty database."""
     _setup(tmp_path, monkeypatch)
@@ -72,7 +68,6 @@ def test_statistics_empty_database(tmp_path, monkeypatch):
     assert data["total_systems"] == 0
 
 
-@pytest.mark.unit
 def test_statistics_internal_error(tmp_path, monkeypatch):
     """Internal error returns standard error envelope."""
     _setup(tmp_path, monkeypatch)

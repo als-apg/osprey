@@ -26,8 +26,6 @@ from osprey.errors import ChannelLimitsViolationError
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey.services.python_executor.write_surface import _CLIENT_WRITE_TARGETS
 
-pytestmark = pytest.mark.unit
-
 RPC_REFUSAL = "rpc is not mediated and cannot be approved"
 
 

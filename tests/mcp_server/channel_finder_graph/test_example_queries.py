@@ -27,8 +27,6 @@ import pytest
 
 from osprey.mcp_server.channel_finder_graph.tools.examples_data import EXAMPLE_QUERIES
 
-pytestmark = pytest.mark.unit
-
 _SERVER_CONTEXT_MODULE = "osprey.mcp_server.graph.server_context"
 
 _EXAMPLE_FIELDS = {"key", "title", "description", "cypher", "parameters"}

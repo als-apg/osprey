@@ -183,7 +183,6 @@ def sandbox(tmp_path: Path) -> _Sandbox:
 # ---------------------------------------------------------------------------
 # Fixture self-check — without this the refusal cases can pass vacuously
 # ---------------------------------------------------------------------------
-@pytest.mark.unit
 class TestFixtureIsolation:
     """The refusal cases are only meaningful if the isolation actually took."""
 
@@ -217,7 +216,6 @@ class TestFixtureIsolation:
 # ---------------------------------------------------------------------------
 # Case 1 — site-packages / Python environment reads
 # ---------------------------------------------------------------------------
-@pytest.mark.unit
 class TestSitePackagesRead:
     """Reading the Python environment is allowed, by both routes.
 
@@ -251,7 +249,6 @@ class TestSitePackagesRead:
 # ---------------------------------------------------------------------------
 # Case 2 — temp directory writes
 # ---------------------------------------------------------------------------
-@pytest.mark.unit
 class TestTempDirWrite:
     """``tempfile.gettempdir()`` is an unconditionally writable allowed root."""
 
@@ -277,7 +274,6 @@ class TestTempDirWrite:
 # ---------------------------------------------------------------------------
 # Case 3 — project-root reads
 # ---------------------------------------------------------------------------
-@pytest.mark.unit
 class TestProjectRootRead:
     """Project root is readable — that is the point of the read-only clause."""
 
@@ -298,7 +294,6 @@ class TestProjectRootRead:
 # ---------------------------------------------------------------------------
 # Case 4 — project-root writes: refused via builtins, NOT via pathlib
 # ---------------------------------------------------------------------------
-@pytest.mark.unit
 class TestProjectRootIsReadOnly:
     """Project root is read-only, by both routes.
 
@@ -371,7 +366,6 @@ class TestProjectRootIsReadOnly:
 # ---------------------------------------------------------------------------
 # Case 5 — unrelated paths
 # ---------------------------------------------------------------------------
-@pytest.mark.unit
 class TestUnrelatedPathRefusal:
     """A path under no allowed root is refused by ``builtins.open``.
 
@@ -415,7 +409,6 @@ class TestUnrelatedPathRefusal:
 # ---------------------------------------------------------------------------
 # Case 6 — the asymmetry, stated explicitly
 # ---------------------------------------------------------------------------
-@pytest.mark.unit
 class TestReadOutsideAllowedRoots:
     """THE asymmetry: one absolute path, outside everything, two verdicts.
 

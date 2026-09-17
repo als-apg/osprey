@@ -49,8 +49,6 @@ from osprey.deployment.web_terminals.render import (
     _auth_tls_context,
 )
 
-pytestmark = pytest.mark.unit
-
 #: The derived booleans, in the order the table above reads them.
 _BOOLEANS = (
     "sidecar_active",

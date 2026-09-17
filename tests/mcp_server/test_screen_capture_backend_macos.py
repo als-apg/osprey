@@ -43,7 +43,6 @@ def backend():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_capture_full(backend, tmp_path):
     """capture_full runs screencapture and sips, returns ImageInfo."""
     filepath = str(tmp_path / "test.png")
@@ -70,7 +69,6 @@ async def test_capture_full(backend, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_capture_display(backend, tmp_path):
     """capture_display passes -D flag."""
     filepath = str(tmp_path / "test.png")
@@ -98,7 +96,6 @@ async def test_capture_display(backend, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_capture_region(backend, tmp_path):
     """capture_region passes -R flag with coordinates."""
     filepath = str(tmp_path / "test.png")
@@ -127,7 +124,6 @@ async def test_capture_region(backend, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_capture_window_by_wid(backend, tmp_path):
     """capture_window with numeric WID uses -l flag."""
     filepath = str(tmp_path / "test.png")
@@ -150,7 +146,6 @@ async def test_capture_window_by_wid(backend, tmp_path):
     assert "-o" in sc_args
 
 
-@pytest.mark.unit
 async def test_capture_window_by_name(backend, tmp_path):
     """capture_window with app name resolves WID via Swift."""
     filepath = str(tmp_path / "test.png")
@@ -177,7 +172,6 @@ async def test_capture_window_by_name(backend, tmp_path):
     assert "-l42" in sc_args
 
 
-@pytest.mark.unit
 async def test_capture_window_not_found(backend, tmp_path):
     """capture_window raises WindowNotFoundError for unknown app."""
     filepath = str(tmp_path / "test.png")
@@ -197,7 +191,6 @@ async def test_capture_window_not_found(backend, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_list_windows_basic(backend):
     """list_windows returns WindowInfo objects."""
     mock_windows = [
@@ -224,7 +217,6 @@ async def test_list_windows_basic(backend):
     assert windows[1].wid == 2
 
 
-@pytest.mark.unit
 async def test_list_windows_filter(backend):
     """list_windows filters by app name."""
     mock_windows = [
@@ -255,7 +247,6 @@ async def test_list_windows_filter(backend):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_bring_to_front(backend):
     """bring_to_front runs osascript with activate."""
     captured_args = []
@@ -272,14 +263,12 @@ async def test_bring_to_front(backend):
     assert "Phoebus" in captured_args[0][2]
 
 
-@pytest.mark.unit
 async def test_injection_prevention(backend):
     """App names with special characters raise ValueError."""
     with pytest.raises(ValueError, match="Invalid app name"):
         await backend.bring_to_front('Finder"; do shell script "rm -rf /')
 
 
-@pytest.mark.unit
 async def test_move_window(backend):
     """move_window runs osascript with position."""
     captured_args = []
@@ -295,7 +284,6 @@ async def test_move_window(backend):
     assert "{100, 200}" in captured_args[0][2]
 
 
-@pytest.mark.unit
 async def test_resize_window(backend):
     """resize_window runs osascript with size."""
     captured_args = []

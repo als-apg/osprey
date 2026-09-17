@@ -14,7 +14,6 @@ import shutil
 import time
 from unittest.mock import MagicMock
 
-import pytest
 from watchdog.events import (
     DirDeletedEvent,
     DirModifiedEvent,
@@ -119,7 +118,6 @@ def _index_handler(tmp_path, broadcaster):
     return handler
 
 
-@pytest.mark.unit
 class TestStoreWatcher:
     """Tests for StoreIndexWatcher."""
 
@@ -350,7 +348,6 @@ class TestStoreWatcher:
         assert [e for e in announced if e.get("title") == "Announced From A Bytes Path"]
 
 
-@pytest.mark.unit
 class TestACoalescedDirectoryFrame:
     """The index write can arrive as a frame about its directory.
 
@@ -581,7 +578,6 @@ class TestACoalescedDirectoryFrame:
         assert handler._last_stamp[str(index)] == one_level_listing(index.parent)["artifacts.json"]
 
 
-@pytest.mark.unit
 class TestAReconciliationPass:
     """The trigger that stands on the filesystem rather than on a notification.
 

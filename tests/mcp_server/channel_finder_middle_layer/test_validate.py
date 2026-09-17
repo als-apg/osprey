@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
@@ -17,7 +15,6 @@ def _setup(tmp_path, monkeypatch):
     initialize_cf_ml_context()
 
 
-@pytest.mark.unit
 def test_validate_returns_results(tmp_path, monkeypatch):
     """Happy path: validates channel names and returns results."""
     _setup(tmp_path, monkeypatch)
@@ -43,7 +40,6 @@ def test_validate_returns_results(tmp_path, monkeypatch):
     assert data["results"][1]["valid"] is False
 
 
-@pytest.mark.unit
 def test_validate_empty_list(tmp_path, monkeypatch):
     """Empty channel list returns validation_error envelope."""
     _setup(tmp_path, monkeypatch)
@@ -59,7 +55,6 @@ def test_validate_empty_list(tmp_path, monkeypatch):
     assert "Empty channel list" in data["error_message"]
 
 
-@pytest.mark.unit
 def test_validate_internal_error(tmp_path, monkeypatch):
     """Internal error returns standard error envelope."""
     _setup(tmp_path, monkeypatch)

@@ -82,7 +82,6 @@ async def _build(exec_result, *, save_output, patterns=None):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_inline_success_returns_summary():
     result = await _build(_ok_result(), save_output=False)
     assert result.isError is False
@@ -94,7 +93,6 @@ async def test_inline_success_returns_summary():
     assert data["has_errors"] is False
 
 
-@pytest.mark.unit
 async def test_inline_error_raises_execution_error():
     with pytest.raises(Exception) as exc_info:
         await _build(_err_result(stderr="ValueError: nope"), save_output=False)
@@ -107,7 +105,6 @@ async def test_inline_error_raises_execution_error():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("save_output", [False, True])
 async def test_setup_failure_is_a_service_outage_not_a_code_error(save_output):
     """A sandbox that never started is ``service_unavailable`` (Connection class).
@@ -129,7 +126,6 @@ async def test_setup_failure_is_a_service_outage_not_a_code_error(save_output):
     assert "disk full" in json.dumps(envelope["details"])
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("save_output", [False, True])
 async def test_script_error_names_subsystem_and_suggests_a_fix(save_output):
     """The user's own traceback stays ``execution_error`` — with a next step."""
@@ -141,7 +137,6 @@ async def test_script_error_names_subsystem_and_suggests_a_fix(save_output):
     assert envelope["suggestions"]
 
 
-@pytest.mark.unit
 async def test_timeout_is_an_execution_error_with_its_own_kind():
     """A run the sandbox killed is the script's problem, distinguished in details."""
     result = _err_result(
@@ -159,7 +154,6 @@ async def test_timeout_is_an_execution_error_with_its_own_kind():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_persisted_success_returns_tool_response_with_notebook():
     result = await _build(_ok_result(), save_output=True)
     assert result.isError is False
@@ -169,7 +163,6 @@ async def test_persisted_success_returns_tool_response_with_notebook():
     assert data["notebook_artifact_id"] in data.get("artifact_ids", [])
 
 
-@pytest.mark.unit
 async def test_execution_method_is_surfaced_honestly():
     """The response builder passes ``execution_method_used`` through verbatim —
     it is not the vocabulary choke point (that's ``resolve_execution_method``),
@@ -186,7 +179,6 @@ async def test_execution_method_is_surfaced_honestly():
     assert data["execution_method"] == "subprocess"
 
 
-@pytest.mark.unit
 async def test_persisted_error_raises_execution_error():
     with pytest.raises(Exception) as exc_info:
         await _build(_err_result(stderr="RuntimeError: kaput"), save_output=True)
@@ -201,7 +193,6 @@ async def test_persisted_error_raises_execution_error():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_figures_are_saved_as_artifacts(tmp_path):
     fig = tmp_path / "plot.png"
     fig.write_bytes(b"\x89PNG\r\n\x1a\nfakepng")
@@ -211,7 +202,6 @@ async def test_figures_are_saved_as_artifacts(tmp_path):
     assert data.get("artifact_ids")
 
 
-@pytest.mark.unit
 async def test_subprocess_artifacts_are_saved(tmp_path):
     art_path = tmp_path / "table.csv"
     art_path.write_text("a,b\n1,2\n")
@@ -227,7 +217,6 @@ async def test_subprocess_artifacts_are_saved(tmp_path):
     assert data.get("artifact_ids")
 
 
-@pytest.mark.unit
 async def test_bad_figure_path_is_non_fatal():
     """A figure path that can't be read is logged and skipped, not raised."""
     result = await _build(
@@ -237,7 +226,6 @@ async def test_bad_figure_path_is_non_fatal():
     assert result.isError is False
 
 
-@pytest.mark.unit
 async def test_bad_subprocess_artifact_is_non_fatal():
     """A subprocess artifact whose file is missing is logged and skipped."""
     art = {
@@ -251,7 +239,6 @@ async def test_bad_subprocess_artifact_is_non_fatal():
     assert result.isError is False
 
 
-@pytest.mark.unit
 async def test_notebook_creation_failure_is_non_fatal():
     """If notebook rendering fails, the response is still produced without it."""
     with patch(
@@ -264,7 +251,6 @@ async def test_notebook_creation_failure_is_non_fatal():
     assert "notebook_artifact_id" not in data
 
 
-@pytest.mark.unit
 async def test_gallery_url_failure_is_swallowed(tmp_path):
     """A failing gallery_url lookup doesn't break the persisted response."""
     fig = tmp_path / "probe.png"

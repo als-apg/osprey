@@ -29,8 +29,6 @@ from osprey.deployment.web_terminals import auth_credentials, lifecycle, seeding
 from osprey.deployment.web_terminals.auth_credentials import TERMINAL_SECRET_VAR_PREFIX
 from osprey.utils.dotenv import ENV_LOCAL_FILENAME, parse_dotenv_file
 
-pytestmark = pytest.mark.unit
-
 ALICE_SECRET = f"{TERMINAL_SECRET_VAR_PREFIX}ALICE"
 BOB_SECRET = f"{TERMINAL_SECRET_VAR_PREFIX}BOB"
 

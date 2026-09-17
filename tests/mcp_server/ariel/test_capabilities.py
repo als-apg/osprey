@@ -2,8 +2,6 @@
 
 import json
 
-import pytest
-
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.registry import get_registry
 from tests.mcp_server.ariel.conftest import get_tool_fn
@@ -47,7 +45,6 @@ def _setup_registry(tmp_path, monkeypatch, search_modules=None, vocabulary=None)
     initialize_ariel_context()
 
 
-@pytest.mark.unit
 async def test_capabilities_returns_modules(tmp_path, monkeypatch):
     """Capabilities returns enabled search modules."""
     _setup_registry(tmp_path, monkeypatch)
@@ -61,7 +58,6 @@ async def test_capabilities_returns_modules(tmp_path, monkeypatch):
     assert "semantic" in data["enabled_search_modules"]
 
 
-@pytest.mark.unit
 async def test_capabilities_includes_search_modes(tmp_path, monkeypatch):
     """Capabilities advertises every registered, enabled search module."""
     _setup_registry(tmp_path, monkeypatch)
@@ -74,7 +70,6 @@ async def test_capabilities_includes_search_modes(tmp_path, monkeypatch):
     assert "semantic" in data["search_modes"]
 
 
-@pytest.mark.unit
 async def test_capabilities_omits_sql_query_mode(tmp_path, monkeypatch):
     """``sql_query`` is a tool, not a mode, so it never appears in the mode list."""
     _setup_registry(tmp_path, monkeypatch)
@@ -86,7 +81,6 @@ async def test_capabilities_omits_sql_query_mode(tmp_path, monkeypatch):
     assert "sql_query" not in data["search_modes"]
 
 
-@pytest.mark.unit
 async def test_capabilities_omits_disabled_modes(tmp_path, monkeypatch):
     """A registered module that config disables is not advertised as a mode."""
     _setup_registry(
@@ -106,7 +100,6 @@ async def test_capabilities_omits_disabled_modes(tmp_path, monkeypatch):
     assert "semantic" not in data["search_modes"]
 
 
-@pytest.mark.unit
 async def test_capabilities_no_registry_import():
     """Capabilities does NOT import from osprey.registry (main framework)."""
     import ast
@@ -161,7 +154,6 @@ def _shared_parameter_names(data):
     return [parameter["name"] for parameter in data["shared_parameters"]]
 
 
-@pytest.mark.unit
 async def test_capabilities_reports_the_vocabulary(tmp_path, monkeypatch):
     """An agent learns the vocabulary exists and how big it is."""
     _setup_registry(
@@ -180,7 +172,6 @@ async def test_capabilities_reports_the_vocabulary(tmp_path, monkeypatch):
     }
 
 
-@pytest.mark.unit
 async def test_capabilities_advertises_expand_query_when_enabled(tmp_path, monkeypatch):
     """The per-call toggle is advertised only where it does something."""
     _setup_registry(
@@ -195,7 +186,6 @@ async def test_capabilities_advertises_expand_query_when_enabled(tmp_path, monke
     assert "expand_query" in _shared_parameter_names(data)
 
 
-@pytest.mark.unit
 async def test_capabilities_omits_expand_query_when_disabled(tmp_path, monkeypatch):
     """No vocabulary means no toggle to click and no capability to explain."""
     _setup_registry(tmp_path, monkeypatch)
@@ -212,7 +202,6 @@ async def test_capabilities_omits_expand_query_when_disabled(tmp_path, monkeypat
     assert "max_results" in _shared_parameter_names(data)
 
 
-@pytest.mark.unit
 async def test_capabilities_reports_expand_by_default_off(tmp_path, monkeypatch):
     """A deployment that ships the vocabulary switched off says so."""
     _setup_registry(
@@ -233,7 +222,6 @@ async def test_capabilities_reports_expand_by_default_off(tmp_path, monkeypatch)
     assert expand["default"] is False
 
 
-@pytest.mark.unit
 async def test_capabilities_docstring_explains_the_vocabulary_block(tmp_path, monkeypatch):
     """The docstring is a prompt surface: it must name what it now returns."""
     from osprey.mcp_server.ariel.tools.capabilities import capabilities

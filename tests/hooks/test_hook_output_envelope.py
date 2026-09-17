@@ -23,8 +23,6 @@ import pytest
 
 from tests.hooks.test_hook_docstring_frontmatter import HOOKS_DIR
 
-pytestmark = pytest.mark.unit
-
 #: Every hook script plus the helpers, so a mapping built in a shared module is
 #: covered too. Discovered rather than listed: a new hook joins this guard by
 #: existing.

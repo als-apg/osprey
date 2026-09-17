@@ -25,8 +25,6 @@ from osprey.services.bluesky_bridge.document_plane import RunDocumentRouter
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 from osprey.services.bluesky_bridge.queue_backend import PLAN_META_KEY
 
-pytestmark = pytest.mark.unit
-
 
 @pytest.fixture(autouse=True)
 def _isolated_buffers():

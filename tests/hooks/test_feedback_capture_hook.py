@@ -73,7 +73,6 @@ def _setup_subagent_transcript(tmp_path, main_name, subagent_content):
 # -- Tests --------------------------------------------------------------------
 
 
-@pytest.mark.unit
 class TestFeedbackCaptureResultUnwrapping:
     """The hook must unwrap the {"result": "..."} wrapper from PostToolUse."""
 
@@ -154,7 +153,6 @@ class TestFeedbackCaptureResultUnwrapping:
         assert item["channel_count"] == 2
 
 
-@pytest.mark.unit
 class TestFeedbackCaptureAgentTask:
     """The hook should extract the delegation prompt from the sub-agent transcript.
 
@@ -271,7 +269,6 @@ class TestFeedbackCaptureAgentTask:
         assert item["agent_task"] == "Find corrector magnets"
 
 
-@pytest.mark.unit
 class TestFeedbackCaptureNoTotal:
     """The hook should skip responses with no total or total <= 0."""
 
@@ -293,7 +290,6 @@ class TestFeedbackCaptureNoTotal:
         assert len(items) == 0, f"Expected no items for total=0, got: {items}"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "stdin",
     ["", "{nope", "[]", "[1,2,3]"],

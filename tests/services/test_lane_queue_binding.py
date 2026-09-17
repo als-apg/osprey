@@ -70,8 +70,6 @@ from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
-pytestmark = pytest.mark.unit
-
 _CTX = "osprey.mcp_server.bluesky.server_context"
 
 # Lane 1 resolves its URL from `bluesky.bridge_url`, every further lane from its

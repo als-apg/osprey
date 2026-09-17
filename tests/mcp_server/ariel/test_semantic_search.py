@@ -42,7 +42,6 @@ def _setup_registry(tmp_path, monkeypatch):
     initialize_ariel_context()
 
 
-@pytest.mark.unit
 async def test_semantic_search_basic(tmp_path, monkeypatch):
     """Basic semantic search returns matching entries."""
     _setup_registry(tmp_path, monkeypatch)
@@ -67,7 +66,6 @@ async def test_semantic_search_basic(tmp_path, monkeypatch):
     assert data["mode"] == "semantic"
 
 
-@pytest.mark.unit
 async def test_semantic_search_similarity_threshold(tmp_path, monkeypatch):
     """similarity_threshold is passed through via advanced_params."""
     _setup_registry(tmp_path, monkeypatch)
@@ -87,7 +85,6 @@ async def test_semantic_search_similarity_threshold(tmp_path, monkeypatch):
     assert call_kwargs["advanced_params"]["similarity_threshold"] == 0.8
 
 
-@pytest.mark.unit
 async def test_semantic_search_exclude_entry_ids(tmp_path, monkeypatch):
     """exclude_entry_ids filters out entries from results."""
     _setup_registry(tmp_path, monkeypatch)
@@ -113,7 +110,6 @@ async def test_semantic_search_exclude_entry_ids(tmp_path, monkeypatch):
     assert data["entries"][0]["entry_id"] == "e2"
 
 
-@pytest.mark.unit
 async def test_semantic_search_empty_query():
     """Empty query returns validation error."""
     fn = _get_semantic_search()
@@ -123,7 +119,6 @@ async def test_semantic_search_empty_query():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_semantic_search_degraded_returns_non_error(tmp_path, monkeypatch):
     """When semantic is unavailable, the tool returns a non-error result (#276).
 
@@ -155,7 +150,6 @@ async def test_semantic_search_degraded_returns_non_error(tmp_path, monkeypatch)
     assert "keyword" in data["reasoning"].lower()
 
 
-@pytest.mark.unit
 async def test_semantic_search_service_error(tmp_path, monkeypatch):
     """Service failure returns standard error format."""
     _setup_registry(tmp_path, monkeypatch)
@@ -175,7 +169,6 @@ async def test_semantic_search_service_error(tmp_path, monkeypatch):
     assert "Embedding service down" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_vocabulary_error_names_config_key_and_remedy(tmp_path, monkeypatch):
     """A broken facility vocabulary is a fixable config problem, not an internal error."""
     from osprey.services.ariel_search.exceptions import VocabularyError
@@ -216,7 +209,6 @@ def _service_returning(mock_result):
     return mock_service
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("value", [True, False])
 async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
     """An explicit expand_query reaches the service as an advanced parameter."""
@@ -234,7 +226,6 @@ async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatc
     assert mock_service.search.call_args.kwargs["advanced_params"]["expand_query"] is value
 
 
-@pytest.mark.unit
 async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
     """Silence leaves the deployment's ``expand_by_default`` in charge."""
     _setup_registry(tmp_path, monkeypatch)
@@ -251,7 +242,6 @@ async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
     assert "expand_query" not in mock_service.search.call_args.kwargs["advanced_params"]
 
 
-@pytest.mark.unit
 async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
     """Semantic mode expands over the whole query and says what it embedded."""
     _setup_registry(tmp_path, monkeypatch)
@@ -274,7 +264,6 @@ async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
     assert data["expanded_terms"][0]["alternatives"] == ["troubleshoot", "timing system"]
 
 
-@pytest.mark.unit
 async def test_envelope_reports_diagnostics(tmp_path, monkeypatch):
     """A search that expanded nothing says why, in the same envelope."""
     from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
@@ -308,7 +297,6 @@ async def test_envelope_reports_diagnostics(tmp_path, monkeypatch):
     assert "expand_modes" in data["diagnostics"][0]["message"]
 
 
-@pytest.mark.unit
 async def test_timeout_diagnostic_becomes_an_error_envelope(tmp_path, monkeypatch):
     """A cancelled statement is an error, not an empty result set."""
     from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
@@ -343,7 +331,6 @@ async def test_timeout_diagnostic_becomes_an_error_envelope(tmp_path, monkeypatc
     assert data["details"]["diagnostics"][0]["source"] == "service.timeout"
 
 
-@pytest.mark.unit
 async def test_degraded_result_is_still_not_an_error(tmp_path, monkeypatch):
     """Only ERROR diagnostics of a statement-fault category raise (#276).
 

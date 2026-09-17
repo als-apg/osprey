@@ -70,7 +70,6 @@ def app_client(tmp_path):
 class TestSubmitDoesNotBroadcast:
     """POST /api/logbook/submit must stay silent on the web-terminal channel."""
 
-    @pytest.mark.unit
     def test_submit_posts_nothing_to_the_web_terminal(self, app_client, tmp_path):
         """No web-terminal POST of any kind escapes the submit path.
 
@@ -101,7 +100,6 @@ class TestSubmitDoesNotBroadcast:
             f"{mock_post_rr.call_args_list}"
         )
 
-    @pytest.mark.unit
     def test_submit_still_returns_the_draft_url(self, app_client, tmp_path):
         """Dropping the broadcast must not drop the URL the client navigates to.
 
@@ -122,7 +120,6 @@ class TestSubmitDoesNotBroadcast:
         assert data["url"].startswith("/panel/ariel")
         assert data["draft_id"] in data["url"]
 
-    @pytest.mark.unit
     def test_module_does_not_reference_the_agent_notifier(self):
         """The import and the call site are both gone, not just unreached.
 
@@ -140,7 +137,6 @@ class TestSubmitDoesNotBroadcast:
 class TestSenderLocalNavigateContract:
     """The postMessage contract that replaced the broadcast."""
 
-    @pytest.mark.unit
     def test_gallery_posts_navigate_to_its_host(self):
         """The gallery asks its host to navigate, scoped to the same origin."""
         src = _artifacts_static("logbook.js")
@@ -151,7 +147,6 @@ class TestSenderLocalNavigateContract:
             "the navigate postMessage must be origin-scoped, never targeted at '*'"
         )
 
-    @pytest.mark.unit
     def test_gallery_stays_silent_when_not_embedded(self):
         """A standalone gallery has no host and must not post at all."""
         src = _artifacts_static("logbook.js")
@@ -161,7 +156,6 @@ class TestSenderLocalNavigateContract:
             "unguarded, a standalone gallery posts to itself"
         )
 
-    @pytest.mark.unit
     def test_navigate_payload_carries_no_agent_attribution(self):
         """Nothing in the sender's navigate path claims to be the agent."""
         src = _artifacts_static("logbook.js")
@@ -169,7 +163,6 @@ class TestSenderLocalNavigateContract:
         assert 'source: "agent"' not in src
         assert "source: 'agent'" not in src
 
-    @pytest.mark.unit
     def test_host_handles_navigate_behind_the_origin_guard(self):
         """The web terminal accepts the message, same-origin only.
 
@@ -190,7 +183,6 @@ class TestSenderLocalNavigateContract:
             "handled ahead of the bail-out would accept cross-origin instructions"
         )
 
-    @pytest.mark.unit
     def test_host_rejects_urls_that_are_not_root_relative(self):
         """A same-origin sender still must not choose the scheme or the host.
 

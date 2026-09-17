@@ -37,8 +37,6 @@ from osprey.audit import posture
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context
 
-pytestmark = pytest.mark.unit
-
 SESSION_KEY = "11111111-2222-3333-4444-555555555555"
 
 

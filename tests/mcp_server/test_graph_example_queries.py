@@ -26,8 +26,6 @@ import pytest
 
 from tests.mcp_server.conftest import get_tool_fn, registered_tool_names
 
-pytestmark = pytest.mark.unit
-
 _SERVER_CONTEXT_MODULE = "osprey.mcp_server.graph.server_context"
 
 #: The served catalogue, frozen. Sorted keys, two-space indent, real Unicode,

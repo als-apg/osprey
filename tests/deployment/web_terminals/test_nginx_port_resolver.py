@@ -30,9 +30,6 @@ from osprey.deployment.web_terminals.render import (
 )
 from osprey.port_layout import DEFAULT_PORT_BASE, default_port
 
-pytestmark = pytest.mark.unit
-
-
 #: A deployment that spells no port at all: the module is on, there is a roster,
 #: and every port in it — nginx's included — comes from the layout.
 _NO_PORTS_CONFIG: dict[str, Any] = {

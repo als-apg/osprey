@@ -22,8 +22,6 @@ from osprey.interfaces.artifacts.app import (
     run_server,
 )
 
-pytestmark = pytest.mark.unit
-
 
 def _save_text_artifact(store, title="Plain text"):
     return store.save_file(

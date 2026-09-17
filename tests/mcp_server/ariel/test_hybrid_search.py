@@ -52,7 +52,6 @@ def _setup_registry(tmp_path, monkeypatch, config=None):
     initialize_ariel_context()
 
 
-@pytest.mark.unit
 async def test_hybrid_search_basic(tmp_path, monkeypatch):
     """Basic hybrid search returns matching entries."""
     _setup_registry(tmp_path, monkeypatch)
@@ -78,7 +77,6 @@ async def test_hybrid_search_basic(tmp_path, monkeypatch):
     assert data["mode"] == "hybrid"
 
 
-@pytest.mark.unit
 async def test_hybrid_search_dispatches_to_the_hybrid_mode(tmp_path, monkeypatch):
     """The tool must route to its own search module, not a neighbour's."""
     _setup_registry(tmp_path, monkeypatch)
@@ -96,7 +94,6 @@ async def test_hybrid_search_dispatches_to_the_hybrid_mode(tmp_path, monkeypatch
     assert mock_service.search.call_args.kwargs["mode"] == "hybrid"
 
 
-@pytest.mark.unit
 async def test_hybrid_search_forwards_author_and_source_filters(tmp_path, monkeypatch):
     """author and source_system travel as advanced params."""
     _setup_registry(tmp_path, monkeypatch)
@@ -116,7 +113,6 @@ async def test_hybrid_search_forwards_author_and_source_filters(tmp_path, monkey
     assert adv["source_system"] == "Example eLog"
 
 
-@pytest.mark.unit
 async def test_hybrid_search_forwards_date_range(tmp_path, monkeypatch):
     """start_date and end_date become the request's time range."""
     _setup_registry(tmp_path, monkeypatch)
@@ -136,7 +132,6 @@ async def test_hybrid_search_forwards_date_range(tmp_path, monkeypatch):
     assert end.month == 2 and end.day == 15
 
 
-@pytest.mark.unit
 async def test_hybrid_search_exclude_entry_ids(tmp_path, monkeypatch):
     """exclude_entry_ids filters out entries and over-fetches to compensate."""
     _setup_registry(tmp_path, monkeypatch)
@@ -161,7 +156,6 @@ async def test_hybrid_search_exclude_entry_ids(tmp_path, monkeypatch):
     assert mock_service.search.call_args.kwargs["max_results"] == 3
 
 
-@pytest.mark.unit
 async def test_hybrid_search_caps_at_max_results(tmp_path, monkeypatch):
     """The response never exceeds what the caller asked for."""
     _setup_registry(tmp_path, monkeypatch)
@@ -180,7 +174,6 @@ async def test_hybrid_search_caps_at_max_results(tmp_path, monkeypatch):
     assert extract_response_dict(result)["results_found"] == 2
 
 
-@pytest.mark.unit
 async def test_hybrid_search_empty_query():
     """Empty query returns validation error."""
     fn = _get_hybrid_search()
@@ -192,7 +185,6 @@ async def test_hybrid_search_empty_query():
     assert "description or keywords" in envelope["suggestions"][0]
 
 
-@pytest.mark.unit
 async def test_hybrid_search_no_results_is_not_an_error(tmp_path, monkeypatch):
     """A query that matched nothing is a normal, empty response."""
     _setup_registry(tmp_path, monkeypatch)
@@ -217,7 +209,6 @@ async def test_hybrid_search_no_results_is_not_an_error(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_sidecar_down_is_an_error_not_an_empty_result(tmp_path, monkeypatch):
     """A down sidecar must not read as "the corpus holds no answer".
 
@@ -250,7 +241,6 @@ async def test_sidecar_down_is_an_error_not_an_empty_result(tmp_path, monkeypatc
     assert "not answering" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_sidecar_down_names_the_health_endpoint(tmp_path, monkeypatch):
     """An operator reading the error gets the exact command to run."""
     _setup_registry(
@@ -278,7 +268,6 @@ async def test_sidecar_down_names_the_health_endpoint(tmp_path, monkeypatch):
     assert any("keyword_search" in s for s in suggestions)
 
 
-@pytest.mark.unit
 async def test_unconfigured_sidecar_points_at_the_config_block(tmp_path, monkeypatch):
     """With no services.qmd block there is no URL to curl, so say that instead."""
     _setup_registry(tmp_path, monkeypatch)
@@ -301,7 +290,6 @@ async def test_unconfigured_sidecar_points_at_the_config_block(tmp_path, monkeyp
     assert not any("curl" in s for s in suggestions)
 
 
-@pytest.mark.unit
 async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(tmp_path, monkeypatch):
     """Only this mode's own ERROR diagnostic means this mode failed."""
     _setup_registry(tmp_path, monkeypatch)
@@ -337,7 +325,6 @@ async def test_non_qmd_diagnostics_do_not_trip_the_fault_path(tmp_path, monkeypa
     assert data["results_found"] == 1
 
 
-@pytest.mark.unit
 async def test_envelope_carries_the_rerank_fallback_warning(tmp_path, monkeypatch):
     """The degraded ordering has to reach the agent, not just the server log.
 
@@ -381,7 +368,6 @@ async def test_envelope_carries_the_rerank_fallback_warning(tmp_path, monkeypatc
     ]
 
 
-@pytest.mark.unit
 async def test_config_typo_advises_the_config_key_not_the_health_endpoint(tmp_path, monkeypatch):
     """A refused settings value is an operator typo, not a dead sidecar.
 
@@ -424,7 +410,6 @@ async def test_config_typo_advises_the_config_key_not_the_health_endpoint(tmp_pa
     assert not any("/health" in s for s in suggestions)
 
 
-@pytest.mark.unit
 async def test_config_fault_without_a_key_still_points_at_the_settings_block(tmp_path, monkeypatch):
     """The module's message is its own, so the key is not guaranteed to be in it."""
     _setup_registry(tmp_path, monkeypatch)
@@ -453,7 +438,6 @@ async def test_config_fault_without_a_key_still_points_at_the_settings_block(tmp
     assert not any("curl" in s for s in suggestions)
 
 
-@pytest.mark.unit
 async def test_disabled_mode_names_the_enable_key(tmp_path, monkeypatch):
     """A registered-but-disabled mode is an operator state, not an internal error."""
     from osprey.services.ariel_search.exceptions import ConfigurationError
@@ -478,7 +462,6 @@ async def test_disabled_mode_names_the_enable_key(tmp_path, monkeypatch):
     assert any("search_modules.hybrid.enabled" in s for s in data["suggestions"])
 
 
-@pytest.mark.unit
 async def test_unregistered_mode_does_not_advise_the_enable_key(tmp_path, monkeypatch):
     """The other ConfigurationError branch needs different advice.
 
@@ -511,7 +494,6 @@ async def test_unregistered_mode_does_not_advise_the_enable_key(tmp_path, monkey
     assert any("startup log" in s for s in suggestions)
 
 
-@pytest.mark.unit
 async def test_hybrid_search_service_error(tmp_path, monkeypatch):
     """Service failure returns standard error format."""
     _setup_registry(tmp_path, monkeypatch)
@@ -535,7 +517,6 @@ async def test_hybrid_search_service_error(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_docstring_states_the_best_effort_filtering_caveat():
     """The caveat is the tool's substance: an agent that misses it stops early."""
     from osprey.mcp_server.ariel.tools.hybrid_search import hybrid_search
@@ -549,7 +530,6 @@ def test_docstring_states_the_best_effort_filtering_caveat():
     assert "sql_query" in doc
 
 
-@pytest.mark.unit
 def test_docstring_promises_no_field_the_response_omits():
     """A prompt surface must not name a field the tool never emits.
 
@@ -567,7 +547,6 @@ def test_docstring_promises_no_field_the_response_omits():
     assert "diagnostics" in doc
 
 
-@pytest.mark.unit
 def test_tool_is_registered_on_the_ariel_server():
     """The server's tool-import tuple must actually pull this module in."""
     from pathlib import Path
@@ -579,7 +558,6 @@ def test_tool_is_registered_on_the_ariel_server():
     assert "hybrid_search," in tool_import.split(")")[0]
 
 
-@pytest.mark.unit
 def test_tool_is_auto_allowed():
     """hybrid_search is a read tool, so it belongs in permissions_allow."""
     from osprey.registry.mcp import FRAMEWORK_SERVERS
@@ -594,7 +572,6 @@ def test_tool_is_auto_allowed():
 TS_GROUP = {"original": "ts", "alternatives": ["troubleshoot", "timing system"]}
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("value", [True, False])
 async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
     """An explicit expand_query reaches the service as an advanced parameter."""
@@ -613,7 +590,6 @@ async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatc
     assert mock_service.search.call_args.kwargs["advanced_params"]["expand_query"] is value
 
 
-@pytest.mark.unit
 async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
     """Silence leaves the deployment's ``expand_by_default`` in charge."""
     _setup_registry(tmp_path, monkeypatch)
@@ -631,7 +607,6 @@ async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
     assert "expand_query" not in mock_service.search.call_args.kwargs["advanced_params"]
 
 
-@pytest.mark.unit
 async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
     """The merged ranking reports the expansion both legs were run with."""
     _setup_registry(tmp_path, monkeypatch)
@@ -653,7 +628,6 @@ async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
     assert data["expanded_terms"] == [TS_GROUP]
 
 
-@pytest.mark.unit
 async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(tmp_path, monkeypatch):
     """A rejected pattern carries the mode's own source, but is not an outage.
 
@@ -693,7 +667,6 @@ async def test_pattern_fault_is_not_reported_as_a_sidecar_outage(tmp_path, monke
 # --- rerank override --------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("value", [True, False])
 async def test_rerank_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
     """An explicit rerank reaches the service as an advanced parameter."""
@@ -712,7 +685,6 @@ async def test_rerank_is_forwarded_in_advanced_params(tmp_path, monkeypatch, val
     assert mock_service.search.call_args.kwargs["advanced_params"]["rerank"] is value
 
 
-@pytest.mark.unit
 async def test_rerank_omitted_when_unset(tmp_path, monkeypatch):
     """Silence leaves the deployment's ``settings.rerank`` in charge."""
     _setup_registry(tmp_path, monkeypatch)
@@ -730,7 +702,6 @@ async def test_rerank_omitted_when_unset(tmp_path, monkeypatch):
     assert "rerank" not in mock_service.search.call_args.kwargs["advanced_params"]
 
 
-@pytest.mark.unit
 def test_docstring_gives_the_rerank_speed_tradeoff():
     """The agent can only choose rerank if the prompt tells it what it costs."""
     from osprey.mcp_server.ariel.tools.hybrid_search import hybrid_search

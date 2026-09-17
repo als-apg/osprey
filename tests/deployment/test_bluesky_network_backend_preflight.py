@@ -49,7 +49,6 @@ def podman(monkeypatch):
     )
 
 
-@pytest.mark.unit
 def test_refuses_bluesky_on_cni(podman, monkeypatch):
     """The one case this preflight exists for: bluesky + podman + cni."""
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("cni\n"))
@@ -65,7 +64,6 @@ def test_refuses_bluesky_on_cni(podman, monkeypatch):
     assert "bluesky-redis" in message
 
 
-@pytest.mark.unit
 def test_allows_bluesky_on_netavark(podman, monkeypatch):
     """The supported host passes silently."""
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("netavark\n"))
@@ -73,7 +71,6 @@ def test_allows_bluesky_on_netavark(podman, monkeypatch):
     _preflight_bluesky_network_backend(_config("bluesky"))
 
 
-@pytest.mark.unit
 def test_skips_when_bluesky_is_not_deployed(podman, monkeypatch):
     """Every other stack in this project runs fine on cni, so cni alone is not a refusal."""
 
@@ -86,7 +83,6 @@ def test_skips_when_bluesky_is_not_deployed(podman, monkeypatch):
     _preflight_bluesky_network_backend({})
 
 
-@pytest.mark.unit
 def test_skips_on_docker(monkeypatch):
     """`podman info` is not a question a docker host is asked."""
 
@@ -101,7 +97,6 @@ def test_skips_on_docker(monkeypatch):
     _preflight_bluesky_network_backend(_config("bluesky"))
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -124,7 +119,6 @@ def test_unreadable_backend_lets_the_deploy_through(podman, monkeypatch, kwargs)
     _preflight_bluesky_network_backend(_config("bluesky"))
 
 
-@pytest.mark.unit
 def test_unknown_backend_warns_rather_than_refuses(podman, monkeypatch):
     """A backend nobody here has seen gets a warning, not a guess dressed as a refusal."""
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("slirp-of-the-future\n"))
@@ -141,7 +135,6 @@ def test_unknown_backend_warns_rather_than_refuses(podman, monkeypatch):
     assert "slirp-of-the-future" in warnings[0][0]
 
 
-@pytest.mark.unit
 def test_no_runtime_defers_to_the_runtime_check(monkeypatch):
     """A host with no usable runtime is diagnosed by verify_runtime_is_running, not here."""
 

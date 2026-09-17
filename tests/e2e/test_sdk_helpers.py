@@ -38,7 +38,6 @@ def _write_config(tmp_path, uri: str = _DEFAULT_ARIEL_DB_URI):
     return tmp_path / "config.yml"
 
 
-@pytest.mark.unit
 def test_override_rewrites_uri_when_env_set(tmp_path, monkeypatch):
     """With OSPREY_ARIEL_DB_URI set, the rendered config points at the per-cell DB."""
     config_path = _write_config(tmp_path)
@@ -52,7 +51,6 @@ def test_override_rewrites_uri_when_env_set(tmp_path, monkeypatch):
     assert f"uri: {_DEFAULT_ARIEL_DB_URI}\n" not in text
 
 
-@pytest.mark.unit
 def test_override_noop_when_env_unset(tmp_path, monkeypatch):
     """No override env → config is left untouched (shared default DB)."""
     config_path = _write_config(tmp_path)
@@ -63,7 +61,6 @@ def test_override_noop_when_env_unset(tmp_path, monkeypatch):
     assert f"uri: {_DEFAULT_ARIEL_DB_URI}\n" in config_path.read_text(encoding="utf-8")
 
 
-@pytest.mark.unit
 def test_override_noop_when_env_equals_default(tmp_path, monkeypatch):
     """Override that equals the default is a no-op (no needless rewrite)."""
     config_path = _write_config(tmp_path)
@@ -74,7 +71,6 @@ def test_override_noop_when_env_equals_default(tmp_path, monkeypatch):
     assert f"uri: {_DEFAULT_ARIEL_DB_URI}\n" in config_path.read_text(encoding="utf-8")
 
 
-@pytest.mark.unit
 def test_override_noop_for_non_ariel_project(tmp_path, monkeypatch):
     """A project without the default ARIEL URI (e.g. the hello_world preset,
     ``ariel: {enabled: false}``) is left untouched — there is no real ARIEL DB
@@ -116,7 +112,6 @@ def _result_with_a_long_tool_result(size: int = 5000):
     )
 
 
-@pytest.mark.unit
 def test_transcript_dump_is_inert_when_unarmed(tmp_path, monkeypatch):
     """No OSPREY_CI_DIAG_DIR — every local run — writes nothing at all."""
     monkeypatch.delenv("OSPREY_CI_DIAG_DIR", raising=False)
@@ -131,7 +126,6 @@ def test_transcript_dump_is_inert_when_unarmed(tmp_path, monkeypatch):
     assert list(tmp_path.iterdir()) == []
 
 
-@pytest.mark.unit
 def test_transcript_dump_keeps_tool_results_whole(tmp_path, monkeypatch):
     """The payload must carry the full tool result, not a preview.
 
@@ -153,7 +147,6 @@ def test_transcript_dump_keeps_tool_results_whole(tmp_path, monkeypatch):
     assert "hook_attachments" not in payload
 
 
-@pytest.mark.unit
 def test_transcript_dump_sanitises_the_name(tmp_path, monkeypatch):
     """Parametrised ids carry `[]`, and paths carry `/`; neither may escape
     the diagnostics directory or produce an unopenable filename."""
@@ -170,7 +163,6 @@ def test_transcript_dump_sanitises_the_name(tmp_path, monkeypatch):
     assert json.loads(target.read_text(encoding="utf-8"))["hook_attachments"] == []
 
 
-@pytest.mark.unit
 def test_transcript_dump_never_raises(tmp_path, monkeypatch):
     """A diagnostic that fails the test it observes would mask the failure it
     exists to explain. Here the target directory is occupied by a file, so the
@@ -212,7 +204,6 @@ def _write_transcript(tmp_path, monkeypatch, session_id: str, records: list) -> 
     return render
 
 
-@pytest.mark.unit
 def test_hook_attachments_reads_every_hook_prefixed_attachment(tmp_path, monkeypatch):
     """Prefix match, not an allow-list of one.
 
@@ -260,7 +251,6 @@ def test_hook_attachments_reads_every_hook_prefixed_attachment(tmp_path, monkeyp
     assert found[1]["hookName"] == "PreToolUse:mcp__controls__channel_write"
 
 
-@pytest.mark.unit
 def test_hook_attachments_survives_a_malformed_transcript(tmp_path, monkeypatch):
     """A truncated write or a bare JSON scalar must not raise out of a
     diagnostic path — the run being diagnosed is the one that already failed."""
@@ -285,7 +275,6 @@ def test_hook_attachments_survives_a_malformed_transcript(tmp_path, monkeypatch)
     assert [a["toolUseID"] for a in hook_attachments(_session_result("sess-2"), render)] == ["tu_1"]
 
 
-@pytest.mark.unit
 def test_hook_attachments_empty_without_a_session_or_transcript(tmp_path, monkeypatch):
     """No session id and no transcript both mean "nothing to read", not an error.
 
@@ -300,7 +289,6 @@ def test_hook_attachments_empty_without_a_session_or_transcript(tmp_path, monkey
     assert hook_attachments(_session_result("never-written"), render) == []
 
 
-@pytest.mark.unit
 def test_transcript_dump_carries_the_hook_stdout_when_given_a_render(tmp_path, monkeypatch):
     """The artifact reason this exists: tool traces alone cannot say why a call
     was asked about, because the approval wording only ever reaches the
@@ -347,7 +335,6 @@ class _FakeContext:
         self.decision_reason = decision_reason
 
 
-@pytest.mark.unit
 def test_two_arg_policy_is_called_with_two_arguments():
     """The pre-existing form is dispatched unchanged — the context is dropped."""
     seen: list[tuple] = []
@@ -362,7 +349,6 @@ def test_two_arg_policy_is_called_with_two_arguments():
     assert seen == [("Bash", {"command": "ls"})]
 
 
-@pytest.mark.unit
 def test_three_arg_policy_receives_the_context():
     """The widened form gets the context object itself, not a copy of a field."""
     seen: list[tuple] = []
@@ -379,7 +365,6 @@ def test_three_arg_policy_receives_the_context():
     assert seen[0][2].decision_reason == "write outside the render"
 
 
-@pytest.mark.unit
 def test_var_positional_policy_receives_the_context():
     """A ``*args`` policy can take the context, so it is given the context."""
     seen: list[tuple] = []
@@ -393,7 +378,6 @@ def test_var_positional_policy_receives_the_context():
     assert len(seen[0]) == 3
 
 
-@pytest.mark.unit
 def test_binder_does_not_swallow_type_errors_from_the_policy():
     """A TypeError raised *inside* a policy is a bug, not an arity signal."""
 
@@ -404,7 +388,6 @@ def test_binder_does_not_swallow_type_errors_from_the_policy():
         _bind_approval_policy(policy)("Bash", {}, _FakeContext())
 
 
-@pytest.mark.unit
 def test_hook_event_decision_reason_defaults_and_accepts():
     """The new field is optional (existing constructions keep working) and
     carries the hook's own wording when the callback records it."""

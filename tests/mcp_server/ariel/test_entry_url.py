@@ -40,13 +40,11 @@ def _fake_config(template):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_native_source_system_constant():
     """The module names the ARIEL-native source_system sentinel."""
     assert server.ARIEL_NATIVE_SOURCE_SYSTEM == "ARIEL MCP"
 
 
-@pytest.mark.unit
 def test_build_entry_url_renders_with_template():
     """FR1/FR2: a facility entry renders the template with its id."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
@@ -54,7 +52,6 @@ def test_build_entry_url_renders_with_template():
     assert url == "https://logbook.example/olog.php?id=175353"
 
 
-@pytest.mark.unit
 def test_build_entry_url_source_system_defaults_to_facility():
     """A facility entry with no explicit source_system still renders (default None)."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
@@ -62,7 +59,6 @@ def test_build_entry_url_source_system_defaults_to_facility():
     assert url == "https://logbook.example/olog.php?id=42"
 
 
-@pytest.mark.unit
 def test_build_entry_url_url_encodes_id():
     """FR4: entry_id is URL-encoded with safe='' when substituted."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
@@ -70,21 +66,18 @@ def test_build_entry_url_url_encodes_id():
     assert url == "https://logbook.example/olog.php?id=a%20b%2Fc%3Fd%26e"
 
 
-@pytest.mark.unit
 def test_build_entry_url_none_when_template_unset():
     """FR3: no template configured -> None."""
     with patch("osprey.utils.config.get_config_value", _fake_config(None)):
         assert server.build_entry_url("175353", "Facility eLog") is None
 
 
-@pytest.mark.unit
 def test_build_entry_url_none_for_native_source():
     """FR7: ARIEL-native entries emit no url even with a template set."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
         assert server.build_entry_url("ariel-deadbeef", "ARIEL MCP") is None
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("empty", ["", "   ", None])
 def test_build_entry_url_none_for_empty_id(empty):
     """An empty/blank entry_id yields no url."""
@@ -92,7 +85,6 @@ def test_build_entry_url_none_for_empty_id(empty):
         assert server.build_entry_url(empty, "Facility eLog") is None
 
 
-@pytest.mark.unit
 def test_build_entry_url_fails_safe_when_config_unavailable():
     """FR6: if config resolution itself raises (e.g. no config loaded), degrade
     to None instead of crashing the per-entry read hot path."""
@@ -104,7 +96,6 @@ def test_build_entry_url_fails_safe_when_config_unavailable():
         assert server.build_entry_url("175353", "Facility eLog") is None
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "bad_template",
     [
@@ -136,7 +127,6 @@ def _entry(entry_id="e1", source_system="Facility eLog"):
     }
 
 
-@pytest.mark.unit
 def test_serialize_entry_includes_entry_url_when_configured():
     """FR2: serialize_entry carries entry_url for a facility entry."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
@@ -144,7 +134,6 @@ def test_serialize_entry_includes_entry_url_when_configured():
     assert result["entry_url"] == "https://logbook.example/olog.php?id=175353"
 
 
-@pytest.mark.unit
 def test_serialize_entry_omits_entry_url_when_unset():
     """FR3: no template -> no entry_url key at all."""
     with patch("osprey.utils.config.get_config_value", _fake_config(None)):
@@ -152,7 +141,6 @@ def test_serialize_entry_omits_entry_url_when_unset():
     assert "entry_url" not in result
 
 
-@pytest.mark.unit
 def test_serialize_entry_omits_entry_url_for_native():
     """FR7: an ARIEL-native entry carries no entry_url even when configured."""
     with patch("osprey.utils.config.get_config_value", _fake_config(GENERIC_TEMPLATE)):
@@ -165,7 +153,6 @@ def test_serialize_entry_omits_entry_url_for_native():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_server_instructions_forbid_fabricated_urls():
     """FR5: the server-wide instructions tell the agent to use entry_url and
     never construct logbook URLs itself."""
@@ -195,7 +182,6 @@ def _patch_service(mock_service):
     )
 
 
-@pytest.mark.unit
 async def test_entry_get_includes_entry_url(tmp_path, monkeypatch):
     """FR1: entry_get's inline dict carries entry_url for a facility entry."""
     _setup_registry(tmp_path, monkeypatch)
@@ -215,7 +201,6 @@ async def test_entry_get_includes_entry_url(tmp_path, monkeypatch):
     assert data["entry_url"] == "https://logbook.example/olog.php?id=175353"
 
 
-@pytest.mark.unit
 async def test_entry_get_omits_entry_url_for_native(tmp_path, monkeypatch):
     """FR7: entry_get on an ARIEL-native entry emits no entry_url."""
     _setup_registry(tmp_path, monkeypatch)
@@ -234,7 +219,6 @@ async def test_entry_get_omits_entry_url_for_native(tmp_path, monkeypatch):
     assert "entry_url" not in json.loads(result)
 
 
-@pytest.mark.unit
 async def test_sql_query_rows_gain_entry_url(tmp_path, monkeypatch):
     """FR8: sql_query rows selecting entry_id gain entry_url; aggregate rows
     without an entry_id column are unchanged."""
@@ -265,7 +249,6 @@ async def test_sql_query_rows_gain_entry_url(tmp_path, monkeypatch):
     assert "entry_url" not in rows[2]  # aggregate row
 
 
-@pytest.mark.unit
 async def test_entry_publish_includes_entry_url(tmp_path, monkeypatch):
     """FR8/CF-4: entry_publish result carries entry_url for the facility id."""
     from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
@@ -290,7 +273,6 @@ async def test_entry_publish_includes_entry_url(tmp_path, monkeypatch):
     assert json.loads(result)["entry_url"] == "https://logbook.example/olog.php?id=published-001"
 
 
-@pytest.mark.unit
 async def test_entry_create_emits_no_entry_url(tmp_path, monkeypatch):
     """MI-1: entry_create (native/draft ids) never emits entry_url, even when a
     template is configured — its entries are not in the facility logbook."""

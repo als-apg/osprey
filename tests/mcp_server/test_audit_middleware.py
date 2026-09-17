@@ -34,9 +34,6 @@ from osprey.mcp_server import audit_middleware as am
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 from tests._control_context_fixtures import write_control_context
 
-pytestmark = pytest.mark.unit
-
-
 # --------------------------------------------------------------------------
 # Fixtures and helpers
 # --------------------------------------------------------------------------

@@ -94,7 +94,6 @@ def archiver_read_tool(archiver_project):
         yield _get_archiver_read(), connector
 
 
-@pytest.mark.unit
 async def test_archiver_read_basic(archiver_read_tool):
     """Basic archiver read returns summary with data file path."""
     fn, connector = archiver_read_tool
@@ -129,7 +128,6 @@ async def test_archiver_read_basic(archiver_read_tool):
     assert "points" in ad["schema"]["values"].lower()
 
 
-@pytest.mark.unit
 async def test_access_details_states_the_read_rule_once(archiver_read_tool):
     """The inline read guidance is stated once, not once per channel.
 
@@ -161,7 +159,6 @@ async def test_access_details_states_the_read_rule_once(archiver_read_tool):
     assert set(one["schema"]) == {"query", "series", "timestamps", "values"}
 
 
-@pytest.mark.unit
 async def test_archiver_read_relative_time(archiver_read_tool):
     """Archiver read with relative time strings (e.g., '1h ago')."""
     fn, connector = archiver_read_tool
@@ -177,7 +174,6 @@ async def test_archiver_read_relative_time(archiver_read_tool):
     assert data["status"] == "success"
 
 
-@pytest.mark.unit
 def test_parse_time_interprets_naive_input_as_facility_local(monkeypatch):
     """A naive operator time string is localized to the facility zone, not UTC.
 
@@ -200,7 +196,6 @@ def test_parse_time_interprets_naive_input_as_facility_local(monkeypatch):
     assert aware.utcoffset().total_seconds() == 0
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("expression", "expected_delta"),
     [
@@ -231,7 +226,6 @@ def test_parse_time_relative_expressions(expression, expected_delta, monkeypatch
     assert before - expected_delta <= parsed <= after - expected_delta
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "expression",
     [
@@ -260,7 +254,6 @@ def test_parse_time_unrecognized_relative_falls_through_to_iso(expression, monke
         mod._parse_time(expression)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "expression",
     [
@@ -283,7 +276,6 @@ def test_parse_time_refuses_ambiguous_dates(expression, monkeypatch):
         mod._parse_time(expression)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "expression",
     [
@@ -308,7 +300,6 @@ def test_parse_time_accepts_iso_spellings(expression, monkeypatch):
     assert (parsed.month, parsed.day) == (4, 3)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("field", "bad_value", "kwargs"),
     [
@@ -333,7 +324,6 @@ async def test_archiver_read_unparseable_time(archiver_project, field, bad_value
     assert bad_value in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
     """Archiver read saves data to the agent-data artifacts dir via ArtifactStore."""
     fn, connector = archiver_read_tool
@@ -369,7 +359,6 @@ async def test_archiver_read_file_persistence(tmp_path, archiver_read_tool):
     assert index_file.exists()
 
 
-@pytest.mark.unit
 async def test_archiver_read_multiple_channels(archiver_read_tool):
     """Multi-channel archiver read returns summary for all channels."""
     fn, connector = archiver_read_tool
@@ -392,7 +381,6 @@ async def test_archiver_read_multiple_channels(archiver_read_tool):
     assert "SR:ENERGY:RB" in data["summary"]["per_channel"]
 
 
-@pytest.mark.unit
 async def test_archiver_read_follows_requested_channel_order(tmp_path, archiver_read_tool):
     """Every per-channel structure follows the caller's order, not the frame's.
 
@@ -425,7 +413,6 @@ async def test_archiver_read_follows_requested_channel_order(tmp_path, archiver_
     assert file_content["series"]["SR:MID:RB"]["values"] == [2.0, 2.1, 2.2]
 
 
-@pytest.mark.unit
 async def test_archiver_read_timeout(archiver_read_tool):
     """Archiver read timeout returns error."""
     fn, connector = archiver_read_tool
@@ -443,7 +430,6 @@ async def test_archiver_read_timeout(archiver_read_tool):
     assert "suggestions" in data
 
 
-@pytest.mark.unit
 async def test_archiver_read_connection_error(archiver_read_tool):
     """Archiver connection error returns standard error format."""
     fn, connector = archiver_read_tool
@@ -460,7 +446,6 @@ async def test_archiver_read_connection_error(archiver_read_tool):
     assert "suggestions" in data
 
 
-@pytest.mark.unit
 async def test_archiver_read_nan_channel_data(archiver_read_tool):
     """A numeric channel whose samples are all NaN reports no numeric stats.
 
@@ -501,7 +486,6 @@ async def test_archiver_read_nan_channel_data(archiver_read_tool):
     json.dumps(data, allow_nan=False)  # Would raise if NaN slipped through
 
 
-@pytest.mark.unit
 async def test_archiver_read_enum_channel_omits_numeric_stats(tmp_path, archiver_read_tool):
     """An enum/status channel (string values) reports point count, no stats.
 
@@ -538,7 +522,6 @@ async def test_archiver_read_enum_channel_omits_numeric_stats(tmp_path, archiver
     json.dumps(data, allow_nan=False)
 
 
-@pytest.mark.unit
 async def test_archiver_read_null_samples_become_json_null(tmp_path, archiver_read_tool):
     """A null sample is written as JSON ``null`` — never NaN, never dropped.
 
@@ -569,7 +552,6 @@ async def test_archiver_read_null_samples_become_json_null(tmp_path, archiver_re
     json.dumps(file_content, allow_nan=False)
 
 
-@pytest.mark.unit
 async def test_archiver_read_integer_channel_keeps_integer_values(tmp_path, archiver_read_tool):
     """An integer-valued channel (bucket count, status code) stays integral,
     never rewritten as ``3.0`` through a float representation.
@@ -590,7 +572,6 @@ async def test_archiver_read_integer_channel_keeps_integer_values(tmp_path, arch
     assert [type(v) for v in values] == [int, int, int]
 
 
-@pytest.mark.unit
 async def test_archiver_read_enum_channel_keeps_null_gaps_between_strings(
     tmp_path, archiver_read_tool
 ):
@@ -615,7 +596,6 @@ async def test_archiver_read_enum_channel_keeps_null_gaps_between_strings(
     assert file_content["series"]["MACHINE:MODE"]["values"] == ["Standby", None, "Injecting"]
 
 
-@pytest.mark.unit
 async def test_archiver_read_empty_channels(archiver_project):
     """Empty channel list returns validation error."""
     fn = _get_archiver_read()
@@ -625,7 +605,6 @@ async def test_archiver_read_empty_channels(archiver_project):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_archiver_read_passes_processing_to_connector(archiver_read_tool):
     """The advertised processing mode must reach the connector, not just the echo."""
     fn, connector = archiver_read_tool
@@ -649,7 +628,6 @@ async def test_archiver_read_passes_processing_to_connector(archiver_read_tool):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("span", "expected_seconds"),
     [
@@ -669,7 +647,6 @@ def test_auto_bin_seconds_scales_with_span(span, expected_seconds):
     assert auto_bin_seconds(span, 10_000) == expected_seconds
 
 
-@pytest.mark.unit
 async def test_default_bin_widens_for_a_long_span(archiver_read_tool):
     """A one-year read with no bin_size asks for ~53-minute bins, and says so."""
     fn, connector = archiver_read_tool
@@ -688,7 +665,6 @@ async def test_default_bin_widens_for_a_long_span(archiver_read_tool):
     assert summary["bin_size_source"] == "auto"
 
 
-@pytest.mark.unit
 async def test_default_bin_stays_one_second_for_a_short_span(archiver_read_tool):
     """Short reads keep the 1-second default they always had."""
     fn, connector = archiver_read_tool
@@ -706,7 +682,6 @@ async def test_default_bin_stays_one_second_for_a_short_span(archiver_read_tool)
     assert summary["bin_size_source"] == "auto"
 
 
-@pytest.mark.unit
 async def test_explicit_bin_size_is_reported_as_requested(tmp_path, archiver_read_tool):
     """An explicit bin_size is used verbatim, and the echo says it was the caller's."""
     fn, connector = archiver_read_tool
@@ -730,7 +705,6 @@ async def test_explicit_bin_size_is_reported_as_requested(tmp_path, archiver_rea
     assert query["bin_size_source"] == "requested"
 
 
-@pytest.mark.unit
 async def test_full_resolution_is_reported_as_requested_zero(archiver_read_tool):
     fn, connector = archiver_read_tool
     connector.get_data.return_value = _make_archiver_df({"SR:CURRENT:RB": [500.1]})
@@ -747,7 +721,6 @@ async def test_full_resolution_is_reported_as_requested_zero(archiver_read_tool)
     assert summary["bin_size_source"] == "requested"
 
 
-@pytest.mark.unit
 async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
     """``archiver.auto_bin_points`` sets how many points the default bin aims for."""
     from osprey.connectors.archiver.base import ArchiverMetadata
@@ -778,7 +751,6 @@ async def test_auto_bin_budget_comes_from_config(tmp_path, monkeypatch):
     assert extract_response_dict(result)["summary"]["bin_size"] == 36
 
 
-@pytest.mark.unit
 async def test_invalid_auto_bin_budget_is_refused_not_guessed(tmp_path, monkeypatch):
     """A budget that is not a positive integer is a config error, not a silent default."""
     monkeypatch.chdir(tmp_path)
@@ -794,7 +766,6 @@ async def test_invalid_auto_bin_budget_is_refused_not_guessed(tmp_path, monkeypa
     assert "auto_bin_points" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 async def test_archiver_read_rejects_unknown_processing(archiver_project):
     """An unsupported mode errors with the valid set, rather than silently downgrading."""
     fn = _get_archiver_read()
@@ -813,7 +784,6 @@ async def test_archiver_read_rejects_unknown_processing(archiver_project):
         assert mode in suggestions
 
 
-@pytest.mark.unit
 async def test_archiver_read_echoes_facility_local_time_range(archiver_read_tool, monkeypatch):
     """The tool keeps speaking facility-local; only the connector converts to UTC."""
     from zoneinfo import ZoneInfo
@@ -841,7 +811,6 @@ async def test_archiver_read_echoes_facility_local_time_range(archiver_read_tool
     assert start_arg.utcoffset().total_seconds() == -8 * 3600
 
 
-@pytest.mark.unit
 async def test_archiver_read_bin_size_zero_is_full_resolution(archiver_read_tool):
     """bin_size=0 requests full-resolution data: precision_ms=0 reaches the connector."""
     fn, connector = archiver_read_tool
@@ -862,7 +831,6 @@ async def test_archiver_read_bin_size_zero_is_full_resolution(archiver_read_tool
     assert kwargs["processing"] == "raw"
 
 
-@pytest.mark.unit
 async def test_archiver_read_bin_size_zero_rejects_non_raw_processing(archiver_project):
     """bin_size=0 (full resolution) has no bin — only valid with processing='raw'."""
     fn = _get_archiver_read()
@@ -877,7 +845,6 @@ async def test_archiver_read_bin_size_zero_rejects_non_raw_processing(archiver_p
     assert "bin_size" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 async def test_archiver_read_rejects_negative_bin_size(archiver_project):
     """A negative bin_size is nonsensical and must error, not silently misbehave."""
     fn = _get_archiver_read()
@@ -891,7 +858,6 @@ async def test_archiver_read_rejects_negative_bin_size(archiver_project):
     assert "bin_size" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 async def test_archiver_read_handles_ragged_channels(tmp_path, archiver_read_tool):
     """Channels with different sample counts are never forced onto a shared axis:
     one channel with 3 samples, another with 1, neither padded nor truncated.
@@ -920,7 +886,6 @@ async def test_archiver_read_handles_ragged_channels(tmp_path, archiver_read_too
     assert len(file_content["series"]["SR:ENERGY:RB"]["timestamps"]) == 1
 
 
-@pytest.mark.unit
 async def test_archiver_read_channel_absent_from_result_reports_zero_points(archiver_read_tool):
     """A requested channel with zero rows appears with points=0 and no numeric stats."""
     # Only SR:CURRENT:RB has any rows; SR:VOID:RB is requested but the
@@ -944,7 +909,6 @@ async def test_archiver_read_channel_absent_from_result_reports_zero_points(arch
     assert data["summary"]["total_points"] == 2  # only the real channel's points
 
 
-@pytest.mark.unit
 async def test_archiver_read_emits_empty_series_entry_for_absent_channel(
     tmp_path, archiver_read_tool
 ):
@@ -968,7 +932,6 @@ async def test_archiver_read_emits_empty_series_entry_for_absent_channel(
     assert file_content["series"]["SR:VOID:RB"] == {"timestamps": [], "values": []}
 
 
-@pytest.mark.unit
 async def test_archiver_read_dedupes_repeated_channel_name(archiver_read_tool):
     """A caller-repeated channel name is queried and summarized once, not double-counted."""
     fn, connector = archiver_read_tool
@@ -996,7 +959,6 @@ class TestArchiverReadRealMockConnector:
     real connector's ``get_data`` — including its handling of ``precision_ms``.
     """
 
-    @pytest.mark.unit
     async def test_bin_size_zero_full_resolution_succeeds(self, archiver_project):
         """bin_size=0 (precision_ms=0) must not raise ZeroDivisionError on the real connector."""
         fn = _get_archiver_read()
@@ -1014,7 +976,6 @@ class TestArchiverReadRealMockConnector:
         # `> 0` would still pass a degraded ten-point floor.
         assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 300
 
-    @pytest.mark.unit
     async def test_bin_size_zero_returns_more_points_than_binned(self, archiver_project):
         """Full resolution must strictly out-resolve a binned query on the same window.
 
@@ -1037,7 +998,6 @@ class TestArchiverReadRealMockConnector:
         assert binned_points > 0
         assert full_points > binned_points
 
-    @pytest.mark.unit
     async def test_normal_bin_size_succeeds(self, archiver_project):
         """An ordinary positive bin_size runs the real connector's binning path."""
         fn = _get_archiver_read()
@@ -1054,7 +1014,6 @@ class TestArchiverReadRealMockConnector:
         # One sample per 60-second bin across a one-hour window.
         assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 60
 
-    @pytest.mark.unit
     async def test_processing_mode_succeeds(self, tmp_path, archiver_project):
         """A non-raw mode really aggregates: one derived value per bin, not raw in disguise.
 

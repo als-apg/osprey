@@ -85,7 +85,6 @@ def _get_channel_read():
     return get_tool_fn(channel_read)
 
 
-@pytest.mark.unit
 async def test_channel_read_single(tmp_path, monkeypatch):
     """Single channel read returns value with metadata in summary."""
     monkeypatch.chdir(tmp_path)
@@ -112,7 +111,6 @@ async def test_channel_read_single(tmp_path, monkeypatch):
     mock_connector.read_channel.assert_called_once_with("SR:CURRENT:RB")
 
 
-@pytest.mark.unit
 async def test_channel_read_multiple(tmp_path, monkeypatch):
     """Multiple channel read returns all values in summary."""
     monkeypatch.chdir(tmp_path)
@@ -141,7 +139,6 @@ async def test_channel_read_multiple(tmp_path, monkeypatch):
     assert "SR:ENERGY:RB" in data["summary"]["readings"]
 
 
-@pytest.mark.unit
 async def test_channel_read_metadata_disabled(tmp_path, monkeypatch):
     """Reading with include_metadata=False omits metadata fields."""
     monkeypatch.chdir(tmp_path)
@@ -169,7 +166,6 @@ async def test_channel_read_metadata_disabled(tmp_path, monkeypatch):
     assert "alarm_severity" not in channel
 
 
-@pytest.mark.unit
 async def test_channel_read_with_metadata(tmp_path, monkeypatch):
     """Reading with include_metadata=True includes metadata fields."""
     monkeypatch.chdir(tmp_path)
@@ -196,7 +192,6 @@ async def test_channel_read_with_metadata(tmp_path, monkeypatch):
     assert channel["alarm_severity"] == 0  # reported healthy, distinct from None
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("include_metadata", [True, False])
 async def test_access_details_lists_exactly_the_fields_shipped(
     tmp_path, monkeypatch, include_metadata
@@ -227,7 +222,6 @@ async def test_access_details_lists_exactly_the_fields_shipped(
     assert advertised == shipped
 
 
-@pytest.mark.unit
 async def test_include_metadata_changes_the_payload(tmp_path, monkeypatch):
     """include_metadata must be observable — it was inert."""
     monkeypatch.chdir(tmp_path)
@@ -253,7 +247,6 @@ async def test_include_metadata_changes_the_payload(tmp_path, monkeypatch):
     assert with_keys > without_keys
 
 
-@pytest.mark.unit
 async def test_channel_read_does_not_promise_write_limits(tmp_path, monkeypatch):
     """No connector reports write bounds here — the tool must not imply it does.
 
@@ -285,7 +278,6 @@ async def test_channel_read_does_not_promise_write_limits(tmp_path, monkeypatch)
     assert "max_value" not in entry
 
 
-@pytest.mark.unit
 async def test_channel_read_connection_error(tmp_path, monkeypatch):
     """Connection error returns standard error format."""
     monkeypatch.chdir(tmp_path)
@@ -309,7 +301,6 @@ async def test_channel_read_connection_error(tmp_path, monkeypatch):
     assert "suggestions" in data
 
 
-@pytest.mark.unit
 async def test_channel_read_empty_list(tmp_path, monkeypatch):
     """Empty channel list returns validation error."""
     monkeypatch.chdir(tmp_path)
@@ -321,7 +312,6 @@ async def test_channel_read_empty_list(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_channel_access_alarm_renders_as_a_name(tmp_path, monkeypatch):
     """A CA alarm reaches the tool payload as its EPICS name, not a raw code.
 
@@ -368,7 +358,6 @@ async def test_channel_access_alarm_renders_as_a_name(tmp_path, monkeypatch):
     assert channel["value"] == 500.2
 
 
-@pytest.mark.unit
 async def test_enum_reading_carries_its_state_label(tmp_path, monkeypatch):
     """An mbbi reading reaches the agent as an index *and* the state it names.
 
@@ -402,7 +391,6 @@ async def test_enum_reading_carries_its_state_label(tmp_path, monkeypatch):
     assert set(enum_fields["fields"]) == {"enum_label", "enum_labels"}
 
 
-@pytest.mark.unit
 async def test_a_non_enum_entry_has_no_enum_keys_at_all(tmp_path, monkeypatch):
     """Two null keys on every analogue reading would read as "no labels known"."""
     monkeypatch.chdir(tmp_path)
@@ -426,7 +414,6 @@ async def test_a_non_enum_entry_has_no_enum_keys_at_all(tmp_path, monkeypatch):
     assert "enum_labels" not in channel
 
 
-@pytest.mark.unit
 async def test_enum_keys_are_omitted_when_metadata_is_off(tmp_path, monkeypatch):
     """include_metadata=False means no metadata, enum labels included."""
     monkeypatch.chdir(tmp_path)
@@ -450,7 +437,6 @@ async def test_enum_keys_are_omitted_when_metadata_is_off(tmp_path, monkeypatch)
     assert "enum_fields_per_entry" not in data["access_details"]
 
 
-@pytest.mark.unit
 async def test_access_details_accounts_for_every_key_on_an_enum_entry(tmp_path, monkeypatch):
     """The exactness contract holds for enums too: the extra keys are advertised.
 
