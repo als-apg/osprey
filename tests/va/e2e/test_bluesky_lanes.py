@@ -63,7 +63,6 @@ conftest's gate), without docker, and without the ``osprey-va-full`` image.
 
 from __future__ import annotations
 
-import contextlib
 import itertools
 import json
 import os
@@ -732,7 +731,7 @@ def _tool_result(raw: str) -> dict:
 #:
 #: A draft revision is consumable exactly once (the bridge refuses a re-add with
 #: ``draft_revision_already_launched``), and ``PATCH /draft`` with args identical
-#: to the ones already staged leaves the draft — and therefore its revision —
+#: to the ones already staged leaves the draft -- and therefore its revision —
 #: unchanged. Several tests here stage a plan against one module-scoped
 #: deployment, so without this every staging after the first would hand back the
 #: SPENT revision and the queue tool would refuse for a reason that has nothing
@@ -747,7 +746,7 @@ def _plan_args(stack: LaneStack, lane: str) -> dict[str, Any]:
     ``channel_limits.json`` entry, so nothing here hardcodes a facility channel
     or asks for a value outside the band the deployment declares. Each call
     shifts that band by a sub-percent, band-relative nudge (see
-    :data:`_STAGING`) — enough to make the draft new, far too little to change
+    :data:`_STAGING`) -- enough to make the draft new, far too little to change
     what any test asserts about it, and bounded so the sweep never leaves the
     middle of the declared band however many times this is called.
     """
@@ -954,29 +953,47 @@ async def test_queue_add_binds_the_item_to_the_active_lane_only(
 ) -> None:
     """The item lands on the bound lane and NOWHERE else. LAYER: containers.
 
-    Asserted on both managers, because "it reached the right lane" and "it did
-    not also reach the other one" are different claims and only the second one
-    catches a fan-out.
+    The deployed queue runs by itself (the preset arms autostart), so an added
+    item never sits pending: it is executing, or already in the run records, by
+    the time anything reads the queue back. The binding is therefore proven
+    from where the item ENDS UP -- drained on the bound lane, with a run record
+    carrying its ``item_uid`` -- never from the pending list. Asserted on both
+    managers, because "it reached the right lane" and "it did not also reach
+    the other one" are different claims and only the second one catches a
+    fan-out.
 
-    The queued item is withdrawn on both paths (see :func:`_withdrawn_after`), so
-    a failure here cannot leak an item into the drain test's queue.
+    The drain is also the teardown: an armed queue clears itself by finishing
+    the item, so the next test starts from an idle manager with nothing to
+    withdraw.
     """
     session_state("va")
-    before_live = _queue_item_uids(LANE_LIVE)
+    live_items_before = _queue_item_uids(LANE_LIVE)
+    runs_before = {lane: set(_run_records(lane)) for lane in BRIDGE_URLS}
 
     revision = _patch_draft(LANE_VA, _plan_args(stack, LANE_VA))
     result = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
     item_uid = result["item"]["item_uid"]
 
-    with _withdrawn_after(LANE_VA, item_uid):
-        assert result["lane"] == LANE_VA, f"queue_add bound the item to the wrong lane: {result}"
-        assert item_uid in _queue_item_uids(LANE_VA), (
-            f"the item queue_add reported is not in lane {LANE_VA!r}'s queue: {result}"
-        )
-        assert _queue_item_uids(LANE_LIVE) == before_live, (
-            "queuing on the va lane changed the live lane's queue; a PLAN composed "
-            "for one machine reached the other's manager"
-        )
+    assert result["lane"] == LANE_VA, f"queue_add bound the item to the wrong lane: {result}"
+    assert _queue_item_uids(LANE_LIVE) == live_items_before, (
+        "queuing on the va lane changed the live lane's queue; a PLAN composed "
+        "for one machine reached the other's manager"
+    )
+
+    _drain(LANE_VA, QUEUE_DRAIN_TIMEOUT_S)
+
+    new_on_va = [
+        record
+        for run_id, record in _run_records(LANE_VA).items()
+        if run_id not in runs_before[LANE_VA]
+    ]
+    assert any(record.get("item_uid") == item_uid for record in new_on_va), (
+        f"the item queue_add bound to lane {LANE_VA!r} never ran there: {new_on_va}"
+    )
+    assert set(_run_records(LANE_LIVE)) == runs_before[LANE_LIVE], (
+        "queuing on the va lane produced a run on the live lane; a PLAN composed "
+        "for one machine executed on the other's manager"
+    )
 
 
 async def test_queue_start_refuses_the_lane_the_session_left(
@@ -986,33 +1003,41 @@ async def test_queue_start_refuses_the_lane_the_session_left(
 
     The mid-queue switch, which is the case the whole binding exists for: the
     item is bound to the lane it was queued on, and starting it after a switch
-    would arm the machine the deployment is no longer pointed at. The refusal is
-    asserted on its machine-readable code, and on both managers staying idle --
-    a refusal that had already started something would be worthless.
+    would arm the machine the deployment is no longer pointed at. The refusal
+    is asserted on its machine-readable code, and on the lane the session moved
+    to gaining nothing from it -- no pending item and no run. The bound lane
+    cannot be asserted idle: the preset arms autostart, so its manager is
+    legitimately executing the item the add itself started, refused start or
+    not.
 
-    The item is withdrawn on both paths for the same reason as the test above
-    (see :func:`_withdrawn_after`): it is queued precisely so it can be left
-    unstarted, and on a failure it would otherwise survive into the drain test.
+    The drain at the end is the teardown -- an armed queue is cleared by letting
+    the item finish, never by withdrawing it (a running item refuses withdrawal
+    and would leak into the next test).
     """
     session_state("va")
+    live_items_before = _queue_item_uids(LANE_LIVE)
+    live_runs_before = set(_run_records(LANE_LIVE))
+
     revision = _patch_draft(LANE_VA, _plan_args(stack, LANE_VA))
     added = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
+    assert added["lane"] == LANE_VA, f"queue_add bound the item to the wrong lane: {added}"
 
-    with _withdrawn_after(LANE_VA, added["item"]["item_uid"]):
-        session_state("live")
-        with assert_raises_error(error_type=lanes_module.REASON_LANE_MISMATCH) as refusal:
-            await get_tool_fn(bluesky_tools.queue_start)(LANE_VA)
+    session_state("live")
+    with assert_raises_error(error_type=lanes_module.REASON_LANE_MISMATCH) as refusal:
+        await get_tool_fn(bluesky_tools.queue_start)(LANE_VA)
 
-        details = refusal["envelope"].get("details", {})
-        assert details.get("active_lane") == LANE_LIVE, (
-            f"the refusal does not name the lane the session moved to: {refusal['envelope']}"
-        )
-        for lane in BRIDGE_URLS:
-            state = _queue_snapshot(lane)["status"].get("manager_state")
-            assert state in {"idle", "closed"}, (
-                f"lane {lane!r}'s manager is {state!r} after a refused start; the "
-                "refusal armed something"
-            )
+    details = refusal["envelope"].get("details", {})
+    assert details.get("active_lane") == LANE_LIVE, (
+        f"the refusal does not name the lane the session moved to: {refusal['envelope']}"
+    )
+    assert _queue_item_uids(LANE_LIVE) == live_items_before, (
+        f"a refused start left a pending item on lane {LANE_LIVE!r}; the refusal armed something"
+    )
+    assert set(_run_records(LANE_LIVE)) == live_runs_before, (
+        f"a refused start produced a run on lane {LANE_LIVE!r}; the refusal armed something"
+    )
+
+    _drain(LANE_VA, QUEUE_DRAIN_TIMEOUT_S)
 
 
 async def test_the_bound_lane_is_the_lane_that_executes(
@@ -1020,10 +1045,13 @@ async def test_the_bound_lane_is_the_lane_that_executes(
 ) -> None:
     """The PLAN drains on its own lane, and the other lane runs nothing.
 
-    LAYER: containers -- the acceptance claim of the whole axis. A start on the
-    bound lane is followed to completion and the run is looked for on BOTH
-    lanes, because a plan that executed on the wrong machine would still look
-    like a success from the lane that was asked.
+    LAYER: containers -- the acceptance claim of the whole axis. The preset
+    arms autostart, so the add IS the start: the manager begins executing the
+    item by itself, and an explicit ``queue_start`` would only be refused with
+    ``manager_not_idle`` for asking for something already under way. The run is
+    followed to completion and looked for on BOTH lanes, because a plan that
+    executed on the wrong machine would still look like a success from the lane
+    that was asked.
     """
     session_state("va")
     runs_before = {lane: set(_run_records(lane)) for lane in BRIDGE_URLS}
@@ -1032,9 +1060,6 @@ async def test_the_bound_lane_is_the_lane_that_executes(
     added = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
     assert added["lane"] == LANE_VA, added
     item_uid = added["item"]["item_uid"]
-
-    started = _tool_result(await get_tool_fn(bluesky_tools.queue_start)(LANE_VA))
-    assert started.get("lane") == LANE_VA, f"the start did not report its lane: {started}"
 
     _drain(LANE_VA, QUEUE_DRAIN_TIMEOUT_S)
 
@@ -1067,47 +1092,6 @@ def _run_records(lane: str) -> dict[str, dict]:
     return {
         record["id"]: record for record in body if isinstance(record, dict) and record.get("id")
     }
-
-
-def _withdraw(lane: str, item_uid: str) -> None:
-    """Remove one pending item from *lane*'s queue, through the bridge's own route.
-
-    Never by reaching into Redis, which would be a different (and untested) path
-    from the one an operator has. Called by the tests that deliberately leave an
-    item queued, so the next test starts from a queue it fully accounts for --
-    the queue is Redis-backed and outlives everything short of a volume removal.
-    """
-    status, body = _request(BRIDGE_URLS[lane], f"/queue/items/{item_uid}", "DELETE")
-    assert status == 200, f"could not withdraw {item_uid} from lane {lane!r}: {status} {body}"
-
-
-@contextlib.contextmanager
-def _withdrawn_after(lane: str, item_uid: str):
-    """Run the block, then take *item_uid* back out of *lane*'s queue -- either way.
-
-    Cleanup has to happen on the FAILURE path too: the deployment is
-    module-scoped and its queue is Redis-backed, so an item left behind by a
-    failing assertion here is still sitting in that lane's queue when the drain
-    test starts it, turning one real failure into a second, misleading one.
-
-    Not a bare ``finally``, and the difference is the point. On the success path
-    the withdraw is asserted, because a cleanup that silently did not happen is
-    the same leak. While an exception is already propagating it is best-effort
-    and merely reported -- a queue the refusal left in an unexpected state would
-    otherwise raise from the cleanup and REPLACE the failure that is the actual
-    news with a confusing one about deleting a queue item.
-    """
-    try:
-        yield
-    except BaseException:
-        try:
-            _withdraw(lane, item_uid)
-        except Exception as cleanup:  # noqa: BLE001 - must never mask the real failure
-            print(  # noqa: T201 - surface it in the run log, next to the failure
-                f"[cleanup] could not withdraw {item_uid} from lane {lane!r}: {cleanup}"
-            )
-        raise
-    _withdraw(lane, item_uid)
 
 
 def _drain(lane: str, timeout: float) -> None:
