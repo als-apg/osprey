@@ -21,7 +21,7 @@ from osprey.dispatch import server
 def _reset_mcp_routes():
     """Reset the shared FastMCP singleton's routes around each test.
 
-    Mirrors ``tests/unit/dispatch/test_server_routes.py``: ``create_server()``
+    Mirrors ``tests/dispatch/test_server_routes.py``: ``create_server()``
     mutates a module-level FastMCP singleton and appends dashboard routes to
     it on every call, so each test starts from a clean slate.
     """
