@@ -2870,6 +2870,53 @@ def test_model_free_lane_declares_no_gateway_key__mutation_adds_the_key() -> Non
         test_model_free_lane_declares_no_gateway_key(mutated)
 
 
+def test_model_free_lane_carries_no_dependabot_guard(workflow: dict[str, Any]) -> None:
+    """The actor guard is a secret guard: the lanes that carry it resolve
+    ``ALS_APG_API_KEY``, and a Dependabot run resolves secrets against the
+    Dependabot store rather than the Actions one. This lane resolves none,
+    and the one credential it uses — the run's own ``GITHUB_TOKEN``, for the
+    private openobserve mirror — is read-only on a Dependabot run, which is
+    the access a pull takes. A neighbouring lane's condition copied here
+    would drop the model-free proof from the pull requests that move the
+    dependency set, and every other pin on this lane would stay green while
+    it did. Absence is asserted only while the premise holds: a lane that
+    grows an Actions secret fails the first half and wants the guard."""
+    assert not _job_declares_secret(workflow, NO_MODEL_JOB, SECRET_TOKEN), (
+        f"'{NO_MODEL_JOB}' now declares an Actions secret — the guard this case "
+        f"asserts is absent belongs here"
+    )
+    condition = _jobs(workflow)[NO_MODEL_JOB]["if"]
+    assert _DEPENDABOT_GUARD not in condition, (
+        f"'{NO_MODEL_JOB}' excludes Dependabot but needs no Actions secret"
+    )
+
+
+def test_model_free_lane_carries_no_dependabot_guard__mutation_adds_the_actor_guard() -> None:
+    """A neighbouring lane's actor guard appended to this condition. The
+    existing pin on the same condition still passes — the same-repo clause is
+    there, the label clause is not — which is why the absence needs a pin of
+    its own."""
+    mutated = copy.deepcopy(_load_workflow())
+    job = _jobs(mutated)[NO_MODEL_JOB]
+    job["if"] = job["if"] + f" && {_DEPENDABOT_GUARD}"
+    test_model_free_lane_runs_on_every_same_repo_pull_request(mutated)  # still green
+    with pytest.raises(AssertionError, match="needs no Actions secret"):
+        test_model_free_lane_carries_no_dependabot_guard(mutated)
+
+
+def test_model_free_lane_carries_no_dependabot_guard__mutation_adds_the_gateway_key() -> None:
+    """A lane that grows a secret wants the guard, so the case must stop
+    asserting its absence rather than pin the lane into a red it cannot
+    escape."""
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][NO_MODEL_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    assert _DEPENDABOT_GUARD not in _jobs(mutated)[NO_MODEL_JOB]["if"]  # guard half untouched
+    with pytest.raises(AssertionError, match="now declares an Actions secret"):
+        test_model_free_lane_carries_no_dependabot_guard(mutated)
+
+
 def test_model_free_lane_fails_on_any_skipped_test(workflow: dict[str, Any]) -> None:
     """Every file here is named by path and every test in them runs without a
     credential, so a skip is the lane being wrong about its own runner rather
