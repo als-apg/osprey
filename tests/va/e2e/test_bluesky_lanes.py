@@ -83,6 +83,7 @@ import yaml
 
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
 from osprey.cli.build_profile_schema import SECOND_LANE_PORT_STRIDE
+from osprey.deployment.compose_generator import BLUESKY_DEVICES_FILENAME
 from osprey.mcp_server.bluesky import lanes as lanes_module
 from osprey.mcp_server.bluesky.server_context import (
     initialize_server_context,
@@ -90,6 +91,7 @@ from osprey.mcp_server.bluesky.server_context import (
 )
 from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
+from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context
@@ -500,8 +502,10 @@ class LaneStack:
     repo: Path
     live_port: int
     env: dict[str, str]
-    #: ``{lane: {axis name: (setpoint address, readback address)}}`` -- derived
-    #: per lane by ``osprey up`` into ``<PREFIX>_EPICS_SETPOINTS``.
+    #: ``{lane: {axis name: (setpoint address, readback address)}}`` -- read
+    #: from the device file the build stages for the worker. The file is a
+    #: property of the facility, not of a lane, so both lanes carry the same
+    #: set; keyed per lane because a plan is staged against ONE lane's bridge.
     correctors: dict[str, dict[str, tuple[str, str]]]
     bpms: dict[str, dict[str, str]]
     limits: dict[str, Any]
@@ -511,27 +515,20 @@ class LaneStack:
         return self.repo / "build" / "config.yml"
 
 
-def _parse_pairs(raw: str) -> dict[str, tuple[str, str]]:
-    """``name=SP|RB,...`` back into ``{name: (setpoint, readback)}``."""
-    out: dict[str, tuple[str, str]] = {}
-    for chunk in raw.split(","):
-        if "=" not in chunk:
-            continue
-        name, _, addresses = chunk.partition("=")
-        setpoint, _, readback = addresses.partition("|")
-        out[name.strip()] = (setpoint.strip(), readback.strip())
-    return out
+def _staged_devices(repo: Path) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
+    """The worker's device set, from the file ``osprey build`` staged for it.
 
-
-def _parse_singles(raw: str) -> dict[str, str]:
-    """``name=ADDRESS,...`` back into ``{name: address}``."""
-    out: dict[str, str] = {}
-    for chunk in raw.split(","):
-        if "=" not in chunk:
-            continue
-        name, _, address = chunk.partition("=")
-        out[name.strip()] = address.strip()
-    return out
+    Read through the worker's own parser, so what these tests plan against is
+    exactly what the container was handed: ``{name: (setpoint, readback)}`` for
+    the settables (a settable with no readback of its own reads its setpoint
+    back) and ``{name: pv}`` for the readables.
+    """
+    staged = repo / "build" / "services" / LANE_ONE / BLUESKY_DEVICES_FILENAME
+    settables, readables = specs_from_file(staged)
+    return (
+        {s.name: (s.setpoint_pv, s.readback_pv or s.setpoint_pv) for s in settables},
+        {r.name: r.read_pv for r in readables},
+    )
 
 
 def _remove_stale_deployment() -> None:
@@ -597,18 +594,13 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
         limits = json.loads(
             (repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
         )
+        settables, readables = _staged_devices(repo)
         yield LaneStack(
             repo=repo,
             live_port=live_endpoint,
             env=env,
-            correctors={
-                lane: _parse_pairs(env.get(f"{prefix}_EPICS_SETPOINTS", ""))
-                for lane, prefix in LANE_ENV_PREFIX.items()
-            },
-            bpms={
-                lane: _parse_singles(env.get(f"{prefix}_EPICS_READBACKS", ""))
-                for lane, prefix in LANE_ENV_PREFIX.items()
-            },
+            correctors={lane: dict(settables) for lane in LANE_ENV_PREFIX},
+            bpms={lane: dict(readables) for lane in LANE_ENV_PREFIX},
             limits=limits,
         )
     finally:
@@ -728,8 +720,8 @@ def _plan_args(stack: LaneStack, lane: str) -> dict[str, Any]:
     """
     correctors = stack.correctors[lane]
     bpms = stack.bpms[lane]
-    assert correctors, f"osprey up wrote no setpoints for lane {lane!r}"
-    assert bpms, f"osprey up wrote no readbacks for lane {lane!r}"
+    assert correctors, f"the build staged no settable devices for lane {lane!r}"
+    assert bpms, f"the build staged no readable devices for lane {lane!r}"
     axis_name = next(iter(correctors))
     setpoint_address, _readback = correctors[axis_name]
     entry = stack.limits[setpoint_address]
