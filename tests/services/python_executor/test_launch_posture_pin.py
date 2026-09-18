@@ -34,7 +34,11 @@ import pytest
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 from osprey_connectors import control_context, posture_store
-from tests._control_context_fixtures import write_control_context
+from tests._control_context_fixtures import (
+    pin_identity,
+    state_dir_under,
+    write_control_context,
+)
 
 pytestmark = pytest.mark.unit
 
@@ -240,6 +244,33 @@ class TestExecutorStampsThePin:
         write_store(data_root, {"standin": "sandbox"})
 
         assert host_executor._launch_posture("standin") == "standin=sandbox"
+
+    def test_the_narrowed_record_the_operator_wrote_is_the_one_the_launch_reads(
+        self, data_root, monkeypatch
+    ):
+        """The narrowing travels from the record on disk to the posture stamped.
+
+        The record lives one directory per identity, so a launch that resolved
+        a different name than the operator's writer used would find no record
+        at all and launch the run with writes — a narrowing that never applies,
+        whose only symptom is a file nobody reads. The identity is pinned here
+        so both ends name one directory, and the launch asks through
+        ``store_permits``, the bool spelling of the store verdict, which is the
+        term the stamped posture is built from.
+        """
+        # Arrange — an operator narrowing standin, under the acting identity.
+        identity = pin_identity(monkeypatch)
+        write_store(data_root, {"standin": "sandbox"})
+
+        # Act
+        stamp = host_executor._launch_posture("standin")
+
+        # Assert — the record is where the reader looks, and it is what refused.
+        state_dir = state_dir_under(data_root)
+        assert state_dir.name == identity
+        assert (state_dir / control_context.RECORD_FILENAME).exists()
+        assert posture_store.store_permits("standin") is False
+        assert stamp == posture_store.launch_posture_stamp("standin", posture_store.POSTURE_SANDBOX)
 
     def test_an_unknowable_target_takes_the_most_restrictive_entry(self, data_root):
         """One narrowing anywhere on the deployment pins a run that names no target."""
