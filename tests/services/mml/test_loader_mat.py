@@ -4,22 +4,34 @@ The ``.mat`` files are written in each test with ``scipy.io.savemat`` (v5), so
 they carry exactly the MATLAB shapes under test: cells mixing arrays and
 structs, empty chars, and function-handle-shaped structs. Every decoded body
 must survive a strict JSON dump, which is the contract of the canonical writer.
+
+The lattice lane is the exception: a deck is a whole ring, so those tests read
+the committed synthetic export rather than writing a ring by hand, and the
+numbers they hold the loaded ring to come from that export's own fingerprint.
 """
 
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import click
 import numpy as np
 import pytest
+from click.testing import CliRunner
 from scipy.io import savemat
 from scipy.io.matlab import MatlabFunction, mat_struct
 
+from osprey.cli.main import cli
 from osprey.services.mml.loaders import LoadedInput
-from osprey.services.mml.loaders.mat import decode, load_mat
+from osprey.services.mml.loaders.mat import decode, load_lattice, load_mat
 from osprey.services.mml.normalize import normalize_family
+from tests.templates.mml_export_contract import VA_LATTICE_KEYS
+
+SYNTHETIC = Path(__file__).resolve().parents[2] / "fixtures" / "mml" / "synthetic"
+SYNTHETIC_LATTICE = SYNTHETIC / "quokka.sr.lattice.mat"
+MISMATCHED_LATTICE = SYNTHETIC / "mismatched.lattice.mat"
 
 
 def _cell(*items: object) -> np.ndarray:
@@ -28,6 +40,33 @@ def _cell(*items: object) -> np.ndarray:
     for index, item in enumerate(items):
         cell[index] = item
     return cell
+
+
+def _lattice_facts() -> dict:
+    """The exported fingerprint facts the loaded ring is held to."""
+    va = json.loads((SYNTHETIC / "quokka.sr.va.json").read_text(encoding="utf-8"))
+    return {key: va["lattice"][key] for key in VA_LATTICE_KEYS}
+
+
+def _copy_synthetic(repo: Path, *names: str) -> None:
+    """Put the named synthetic export files into the deployment repo."""
+    for name in names:
+        shutil.copy(SYNTHETIC / name, repo / name)
+
+
+def _import(*args: str):
+    """Run ``osprey mml import`` with *args* in the current directory."""
+    return CliRunner().invoke(cli, ["mml", "import", *args], catch_exceptions=False)
+
+
+@pytest.fixture
+def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A minimal deployment repo (a ``profile.yml`` marker) as the cwd."""
+    root = tmp_path / "deploy"
+    root.mkdir()
+    (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
+    monkeypatch.chdir(root)
+    return root
 
 
 def _strict_dump(value: object) -> str:
@@ -192,3 +231,131 @@ class TestDecode:
     def test_zero_size_numeric_array_is_empty_list(self):
         """Any zero-size numeric array decodes as ``[]``."""
         assert decode(np.zeros((0, 3))) == []
+
+
+class TestLatticeInput:
+    """A ``.mat`` whose top-level variable is ``THERING`` is a lattice, not an export."""
+
+    def test_lattice_mat_carries_its_path_and_no_families(self):
+        """The loader recognises the deck and leaves AO and AD empty."""
+        loaded = load_mat(SYNTHETIC_LATTICE)
+        assert loaded.lattice == SYNTHETIC_LATTICE
+        assert loaded.ao == {}
+        assert loaded.ad is None
+        assert loaded.export is None
+        assert loaded.system_keyed is False
+        assert loaded.source == SYNTHETIC_LATTICE
+
+    def test_an_ao_export_is_not_a_lattice(self, mat_path: Path):
+        """Every other ``.mat`` stays an AO/AD export."""
+        assert load_mat(mat_path).lattice is None
+
+    def test_ao_beside_thering_is_refused(self, tmp_path: Path):
+        """One file cannot be both, so neither half is dropped in silence."""
+        path = tmp_path / "both.mat"
+        ring = _cell({"FamName": "DR", "Length": 1.0, "PassMethod": "DriftPass"})
+        savemat(str(path), {"AO": {"HCM": {"FamilyName": "HCM"}}, "THERING": ring})
+        with pytest.raises(click.ClickException, match="both.mat"):
+            load_mat(path)
+
+    def test_loading_the_lattice_keeps_the_ringparam_and_matlab_indices(self):
+        """Every index the export's numbers were taken at survives the load."""
+        facts = _lattice_facts()
+        ring = load_lattice(SYNTHETIC_LATTICE)
+        assert len(ring) == facts["elements"]
+        assert ring[facts["ringparam_indices"] - 1].tag == "RingParam"
+        assert ring.energy == pytest.approx(facts["energy_gev"] * 1e9)
+
+    def test_loading_the_mismatched_lattice_gives_the_renamed_family(self):
+        """The counter-example deck loads; only its family names differ."""
+        names = [element.FamName for element in load_lattice(MISMATCHED_LATTICE)]
+        assert len(names) == _lattice_facts()["elements"]
+        assert "QFX" in names
+        assert "QF1" not in names
+
+    def test_a_deck_that_is_not_a_ring_is_refused_by_name(self, tmp_path: Path):
+        """A ``THERING`` pyAT cannot build raises a message naming the file."""
+        path = tmp_path / "broken.mat"
+        savemat(str(path), {"THERING": _cell({"FamName": "DR", "PassMethod": "DriftPass"})})
+        with pytest.raises(click.ClickException, match="broken.mat"):
+            load_lattice(path)
+
+
+class TestImportLattice:
+    """``osprey mml import`` files a lattice beside the canonical documents."""
+
+    def test_a_paired_lattice_is_copied_verbatim_under_its_system(self, repo: Path):
+        """The system comes from the ``ao.json`` sharing the file name stem."""
+        _copy_synthetic(repo, "quokka.sr.ao.json", "quokka.sr.ad.json", "quokka.sr.lattice.mat")
+
+        result = _import("quokka.sr.ao.json", "quokka.sr.lattice.mat")
+
+        assert result.exit_code == 0, result.output
+        copied = repo / "data" / "mml" / "lattice" / "SR.mat"
+        assert copied.read_bytes() == SYNTHETIC_LATTICE.read_bytes()
+        assert (repo / "data" / "mml" / "ao.json").is_file()
+        assert "lattice" in result.output
+
+    def test_system_option_names_the_system_of_an_unpaired_lattice(self, repo: Path):
+        """A deck no ``ao.json`` pairs with takes its system from ``--system``."""
+        _copy_synthetic(repo, "quokka.sr.ao.json", "quokka.sr.ad.json", "mismatched.lattice.mat")
+
+        result = _import(
+            "quokka.sr.ao.json", "mismatched.lattice.mat", "--system", "mismatched.lattice.mat=SR"
+        )
+
+        assert result.exit_code == 0, result.output
+        copied = repo / "data" / "mml" / "lattice" / "SR.mat"
+        assert copied.read_bytes() == MISMATCHED_LATTICE.read_bytes()
+
+    def test_an_unpaired_lattice_without_a_system_is_refused(self, repo: Path):
+        """The refusal names the deck and the option that settles it."""
+        _copy_synthetic(repo, "quokka.sr.ao.json", "quokka.sr.ad.json", "mismatched.lattice.mat")
+
+        result = _import("quokka.sr.ao.json", "mismatched.lattice.mat")
+
+        assert result.exit_code != 0
+        assert "mismatched.lattice.mat" in result.output
+        assert "--system" in result.output
+
+    def test_a_lattice_whose_system_has_no_export_is_refused(self, repo: Path):
+        """A deck without AO/AD for its system in the same import is refused."""
+        _copy_synthetic(repo, "quokka.sr.ao.json", "quokka.sr.ad.json", "quokka.sr.lattice.mat")
+
+        result = _import(
+            "quokka.sr.ao.json", "quokka.sr.lattice.mat", "--system", "quokka.sr.lattice.mat=LTB"
+        )
+
+        assert result.exit_code != 0
+        assert "LTB" in result.output
+
+    def test_a_refused_lattice_leaves_nothing_written(self, repo: Path):
+        """The refusal lands before the canonical documents are written."""
+        _copy_synthetic(repo, "quokka.sr.lattice.mat")
+
+        result = _import("quokka.sr.lattice.mat", "--system", "SR")
+
+        assert result.exit_code != 0
+        assert not (repo / "data" / "mml" / "ao.json").exists()
+        assert not (repo / "data" / "mml" / "lattice").exists()
+
+    def test_two_lattices_for_one_system_are_refused(self, repo: Path):
+        """One system takes one deck, as one system takes one export."""
+        _copy_synthetic(
+            repo,
+            "quokka.sr.ao.json",
+            "quokka.sr.ad.json",
+            "quokka.sr.lattice.mat",
+            "mismatched.lattice.mat",
+        )
+
+        result = _import(
+            "quokka.sr.ao.json",
+            "quokka.sr.lattice.mat",
+            "mismatched.lattice.mat",
+            "--system",
+            "mismatched.lattice.mat=SR",
+        )
+
+        assert result.exit_code != 0
+        assert "SR" in result.output

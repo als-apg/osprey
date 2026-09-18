@@ -5,6 +5,10 @@ A ``.mat`` export carries the Accelerator Objects in a variable named ``AO``
 loader decodes scipy's MATLAB containers into plain JSON-serialisable Python
 values and returns them raw; family normalisation runs afterwards.
 
+A ``.mat`` saving the lattice carries the ring in ``THERING`` and no families.
+It is a different kind of input: :func:`load_mat` recognises it and hands back
+the path in ``lattice``, and :func:`load_lattice` builds the pyAT ring from it.
+
 Only MAT-file versions 5 and 7 are readable. Version 7.3 files are HDF5
 containers that scipy cannot open, so they are refused with a message naming
 the MATLAB call that re-saves the file in a readable format.
@@ -13,16 +17,19 @@ the MATLAB call that re-saves the file in a readable format.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
 import numpy as np
-from scipy.io import loadmat
+from scipy.io import loadmat, whosmat
 from scipy.io.matlab import MatlabFunction, mat_struct
 
 from osprey.services.mml.loaders import LoadedInput
 
-__all__ = ["decode", "load_mat"]
+if TYPE_CHECKING:
+    import at
+
+__all__ = ["decode", "load_lattice", "load_mat"]
 
 _HEADER_LENGTH = 128
 _VERSION_OFFSET = 124
@@ -32,23 +39,38 @@ _HDF5_MAJOR_VERSION = 2
 _AO_NAMES = ("AO", "ao")
 _AD_NAMES = ("AD", "ad")
 
+#: The variable a lattice deck is saved under, by the exporter and by pyAT.
+LATTICE_VARIABLE = "THERING"
+
 
 def load_mat(path: Path | str) -> LoadedInput:
-    """Read a MATLAB ``.mat`` MML export.
+    """Read a MATLAB ``.mat`` MML export, or recognise a lattice deck.
 
     Args:
         path: The ``.mat`` file to read.
 
     Returns:
         The decoded input, with raw family bodies in ``ao`` and the decoded
-        ``AD`` variable (or ``None``) in ``ad``.
+        ``AD`` variable (or ``None``) in ``ad``. A deck instead yields an
+        input whose ``lattice`` is the file and whose ``ao`` is empty; its
+        ring is read on demand by :func:`load_lattice`.
 
     Raises:
         click.ClickException: The file is a v7.3 (HDF5) MAT-file, cannot be
-            read, or carries no ``AO``/``ao`` variable.
+            read, carries both a ring and an ``AO``, or carries neither.
     """
     path = Path(path)
     _refuse_hdf5(path)
+    names = _variable_names(path)
+    if LATTICE_VARIABLE in names:
+        if any(name in names for name in _AO_NAMES):
+            raise click.ClickException(
+                f"MAT-file {path} carries both {LATTICE_VARIABLE} and an AO variable; "
+                "save the lattice and the Accelerator Objects as separate files."
+            )
+        return LoadedInput(
+            ao={}, ad=None, export=None, system_keyed=False, source=path, lattice=path
+        )
     try:
         variables = loadmat(str(path), struct_as_record=False, squeeze_me=True)
     except Exception as exc:  # scipy raises several unrelated types on bad input
@@ -67,6 +89,32 @@ def load_mat(path: Path | str) -> LoadedInput:
         raise click.ClickException(f"The AD variable in MAT-file {path} is not a struct.")
 
     return LoadedInput(ao=ao, ad=ad, export=None, system_keyed=False, source=path)
+
+
+def load_lattice(path: Path | str) -> at.Lattice:
+    """Build the pyAT ring held in a lattice deck.
+
+    Every element of the saved ring is kept, so a ``RingParam`` stays in place
+    as a tagged marker and the MATLAB index of each element is its position in
+    the returned ring.
+
+    Args:
+        path: The ``.mat`` file whose ``THERING`` holds the ring.
+
+    Returns:
+        The ring, with its elements in saved order.
+
+    Raises:
+        click.ClickException: The file carries no readable ring; the message
+            names the file.
+    """
+    import at
+
+    path = Path(path)
+    try:
+        return at.load_mat(str(path), use=LATTICE_VARIABLE, keep_all=True)
+    except Exception as exc:  # pyAT raises several unrelated types on a bad ring
+        raise click.ClickException(f"Cannot read the lattice in {path}: {exc}") from exc
 
 
 def decode(value: Any) -> Any:
@@ -113,6 +161,14 @@ def _reshape(items: list, shape: tuple[int, ...]) -> Any:
         return items
     step = len(items) // shape[0] if shape[0] else 0
     return [_reshape(items[i * step : (i + 1) * step], shape[1:]) for i in range(shape[0])]
+
+
+def _variable_names(path: Path) -> set[str]:
+    """The top-level variable names of a MAT-file, read without decoding it."""
+    try:
+        return {name for name, _shape, _dtype in whosmat(str(path))}
+    except Exception as exc:  # scipy raises several unrelated types on bad input
+        raise click.ClickException(f"Cannot read MAT-file {path}: {exc}") from exc
 
 
 def _first_present(variables: dict, names: tuple[str, ...]) -> Any:

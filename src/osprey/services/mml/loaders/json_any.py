@@ -12,6 +12,12 @@ A family is recognised by the structural rule
 The loader only decodes: bare ``NaN``/``Infinity``/``-Infinity`` tokens become
 the normaliser's ``"NaN"``/``"Inf"``/``"-Inf"`` strings, and every other value,
 including misspelled keys and nested cell arrays, is returned as parsed.
+
+An export also names its files after itself: ``<stem>.ad.json`` beside
+``<stem>.ao.json`` is that export's AD, and a 2.0 export adds the siblings
+``<stem>.va.json``, ``<stem>.response.json`` and ``<stem>.lattice.mat``.
+:func:`paired_sibling` is the one rule that pairs them, so naming the AO alone
+is enough to import the whole set.
 """
 
 from __future__ import annotations
@@ -24,7 +30,16 @@ import click
 from osprey.services.channel_finder.tools.preview_database import is_family_dict
 from osprey.services.mml.loaders import LoadedInput
 
-__all__ = ["load_json"]
+__all__ = [
+    "AD_SUFFIX",
+    "AO_SUFFIX",
+    "LATTICE_SUFFIX",
+    "RESPONSE_SUFFIX",
+    "VA_SUFFIX",
+    "load_json",
+    "load_sibling",
+    "paired_sibling",
+]
 
 #: Bare JSON constants mapped to the normaliser's canonical non-finite strings.
 _NON_FINITE = {"NaN": "NaN", "Infinity": "Inf", "-Infinity": "-Inf"}
@@ -32,8 +47,21 @@ _NON_FINITE = {"NaN": "NaN", "Infinity": "Inf", "-Infinity": "-Inf"}
 _WRAPPER_KEYS = ("ao", "AO")
 _AD_KEYS = ("ad", "AD")
 _EXPORT_KEY = "_export"
-_AO_SUFFIX = ".ao.json"
-_AD_SUFFIX = ".ad.json"
+
+#: File-name suffix of the AO every other file of an export is named after.
+AO_SUFFIX = ".ao.json"
+
+#: File-name suffix of the AD beside an AO.
+AD_SUFFIX = ".ad.json"
+
+#: File-name suffix of the virtual-accelerator document of a 2.0 export.
+VA_SUFFIX = ".va.json"
+
+#: File-name suffix of the response-matrix document of a 2.0 export.
+RESPONSE_SUFFIX = ".response.json"
+
+#: File-name suffix of the lattice deck of a 2.0 export.
+LATTICE_SUFFIX = ".lattice.mat"
 
 
 def load_json(path: str | Path) -> LoadedInput:
@@ -85,6 +113,46 @@ def load_json(path: str | Path) -> LoadedInput:
     return LoadedInput(ao=ao, ad=ad, export=export, system_keyed=system_keyed, source=source)
 
 
+def load_sibling(path: str | Path) -> dict:
+    """Load one sibling document of a 2.0 export.
+
+    Args:
+        path: The ``.va.json`` or ``.response.json`` file.
+
+    Returns:
+        The document as parsed, with bare non-finite tokens mapped to the
+        normaliser's strings exactly as in an AO or AD input.
+
+    Raises:
+        click.ClickException: When the file cannot be read or parsed, or its
+            top level is not a map; the message names the file.
+    """
+    source = Path(path)
+    data = _read(source)
+    if not isinstance(data, dict):
+        raise click.ClickException(
+            f"Cannot import {source}: the top level of a sibling document is a map."
+        )
+    return data
+
+
+def paired_sibling(source: Path, suffix: str) -> Path | None:
+    """The file named after *source* and ending in *suffix*, when it exists.
+
+    Args:
+        source: An input of the export, which pairs only when it is the AO.
+        suffix: The sibling's file-name suffix, such as :data:`VA_SUFFIX`.
+
+    Returns:
+        The sibling's path, or ``None`` when *source* is not an ``.ao.json``
+        or no such file sits beside it.
+    """
+    if not source.name.endswith(AO_SUFFIX):
+        return None
+    sibling = source.with_name(source.name[: -len(AO_SUFFIX)] + suffix)
+    return sibling if sibling.is_file() else None
+
+
 def _read(source: Path) -> object:
     """Parse *source*, mapping bare non-finite tokens to canonical strings."""
     try:
@@ -126,10 +194,8 @@ def _is_system_keyed(body: dict) -> bool:
 
 def _paired_ad(source: Path) -> dict | None:
     """Read ``<stem>.ad.json`` beside ``<stem>.ao.json``, when it exists."""
-    if not source.name.endswith(_AO_SUFFIX):
-        return None
-    sibling = source.with_name(source.name[: -len(_AO_SUFFIX)] + _AD_SUFFIX)
-    if not sibling.is_file():
+    sibling = paired_sibling(source, AD_SUFFIX)
+    if sibling is None:
         return None
     data = _read(sibling)
     return data if isinstance(data, dict) else None
