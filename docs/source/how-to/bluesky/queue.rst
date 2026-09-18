@@ -36,7 +36,12 @@ One queue, three ways to drive it
         screen after a confirming click, and it runs now. On a stopped queue
         the same button reads **Add to queue**: the plan waits.
       - **Start** (BLUESKY, Queue tab) — arms a stopped queue: it runs
-        everything waiting, in order, and whatever is added later.
+        everything waiting, in order, and whatever is added later. It starts
+        the queue you are looking at. If the list moved between your glance and
+        your click the start is refused with the bridge's own sentence, and
+        nothing is started. The panel's live stream brings the new list in, and
+        a click sends whatever the stream has delivered by then — so a click
+        that follows the refusal immediately can meet it a second time.
       - **Stop** and **Abort** (BLUESKY) — never disabled. Stop lets the
         current plan finish; Abort stops it right now, after a second,
         confirming click. Both leave the queue stopped. They sit on the Queue
@@ -85,15 +90,27 @@ One queue, three ways to drive it
 
          POST   /queue/items        add the current draft revision (runs at once
                                     on an armed queue — then needs the launch token)
-         POST   /queue/start        arm the queue (needs the launch token)
+         POST   /queue/start        arm the queue (needs the launch token; may name
+                                    the queue it means — expected_plan_queue_uid)
          POST   /queue/stop         stop after the running item, and disarm
          POST   /queue/abort        abort the running plan, and disarm — never gated
          DELETE /queue/items        drop every waiting item
-         GET    /queue              what is queued and running
+         GET    /queue              what is queued and running, and the queue's own
+                                    plan_queue_uid
          GET    /runs               recent runs; /runs/<id>/data for the numbers,
                                     /runs/<id>/figure for the plotted view
          DELETE /runs/<id>          remove one finished run from the list
          DELETE /history            remove every finished run from the list
+
+      ``POST /queue/start`` takes one optional body field,
+      ``expected_plan_queue_uid``: the ``plan_queue_uid`` that ``GET /queue``
+      reported when you last read it. Sending it back means *start this
+      queue*. If an item was added, removed or re-ordered in between, the start
+      is refused with ``409 queue_changed_since_approval`` and nothing is
+      started. The refusal reports the queue's current uid so a client can say
+      what moved; it is not a uid to start with. Read ``GET /queue`` again, let
+      somebody look at what it now holds, and send the uid from that read. Omit
+      the field and the start arms whatever is queued now.
 
       Every refusal comes back with a ``detail`` object of the form
       ``{"code": ..., "detail": ...}`` — a stable code for software to
@@ -164,6 +181,38 @@ quirks worth knowing:
    ``launch_token_required`` and the start stays with you, from the BLUESKY
    queue panel's own **Start** button.
 
+   What you approve when you approve a start is **the queue you were shown**.
+   The prompt lists it and records which queue it listed, for that session and
+   that lane; the tool quotes it back, and the bridge refuses the start if an
+   item was added, removed or re-ordered in between
+   (``queue_changed_since_approval``). Nothing is started and nothing is
+   re-bound to the new list — a queue you never saw is not a queue you
+   approved. Read the queue again, see what it now holds, and start again,
+   which puts a fresh prompt in front of you. A prompt that had no queue to
+   list binds nothing, and its start runs the queue as it stands.
+
+   Listing the queue means reading it over the bridge while you wait, so the
+   two arming prompts — ``queue_add`` and ``queue_start`` — are given 30
+   seconds where the other prompts are given five. The listing itself stops at
+   around 20 of those; the rest is headroom, so a slow bridge costs you some of
+   the detail rather than the prompt.
+
+   A plan is also bound to **whoever queued it**. Queued through one of
+   OSPREY's named doors — the PLAN tab, the BLUESKY panel in its web-terminal
+   tab, the agent's ``queue_add`` — onto a lane this deployment runs, a plan
+   carries that person's name, and its writes obey their own read-only
+   narrowing from the header chip (:doc:`/how-to/web-terminal/operate`)
+   wherever the plan runs.
+
+   Not every route in is a named one. The same panel served at an address of
+   its own is a service door rather than a terminal, and a login there names
+   nobody. The queue server, in turn, is the facility's rather than OSPREY's,
+   so a plan can reach it without passing an OSPREY door at all. Either way the
+   plan carries whatever name it claims, or none, and runs at the lane's
+   ceiling — what the deployment armed for that lane, with nobody's chip on
+   top. A lane whose plans run on the facility's own worker sits outside all of
+   this, and a name shown on one of its items is a label rather than a gate.
+
    On a two-lane deployment the BLUESKY panel carries a **lane picker** in its
    status strip, labelled by the machine each lane drives. The panel is bound
    to one lane at a time — plans, shared draft, queue and results all follow
@@ -196,6 +245,11 @@ quirks worth knowing:
    ``session_plan_unvalidated``
       An agent-written plan must pass validation, byte for byte, before it
       runs — see :doc:`write-plans`.
+
+   ``queue_changed_since_approval``
+      The start named a queue, and the queue moved before the start arrived —
+      an item was added, removed or re-ordered. Nothing was started. Read the
+      queue again, check what it now holds, and start again.
 
    ``interrupted_item_in_queue``
       The queue still holds a plan someone stopped — see the next dropdown.

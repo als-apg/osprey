@@ -81,7 +81,9 @@ The window has three working areas plus a header:
   for either bar: a dot and a word for what the queue is doing, the running
   plan and how far it is, and a card with the queued plans, **Open Bluesky**
   and — if you switch them on in its options — the panel's own Start, Stop and
-  Abort.
+  Abort. Start there arms the queue the card is showing; if the list moved
+  before the click landed the start is refused, and the item re-reads the queue
+  so your next click is a decision about what is actually queued.
 
 The settings drawer lets you read and edit the project's ``config.yml`` — and
 the agent's own setup and memory files — from the browser, so you rarely need
@@ -317,15 +319,18 @@ machine takes them away from everyone, and a switch made in one window applies
 in the other. That is the point --- a write state you can only see from the
 page you happen to be on is not a safety control.
 
-Both are recorded together in
-``var/agent_data/control_target/control_context.json``, written as soon as you
-click and read back when a server starts, so restarting the container never
-quietly turns writes back on or moves the deployment off the machine somebody
-put it on. Coming back to the deployment baseline is a switch like any other.
+Both are recorded together on disk, written as soon as you click and read back
+when a server starts, so restarting the container never quietly turns writes
+back on or moves the deployment off the machine somebody put it on. Coming back
+to the deployment baseline is a switch like any other.
 
-On a multi-user deployment every user has their own container and their own
-volumes (:doc:`multi-user/index`), so "the deployment" here means the stack
-that user is working in.
+That record sits in a directory named for whoever the terminal is acting as:
+``var/agent_data/control_target/<name>/control_context.json``. On a multi-user
+deployment every user has their own container and their own volumes
+(:doc:`multi-user/index`), so "the deployment" here means the stack that user
+is working in, and ``<name>`` is that user --- alice's settings are in
+``control_target/alice/`` on the host, and no user's chip decides another
+user's writes.
 
 What refuses a write, and how firmly
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -408,6 +413,14 @@ says nothing about the chip.
    a narrowing at once --- turning writes off refuses the running cell's next
    write --- and takes a widening, or a switch, on the next cell you run. See
    :doc:`notebooks`.
+
+   Where a deployment also serves a panel at an address of its own, that
+   address is a **service door, not a terminal**. Log in there directly and the
+   deployment has no name to put on what you do, so nobody's chip applies to
+   it: a plan queued from that page runs at its lane's ceiling --- what the
+   deployment armed for that lane --- rather than under yours. Reaching the
+   same panel from its tab in the terminal is the named path, and the one the
+   chip governs.
 
 .. _web-terminal-bars:
 
