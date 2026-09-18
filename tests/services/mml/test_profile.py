@@ -7,13 +7,32 @@ every FR2 item. The synthetic export here has two systems that share a PV,
 disagree on one direction and leave another undecided, and pends no judgment;
 a second export pends one of each kind, so both sides of every judgment block
 are pinned.
+
+The ``Virtual accelerator`` heading is read from the one committed 2.0 export,
+``tests/fixtures/mml/synthetic``, so the section is pinned against a real
+export rather than a hand-typed one; the two shapes that fixture does not carry
+(an extra field, sibling units that disagree) are made by editing the loaded
+copy, never the committed file.
 """
 
 from __future__ import annotations
 
+import copy
+import json
+from pathlib import Path
+
 from osprey.services.mml.census import take_census
 from osprey.services.mml.directions import vote_directions
-from osprey.services.mml.profile import HAZARD_HEADINGS, SYSTEM_HEADINGS, render_profile
+from osprey.services.mml.normalize import normalize_family
+from osprey.services.mml.profile import (
+    HAZARD_HEADINGS,
+    SYSTEM_HEADINGS,
+    VA_HEADINGS,
+    render_profile,
+)
+from tests.templates.mml_export_contract import EXPORTER_VERSION
+
+SYNTHETIC = Path(__file__).resolve().parents[2] / "fixtures" / "mml" / "synthetic"
 
 
 def _ao() -> dict:
@@ -116,11 +135,46 @@ def _pending_render() -> str:
     return render_profile(take_census(ao, None), vote_directions(ao))
 
 
+def _synthetic(suffix: str) -> dict:
+    """Return one committed file of the synthetic 2.0 export."""
+    return json.loads((SYNTHETIC / f"quokka.sr.{suffix}.json").read_text())
+
+
+def _synthetic_ao(raw: dict) -> dict:
+    """Return the synthetic AO normalised and keyed by system, as a merge leaves it."""
+    return {
+        "SR": {
+            name: (normalize_family(body) if isinstance(body, dict) else body)
+            for name, body in raw.items()
+            if name != "_export"
+        },
+        "_import_order": ["SR"],
+    }
+
+
+def _va_render(*, ao: dict | None = None, va: dict | None = None, **extra: object) -> str:
+    """Render the profile of the synthetic 2.0 export, with both siblings."""
+    merged = _synthetic_ao(ao if ao is not None else _synthetic("ao"))
+    census = take_census(
+        merged,
+        {"SR": _synthetic("ad")},
+        va={"SR": va if va is not None else _synthetic("va")},
+        response={"SR": _synthetic("response")},
+        **extra,
+    )
+    return render_profile(census, vote_directions(merged))
+
+
 def _section(text: str, system: str) -> str:
     start = text.index(f"## System `{system}`")
     rest = text[start + 1 :]
     end = rest.find("\n## ")
     return rest if end == -1 else rest[:end]
+
+
+def _va(text: str, system: str = "SR") -> str:
+    """Slice the ``Virtual accelerator`` block out of one section."""
+    return _section(text, system).split("### Virtual accelerator")[1]
 
 
 def _judgments(text: str, system: str | None = None) -> str:
@@ -167,6 +221,15 @@ class TestHeadings:
             "Position and DeviceType coverage",
             "Families with arrays from setup",
             "AD scalars",
+            "Virtual accelerator",
+        )
+        assert VA_HEADINGS == (
+            "Export facts",
+            "Refused families",
+            "Response",
+            "Family coverage",
+            "Sampled fields",
+            "Other systems",
         )
         assert HAZARD_HEADINGS == (
             "Function handles",
@@ -337,6 +400,132 @@ class TestJudgmentRequired:
             assert _judgments(text, system).strip() == "None."
 
 
+class TestVirtualAccelerator:
+    """The ``Virtual accelerator`` heading the VA MAP card's EXPORT box reads."""
+
+    def test_every_va_heading_is_present_under_the_system_heading(self):
+        """A system carrying a block carries every block heading, in order."""
+        block = _va(_va_render())
+        found = [heading for heading in VA_HEADINGS if f"\n#### {heading}\n" in block]
+        assert found == list(VA_HEADINGS)
+
+    def test_the_export_facts_are_one_label_and_value_each(self):
+        """Deck, size, energy, calibration and nominal counts, one line each."""
+        block = _va(_va_render())
+        for row in (
+            f"| Exporter | `{EXPORTER_VERSION}` |",
+            "| Deck | `quokka_sr_deck` |",
+            "| Elements | 41 |",
+            "| Energy (GeV) | 2 |",
+            "| Calibrations | linear 20, table 2 |",
+            "| Nominals | 15 (4 synthetic) |",
+        ):
+            assert row in block, row
+
+    def test_an_uncounted_cavity_is_unstated_rather_than_zero(self):
+        """Nothing loads the deck at import yet, and the page says so."""
+        assert "| Cavities | unstated |" in _va(_va_render())
+
+    def test_a_counted_cavity_replaces_the_unstated_word(self):
+        """Once a deck is counted the number is printed instead."""
+        assert "| Cavities | 3 |" in _va(_va_render(ring_facts={"SR": {"cavities": 3}}))
+
+    def test_the_deck_named_is_the_matlab_deck_not_the_served_copy(self):
+        """The reviewer is sent back to the deck MATLAB exported from."""
+        block = _va(_va_render())
+        assert "`quokka_sr_deck`" in block
+        assert "data/mml/lattice" not in block and "SR.mat" not in block
+
+    def test_every_refused_family_is_a_warning_line_with_its_reason(self):
+        """A refusal is what sends the reviewer back to MATLAB, so it carries the reason."""
+        block = _va(_va_render())
+        assert (
+            "- ⚠ `SEPTUM`: SEPTUM.Monitor: getpvmodel answered the nominal in Physics units,"
+            " not the hardware units it was asked in."
+        ) in block
+        assert "- ⚠ `TUNE`: Family TUNE lists no devices" in block
+        assert "- ⚠ `Version`: Invalid input argument" in block
+
+    def test_a_family_that_is_only_a_refusal_is_still_a_coverage_row(self):
+        """It binds nothing, so the card can group it with every other such family."""
+        block = _va(_va_render())
+        assert "| Version | 0 | unstated | 0 | 0 | no | none | none | none |" in block
+        assert "- ⚠ `Version`:" in block
+
+    def test_a_response_block_states_its_sides_origin_size_and_timestamp(self):
+        """The card's export box names where the matrix came from and how big it is."""
+        assert "| BPMx | HC | model | 4 | 4 | 2026-09-17T09:00:00 |" in _va(_va_render())
+
+    def test_family_coverage_states_the_verdict_inputs(self):
+        """AT coverage per family: device rows covered and elements behind them."""
+        block = _va(_va_render())
+        assert "| HC | 4 | HCM | 4 | 7 | no | none | none | none |" in block
+        assert "| BEND | 4 | BEND | 4 | 4 | yes | none | none | none |" in block
+
+    def test_a_family_outside_the_deck_states_no_type_rather_than_a_blank(self):
+        """BSOFT has no AT block; the cell says so instead of reading empty."""
+        assert "| BSOFT | 2 | unstated | 0 | 0 | yes | none | none | none |" in _va(_va_render())
+
+    def test_hooks_are_listed_against_the_family_that_carries_them(self):
+        """A SpecialFunction or parameter-group hook is informational, and named."""
+        block = _va(_va_render())
+        assert "SpecialFunctionSet: qk_setidgap; ATParameterGroup: BendingAngle" in block
+
+    def test_no_verdict_is_rendered_here(self):
+        """Verdicts are the mapping's; the profile only states what they read."""
+        block = _va(_va_render())
+        assert "couple" not in block and "latch" not in block
+
+    def test_a_sampled_field_states_its_calibration_nominal_and_units(self):
+        """One row per sampled field, with the grid the calibration was built on."""
+        block = _va(_va_render())
+        assert "| SEPTUM | Monitor | linear | fallback | Physics | synthetic | Volt |" in block
+        assert "| QF | Setpoint | linear | range | Hardware | sampled | 1/m^2 |" in block
+        assert "| QF | Monitor | linear | range | unstated | unstated | 1/m^2 |" in block
+
+    def test_an_extra_field_and_disagreeing_sibling_units_are_reported(self):
+        """Both are verdict inputs the committed fixture does not carry."""
+        raw = _synthetic("ao")
+        raw["QF"]["Monitor"]["PhysicsUnits"] = "Radian"
+        va = _synthetic("va")
+        va["families"]["QF"]["fields"] = [*va["families"]["QF"]["fields"], "Desired"]
+        block = _va(_va_render(ao=raw, va=va))
+        assert "| QF | 4 | K | 4 | 4 | no | Desired | Setpoint 1/m^2, Monitor Radian | none |" in (
+            block
+        )
+
+    def test_a_system_without_a_block_says_so_in_one_line(self):
+        """A 1.0 export states nothing about a virtual accelerator."""
+        assert _va(_render(), "SR").strip() == "no 2.0 export"
+        assert _va(_render(), "BR").strip() == "no 2.0 export"
+
+    def test_another_systems_block_is_one_line_under_the_mapped_system(self):
+        """The VA lane reads one system's block; the rest are a glance, not a section."""
+        block = _va(_two_system_render(_synthetic("va")))
+        assert "- `LTB`: 17 families, 41 elements, 2 GeV" in block
+        assert _va(_two_system_render(None), "SR").split("#### Other systems")[1].strip() == (
+            "- `LTB`: no 2.0 export"
+        )
+
+    def test_a_single_family_block_is_counted_in_the_singular(self):
+        """One family reads 'family', not 'families'."""
+        va = copy.deepcopy(_synthetic("va"))
+        va["families"] = {"QF": va["families"]["QF"]}
+        assert "- `LTB`: 1 family, 41 elements, 2 GeV" in _va(_two_system_render(va))
+
+
+def _two_system_render(ltb_va: dict | None) -> str:
+    """Render two systems, only the second of which may carry a block."""
+    merged = _synthetic_ao(_synthetic("ao"))
+    merged["LTB"] = {"BPM": {"FamilyName": "BPM", "X": {"ChannelNames": ["LTB:BPM1:X"]}}}
+    merged["_import_order"] = ["SR", "LTB"]
+    va = {"SR": _synthetic("va")}
+    if ltb_va is not None:
+        va["LTB"] = ltb_va
+    census = take_census(merged, {"SR": _synthetic("ad")}, va=va)
+    return render_profile(census, vote_directions(merged))
+
+
 class TestDeterminism:
     """Rendering is a pure function of its inputs."""
 
@@ -344,6 +533,7 @@ class TestDeterminism:
         """Two renders of the same census are byte-identical."""
         assert _render().encode() == _render().encode()
         assert _pending_render().encode() == _pending_render().encode()
+        assert _va_render().encode() == _va_render().encode()
 
     def test_vote_dict_order_does_not_matter(self):
         """Reversing the votes dict does not change the output."""

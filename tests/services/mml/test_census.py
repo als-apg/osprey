@@ -26,6 +26,7 @@ import pytest
 
 from osprey.services.mml.census import (
     KNOWN_HANDLE_KEYS,
+    VA_SAMPLED_FIELDS,
     Census,
     Owner,
     take_census,
@@ -37,6 +38,11 @@ from osprey.services.mml.mapping.schema import (
     Mapping,
 )
 from osprey.services.mml.normalize import normalize_family
+from tests.templates.mml_export_contract import (
+    EXPORTER_VERSION,
+    VA_FAMILY_KEYS,
+    VA_VOCABULARIES,
+)
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "mml"
 
@@ -618,3 +624,346 @@ class TestDialectFixture:
         assert ring.families_with_descriptions == (("QF", "Focusing quadrupoles"),)
         assert census.totals.system_families == 5
         assert census.totals.families == 5
+
+
+SYNTHETIC = FIXTURES / "synthetic"
+
+
+def _synthetic(suffix: str) -> dict:
+    """Return one committed file of the synthetic 2.0 export."""
+    return json.loads((SYNTHETIC / f"quokka.sr.{suffix}.json").read_text())
+
+
+def _synthetic_ao() -> dict:
+    """Return the synthetic AO normalised and keyed by system, as a merge leaves it."""
+    raw = _synthetic("ao")
+    return {
+        "SR": {
+            name: (normalize_family(body) if isinstance(body, dict) else body)
+            for name, body in raw.items()
+            if name != "_export"
+        },
+        "_import_order": ["SR"],
+    }
+
+
+def _synthetic_census(**extra: object) -> Census:
+    """Return the census of the synthetic export with both siblings."""
+    return take_census(
+        _synthetic_ao(),
+        {"SR": _synthetic("ad")},
+        va={"SR": _synthetic("va")},
+        response={"SR": _synthetic("response")},
+        **extra,
+    )
+
+
+def _va(census: Census, system: str = "SR"):
+    """Return one system's virtual-accelerator census."""
+    return _system(census, system).virtual_accelerator
+
+
+def _va_family_census(census: Census, name: str, system: str = "SR"):
+    """Return one family of one system's virtual-accelerator census."""
+    (found,) = (f for f in _va(census, system).families if f.name == name)
+    return found
+
+
+def _va_block(families: dict) -> dict:
+    """Return a va.json block carrying ``families``, as the exporter writes one."""
+    return {
+        "_export": {
+            "exporter": EXPORTER_VERSION,
+            "machine": "Quokka",
+            "submachine": "SR",
+            "matlab": "25.1.0.2943329 (R2025a)",
+            "timestamp": "2026-09-17T09:00:00",
+        },
+        "lattice": {
+            "elements": 12,
+            "famname_sha256": "0" * 64,
+            "energy_gev": 1.5,
+            "ringparam_indices": 1,
+        },
+        "families": families,
+    }
+
+
+class TestVaSystemFacts:
+    """The system-level facts the card's export box reads."""
+
+    def test_the_deck_facts_of_the_synthetic_export(self):
+        """Deck, element count, energy and exporter come from the deck and the block."""
+        va = _va(_synthetic_census(ring_facts={"SR": {"cavities": 1}}))
+        assert (va.system, va.exporter, va.deck) == ("SR", EXPORTER_VERSION, "quokka_sr_deck")
+        assert (va.elements, va.energy_gev, va.cavities) == (41, 2, 1)
+
+    def test_the_deck_name_falls_back_to_the_at_model(self):
+        """A system whose OpsData states no lattice file is named by its AT model."""
+        ad = {"SR": {"ATModel": "quokka_sr_lattice"}}
+        census = take_census(_synthetic_ao(), ad, va={"SR": _synthetic("va")})
+        assert _va(census).deck == "quokka_sr_lattice"
+
+    def test_the_cavity_count_is_unknown_without_ring_facts(self):
+        """No deck was loaded, so the census states no cavity count rather than zero."""
+        assert _va(_synthetic_census()).cavities is None
+
+    def test_the_sampled_counts_of_the_synthetic_export(self):
+        """Calibrations are counted by kind, nominals by block and by stand-in."""
+        va = _va(_synthetic_census())
+        assert va.calibrations == (("linear", 20), ("table", 2))
+        assert (va.nominals, va.synthetic_nominals) == (15, 4)
+
+    def test_the_refused_list_keeps_the_reason_matlab_gave(self):
+        """Every refused family is listed with its reason, in export order."""
+        va = _va(_synthetic_census())
+        assert [family for family, _ in va.refused] == ["SEPTUM", "TUNE", "Version"]
+        assert va.refused[0][1].startswith("SEPTUM.Monitor: getpvmodel answered the nominal")
+        assert "no devices" in va.refused[1][1]
+
+    def test_a_system_without_a_block_has_no_va_census(self):
+        """A 1.0 export states nothing about a virtual accelerator."""
+        census = take_census(_synthetic_ao(), {"SR": _synthetic("ad")})
+        assert _va(census) is None
+
+    def test_a_block_of_another_system_is_not_read(self):
+        """Each system reads its own block and no other."""
+        census = take_census(_synthetic_ao(), None, va={"LTB": _synthetic("va")})
+        assert _va(census) is None
+
+
+class TestVaFamilyFacts:
+    """The per-family verdict inputs, family by family."""
+
+    def test_at_coverage_counts_device_rows_and_elements(self):
+        """A sliced row counts once, its finite slices count each."""
+        census = _synthetic_census()
+        sliced = _va_family_census(census, "HC")
+        assert (sliced.at_type, sliced.devices) == ("HCM", 4)
+        assert (sliced.at_devices, sliced.at_elements) == (4, 7)
+
+    def test_a_scalar_at_index_is_one_device_row(self):
+        """MATLAB writes a one-device family flat; it still states one element."""
+        cavity = _va_family_census(_synthetic_census(), "RF")
+        assert (cavity.at_type, cavity.devices) == ("RF Cavity", 1)
+        assert (cavity.at_devices, cavity.at_elements) == (1, 1)
+
+    def test_an_empty_at_index_covers_no_device(self):
+        """A family the deck holds no element for is covered nowhere."""
+        gap = _va_family_census(_synthetic_census(), "IDGAP")
+        assert (gap.at_type, gap.devices) == ("GAP", 2)
+        assert (gap.at_devices, gap.at_elements) == (0, 0)
+
+    def test_a_family_with_no_at_block_states_no_type(self):
+        """A family outside the deck states neither type nor coverage."""
+        soft = _va_family_census(_synthetic_census(), "BSOFT")
+        assert soft.at_type is None
+        assert (soft.at_devices, soft.at_elements) == (0, 0)
+
+    def test_calibration_kind_and_grid_source_per_field(self):
+        """Each sampled field states the kind it was sampled as and the grid it used."""
+        census = _synthetic_census()
+        assert [
+            (f.name, f.calibration_kind, f.grid_source)
+            for f in _va_family_census(census, "HC").fields
+        ] == [("Setpoint", "linear", "fallback"), ("Monitor", "linear", "range")]
+        assert [(f.name, f.calibration_kind) for f in _va_family_census(census, "BEND").fields] == [
+            ("Setpoint", "table"),
+            ("Monitor", "table"),
+        ]
+
+    def test_the_nominal_source_of_each_field(self):
+        """The units the nominal came back in, and whether it stood in for a reading."""
+        census = _synthetic_census()
+        (setpoint,) = (f for f in _va_family_census(census, "QF").fields if f.name == "Setpoint")
+        assert (setpoint.nominal_units, setpoint.nominal_synthetic) == ("Hardware", False)
+        (monitor,) = _va_family_census(census, "SEPTUM").fields
+        assert (monitor.nominal_units, monitor.nominal_synthetic) == ("Physics", True)
+
+    def test_the_physics_units_beside_each_field(self):
+        """The units the reviewer's unit check reads come from the export beside the block."""
+        (monitor,) = _va_family_census(_synthetic_census(), "BPMx").fields
+        assert monitor.physics_units == "Meter"
+
+    def test_siblings_stating_the_same_units_do_not_disagree(self):
+        """Two fields of one family spelling one unit are not worth a line."""
+        assert _va_family_census(_synthetic_census(), "QF").disagreeing_units == ()
+
+    def test_siblings_stating_different_units_are_listed_verbatim(self):
+        """Both spellings are reported; which one the verdict follows is the mapping's."""
+        ao = {
+            "SR": {
+                "SQ": normalize_family(
+                    {
+                        "FamilyName": "SQ",
+                        "DeviceList": [[1, 1]],
+                        "AT": {"ATType": "KS", "ATIndex": [6]},
+                        "Setpoint": {
+                            "ChannelNames": ["QK:SQ:1:SP"],
+                            "PhysicsUnits": "rad",
+                        },
+                        "Monitor": {
+                            "ChannelNames": ["QK:SQ:1:RB"],
+                            "PhysicsUnits": "1/m^2",
+                        },
+                    }
+                )
+            }
+        }
+        va = _va_block(
+            {
+                "SQ": {
+                    "device_list": [[1, 1]],
+                    "fields": ["Setpoint", "Monitor"],
+                    "nominals": {},
+                    "Setpoint": {"calibration": {"kind": "linear", "grid_source": "range"}},
+                    "Monitor": {"calibration": {"kind": "linear", "grid_source": "range"}},
+                    "energy_candidate": 0,
+                }
+            }
+        )
+        family = _va_family_census(take_census(ao, None, va={"SR": va}), "SQ")
+        assert family.disagreeing_units == (("Setpoint", "rad"), ("Monitor", "1/m^2"))
+
+    def test_a_field_the_export_does_not_sample_is_an_extra_field(self):
+        """A family may carry fields beyond the two the exporter samples."""
+        ao = {
+            "SR": {
+                "QF": normalize_family(
+                    {
+                        "FamilyName": "QF",
+                        "DeviceList": [[1, 1]],
+                        "Setpoint": {"ChannelNames": ["QK:QF:1:SP"]},
+                        "Desired": {"ChannelNames": ["QK:QF:1:DES"]},
+                    }
+                )
+            }
+        }
+        va = _va_block(
+            {
+                "QF": {
+                    "device_list": [[1, 1]],
+                    "fields": ["Setpoint", "Desired"],
+                    "nominals": {},
+                    "Setpoint": {"calibration": {"kind": "linear", "grid_source": "range"}},
+                    "energy_candidate": 0,
+                }
+            }
+        )
+        family = _va_family_census(take_census(ao, None, va={"SR": va}), "QF")
+        assert family.extra_fields == ("Desired",)
+        assert [f.name for f in family.fields] == ["Setpoint"]
+
+    def test_a_family_level_hook_is_reported(self):
+        """A special function or parameter group hands the family to MATLAB code."""
+        gap = _va_family_census(_synthetic_census(), "IDGAP")
+        assert [(h.field, h.key, h.value) for h in gap.hooks] == [
+            (None, "SpecialFunctionSet", "qk_setidgap"),
+            (None, "ATParameterGroup", "BendingAngle"),
+        ]
+
+    def test_a_field_level_hook_carries_its_field(self):
+        """A hook inside a field's own AT block is reported against that field."""
+        ao = {
+            "SR": {
+                "SQ": normalize_family(
+                    {
+                        "FamilyName": "SQ",
+                        "DeviceList": [[1, 1]],
+                        "Setpoint": {
+                            "ChannelNames": ["QK:SQ:1:SP"],
+                            "AT": {
+                                "ATType": "KS",
+                                "ATIndex": [6],
+                                "SpecialFunctionGet": {"$fn": "qk_getsq", "file": ""},
+                            },
+                        },
+                    }
+                )
+            }
+        }
+        va = _va_block(
+            {
+                "SQ": {
+                    "device_list": [[1, 1]],
+                    "fields": ["Setpoint"],
+                    "nominals": {},
+                    "Setpoint": {"calibration": {"kind": "linear", "grid_source": "range"}},
+                    "energy_candidate": 0,
+                }
+            }
+        )
+        family = _va_family_census(take_census(ao, None, va={"SR": va}), "SQ")
+        assert [(h.field, h.key, h.value) for h in family.hooks] == [
+            ("Setpoint", "SpecialFunctionGet", "qk_getsq")
+        ]
+
+    def test_a_family_the_exporter_refused_states_its_reason(self):
+        """A refused family carries the reason and nothing was sampled for it."""
+        version = _va_family_census(_synthetic_census(), "Version")
+        assert version.refused.startswith("Invalid input argument")
+        assert (version.fields, version.devices, version.extra_fields) == ((), 0, ())
+
+    def test_an_energy_candidate_is_flagged_as_the_exporter_found_it(self):
+        """The exporter's own candidate flag is reported, never re-derived."""
+        census = _synthetic_census()
+        assert [f.name for f in _va(census).families if f.energy_candidate] == ["BEND", "BSOFT"]
+        assert _va_family_census(census, "QF").energy_candidate is False
+
+
+class TestVaResponse:
+    """The response document, block by block."""
+
+    def test_every_response_block_states_origin_size_and_timestamp(self):
+        """One line per block: which families, where it came from, how big, when."""
+        blocks = _va(_synthetic_census()).response
+        assert [(b.monitor, b.actuator) for b in blocks] == [
+            ("BPMx", "HC"),
+            ("BPMx", "VC"),
+            ("BPMy", "HC"),
+            ("BPMy", "VC"),
+        ]
+        assert {(b.origin, b.rows, b.columns, b.timestamp) for b in blocks} == {
+            ("model", 4, 4, "2026-09-17T09:00:00")
+        }
+
+    def test_a_system_without_a_response_document_lists_no_blocks(self):
+        """The response is optional; its absence is an empty list, not a refusal."""
+        census = take_census(_synthetic_ao(), None, va={"SR": _synthetic("va")})
+        assert _va(census).response == ()
+
+
+class TestVaShape:
+    """The virtual-accelerator census is frozen and reads without modifying its inputs."""
+
+    def test_the_va_census_is_frozen(self):
+        """VACensus and its nested records refuse attribute assignment."""
+        va = _va(_synthetic_census())
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            va.deck = "other"  # type: ignore[misc]
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            va.families[0].name = "X"  # type: ignore[misc]
+
+    def test_the_va_inputs_are_not_modified(self):
+        """The sibling documents are identical before and after the census."""
+        va = {"SR": _synthetic("va")}
+        response = {"SR": _synthetic("response")}
+        before = (copy.deepcopy(va), copy.deepcopy(response))
+        take_census(_synthetic_ao(), None, va=va, response=response)
+        assert (va, response) == before
+
+
+class TestVaContract:
+    """Everything the census branches on is a word of the frozen export contract."""
+
+    def test_the_sampled_fields_are_family_keys(self):
+        """The two fields a census reads per family are keys of the family block."""
+        assert set(VA_SAMPLED_FIELDS) <= set(VA_FAMILY_KEYS)
+
+    def test_every_kind_and_grid_source_read_is_a_contract_word(self):
+        """The census reports the export's own vocabulary and invents none."""
+        va = _va(_synthetic_census())
+        kinds = {kind for kind, _ in va.calibrations}
+        sources = {f.grid_source for family in va.families for f in family.fields}
+        assert kinds <= set(VA_VOCABULARIES["kind"])
+        assert sources <= set(VA_VOCABULARIES["grid_source"])

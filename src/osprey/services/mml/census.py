@@ -22,6 +22,12 @@ Rules:
   rendered at import, before any mapping exists. Every other number follows the
   reviewer's answers when a mapping is given, and the export as imported when
   it is not.
+* A 2.0 export's ``va.json`` and ``response.json`` blocks are read per system
+  into a :class:`VACensus`; a system the import carried no block for states
+  ``None``. Those blocks are stored as the exporter wrote them, so they are
+  read as written, while the AT blocks and units they do not restate are read
+  from the AO beside them and the deck's cavity count from the facts the
+  caller loaded it into.
 * A Position slot is real when it is a finite number; ``None``, a string
   (including ``"Inf"``/``"-Inf"``/``"NaN"``) or an unaligned array is a stand-in.
   A DeviceType slot is real when it is a non-blank string. The coverage totals
@@ -67,7 +73,15 @@ __all__ = [
     "TagCensus",
     "Totals",
     "UnitShape",
+    "VA_HOOK_KEYS",
+    "VA_SAMPLED_FIELDS",
+    "VACensus",
+    "VAFamilyCensus",
+    "VAFieldCensus",
+    "VAHook",
+    "VAResponseCensus",
     "take_census",
+    "va_census",
 ]
 
 #: Keys that legitimately hold a function handle; a handle under any other key
@@ -101,6 +115,18 @@ KNOWN_MML_KEYS: frozenset[str] = frozenset(
         "Tolerance",
         "Units",
     }
+)
+
+#: The fields a 2.0 export samples per family; a family listing any other
+#: field carries it as an extra field.
+VA_SAMPLED_FIELDS: tuple[str, ...] = ("Setpoint", "Monitor")
+
+#: ``AT`` block keys that hand a family to facility MATLAB code rather than to
+#: a lattice element.
+VA_HOOK_KEYS: tuple[str, ...] = (
+    "SpecialFunctionGet",
+    "SpecialFunctionSet",
+    "ATParameterGroup",
 )
 
 #: Spellings the normaliser gives non-finite numbers.
@@ -259,6 +285,88 @@ class FamilyCensus:
 
 
 @dataclass(frozen=True)
+class VAHook:
+    """A hook inside an ``AT`` block that hands a family to MATLAB code.
+
+    ``field`` is ``None`` for the family-level block and the field's name for a
+    field-level one. ``value`` is the function a handle names, or the parameter
+    group's name.
+    """
+
+    field: str | None
+    key: str
+    value: str | None
+
+
+@dataclass(frozen=True)
+class VAFieldCensus:
+    """One field of one family as the 2.0 export sampled it."""
+
+    name: str
+    calibration_kind: str | None
+    grid_source: str | None
+    nominal_units: str | None
+    nominal_synthetic: bool | None
+    physics_units: str | None
+
+
+@dataclass(frozen=True)
+class VAFamilyCensus:
+    """One family of one system's virtual-accelerator block.
+
+    ``at_devices`` counts the device rows the deck holds at least one element
+    for and ``at_elements`` every element across them, so a family whose rows
+    each span several slices states more elements than rows.
+    """
+
+    name: str
+    devices: int
+    at_type: str | None
+    at_devices: int
+    at_elements: int
+    fields: tuple[VAFieldCensus, ...]
+    extra_fields: tuple[str, ...]
+    disagreeing_units: tuple[tuple[str, str], ...]
+    hooks: tuple[VAHook, ...]
+    energy_candidate: bool
+    refused: str | None
+
+
+@dataclass(frozen=True)
+class VAResponseCensus:
+    """One block of the response document: two families and the matrix between them."""
+
+    monitor: str | None
+    actuator: str | None
+    origin: str | None
+    timestamp: str | None
+    rows: int
+    columns: int
+
+
+@dataclass(frozen=True)
+class VACensus:
+    """One system's virtual-accelerator export, as it was sampled.
+
+    ``cavities`` is ``None`` when no deck was loaded beside the block, which is
+    not the same fact as a deck holding no cavity.
+    """
+
+    system: str
+    exporter: str | None
+    deck: str | None
+    elements: int | None
+    energy_gev: float | None
+    cavities: int | None
+    calibrations: tuple[tuple[str, int], ...]
+    nominals: int
+    synthetic_nominals: int
+    families: tuple[VAFamilyCensus, ...]
+    refused: tuple[tuple[str, str], ...]
+    response: tuple[VAResponseCensus, ...]
+
+
+@dataclass(frozen=True)
 class TagCensus:
     """A verbatim ``MemberOf`` tag and its ``(family, field)`` owners.
 
@@ -283,6 +391,7 @@ class SystemCensus:
     hazards: Hazards
     pending: tuple[PendingJudgments, ...]
     ad_scalars: tuple[tuple[str, str | int | float], ...]
+    virtual_accelerator: VACensus | None = None
 
 
 @dataclass(frozen=True)
@@ -549,7 +658,7 @@ class _SystemWalk:
                         Owner(system, family, name, index)
                     )
 
-    def finish(self, ad_scalars: tuple) -> SystemCensus:
+    def finish(self, ad_scalars: tuple, virtual_accelerator: VACensus | None) -> SystemCensus:
         by_lower: dict[str, list[str]] = {}
         for family in self.families:
             by_lower.setdefault(family.name.lower(), []).append(family.name)
@@ -585,6 +694,7 @@ class _SystemWalk:
             hazards=hazards,
             pending=tuple(self.pending),
             ad_scalars=ad_scalars,
+            virtual_accelerator=virtual_accelerator,
         )
 
 
@@ -596,7 +706,274 @@ def _list_key(item: ListLocation | PartialList) -> tuple:
     return (item.family, item.field, item.key)
 
 
-def take_census(ao: dict, ad: dict | None, mapping: Mapping | None = None) -> Census:
+def _va_device_rows(device_list: Any) -> int:
+    """Return how many device rows a virtual-accelerator block states.
+
+    MATLAB writes a one-device family's ``DeviceList`` flat, so a list of two
+    numbers is one row and a list of lists is one row each.
+    """
+    if not isinstance(device_list, list) or not device_list:
+        return 0
+    if all(isinstance(row, list) for row in device_list):
+        return len(device_list)
+    return 1
+
+
+def _at_slices(index: Any) -> list[int]:
+    """Return how many lattice elements each device row of ``ATIndex`` holds.
+
+    A scalar is one row, a flat list one row per entry and a list of lists one
+    row per list. ``"NaN"`` is the spelling a row uses where it has fewer
+    slices than its siblings, so it counts as no element.
+    """
+    if _is_real_number(index):
+        return [1]
+    if not isinstance(index, list) or not index:
+        return []
+    if all(isinstance(row, list) for row in index):
+        return [sum(1 for item in row if _is_real_number(item)) for row in index]
+    return [1 if _is_real_number(item) else 0 for item in index]
+
+
+def _text_or_none(value: Any) -> str | None:
+    return value.strip() if _is_text(value) else None
+
+
+def _deck_name(ad_body: Any) -> str | None:
+    """Return the deck a system runs on, named as the knowledge pages name it."""
+    if not isinstance(ad_body, dict):
+        return None
+    ops = ad_body.get("OpsData")
+    if isinstance(ops, dict) and _is_text(ops.get("LatticeFile")):
+        return _text_or_none(ops["LatticeFile"])
+    return _text_or_none(ad_body.get("ATModel"))
+
+
+def _hook_value(value: Any) -> str | None:
+    if isinstance(value, dict):
+        return _text_or_none(value.get("$fn"))
+    return _text_or_none(value)
+
+
+def _at_block(body: Any) -> dict:
+    at = body.get("AT") if isinstance(body, dict) else None
+    return at if isinstance(at, dict) else {}
+
+
+def _va_hooks(ao_family: Any) -> list[VAHook]:
+    """Return every hook of one family's AT blocks, the family-level block first."""
+    if not isinstance(ao_family, dict):
+        return []
+    blocks: list[tuple[str | None, dict]] = [(None, _at_block(ao_family))]
+    for name, body in ao_family.items():
+        if isinstance(name, str) and not name.startswith("_") and name != "AT":
+            at = _at_block(body)
+            if at:
+                blocks.append((name, at))
+    return [
+        VAHook(field, key, _hook_value(at[key]))
+        for field, at in blocks
+        for key in VA_HOOK_KEYS
+        if key in at
+    ]
+
+
+def _at_facts(family: dict, ao_family: Any) -> tuple[str | None, Any]:
+    """Return the AT type and index the export states for one family.
+
+    The exporter copies both beside every nominal it sampled; a family whose
+    nominal it refused still states them in the export the block sits beside.
+    """
+    nominals = family.get("nominals")
+    if isinstance(nominals, dict):
+        for block in nominals.values():
+            if isinstance(block, dict) and _is_text(block.get("at_type")):
+                return _text_or_none(block["at_type"]), block.get("at_index")
+    at = _at_block(ao_family)
+    return _text_or_none(at.get("ATType")), at.get("ATIndex")
+
+
+def _va_field(name: str, family: dict, ao_family: Any) -> VAFieldCensus:
+    """Return one sampled field of one family."""
+    body = family.get(name)
+    calibration = body.get("calibration") if isinstance(body, dict) else None
+    calibration = calibration if isinstance(calibration, dict) else {}
+    nominals = family.get("nominals")
+    nominal = nominals.get(name) if isinstance(nominals, dict) else None
+    nominal = nominal if isinstance(nominal, dict) else {}
+    ao_field = ao_family.get(name) if isinstance(ao_family, dict) else None
+    return VAFieldCensus(
+        name=name,
+        calibration_kind=_text_or_none(calibration.get("kind")),
+        grid_source=_text_or_none(calibration.get("grid_source")),
+        nominal_units=_text_or_none(nominal.get("units")),
+        nominal_synthetic=bool(nominal["synthetic"]) if "synthetic" in nominal else None,
+        physics_units=(
+            _text_or_none(ao_field.get("PhysicsUnits")) if isinstance(ao_field, dict) else None
+        ),
+    )
+
+
+def _disagreeing_units(fields: Iterable[VAFieldCensus]) -> tuple[tuple[str, str], ...]:
+    """Return every field's units when the siblings do not spell one unit.
+
+    Which spelling the verdict follows is the reviewer's to settle; the census
+    only reports that the family states more than one.
+    """
+    stated = [(f.name, f.physics_units) for f in fields if f.physics_units is not None]
+    if len({units.casefold() for _, units in stated}) < 2:
+        return ()
+    return tuple(stated)
+
+
+def _va_family(name: str, family: dict, ao_family: Any) -> VAFamilyCensus:
+    """Return one family of one virtual-accelerator block."""
+    listed = family.get("fields")
+    listed = [f for f in listed if isinstance(f, str)] if isinstance(listed, list) else []
+    fields = tuple(
+        _va_field(f, family, ao_family)
+        for f in VA_SAMPLED_FIELDS
+        if isinstance(family.get(f), dict)
+    )
+    at_type, at_index = _at_facts(family, ao_family)
+    slices = _at_slices(at_index)
+    return VAFamilyCensus(
+        name=name,
+        devices=_va_device_rows(family.get("device_list")),
+        at_type=at_type,
+        at_devices=sum(1 for count in slices if count),
+        at_elements=sum(slices),
+        fields=fields,
+        extra_fields=tuple(f for f in listed if f not in VA_SAMPLED_FIELDS),
+        disagreeing_units=_disagreeing_units(fields),
+        hooks=tuple(_va_hooks(ao_family)),
+        energy_candidate=bool(family.get("energy_candidate")),
+        refused=_text_or_none(family.get("refused")),
+    )
+
+
+def _matrix_size(data: Any) -> tuple[int, int]:
+    """Return the rows and columns of a response matrix, a flat list being one row."""
+    if not isinstance(data, list) or not data:
+        return 0, 0
+    if all(isinstance(row, list) for row in data):
+        return len(data), max(len(row) for row in data)
+    return 1, len(data)
+
+
+def _response_blocks(response: Any) -> tuple[VAResponseCensus, ...]:
+    """Return one record per block of a response document, in export order."""
+    blocks = response.get("blocks") if isinstance(response, dict) else None
+    if not isinstance(blocks, list):
+        return ()
+    found = []
+    for block in blocks:
+        if not isinstance(block, dict):
+            continue
+        rows, columns = _matrix_size(block.get("data"))
+        found.append(
+            VAResponseCensus(
+                monitor=_side_family(block.get("monitor")),
+                actuator=_side_family(block.get("actuator")),
+                origin=_text_or_none(block.get("origin")),
+                timestamp=_text_or_none(block.get("timestamp")),
+                rows=rows,
+                columns=columns,
+            )
+        )
+    return tuple(found)
+
+
+def _side_family(side: Any) -> str | None:
+    return _text_or_none(side.get("family")) if isinstance(side, dict) else None
+
+
+def _nominal_counts(families: Iterable[dict]) -> tuple[int, int]:
+    """Return how many nominals the export sampled and how many stood in."""
+    blocks = [
+        block
+        for family in families
+        if isinstance(family.get("nominals"), dict)
+        for block in family["nominals"].values()
+        if isinstance(block, dict)
+    ]
+    return len(blocks), sum(1 for block in blocks if block.get("synthetic"))
+
+
+def va_census(
+    system: str,
+    va: dict | None,
+    response: dict | None = None,
+    *,
+    ao_body: dict | None = None,
+    ad_body: dict | None = None,
+    ring_facts: dict | None = None,
+) -> VACensus | None:
+    """Take the census of one system's virtual-accelerator export.
+
+    Args:
+        system: The system token the block was imported under.
+        va: The system's ``va.json`` block as the exporter wrote it, or
+            ``None`` when the import carried none. It is not modified.
+        response: The system's ``response.json`` block, or ``None``.
+        ao_body: The system's AO body, which carries the AT blocks and the
+            units the block itself does not restate.
+        ad_body: The system's AD, which names the deck.
+        ring_facts: Facts read from the loaded deck, of which ``cavities`` is
+            the one reported. ``None`` leaves the cavity count unstated.
+
+    Returns:
+        The frozen census, or ``None`` when the system has no block.
+    """
+    if not isinstance(va, dict):
+        return None
+    lattice = va.get("lattice") if isinstance(va.get("lattice"), dict) else {}
+    export = va.get("_export") if isinstance(va.get("_export"), dict) else {}
+    bodies = va.get("families") if isinstance(va.get("families"), dict) else {}
+    families = {
+        name: body
+        for name, body in bodies.items()
+        if isinstance(name, str) and isinstance(body, dict)
+    }
+    ao_families = ao_body if isinstance(ao_body, dict) else {}
+    records = tuple(
+        _va_family(name, body, ao_families.get(name)) for name, body in families.items()
+    )
+    kinds: dict[str, int] = {}
+    for family in records:
+        for field in family.fields:
+            if field.calibration_kind is not None:
+                kinds[field.calibration_kind] = kinds.get(field.calibration_kind, 0) + 1
+    nominals, synthetic = _nominal_counts(families.values())
+    facts = ring_facts if isinstance(ring_facts, dict) else {}
+    cavities = facts.get("cavities")
+    return VACensus(
+        system=system,
+        exporter=_text_or_none(export.get("exporter")),
+        deck=_deck_name(ad_body),
+        elements=lattice.get("elements") if _is_real_number(lattice.get("elements")) else None,
+        energy_gev=(
+            lattice.get("energy_gev") if _is_real_number(lattice.get("energy_gev")) else None
+        ),
+        cavities=cavities if _is_real_number(cavities) else None,
+        calibrations=tuple(sorted(kinds.items())),
+        nominals=nominals,
+        synthetic_nominals=synthetic,
+        families=records,
+        refused=tuple((f.name, f.refused) for f in records if f.refused is not None),
+        response=_response_blocks(response),
+    )
+
+
+def take_census(
+    ao: dict,
+    ad: dict | None,
+    mapping: Mapping | None = None,
+    *,
+    va: dict | None = None,
+    response: dict | None = None,
+    ring_facts: dict | None = None,
+) -> Census:
     """Take the census of a merged, normalised export.
 
     Args:
@@ -607,6 +984,13 @@ def take_census(ao: dict, ad: dict | None, mapping: Mapping | None = None) -> Ce
         mapping: The mapping whose judgment answers every count, hazard and
             owner follows, or ``None`` to read the export as it was imported.
             The pending judgments are read from the raw export either way.
+        va: The canonical ``va.json``, ``{system: block}``, or ``None``. It is
+            not modified.
+        response: The canonical ``response.json``, ``{system: block}``, or
+            ``None``. It is not modified.
+        ring_facts: Facts read from each system's loaded deck,
+            ``{system: {"cavities": n}}``, or ``None`` to leave the cavity
+            count unstated.
 
     Returns:
         The frozen census.
@@ -624,9 +1008,22 @@ def take_census(ao: dict, ad: dict | None, mapping: Mapping | None = None) -> Ce
         walk.pend(raw)
         walks.append(walk)
 
+    by_system = va if isinstance(va, dict) else {}
+    responses = response if isinstance(response, dict) else {}
+    facts = ring_facts if isinstance(ring_facts, dict) else {}
     system_censuses = tuple(
         walk.finish(
-            tuple(sorted(_ad_scalars(ad_by_system[walk.name]))) if walk.name in ad_by_system else ()
+            tuple(sorted(_ad_scalars(ad_by_system[walk.name])))
+            if walk.name in ad_by_system
+            else (),
+            va_census(
+                walk.name,
+                by_system.get(walk.name),
+                responses.get(walk.name),
+                ao_body=ao[walk.name],
+                ad_body=ad_by_system.get(walk.name),
+                ring_facts=facts.get(walk.name),
+            ),
         )
         for walk in walks
     )

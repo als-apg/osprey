@@ -11,6 +11,18 @@ Rules:
   its hazards every heading of :data:`HAZARD_HEADINGS`; an empty list is
   written as ``None.`` so a reader can tell "checked, nothing found" from
   "not reported".
+* The ``Virtual accelerator`` heading carries every heading of
+  :data:`VA_HEADINGS` for a system the import carried a 2.0 block for, and the
+  single line ``no 2.0 export`` for one it did not. A fact the export left
+  unstated is written as ``unstated`` and never as a blank or a zero, so the
+  cavity count no deck was loaded for reads as the open question it is.
+* The deck named there is the one the AD names, the deck MATLAB exported from,
+  not the ``.mat`` the import copied beside the block: a refusal sends the
+  reviewer back to MATLAB, and the served copy's name is the system token the
+  section is already headed by.
+* The block states what a verdict is read from and never a verdict; verdicts
+  are the mapping's. Every other system's block is one line under each
+  system's own, because the VA lane reads one system's block only.
 * Censuses are tables, hazards are bullet lists.
 * Ordering is deterministic: systems, families and fields keep the census
   (export) order, votes are sorted by ``(family, field)``, per-system verdicts
@@ -35,11 +47,18 @@ import json
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from osprey.services.mml.census import Census, SharedPV, SystemCensus
+from osprey.services.mml.census import (
+    Census,
+    SharedPV,
+    SystemCensus,
+    VACensus,
+    VAFieldCensus,
+    VAHook,
+)
 from osprey.services.mml.directions import Vote
 from osprey.services.mml.judgments import PendingJudgments, SupplyGroup
 
-__all__ = ["HAZARD_HEADINGS", "SYSTEM_HEADINGS", "TITLE", "render_profile"]
+__all__ = ["HAZARD_HEADINGS", "SYSTEM_HEADINGS", "TITLE", "VA_HEADINGS", "render_profile"]
 
 #: The document title.
 TITLE = "MML import profile"
@@ -58,6 +77,17 @@ SYSTEM_HEADINGS: tuple[str, ...] = (
     "Position and DeviceType coverage",
     "Families with arrays from setup",
     "AD scalars",
+    "Virtual accelerator",
+)
+
+#: The level-4 headings under each system's ``Virtual accelerator``, in order.
+VA_HEADINGS: tuple[str, ...] = (
+    "Export facts",
+    "Refused families",
+    "Response",
+    "Family coverage",
+    "Sampled fields",
+    "Other systems",
 )
 
 #: The level-4 headings under each system's ``Hazards``, in order.
@@ -77,6 +107,15 @@ HAZARD_HEADINGS: tuple[str, ...] = (
 )
 
 _NONE = "None."
+
+#: What a system with no 2.0 block says under its ``Virtual accelerator`` heading.
+_NO_BLOCK = "no 2.0 export"
+
+#: What a cell says where the export stated nothing, as against stating zero.
+_UNSTATED = "unstated"
+
+#: What a cell says where the census found nothing to list.
+_EMPTY_CELL = "none"
 
 
 def _inline(value: Any) -> str:
@@ -288,6 +327,145 @@ def _hazard_lines(census: Census, system: SystemCensus) -> list[str]:
     return lines[:-1]
 
 
+def _stated(value: Any) -> Any:
+    """Render a fact the export left unstated as a word, never as a blank."""
+    return _UNSTATED if value is None else value
+
+
+def _listed(items: Iterable[str]) -> str:
+    """Join a cell's items, saying so where the census found none."""
+    return ", ".join(items) or _EMPTY_CELL
+
+
+def _families(count: int) -> str:
+    return f"{count} family" if count == 1 else f"{count} families"
+
+
+def _hook(hook: VAHook) -> str:
+    """Render one AT hook: where it sits, and the code or group it names."""
+    where = hook.key if hook.field is None else f"{hook.field}.{hook.key}"
+    return f"{where}: {_stated(hook.value)}"
+
+
+def _nominal_source(field: VAFieldCensus) -> str:
+    """Say whether the exporter sampled the nominal or stood one in."""
+    if field.nominal_synthetic is None:
+        return _UNSTATED
+    return "synthetic" if field.nominal_synthetic else "sampled"
+
+
+def _va_export_lines(va: VACensus) -> list[str]:
+    """Render the facts the card's EXPORT box reads, one label and value each."""
+    return _table(
+        ("Fact", "Value"),
+        (
+            ("Exporter", _code(va.exporter) if va.exporter is not None else _UNSTATED),
+            ("Deck", _code(va.deck) if va.deck is not None else _UNSTATED),
+            ("Elements", _stated(va.elements)),
+            ("Energy (GeV)", _stated(va.energy_gev)),
+            ("Cavities", _stated(va.cavities)),
+            ("Calibrations", _listed(f"{kind} {count}" for kind, count in va.calibrations)),
+            ("Nominals", f"{va.nominals} ({va.synthetic_nominals} synthetic)"),
+        ),
+    )
+
+
+def _va_summary(system: SystemCensus) -> str:
+    """Render one other system's block as the single line this one gives it."""
+    va = system.virtual_accelerator
+    if va is None:
+        return f"{_code(system.name)}: {_NO_BLOCK}"
+    return (
+        f"{_code(system.name)}: {_families(len(va.families))},"
+        f" {_stated(va.elements)} elements, {_stated(va.energy_gev)} GeV"
+    )
+
+
+def _va_lines(census: Census, system: SystemCensus) -> list[str]:
+    """Render one system's virtual-accelerator export, or say it carried none."""
+    va = system.virtual_accelerator
+    if va is None:
+        return [_NO_BLOCK]
+    items: dict[str, list[str]] = {
+        "Export facts": _va_export_lines(va),
+        "Refused families": _bullets(
+            f"⚠ {_code(family)}: {_inline(reason)}" for family, reason in va.refused
+        ),
+        "Response": _table(
+            ("Monitor", "Actuator", "Origin", "Rows", "Columns", "Timestamp"),
+            (
+                (
+                    _stated(block.monitor),
+                    _stated(block.actuator),
+                    _stated(block.origin),
+                    block.rows,
+                    block.columns,
+                    _stated(block.timestamp),
+                )
+                for block in va.response
+            ),
+        ),
+        "Family coverage": _table(
+            (
+                "Family",
+                "Devices",
+                "ATType",
+                "AT devices",
+                "AT elements",
+                "Energy candidate",
+                "Extra fields",
+                "Disagreeing units",
+                "Hooks",
+            ),
+            (
+                (
+                    family.name,
+                    family.devices,
+                    _stated(family.at_type),
+                    family.at_devices,
+                    family.at_elements,
+                    "yes" if family.energy_candidate else "no",
+                    _listed(family.extra_fields),
+                    _listed(f"{field} {units}" for field, units in family.disagreeing_units),
+                    "; ".join(_hook(hook) for hook in family.hooks) or _EMPTY_CELL,
+                )
+                for family in va.families
+            ),
+        ),
+        "Sampled fields": _table(
+            (
+                "Family",
+                "Field",
+                "Calibration",
+                "Grid source",
+                "Nominal units",
+                "Nominal source",
+                "PhysicsUnits",
+            ),
+            (
+                (
+                    family.name,
+                    field.name,
+                    _stated(field.calibration_kind),
+                    _stated(field.grid_source),
+                    _stated(field.nominal_units),
+                    _nominal_source(field),
+                    _stated(field.physics_units),
+                )
+                for family in va.families
+                for field in family.fields
+            ),
+        ),
+        "Other systems": _bullets(
+            _va_summary(other) for other in census.systems if other.name != system.name
+        ),
+    }
+    lines: list[str] = []
+    for heading in VA_HEADINGS:
+        lines.extend(_block(heading, 4, items[heading]))
+    return lines[:-1]
+
+
 def _system_lines(
     census: Census, system: SystemCensus, votes: list[tuple[tuple[str, str], Vote]]
 ) -> list[str]:
@@ -378,6 +556,7 @@ def _system_lines(
         "AD scalars": _table(
             ("Key", "Value"), ((f"`{key}`", value) for key, value in system.ad_scalars)
         ),
+        "Virtual accelerator": _va_lines(census, system),
     }
     lines = [f"## System {_code(system.name)}", ""]
     for heading in SYSTEM_HEADINGS:
