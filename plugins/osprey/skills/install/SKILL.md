@@ -228,8 +228,14 @@ last is an `osprey init` argument; the other three are `osprey set` keys applied
      `osprey mml map --init`; fill every `null`; answer every slot of the
      `judgments:` block with the user; review every `derived` description,
      direction, `class` and `branch` with the user and mark each slot `stated`;
-     `osprey mml map --check --no-derived`; `osprey mml emit`; `osprey build`; then the
-     PARADIGM card binds one of the two channel-finder artifacts emit wrote.
+     `osprey mml map --check --no-derived`; `osprey mml emit`; on a 2.0 export
+     `osprey mml verify`, whose `data/mml/VA-REPORT.md` is read before building;
+     `osprey build`; then the PARADIGM card binds one of the two channel-finder
+     artifacts emit wrote.
+   - A 2.0 export also decides, family by family, what the model drives. `map --init`
+     appends the `virtual_accelerator:` block; the VA MAP card in `references/cards.md`
+     (`## VA MAP`) is drawn from it at that step and again after every answer, and its
+     open slots are answered there. `map --check` and `emit` refuse while one is open.
    - `osprey mml emit` refuses while the deployment holds demo files it would contradict
      and prints one `rm` line naming them. Run that line as printed, then emit again.
 8. `osprey validate --drift=warn` after every change. Drift from the preset is expected.

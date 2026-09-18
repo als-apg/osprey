@@ -1026,11 +1026,12 @@ osprey mml
 
 Install a facility from its MATLAB Middle Layer (MML) export: read the export,
 record what it means, and write the deployment's channel database, ontology,
-knowledge pages and graph corpus from that one review. The three verbs run in
-order and each reads what the one before it wrote, in the fixed directory
-``data/mml/`` of the deployment repository. All three take ``--repo
-DIRECTORY``; without it the repository is found by walking up from where you
-are standing. See :doc:`/how-to/use-channel-finder` for the flow end to end.
+knowledge pages, graph corpus and virtual accelerator from that one review. The
+four verbs run in order and each reads what the one before it wrote, in the
+fixed directory ``data/mml/`` of the deployment repository. All four take
+``--repo DIRECTORY``; without it the repository is found by walking up from
+where you are standing. See :doc:`/how-to/use-channel-finder` for the flow end
+to end.
 
 ``osprey mml import INPUTS... [--system TOKEN | PATH=TOKEN]``
    Read one or more MML exports (``.json`` from the packaged exporter, or
@@ -1041,7 +1042,24 @@ are standing. See :doc:`/how-to/use-channel-finder` for the flow end to end.
    with a single input or as ``PATH=TOKEN`` once per flat input when there are
    several.
 
-``osprey mml map (--init [--force] | --check [--no-derived])``
+   A 2.0 export carries three more files beside its ``ao.json``: the lattice
+   deck it was sampled over, the per-family calibrations and nominals, and the
+   measured orbit response. They are optional inputs --- naming the ``ao.json``
+   is enough when they sit beside it under the same name --- and they become
+   ``data/mml/lattice/<system>.mat``, ``data/mml/va.json`` and
+   ``data/mml/response.json``, the last two keyed by system. A 1.0 export
+   imports as it always did and leaves none of the three behind.
+
+   Two rules hold over those files. A deck is filed only when it is the ring
+   the export states it was sampled over: the export records the ring's energy,
+   how many elements it has, a digest of their names and where its ring
+   parameters sit, and a deck that disagrees is refused, naming the fact that
+   disagreed. And an import replaces the last one whole --- it removes the
+   ``va.json``, ``response.json`` and decks left by the import it replaces, and
+   names each of them in its report --- so ``data/mml/`` always means the last
+   import and nothing else.
+
+``osprey mml map (--init [--force] [--force-va] | --check [--no-derived])``
    Write or check ``data/mml/mapping.yaml``, the record of what the export
    means: the deployment name, device class and machine section of every
    family, and the direction --- read or written --- of every signal. Where the
@@ -1049,11 +1067,38 @@ are standing. See :doc:`/how-to/use-channel-finder` for the flow end to end.
    device bound by no channel, a PV shared across devices --- it also carries a
    ``judgments:`` block, one null slot per question, listed per family in
    ``PROFILE.md``.
+   A tree that carries a 2.0 export gets a ``virtual_accelerator:`` block as
+   well: the system the model is built for, and one verdict per family ---
+   ``couple``, naming what the model drives and how hardware converts to
+   physics, or ``latch``, naming why it drives nothing. Where a rule cannot
+   decide, the family carries one ``slot:`` with a written-out question, a null
+   ``answer``, and the words that answer it:
+
+   ``attype``
+      The lattice type the export names is not one the table knows. Answer
+      ``latch``, ``strength:<PolynomB|PolynomA>[<i>]``, ``kick:<0|1>``,
+      ``energy``, ``rf`` or ``monitor:<x|y>``.
+
+   ``shared_field``
+      Two families drive the same field of the same element. Answer
+      ``owner:<family>`` to give it to one of them, or ``latch``.
+
+   ``escape_hatch``
+      The Middle Layer reaches the family through a function or a parameter
+      group of its own, so what it does is not readable from the export.
+      Answer ``latch``, or ``ignore_hook`` to bind it anyway.
+
    ``--init`` writes the skeleton, refusing to overwrite an existing file
-   unless ``--force`` says to, because that file holds reviewed decisions.
+   unless ``--force`` says to, because that file holds reviewed decisions. It
+   appends the virtual-accelerator block to a mapping that already exists and
+   has none; a block that is already there makes the command refuse, naming the
+   file and ``--force-va``, which replaces the block. A tree with no 2.0
+   export, or one whose deck was never imported, is told so in one line and
+   gets no block.
    ``--check`` reports every problem and exits non-zero while any remain ---
-   among them every judgment slot left null and every answer the export cannot
-   carry --- and says how many slots the skeleton guessed are still unreviewed;
+   among them every judgment slot and every virtual-accelerator slot left null,
+   and every answer the export cannot carry --- and says how many slots the
+   skeleton guessed are still unreviewed;
    ``--no-derived`` turns each of those into a problem of its own, which is the
    run to pass before going live.
 
@@ -1069,8 +1114,70 @@ are standing. See :doc:`/how-to/use-channel-finder` for the flow end to end.
    refuses while a judgment is unanswered or impossible, reporting the same
    keys ``--check`` does and pointing back at it, and while the project still
    carries the demo facility's tier databases or untouched demo knowledge
-   pages, naming them in one ``rm`` line. Run
+   pages, naming them in one ``rm`` line. Scenario bundles under
+   ``data/simulation/scenarios/`` are refused on the same terms, each held
+   against the ``machine.json`` this deployment serves --- the machine the run
+   is about to write where it writes one, the machine already on the tree where
+   it does not. Emit names each bundle asking for a channel that machine does
+   not carry, and the channels it asks for, and each bundle the simulation
+   could not read at all, in one ``rm`` line of its own. A bundle that machine
+   can resolve is kept whoever wrote it, an empty directory is kept, and a
+   deployment with no machine is told nothing about its scenarios: it stops at
+   boot for want of the machine, whatever they say. Run
    ``osprey build`` afterwards to copy the result into the deployment.
+
+   When the mapping decides a virtual accelerator, emit writes five more files:
+   ``data/simulation/lattice.json``, the deck the model runs;
+   ``data/simulation/va_bindings.json``, which channel drives which element and
+   how; ``data/simulation/machine.json``, the machine the model stands for;
+   ``data/machine_state_channels.json``, the channels that carry its state; and
+   the write bands of every coupled setpoint in ``data/channel_limits.json``.
+   The lanes run channel database, DuckDB copy, ontology, knowledge pages,
+   virtual accelerator, then corpus. A tree whose export is 1.0 is not refused:
+   emit reports ``VA lane skipped: data/mml/va.json is not in the tree;
+   re-export with mml_export 2.0 to enable it``, or ``carries no virtual
+   accelerator for an imported system`` in place of that middle clause when the
+   file is there but keys no imported system, and writes the other lanes as
+   before. Such a harvest also removes ``data/simulation/lattice.json`` and
+   ``data/simulation/va_bindings.json`` if the tree carries them, naming what
+   it removed: an export describing no machine leaves the deployment none to
+   serve, and a ring left behind would be served over the harvested channel
+   names. ``osprey build`` then derives ``VA_LATTICE=none``. A deployment
+   nobody harvested onto keeps the ring it shipped with.
+
+   The virtual-accelerator lane has refusals of its own, all of them before any
+   of its five files is written: a mapping that decides a virtual accelerator
+   the export does not carry, a block naming a system the export does not, a
+   deck that was never imported, and virtual-accelerator files already on the
+   tree that this command did not write. One refusal comes later than the
+   others. ``data/channel_limits.json`` is shared, so emit stamps each band it
+   writes, keeps every other entry byte-for-byte, and refuses an address the
+   file already bands differently without that stamp; that collision is only
+   knowable once all five documents have been rendered, by which point the
+   channel database, ontology, knowledge pages and, where ``--duckdb`` was
+   given, the DuckDB copy of the same run are already on the tree --- the
+   corpus, which emit writes last, is not. The five virtual-accelerator files
+   are the ones withheld. Fix the entries the command named, or remove them,
+   and run emit again.
+
+``osprey mml verify``
+   Check the emitted virtual accelerator against the exported response matrix,
+   and write ``data/mml/VA-REPORT.md``. Verify steers the model's correctors
+   the way the facility steered its own, reads the orbit the model gives back,
+   and compares it entry by entry with the matrix the export carries. An entry
+   agrees when ``|R_model - R_file| <= 0.05 * max(|R_file|, 0.1 * rms(column))``
+   --- five per cent of the exported value, or of a tenth of that actuator
+   column's own scale, whichever is larger, so a near-zero entry is held to
+   size alone. Above that floor the sign has to agree too, because a corrector
+   that pushes the beam the wrong way is wrong however small the number.
+
+   Monitor rows are matched to the export's device list by sector and device,
+   never by position, and a row with no match is reported rather than compared.
+   A row the export marks down is dropped and named. The report says whether
+   the deck agrees, where it was measured and at what energy, the worst
+   disagreements per block, the rows that were not compared, the write bands
+   the model needed widened, and the nominals the model does not hold. Read it
+   before ``osprey build``.
 
 .. code-block:: bash
 
@@ -1078,6 +1185,7 @@ are standing. See :doc:`/how-to/use-channel-finder` for the flow end to end.
    osprey mml map --init
    osprey mml map --check --no-derived
    osprey mml emit --duckdb
+   osprey mml verify
 
 osprey ariel
 ============
