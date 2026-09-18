@@ -142,28 +142,18 @@ DENIED: tuple[Denied, ...] = (
             "another deployment's prose should describe as its own"
         ),
         sample="# \u2500\u2500 The ALS-U Accumulator Ring instance \u2500\u2500",
-        # The demo ring ships as the simulation and virtual-accelerator
-        # packages' own subject, plus the two manifests and the preset data
-        # file that name the lattice those packages load.
+        # The bundled demo ring is the subject of the simulation package that
+        # states its spec and builds it, of the channel-naming vocabulary its
+        # databases are written in, and of the served model's binding rules.
         allow=frozenset(
             {
                 "src/osprey/services/channel_finder/naming.py",
-                "src/osprey/services/virtual_accelerator/lattice/__init__.py",
-                "src/osprey/services/virtual_accelerator/lattice/calibration.py",
-                "src/osprey/services/virtual_accelerator/lattice/response.py",
-                "src/osprey/services/virtual_accelerator/lattice/ring.py",
-                "src/osprey/services/virtual_accelerator/lattice/strengths.py",
-                "src/osprey/services/virtual_accelerator/model/__init__.py",
                 "src/osprey/services/virtual_accelerator/model/bindings.py",
-                "src/osprey/services/virtual_accelerator/model/pyat.py",
-                "src/osprey/services/virtual_accelerator/model/variables.py",
                 "src/osprey/simulation/channel_schema.py",
                 "src/osprey/simulation/facility_spec.py",
                 "src/osprey/simulation/lattice/__init__.py",
                 "src/osprey/simulation/lattice/artifact.py",
-                "src/osprey/simulation/lattice/build.py",
                 "src/osprey/simulation/lattice/ring.py",
-                "src/osprey/templates/apps/control_assistant/data/channel_limits.json",
             }
         ),
     ),
@@ -178,28 +168,20 @@ DENIED: tuple[Denied, ...] = (
             "facility wherever the prose ships"
         ),
         sample="#   facility_name: ALS",
-        # The bundled demo ring, whose own name this is, in the simulation and
-        # virtual-accelerator packages plus the two files that name the lattice
-        # they load.
+        # The bundled demo ring, whose own name this is: the simulation package
+        # that states its spec and builds it, the channel-naming vocabulary its
+        # databases are written in, and the two served-model modules that state
+        # what loading that deck means.
         allow=frozenset(
             {
                 "src/osprey/services/channel_finder/naming.py",
-                "src/osprey/services/virtual_accelerator/lattice/__init__.py",
-                "src/osprey/services/virtual_accelerator/lattice/calibration.py",
-                "src/osprey/services/virtual_accelerator/lattice/response.py",
                 "src/osprey/services/virtual_accelerator/lattice/ring.py",
-                "src/osprey/services/virtual_accelerator/lattice/strengths.py",
-                "src/osprey/services/virtual_accelerator/model/__init__.py",
                 "src/osprey/services/virtual_accelerator/model/bindings.py",
-                "src/osprey/services/virtual_accelerator/model/pyat.py",
-                "src/osprey/services/virtual_accelerator/model/variables.py",
                 "src/osprey/simulation/channel_schema.py",
                 "src/osprey/simulation/facility_spec.py",
                 "src/osprey/simulation/lattice/__init__.py",
                 "src/osprey/simulation/lattice/artifact.py",
-                "src/osprey/simulation/lattice/build.py",
                 "src/osprey/simulation/lattice/ring.py",
-                "src/osprey/templates/apps/control_assistant/data/channel_limits.json",
                 # The shipped reference ingestion format, and the places that
                 # quote the ``source_system`` values its adapter returns —
                 # rewriting those would name a value no adapter produces.
