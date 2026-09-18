@@ -13,9 +13,9 @@ import pytest
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.templates import claude_code, manifest
 from osprey.cli.templates.manager import TemplateManager
-from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 from osprey.services.channel_finder.core.exceptions import PipelineModeError
+from tests._config_render_context import MINIMAL_CONFIG_CONTEXT
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -326,7 +326,6 @@ class TestBuildClaudeCodeContextHierarchy:
         }
         return TemplateManager(), config
 
-    @pytest.mark.unit
     def test_build_claude_code_context_embeds_hierarchy_info(self, tmp_path):
         """Hierarchy levels, config, and naming pattern are embedded in context."""
         manager, config = self._make_manager_and_config(
@@ -361,7 +360,6 @@ class TestBuildClaudeCodeContextHierarchy:
         assert hier["naming_pattern"] == "{system}:{device}"
         assert "system" in hier["hierarchy_config"]["levels"]
 
-    @pytest.mark.unit
     def test_build_claude_code_context_hierarchy_missing_path(self, tmp_path):
         """Graceful fallback to None when database path is missing."""
         config = {
@@ -381,7 +379,6 @@ class TestBuildClaudeCodeContextHierarchy:
         )
         assert ctx["channel_finder_hierarchy"] is None
 
-    @pytest.mark.unit
     def test_build_claude_code_context_hierarchy_non_hierarchical(self, tmp_path):
         """Non-hierarchical pipeline mode: channel_finder_hierarchy is None."""
         config = {
@@ -396,7 +393,6 @@ class TestBuildClaudeCodeContextHierarchy:
         )
         assert ctx["channel_finder_hierarchy"] is None
 
-    @pytest.mark.unit
     def test_create_project_embeds_hierarchy_info(self, tmp_path, monkeypatch):
         """create_project renders hierarchy info into the agent prompt."""
         monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
@@ -442,7 +438,6 @@ class TestBuildClaudeCodeContextPipelineMode:
         )
         return tmp_path
 
-    @pytest.mark.unit
     def test_missing_pipeline_mode_raises(self, tmp_path):
         """A channel_finder block with no pipeline_mode is an error, not a default."""
         manager = TemplateManager()
@@ -454,7 +449,6 @@ class TestBuildClaudeCodeContextPipelineMode:
                 self._config(pipelines={}),
             )
 
-    @pytest.mark.unit
     def test_unknown_pipeline_mode_raises_and_names_the_mode(self, tmp_path):
         """An unrecognised paradigm raises and the message names it."""
         manager = TemplateManager()
@@ -466,7 +460,6 @@ class TestBuildClaudeCodeContextPipelineMode:
                 self._config(pipeline_mode="bogus"),
             )
 
-    @pytest.mark.unit
     @pytest.mark.parametrize("mode", VALID_CHANNEL_FINDER_MODES)
     def test_known_modes_render_their_tool_list(self, tmp_path, mode):
         """Every registered paradigm renders the registry's tool list for it."""
@@ -668,12 +661,11 @@ class TestBuiltinPanelRegistryDrift:
     """Enable-able builtin panels must derive from the BUILTIN_PANELS registry,
     not a hardcoded template literal that drifts from it.
 
-    Discovered wiring the native ``okf`` KNOWLEDGE panel into BELLA + ALS: both
-    config templates hardcoded ``["ariel", "channel-finder"]``, so a
-    profile listing a builtin the literal omitted (``okf`` or ``lattice``) in its
-    ``web_panels`` got filtered out at build time → no ``web.panels.okf`` stanza
-    → the runtime never enabled the tab and it silently never rendered. BELLA/ALS
-    worked around it with an explicit ``web.panels.okf.enabled: true`` override.
+    A literal that lists a subset of the registry filters out every builtin it
+    omits: a profile naming one in its ``web_panels`` gets no
+    ``web.panels.<name>`` stanza, the runtime never enables the tab, and nothing
+    is said. A deployment's only recourse is an explicit
+    ``web.panels.<name>.enabled: true`` override in its own config.
     """
 
     #: The one template that renders the builtin-panel loop. The selection is
@@ -689,15 +681,10 @@ class TestBuiltinPanelRegistryDrift:
         profile does NOT list (``ariel``) does not."""
         import yaml
 
-        from osprey.profiles.web_panels import BUILTIN_PANELS
-
         manager = TemplateManager()
         template = manager.jinja_env.get_template(template_path)
         rendered = template.render(
-            builtin_panels=sorted(BUILTIN_PANELS),
-            selected_web_panels=["okf", "channel-finder"],
-            port_base=DEFAULT_PORT_BASE,
-            osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+            **{**MINIMAL_CONFIG_CONTEXT, "selected_web_panels": ["okf", "channel-finder"]}
         )
         panels = yaml.safe_load(rendered)["web"]["panels"]
 
@@ -725,18 +712,19 @@ class TestBuiltinPanelRegistryDrift:
         manager = TemplateManager()
         template = manager.jinja_env.get_template(template_path)
 
+        without_registry = {
+            key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "builtin_panels"
+        }
         with pytest.raises(TemplateRuntimeError, match="builtin_panels"):
             template.render(
-                selected_web_panels=["okf", "channel-finder"],
-                port_base=DEFAULT_PORT_BASE,
-                osprey_ports=layout_ports(DEFAULT_PORT_BASE),
+                **{**without_registry, "selected_web_panels": ["okf", "channel-finder"]}
             )
 
     def test_create_project_enables_okf_builtin_panel(self, tmp_path):
         """End-to-end: ``manager.py`` injects ``sorted(BUILTIN_PANELS)`` → template
-        enables ``okf``. Fails against the hardcoded fallback literal (which omits
-        okf) and passes with the registry-derived context. This removes the need
-        for the ``web.panels.okf.enabled: true`` override BELLA/ALS carried."""
+        enables ``okf``. Fails against a hardcoded fallback literal that omits okf
+        and passes with the registry-derived context, so a profile listing ``okf``
+        needs no ``web.panels.okf.enabled: true`` override of its own."""
         import yaml
 
         manager = TemplateManager()

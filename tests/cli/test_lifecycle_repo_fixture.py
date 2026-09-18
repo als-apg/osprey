@@ -9,6 +9,7 @@ the real loader accepts, and byte-stable content.
 
 from __future__ import annotations
 
+import importlib.resources
 import shutil
 import subprocess
 from pathlib import Path
@@ -29,8 +30,6 @@ from tests.fixtures.lifecycle_repo import (
     build_exemplar_repo,
     exemplar_source_files,
 )
-
-pytestmark = pytest.mark.unit
 
 #: Command strings the redesign retires. None may survive in an artifact the
 #: exemplar ships, because ``osprey init`` emits these same files (SC-8).
@@ -337,6 +336,23 @@ def test_no_unexpanded_sentinels(lifecycle_repo: Path) -> None:
         if "@OSPREY_VERSION@" in text or "@PRESET_HASH:" in text
     ]
     assert offenders == []
+
+
+def test_the_triggers_file_is_the_packaged_one(lifecycle_repo: Path) -> None:
+    """The exemplar ships the packaged trigger file itself, not a copy of it.
+
+    The two sides are resolved independently: one is what the factory wrote
+    into the repo, the other is the file the package holds. A literal pasted
+    back into the fixture satisfies this on the day it is pasted and reds on
+    the first edit to the shipped file, which is the state it keeps out.
+    """
+    packaged = (
+        Path(str(importlib.resources.files("osprey.profiles.triggers"))) / "tutorial_triggers.yml"
+    )
+
+    assert (lifecycle_repo / "triggers.yml").read_text(encoding="utf-8") == packaged.read_text(
+        encoding="utf-8"
+    )
 
 
 @pytest.mark.parametrize("with_ci", [False, True])

@@ -34,9 +34,6 @@ from osprey.mcp_server import audit_middleware as am
 from osprey.mcp_server.python_executor.tools import _execution_gates as gates
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
-pytestmark = pytest.mark.unit
-
-
 # --------------------------------------------------------------------------
 # Fixtures and helpers
 # --------------------------------------------------------------------------

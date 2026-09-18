@@ -56,7 +56,6 @@ def _get_close_panel():
 
 
 class TestListPanels:
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_returns_enabled_panels(self, _mock_web_terminal_url):
         """Built-in enabled panels are returned with correct labels."""
@@ -93,7 +92,6 @@ class TestListPanels:
         assert visible["ariel"] is False
         assert visible["lattice"] is True
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_includes_custom_panels(self, _mock_web_terminal_url):
         """Custom panels from config are appended to the list."""
@@ -123,7 +121,6 @@ class TestListPanels:
         assert custom["id"] == "my-panel"
         assert custom["label"] == "MY PANEL"
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_custom_panel_label_fallback(self, _mock_web_terminal_url):
         """Custom panel without explicit label falls back to id.upper()."""
@@ -152,7 +149,6 @@ class TestListPanels:
         assert custom["id"] == "my-grafana"
         assert custom["label"] == "MY-GRAFANA"
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_web_terminal_unreachable(self, _mock_web_terminal_url):
         """Returns error when web terminal is not running."""
@@ -164,7 +160,6 @@ class TestListPanels:
         assert result["status"] == "error"
         assert "not running" in result["message"]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_list_panels_reports_open_tiles_independently_of_rail_membership(
         self, _mock_web_terminal_url
@@ -200,7 +195,6 @@ class TestListPanels:
         visible = {p["id"]: p["visible"] for p in result["panels"]}
         assert visible["ariel"] is True and "ariel" not in result["open_tiles"]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_list_panels_freshness_is_null_when_no_client_has_reported(
         self, _mock_web_terminal_url
@@ -234,7 +228,6 @@ class TestListPanels:
         assert result["open_tiles_age_s"] is None
         assert result["open_tiles_dock"] is None
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_list_panels_passes_through_unknown_occupancy(self, _mock_web_terminal_url):
         """A dock-less client reports unknown occupancy (null), never known-empty."""
@@ -268,7 +261,6 @@ class TestListPanels:
 
 
 class TestOpenPanel:
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_calls_notify(self):
         """open_panel delegates to notify_panel_focus."""
@@ -281,7 +273,6 @@ class TestOpenPanel:
         assert result["panel"] == "ariel"
         mock_focus.assert_called_once_with("ariel", url=None)
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_passes_url(self):
         """Optional url is forwarded to notify_panel_focus."""
@@ -293,7 +284,6 @@ class TestOpenPanel:
         assert result["status"] == "success"
         mock_focus.assert_called_once_with("ariel", url="http://127.0.0.1:10300/#draft")
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_open_custom_panel(self):
         """open_panel works with app-registered (custom) panel IDs."""
@@ -310,7 +300,6 @@ class TestOpenPanel:
 class TestClosePanel:
     """``close_panel`` moves the on-screen axis and only that axis."""
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_calls_notify_close(self):
         fn = _get_close_panel()
@@ -322,7 +311,6 @@ class TestClosePanel:
         assert result["panel"] == "ariel"
         mock_close.assert_called_once_with("ariel")
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_does_not_touch_rail_membership(self):
         """The regression the split exists to prevent.
@@ -341,7 +329,6 @@ class TestClosePanel:
 
         mock_visibility.assert_not_called()
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_close_custom_panel(self):
         fn = _get_close_panel()
@@ -397,7 +384,6 @@ def _make_api_mock(enabled, custom=None, visible=None, active=None, labels=None)
 
 
 class TestAddPanelToRail:
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_add_panel_to_rail_calls_notify_visibility_with_true(
         self, _mock_web_terminal_url
@@ -417,7 +403,6 @@ class TestAddPanelToRail:
         assert result["panel"] == "ariel"
         mock_notify.assert_called_once_with("ariel", True)
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_add_panel_to_rail_unknown_id_returns_error_and_does_not_notify(
         self, _mock_web_terminal_url
@@ -437,7 +422,6 @@ class TestAddPanelToRail:
         assert "nonexistent" in result["message"]
         mock_notify.assert_not_called()
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_add_panel_to_rail_web_terminal_unreachable_returns_error(
         self, _mock_web_terminal_url
@@ -459,7 +443,6 @@ class TestAddPanelToRail:
 
 
 class TestRemovePanelFromRail:
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_remove_panel_from_rail_calls_notify_visibility_with_false(
         self, _mock_web_terminal_url
@@ -480,7 +463,6 @@ class TestRemovePanelFromRail:
         assert result["on_rail"] is False
         mock_notify.assert_called_once_with("ariel", False)
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_remove_panel_from_rail_unknown_id_returns_error_and_does_not_notify(
         self, _mock_web_terminal_url
@@ -504,7 +486,6 @@ class TestRemovePanelFromRail:
 
 
 class TestRegisterPanel:
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_register_panel_success_returns_panel_url(self):
         """register_panel returns status:success and the proxy URL when notify returns ok=True."""
@@ -523,7 +504,6 @@ class TestRegisterPanel:
         assert result["panel"] == "grafana"
         assert result["url"] == "/panel/grafana"
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_register_panel_disabled_returns_disabled_message(self):
         """register_panel surfaces a human-readable 'disabled' message on HTTP 403."""
@@ -545,7 +525,6 @@ class TestRegisterPanel:
         assert result["status"] == "error"
         assert "disabled" in result["message"].lower()
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_register_panel_validation_error_surfaces_detail(self):
         """register_panel forwards the server detail string on HTTP 422."""
@@ -567,7 +546,6 @@ class TestRegisterPanel:
         assert result["status"] == "error"
         assert "127.0.0.1" in result["message"]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_register_panel_web_terminal_down_returns_down_message(self):
         """register_panel returns a 'not running' message when notify returns status=None."""
@@ -600,7 +578,6 @@ def _get_arrange_workspace():
 
 
 class TestArrangeWorkspace:
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_arrange_tiles_returns_applied_layout_and_freshness(self):
         """A tiles arrangement echoes the server's applied layout plus freshness."""
@@ -639,7 +616,6 @@ class TestArrangeWorkspace:
             tiles=["artifacts", "lattice"], preset=None, focus="lattice"
         )
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_arrange_preset_reports_preset_name(self):
         """A preset call forwards the name and reports it back."""
@@ -670,7 +646,6 @@ class TestArrangeWorkspace:
         assert result["focus"] is None
         mock_arrange.assert_called_once_with(tiles=None, preset="injection", focus=None)
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_arrange_reports_null_freshness_when_readback_fails(self):
         """An arrangement that applied is still a success when the freshness read fails."""
@@ -690,7 +665,6 @@ class TestArrangeWorkspace:
         assert result["open_tiles_age_s"] is None
         assert result["open_tiles_dock"] is None
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_arrange_reports_nulls_when_no_client_has_reported(self):
         """Nulls from a live server mean nobody is watching — the agent should see that."""
@@ -716,7 +690,6 @@ class TestArrangeWorkspace:
         assert result["open_tiles_age_s"] is None
         assert result["open_tiles_dock"] is None
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_arrange_surfaces_route_detail_verbatim(self):
         """A 422 from the route reaches the agent word for word."""
@@ -731,7 +704,6 @@ class TestArrangeWorkspace:
                 await fn(tiles=["bogus"])
         assert detail in ctx["envelope"]["error_message"]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_arrange_unknown_preset_detail_lists_available(self):
         """The route's available-preset list is preserved for the agent."""
@@ -746,7 +718,6 @@ class TestArrangeWorkspace:
                 await fn(preset="nope")
         assert "Available presets: ['injection']" in ctx["envelope"]["error_message"]
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_arrange_web_terminal_unreachable(self):
         """An unreachable web terminal is its own error type, not a rejection."""
@@ -760,7 +731,6 @@ class TestArrangeWorkspace:
                 await fn(tiles=["artifacts"])
         assert "not running" in ctx["envelope"]["error_message"].lower()
 
-    @pytest.mark.unit
     @pytest.mark.asyncio
     async def test_arrange_does_not_prevalidate_tiles_xor_preset(self):
         """The route owns tiles/preset exclusivity — the tool forwards and reports it."""

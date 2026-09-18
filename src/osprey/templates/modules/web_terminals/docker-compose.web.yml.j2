@@ -751,6 +751,15 @@ services:
          that drops `openid` is refused by the sidecar, not repaired. #}
       - OSPREY_AUTH_OIDC_SCOPES={{ auth_oidc_scopes }}
 {%- endif %}
+{%- if auth_oidc_claims_in_id_token %}
+      {#- Only when the facility turns it on: the login route then sends the
+         OIDC `claims` request parameter asking for the claims the sidecar
+         reads to arrive in the ID token — the fix for a provider that serves
+         scope-requested claims from UserInfo (OIDC Core §5.4), which the
+         sidecar never calls. The sidecar derives the parameter's contents
+         itself; this line only switches it on. #}
+      - OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN=true
+{%- endif %}
 {%- set role_claim = authorization_claim | default("") %}
 {%- set role_map = authorization_claim_map | default({}) %}
 {%- if role_claim and role_map %}

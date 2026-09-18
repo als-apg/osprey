@@ -38,6 +38,10 @@ SETTLE_BOUND_S = 1.0
 NONZERO_FLOOR_M = 1e-5  # 10 microns -- comfortably below the documented mm-scale shift
 LINEAR_REL_TOL = 0.02  # 2%: exact in theory (linear lattice), generous for cross-process fp noise
 
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 2
+
 
 async def _write_current(connector, value: float) -> None:
     # No `confirm` kwarg: this channel has no confirm entry, so it resolves to the
@@ -130,3 +134,17 @@ class TestOrbitResponse:
         assert elapsed < 5 * SETTLE_BOUND_S * 4 + 30, (
             f"orbit-response cycles took implausibly long; 5 cycles x 4 writes took {elapsed:.1f}s"
         )
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_orbit_response.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS

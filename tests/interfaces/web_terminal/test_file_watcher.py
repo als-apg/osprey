@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import time
 from pathlib import Path, PurePath
 from types import SimpleNamespace
@@ -839,6 +840,31 @@ class TestACoalescedDirectoryFrame:
         handler.on_any_event(DirDeletedEvent(str(sub)))
 
         assert str(sub) not in handler._listings
+
+    def test_a_recursive_deletion_reported_once_drops_the_whole_subtree(self, tmp_path):
+        """The cache invariant is a property of the map rather than of how finely
+        the backend reports a removal, so one event for the top of a deleted tree
+        is enough."""
+        sub = tmp_path / "sub"
+        nested = sub / "nested"
+        nested.mkdir(parents=True)
+        (nested / "note.txt").write_text("hello")
+        broadcaster = MagicMock()
+        handler = self._handler(tmp_path, broadcaster)
+        handler.on_any_event(DirModifiedEvent(str(sub)))
+        handler.on_any_event(DirModifiedEvent(str(nested)))
+        assert str(sub) in handler._listings
+        assert str(nested) in handler._listings
+        broadcaster.reset_mock()
+
+        shutil.rmtree(sub)
+        handler.on_any_event(DirDeletedEvent(str(sub)))
+
+        assert str(sub) not in handler._listings
+        assert str(nested) not in handler._listings
+        assert {"type": "deleted", "path": "sub", "is_dir": True} in self._events(broadcaster), (
+            "the deletion is still announced"
+        )
 
     def test_a_moved_directory_drops_its_listing_and_its_subtrees(self, tmp_path):
         """A rename is one event for the whole subtree.

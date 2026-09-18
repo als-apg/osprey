@@ -23,8 +23,6 @@ from osprey.audit import posture as posture_module
 from osprey.mcp_server.python_executor.tools._execution_gates import enforce_posture_clamp
 from tests._control_context_fixtures import DEFAULT_TARGET, write_control_context
 
-pytestmark = pytest.mark.unit
-
 
 @pytest.fixture(autouse=True)
 def _audit_zone(tmp_path, monkeypatch):

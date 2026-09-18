@@ -17,35 +17,73 @@ import pytest
 # database: the session ``database_url`` fixture prefers a running dev Postgres with
 # ONE shared ``ariel_test`` database over a per-worker container, so parallel workers
 # would otherwise collide on migrations/seed/truncate.
-pytestmark = [pytest.mark.integration, pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
+pytestmark = [pytest.mark.asyncio, pytest.mark.xdist_group("docker")]
+
+
+#: Keyword-search rows: four texts and authors chosen so a search that fails
+#: to narrow returns a row a correct one does not.
+KEYWORD_PREFIX = "search-kw-"
+
+#: Rows carrying a real embedding, seeded only where a local embedding
+#: service answers.
+SEMANTIC_PREFIX = "semantic-"
+
+#: The single row the source-filtered time-range query is asserted over.
+SOURCE_PREFIX = "search-source-"
+
+
+@pytest.fixture
+async def seeded_repository(repository, seed_entry_factory, seeded_prefixes):
+    """Repository seeded with four entries whose texts and authors discriminate.
+
+    The rows are chosen rather than arbitrary. ``search-kw-002`` and
+    ``search-kw-004`` both carry ``beam``, only ``search-kw-002`` also carries
+    ``orbit``, and only ``search-kw-004`` is written by ``oper_smith``. A search
+    that fails to narrow on the second term, or on the author, therefore returns
+    a row that a correct one does not.
+
+    The rows outlive the test that seeded them: they are removed once, after the
+    package's last test, by the ledger's finalizer.
+
+    Args:
+        repository: Repository over the migrated test database.
+        seed_entry_factory: Factory building a single logbook entry.
+        seeded_prefixes: Package ledger of the entry-id prefixes to delete at
+            teardown.
+
+    Returns:
+        The repository, with the four entries upserted.
+    """
+    entries = [
+        seed_entry_factory(
+            entry_id=f"{KEYWORD_PREFIX}001",
+            raw_text="The vacuum chamber pressure dropped unexpectedly during the experiment.",
+            author="operator1",
+        ),
+        seed_entry_factory(
+            entry_id=f"{KEYWORD_PREFIX}002",
+            raw_text="Beam alignment was adjusted to correct the orbit deviation.",
+            author="physicist1",
+        ),
+        seed_entry_factory(
+            entry_id=f"{KEYWORD_PREFIX}003",
+            raw_text="The undulator gap was changed to optimize photon flux.",
+            author="scientist1",
+        ),
+        seed_entry_factory(
+            entry_id=f"{KEYWORD_PREFIX}004",
+            raw_text="Beam loss was recorded during the morning shift.",
+            author="oper_smith",
+        ),
+    ]
+    seeded_prefixes.add(KEYWORD_PREFIX)
+    for entry in entries:
+        await repository.upsert_entry(entry)
+    return repository
 
 
 class TestKeywordSearch:
     """Test keyword search with real PostgreSQL FTS."""
-
-    @pytest.fixture
-    async def seeded_repository(self, repository, seed_entry_factory):
-        """Repository with test entries for search tests."""
-        entries = [
-            seed_entry_factory(
-                entry_id="search-kw-001",
-                raw_text="The vacuum chamber pressure dropped unexpectedly during the experiment.",
-                author="operator1",
-            ),
-            seed_entry_factory(
-                entry_id="search-kw-002",
-                raw_text="Beam alignment was adjusted to correct the orbit deviation.",
-                author="physicist1",
-            ),
-            seed_entry_factory(
-                entry_id="search-kw-003",
-                raw_text="The undulator gap was changed to optimize photon flux.",
-                author="scientist1",
-            ),
-        ]
-        for entry in entries:
-            await repository.upsert_entry(entry)
-        return repository
 
     async def test_keyword_search_finds_matches(self, seeded_repository):
         """Keyword search returns matching entries via repository method."""
@@ -96,16 +134,54 @@ class TestKeywordSearch:
         assert "search-kw-002" in entry_ids
 
 
-class TestKeywordSearchCleanup:
-    """Clean up keyword search test data."""
+class TestKeywordQuerySyntax:
+    """Query text reaching real PostgreSQL through the keyword search module.
 
-    async def test_cleanup(self, migrated_pool):
-        """Clean up test entries."""
-        async with migrated_pool.connection() as conn:
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'search-kw-%'
-            """)
+    These drive ``osprey.services.ariel_search.search.keyword.keyword_search``,
+    which parses the query and builds the predicates the class above hands
+    :meth:`ARIELRepository.keyword_search` directly. What an operator's
+    ``AND`` and ``author:`` mean is decided by PostgreSQL over the composed
+    statement, so only a real database answers it.
+
+    ``max_results`` is wide because the database is shared with the rest of
+    the package: a narrow limit would let another module's seeded rows crowd
+    the discriminating entry out of the result and fail the assertion for a
+    reason that has nothing to do with the query.
+    """
+
+    async def test_an_and_query_requires_both_terms(
+        self, seeded_repository, integration_ariel_config
+    ):
+        """``beam AND orbit`` keeps only the entry carrying both terms."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        results = await keyword_search(
+            query="beam AND orbit",
+            repository=seeded_repository,
+            config=integration_ariel_config,
+            max_results=100,
+        )
+
+        entry_ids = [entry["entry_id"] for entry, _score, _highlights in results]
+        assert "search-kw-002" in entry_ids
+        assert "search-kw-004" not in entry_ids
+
+    async def test_an_author_prefix_narrows_a_text_match(
+        self, seeded_repository, integration_ariel_config
+    ):
+        """``author:oper_smith beam`` keeps only that author's matching entry."""
+        from osprey.services.ariel_search.search.keyword import keyword_search
+
+        results = await keyword_search(
+            query="author:oper_smith beam",
+            repository=seeded_repository,
+            config=integration_ariel_config,
+            max_results=100,
+        )
+
+        entry_ids = [entry["entry_id"] for entry, _score, _highlights in results]
+        assert "search-kw-004" in entry_ids
+        assert "search-kw-002" not in entry_ids
 
 
 # ==============================================================================
@@ -134,9 +210,35 @@ class TestSemanticSearchWithRealEmbeddings:
 
     @pytest.fixture
     async def seeded_repository_with_embeddings(
-        self, repository, migrated_pool, seed_entry_factory, integration_ariel_config
+        self,
+        repository,
+        migrated_pool,
+        seed_entry_factory,
+        integration_ariel_config,
+        seeded_prefixes,
     ):
-        """Repository with test entries and their embeddings."""
+        """Repository seeded with three entries and their embeddings.
+
+        The three rows are about topics far enough apart that a query about one
+        ranks above the others: beam loss at injection, orbit deviation after a
+        position-monitor reading, and vacuum maintenance.
+
+        The embedding rows need no ledger entry of their own.
+        ``text_embeddings_nomic_embed_text.entry_id`` is a foreign key onto
+        ``enhanced_entries(entry_id)`` declared ``ON DELETE CASCADE``, so
+        deleting an entry takes its embedding with it.
+
+        Args:
+            repository: Repository over the migrated test database.
+            migrated_pool: Pool over the migrated test database.
+            seed_entry_factory: Factory building a single logbook entry.
+            integration_ariel_config: ARIEL configuration for that database.
+            seeded_prefixes: Package ledger of the entry-id prefixes to delete
+                at teardown.
+
+        Returns:
+            The repository, with the three entries and their embeddings stored.
+        """
         if not is_ollama_available():
             pytest.skip("Ollama not available - run 'ollama pull nomic-embed-text'")
 
@@ -147,21 +249,22 @@ class TestSemanticSearchWithRealEmbeddings:
         # Create entries about different topics
         entries = [
             seed_entry_factory(
-                entry_id="semantic-001",
+                entry_id=f"{SEMANTIC_PREFIX}001",
                 raw_text="Beam loss detected at sector 5. The injection efficiency dropped to 82% due to instability in the storage ring.",
                 author="operator1",
             ),
             seed_entry_factory(
-                entry_id="semantic-002",
+                entry_id=f"{SEMANTIC_PREFIX}002",
                 raw_text="Beam position monitors showing orbit deviation. Correcting with steering magnets.",
                 author="physicist1",
             ),
             seed_entry_factory(
-                entry_id="semantic-003",
+                entry_id=f"{SEMANTIC_PREFIX}003",
                 raw_text="Vacuum system maintenance completed. Pressure in sector 7 now at 1e-10 Torr.",
                 author="technician1",
             ),
         ]
+        seeded_prefixes.add(SEMANTIC_PREFIX)
 
         # Insert entries into database
         for entry in entries:
@@ -261,47 +364,24 @@ class TestSemanticSearchWithRealEmbeddings:
                     dim = len(embedding)
                 assert dim == 768
 
-    async def test_cleanup(self, migrated_pool):
-        """Clean up semantic search test data."""
-        async with migrated_pool.connection() as conn:
-            # Clean up embeddings first (foreign key constraint)
-            try:
-                await conn.execute("""
-                    DELETE FROM text_embeddings_nomic_embed_text
-                    WHERE entry_id LIKE 'semantic-%'
-                """)
-            except Exception:
-                pass  # Table may not exist
-
-            # Clean up entries
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'semantic-%'
-            """)
-
 
 class TestSearchQueryStructure:
     """Test search query structure without semantic data."""
 
-    async def test_search_by_time_range_with_source_filter(self, repository, seed_entry_factory):
+    async def test_search_by_time_range_with_source_filter(
+        self, repository, seed_entry_factory, seeded_prefixes
+    ):
         """Search with source system filter."""
         now = datetime.now(UTC)
         entry = seed_entry_factory(
-            entry_id="search-source-001",
+            entry_id=f"{SOURCE_PREFIX}001",
             source_system="als_logbook",
             timestamp=now,
-            raw_text="Test entry from ALS logbook",
+            raw_text="Test entry from the logbook",
         )
+        seeded_prefixes.add(SOURCE_PREFIX)
         await repository.upsert_entry(entry)
 
         # This tests the query structure even if filtering isn't implemented
         results = await repository.search_by_time_range(limit=10)
         assert isinstance(results, list)
-
-    async def test_cleanup(self, migrated_pool):
-        """Clean up test entries."""
-        async with migrated_pool.connection() as conn:
-            await conn.execute("""
-                DELETE FROM enhanced_entries
-                WHERE entry_id LIKE 'search-source-%'
-            """)

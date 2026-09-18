@@ -43,7 +43,6 @@ def _setup_registry(tmp_path, monkeypatch):
     initialize_ariel_context()
 
 
-@pytest.mark.unit
 async def test_keyword_search_basic(tmp_path, monkeypatch):
     """Basic keyword search returns matching entries."""
     _setup_registry(tmp_path, monkeypatch)
@@ -68,7 +67,6 @@ async def test_keyword_search_basic(tmp_path, monkeypatch):
     assert data["mode"] == "keyword"
 
 
-@pytest.mark.unit
 async def test_keyword_search_date_filtering(tmp_path, monkeypatch):
     """Date strings are parsed and passed to service.search()."""
     _setup_registry(tmp_path, monkeypatch)
@@ -97,7 +95,6 @@ async def test_keyword_search_date_filtering(tmp_path, monkeypatch):
     assert end == datetime(2024, 1, 31, tzinfo=ZoneInfo("UTC"))
 
 
-@pytest.mark.unit
 async def test_keyword_search_author_filtering(tmp_path, monkeypatch):
     """Author filter is passed via advanced_params."""
     _setup_registry(tmp_path, monkeypatch)
@@ -117,7 +114,6 @@ async def test_keyword_search_author_filtering(tmp_path, monkeypatch):
     assert call_kwargs["advanced_params"]["author"] == "Jane"
 
 
-@pytest.mark.unit
 async def test_keyword_search_exclude_entry_ids(tmp_path, monkeypatch):
     """exclude_entry_ids filters out entries from results."""
     _setup_registry(tmp_path, monkeypatch)
@@ -148,7 +144,6 @@ async def test_keyword_search_exclude_entry_ids(tmp_path, monkeypatch):
     assert call_kwargs["max_results"] == 12  # 10 default + 2 excluded
 
 
-@pytest.mark.unit
 async def test_keyword_search_empty_query():
     """Empty query returns validation error."""
     fn = _get_keyword_search()
@@ -158,7 +153,6 @@ async def test_keyword_search_empty_query():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_keyword_search_service_error(tmp_path, monkeypatch):
     """Service failure returns standard error format."""
     _setup_registry(tmp_path, monkeypatch)
@@ -178,7 +172,6 @@ async def test_keyword_search_service_error(tmp_path, monkeypatch):
     assert "DB connection failed" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_vocabulary_error_names_config_key_and_remedy(tmp_path, monkeypatch):
     """A broken facility vocabulary is a fixable config problem, not an internal error."""
     from osprey.services.ariel_search.exceptions import VocabularyError
@@ -241,7 +234,6 @@ def _keyword_descriptor(execute, query_parser):
     )
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("value", [True, False])
 async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatch, value):
     """An explicit expand_query reaches the service as an advanced parameter."""
@@ -259,7 +251,6 @@ async def test_expand_query_is_forwarded_in_advanced_params(tmp_path, monkeypatc
     assert mock_service.search.call_args.kwargs["advanced_params"]["expand_query"] is value
 
 
-@pytest.mark.unit
 async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
     """Leaving the argument alone must not override the configured default.
 
@@ -281,7 +272,6 @@ async def test_expand_query_omitted_when_unset(tmp_path, monkeypatch):
     assert "expand_query" not in mock_service.search.call_args.kwargs["advanced_params"]
 
 
-@pytest.mark.unit
 async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
     """An ambiguous form is one group with both canonicals, not two groups."""
     _setup_registry(tmp_path, monkeypatch)
@@ -304,7 +294,6 @@ async def test_envelope_reports_the_applied_expansion(tmp_path, monkeypatch):
     assert data["expanded_terms"][0]["alternatives"] == ["troubleshoot", "timing system"]
 
 
-@pytest.mark.unit
 async def test_envelope_reports_diagnostics(tmp_path, monkeypatch):
     """Why expansion did nothing is visible without a second call."""
     from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
@@ -343,7 +332,6 @@ async def test_envelope_reports_diagnostics(tmp_path, monkeypatch):
     ]
 
 
-@pytest.mark.unit
 async def test_timeout_diagnostic_becomes_an_error_envelope(tmp_path, monkeypatch):
     """A cancelled statement must not read as "nothing matched"."""
     from osprey.services.ariel_search.models import DiagnosticLevel, SearchDiagnostic
@@ -378,7 +366,6 @@ async def test_timeout_diagnostic_becomes_an_error_envelope(tmp_path, monkeypatc
     assert data["details"]["diagnostics"][0]["category"] == "timeout"
 
 
-@pytest.mark.unit
 async def test_invalid_pattern_diagnostic_names_the_pattern(tmp_path, monkeypatch):
     """The envelope names the rejected pattern and keeps the expansion.
 
@@ -418,7 +405,6 @@ async def test_invalid_pattern_diagnostic_names_the_pattern(tmp_path, monkeypatc
     assert any("/regex/" in suggestion for suggestion in data["suggestions"])
 
 
-@pytest.mark.unit
 async def test_pattern_error_from_the_real_service_reaches_the_envelope(tmp_path, monkeypatch):
     """End-to-end over the real service: exception in, error envelope out.
 

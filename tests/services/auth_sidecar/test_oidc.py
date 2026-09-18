@@ -26,7 +26,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.services.auth_sidecar import audit
-from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, create_app
+from osprey.services.auth_sidecar.app import STATE_COOKIE_NAME, AuthSettings, create_app
 from osprey.services.auth_sidecar.return_to import MAX_RETURN_TO_LENGTH
 from osprey.services.auth_sidecar.routes.oidc import (
     CALLBACK_PATH,
@@ -39,6 +39,8 @@ from osprey.services.auth_sidecar.routes.oidc import (
     REASON_UNMAPPED_USER,
     REASON_UNSAFE_ASSERTED_IDENTITY,
     REASON_UNVERIFIED_EMAIL,
+    RoleBinding,
+    _claims_request,
     token_admissible,
 )
 from osprey.services.auth_sidecar.sessions import SESSION_COOKIE_NAME, SessionCodec, SessionState
@@ -79,7 +81,7 @@ DANA_EMAIL = "dana@example.org"
 DANA_DOMAIN = "example.org"
 # bob's own mapped identity, outside the domain his card is usually shared
 # with, so `self` is the only principal that can admit him.
-BOB_EMAIL = "bob@lbl.gov"
+BOB_EMAIL = "bob@example.com"
 
 PASSWORD_ENV = {
     "OSPREY_AUTH_METHOD": "password",
@@ -286,6 +288,35 @@ def test_login_redirects_to_the_identity_provider() -> None:
     # The clicked user rides in the signed state cookie, never on the wire.
     assert STATE_COOKIE_NAME in response.cookies
     assert "alice" not in response.headers["location"]
+
+
+def test_claims_request_is_absent_unless_the_deployment_asks() -> None:
+    """The default is no parameter at all, not an empty one."""
+    settings = AuthSettings.from_env(OIDC_ENV)
+
+    assert _claims_request(settings, RoleBinding()) is None
+
+
+def test_claims_request_names_only_the_claims_the_sidecar_reads() -> None:
+    """An identity that is not an address asks for no ``email_verified``,
+    and a role claim that IS the identity claim is not asked for twice."""
+    settings = AuthSettings.from_env(
+        {
+            **OIDC_ENV,
+            "OSPREY_AUTH_OIDC_CLAIM": "preferred_username",
+            "OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN": "true",
+        }
+    )
+
+    assert _claims_request(settings, RoleBinding()) == {
+        "id_token": {"preferred_username": {"essential": True}}
+    }
+    assert _claims_request(
+        settings, RoleBinding(claim="preferred_username", claim_map={"alice": "operator"})
+    ) == {"id_token": {"preferred_username": {"essential": True}}}
+    assert _claims_request(settings, RoleBinding(claim="groups", claim_map={"g": "operator"})) == {
+        "id_token": {"preferred_username": {"essential": True}, "groups": None}
+    }
 
 
 def test_login_refuses_a_user_with_no_mapped_identity(caplog: pytest.LogCaptureFixture) -> None:
@@ -970,13 +1001,13 @@ def test_failures_never_echo_credentials_or_tokens(
 # exercised directly rather than through a handshake: what it decides has to be
 # readable without a token endpoint in the way.
 
-HOSTED_DOMAIN = "lbl.gov"
+HOSTED_DOMAIN = "example.com"
 
 
 def test_token_gate_accepts_an_identity_from_the_hosted_domain() -> None:
     """The ordinary Workspace token: both halves name the same domain."""
     admission = token_admissible(
-        {"email": "alice@lbl.gov", "hd": HOSTED_DOMAIN}, identity_claim="email"
+        {"email": "alice@example.com", "hd": HOSTED_DOMAIN}, identity_claim="email"
     )
 
     assert admission.admissible
@@ -993,7 +1024,7 @@ def test_token_gate_accepts_a_token_with_no_hosted_domain() -> None:
 
 @pytest.mark.parametrize(
     "hosted",
-    ["", None, 0, ["lbl.gov"]],
+    ["", None, 0, ["example.com"]],
     ids=["empty", "null", "number", "array"],
 )
 def test_token_gate_reads_an_unusable_hosted_domain_as_absent(hosted: Any) -> None:
@@ -1011,7 +1042,7 @@ def test_token_gate_reads_an_unusable_hosted_domain_as_absent(hosted: Any) -> No
 
 @pytest.mark.parametrize(
     "hosted",
-    ["@lbl.gov", " lbl.gov", "lbl.gov "],
+    ["@example.com", " example.com", "example.com "],
     ids=["at-sign", "leading-space", "trailing-space"],
 )
 def test_token_gate_refuses_a_hosted_domain_it_cannot_read_as_a_domain(hosted: Any) -> None:
@@ -1019,7 +1050,9 @@ def test_token_gate_refuses_a_hosted_domain_it_cannot_read_as_a_domain(hosted: A
     contradiction, not silence: the provider said something, and it does not
     corroborate the address. Reading it as absent would admit an address from
     any domain next to a garbage `hd`, which is the fail-open direction."""
-    admission = token_admissible({"email": "alice@lbl.gov", "hd": hosted}, identity_claim="email")
+    admission = token_admissible(
+        {"email": "alice@example.com", "hd": hosted}, identity_claim="email"
+    )
 
     assert not admission.admissible
     assert admission.reason == REASON_HOSTED_DOMAIN_MISMATCH
@@ -1036,10 +1069,10 @@ def test_token_gate_refuses_a_hosted_domain_the_identity_contradicts() -> None:
 
 
 def test_token_gate_refuses_a_subdomain_of_the_hosted_domain() -> None:
-    """The comparison is exact, never by suffix: `als.lbl.gov` is a different
+    """The comparison is exact, never by suffix: `lab.example.com` is a different
     domain and often a differently delegated one."""
     admission = token_admissible(
-        {"email": "alice@als.lbl.gov", "hd": HOSTED_DOMAIN}, identity_claim="email"
+        {"email": "alice@lab.example.com", "hd": HOSTED_DOMAIN}, identity_claim="email"
     )
 
     assert not admission.admissible
@@ -1049,9 +1082,9 @@ def test_token_gate_refuses_a_subdomain_of_the_hosted_domain() -> None:
 @pytest.mark.parametrize(
     ("asserted", "hosted"),
     [
-        ("Alice@LBL.GOV", "lbl.gov"),
-        ("alice@lbl.gov", "LBL.GOV"),
-        ("alice@LbL.gOv", "lBl.GoV"),
+        ("Alice@EXAMPLE.COM", "example.com"),
+        ("alice@example.com", "EXAMPLE.COM"),
+        ("alice@ExAmPlE.cOm", "eXaMpLe.CoM"),
     ],
     ids=["identity-uppercase", "hosted-uppercase", "both-mixed"],
 )
@@ -1105,7 +1138,7 @@ def test_token_gate_refuses_a_hosted_domain_with_no_asserted_identity(
 
 @pytest.mark.parametrize(
     "asserted",
-    ["idp|alice", "8f2c1d34-0b6e-4a11-9c77-2f0e5a9b1d43", "alice@", "@lbl.gov"],
+    ["idp|alice", "8f2c1d34-0b6e-4a11-9c77-2f0e5a9b1d43", "alice@", "@example.com"],
     ids=["opaque-subject", "guid", "no-domain", "no-mailbox"],
 )
 def test_token_gate_accepts_an_identity_that_names_no_domain(asserted: str) -> None:
@@ -1124,7 +1157,7 @@ def test_token_gate_accepts_an_identity_that_names_no_domain(asserted: str) -> N
 def test_token_gate_reads_the_configured_identity_claim() -> None:
     """The cross-check is against the claim this deployment maps on, and no
     other claim the token happens to carry."""
-    claims = {"sub": "alice@example.org", "email": "alice@lbl.gov", "hd": HOSTED_DOMAIN}
+    claims = {"sub": "alice@example.org", "email": "alice@example.com", "hd": HOSTED_DOMAIN}
 
     assert token_admissible(claims, identity_claim="email").admissible
     assert not token_admissible(claims, identity_claim="sub").admissible
@@ -1133,7 +1166,7 @@ def test_token_gate_reads_the_configured_identity_claim() -> None:
 def test_token_gate_accepts_a_verified_address() -> None:
     """The provider vouched for it."""
     admission = token_admissible(
-        {"email": "alice@lbl.gov", "email_verified": True}, identity_claim="email"
+        {"email": "alice@example.com", "email_verified": True}, identity_claim="email"
     )
 
     assert admission.admissible
@@ -1142,7 +1175,7 @@ def test_token_gate_accepts_a_verified_address() -> None:
 def test_token_gate_accepts_a_token_that_says_nothing_about_verification() -> None:
     """An absent claim is silence, not a denial: reading it as one would refuse
     every deployment whose IdP does not emit it."""
-    admission = token_admissible({"email": "alice@lbl.gov"}, identity_claim="email")
+    admission = token_admissible({"email": "alice@example.com"}, identity_claim="email")
 
     assert admission.admissible
 
@@ -1160,7 +1193,7 @@ def test_token_gate_refuses_an_explicitly_unverified_address(verified: Any) -> N
     difference is the wrong direction to be wrong in.
     """
     admission = token_admissible(
-        {"email": "alice@lbl.gov", "email_verified": verified}, identity_claim="email"
+        {"email": "alice@example.com", "email_verified": verified}, identity_claim="email"
     )
 
     assert not admission.admissible
@@ -1176,7 +1209,7 @@ def test_token_gate_accepts_every_shape_that_is_not_an_explicit_false(verified: 
     """Only a false says the address is unverified; every other shape says
     nothing, and nothing is not a denial."""
     admission = token_admissible(
-        {"email": "alice@lbl.gov", "email_verified": verified}, identity_claim="email"
+        {"email": "alice@example.com", "email_verified": verified}, identity_claim="email"
     )
 
     assert admission.admissible
@@ -1270,8 +1303,8 @@ def test_callback_refuses_a_roster_identity_the_card_does_not_admit(
     still reverse-matched the roster would make `roster` an unremovable member
     of every rule and there would be no way to say "only this domain".
     """
-    env = _rule_env('["domain:example.org"]', OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@lbl.gov")
-    response = _rule_login(_app(env), {"email": "alice@lbl.gov"})
+    env = _rule_env('["domain:example.org"]', OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@example.com")
+    response = _rule_login(_app(env), {"email": "alice@example.com"})
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies
@@ -1500,7 +1533,7 @@ def test_callback_admits_the_owner_of_a_card_that_keeps_self() -> None:
     The stored subject is the CONFIGURED spelling, as on every own-card login.
     """
     env = _rule_env('["self","domain:example.org"]', OSPREY_AUTH_OIDC_SUBJECT_BOB=BOB_EMAIL)
-    response = _rule_login(_app(env), {"email": "BOB@lbl.gov"})
+    response = _rule_login(_app(env), {"email": "BOB@example.com"})
 
     assert response.status_code == 303
     entry = _session_from(response).entry("bob")
@@ -1548,8 +1581,10 @@ def test_callback_refuses_an_owner_mapping_that_cannot_be_carried(
     card's own mapping decides nothing until the callback, so the pre-exchange
     gate that would have caught this on an own card never ran — and `with_user`
     would answer a denial with a 500."""
-    env = _rule_env('["self","domain:example.org"]', OSPREY_AUTH_OIDC_SUBJECT_BOB="jörg@lbl.gov")
-    response = _rule_login(_app(env), {"email": "jörg@lbl.gov"})
+    env = _rule_env(
+        '["self","domain:example.org"]', OSPREY_AUTH_OIDC_SUBJECT_BOB="jörg@example.com"
+    )
+    response = _rule_login(_app(env), {"email": "jörg@example.com"})
 
     assert response.status_code == 403
     assert SESSION_COOKIE_NAME not in response.cookies

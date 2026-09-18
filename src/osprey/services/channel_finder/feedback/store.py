@@ -259,10 +259,11 @@ class FeedbackStore:
             return None
         return dict(bucket)
 
-    def export_data(self) -> dict:
+    def export_data(self) -> dict[str, Any]:
         """Return a deep copy of the entire store for JSON export."""
         self._load()
-        return json.loads(json.dumps(self._data))
+        exported: dict[str, Any] = json.loads(json.dumps(self._data))
+        return exported
 
     # ------------------------------------------------------------------
     # Write methods

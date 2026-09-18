@@ -9,6 +9,7 @@ silent, and without hanging the caller on the pipe it was reading.
 from __future__ import annotations
 
 import shlex
+import subprocess
 import sys
 import threading
 import time
@@ -21,11 +22,22 @@ from osprey.cli import build_lifecycle
 from osprey.cli.build_profile_schema import LifecycleStep
 from osprey.cli.phase_reporter import NullReporter, PhaseReporter, install_reporter
 from osprey.errors import BuildProfileError
+from tests.cli._scoped_subprocess import patch_subprocess
 
 # Every wait here is a deadline an assertion polls to, never a sleep sized to
 # what the child "should" take.
 _POLL_INTERVAL = 0.02
 _DEADLINE = 5.0
+_FIRST_LINE_DEADLINE = 3.0
+"""Seconds a cut-off waits for proof the child's first line is through.
+
+Not a budget on the child's start-up: the cut-off is ordered after the line
+rather than after a clock, and this is only the liveness backstop underneath
+that proof, so a child that never writes fails saying what the reporter holds
+instead of passing on a step that ended before the child spoke. It sits below
+the elapsed bound the cut-off tests assert, which is what keeps that bound a
+statement about the step rather than about this wait.
+"""
 
 
 class _RecordingReporter(PhaseReporter):
@@ -98,6 +110,48 @@ def _wait_until(predicate: Callable[[], bool], deadline: float = _DEADLINE) -> b
     return predicate()
 
 
+def _cut_off_on_the_first_line(
+    reporter: _RecordingReporter, line: str
+) -> type[subprocess.Popen[str]]:
+    """A ``Popen`` whose bounded wait ends a step on proof, not on a clock.
+
+    A streamed step ends when the child it is waiting on outlives the bounded
+    wait that follows the drain thread's join. What the cut-off tests below
+    assert is what the drain thread delivered *before* that moment, so the
+    wait is made to expire on proof that ``line`` is through the reporter: the
+    cut-off is then ordered after the first line on every host, and the
+    assertion says nothing about how quickly a child forks, execs and reaches
+    its first ``print``.
+
+    Proof is taken from the reporter and not from the child, because the drain
+    thread drops a line it read once the step's stop flag is set: a line in the
+    pipe is not yet a line the reporter has.
+
+    An unbounded wait is the real one, so the reap that follows the kill
+    reports the status a killed child really carries; so is a wait on a child
+    that has already exited, which has nothing left to cut off.
+
+    Args:
+        reporter: The recording reporter the drain thread echoes into.
+        line: The reporter line whose arrival releases the cut-off.
+
+    Returns:
+        A ``Popen`` replacement for one module, to be installed with
+        :func:`~tests.cli._scoped_subprocess.patch_subprocess`.
+    """
+
+    class _CutOffOnFirstLine(subprocess.Popen[str]):
+        def wait(self, timeout: float | None = None) -> int:
+            if timeout is None or self.poll() is not None:
+                return super().wait()
+            assert _wait_until(lambda: line in reporter.lines(), deadline=_FIRST_LINE_DEADLINE), (
+                f"the child's first line never reached the reporter: {reporter.lines()}"
+            )
+            raise subprocess.TimeoutExpired(self.args, timeout)
+
+    return _CutOffOnFirstLine
+
+
 def test_normal_child_emits_every_line_in_order(
     tmp_path: Path, reporter: _RecordingReporter
 ) -> None:
@@ -149,10 +203,9 @@ def test_a_streamed_child_is_visible_under_every_reporter(
 
 
 def test_overrunning_child_is_cut_off_at_its_timeout(
-    tmp_path: Path, reporter: _RecordingReporter, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, reporter: _RecordingReporter
 ) -> None:
     """A child sleeping past its timeout ends the step; its later line is lost."""
-    monkeypatch.setattr(build_lifecycle, "_EXIT_GRACE_SECONDS", 0.3)
     run = _script_cmd(
         tmp_path / "overrunning.py",
         "import time\nprint('early')\ntime.sleep(30)\nprint('late')\n",
@@ -160,11 +213,16 @@ def test_overrunning_child_is_cut_off_at_its_timeout(
     steps = [LifecycleStep(name="stream overrun", run=run, timeout=1, stream=True)]
 
     started = time.monotonic()
-    with pytest.raises(BuildProfileError, match="stream overrun"):
-        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+    with patch_subprocess(
+        "osprey.cli.build_lifecycle",
+        popen=_cut_off_on_the_first_line(reporter, "    early"),
+    ):
+        with pytest.raises(BuildProfileError, match="stream overrun"):
+            build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
     elapsed = time.monotonic() - started
 
-    # Bounded by the step's own timeout plus the grace, not the child's sleep.
+    # Bounded by the step's own wait and the cut-off after it, not the
+    # child's sleep.
     assert elapsed < 5
     assert reporter.lines() == ["    early"]
     assert _drain_threads() == []
@@ -180,15 +238,20 @@ def test_drain_thread_is_silenced_when_a_grandchild_holds_the_pipe(
     read. This is the case the stop flag exists for -- and the case where
     closing the pipe from the caller would hang it on the reader's lock.
     """
-    monkeypatch.setattr(build_lifecycle, "_EXIT_GRACE_SECONDS", 0.3)
     monkeypatch.setattr(build_lifecycle, "_DRAIN_SHUTDOWN_SECONDS", 0.3)
+    released = tmp_path / "step-reported.txt"
     marker = tmp_path / "grandchild-wrote.txt"
     grandchild = tmp_path / "grandchild.py"
-    # Sleeps well past the step's own end (timeout + grace, ~1.3s here), so the
-    # line reaches the pipe only once the step has been reported.
+    # Holds its line until the test releases it, so the line reaches the pipe
+    # after the step has been reported however long the step took to get
+    # there. Its own cap is far above the deadline the assertion below polls
+    # to, so a release that never comes fails the test rather than passing it.
     grandchild.write_text(
-        "import time\n"
-        "time.sleep(3)\n"
+        "import os, time\n"
+        f"released = {str(released)!r}\n"
+        "give_up_at = time.monotonic() + 60\n"
+        "while not os.path.exists(released) and time.monotonic() < give_up_at:\n"
+        "    time.sleep(0.02)\n"
         "print('late from grandchild', flush=True)\n"
         f"open({str(marker)!r}, 'w').write('done')\n"
     )
@@ -201,14 +264,20 @@ def test_drain_thread_is_silenced_when_a_grandchild_holds_the_pipe(
     )
     steps = [LifecycleStep(name="stream leaky", run=run, timeout=1, stream=True)]
 
-    with pytest.raises(BuildProfileError, match="stream leaky"):
-        build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
+    with patch_subprocess(
+        "osprey.cli.build_lifecycle",
+        popen=_cut_off_on_the_first_line(reporter, "    early"),
+    ):
+        with pytest.raises(BuildProfileError, match="stream leaky"):
+            build_lifecycle._run_lifecycle_phase("post_build", steps, tmp_path, tmp_path)
 
     during_step = reporter.lines()
     assert during_step == ["    early"]
 
-    # Wait for proof the grandchild actually put its line in the pipe, then
-    # assert the drain thread read it and passed nothing on.
+    # The step is reported, so nothing more may reach the reporter: release
+    # the grandchild, wait for proof its line went into the pipe, and assert
+    # the drain thread read it and passed nothing on.
+    released.write_text("go")
     assert _wait_until(marker.exists, deadline=15.0), "grandchild never wrote its line"
     assert _wait_until(lambda: not _drain_threads()), "drain thread never ended"
     assert reporter.lines() == during_step

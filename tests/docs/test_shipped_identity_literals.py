@@ -20,35 +20,48 @@ Removing a literal is a one-line edit; keeping it removed is what needs a
 guard, because every new pull request is an opportunity to add one back and
 nothing else would notice.
 
-**The list grows.** It starts at what has actually been swept out of the tree,
-because a pattern that fires on the current tree is not a guard, it is a
-failing test. As each remaining literal is removed, its pattern joins
-:data:`DENIED` in the same change that removes it. ``lbl.gov``, ``ALS-U``,
-``\\bALS\\b``, ``BELLA`` and ``GEECS`` are in the table now.
+**The table grows, and so does each entry's reach.** An entry starts at what
+has actually been swept, because a pattern that fires on the current tree is
+not a guard, it is a failing test: a literal joins :data:`DENIED` in the
+change that removes it from the shipped tree, and an entry's ``roots`` widen
+to :data:`REPO_ROOTS` in the change that clears it from the repository's own
+tests and scripts as well.
 
-Three kinds of surface legitimately name an institution and carry an ``allow``
+Five kinds of surface legitimately name an institution and carry an ``allow``
 entry rather than an edit: the shipped provider adapters for named LLM
-gateways, the named ingestion adapter, and the packaging and escalation
-metadata that has to spell the upstream project's own ``owner/repo`` — the
-last of these is out of scope here, because a project's own address is not a
-facility's.
+gateways, the named ingestion adapter, a case that asserts the literal's
+absence and so has to spell it, the project's own packaging metadata, and the
+packaging and escalation metadata that has to spell the upstream project's own
+``owner/repo`` — the last of these is out of scope here, because a project's
+own address is not a facility's.
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+_THIS_FILE = Path(__file__).resolve()
 
 #: Everything OSPREY ships that a deployer or operator can read. Code and
 #: comments as much as documentation: a rendered template's comment reaches a
 #: deployment, and a docstring reaches the API reference.
-ROOTS = ("src/osprey", "docs/source")
+SHIPPED_ROOTS = ("src/osprey", "docs/source")
 
+#: The trees that describe what ships without shipping themselves. An identity
+#: reaches them once the repo is clean of it there, so a sweep stays swept
+#: rather than merely performed.
+REPO_ROOTS = SHIPPED_ROOTS + ("tests", "scripts")
+
+#: Every extension under the roots that holds text a person reads. A comment
+#: in a test module states as much about a deployment as a paragraph of
+#: documentation does, so an extension belongs here whenever the repository
+#: writes prose in it — not only when the file's purpose is prose.
 SCAN_SUFFIXES = (
     ".py",
     ".md",
@@ -61,9 +74,16 @@ SCAN_SUFFIXES = (
     ".toml",
     ".sh",
     ".js",
+    ".mjs",
     ".html",
     ".css",
 )
+
+#: The filenames that carry a reader's text under no extension at all. A
+#: container recipe's comments reach whoever builds the image exactly as a
+#: template's reach whoever renders it, and its name is the only extension
+#: it has.
+SCAN_NAMES = ("Dockerfile", "Containerfile")
 
 
 @dataclass(frozen=True)
@@ -83,19 +103,25 @@ class Denied:
     """A line this pattern must match, so a broken pattern cannot read as a
     clean tree."""
 
+    roots: tuple[str, ...] = SHIPPED_ROOTS
+    """The trees this identity may not appear in."""
+
     allow: frozenset[str] = frozenset()
     """Repo-relative paths that may keep it, each for a stated reason."""
 
 
-#: The identities already swept out of ``src/osprey`` and ``docs/source``.
-#: Each entry is here because the tree is clean of it *now*; see the module
-#: docstring for the ones still to come.
+#: Each identity the guard holds out of the trees its ``roots`` name. An entry
+#: is here because those trees are clean of it, and its ``why`` is what is
+#: wrong with putting it back.
 DENIED: tuple[Denied, ...] = (
     Denied(
         name="maintainer account",
         pattern=re.compile(r"thellert", re.IGNORECASE),
         why="a maintainer's own login and mailbox is not an example anyone can copy",
         sample='  # bare username, e.g. "thellert"',
+        roots=REPO_ROOTS,
+        # A case that asserts the literal's absence has to spell it.
+        allow=frozenset({"tests/integration/test_preset_static.py"}),
     ),
     Denied(
         name="site EPICS gateway host",
@@ -106,18 +132,23 @@ DENIED: tuple[Denied, ...] = (
             "ships in an example"
         ),
         sample="  epics_gateway: cagw-alsdmz.example-site.org:5064",
+        roots=REPO_ROOTS,
+        # A case that asserts the literal's absence has to spell it.
+        allow=frozenset({"tests/mcp_server/test_phoebus_plt_generator.py"}),
     ),
     Denied(
         name="maintainers' gateway host",
         pattern=re.compile(r"gianluca[-.]?martino", re.IGNORECASE),
         why="a maintainer's own gateway endpoint is not one another deployment can call",
         sample="  base_url: https://llm.gianluca-martino.com/v1",
+        roots=REPO_ROOTS,
     ),
     Denied(
         name="institutional domain",
         pattern=re.compile(r"lbl\.gov", re.IGNORECASE),
         why="an institution's own domain is not an example anyone else can copy",
         sample='"""Prefix of a principal naming an identity domain: ``domain:lbl.gov``."""',
+        roots=REPO_ROOTS,
         # Each exemption names the gateway provider OSPREY ships an adapter
         # for, or the reference ingestion adapter — surfaces where the
         # institution is the subject rather than the example.
@@ -131,6 +162,29 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/profiles/providers.yml",
                 "src/osprey/services/ariel_search/ingestion/adapters/als.py",
                 "src/osprey/services/channel_finder/benchmarks/evaluation.py",
+                # A case that asserts the literal's absence has to spell it.
+                "tests/integration/test_preset_static.py",
+                # The named gateway the shipped adapter fronts. Each of these
+                # asserts a value the packaged provider catalog supplies, so a
+                # rewrite here would pin an address no deployment renders.
+                "tests/cli/test_base_url_override.py",
+                "tests/cli/test_chat_verb.py",
+                "tests/cli/test_claude_code_resolver.py",
+                "tests/cli/test_init_providers.py",
+                "tests/cli/test_provider_isolation.py",
+                "tests/cli/test_resolver_cborg_oss.py",
+                "tests/deployment/goldens/exemplar-profile/providers.yml",
+                "tests/models/test_providers_litellm_delegating.py",
+                # The harness and the live lanes that call that gateway, where
+                # the address is the endpoint under test rather than an example.
+                "scripts/benchmark/README.md",
+                "scripts/benchmark/matrix.yaml",
+                "scripts/benchmark/matrix_curate_models.py",
+                "scripts/benchmark/matrix_run.py",
+                "tests/benchmark/test_matrix.py",
+                "tests/e2e/claude_code/test_proxy_live_roundtrip_e2e.py",
+                "tests/e2e/claude_code/test_proxy_open_model_harness_e2e.py",
+                "tests/manual/test_sdk_image_block.py",
             }
         ),
     ),
@@ -142,6 +196,7 @@ DENIED: tuple[Denied, ...] = (
             "another deployment's prose should describe as its own"
         ),
         sample="# \u2500\u2500 The ALS-U Accumulator Ring instance \u2500\u2500",
+        roots=REPO_ROOTS,
         # The demo ring ships as the simulation and virtual-accelerator
         # packages' own subject, plus the two manifests and the preset data
         # file that name the lattice those packages load.
@@ -164,6 +219,27 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/simulation/lattice/build.py",
                 "src/osprey/simulation/lattice/ring.py",
                 "src/osprey/templates/apps/control_assistant/data/channel_limits.json",
+                # The suites that exercise those packages, and the two scripts that
+                # derive data from the same lattice: the ring is what they are a
+                # test of.
+                "scripts/va/derive_bands.py",
+                "scripts/va/pyat_model_demo.py",
+                "tests/simulation/matlab_reference.py",
+                "tests/simulation/test_artifact.py",
+                "tests/simulation/test_facility_spec.py",
+                "tests/simulation/test_fidelity.py",
+                "tests/simulation/test_lattice.py",
+                "tests/simulation/test_orbit_closure.py",
+                "tests/templates/test_channel_limits_va.py",
+                "tests/templates/test_machine_json_lattice.py",
+                "tests/va/e2e/test_orbit_response.py",
+                "tests/va/test_bindings_parity.py",
+                "tests/va/test_errors.py",
+                "tests/va/test_lattice.py",
+                "tests/va/test_model_variables.py",
+                "tests/va/test_physics_bridge.py",
+                "tests/va/test_physics_bridge_unknown_bpm.py",
+                "tests/va/test_pyat_ring_model.py",
             }
         ),
     ),
@@ -178,6 +254,7 @@ DENIED: tuple[Denied, ...] = (
             "facility wherever the prose ships"
         ),
         sample="#   facility_name: ALS",
+        roots=REPO_ROOTS,
         # The bundled demo ring, whose own name this is, in the simulation and
         # virtual-accelerator packages plus the two files that name the lattice
         # they load.
@@ -214,6 +291,43 @@ DENIED: tuple[Denied, ...] = (
                 "docs/source/how-to/llm-providers/configure-providers.rst",
                 "src/osprey/models/providers/als_apg.py",
                 "src/osprey/services/channel_finder/benchmarks/evaluation.py",
+                # The suites that exercise the bundled demo ring, whose name carries
+                # the abbreviation.
+                "scripts/va/derive_bands.py",
+                "scripts/va/pyat_model_demo.py",
+                "tests/simulation/matlab_reference.py",
+                "tests/simulation/test_artifact.py",
+                "tests/simulation/test_facility_spec.py",
+                "tests/simulation/test_fidelity.py",
+                "tests/simulation/test_lattice.py",
+                "tests/simulation/test_orbit_closure.py",
+                "tests/templates/test_channel_limits_va.py",
+                "tests/templates/test_machine_json_lattice.py",
+                "tests/va/e2e/test_orbit_response.py",
+                "tests/va/test_bindings_parity.py",
+                "tests/va/test_errors.py",
+                "tests/va/test_lattice.py",
+                "tests/va/test_model_variables.py",
+                "tests/va/test_physics_bridge.py",
+                "tests/va/test_physics_bridge_unknown_bpm.py",
+                "tests/va/test_pyat_ring_model.py",
+                # The suites for the shipped reference ingestion adapter, which
+                # returns "ALS eLog": an expectation spelled any other way would
+                # assert a value no adapter produces.
+                "tests/services/ariel_search/conftest.py",
+                "tests/services/ariel_search/integration/test_cli.py",
+                "tests/services/ariel_search/integration/test_ingestion.py",
+                "tests/services/ariel_search/test_ingestion.py",
+                "tests/services/ariel_search/test_ingestion_branches.py",
+                # The suite that asserts on the shipped named-gateway adapter's
+                # description.
+                "tests/models/test_providers_litellm_delegating.py",
+                # Cases that assert the literal's absence, and so have to spell it.
+                "tests/dispatch/test_dashboard_config_injection.py",
+                "tests/registry/test_pyat_specialist_agent.py",
+                # A byte-faithful copy of the shipped plugin manifest, whose author
+                # field is the project's own.
+                "tests/scripts/test_plugin_version.py",
             }
         ),
     ),
@@ -225,6 +339,7 @@ DENIED: tuple[Denied, ...] = (
         pattern=re.compile(r"BELLA"),
         why="another site's installation is that site's own facility, not a shipped example",
         sample="sends. Mirrors BELLA's ``runs.require_armed`` / ``launch_intent``",
+        roots=REPO_ROOTS,
         # Both name the upstream contract these modules were generalized from.
         allow=frozenset(
             {
@@ -238,6 +353,7 @@ DENIED: tuple[Denied, ...] = (
         pattern=re.compile(r"GEECS", re.IGNORECASE),
         why="another site's control system is that site's own stack, not a shipped example",
         sample="parameter, so a document-shaped parameter (a GEECS ``ScanRequest``, say)",
+        roots=REPO_ROOTS,
         # Each names the document-shaped scan parameter this code accepts, by
         # the upstream system the shape comes from.
         allow=frozenset(
@@ -251,25 +367,36 @@ DENIED: tuple[Denied, ...] = (
 )
 
 
-def _shipped_sources() -> list[Path]:
+@cache
+def _sources(repo_root: Path, roots: tuple[str, ...]) -> tuple[Path, ...]:
+    """Every scannable file under *roots*, minus this module.
+
+    This module is the table itself — it spells every pattern and a sample
+    line for each — so scanning it would report the rule as its own
+    violation. The cache is keyed on the root as well as the tuple, so a
+    test that repoints :data:`_REPO_ROOT` at a fixture tree gets its own
+    listing rather than the repository's.
+    """
     files: list[Path] = []
-    for root in ROOTS:
-        base = _REPO_ROOT / root
+    for root in roots:
+        base = repo_root / root
         if not base.exists():
             continue
         for path in base.rglob("*"):
-            if not path.is_file() or path.suffix not in SCAN_SUFFIXES:
+            if not path.is_file():
                 continue
-            if "__pycache__" in path.parts:
+            if path.suffix not in SCAN_SUFFIXES and path.name not in SCAN_NAMES:
+                continue
+            if "__pycache__" in path.parts or path == _THIS_FILE:
                 continue
             files.append(path)
-    return files
+    return tuple(files)
 
 
 def _hits(denied: Denied) -> list[tuple[str, int, str]]:
     """Every ``(repo-relative path, line number, stripped line)`` naming it."""
     found: list[tuple[str, int, str]] = []
-    for path in _shipped_sources():
+    for path in _sources(_REPO_ROOT, denied.roots):
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
         except OSError:  # pragma: no cover - defensive
@@ -351,12 +478,44 @@ def test_the_sweep_reaches_shipped_templates_and_docs() -> None:
 
     A rendered template's comment and a how-to page are exactly where an
     identity survives review, and both would be missed by a rule written for
-    ``.py`` alone.
+    ``.py`` alone. A container recipe is the same surface under no extension
+    at all.
     """
-    scanned = {str(path.relative_to(_REPO_ROOT)) for path in _shipped_sources()}
+    scanned = {str(path.relative_to(_REPO_ROOT)) for path in _sources(_REPO_ROOT, SHIPPED_ROOTS)}
     for required in (
         "src/osprey/templates/modules/web_terminals/docker-compose.web.yml.j2",
         "src/osprey/profiles/presets/control-assistant.yml",
         "docs/source/how-to/web-terminal/multi-user/login.rst",
+        "src/osprey/templates/services/qmd/Dockerfile",
     ):
         assert required in scanned, f"{required} is shipped but the sweep cannot see it"
+
+
+def test_the_table_is_not_scanned_as_prose() -> None:
+    """This module spells every pattern and a sample line for each.
+
+    Scanned alongside the trees it guards, it would report the rule as its
+    own violation, and each entry would need an exemption for the table
+    that defines it.
+    """
+    assert _THIS_FILE not in _sources(_REPO_ROOT, REPO_ROOTS)
+
+
+def test_an_entry_on_the_repo_roots_reaches_them() -> None:
+    """A widened entry has to scan the trees it widened onto.
+
+    Dropping ``tests`` or ``scripts`` from the tuple would read exactly like
+    a clean repository rather than like a guard that stopped looking, and
+    dropping a suffix reads the same way: a tree that carries no denied
+    identity is indistinguishable from one the sweep never opened.
+    """
+    assert any(denied.roots == REPO_ROOTS for denied in DENIED)
+
+    scanned = {str(path.relative_to(_REPO_ROOT)) for path in _sources(_REPO_ROOT, REPO_ROOTS)}
+    for required in (
+        "tests/services/bluesky_bridge/test_live_rows.py",
+        "tests/mcp_server/test_phoebus_plt_generator.py",
+        "scripts/qmd_probe/export_corpus.py",
+        "tests/vitest.setup.mjs",
+    ):
+        assert required in scanned, f"{required} is in the repo but the sweep cannot see it"

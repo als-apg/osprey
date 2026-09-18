@@ -746,7 +746,7 @@ def test_re_adding_a_user_replaces_the_opener_wholesale(
 def test_round_trip_preserves_the_admitted_identity(codec: SessionCodec, clock: FakeClock) -> None:
     """The identity a card's principal admitted survives the round trip."""
     state = codec.new_state().with_user(
-        "logbook", expires_at=clock.now + HOUR, admitted_identity="op@lbl.gov"
+        "logbook", expires_at=clock.now + HOUR, admitted_identity="op@example.com"
     )
 
     decoded = codec.decode(codec.encode(state))
@@ -755,7 +755,7 @@ def test_round_trip_preserves_the_admitted_identity(codec: SessionCodec, clock: 
         UnlockedUser(
             username="logbook",
             expires_at=clock.now + HOUR,
-            admitted_identity="op@lbl.gov",
+            admitted_identity="op@example.com",
         ),
     )
 
@@ -780,13 +780,13 @@ def test_the_admitted_identity_is_written_into_the_payload(
     """Pinning the wire key: a later reader looks for ``admitted``, not a rename."""
     encoded = codec.encode(
         codec.new_state().with_user(
-            "logbook", expires_at=clock.now + HOUR, admitted_identity="op@lbl.gov"
+            "logbook", expires_at=clock.now + HOUR, admitted_identity="op@example.com"
         )
     )
 
     payload = URLSafeSerializer(SECRET, salt=SIGNATURE_SALT).loads(encoded)
 
-    assert payload["users"]["logbook"]["admitted"] == "op@lbl.gov"
+    assert payload["users"]["logbook"]["admitted"] == "op@example.com"
 
 
 def test_a_payload_without_an_admitted_identity_decodes_as_empty() -> None:
@@ -819,7 +819,9 @@ def test_the_admitted_identity_did_not_bump_the_payload_version() -> None:
     assert PAYLOAD_VERSION == 1
 
 
-@pytest.mark.parametrize("identity", ["a\nb", " op@lbl.gov", "op@lbl.gov ", "jörg@lbl.gov"])
+@pytest.mark.parametrize(
+    "identity", ["a\nb", " op@example.com", "op@example.com ", "jörg@example.com"]
+)
 def test_an_uncarryable_admitted_identity_is_refused_at_login(
     codec: SessionCodec, clock: FakeClock, identity: str
 ) -> None:
@@ -830,7 +832,9 @@ def test_an_uncarryable_admitted_identity_is_refused_at_login(
         )
 
 
-@pytest.mark.parametrize("identity", ["a\nb", " op@lbl.gov", "op@lbl.gov ", "jörg@lbl.gov"])
+@pytest.mark.parametrize(
+    "identity", ["a\nb", " op@example.com", "op@example.com ", "jörg@example.com"]
+)
 def test_an_uncarryable_admitted_identity_invalidates_the_cookie(identity: str) -> None:
     """Only this sidecar signs cookies, and it never stores such a value."""
     encoded = sign_payload(
@@ -870,7 +874,7 @@ def test_re_adding_a_user_replaces_the_admitted_identity_wholesale(
     """
     state = (
         codec.new_state()
-        .with_user("logbook", expires_at=clock.now + 60, admitted_identity="op@lbl.gov")
+        .with_user("logbook", expires_at=clock.now + 60, admitted_identity="op@example.com")
         .with_user("logbook", expires_at=clock.now + HOUR)
     )
 

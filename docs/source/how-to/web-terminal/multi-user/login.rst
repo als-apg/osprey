@@ -124,6 +124,35 @@ or ``email`` can leave the line out. ``openid`` may not be dropped — without i
 the provider issues no ID token at all, and the sidecar refuses to serve rather
 than run a login it cannot check.
 
+A scope is a request for a claim, not for *where* it is delivered. OIDC lets a
+provider answer a scope by putting the claim in the ID token or by holding it
+at its UserInfo endpoint, and a provider that follows the specification
+strictly (Connect2id is one) does the latter under the code flow. The sidecar
+reads the identity only from the signed ID token and never calls UserInfo —
+that endpoint would be a second, weaker trust path — so against such a
+provider every login fails with ``the ID token carries no usable 'email'
+claim`` although ``email`` was in ``scopes`` and the provider released it.
+That symptom has one fix:
+
+.. code-block:: yaml
+
+         oidc:
+           issuer: https://sso.example.org/realms/accelerator
+           claim: email
+           claims_in_id_token: true
+
+With it the login route sends the OIDC ``claims`` request parameter — the
+specification's own way to ask for a claim in the ID token — naming the claims
+the sidecar actually reads: the identity claim as essential, and
+``email_verified`` and any role-binding claim (:ref:`multi-user-role-from-sso`)
+as voluntary. Nothing is spelled by hand; the sidecar derives the parameter
+from its own configuration. The key is off by default because the parameter is
+optional in the specification, many providers ignore it, and one may refuse an
+authorization request that carries it. A provider advertises support as
+``claims_parameter_supported`` in its discovery document; one that ignores the
+parameter still delivers nothing in the token, and the provider's own client
+configuration is then where the claim has to be released.
+
 A login matches when the asserted claim equals the card's ``oidc_subject``.
 The comparison is exact for every claim except ``email``, which is compared
 case-insensitively: an address is the same mailbox in any case, and an

@@ -3,8 +3,6 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
 from tests.mcp_server.conftest import assert_raises_error
@@ -30,7 +28,6 @@ def _setup_registry(tmp_path, monkeypatch):
     initialize_ariel_context()
 
 
-@pytest.mark.unit
 async def test_browse_returns_entries(tmp_path, monkeypatch):
     """Browse returns recent entries."""
     _setup_registry(tmp_path, monkeypatch)
@@ -57,7 +54,6 @@ async def test_browse_returns_entries(tmp_path, monkeypatch):
     assert data["entries"][0]["entry_id"] == "e1"
 
 
-@pytest.mark.unit
 async def test_browse_empty_db(tmp_path, monkeypatch):
     """Browse on empty database returns zero entries."""
     _setup_registry(tmp_path, monkeypatch)
@@ -78,7 +74,6 @@ async def test_browse_empty_db(tmp_path, monkeypatch):
     assert data["total_count"] == 0
 
 
-@pytest.mark.unit
 async def test_browse_author_filter(tmp_path, monkeypatch):
     """Browse hands the author filter to the repository, not to a post-filter.
 
@@ -120,7 +115,6 @@ async def test_browse_author_filter(tmp_path, monkeypatch):
     assert all(e["author"] == "Alice" for e in data["entries"])
 
 
-@pytest.mark.unit
 async def test_browse_source_system_filter(tmp_path, monkeypatch):
     """The source-system filter takes the same route as the author one."""
     _setup_registry(tmp_path, monkeypatch)
@@ -146,7 +140,6 @@ async def test_browse_source_system_filter(tmp_path, monkeypatch):
     assert json.loads(result)["total_count"] == 1
 
 
-@pytest.mark.unit
 async def test_filter_options_authors(tmp_path, monkeypatch):
     """Filter options returns distinct authors."""
     _setup_registry(tmp_path, monkeypatch)
@@ -166,13 +159,12 @@ async def test_filter_options_authors(tmp_path, monkeypatch):
     assert data["options"] == ["Alice", "Bob", "Charlie"]
 
 
-@pytest.mark.unit
 async def test_filter_options_source_systems(tmp_path, monkeypatch):
     """Filter options returns distinct source systems."""
     _setup_registry(tmp_path, monkeypatch)
 
     mock_service = AsyncMock()
-    mock_service.repository.get_distinct_source_systems.return_value = ["ALS eLog", "ARIEL Web"]
+    mock_service.repository.get_distinct_source_systems.return_value = ["Example eLog", "ARIEL Web"]
 
     with patch(
         "osprey.mcp_server.ariel.server_context.ARIELContext.service",
@@ -183,10 +175,9 @@ async def test_filter_options_source_systems(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["field"] == "source_systems"
-    assert "ALS eLog" in data["options"]
+    assert "Example eLog" in data["options"]
 
 
-@pytest.mark.unit
 async def test_filter_options_unknown_field(tmp_path, monkeypatch):
     """Unknown filter field returns validation error."""
     _setup_registry(tmp_path, monkeypatch)

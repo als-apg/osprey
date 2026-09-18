@@ -331,6 +331,30 @@ describe('queueControls', () => {
     }
   });
 
+  // The queue server owns the manager-state vocabulary and it grows. A state
+  // this bundle cannot name is a state whose meaning the browser does not
+  // know, so the only safe reading is that the queue may be busy — Start is
+  // dead, and the halt is untouched.
+  test('a manager state this panel cannot name closes start and is named in the reason', () => {
+    const controls = queueControls(stateWith(summary({ manager_state: 'closing_environment' })));
+    expect(controls.start.disabled).toBe(true);
+    expect(controls.start.reason).toContain('closing_environment');
+    expect(controls.stop).not.toHaveProperty('disabled');
+    expect(controls.stop.note).toContain('closing_environment');
+    expect(controls.stop.note).toContain('still sent');
+  });
+
+  test('a readable summary reporting no state at all closes start too', () => {
+    const controls = queueControls(stateWith(summary({ manager_state: null })));
+    expect(controls.start).toEqual({
+      disabled: true,
+      reason: 'The queue manager reported no state.',
+    });
+    expect(controls.stop).not.toHaveProperty('disabled');
+    expect(controls.stop.note).toContain('reported no state');
+    expect(controls.stop.note).toContain('still sent');
+  });
+
   test('an unreadable manager outranks whatever else the summary claims', () => {
     // A summary that could not be read is not evidence the queue is idle, so
     // that reason is the one shown even when a populated queue and a state
@@ -356,6 +380,8 @@ describe('queueControls', () => {
       summary({ manager_state: 'executing_queue' }),
       summary({ manager_state: 'paused' }),
       summary({ queue_stop_pending: true }),
+      summary({ manager_state: 'closing_environment' }),
+      summary({ manager_state: null }),
       { available: false, reason: 'manager_unreachable' },
       null,
     ];
@@ -625,6 +651,19 @@ describe('enqueuePresentation', () => {
       const shown = enqueuePresentation(status);
       expect(shown.label).toBe('Add to queue');
       expect(shown.note).toBe('');
+    }
+  });
+
+  // `Run` / `Runs now.` is a claim about when the item executes, and it cannot
+  // be made on a state the panel cannot read — armed or not.
+  test('an unfamiliar manager state promises nothing about when the item runs', () => {
+    for (const armed of [true, false]) {
+      const shown = enqueuePresentation(
+        summary({ manager_state: 'closing_environment', queue_autostart_enabled: armed })
+      );
+      expect(shown.label).toBe('Add to queue');
+      expect(shown.note).toBe('The queue state is unfamiliar; the item waits its turn.');
+      expect(shown.note).not.toContain('Runs');
     }
   });
 

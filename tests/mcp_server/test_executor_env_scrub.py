@@ -62,7 +62,6 @@ def _write_subprocess_config(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_scrub_removes_bluesky_launch_token():
     """BLUESKY_LAUNCH_TOKEN is dropped via the *_LAUNCH_TOKEN suffix rule."""
     env = {"BLUESKY_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -71,7 +70,6 @@ def test_scrub_removes_bluesky_launch_token():
     assert scrubbed["PATH"] == "/usr/bin"
 
 
-@pytest.mark.unit
 def test_scrub_removes_event_dispatcher_token():
     """EVENT_DISPATCHER_TOKEN is dropped via the exact-name rule."""
     env = {"EVENT_DISPATCHER_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -80,7 +78,6 @@ def test_scrub_removes_event_dispatcher_token():
     assert scrubbed["PATH"] == "/usr/bin"
 
 
-@pytest.mark.unit
 def test_scrub_removes_terminal_secret():
     """OSPREY_TERMINAL_SECRET is dropped: it authenticates a web-terminal session."""
     env = {"OSPREY_TERMINAL_SECRET": "secret", "PATH": "/usr/bin"}
@@ -89,7 +86,6 @@ def test_scrub_removes_terminal_secret():
     assert scrubbed["PATH"] == "/usr/bin"
 
 
-@pytest.mark.unit
 def test_scrub_removes_panel_token():
     """OSPREY_PANEL_TOKEN is dropped: no sandbox has business calling panel routes."""
     env = {"OSPREY_PANEL_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -98,7 +94,6 @@ def test_scrub_removes_panel_token():
     assert scrubbed["PATH"] == "/usr/bin"
 
 
-@pytest.mark.unit
 def test_scrub_generalizes_to_future_launch_tokens():
     """Any future *_LAUNCH_TOKEN name is scrubbed without a code change."""
     env = {"SOME_OTHER_BRIDGE_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -106,7 +101,6 @@ def test_scrub_generalizes_to_future_launch_tokens():
     assert "SOME_OTHER_BRIDGE_LAUNCH_TOKEN" not in scrubbed
 
 
-@pytest.mark.unit
 def test_scrub_preserves_unrelated_env():
     """Ordinary env vars (including ones merely containing "TOKEN") pass through."""
     env = {
@@ -121,7 +115,6 @@ def test_scrub_preserves_unrelated_env():
     assert scrubbed == env
 
 
-@pytest.mark.unit
 def test_scrub_does_not_mutate_input():
     """scrub_sensitive_env returns a copy; it must not mutate the caller's dict."""
     env = {"BLUESKY_LAUNCH_TOKEN": "secret", "PATH": "/usr/bin"}
@@ -130,12 +123,10 @@ def test_scrub_does_not_mutate_input():
     assert env == original
 
 
-@pytest.mark.unit
 def test_scrub_empty_env():
     assert scrub_sensitive_env({}) == {}
 
 
-@pytest.mark.unit
 def test_sensitive_env_constants_are_tuples():
     """Constants are tuples (immutable, module-level security constants — not config)."""
     assert isinstance(SENSITIVE_ENV_EXACT, tuple)
@@ -146,7 +137,6 @@ def test_sensitive_env_constants_are_tuples():
     assert "_LAUNCH_TOKEN" in SENSITIVE_ENV_SUFFIXES
 
 
-@pytest.mark.unit
 def test_sensitive_env_constants_are_reexports_of_canonical_module():
     """The names are re-exported from osprey.utils.sensitive_env, not re-typed here.
 
@@ -164,7 +154,6 @@ def test_sensitive_env_constants_are_reexports_of_canonical_module():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_local_subprocess_env_excludes_launch_token(tmp_path, monkeypatch):
     """The local-exec subprocess is spawned with an env that excludes the token."""
     monkeypatch.chdir(tmp_path)
@@ -189,7 +178,6 @@ async def test_local_subprocess_env_excludes_launch_token(tmp_path, monkeypatch)
     assert "BLUESKY_LAUNCH_TOKEN" not in passed_env
 
 
-@pytest.mark.unit
 async def test_local_subprocess_env_excludes_event_dispatcher_token(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "super-secret-value")
@@ -213,7 +201,6 @@ async def test_local_subprocess_env_excludes_event_dispatcher_token(tmp_path, mo
     assert "EVENT_DISPATCHER_TOKEN" not in passed_env
 
 
-@pytest.mark.unit
 async def test_local_subprocess_env_keeps_config_file(tmp_path, monkeypatch):
     """Non-sensitive vars the sandbox legitimately needs (e.g. CONFIG_FILE) survive."""
     monkeypatch.chdir(tmp_path)
@@ -274,14 +261,12 @@ async def _run_with_stubbed_subprocess() -> dict[str, str]:
     return mock_spawn.await_args.kwargs["env"]
 
 
-@pytest.mark.unit
 def test_perimeter_ports_parse_when_the_marker_is_open():
     """Marker plus a well-formed list yields the ports, ascending and de-duplicated."""
     env = {"OSPREY_WEB_PERIMETER": "open", "OSPREY_WEB_PERIMETER_DENY_PORTS": "10101,10000,10100"}
     assert _perimeter_denied_ports(env) == (10000, 10100, 10101)
 
 
-@pytest.mark.unit
 def test_perimeter_ports_empty_without_the_marker():
     """A deny-list with no marker is inert.
 
@@ -293,20 +278,17 @@ def test_perimeter_ports_empty_without_the_marker():
     assert _perimeter_denied_ports(env) == ()
 
 
-@pytest.mark.unit
 def test_perimeter_ports_empty_when_the_marker_is_not_open():
     """Only the exact value "open" arms it — anything else stays inert."""
     env = {"OSPREY_WEB_PERIMETER": "token", "OSPREY_WEB_PERIMETER_DENY_PORTS": "10000"}
     assert _perimeter_denied_ports(env) == ()
 
 
-@pytest.mark.unit
 def test_perimeter_ports_empty_when_nothing_is_stamped():
     """A host with no deployment stamp at all gets the inert default."""
     assert _perimeter_denied_ports({}) == ()
 
 
-@pytest.mark.unit
 def test_perimeter_ports_ignore_junk_entries():
     """Unparseable and out-of-range entries are skipped, not fatal.
 
@@ -321,14 +303,12 @@ def test_perimeter_ports_ignore_junk_entries():
     assert _perimeter_denied_ports(env) == (10000, 10100)
 
 
-@pytest.mark.unit
 def test_perimeter_ports_empty_when_every_entry_is_junk():
     """A list that parses to nothing is the inert value, not a partial guard."""
     env = {"OSPREY_WEB_PERIMETER": "open", "OSPREY_WEB_PERIMETER_DENY_PORTS": "abc,,-3"}
     assert _perimeter_denied_ports(env) == ()
 
 
-@pytest.mark.unit
 async def test_local_wrapper_receives_the_denied_ports(tmp_path, monkeypatch):
     """The stamped ports reach the ExecutionWrapper as a constructor argument.
 
@@ -349,7 +329,6 @@ async def test_local_wrapper_receives_the_denied_ports(tmp_path, monkeypatch):
     assert mock_wrapper.call_args.kwargs["perimeter_denied_ports"] == (10000, 10100)
 
 
-@pytest.mark.unit
 async def test_local_wrapper_receives_no_ports_without_a_stamp(tmp_path, monkeypatch):
     """No stamp, no guard: the wrapper is built with the inert empty tuple."""
     monkeypatch.chdir(tmp_path)
@@ -366,7 +345,6 @@ async def test_local_wrapper_receives_no_ports_without_a_stamp(tmp_path, monkeyp
     assert mock_wrapper.call_args.kwargs["perimeter_denied_ports"] == ()
 
 
-@pytest.mark.unit
 async def test_local_subprocess_env_excludes_the_perimeter_stamp(tmp_path, monkeypatch):
     """The child never sees either name.
 

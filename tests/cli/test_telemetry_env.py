@@ -554,7 +554,7 @@ def test_host_override_wins_over_derivation():
 
 
 def test_host_override_none_falls_through_to_derivation():
-    """No override + not in a container -> localhost (the ALS host-net guard)."""
+    """No override + not in a container -> localhost (the host-network guard)."""
     env = _build_telemetry_env(_OO_CFG, in_container=False, openobserve_host=None)
     assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:5080/api/default"
 

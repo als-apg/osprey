@@ -3,7 +3,7 @@
 Covers:
   - the path contract a stdlib-only hook has to be able to restate
   - write_server_record: reset at start, PID capture, display metadata
-  - publish_switch / publish_targets / record_child_pids merges
+  - publish_switch / record_child_pids merges
   - the optional display keys (probe_channel, selected_role): preserved when
     real, absent when the caller has none
   - fail-closed reads (absent, corrupt, non-object)
@@ -24,10 +24,11 @@ from osprey.mcp_server.control_system import server, server_context, target_stat
 from osprey_connectors import control_context
 from osprey_connectors.identity import acting_identity
 from tests._control_context_fixtures import state_dir_under
+from tests.mcp_server._report_root import state_root as state_root  # noqa: F401
 
 TARGETS_META = {
     "live": {
-        "label": "ALS storage ring",
+        "label": "Example storage ring",
         "endpoint": "gateway.example.com:5064",
         "real_machine": True,
         "probe_channel": "SR:BeamCurrent",
@@ -45,13 +46,6 @@ TARGETS_META = {
         "probe_channel": "STANDIN:BeamCurrent",
     },
 }
-
-
-@pytest.fixture(autouse=True)
-def state_root(tmp_path, monkeypatch):
-    """Anchor the state directory in tmp_path instead of a real deployment."""
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    return tmp_path
 
 
 def _write_foreign(state_root, pid, *, children=None, target="live"):
@@ -221,7 +215,7 @@ class TestSelectedRole:
 
     ROLED_META = {
         "live": {
-            "label": "ALS storage ring",
+            "label": "Example storage ring",
             "endpoint": "gateway.example.com:5064",
             "real_machine": True,
             "selected_role": "read_only",
@@ -285,60 +279,6 @@ class TestSelectedRole:
         )
 
         assert "selected_role" not in target_state.read(1234)["targets"]["live"]
-
-
-# ---------------------------------------------------------------------------
-# publish_targets
-# ---------------------------------------------------------------------------
-
-
-class TestPublishTargets:
-    """The one publisher that moves the display metadata written at start."""
-
-    NARROWED = {
-        "live": {
-            "label": "ALS storage ring",
-            "endpoint": "gateway.example.com:5065",
-            "real_machine": True,
-            "probe_channel": "SR:BeamCurrent",
-            "selected_role": "read_only",
-        },
-    }
-
-    def test_republishing_replaces_the_block(self, state_root):
-        target_state.write_server_record(TARGETS_META, server_pid=1234)
-
-        assert target_state.publish_targets(self.NARROWED, server_pid=1234) is True
-
-        targets = target_state.read(1234)["targets"]
-        assert targets["live"]["endpoint"] == "gateway.example.com:5065"
-        assert targets["live"]["selected_role"] == "read_only"
-
-    def test_an_omitted_slot_is_written_empty_not_dropped(self, state_root):
-        target_state.write_server_record(TARGETS_META, server_pid=1234)
-
-        target_state.publish_targets(self.NARROWED, server_pid=1234)
-
-        targets = target_state.read(1234)["targets"]
-        assert set(targets) == set(target_state.TARGET_NAMES)
-        assert targets["va"] == {"label": "", "endpoint": "", "real_machine": False}
-        assert targets["standin"] == {"label": "", "endpoint": "", "real_machine": False}
-
-    def test_identity_and_pids_are_untouched(self, state_root):
-        target_state.write_server_record(TARGETS_META, server_pid=1234)
-        target_state.publish_switch("va", 2, children=[5001], server_pid=1234)
-
-        target_state.publish_targets(self.NARROWED, server_pid=1234)
-
-        record = target_state.read(1234)
-        assert record["applied_target"] == "va"
-        assert record["applied_generation"] == 2
-        assert record["children"] == [5001]
-        assert record["server_pid"] == 1234
-
-    def test_without_a_record_writes_nothing(self, state_root):
-        assert target_state.publish_targets(TARGETS_META, server_pid=1234) is False
-        assert target_state.read(1234) is None
 
 
 # ---------------------------------------------------------------------------

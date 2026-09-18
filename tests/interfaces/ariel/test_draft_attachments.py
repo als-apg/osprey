@@ -22,7 +22,6 @@ def draft_client(tmp_path, monkeypatch):
     return TestClient(app), drafts_dir
 
 
-@pytest.mark.unit
 def test_get_draft_attachment_success(draft_client):
     """Serving a listed attachment returns correct content and content-type."""
     client, drafts_dir = draft_client
@@ -50,7 +49,6 @@ def test_get_draft_attachment_success(draft_client):
     assert resp.headers["content-type"] == "image/png"
 
 
-@pytest.mark.unit
 def test_get_draft_attachment_not_in_draft(draft_client):
     """Requesting an attachment not listed in draft returns 404."""
     client, drafts_dir = draft_client
@@ -69,7 +67,6 @@ def test_get_draft_attachment_not_in_draft(draft_client):
     assert resp.status_code == 404
 
 
-@pytest.mark.unit
 def test_get_draft_attachment_draft_not_found(draft_client):
     """Missing draft returns 404."""
     client, _ = draft_client
@@ -78,7 +75,6 @@ def test_get_draft_attachment_draft_not_found(draft_client):
     assert resp.status_code == 404
 
 
-@pytest.mark.unit
 def test_draft_response_includes_attachment_paths(draft_client):
     """DraftResponse schema includes attachment_paths field."""
     client, _ = draft_client
@@ -99,7 +95,6 @@ def test_draft_response_includes_attachment_paths(draft_client):
     assert data["attachment_paths"] == ["/path/to/image.png"]
 
 
-@pytest.mark.unit
 def test_draft_response_without_attachment_paths(draft_client):
     """DraftResponse without attachment_paths returns null for the field."""
     client, _ = draft_client
@@ -119,7 +114,6 @@ def test_draft_response_without_attachment_paths(draft_client):
     assert data["attachment_paths"] is None
 
 
-@pytest.mark.unit
 def test_get_draft_attachment_file_missing_on_disk(draft_client):
     """Attachment listed in draft but missing on disk returns 404."""
     client, _ = draft_client

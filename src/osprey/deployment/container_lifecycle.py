@@ -2235,6 +2235,64 @@ def clear_staged_site_ca(cmd: Sequence[str], context_dir: Path | str) -> None:
         logger.warning("Could not remove the staged site CA %s", staged)
 
 
+def clear_staged_service_site_ca(
+    compose_files: Sequence[str | Path], repo_root: Path | str
+) -> None:
+    """Remove the site CA a render staged into each service build context.
+
+    The invariant :func:`clear_staged_site_ca` keeps for the builds OSPREY
+    drives from an argv of its own, kept for the ones compose drives: a build
+    context holds the operator's CA bundle only while a build is reading it.
+
+    A managed service image is built by compose, so there is no argv to key on.
+    The rendered ``build.args`` is the record of what was staged instead —
+    written by the render that staged it — and a context whose fragment does
+    not name the staged file keeps whatever file of its own carries that name.
+
+    :param compose_files: The rendered compose documents handed to compose,
+        each repo-relative or absolute.
+    :param repo_root: The pinned compose project directory every rendered
+        ``context:`` resolves against, as the templates state above each
+        ``build:`` block.
+    """
+    root = Path(repo_root)
+    for compose_file in compose_files:
+        path = Path(compose_file)
+        path = path if path.is_absolute() else root / path
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            # A cleanup step is never what fails a deploy that otherwise
+            # succeeded, so an unreadable or malformed document is skipped.
+            continue
+        if not isinstance(document, Mapping):
+            continue
+        services = document.get("services")
+        if not isinstance(services, Mapping):
+            continue
+        for service in services.values():
+            # Guarded at every level: a hand-edited document must not raise
+            # here either.
+            if not isinstance(service, Mapping):
+                continue
+            build = service.get("build")
+            if not isinstance(build, Mapping):
+                continue
+            args = build.get("args")
+            if not isinstance(args, Mapping):
+                continue
+            if args.get("OSPREY_SITE_CA") != SITE_CA_CONTEXT_FILENAME:
+                continue
+            context = build.get("context")
+            if not isinstance(context, str):
+                continue
+            staged = root / context / SITE_CA_CONTEXT_FILENAME
+            try:
+                staged.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove the staged site CA %s", staged)
+
+
 #: Env-var spellings for "on" and "off", matching the other framework switches.
 _TRUTHY = {"1", "true", "yes", "on"}
 _FALSY = {"0", "false", "no", "off"}
@@ -5952,6 +6010,14 @@ def _start_stack(
     host-port preflight. Volumes are never touched by any of these measures,
     and running containers only by that last one.
 
+    An attached start resolves the image builds in a step of its own and then
+    hands the terminal to compose with ``os.execvpe``: the ``up`` it execs
+    carries ``--no-build``, and nothing of this process runs after it — so the
+    site CA staged into each service build context is cleared before the
+    hand-off rather than after the build, which is where the detached shape
+    clears it. A detached start returns, and leaves the builds to compose's
+    implicit build-on-up.
+
     Args:
         config: Loaded deploy config.
         compose_files: The services stack's compose files, in ``-f`` order.
@@ -6297,6 +6363,10 @@ def _start_stack(
             repo_root=Path(repo_root),
         )
         log_endpoint_summary(config, compose_files)
+        # This branch hands the same service compose files to
+        # `deploy_up_web_terminals` and takes over from the plain path below,
+        # so the contexts those images were built from are cleared here.
+        clear_staged_service_site_ca(compose_files, repo_root)
         return
 
     # Pin COMPOSE_PROJECT_NAME so this deploy owns its own compose project (and
@@ -6331,6 +6401,14 @@ def _start_stack(
     _report_step("cleared stopped containers")
 
     prebuilt = _resolve_prebuilt_images(config)
+    # Whether the image builds run as a step of this process rather than being
+    # left to compose's implicit build-on-up. A host that declares its images
+    # prebuilt builds nothing at all. Otherwise `--dev` builds because compose
+    # reuses the cached tag for a wheel that has just been re-baked, and an
+    # attached start builds because the `up` below replaces this process:
+    # anything that has to happen once the images are built would have no
+    # process left to happen in.
+    builds_here = not prebuilt and (dev_mode or not detached)
     if dev_mode and prebuilt:
         # Nothing to build: the tags are expected to be on the host already, and
         # the `up --no-build` below runs against them. A tag that is in fact
@@ -6338,16 +6416,16 @@ def _start_stack(
         # image that has to be loaded — better than anything a preflight here
         # could say.
         _report_step("skipped image build (prebuilt images)")
-    elif dev_mode:
-        # `osprey up --dev` re-bakes the local osprey checkout into a fresh
-        # wheel on every run, but compose reuses the cached image tag (e.g.
-        # <project>-dispatch:local) unless it is rebuilt — so a dev deploy must build.
+    elif builds_here:
         # Build in its OWN step, then `up --no-build`: a single `up --build` can
         # build a local-only tag and then fail container-create with
-        # "No such image" under Docker's containerd image store. Non-dev has no
-        # build step of its own, so unless the host says its images are prebuilt
-        # it stays a plain `up` and compose's implicit build-on-up still covers a
-        # build-only service that has no published upstream tag to pull.
+        # "No such image" under Docker's containerd image store.
+        #
+        # Two shapes come through here. `osprey up --dev` re-bakes the local osprey
+        # checkout into a fresh wheel on every run, and compose reuses the cached
+        # image tag (e.g. <project>-dispatch:local) unless it is rebuilt. An
+        # attached start builds because it is the last moment it can: the `up`
+        # below hands the terminal to compose and never returns.
         build_cmd = base_cmd + ["build"]
         logger.debug(f"Running command:\n    {' '.join(build_cmd)}")
         # Watched for the duration of the build and no longer: the live view
@@ -6362,6 +6440,9 @@ def _start_stack(
                 on_line=report,
             )
         _report_step("service images built")
+        # The images have read the bundle; a context keeps no copy of it
+        # between deploys.
+        clear_staged_service_site_ca(compose_files, repo_root)
 
     # --remove-orphans reconciles away containers whose service left the
     # config since the last deploy (including a formerly-enabled web-terminal
@@ -6370,14 +6451,15 @@ def _start_stack(
     # invocations share one project name, so each would destroy the other
     # stack's containers as "orphans".
     cmd = base_cmd + ["up", "--remove-orphans"]
-    if dev_mode or prebuilt:
-        # Non-dev never builds in a step of its own, so on a prebuilt host the
-        # only build left to suppress is compose's implicit build-on-up. Without
-        # this a pull-only mirror deploy would answer a missing tag by building
-        # a locally-tagged impostor from the template's `build:` block instead
-        # of failing on the image that never arrived. The switch reaches
-        # compose's implicit builds only: explicit persona and auth-sidecar
-        # builds stay governed by `image_source`.
+    if builds_here or prebuilt:
+        # Compose's implicit build-on-up is suppressed wherever the images are
+        # already resolved — this process built them in the step above, or the host
+        # says they arrived prebuilt. On a prebuilt host that is the whole of what
+        # the switch has to suppress: without it a pull-only mirror deploy would
+        # answer a missing tag by building a locally-tagged impostor from the
+        # template's `build:` block instead of failing on the image that never
+        # arrived. The switch reaches compose's implicit builds only: explicit
+        # persona and auth-sidecar builds stay governed by `image_source`.
         cmd.append("--no-build")
     if detached:
         cmd.append("-d")
@@ -6385,9 +6467,18 @@ def _start_stack(
     logger.debug(f"Running command:\n    {' '.join(cmd)}")
     if detached:
         run_captured(cmd, env=run_env, spool_name="compose-up", repo_root=repo_root)
+        # The detached `up` builds implicitly and returns, so the contexts it
+        # built from are cleared here.
+        clear_staged_service_site_ca(compose_files, repo_root)
         _report_step("containers started")
         log_endpoint_summary(config, compose_files)
     else:
+        # The contexts are finished with here, while there is still a process to
+        # clear them: the argv below replaces this process with compose. Every
+        # attached `up` carries `--no-build` -- its images were built by the step
+        # above, or the host declared them prebuilt -- so no build reads these
+        # contexts after this point.
+        clear_staged_service_site_ca(compose_files, repo_root)
         # execvpe replaces this process, so the summary must print first —
         # compose's own output follows it.
         log_endpoint_summary(config, compose_files)
@@ -7459,8 +7550,8 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
     so every up-path behavior — the web-terminals branch, the dev-mode
     build/up split, the stale-container preflight — stays defined in exactly
     one place. ``clean``'s ``down --rmi all`` removes the images, so the
-    delegated ``up`` rebuilds/pulls everything fresh via compose's own
-    build-on-up, no explicit ``build`` step needed here. The web-terminal
+    delegated ``up`` rebuilds or pulls everything ``clean`` removed, so this
+    verb needs no build step of its own. The web-terminal
     stack's per-user volumes are declared only in ``docker-compose.web.yml``
     (never in the services compose files ``clean`` operates on), so a rebuild
     recreates web containers but preserves user volumes.

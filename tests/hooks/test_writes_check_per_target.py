@@ -26,8 +26,6 @@ import pytest
 
 from tests._control_context_fixtures import state_dir_under, write_control_context, write_payload
 
-pytestmark = pytest.mark.unit
-
 #: The audit id a web-terminal session carries. It keys nothing; it is set in
 #: the tests that need a session to be identifiable at all.
 SESSION_KEY = "4f1c2a7e-0000-4000-8000-000000000001"

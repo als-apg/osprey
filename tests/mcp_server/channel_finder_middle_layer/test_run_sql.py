@@ -12,7 +12,6 @@ import json
 from unittest.mock import MagicMock, patch
 
 import duckdb
-import pytest
 
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     DEFAULT_QUERY_MAX_ROWS,
@@ -48,7 +47,6 @@ def _run(sql: str, duckdb_path, query_max_rows: int = DEFAULT_QUERY_MAX_ROWS):
         return get_tool_fn(run_sql)(sql=sql)
 
 
-@pytest.mark.unit
 def test_query_returns_columns_rows_and_count(tmp_path):
     """Happy path: a SELECT returns columns, dict rows, count, and truncated=False."""
     db = tmp_path / "chan.duckdb"
@@ -63,7 +61,6 @@ def test_query_returns_columns_rows_and_count(tmp_path):
     assert data["rows"][0] == {"channel_name": "SR:BPM1:X", "description": "horizontal position"}
 
 
-@pytest.mark.unit
 def test_query_caps_and_flags_truncation(tmp_path):
     """More rows than the cap are capped at it and flagged truncated.
 
@@ -81,7 +78,6 @@ def test_query_caps_and_flags_truncation(tmp_path):
     assert data["truncated"] is True
 
 
-@pytest.mark.unit
 def test_the_cap_is_the_configured_one(tmp_path):
     """A facility that lowers the key gets fewer rows, not the shipped default."""
     db = tmp_path / "chan.duckdb"
@@ -93,7 +89,6 @@ def test_the_cap_is_the_configured_one(tmp_path):
     assert data["truncated"] is True
 
 
-@pytest.mark.unit
 def test_a_truncated_answer_names_the_key_and_the_number(tmp_path):
     """The agent is told what cut the list, so it narrows instead of guessing."""
     db = tmp_path / "chan.duckdb"
@@ -106,7 +101,6 @@ def test_a_truncated_answer_names_the_key_and_the_number(tmp_path):
     assert "5" in guidance
 
 
-@pytest.mark.unit
 def test_an_untruncated_answer_carries_no_guidance(tmp_path):
     """Nothing to say when the whole result fits."""
     db = tmp_path / "chan.duckdb"
@@ -117,7 +111,6 @@ def test_an_untruncated_answer_carries_no_guidance(tmp_path):
     assert "guidance" not in data
 
 
-@pytest.mark.unit
 def test_non_select_query_is_rejected(tmp_path):
     """Only SELECT is allowed; a mutating statement raises invalid_query."""
     db = tmp_path / "chan.duckdb"
@@ -128,7 +121,6 @@ def test_non_select_query_is_rejected(tmp_path):
     assert "SELECT" in ctx["envelope"]["error_message"]
 
 
-@pytest.mark.unit
 def test_not_configured_when_no_duckdb_path():
     """A context without a DuckDB path yields a not_configured envelope."""
     from osprey.mcp_server.channel_finder_middle_layer.tools.run_sql import run_sql
@@ -140,7 +132,6 @@ def test_not_configured_when_no_duckdb_path():
             get_tool_fn(run_sql)(sql="SELECT 1")
 
 
-@pytest.mark.unit
 def test_sql_error_returns_sql_error_envelope(tmp_path):
     """A DuckDB execution error is classified as sql_error with guidance."""
     db = tmp_path / "chan.duckdb"
@@ -151,7 +142,6 @@ def test_sql_error_returns_sql_error_envelope(tmp_path):
     assert ctx["envelope"]["suggestions"]  # actionable hints present
 
 
-@pytest.mark.unit
 def test_unexpected_error_is_internal_error(tmp_path):
     """A non-DuckDB exception falls through to the internal_error envelope."""
     db = tmp_path / "chan.duckdb"

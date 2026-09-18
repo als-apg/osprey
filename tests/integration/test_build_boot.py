@@ -10,15 +10,17 @@ dependencies are installed), then for every entry in the generated
   2. Spawns the server and performs a JSON-RPC ``initialize`` + ``tools/list``
      handshake to verify the documented tools are advertised.
 
-Each preset becomes a parametrized test ID. CI matrices invoke the right
-preset via ``pytest -k <preset>``.
+Each preset becomes a parametrized test ID, and CI matrices invoke the right
+preset via ``pytest -k <preset>`` — so every test here is parametrized over
+``PRESETS``. One that is not carries no preset in its id and is selected by no
+cell of the matrix.
 
 Wall-clock budget: ~2 min/preset with a warm uv cache; cold cache may take
 5-6 min on the first run after ``uv.lock`` changes. That cost is what the
 module-wide ``slow`` marker is for: a contended local run deselects it with
 ``-m "not slow"``, the selector ``scripts/quick_check.sh`` already passes, while
-CI still runs it — the boot-smoke job names the file by path and the unit lane
-selects only ``-m "not pty"``, so neither loses it.
+CI still runs it — the boot-smoke job names this file by path, one matrix cell
+per preset, so no marker deselection and no lane-level sweep reaches it.
 """
 
 from __future__ import annotations

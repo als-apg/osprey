@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
     from playwright.sync_api import Browser, Page
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 LAB_PATH = "/design-system/theme-lab.html"
 

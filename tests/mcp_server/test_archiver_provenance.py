@@ -97,7 +97,6 @@ async def read_and_load(tmp_path, **overrides):
 
 
 # ── the stamp ───────────────────────────────────────────────────────────────
-@pytest.mark.unit
 async def test_query_block_names_the_recorded_target_and_the_archiver(
     archiver_project, control_context_root, write_control_context
 ):
@@ -112,7 +111,6 @@ async def test_query_block_names_the_recorded_target_and_the_archiver(
     assert query["archiver_backend"] == "MockArchiverConnector"
 
 
-@pytest.mark.unit
 async def test_stamp_is_additive_and_leaves_the_existing_query_keys_intact(
     archiver_project, control_context_root, write_control_context
 ):
@@ -127,7 +125,6 @@ async def test_stamp_is_additive_and_leaves_the_existing_query_keys_intact(
     assert query["bin_size_source"] == "requested"
 
 
-@pytest.mark.unit
 async def test_artifact_metadata_carries_the_same_stamp(
     archiver_project, control_context_root, write_control_context
 ):
@@ -144,7 +141,6 @@ async def test_artifact_metadata_carries_the_same_stamp(
     assert entry.metadata["data_type"] == "timeseries"
 
 
-@pytest.mark.unit
 async def test_absent_record_stamps_the_baseline_spelling(archiver_project, control_context_root):
     """No record at all — the read happened on the deployment baseline."""
     assert not control_context.record_path_under(control_context_root).exists()
@@ -155,7 +151,6 @@ async def test_absent_record_stamps_the_baseline_spelling(archiver_project, cont
     assert query["target_source"] == "baseline"
 
 
-@pytest.mark.unit
 async def test_unreadable_record_stamps_the_baseline_spelling(
     archiver_project, control_context_root
 ):
@@ -168,7 +163,6 @@ async def test_unreadable_record_stamps_the_baseline_spelling(
     assert query["target_source"] == "baseline"
 
 
-@pytest.mark.unit
 async def test_a_record_sitting_on_the_baseline_is_spelled_baseline(
     archiver_project, control_context_root, write_control_context
 ):
@@ -182,7 +176,6 @@ async def test_a_record_sitting_on_the_baseline_is_spelled_baseline(
 
 
 # ── the carve-out (CC-2) ────────────────────────────────────────────────────
-@pytest.mark.unit
 async def test_serves_while_the_connector_host_child_is_dead(
     archiver_project, control_context_root, write_control_context, write_server_report
 ):
@@ -206,7 +199,6 @@ async def test_serves_while_the_connector_host_child_is_dead(
     assert query["target"] == "va"
 
 
-@pytest.mark.unit
 async def test_read_never_touches_the_control_system(
     archiver_project, control_context_root, write_control_context, write_server_report
 ):
@@ -237,7 +229,6 @@ def _config(tmp_path, monkeypatch, cs_type):
     monkeypatch.chdir(tmp_path)
 
 
-@pytest.mark.unit
 def test_health_row_names_both_targets_while_switched(
     tmp_path, monkeypatch, control_context_root, write_control_context
 ):
@@ -256,7 +247,6 @@ def test_health_row_names_both_targets_while_switched(
     )
 
 
-@pytest.mark.unit
 def test_health_row_is_absent_on_the_baseline(tmp_path, monkeypatch, control_context_root):
     """Nothing to announce, so nothing is added — an unswitched report is unchanged."""
     _config(tmp_path, monkeypatch, "epics")
@@ -264,7 +254,6 @@ def test_health_row_is_absent_on_the_baseline(tmp_path, monkeypatch, control_con
     assert HealthRuntime.baseline_pinned_row() is None
 
 
-@pytest.mark.unit
 async def test_suite_opens_with_the_row_while_switched(
     tmp_path, monkeypatch, control_context_root, write_control_context
 ):
@@ -280,7 +269,6 @@ async def test_suite_opens_with_the_row_while_switched(
     assert report.exit_code == 0
 
 
-@pytest.mark.unit
 async def test_suite_adds_no_row_on_the_baseline(tmp_path, monkeypatch, control_context_root):
     """On the baseline the report is byte-identical to what it was before the row."""
     _config(tmp_path, monkeypatch, "epics")

@@ -49,8 +49,6 @@ from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import owner, write_control_context
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
-pytestmark = pytest.mark.unit
-
 _MOD = "osprey.mcp_server.bluesky.tools.queue"
 _TOKEN = "genuinely-valid-token"
 

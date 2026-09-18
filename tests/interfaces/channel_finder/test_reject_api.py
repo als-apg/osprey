@@ -8,7 +8,7 @@ def test_reject_records_failure_in_feedback_store(pending_review_client):
     item_id = store.capture(
         {
             "query": "show me magnets",
-            "facility": "ALS",
+            "facility": "ERF",
             "selections": {"system": "MAG"},
             "channel_count": 10,
         }
@@ -35,7 +35,7 @@ def test_reject_with_custom_reason(pending_review_client):
     item_id = store.capture(
         {
             "query": "beam current",
-            "facility": "ALS",
+            "facility": "ERF",
             "selections": {"system": "SR"},
         }
     )
@@ -58,7 +58,7 @@ def test_reject_with_overrides(pending_review_client):
     item_id = store.capture(
         {
             "query": "test",
-            "facility": "ALS",
+            "facility": "ERF",
             "selections": {"system": "X"},
         }
     )
@@ -87,7 +87,7 @@ def test_reject_uses_agent_task_as_query(pending_review_client):
     item_id = store.capture(
         {
             "agent_task": "Find all corrector magnets",
-            "facility": "ALS",
+            "facility": "ERF",
             "selections": {"system": "MAG"},
         }
     )
@@ -130,6 +130,6 @@ def test_reject_missing_item(pending_review_client):
 def test_reject_requires_feedback_store(pending_review_client):
     pending_review_client.app.state.feedback_store = None
     store = pending_review_client.app.state.pending_review_store
-    item_id = store.capture({"query": "test", "facility": "ALS"})
+    item_id = store.capture({"query": "test", "facility": "ERF"})
     resp = pending_review_client.post(f"/api/pending-reviews/{item_id}/reject")
     assert resp.status_code == 404

@@ -23,10 +23,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
-pytestmark = pytest.mark.unit
-
 FONT_DIR = Path(__file__).resolve().parents[2] / "src" / "osprey" / "interfaces" / "shared_fonts"
 LICENCE = FONT_DIR / "OFL.txt"
 

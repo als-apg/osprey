@@ -45,8 +45,6 @@ from osprey.services.bluesky_bridge.document_plane import (
     RunDocumentRouter,
 )
 
-pytestmark = pytest.mark.unit
-
 # Generous relative to the ~0.1 s a local 0MQ hop actually takes; these are
 # upper bounds on a *failure*, not sleeps — the waits return as soon as the
 # condition holds.

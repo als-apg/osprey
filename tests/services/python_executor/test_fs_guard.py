@@ -40,8 +40,6 @@ from osprey.services.python_executor.execution.fs_guard import (
     render_fs_guard,
 )
 
-pytestmark = pytest.mark.unit
-
 # The Python environment has to stay readable or the child cannot import
 # anything under the allowlist posture. Same three markers the sandbox passes.
 _BYPASS = ("site-packages", "lib/python", sys.prefix)

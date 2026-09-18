@@ -71,6 +71,16 @@ rewriting it is not this tool's business. The whole text is built in memory
 and written once; then the fragment files are deleted, ``internal`` ones
 included, and the report says what to stage.
 
+Check
+-----
+``check`` reads one pull request's diff and asks three things of it: a change
+under a gated directory brings a fragment with it, ``## [Unreleased]`` is not
+written by hand, and fragments come out only in a shape that keeps their text.
+Two shapes keep it — the release rotation, which empties ``[Unreleased]`` into
+a new dated section, and the pre-tag top-up, which folds fragments that landed
+afterwards into a release section whose tag is not cut yet. ``gate_failures``
+states all three rules in full.
+
 Usage
 -----
     python scripts/changelog_fragments.py check [--base origin/main]
@@ -116,8 +126,10 @@ PARAGRAPH_END_RE = re.compile(r"^(?:[-*+]\s|```)")
 TRAILING_REF_RE = re.compile(r"\(#\d+\)\s*$")
 UNRELEASED_RE = re.compile(r"^## \[Unreleased\]\s*$")
 SECTION_END_RE = re.compile(r"^## \[")
+RELEASE_HEADING_RE = re.compile(r"^## \[(?P<version>[^\]]+)\]")
 TYPE_HEADING_RE = re.compile(r"^### (Added|Changed|Deprecated|Removed|Fixed|Security)\s*$")
 BULLET_RE = re.compile(r"^- ")
+SECTION_BULLET_RE = re.compile(r"^\s*[-*+] ")
 PLAIN_REF_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 #: One git invocation: argv in, a finished process out. ``main`` takes one so
@@ -137,6 +149,23 @@ class FragmentError(ValueError):
     collects these rather than stopping at the first, so one run of the gate
     reports every offender.
     """
+
+
+class ProbeError(RuntimeError):
+    """A question the pre-tag top-up asks that git could not answer.
+
+    Raised by the tag probe ``_check`` binds to git, for an unreachable or
+    refusing remote. The top-up is refused when one is raised, so an
+    environment that cannot confirm the shape never widens what the gate lets
+    through.
+    """
+
+
+#: Does this version already carry a tag on the remote? The one question the
+#: pre-tag top-up asks that the diff cannot answer, injected so that
+#: ``gate_failures`` stays a function of its arguments and the tests answer it
+#: from a table instead of a repository. May raise ``ProbeError``.
+TagProbe = Callable[[str], bool]
 
 
 @dataclass(frozen=True)
@@ -573,19 +602,135 @@ def _release_count(lines: Sequence[str]) -> int:
     return sum(1 for line in lines if SECTION_END_RE.match(line))
 
 
+def newest_release_span(lines: Sequence[str]) -> tuple[int, int, str] | None:
+    """The newest release section as ``(heading, end, version)``.
+
+    The newest release is the first ``## [`` heading that is not
+    ``[Unreleased]`` — the file is newest-first — and *end* is exclusive, so
+    the section's own lines are ``lines[heading:end]``. *version* is the text
+    inside the brackets, which is what the tag spells as ``v<version>``.
+
+    Returns ``None`` when the file has no released section at all, which is
+    every changelog before its first release.
+    """
+    for heading in range(len(lines)):
+        if UNRELEASED_RE.match(lines[heading]):
+            continue
+        match = RELEASE_HEADING_RE.match(lines[heading])
+        if match is None:
+            continue
+        for end in range(heading + 1, len(lines)):
+            if SECTION_END_RE.match(lines[end]):
+                return heading, end, match.group("version")
+        return heading, len(lines), match.group("version")
+    return None
+
+
+def _section_bullets(lines: Sequence[str], span: tuple[int, int, str]) -> int:
+    """Number of list items in the section *span* names, at any depth.
+
+    Nesting is counted because a release section is written by hand: an entry
+    that arrives as a fragment's own bullet often lands as a sub-bullet under a
+    heading that was already there.
+    """
+    return sum(1 for line in lines[span[0] : span[1]] if SECTION_BULLET_RE.match(line))
+
+
+def _pre_tag_topup(
+    changed: Sequence[str],
+    gone: Sequence[str],
+    retyped: dict[str, str],
+    head_lines: Sequence[str],
+    base_lines: Sequence[str],
+    tagged: TagProbe | None,
+) -> tuple[str | None, str | None]:
+    """Decide whether *gone* is a fold into a release section with no tag yet.
+
+    A release rotates ``[Unreleased]`` into a dated section and merges; the tag
+    is cut afterwards. Fragments that land in between belong in that section —
+    it is the list of what the tag will contain — so folding them in is the
+    correction, not a deletion to be restored. Five things have to hold, and
+    every one of them is what keeps this from reading an ordinary pull request
+    as the fold:
+
+    * ``[Unreleased]`` is empty on both sides — the fold writes into the
+      release section, so a bullet in ``[Unreleased]`` is somebody else's edit;
+    * nothing changed but ``CHANGELOG.md`` and the fragments themselves;
+    * no release was cut: the heading count is the same and the newest release
+      heading is byte-identical, so the section being written to is the one
+      that was already there;
+    * that version has no tag on the remote — once the tag exists the section
+      is what it shipped, and a fragment folded in afterwards would describe a
+      release it was never part of;
+    * that section gained entries, which is what ties the deletion to a fold
+      rather than to a lost file. It is a count and not a text match: release
+      notes are written, not generated, so one bullet routinely carries what
+      two fragments said, in words neither of them used. Fragments that are all
+      ``internal`` are exempt — they render nothing, so a fold of them alone
+      has nothing to add.
+
+    Returns ``(ok_line, note)``. *ok_line* is the report line when the shape
+    holds; *note* is the one detail line explaining a git call that could not
+    answer, so a refusal caused by the environment says so instead of reading
+    as a contributor's mistake. Both are ``None`` when the diff is simply not
+    this shape.
+    """
+    if tagged is None:
+        return None, None
+    head_block = _unreleased_block(head_lines)
+    base_block = _unreleased_block(base_lines)
+    if head_block is None or base_block is None:
+        return None, None
+    if not is_empty_block(head_block) or not is_empty_block(base_block):
+        return None, None
+    allowed = {"CHANGELOG.md", *gone, *retyped, *retyped.values()}
+    if "CHANGELOG.md" not in changed or not set(changed) <= allowed:
+        return None, None
+    if _release_count(head_lines) != _release_count(base_lines):
+        return None, None
+    head_span = newest_release_span(head_lines)
+    base_span = newest_release_span(base_lines)
+    if head_span is None or base_span is None:
+        return None, None
+    if head_lines[head_span[0]] != base_lines[base_span[0]]:
+        return None, None
+
+    prefix = f"{FRAGMENT_DIR}/"
+    parsed = [NAME_RE.match(path[len(prefix) :]) for path in gone]
+    if any(match is None for match in parsed):
+        return None, None
+    renders = any(match.group("type") != "internal" for match in parsed if match is not None)
+    if renders and _section_bullets(head_lines, head_span) <= _section_bullets(
+        base_lines, base_span
+    ):
+        return None, None
+
+    version = head_span[2]
+    try:
+        if tagged(version):
+            return None, None
+    except ProbeError as exc:
+        return None, str(exc)
+
+    return f"✓ pre-tag top-up: {len(gone)} fragment(s) folded into ## [{version}] (untagged)", None
+
+
 def gate_failures(
     changed: Sequence[str],
     added: Sequence[str],
     deleted: Sequence[str],
     head_text: str,
     base_text: str,
+    tagged: TagProbe | None = None,
 ) -> tuple[list[str], list[str]]:
     """Apply the three pull-request rules to one diff.
 
     *changed*, *added* and *deleted* are repository-relative paths from
     ``git diff --name-status`` between the merge base and HEAD; *head_text* and
-    *base_text* are the two versions of ``CHANGELOG.md``. Nothing here touches
-    the filesystem or git, so the caller decides where the diff came from.
+    *base_text* are the two versions of ``CHANGELOG.md``. *tagged* answers the
+    one question rule 3's top-up shape asks outside the diff; without it that
+    shape is never recognized. Nothing here touches the filesystem or git, so
+    the caller decides where the diff came from.
 
     The rules:
 
@@ -597,10 +742,13 @@ def gate_failures(
        pull request that changes ``CHANGELOG.md`` and nothing else without
        growing the bullet count, which is a correction; and a head whose block
        is byte-identical to the base's.
-    3. Only that rotation deletes fragments. A fragment whose type changed is
-       renamed, not deleted: the same ``<name>`` reappears under the new type,
-       and that pair is reported as a retype. A retype adds no entry, so it
-       does not satisfy rule 1 either.
+    3. Fragments come out in two shapes. One is that rotation. The other is
+       the pre-tag top-up: a release section is written but its tag is not cut
+       yet, and fragments that landed in between are folded into it, which
+       ``_pre_tag_topup`` recognizes. A fragment whose type changed is renamed,
+       not deleted: the same ``<name>`` reappears under the new type, and that
+       pair is reported as a retype. A retype adds no entry, so it does not
+       satisfy rule 1 either.
 
     The rotation is a *transition*, not a state: an empty ``[Unreleased]`` is
     what every pull request sees once fragments are carrying the changelog, so
@@ -694,16 +842,23 @@ def gate_failures(
         )
     gone = [path for path in _fragment_dir_paths(deleted) if path not in retyped]
     if gone and not rotation:
-        failures.append(
-            "\n".join(
-                [
-                    f"{len(gone)} fragment(s) deleted — only the release PR's apply removes "
-                    f"fragments",
-                    *_listed(gone),
-                    "restore them; they are folded in and deleted when a release is cut",
-                ]
+        topup, note = _pre_tag_topup(changed, gone, retyped, head_lines, base_lines, tagged)
+        if topup is not None:
+            ok_lines.append(topup)
+        else:
+            failures.append(
+                "\n".join(
+                    [
+                        f"{len(gone)} fragment(s) deleted — only the release PR's apply removes "
+                        f"fragments",
+                        *_listed(gone),
+                        "restore them; they are folded in and deleted when a release is cut",
+                        "the one other way out is a CHANGELOG-only PR that folds them into a "
+                        "release section whose tag is not cut yet",
+                        *([note] if note else []),
+                    ]
+                )
             )
-        )
     return failures, ok_lines
 
 
@@ -716,6 +871,31 @@ def _run(argv: list[str]) -> subprocess.CompletedProcess[str]:
     repository rather than inherited.
     """
     return subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", cwd=REPO_ROOT)
+
+
+def _flattened(text: str) -> str:
+    """*text* as one line, for a git error quoted inside a detail line."""
+    return " ".join(text.split())
+
+
+def tag_probe(run: Runner) -> TagProbe:
+    """Bind the pre-tag top-up's tag question to git.
+
+    The tag is asked of the remote rather than of the local refs: a CI checkout
+    fetches no tags by default, so a local answer would say "untagged" about
+    every release ever cut. A call that fails raises ``ProbeError`` instead of
+    reporting "no tag", which is the difference between a shape that was
+    confirmed and one that merely could not be refuted.
+    """
+
+    def tagged(version: str) -> bool:
+        argv = ["git", "ls-remote", "--tags", "origin", f"refs/tags/v{version}"]
+        result = run(argv)
+        if result.returncode != 0:
+            raise ProbeError(f"{' '.join(argv)} failed — {_flattened(result.stderr)}")
+        return bool(result.stdout.strip())
+
+    return tagged
 
 
 def _emit(message: str, *, mark: str = "✗", stream: TextIO | None = None) -> None:
@@ -777,7 +957,12 @@ def parse_name_status(stdout: str) -> list[tuple[str, str]]:
 
 
 def _check(directory: Path, changelog: Path, base: str, run: Runner) -> int:
-    """Run the gate against the diff between *base*'s merge base and HEAD."""
+    """Run the gate against the diff between *base*'s merge base and HEAD.
+
+    Git answers the diff, the base changelog, and — through ``tag_probe`` —
+    whether the newest release section already carries a tag, which is what the
+    pre-tag top-up shape turns on.
+    """
     fragments, errors = validate_dir(directory)
     for error in errors:
         _emit(error)
@@ -834,7 +1019,9 @@ def _check(directory: Path, changelog: Path, base: str, run: Runner) -> int:
     except (OSError, UnicodeDecodeError) as exc:
         return environment_error(f"cannot read {changelog}\n{exc}")
 
-    failures, ok_lines = gate_failures(changed, added, deleted, head_text, show.stdout)
+    failures, ok_lines = gate_failures(
+        changed, added, deleted, head_text, show.stdout, tag_probe(run)
+    )
     for line in ok_lines:
         print(line)
     for failure in failures:

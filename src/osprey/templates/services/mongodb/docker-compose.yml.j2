@@ -1,3 +1,10 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+-#}
 {#- The env passthrough axis — the host variables a service's `env:` key
     names — is rendered by the shared macro rather than hand-written per
     template, so every service hands a variable to its container the same

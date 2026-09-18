@@ -1019,21 +1019,33 @@ class TestDeployServicesKnob:
         assert not (_project(tmp_path, "op") / "services").exists()
 
 
-def test_set_free_form_model_builds(runner: CliRunner, tmp_path: Path) -> None:
+def test_set_free_form_model_builds(
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A model ID outside the provider's tier map builds — it passes through.
 
     Refusing here kept every model the tier map did not name (a newly released
     ID, a gateway-only alias) unusable until the map caught up. The resolver
     now trusts the provider to serve the ID and puts it in ANTHROPIC_MODEL
     verbatim; a misspelt ID fails at the provider, naming the ID.
+
+    The provider is a gateway with an endpoint of its own, and the one
+    gateway variable in the catalog is exported empty below: a free-form
+    model ID is not a fact about any site's host, so this render must not
+    need one named.
     """
+    # Exported empty, which is what a run that names no gateway hands the build:
+    # the config resolver keeps ``${VAR}`` verbatim only while the variable is
+    # unset, so an empty export is a value and reaches the provider chain as one.
+    # This render asserts about a model ID, so it must survive that.
+    monkeypatch.setenv("ALS_APG_BASE_URL", "")
     result = _materialize(
         runner,
         str(tmp_path),
         "smoke",
         "hello-world",
         "--set",
-        "provider=als-apg",
+        "provider=cborg",
         "--set",
         "model=anthropic/claude-opus",
     )

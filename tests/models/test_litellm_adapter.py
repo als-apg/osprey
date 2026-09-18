@@ -468,13 +468,11 @@ class TestExecuteOllamaStructuredOutput:
 class TestStructuredOutputCapabilityFlag:
     """The capability attribute drives the structured-output path."""
 
-    @pytest.mark.unit
     def test_base_default_is_none(self):
         from osprey.models.providers.base import BaseProvider
 
         assert BaseProvider.supports_native_structured_output is None
 
-    @pytest.mark.unit
     def test_openai_compatible_providers_declare_true(self):
         from osprey.models.providers.amsc_i2 import AMSCI2ProviderAdapter
         from osprey.models.providers.argo import ArgoProviderAdapter
@@ -491,21 +489,17 @@ class TestStructuredOutputCapabilityFlag:
         ):
             assert cls.supports_native_structured_output is True, cls.name
 
-    @pytest.mark.unit
     def test_flag_true_takes_native_path(self):
         assert _supports_native_structured_output("openai/anything", "vllm") is True
 
-    @pytest.mark.unit
     def test_flag_none_defers_to_litellm(self):
         # openai provider has supports_native_structured_output = None, so defers to litellm.
         # Use a model string litellm knows natively (gpt-4o returns True).
         assert _supports_native_structured_output("gpt-4o", "openai") is True
 
-    @pytest.mark.unit
     def test_unknown_provider_defers_and_is_safe(self):
         assert _supports_native_structured_output("unknown/nonexistent-xyz", "unknown") is False
 
-    @pytest.mark.unit
     def test_ds4_declares_false_end_to_end(self):
         # gpt-4o is known to litellm as supporting response_schema (True for "openai").
         # ds4 overrides this to False because it ignores json_schema despite being
@@ -747,13 +741,11 @@ class TestExecuteLitellmCompletionThinking:
 class TestCheckLitellmHealth:
     """Guard rails and litellm-exception mapping in check_litellm_health."""
 
-    @pytest.mark.unit
     def test_missing_api_key(self):
         assert check_litellm_health(
             provider="openai", api_key=None, base_url=None, model_id="gpt-4o"
         ) == (False, "API key not set")
 
-    @pytest.mark.unit
     def test_placeholder_api_key_rejected(self):
         ok, msg = check_litellm_health(
             provider="openai", api_key="${OPENAI_API_KEY}", base_url=None, model_id="gpt-4o"
@@ -761,7 +753,6 @@ class TestCheckLitellmHealth:
         assert ok is False
         assert "placeholder" in msg
 
-    @pytest.mark.unit
     def test_missing_base_url_on_a_provider_that_has_no_default(self):
         """A gateway provider with no endpoint is refused, not routed to OpenAI.
 
@@ -778,7 +769,6 @@ class TestCheckLitellmHealth:
             model_id="claude-haiku-4-5-20251001",
         ) == (False, "Base URL required for als-apg")
 
-    @pytest.mark.unit
     def test_unknown_provider_without_base_url_still_reaches_the_call(self):
         """The guard reads the provider class, and an unknown name has none."""
         with patch("litellm.completion") as mock_completion:
@@ -787,7 +777,6 @@ class TestCheckLitellmHealth:
                 provider="not-a-provider", api_key="sk-real", base_url=None, model_id="m"
             ) == (True, "API accessible and authenticated")
 
-    @pytest.mark.unit
     def test_missing_model_id(self):
         assert check_litellm_health(
             provider="openai", api_key="sk-real", base_url=None, model_id=None
@@ -815,7 +804,6 @@ class TestCheckLitellmHealth:
         assert (ok, msg) == (True, "API accessible and authenticated")
         assert mock_completion.call_args.kwargs["api_key"] == "EMPTY"
 
-    @pytest.mark.unit
     def test_a_registered_keyless_adapter_is_not_refused(self):
         """Not a name list: any adapter declaring `requires_api_key = False`
         gets the exemption, including a facility's own."""
@@ -835,7 +823,6 @@ class TestCheckLitellmHealth:
             # An unknown name keeps the old assumption: it needs a key.
             assert _requires_api_key("who-knows") is True
 
-    @pytest.mark.unit
     def test_a_key_requiring_adapter_still_fails_without_one(self):
         assert check_litellm_health(
             provider="anthropic", api_key=None, base_url=None, model_id="claude-haiku-4-5"
@@ -953,7 +940,7 @@ class TestSpendAttribution:
 
     @patch("osprey.models.providers.litellm_adapter.litellm")
     def test_gateway_provider_sends_user_and_tags(self, mock_litellm, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         mock_litellm.completion.return_value.choices[0].message.content = "ok"
         mock_litellm.completion.return_value.choices[0].message.tool_calls = None
 
@@ -966,12 +953,12 @@ class TestSpendAttribution:
         )
 
         kwargs = mock_litellm.completion.call_args.kwargs
-        assert kwargs["user"] == "thellert"
+        assert kwargs["user"] == "alice"
         assert kwargs["extra_headers"] == {"x-litellm-tags": "osprey,surface:terminal"}
 
     @patch("osprey.models.providers.litellm_adapter.litellm")
     def test_direct_provider_sends_nothing(self, mock_litellm, monkeypatch):
-        monkeypatch.setenv("OSPREY_TERMINAL_USER", "thellert")
+        monkeypatch.setenv("OSPREY_TERMINAL_USER", "alice")
         mock_litellm.completion.return_value.choices[0].message.content = "ok"
         mock_litellm.completion.return_value.choices[0].message.tool_calls = None
 

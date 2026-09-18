@@ -53,7 +53,6 @@ def _enable_telemetry(monkeypatch, org="default", backend="openobserve"):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_env_hit_returns_forced_id(monkeypatch):
     """The OSPREY-forced id + telemetry on → full coordinates for that id."""
     _enable_telemetry(monkeypatch, org="example")
@@ -74,7 +73,6 @@ async def test_env_hit_returns_forced_id(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_fallback_to_harness_id(monkeypatch):
     """No OSPREY id but the harness exports one → the harness id is used."""
     _enable_telemetry(monkeypatch)
@@ -88,7 +86,6 @@ async def test_fallback_to_harness_id(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_osprey_id_takes_precedence(monkeypatch):
     """When both are present the OSPREY-forced id wins (it is authoritative)."""
     _enable_telemetry(monkeypatch)
@@ -101,7 +98,6 @@ async def test_osprey_id_takes_precedence(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_telemetry_disabled_degrades_honestly(monkeypatch):
     """An id is present but telemetry is off → null + note, not a dangling id."""
     monkeypatch.setenv("OSPREY_TELEMETRY_SESSION_ID", "sess-abc-123")
@@ -115,7 +111,6 @@ async def test_telemetry_disabled_degrades_honestly(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_no_id_resolvable_degrades_honestly(monkeypatch):
     """Telemetry on but no id anywhere → null + note."""
     _enable_telemetry(monkeypatch)
@@ -127,7 +122,6 @@ async def test_no_id_resolvable_degrades_honestly(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_since_optional(monkeypatch):
     """since is null when no session-start was injected, and the call succeeds."""
     _enable_telemetry(monkeypatch)
@@ -140,7 +134,6 @@ async def test_since_optional(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_a_generic_backend_carries_no_org_or_stream(monkeypatch):
     """Org and stream address OpenObserve records and nothing else.
 
@@ -160,7 +153,6 @@ async def test_a_generic_backend_carries_no_org_or_stream(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_the_org_comes_from_config_not_from_the_endpoint_url(monkeypatch):
     """One producer: the exporter's URL is built FROM the org, not the reverse."""
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
@@ -181,7 +173,6 @@ async def test_the_org_comes_from_config_not_from_the_endpoint_url(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_an_explicitly_empty_org_is_reported_as_written(monkeypatch):
     """The default belongs to an absent key; an explicit ``org: ""`` is a value.
 
@@ -205,7 +196,6 @@ async def test_an_explicitly_empty_org_is_reported_as_written(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_an_absent_org_falls_back_to_the_default_organization(monkeypatch):
     """No ``org`` key at all is the one case the default is for."""
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")
@@ -222,7 +212,6 @@ async def test_an_absent_org_falls_back_to_the_default_organization(monkeypatch)
 
 
 @pytest.mark.asyncio
-@pytest.mark.unit
 async def test_an_unreadable_config_omits_the_coordinates(monkeypatch):
     """Degrade by saying less, never by guessing a coordinate."""
     monkeypatch.setenv("CLAUDE_CODE_ENABLE_TELEMETRY", "1")

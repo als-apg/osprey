@@ -48,8 +48,6 @@ from osprey_connectors.identity import TERMINAL_USER_ENV
 from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
-pytestmark = pytest.mark.unit
-
 _MOD = "osprey.mcp_server.bluesky.tools.queue"
 
 _TOKEN = "genuinely-valid-token"

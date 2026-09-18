@@ -38,7 +38,6 @@ def stamped_root(tmp_path, monkeypatch):
     return root
 
 
-@pytest.mark.unit
 def test_writes_disabled_blocks_channel_write(tmp_path, hook_runner, make_config):
     """Writes disabled blocks channel_write tool."""
     config = make_config({"control_system": {"writes_enabled": False}})
@@ -55,7 +54,6 @@ def test_writes_disabled_blocks_channel_write(tmp_path, hook_runner, make_config
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_writes_enabled_allows_channel_write(tmp_path, hook_runner, make_config):
     """Writes enabled allows channel_write through."""
     config = make_config({"control_system": {"writes_enabled": True}})
@@ -71,7 +69,6 @@ def test_writes_enabled_allows_channel_write(tmp_path, hook_runner, make_config)
     assert result is None  # Allowed through
 
 
-@pytest.mark.unit
 def test_writes_disabled_blocks_python_write_mode(tmp_path, hook_runner, make_config):
     """Writes disabled blocks python_execute in write mode."""
     config = make_config({"control_system": {"writes_enabled": False}})
@@ -88,7 +85,6 @@ def test_writes_disabled_blocks_python_write_mode(tmp_path, hook_runner, make_co
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_writes_disabled_allows_python_readonly(tmp_path, hook_runner, make_config):
     """Writes disabled still allows python_execute in readonly mode."""
     config = make_config({"control_system": {"writes_enabled": False}})
@@ -104,7 +100,6 @@ def test_writes_disabled_allows_python_readonly(tmp_path, hook_runner, make_conf
     assert result is None  # Allowed through
 
 
-@pytest.mark.unit
 def test_writes_disabled_allows_python_missing_execution_mode(tmp_path, hook_runner, make_config):
     """Writes disabled allows python_execute when execution_mode is omitted.
 
@@ -125,7 +120,6 @@ def test_writes_disabled_allows_python_missing_execution_mode(tmp_path, hook_run
     assert result is None  # Allowed through (treated as readonly)
 
 
-@pytest.mark.unit
 def test_writes_disabled_allows_channel_read(tmp_path, hook_runner, make_config):
     """Writes disabled does not affect channel_read (read-only tool)."""
     config = make_config({"control_system": {"writes_enabled": False}})
@@ -141,7 +135,6 @@ def test_writes_disabled_allows_channel_read(tmp_path, hook_runner, make_config)
     assert result is None  # Allowed through
 
 
-@pytest.mark.unit
 def test_non_osprey_tools_pass_through(tmp_path, hook_runner, make_config):
     """Non-osprey tools are not affected by the writes check hook."""
     config = make_config({"control_system": {"writes_enabled": False}})
@@ -157,7 +150,6 @@ def test_non_osprey_tools_pass_through(tmp_path, hook_runner, make_config):
     assert result is None  # Not an osprey tool, passes through
 
 
-@pytest.mark.unit
 def test_deny_message_includes_reason(tmp_path, hook_runner, make_config):
     """Deny decision includes an informative message."""
     config = make_config({"control_system": {"writes_enabled": False}})
@@ -180,7 +172,6 @@ def test_deny_message_includes_reason(tmp_path, hook_runner, make_config):
 # -- Config edge cases (gap fill) --
 
 
-@pytest.mark.unit
 def test_missing_config_file_denies(tmp_path, hook_runner):
     """A config.yml that does not exist arms nothing (fail-closed).
 
@@ -204,7 +195,6 @@ def test_missing_config_file_denies(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_missing_writes_enabled_key_denies(tmp_path, hook_runner, make_config):
     """Config exists but expresses no write posture anywhere → deny.
 
@@ -231,7 +221,6 @@ def test_missing_writes_enabled_key_denies(tmp_path, hook_runner, make_config):
 # -- Dynamic write_tools via hook_config --
 
 
-@pytest.mark.unit
 def test_custom_write_tool_blocked_via_hook_config(tmp_path, hook_runner, make_config):
     """A custom tool listed in hook_config write_tools is blocked when writes disabled."""
     config = make_config({"control_system": {"writes_enabled": False}})
@@ -249,7 +238,6 @@ def test_custom_write_tool_blocked_via_hook_config(tmp_path, hook_runner, make_c
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_custom_write_tool_allowed_when_writes_enabled(tmp_path, hook_runner, make_config):
     """A custom tool in write_tools is allowed through when writes are enabled."""
     config = make_config({"control_system": {"writes_enabled": True}})
@@ -266,7 +254,6 @@ def test_custom_write_tool_allowed_when_writes_enabled(tmp_path, hook_runner, ma
     assert result is None  # Allowed through
 
 
-@pytest.mark.unit
 def test_fallback_defaults_when_no_hook_config(tmp_path, hook_runner, make_config):
     """Without hook_config, falls back to the 2 framework default write tools."""
     config = make_config({"control_system": {"writes_enabled": False}})
@@ -285,7 +272,6 @@ def test_fallback_defaults_when_no_hook_config(tmp_path, hook_runner, make_confi
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "stdin",
     ["", "{nope", "[]", "[1,2,3]"],
@@ -323,7 +309,6 @@ def test_malformed_stdin_fails_open(tmp_path, hook_runner_raw, stdin):
 # never sends the operator to edit a config file that is not the gate.
 
 
-@pytest.mark.unit
 def test_posture_readonly_denies_channel_write_despite_writes_enabled(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -350,7 +335,6 @@ def test_posture_readonly_denies_channel_write_despite_writes_enabled(
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_posture_readonly_denies_python_readwrite_despite_writes_enabled(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -370,7 +354,6 @@ def test_posture_readonly_denies_python_readwrite_despite_writes_enabled(
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_posture_message_names_the_posture_not_writes_enabled(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -412,7 +395,6 @@ def test_posture_message_names_the_posture_not_writes_enabled(
     )
 
 
-@pytest.mark.unit
 def test_posture_readonly_still_allows_python_readonly(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -436,7 +418,6 @@ def test_posture_readonly_still_allows_python_readonly(
     assert result is None  # Allowed through
 
 
-@pytest.mark.unit
 def test_posture_does_not_affect_non_write_tools(tmp_path, hook_runner, make_config, monkeypatch):
     """Reads stay reads: the posture branch is behind the write-tool filter."""
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
@@ -453,7 +434,6 @@ def test_posture_does_not_affect_non_write_tools(tmp_path, hook_runner, make_con
     assert result is None  # Allowed through
 
 
-@pytest.mark.unit
 def test_no_posture_var_leaves_the_writes_enabled_allow_intact(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -477,7 +457,6 @@ def test_no_posture_var_leaves_the_writes_enabled_allow_intact(
     assert result is None  # Allowed through
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("value", ["readwrite", "READONLY", "", "sandbox", "true"])
 def test_posture_is_a_value_comparison_not_a_presence_check(
     tmp_path, hook_runner, make_config, monkeypatch, value
@@ -502,7 +481,6 @@ def test_posture_is_a_value_comparison_not_a_presence_check(
     assert result is None  # Allowed through — not the sandbox posture
 
 
-@pytest.mark.unit
 def test_posture_deny_survives_an_unreadable_config(tmp_path, hook_runner_raw, monkeypatch):
     """A broken config.yml must not cost the posture deny.
 
@@ -532,7 +510,6 @@ def test_posture_deny_survives_an_unreadable_config(tmp_path, hook_runner_raw, m
     assert "WRITES OFF" in decision["hookSpecificOutput"]["permissionDecisionReason"]
 
 
-@pytest.mark.unit
 def test_posture_deny_survives_an_absent_config(tmp_path, hook_runner, monkeypatch):
     """No config.yml at all is still a valid, posture-specific deny."""
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
@@ -694,7 +671,6 @@ POSTURE_SHAPE_IDS = [
 ]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(("section", "target"), POSTURE_SHAPES, ids=POSTURE_SHAPE_IDS)
 def test_hook_decision_matches_the_framework_resolver(
     tmp_path, hook_runner, make_config, section, target
@@ -740,7 +716,6 @@ def test_hook_decision_matches_the_framework_resolver(
     assert allowed is expected_armed
 
 
-@pytest.mark.unit
 def test_disarmed_live_denies_on_live_and_names_the_connector_block(
     tmp_path, hook_runner, make_config
 ):
@@ -767,7 +742,6 @@ def test_disarmed_live_denies_on_live_and_names_the_connector_block(
     assert "Set control_system.writes_enabled" not in reason
 
 
-@pytest.mark.unit
 def test_disarmed_live_still_allows_the_simulator(tmp_path, hook_runner, make_config):
     """The same deployment, one target over: the virtual accelerator is armed.
 
@@ -786,7 +760,6 @@ def test_disarmed_live_still_allows_the_simulator(tmp_path, hook_runner, make_co
     assert result is None
 
 
-@pytest.mark.unit
 def test_no_posture_stated_denies(tmp_path, hook_runner, make_config):
     """A config that expresses no posture anywhere still refuses.
 
@@ -810,7 +783,6 @@ def test_no_posture_stated_denies(tmp_path, hook_runner, make_config):
 # -- Stage ordering and the two skips --
 
 
-@pytest.mark.unit
 def test_sandbox_posture_denies_a_queue_tool_on_an_armed_deployment(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -846,7 +818,6 @@ def test_sandbox_posture_denies_a_queue_tool_on_an_armed_deployment(
     assert "WRITES OFF" in output["permissionDecisionReason"]
 
 
-@pytest.mark.unit
 def test_queue_tools_skip_the_target_posture_check(tmp_path, hook_runner, make_config):
     """A lane-addressed tool passes stage 2 on a deployment that is not armed.
 
@@ -876,7 +847,6 @@ def test_queue_tools_skip_the_target_posture_check(tmp_path, hook_runner, make_c
     assert result is None
 
 
-@pytest.mark.unit
 def test_a_tool_not_listed_as_lane_addressed_is_gated_by_stage_two(
     tmp_path, hook_runner, make_config
 ):
@@ -909,7 +879,6 @@ def test_a_tool_not_listed_as_lane_addressed_is_gated_by_stage_two(
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_stage_two_fails_closed_when_the_config_is_not_a_mapping(tmp_path, hook_runner):
     """Anything stage 2 cannot get through resolves to NOT ARMED.
 
@@ -934,7 +903,6 @@ def test_stage_two_fails_closed_when_the_config_is_not_a_mapping(tmp_path, hook_
     assert "control_system.writes_enabled: true" in output["permissionDecisionReason"]
 
 
-@pytest.mark.unit
 def test_a_render_without_the_state_reader_is_not_armed(tmp_path, hook_module, monkeypatch):
     """No `osprey_target_state` sibling means NOT ARMED, on any config.
 
@@ -964,7 +932,6 @@ def test_a_render_without_the_state_reader_is_not_armed(tmp_path, hook_module, m
     assert refusal == hook._REFUSAL_DEPLOYMENT
 
 
-@pytest.mark.unit
 def test_an_unidentifiable_session_names_the_unarmed_block_and_not_the_global_key(
     tmp_path, hook_runner, make_config
 ):
@@ -991,7 +958,6 @@ def test_an_unidentifiable_session_names_the_unarmed_block_and_not_the_global_ke
     assert "could not be identified" in reason
 
 
-@pytest.mark.unit
 def test_an_unidentifiable_session_names_only_the_targets_that_are_unarmed(
     tmp_path, hook_runner, make_config
 ):
@@ -1027,7 +993,6 @@ def test_an_unidentifiable_session_names_only_the_targets_that_are_unarmed(
     assert "virtual_accelerator" not in reason
 
 
-@pytest.mark.unit
 def test_a_cloned_python_server_keeps_its_readonly_executions(tmp_path, hook_runner, make_config):
     """A readonly execution on an `extends` clone is not a write, and passes.
 

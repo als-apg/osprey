@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
+from osprey.config_guards import is_positive_int
 from osprey.dispatch_pool_defaults import DEFAULT_MAX_CONCURRENT_RUNS, DEFAULT_MAX_QUEUE_DEPTH
 from osprey.errors import BuildProfileError
 from osprey.port_layout import (
@@ -969,7 +970,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         # --set pairs are all folded in by the time the parser runs.
         _reject_unknown_block_keys(dispatch_raw, _KNOWN_DISPATCH_KEYS, "dispatch")
         max_turns = dispatch_raw.get("max_turns", DispatchConfig.max_turns)
-        if not isinstance(max_turns, int) or isinstance(max_turns, bool) or max_turns < 1:
+        if not is_positive_int(max_turns):
             raise BuildProfileError(
                 f"dispatch.max_turns must be an integer >= 1 (got {max_turns!r})"
             )
@@ -1022,11 +1023,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
                 f"bluesky.devices_file must be a non-empty path string (got {devices_file!r})"
             )
         device_page_size = bluesky_raw.get("device_page_size", BlueskyConfig.device_page_size)
-        if (
-            not isinstance(device_page_size, int)
-            or isinstance(device_page_size, bool)
-            or device_page_size < 1
-        ):
+        if not is_positive_int(device_page_size):
             raise BuildProfileError(
                 f"bluesky.device_page_size must be an integer >= 1 (got {device_page_size!r})"
             )
@@ -1040,22 +1037,14 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
                 f"bluesky.settle_timeout_s must be a number > 0 (got {settle_timeout_s!r})"
             )
         live_max_runs = bluesky_raw.get("live_max_runs", BlueskyConfig.live_max_runs)
-        if (
-            not isinstance(live_max_runs, int)
-            or isinstance(live_max_runs, bool)
-            or live_max_runs < 1
-        ):
+        if not is_positive_int(live_max_runs):
             raise BuildProfileError(
                 f"bluesky.live_max_runs must be an integer >= 1 (got {live_max_runs!r})"
             )
         live_max_rows_per_run = bluesky_raw.get(
             "live_max_rows_per_run", BlueskyConfig.live_max_rows_per_run
         )
-        if (
-            not isinstance(live_max_rows_per_run, int)
-            or isinstance(live_max_rows_per_run, bool)
-            or live_max_rows_per_run < 1
-        ):
+        if not is_positive_int(live_max_rows_per_run):
             raise BuildProfileError(
                 "bluesky.live_max_rows_per_run must be an integer >= 1 "
                 f"(got {live_max_rows_per_run!r})"

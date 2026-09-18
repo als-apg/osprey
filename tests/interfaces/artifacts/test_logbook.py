@@ -56,7 +56,7 @@ def _llm_json_response(subject="Test Subject", details="Test details.", tags=Non
 # Default provider config returned by get_provider_config("cborg")
 _MOCK_PROVIDER_CONFIG = {
     "api_key": "test-key",
-    "base_url": "https://api.cborg.lbl.gov/v1",
+    "base_url": "https://api.example.com/v1",
     "models": {
         "haiku": "anthropic/claude-haiku",
         "sonnet": "anthropic/claude-sonnet",
@@ -92,14 +92,12 @@ class TestLogbookCompose:
         app = create_app(workspace_root=tmp_path)
         return TestClient(app)
 
-    @pytest.mark.unit
     def test_compose_requires_id(self, app_client):
         """422 when no artifact_id provided."""
         resp = app_client.post("/api/logbook/compose", json={})
         assert resp.status_code == 422
         assert "at least one" in resp.json()["detail"].lower()
 
-    @pytest.mark.unit
     def test_compose_artifact_not_found(self, app_client):
         """404 for nonexistent artifact_id."""
         p1, p2 = _patch_model_resolution()
@@ -111,7 +109,6 @@ class TestLogbookCompose:
         assert resp.status_code == 404
         assert "not found" in resp.json()["detail"].lower()
 
-    @pytest.mark.unit
     def test_compose_no_provider_config(self, app_client):
         """503 with clear message when provider not found."""
         store = app_client.app.state.artifact_store
@@ -128,7 +125,6 @@ class TestLogbookCompose:
         assert resp.status_code == 503
         assert "provider" in resp.json()["detail"].lower()
 
-    @pytest.mark.unit
     def test_compose_success_artifact(self, app_client):
         """Mock aget_chat_completion, verify subject/details/tags returned."""
         store = app_client.app.state.artifact_store
@@ -156,7 +152,6 @@ class TestLogbookCompose:
         assert "beam" in data["tags"]
         assert entry.id in data["artifact_ids"]
 
-    @pytest.mark.unit
     def test_compose_markdown_fenced_json(self, app_client):
         """LLM wrapping JSON in ```json fences must not cause a 503."""
         store = app_client.app.state.artifact_store
@@ -177,7 +172,6 @@ class TestLogbookCompose:
         data = resp.json()
         assert data["subject"] == "Beam analysis"
 
-    @pytest.mark.unit
     def test_compose_json_with_preamble(self, app_client):
         """LLM adding preamble text before JSON must not cause a 503."""
         store = app_client.app.state.artifact_store
@@ -211,7 +205,6 @@ class TestLogbookSubmit:
         app = create_app(workspace_root=tmp_path)
         return TestClient(app)
 
-    @pytest.mark.unit
     def test_submit_creates_draft(self, app_client, tmp_path):
         """Draft JSON written to workspace/drafts/."""
         with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
@@ -240,7 +233,6 @@ class TestLogbookSubmit:
         assert draft_data["details"] == "Details here."
         assert draft_data["tags"] == ["test"]
 
-    @pytest.mark.unit
     def test_submit_returns_ariel_url(self, app_client, tmp_path):
         """Response includes ARIEL URL with draft_id."""
         with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
@@ -254,7 +246,6 @@ class TestLogbookSubmit:
         assert data["draft_id"] in data["url"]
         assert "/#create?draft=" in data["url"]
 
-    @pytest.mark.unit
     def test_submit_url_is_browser_resolvable(self, app_client, tmp_path, monkeypatch):
         """Without ARIEL_WEB_URL, the submit URL must be a web-terminal-relative
         proxy path — not an absolute container-internal address.
@@ -276,7 +267,6 @@ class TestLogbookSubmit:
         assert str(framework_web_port_default("ariel")) not in url
         assert url.startswith("/panel/ariel")
 
-    @pytest.mark.unit
     def test_submit_creates_metadata_json_attachment(self, app_client, tmp_path):
         """Submit creates a metadata.json file and includes it in attachment_paths."""
         with patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path):
@@ -312,7 +302,6 @@ class TestLogbookSubmit:
 class TestAssemblePrompt:
     """Tests for assemble_prompt() and POST /api/logbook/assemble-prompt."""
 
-    @pytest.mark.unit
     @pytest.mark.parametrize(
         "purpose",
         ["observation", "action_taken", "anomaly", "investigation", "routine_check", "general"],
@@ -337,7 +326,6 @@ class TestAssemblePrompt:
         # No nudge → no "Additional operator guidance" line
         assert "Additional operator guidance" not in result
 
-    @pytest.mark.unit
     def test_assemble_prompt_with_nudge(self):
         """Nudge text appears in assembled prompt."""
         from osprey.interfaces.artifacts.logbook import assemble_prompt
@@ -345,7 +333,6 @@ class TestAssemblePrompt:
         result = assemble_prompt(nudge="Focus on SR current readings")
         assert "Additional operator guidance: Focus on SR current readings" in result
 
-    @pytest.mark.unit
     def test_assemble_prompt_empty_nudge_ignored(self):
         """Whitespace-only nudge is ignored."""
         from osprey.interfaces.artifacts.logbook import assemble_prompt
@@ -353,7 +340,6 @@ class TestAssemblePrompt:
         result = assemble_prompt(nudge="   ")
         assert "Additional operator guidance" not in result
 
-    @pytest.mark.unit
     def test_assemble_prompt_unknown_purpose_falls_back(self):
         """Unknown purpose falls back to 'general'."""
         from osprey.interfaces.artifacts.logbook import PURPOSE_FRAGMENTS, assemble_prompt
@@ -361,7 +347,6 @@ class TestAssemblePrompt:
         result = assemble_prompt(purpose="nonexistent")
         assert PURPOSE_FRAGMENTS["general"] in result
 
-    @pytest.mark.unit
     def test_assemble_prompt_unknown_detail_falls_back(self):
         """Unknown detail_level falls back to 'standard'."""
         from osprey.interfaces.artifacts.logbook import DETAIL_FRAGMENTS, assemble_prompt
@@ -378,7 +363,6 @@ class TestAssemblePrompt:
         app = create_app(workspace_root=tmp_path)
         return TestClient(app)
 
-    @pytest.mark.unit
     def test_assemble_endpoint(self, app_client):
         """POST /api/logbook/assemble-prompt returns assembled prompt."""
         resp = app_client.post(
@@ -391,7 +375,6 @@ class TestAssemblePrompt:
         assert "anomaly" in data["prompt"].lower()
         assert "1-2 sentences" in data["prompt"]
 
-    @pytest.mark.unit
     def test_assemble_endpoint_defaults(self, app_client):
         """POST /api/logbook/assemble-prompt with empty body uses defaults."""
         resp = app_client.post("/api/logbook/assemble-prompt", json={})
@@ -402,7 +385,6 @@ class TestAssemblePrompt:
         assert "factual logbook entry" in data["prompt"].lower()
         assert "1 short paragraph" in data["prompt"]
 
-    @pytest.mark.unit
     def test_assemble_endpoint_with_nudge(self, app_client):
         """POST /api/logbook/assemble-prompt includes nudge in prompt."""
         resp = app_client.post(
@@ -426,7 +408,6 @@ class TestComposeWithSteering:
         app = create_app(workspace_root=tmp_path)
         return TestClient(app)
 
-    @pytest.mark.unit
     def test_compose_backward_compat(self, app_client):
         """POST with only artifact_id (no steering) still uses legacy prompt."""
         store = app_client.app.state.artifact_store
@@ -447,7 +428,6 @@ class TestComposeWithSteering:
         system_msg = call_args.kwargs["chat_request"].messages[0].content
         assert "Write concise" in system_msg
 
-    @pytest.mark.unit
     def test_compose_with_steering(self, app_client):
         """POST with purpose/detail_level uses assembled prompt."""
         store = app_client.app.state.artifact_store
@@ -474,7 +454,6 @@ class TestComposeWithSteering:
         assert "2-3 paragraphs" in system_msg
         assert "Check BPM readings" in system_msg
 
-    @pytest.mark.unit
     def test_compose_with_custom_prompt(self, app_client):
         """POST with custom_prompt uses it directly as system prompt."""
         store = app_client.app.state.artifact_store
@@ -495,7 +474,6 @@ class TestComposeWithSteering:
         system_msg = call_args.kwargs["chat_request"].messages[0].content
         assert system_msg == custom
 
-    @pytest.mark.unit
     def test_compose_custom_prompt_overrides_steering(self, app_client):
         """custom_prompt takes precedence over purpose/detail_level."""
         store = app_client.app.state.artifact_store
@@ -521,7 +499,6 @@ class TestComposeWithSteering:
         system_msg = call_args.kwargs["chat_request"].messages[0].content
         assert system_msg == custom
 
-    @pytest.mark.unit
     def test_compose_session_log_disabled(self, app_client):
         """include_session_log=False omits audit trail from user prompt."""
         store = app_client.app.state.artifact_store
@@ -550,7 +527,6 @@ class TestComposeWithSteering:
         # TranscriptReader should NOT have been instantiated
         mock_reader_cls.assert_not_called()
 
-    @pytest.mark.unit
     def test_compose_multiple_artifacts(self, app_client):
         """artifact_ids sends multiple artifacts to the LLM context."""
         store = app_client.app.state.artifact_store
@@ -575,7 +551,6 @@ class TestComposeWithSteering:
         assert e1.id in data["artifact_ids"]
         assert e2.id in data["artifact_ids"]
 
-    @pytest.mark.unit
     def test_compose_all_artifacts(self, app_client):
         """artifact_ids=["all"] loads every artifact from the store."""
         store = app_client.app.state.artifact_store
@@ -597,7 +572,6 @@ class TestComposeWithSteering:
         assert "Alpha" in user_msg
         assert "Beta" in user_msg
 
-    @pytest.mark.unit
     def test_compose_model_tier_routing(self, app_client):
         """model="sonnet" resolves to provider's sonnet model_id."""
         store = app_client.app.state.artifact_store
@@ -617,7 +591,6 @@ class TestComposeWithSteering:
         assert call_args.kwargs["provider"] == "anthropic"
         assert call_args.kwargs["model_id"] == "anthropic/claude-sonnet"
 
-    @pytest.mark.unit
     def test_compose_model_opus_routing(self, app_client):
         """model="opus" resolves to provider's opus model_id."""
         store = app_client.app.state.artifact_store
@@ -636,7 +609,6 @@ class TestComposeWithSteering:
         call_args = mock_llm.call_args
         assert call_args.kwargs["model_id"] == "anthropic/claude-opus"
 
-    @pytest.mark.unit
     def test_compose_default_tier_from_config(self, app_client):
         """No model= uses default_tier from logbook.composition config."""
         store = app_client.app.state.artifact_store
@@ -678,7 +650,6 @@ class TestUserPromptContent:
         """Extract the user message content from the mocked LLM call."""
         return mock_llm.call_args.kwargs["chat_request"].messages[1].content
 
-    @pytest.mark.unit
     def test_prompt_includes_artifact_summary(self, app_client):
         """Artifact summary dict appears in the user prompt when populated."""
         store = app_client.app.state.artifact_store
@@ -700,7 +671,6 @@ class TestUserPromptContent:
         assert "500.2" in user_msg
         assert "mean_current" in user_msg
 
-    @pytest.mark.unit
     def test_prompt_includes_artifact_category(self, app_client):
         """Artifact category appears in the user prompt when set."""
         store = app_client.app.state.artifact_store
@@ -720,7 +690,6 @@ class TestUserPromptContent:
         user_msg = self._get_user_prompt(mock_llm)
         assert "Category: data" in user_msg
 
-    @pytest.mark.unit
     def test_prompt_no_summary_when_empty(self, app_client):
         """Empty summary dict does not produce a Summary line (avoids noise)."""
         store = app_client.app.state.artifact_store
@@ -740,7 +709,6 @@ class TestUserPromptContent:
         user_msg = self._get_user_prompt(mock_llm)
         assert "Summary:" not in user_msg
 
-    @pytest.mark.unit
     def test_prompt_includes_chat_history(self, app_client):
         """Chat history between user and assistant appears in the user prompt."""
         store = app_client.app.state.artifact_store
@@ -782,7 +750,6 @@ class TestUserPromptContent:
         assert "USER: What is the beam current?" in user_msg
         assert "ASSISTANT: The beam current is 500 mA." in user_msg
 
-    @pytest.mark.unit
     def test_prompt_excludes_tool_arguments(self, app_client):
         """Audit trail entries carry tool names and results but NOT arguments.
 
@@ -829,7 +796,6 @@ class TestUserPromptContent:
         assert "SR:CURRENT" not in user_msg
         assert "args=" not in user_msg
 
-    @pytest.mark.unit
     def test_prompt_chat_history_excluded_when_session_log_disabled(self, app_client):
         """include_session_log=False omits both chat history and audit trail."""
         store = app_client.app.state.artifact_store
@@ -879,7 +845,6 @@ class TestTranscriptDirIsResolvedOnce:
     def _get_user_prompt(self, mock_llm) -> str:
         return mock_llm.call_args.kwargs["chat_request"].messages[1].content
 
-    @pytest.mark.unit
     def test_create_app_resolves_the_agent_project_dir_up_front(self, tmp_path):
         from osprey.interfaces.artifacts.app import create_app
 
@@ -887,7 +852,6 @@ class TestTranscriptDirIsResolvedOnce:
 
         assert getattr(app.state, "agent_project_dir", None) is not None
 
-    @pytest.mark.unit
     def test_compose_reads_the_transcript_from_app_state_not_cwd(self, tmp_path, monkeypatch):
         from pathlib import Path
 

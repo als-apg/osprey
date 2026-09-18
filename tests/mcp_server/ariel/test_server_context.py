@@ -14,7 +14,6 @@ from osprey.mcp_server.ariel.server_context import (
 from osprey.services.ariel_search.exceptions import ConfigurationError, VocabularyError
 
 
-@pytest.mark.unit
 def test_initialize_loads_config(tmp_path, monkeypatch):
     """Registry initialization loads ariel config from config.yml."""
     monkeypatch.chdir(tmp_path)
@@ -31,7 +30,6 @@ def test_initialize_loads_config(tmp_path, monkeypatch):
     assert registry.config.database.uri == "postgresql://localhost:5432/ariel"
 
 
-@pytest.mark.unit
 def test_initialize_connection_string_compat(tmp_path, monkeypatch):
     """Registry maps connection_string to uri for DatabaseConfig compatibility."""
     monkeypatch.chdir(tmp_path)
@@ -46,7 +44,6 @@ def test_initialize_connection_string_compat(tmp_path, monkeypatch):
     assert registry.config.database.uri == "postgresql://localhost:5432/ariel"
 
 
-@pytest.mark.unit
 def test_initialize_missing_ariel_section(tmp_path, monkeypatch):
     """Missing ariel section warns but doesn't crash."""
     monkeypatch.chdir(tmp_path)
@@ -57,7 +54,6 @@ def test_initialize_missing_ariel_section(tmp_path, monkeypatch):
         _ = registry.config
 
 
-@pytest.mark.unit
 def test_get_registry_before_init():
     """get_ariel_context raises before initialization."""
     reset_ariel_context()
@@ -65,7 +61,6 @@ def test_get_registry_before_init():
         get_ariel_context()
 
 
-@pytest.mark.unit
 def test_reset_clears_singleton():
     """reset_ariel_context clears the singleton."""
     # Initialize first
@@ -83,7 +78,6 @@ def test_reset_clears_singleton():
         get_ariel_context()
 
 
-@pytest.mark.unit
 async def test_service_caches(tmp_path, monkeypatch):
     """service() creates the service once and caches it."""
     monkeypatch.chdir(tmp_path)
@@ -141,7 +135,6 @@ def _write_project(project_dir, vocabulary_block):
     return config_path
 
 
-@pytest.mark.unit
 def test_initialize_refuses_on_missing_vocabulary_file(tmp_path, monkeypatch):
     """A vocabulary that cannot be loaded refuses startup, naming the failing key."""
     monkeypatch.chdir(tmp_path)
@@ -155,7 +148,6 @@ def test_initialize_refuses_on_missing_vocabulary_file(tmp_path, monkeypatch):
     assert excinfo.value.config_key == "ariel.vocabulary.path"
 
 
-@pytest.mark.unit
 def test_initialize_refuses_when_enabled_without_path(tmp_path, monkeypatch):
     """enabled: true with no path refuses startup naming ariel.vocabulary.path."""
     monkeypatch.chdir(tmp_path)
@@ -167,7 +159,6 @@ def test_initialize_refuses_when_enabled_without_path(tmp_path, monkeypatch):
     assert "ariel.vocabulary.path" in str(excinfo.value)
 
 
-@pytest.mark.unit
 def test_initialize_resolves_relative_path_against_config_dir(tmp_path, monkeypatch):
     """A relative vocabulary path resolves against the config file's directory, not the CWD."""
     project = tmp_path / "project"
@@ -186,7 +177,6 @@ def test_initialize_resolves_relative_path_against_config_dir(tmp_path, monkeypa
     assert registry.config.loaded_vocabulary.concept_count > 0
 
 
-@pytest.mark.unit
 def test_initialize_disabled_vocabulary_with_missing_file_starts(tmp_path, monkeypatch):
     """A disabled vocabulary reads nothing, so a stale path does not refuse startup."""
     monkeypatch.chdir(tmp_path)
@@ -198,7 +188,6 @@ def test_initialize_disabled_vocabulary_with_missing_file_starts(tmp_path, monke
     assert registry.config.vocabulary_errors == []
 
 
-@pytest.mark.unit
 def test_initialize_missing_ariel_section_still_does_not_raise(tmp_path, monkeypatch):
     """Eager validation does not turn a missing ariel section into a startup crash."""
     monkeypatch.chdir(tmp_path)

@@ -7,8 +7,9 @@ would make the cheapest leaf the most expensive import in the tree: reading
 ``triggers.yml`` would pull ``httpx`` in behind it.
 
 The tests here hold the invariant that importing the package, or any one leaf
-of it, costs only that leaf, and that the lazy map behind the public names
-cannot drift from the modules that define them.
+of it, costs only that leaf. They also pin the partition of ``__all__`` into
+the deferred names and the constants the package binds itself, and the one
+spelling of the dispatcher's MCP path that both ends of that wire read.
 
 The import checks run in a fresh interpreter, not on the already-populated
 ``sys.modules`` of the test session.
@@ -19,8 +20,6 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-
-import pytest
 
 import osprey.dispatch
 
@@ -75,25 +74,15 @@ def test_importing_the_package_pulls_in_neither_the_client_nor_the_pool():
     assert "osprey.dispatch.pool" not in added
 
 
-@pytest.mark.parametrize("name", sorted(osprey.dispatch._LAZY_EXPORTS))
-def test_every_public_name_resolves_to_its_defining_module(name):
-    """Attribute access yields the object the submodule exports, not a stale copy."""
-    from importlib import import_module
-
-    value = getattr(osprey.dispatch, name)
-    module = import_module(osprey.dispatch._LAZY_EXPORTS[name], osprey.dispatch.__name__)
-
-    assert value is getattr(module, name)
-
-
 def test_public_names_are_the_lazy_map_plus_the_package_constants():
     """``__all__`` advertises exactly the two kinds of name the package resolves.
 
     A name reaching ``__all__`` without an entry in one of the two sets would
     be advertised and then unreachable; a name in either set that never reaches
     ``__all__`` is resolvable but undiscoverable. Pinning the partition catches
-    both directions, which is what keeps the parametrized test above a complete
-    check of the lazy half rather than a sample of it.
+    both directions, and it is what makes the roster suite's walk of
+    ``_LAZY_EXPORTS`` a complete check of the lazy half rather than a sample of
+    it.
     """
     assert sorted(osprey.dispatch.__all__) == sorted(
         [*osprey.dispatch._LAZY_EXPORTS, *osprey.dispatch._EAGER_EXPORTS]
@@ -136,9 +125,3 @@ def test_reading_the_mcp_path_costs_no_leaf_of_the_package():
 
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == []
-
-
-def test_an_unknown_name_raises_attribute_error():
-    """The lazy lookup refuses names the package does not export."""
-    with pytest.raises(AttributeError):
-        osprey.dispatch.no_such_export

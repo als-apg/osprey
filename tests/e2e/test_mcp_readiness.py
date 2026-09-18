@@ -14,16 +14,12 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from tests.e2e.sdk_helpers import (
     SDKWorkflowResult,
     ToolTrace,
     await_mcp_ready,
     expected_mcp_servers,
 )
-
-pytestmark = pytest.mark.unit
 
 
 class _FakeClient:

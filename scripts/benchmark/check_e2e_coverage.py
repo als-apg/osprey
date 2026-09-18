@@ -46,7 +46,9 @@ def check_lanes(root: Path, excluded: dict[str, str]) -> list[str]:
     Runs ``pytest tests/e2e/ --collect-only`` in a subprocess with the same
     ``--ignore`` set the matrix runner uses, pointing ``OSPREY_E2E_LANES`` at a
     temp manifest so the conftest hook records each collected nodeid's lane.
-    Collection failure is itself a violation — the matrix could not run either.
+    The manifest is written from a collection hook that runs even when
+    collection was refused, so the collector's own exit status decides whether
+    what it left behind can be scored.
     """
     with tempfile.TemporaryDirectory() as td:
         lanes_path = Path(td) / "lanes.json"
@@ -65,9 +67,11 @@ def check_lanes(root: Path, excluded: dict[str, str]) -> list[str]:
         ]
         env = {**os.environ, "OSPREY_E2E_LANES": str(lanes_path)}
         proc = subprocess.run(cmd, cwd=root, env=env, capture_output=True, text=True)
+        tail = (proc.stdout + proc.stderr)[-800:]
         if not lanes_path.exists():
-            tail = (proc.stdout + proc.stderr)[-800:]
             return [f"lane collection produced no manifest (rc={proc.returncode}): {tail}"]
+        if proc.returncode != 0:
+            return [f"lane collection failed (rc={proc.returncode}): {tail}"]
         lanes = json.loads(lanes_path.read_text(encoding="utf-8"))
 
     violations = []

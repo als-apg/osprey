@@ -13,6 +13,8 @@ import warnings
 import pytest
 import yaml
 
+from tests.e2e.provider import gateway_base_url
+
 # =============================================================================
 # PROVIDER DETECTION (follows pattern from test_llm_providers.py)
 # =============================================================================
@@ -29,7 +31,7 @@ def get_available_providers() -> dict[str, dict]:
 
     available = {}
 
-    # Provider preference: als-apg first (the ALS-APG gateway — IP-unrestricted,
+    # Provider preference: als-apg first (IP-unrestricted,
     # works in CI and off-VPN), but only once its endpoint is named: the gateway
     # has no built-in host, so ALS_APG_BASE_URL is what makes it a route at all.
     # CBORG is LBLnet-gated and would 403 from GitHub Actions runners or
@@ -41,11 +43,16 @@ def get_available_providers() -> dict[str, dict]:
             ("als-apg", ["ALS_APG_API_KEY"], als_apg_base_url, "claude-haiku-4-5-20251001")
         )
     providers_to_check += [
-        ("cborg", ["CBORG_API_KEY"], "https://api.cborg.lbl.gov", "anthropic/claude-haiku"),
+        (
+            "cborg",
+            ["CBORG_API_KEY"],
+            gateway_base_url("cborg", "CBORG_BASE_URL"),
+            "anthropic/claude-haiku",
+        ),
         (
             "amsc-i2",
             ["AMSC_I2_API_KEY"],
-            "https://api.i2-core.american-science-cloud.org",
+            gateway_base_url("amsc-i2", "AMSC_I2_BASE_URL"),
             "claude-haiku",
         ),
         ("anthropic", ["ANTHROPIC_API_KEY"], None, "claude-haiku-4-5-20251001"),

@@ -53,7 +53,6 @@ def detect(code: str) -> dict:
 # ============================================================================
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("pattern", P4P_WRITE_PATTERNS)
 def test_p4p_write_patterns_are_in_the_write_list(pattern):
     """Put, post, rpc and SharedPV are writes, not reads."""
@@ -63,7 +62,6 @@ def test_p4p_write_patterns_are_in_the_write_list(pattern):
     assert pattern not in patterns["read"]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("pattern", P4P_READ_PATTERNS)
 def test_p4p_read_patterns_are_in_the_read_list(pattern):
     """Get, monitor and context creation are reads - creating a Context alone
@@ -74,7 +72,6 @@ def test_p4p_read_patterns_are_in_the_read_list(pattern):
     assert pattern not in patterns["write"]
 
 
-@pytest.mark.unit
 def test_no_bare_post_pattern():
     """A bare ``.post(`` would flag every requests.post() in analysis code.
 
@@ -87,7 +84,6 @@ def test_no_bare_post_pattern():
     assert r"\.post\s*\(" not in patterns["read"]
 
 
-@pytest.mark.unit
 def test_every_p4p_pattern_compiles():
     """Invalid regexes are swallowed at match time - catch them here instead."""
     for pattern in P4P_WRITE_PATTERNS + P4P_READ_PATTERNS:
@@ -99,7 +95,6 @@ def test_every_p4p_pattern_compiles():
 # ============================================================================
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -156,7 +151,6 @@ def test_p4p_write_code_is_detected_as_a_write(code):
     assert result["has_writes"] is True, f"no write pattern matched:\n{code}"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("pattern", P4P_WRITE_PATTERNS)
 def test_each_new_write_pattern_fires_on_some_snippet(pattern):
     """No dead entries: every new write regex earns its place."""
@@ -175,7 +169,6 @@ def test_each_new_write_pattern_fires_on_some_snippet(pattern):
 # ============================================================================
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -202,7 +195,6 @@ def test_p4p_read_code_is_detected_as_a_read(code):
     assert result["has_reads"] is True, f"no read pattern matched:\n{code}"
 
 
-@pytest.mark.unit
 def test_context_creation_alone_is_not_a_write():
     """Opening a client context puts nothing on the wire."""
     code = "from p4p.client.thread import Context\nctxt = Context('pva')\n"
@@ -213,7 +205,6 @@ def test_context_creation_alone_is_not_a_write():
     assert result["has_writes"] is False
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("pattern", P4P_READ_PATTERNS)
 def test_each_new_read_pattern_fires_on_some_snippet(pattern):
     snippets = [
@@ -230,7 +221,6 @@ def test_each_new_read_pattern_fires_on_some_snippet(pattern):
 # ============================================================================
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -258,7 +248,6 @@ def test_ordinary_code_does_not_fire_any_new_p4p_pattern(code):
         assert re.search(pattern, code) is None, f"{pattern!r} matched:\n{code}"
 
 
-@pytest.mark.unit
 def test_post_in_code_that_also_uses_p4p_is_treated_as_a_write():
     """Deliberate and conservative: once p4p is in scope, a post is a write.
 
@@ -280,7 +269,6 @@ def test_post_in_code_that_also_uses_p4p_is_treated_as_a_write():
     assert result["has_writes"] is True
 
 
-@pytest.mark.unit
 def test_requests_post_is_not_a_control_system_write():
     """The whole reason there is no bare ``.post(`` entry."""
     code = "import requests\nrequests.post('https://example.org/api', json=payload)\n"
@@ -295,7 +283,6 @@ def test_requests_post_is_not_a_control_system_write():
 # ============================================================================
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -316,7 +303,6 @@ def test_doocs_set_is_detected_as_a_write(code):
     assert result["has_writes"] is True
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "code",
     [
@@ -331,7 +317,6 @@ def test_bare_set_is_not_a_doocs_write(code):
     assert result["has_writes"] is False
 
 
-@pytest.mark.unit
 def test_no_bare_set_pattern():
     """A bare ``.set(`` would flag half of ordinary analysis code."""
     patterns = get_framework_standard_patterns()

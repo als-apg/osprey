@@ -1472,9 +1472,9 @@ class TestRedirectPrefixIdempotence:
     """A prefix-AWARE backend's Location is never double-prefixed.
 
     Backends that honor the ``X-Forwarded-Prefix`` this proxy sends emit
-    Locations already inside the panel namespace; re-basing those again
-    produced ``/u/a/panel/x/u/a/panel/x/...`` and a terminal 404 (seen live
-    with GEECS-DataPortal 0.9.0). Prefix-naive backends keep the old re-base.
+    Locations already inside the panel namespace; re-basing one of those
+    again yields ``/u/a/panel/x/u/a/panel/x/...`` and a terminal 404.
+    Prefix-naive backends keep the old re-base.
     """
 
     PREFIX = "/u/alice/panel/dataview"

@@ -32,8 +32,6 @@ from click.testing import CliRunner
 from osprey.cli import build_environment
 from osprey.cli.main import cli
 
-pytestmark = pytest.mark.unit
-
 OSPREY_SPEC = "osprey-framework==1.2.3"
 
 # The Dockerfile's primer install: the pinned spec, then the project's own

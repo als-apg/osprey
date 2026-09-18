@@ -19,7 +19,6 @@ class TestMarkdownRenderedAPI:
         app = create_app(workspace_root=tmp_path)
         return TestClient(app), tmp_path
 
-    @pytest.mark.unit
     def test_renders_markdown_to_html_page(self, app_client):
         """Markdown artifact returns a full HTML page with CDN links."""
         client, workspace = app_client
@@ -46,7 +45,6 @@ class TestMarkdownRenderedAPI:
         assert "osprey-md-rendered" in html
         assert "md-source" in html
 
-    @pytest.mark.unit
     def test_non_markdown_returns_400(self, app_client):
         """Non-markdown artifact type returns 400."""
         client, workspace = app_client
@@ -66,7 +64,6 @@ class TestMarkdownRenderedAPI:
         assert resp.status_code == 400
         assert "not a markdown" in resp.json()["detail"]
 
-    @pytest.mark.unit
     def test_missing_artifact_returns_404(self, app_client):
         """Non-existent artifact ID returns 404."""
         client, workspace = app_client
@@ -74,7 +71,6 @@ class TestMarkdownRenderedAPI:
         resp = client.get("/api/markdown/nonexistent-id/rendered")
         assert resp.status_code == 404
 
-    @pytest.mark.unit
     def test_script_tag_in_markdown_is_escaped(self, app_client):
         """Markdown containing </script> is safely escaped in the JSON embed."""
         client, workspace = app_client
@@ -107,7 +103,6 @@ class TestMarkdownRenderedAPI:
         json_content = html[json_block_start:json_block_end]
         assert "</script>" not in json_content
 
-    @pytest.mark.unit
     def test_markdown_file_missing_on_disk_returns_404(self, app_client):
         """A registered entry whose file vanished from disk returns 404, not 500."""
         client, _ = app_client

@@ -48,9 +48,14 @@ host, which is exactly why the host-mode worker is told to reach them at
 default 5080, so no scenario trips the build's OTEL-endpoint check either.
 
 **Update discipline** — the defaults module's applies here verbatim, with this
-suite's own regeneration command::
+suite's own regeneration command, which takes the scenarios to regenerate::
 
-    PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+    PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py bridge-on-host site-image-args
+
+Pass the scenarios the template edit actually touches: that is what keeps every
+other scenario's goldens out of the diff. With no arguments the whole set is
+re-rendered from whatever this worktree holds, which quietly reverts a render
+the checkout is behind on and buries the change under files it never touched.
 
 Never hand-edit a golden. Regenerate in the SAME reviewed change as the
 template edit that moved it, then account for every changed byte.
@@ -58,8 +63,10 @@ template edit that moved it, then account for every changed byte.
 
 from __future__ import annotations
 
+import shutil
+import sys
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1267,16 +1274,83 @@ def _service_env(scenario_name: str, key: str, compose_name: str) -> dict[str, s
     }
 
 
-def _regenerate() -> None:
-    """Overwrite every scenario golden. See this module's update discipline."""
+def _regenerate(names: Sequence[str] = ()) -> None:
+    """Overwrite the goldens of the scenarios in *names*, or of all of them.
+
+    See this module's update discipline. A run is filtered because a template
+    belongs to a handful of scenarios and not to the rest: re-rendering the
+    rest puts goldens the change never touched into its diff, written from
+    whatever this worktree holds rather than from what pinned them.
+
+    Only files whose bytes actually move are written, so a run that changes
+    nothing says so instead of printing the whole set back.
+
+    An unrecognized name exits rather than raising: this is a command-line
+    entry point, and a typo there should print what it could have been.
+    """
+    known = {scenario.name: scenario for scenario in SCENARIOS}
+    unknown = [name for name in names if name not in known]
+    if unknown:
+        raise SystemExit(
+            f"unknown scenario(s): {', '.join(unknown)}\n"
+            f"known scenarios: {', '.join(sorted(known))}"
+        )
+    selected = [known[name] for name in names] if names else list(SCENARIOS)
+
+    changed = 0
     with _axes_unset():
-        for scenario in SCENARIOS:
+        for scenario in selected:
             directory = _GOLDEN_DIR / scenario.name
             directory.mkdir(parents=True, exist_ok=True)
             for name, text in sorted(_render_scenario(scenario).items()):
-                (directory / name).write_text(text, encoding="utf-8")
-                print(f"wrote {directory / name}")
+                path = directory / name
+                if path.exists() and path.read_text(encoding="utf-8") == text:
+                    continue
+                path.write_text(text, encoding="utf-8")
+                changed += 1
+                print(f"wrote {path}")
+    print(f"{changed} golden(s) changed")
+
+
+def test_regenerating_one_scenario_leaves_the_others_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A filtered run rewrites the scenarios it names and nothing else.
+
+    Re-rendering every scenario on every regeneration means a one-template
+    edit also rewrites goldens that template is not in, from whatever the
+    running worktree holds — which silently reverts a render this checkout is
+    behind on. The copy under ``tmp_path`` is not politeness: a test that
+    edited a committed golden would leave the tree dirty for whoever ran it.
+    """
+    root = tmp_path / "render_axis_shapes"
+    shutil.copytree(_GOLDEN_DIR, root)
+    monkeypatch.setattr(sys.modules[__name__], "_GOLDEN_DIR", root)
+
+    bystander_scenario, named_scenario = SCENARIOS[0], SCENARIOS[1]
+    sentinel = "# sentinel\n"
+    bystander = sorted((root / bystander_scenario.name).glob("*.yml"))[0]
+    bystander.write_text(sentinel, encoding="utf-8")
+    named = sorted((root / named_scenario.name).glob("*.yml"))[0]
+    named.write_text(sentinel, encoding="utf-8")
+
+    _regenerate([named_scenario.name])
+
+    assert bystander.read_text(encoding="utf-8") == sentinel
+    with _axes_unset():
+        rendered = _render_scenario(named_scenario)
+    assert named.read_text(encoding="utf-8") == rendered[named.name]
+
+
+def test_regenerating_an_unknown_scenario_names_the_known_ones() -> None:
+    """A mistyped scenario refuses, and says what it could have been."""
+    with pytest.raises(SystemExit) as refusal:
+        _regenerate(["no-such-scenario"])
+
+    message = str(refusal.value)
+    assert "no-such-scenario" in message
+    assert SCENARIOS[0].name in message
 
 
 if __name__ == "__main__":
-    _regenerate()
+    _regenerate(sys.argv[1:])

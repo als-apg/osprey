@@ -33,8 +33,6 @@ from osprey.services.bluesky_bridge.app import (
 )
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
-pytestmark = pytest.mark.unit
-
 _MOD = "osprey.mcp_server.bluesky.tools.read_tools"
 
 _SOURCE = "from bluesky.plans import count\n\n\ndef sniff(detectors):\n    yield from count(...)\n"

@@ -9,7 +9,7 @@ Functions that require the database will raise ImportError if not available.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from osprey.services.ariel_search.database.core_migration import CoreMigration
 from osprey.services.ariel_search.database.migrations import (
@@ -49,35 +49,29 @@ __all__ = [
     "requires_module",
 ]
 
+#: Public name -> the submodule of this package that defines it. Entries are
+#: resolved on first attribute access, never at import.
+_LAZY_EXPORTS: dict[str, str] = {
+    "create_connection_pool": ".connection",
+    "KNOWN_MIGRATIONS": ".migrations",
+    "MigrationRunner": ".migrations",
+    "run_migrations": ".migrations",
+    "ARIELRepository": ".repository",
+    "requires_module": ".repository",
+}
 
-def __getattr__(name: str):
-    """Lazy load database-dependent modules."""
-    if name == "create_connection_pool":
-        from osprey.services.ariel_search.database.connection import (
-            create_connection_pool,
-        )
 
-        return create_connection_pool
+def __getattr__(name: str) -> Any:
+    """Resolve a public name from its defining module on first access."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from importlib import import_module
 
-    if name in ("KNOWN_MIGRATIONS", "MigrationRunner", "run_migrations"):
-        from osprey.services.ariel_search.database.migrations import (
-            KNOWN_MIGRATIONS,
-            MigrationRunner,
-            run_migrations,
-        )
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
 
-        return {
-            "KNOWN_MIGRATIONS": KNOWN_MIGRATIONS,
-            "MigrationRunner": MigrationRunner,
-            "run_migrations": run_migrations,
-        }[name]
 
-    if name in ("ARIELRepository", "requires_module"):
-        from osprey.services.ariel_search.database.repository import (
-            ARIELRepository,
-            requires_module,
-        )
-
-        return {"ARIELRepository": ARIELRepository, "requires_module": requires_module}[name]
-
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_LAZY_EXPORTS})

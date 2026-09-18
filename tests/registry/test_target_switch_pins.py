@@ -270,7 +270,6 @@ def test_a_writes_off_render_does_not_deny_the_switch_tool(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_the_approval_hooks_lane_literals_match_the_frameworks() -> None:
     """The hook names lanes with literals; this is what keeps them true.
 
@@ -298,7 +297,6 @@ def test_the_approval_hooks_lane_literals_match_the_frameworks() -> None:
         assert f"{lane.upper()}_BRIDGE_URL" == f"{lane_env_prefix(lane)}_BRIDGE_URL"
 
 
-@pytest.mark.unit
 def test_the_approval_hooks_target_literals_match_the_frameworks() -> None:
     """The same drift guard for the target vocabulary the lane map is built on.
 
@@ -346,7 +344,6 @@ def _reader():
     return reader
 
 
-@pytest.mark.unit
 def test_the_readers_target_literals_match_the_frameworks() -> None:
     """Every hook that names a target names it through these literals.
 
@@ -368,7 +365,6 @@ def test_the_readers_target_literals_match_the_frameworks() -> None:
     assert reader.CONTROL_TARGETS == connector_types.CONTROL_TARGETS
 
 
-@pytest.mark.unit
 def test_the_readers_connector_type_literals_match_the_frameworks() -> None:
     """The type names the target-to-type step and the never-live sets are built on.
 
@@ -417,7 +413,6 @@ def _framework_target_type(section: dict, target: str) -> str | None:
         return None
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "connector",
     [
@@ -446,7 +441,6 @@ def test_the_reader_derives_targets_exactly_as_the_framework_does(connector, bas
         assert reader.target_type(section, target) == _framework_target_type(section, target)
 
 
-@pytest.mark.unit
 def test_the_reader_reaches_the_standin_only_where_a_deployment_has_one() -> None:
     """``session_types`` restates ``configured_targets``, not the vocabulary.
 
@@ -636,7 +630,6 @@ def standin_settings_renders(tmp_path_factory) -> dict:
     }
 
 
-@pytest.mark.unit
 def test_a_two_target_deployment_enumerates_exactly_its_two_targets() -> None:
     """No ``standin`` slot where no ``live_standin`` block was configured.
 

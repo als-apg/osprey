@@ -344,7 +344,7 @@ Authoring Triggers
    ``max_retries`` with ``backoff_sec`` between attempts. It does *not* retry a
    run that the agent itself ends in error, so firing a trigger against a healthy
    stack never exercises it; the behaviour is covered by
-   ``tests/unit/dispatch/test_server_routes.py``.
+   ``tests/dispatch/test_server_routes.py``.
 
 Reaching the Machine
 ====================

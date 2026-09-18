@@ -25,11 +25,11 @@ class TestLoadConfigResolvesEnvVars:
         )
 
         # Set one var, leave the other to use its default
-        monkeypatch.setenv("TEST_FACILITY", "ALS")
+        monkeypatch.setenv("TEST_FACILITY", "ERF")
 
         result = _load_config(tmp_path)
 
-        # TEST_FACILITY was set -> resolved to "ALS"
-        assert result["facility"] == "ALS"
+        # TEST_FACILITY was set -> resolved to "ERF"
+        assert result["facility"] == "ERF"
         # TEST_TZ was not set -> resolved to default "UTC"
         assert result["nested"]["tz"] == "UTC"

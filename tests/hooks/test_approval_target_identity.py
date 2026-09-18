@@ -180,7 +180,6 @@ def write_state(root, target="va", targets=None, server_pid=SERVER_PID):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_a_stale_report_that_sorts_first_never_answers_for_the_live_one(
     approval, reader, deployment, monkeypatch
 ):
@@ -217,7 +216,6 @@ def test_a_stale_report_that_sorts_first_never_answers_for_the_live_one(
     assert not any("stale-gw" in line or "Crashed" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_the_hook_reads_the_record_through_the_readers_own_view(
     approval, reader, deployment, alive_everything
 ):
@@ -232,7 +230,6 @@ def test_the_hook_reads_the_record_through_the_readers_own_view(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_live_target_names_the_machine_and_its_endpoint(approval, deployment, alive_everything):
     """A real-machine target renders LOUD, with the endpoint the writer selected.
 
@@ -246,7 +243,6 @@ def test_live_target_names_the_machine_and_its_endpoint(approval, deployment, al
     assert approval._target_line() == f"Target: LIVE MACHINE ({LIVE_ENDPOINT})"
 
 
-@pytest.mark.unit
 def test_a_live_standin_is_named_by_the_label_the_writer_minted(
     approval, deployment, alive_everything
 ):
@@ -272,7 +268,6 @@ def test_a_live_standin_is_named_by_the_label_the_writer_minted(
     assert approval._target_line() == "Target: LIVE MACHINE (stand-in) (127.0.0.1:5074)"
 
 
-@pytest.mark.unit
 def test_a_switch_to_a_live_standin_names_it_on_the_destination_line_too(
     approval, deployment, alive_everything
 ):
@@ -299,7 +294,6 @@ def test_a_switch_to_a_live_standin_names_it_on_the_destination_line_too(
     assert any("THIS SWITCH POINTS THE SESSION AT THE LIVE MACHINE" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_a_live_record_without_a_label_still_names_the_machine(
     approval, deployment, alive_everything
 ):
@@ -317,7 +311,6 @@ def test_a_live_record_without_a_label_still_names_the_machine(
     assert approval._target_line() == f"Target: LIVE MACHINE ({LIVE_ENDPOINT})"
 
 
-@pytest.mark.unit
 def test_virtual_target_names_the_simulation(approval, deployment, alive_everything):
     """A simulation target says so in words, without an endpoint to misread."""
     write_state(deployment, target="va")
@@ -325,7 +318,6 @@ def test_virtual_target_names_the_simulation(approval, deployment, alive_everyth
     assert approval._target_line() == "Target: virtual accelerator (simulation)"
 
 
-@pytest.mark.unit
 def test_live_target_without_a_recorded_endpoint_says_so(approval, deployment, alive_everything):
     """An endpoint the writer never recorded must not render as empty parentheses."""
     targets = published_targets()
@@ -340,7 +332,6 @@ def test_live_target_without_a_recorded_endpoint_says_so(approval, deployment, a
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_no_state_at_all_renders_the_explicit_baseline_line(
     approval, reader, deployment, alive_everything
 ):
@@ -355,7 +346,6 @@ def test_no_state_at_all_renders_the_explicit_baseline_line(
     assert approval._target_line() == BASELINE_LINE
 
 
-@pytest.mark.unit
 def test_a_record_with_no_live_server_renders_the_baseline_line(
     approval, reader, deployment, alive_everything
 ):
@@ -373,7 +363,6 @@ def test_a_record_with_no_live_server_renders_the_baseline_line(
     assert approval._target_line() == BASELINE_LINE
 
 
-@pytest.mark.unit
 def test_corrupt_state_renders_the_baseline_line(approval, reader, deployment, alive_everything):
     """A truncated or corrupt record resolves to the baseline, not to silence."""
     record = state_dir_under(deployment) / reader.RECORD_FILENAME
@@ -384,7 +373,6 @@ def test_corrupt_state_renders_the_baseline_line(approval, reader, deployment, a
     assert approval._target_line() == BASELINE_LINE
 
 
-@pytest.mark.unit
 def test_a_record_outside_the_target_vocabulary_renders_the_baseline_line(
     approval, reader, deployment, alive_everything
 ):
@@ -404,7 +392,6 @@ def test_a_record_outside_the_target_vocabulary_renders_the_baseline_line(
     assert approval._target_line() == BASELINE_LINE
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "meta",
     [
@@ -432,7 +419,6 @@ def test_a_record_that_makes_no_machine_claim_renders_the_baseline_line(
     assert approval._target_line() == BASELINE_LINE
 
 
-@pytest.mark.unit
 def test_a_target_missing_from_the_record_renders_the_baseline_line(
     approval, deployment, alive_everything
 ):
@@ -442,7 +428,6 @@ def test_a_target_missing_from_the_record_renders_the_baseline_line(
     assert approval._target_line() == BASELINE_LINE
 
 
-@pytest.mark.unit
 def test_a_render_without_the_reader_still_renders_the_baseline_line(approval, monkeypatch):
     """An older render has no `osprey_target_state` sibling to import.
 
@@ -455,7 +440,6 @@ def test_a_render_without_the_reader_still_renders_the_baseline_line(approval, m
     assert approval._target_line() == BASELINE_LINE
 
 
-@pytest.mark.unit
 def test_a_reader_that_raises_still_renders_the_baseline_line(approval, monkeypatch):
     """Fail-open at the call site too, not only at the import."""
 
@@ -473,7 +457,6 @@ def test_a_reader_that_raises_still_renders_the_baseline_line(approval, monkeypa
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_endpoint_text_is_escaped_onto_one_line(approval, deployment, alive_everything):
     """An endpoint carrying a line break cannot forge a second prompt line.
 
@@ -496,7 +479,6 @@ def test_endpoint_text_is_escaped_onto_one_line(approval, deployment, alive_ever
     assert line.startswith("Target: LIVE MACHINE (pva://gw\\x85")
 
 
-@pytest.mark.unit
 def test_label_text_is_escaped_onto_one_line(approval, deployment, alive_everything):
     """The label is escaped exactly as the endpoint beside it is.
 
@@ -523,7 +505,6 @@ def test_label_text_is_escaped_onto_one_line(approval, deployment, alive_everyth
     )
 
 
-@pytest.mark.unit
 def test_a_lane_line_names_a_standin_the_same_way_the_target_line_does(
     approval, deployment, alive_everything
 ):
@@ -556,7 +537,6 @@ def test_a_lane_line_names_a_standin_the_same_way_the_target_line_does(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_every_ask_envelope_carries_the_target_line(approval, deployment, alive_everything):
     """The identity line sits under the headline, above the tool detail.
 
@@ -574,7 +554,6 @@ def test_every_ask_envelope_carries_the_target_line(approval, deployment, alive_
     assert reason.endswith("Review the operation above and approve to proceed.")
 
 
-@pytest.mark.unit
 def test_the_ask_envelope_carries_the_baseline_line_when_state_is_absent(approval, monkeypatch):
     """No prompt is ever emitted without a target line of some kind."""
     monkeypatch.setattr(approval, "_target_state", None)
@@ -591,7 +570,6 @@ def test_the_ask_envelope_carries_the_baseline_line_when_state_is_absent(approva
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_the_switch_describer_is_registered_under_its_short_tool_name(approval):
     """Registration is what makes the describer reachable once the tool ships."""
     assert (
@@ -599,7 +577,6 @@ def test_the_switch_describer_is_registered_under_its_short_tool_name(approval):
     )
 
 
-@pytest.mark.unit
 def test_switch_to_live_renders_destination_endpoint_and_probe_channel(
     approval, deployment, alive_everything
 ):
@@ -617,7 +594,6 @@ def test_switch_to_live_renders_destination_endpoint_and_probe_channel(
     assert "Destination probe channel: RING:BEAM:CURRENT" in lines
 
 
-@pytest.mark.unit
 def test_switch_to_the_simulation_carries_no_live_machine_warning(
     approval, deployment, alive_everything
 ):
@@ -631,7 +607,6 @@ def test_switch_to_the_simulation_carries_no_live_machine_warning(
     assert not any("LIVE MACHINE" in line for line in lines)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("real_machine", [False, True], ids=["not-the-machine", "the-machine"])
 def test_switch_to_the_standin_names_the_label_the_writer_recorded(
     approval, deployment, alive_everything, real_machine
@@ -662,7 +637,6 @@ def test_switch_to_the_standin_names_the_label_the_writer_recorded(
     assert not any("records whether this destination" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_a_standin_destination_on_a_record_that_has_no_such_slot_is_reported(
     approval, deployment, alive_everything
 ):
@@ -681,7 +655,6 @@ def test_a_standin_destination_on_a_record_that_has_no_such_slot_is_reported(
     ]
 
 
-@pytest.mark.unit
 def test_a_standin_baseline_deployment_names_its_lanes_for_the_standin(approval):
     """The lane baseline follows the deployment's own connector type.
 
@@ -698,7 +671,6 @@ def test_a_standin_baseline_deployment_names_its_lanes_for_the_standin(approval)
     assert approval._rendered_lanes(standin) == [("bluesky", "standin")]
 
 
-@pytest.mark.unit
 def test_a_destination_without_a_probe_channel_simply_omits_the_line(
     approval, deployment, alive_everything
 ):
@@ -718,7 +690,6 @@ def test_a_destination_without_a_probe_channel_simply_omits_the_line(
     assert not any("probe channel" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_a_destination_that_makes_no_machine_claim_is_called_unknown(
     approval, deployment, alive_everything
 ):
@@ -742,7 +713,6 @@ def test_a_destination_that_makes_no_machine_claim_is_called_unknown(
     assert "Destination probe channel: RING:BEAM:CURRENT" in lines
 
 
-@pytest.mark.unit
 def test_the_destination_cannot_be_previewed_without_state(approval, deployment, alive_everything):
     """With no resolvable state, say so — and let the approval proceed anyway."""
     lines = approval._describe_control_target_set({"target": "live"}, {})
@@ -752,7 +722,6 @@ def test_the_destination_cannot_be_previewed_without_state(approval, deployment,
     assert "Approval is not blocked" in lines[0]
 
 
-@pytest.mark.unit
 def test_a_destination_missing_from_the_record_is_reported_not_invented(
     approval, deployment, alive_everything
 ):
@@ -765,7 +734,6 @@ def test_a_destination_missing_from_the_record_is_reported_not_invented(
     assert "no controls server records metadata for it" in lines[0]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("tool_input", [{}, {"target": ""}, {"target": "   "}, {"target": 7}])
 def test_a_call_that_names_no_destination_says_so(
     approval, deployment, alive_everything, tool_input
@@ -776,7 +744,6 @@ def test_a_call_that_names_no_destination_says_so(
     assert lines == ["Destination: not named in this call — the switch would be refused."]
 
 
-@pytest.mark.unit
 def test_destination_metadata_is_escaped_onto_its_own_lines(approval, deployment, alive_everything):
     """Untrusted label/endpoint text cannot forge extra destination lines."""
     targets = published_targets()
@@ -835,7 +802,6 @@ def _reason(result):
     return output["permissionDecisionReason"]
 
 
-@pytest.mark.unit
 def test_end_to_end_channel_write_prompt_names_the_live_machine(tmp_path, hook_runner, make_config):
     """The whole path: real state file, real parentage walk, real subprocess."""
     config = _approval_config(make_config)
@@ -855,7 +821,6 @@ def test_end_to_end_channel_write_prompt_names_the_live_machine(tmp_path, hook_r
     assert "RING:QF:SP" in reason
 
 
-@pytest.mark.unit
 def test_end_to_end_channel_write_prompt_names_the_simulation(tmp_path, hook_runner, make_config):
     """The same path, pointed at the virtual accelerator."""
     config = _approval_config(make_config)
@@ -873,7 +838,6 @@ def test_end_to_end_channel_write_prompt_names_the_simulation(tmp_path, hook_run
     assert "Target: virtual accelerator (simulation)" in _reason(result)
 
 
-@pytest.mark.unit
 def test_end_to_end_a_non_write_tool_carries_the_baseline_line(tmp_path, hook_runner, make_config):
     """A tool that moves no hardware gets the line too, and on a stateless repo.
 
@@ -897,7 +861,6 @@ def test_end_to_end_a_non_write_tool_carries_the_baseline_line(tmp_path, hook_ru
     assert "Tool: setup_patch" in reason
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "approval_config",
     [
@@ -933,7 +896,6 @@ def test_end_to_end_an_allowed_call_carries_no_target_line(
     assert "LIVE MACHINE" not in json.dumps(result)
 
 
-@pytest.mark.unit
 def test_end_to_end_switch_prompt_previews_the_destination(tmp_path, hook_runner, make_config):
     """`control_target_set` reaches the describer once it flows through the hook."""
     config = _approval_config(make_config)
@@ -1026,7 +988,6 @@ NO_POSTURE_SECTION = {
 }
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("section", "live", "va"),
     [
@@ -1053,7 +1014,6 @@ def test_writes_posture_over_the_deployment_shapes(reader, section, live, va):
     assert reader.writes_posture(section, "va") is va
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("section", "expected"),
     [
@@ -1079,7 +1039,6 @@ VA_ONLY_ARMED_SECTION = {
 }
 
 
-@pytest.mark.unit
 def test_a_simulator_only_deployment_is_armed_for_an_unidentified_call(reader):
     """No switch rendered means one target to be uncertain between, not two.
 
@@ -1092,7 +1051,6 @@ def test_a_simulator_only_deployment_is_armed_for_an_unidentified_call(reader):
     assert reader.most_restrictive_posture(VA_ONLY_ARMED_SECTION) is True
 
 
-@pytest.mark.unit
 def test_a_mock_carrying_one_live_block_answers_for_the_mock_it_builds(reader):
     """`live` resolves to the block, but the connector the runtime built is the mock.
 
@@ -1111,7 +1069,6 @@ def test_a_mock_carrying_one_live_block_answers_for_the_mock_it_builds(reader):
     assert reader.most_restrictive_posture(section) is True
 
 
-@pytest.mark.unit
 def test_both_targets_are_reachable_only_on_a_switch_capable_render(reader):
     """Both types configured with a block, and the baseline naming its own type."""
     section = {
@@ -1127,7 +1084,6 @@ def test_both_targets_are_reachable_only_on_a_switch_capable_render(reader):
     assert reader.most_restrictive_posture(section) is False
 
 
-@pytest.mark.unit
 def test_a_standin_beside_a_simulator_reaches_both_without_a_live_block(reader):
     """Two configured targets are the switching world, whichever two they are.
 
@@ -1151,7 +1107,6 @@ def test_a_standin_beside_a_simulator_reaches_both_without_a_live_block(reader):
     assert reader.most_restrictive_posture(section) is True
 
 
-@pytest.mark.unit
 def test_the_target_to_type_mapping_is_public(reader):
     """`osprey_writes_check` spells its refusal keys from this mapping.
 
@@ -1165,7 +1120,6 @@ def test_the_target_to_type_mapping_is_public(reader):
     assert reader.target_type(UNDERIVABLE_LIVE_SECTION, "live") is None
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
@@ -1191,7 +1145,6 @@ def test_only_a_literal_true_arms_a_connector_block(reader, value, expected):
     assert reader.writes_posture(section, "live") is expected
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
@@ -1208,7 +1161,6 @@ def test_only_a_literal_true_arms_the_deployment_wide_key(reader, value, expecte
     assert reader.writes_posture(section, "live") is expected
 
 
-@pytest.mark.unit
 def test_a_dotted_custom_type_is_one_key_and_not_a_path(reader):
     """A custom connector's module path names a single block, dots and all."""
     section = {
@@ -1220,7 +1172,6 @@ def test_a_dotted_custom_type_is_one_key_and_not_a_path(reader):
     assert reader.writes_posture(section, "live") is True
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("section", [None, "control_system", [], 42], ids=type)
 def test_a_section_that_is_not_a_mapping_states_no_posture(reader, section):
     """Nothing to read is not a refusal; it is the absence of an answer."""
@@ -1228,7 +1179,6 @@ def test_a_section_that_is_not_a_mapping_states_no_posture(reader, section):
     assert reader.most_restrictive_posture(section) is None
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("target", [None, "", "LIVE", "staging"], ids=repr)
 def test_an_unknown_target_answers_the_deployment_wide_key(reader, target):
     """An unknown target names no type, so there is no block to consult."""

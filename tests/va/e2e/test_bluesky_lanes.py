@@ -63,7 +63,6 @@ conftest's gate), without docker, and without the ``osprey-va-full`` image.
 
 from __future__ import annotations
 
-import contextlib
 import itertools
 import json
 import os
@@ -82,6 +81,8 @@ import pytest
 import yaml
 
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
+from osprey.cli.build_profile_schema import SECOND_LANE_PORT_STRIDE
+from osprey.deployment.compose_generator import BLUESKY_DEVICES_FILENAME
 from osprey.mcp_server.bluesky import lanes as lanes_module
 from osprey.mcp_server.bluesky.server_context import (
     initialize_server_context,
@@ -89,9 +90,11 @@ from osprey.mcp_server.bluesky.server_context import (
 )
 from osprey.mcp_server.bluesky.tools import queue as queue_tools
 from osprey.mcp_server.control_system import target_state
+from osprey.services.bluesky_bridge.devices._specs_from_file import specs_from_file
 from osprey.utils.workspace import reset_config_cache
 from osprey_connectors import control_context, posture_store
 from tests._control_context_fixtures import write_control_context
+from tests.e2e._queue_drive import wait_for_worker_environment
 from tests.e2e.profile_edits import set_pairs
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 from tests.va.e2e import conftest as e2e_conftest
@@ -117,10 +120,12 @@ LANE_LIVE = SECOND_LANE_KEYS["live"]
 #: has to be able to run beside an already-deployed stack on a shared dev
 #: machine -- a bound-port collision aborts `osprey up` before it creates a
 #: single container, which would read as a lane bug rather than as host state.
-#: Lane 2's bridge port is DERIVED (``bluesky.port + 100``), never configured.
+#: Lane 2's bridge port is DERIVED (``bluesky.port + SECOND_LANE_PORT_STRIDE``),
+#: never configured, so the tiled port is pinned off that derived slot: a
+#: profile whose tiled port sits on it is refused at ``osprey build``.
 BRIDGE_PORT = 18490
-SECOND_BRIDGE_PORT = BRIDGE_PORT + 100
-TILED_PORT = 18491
+SECOND_BRIDGE_PORT = BRIDGE_PORT + SECOND_LANE_PORT_STRIDE
+TILED_PORT = 18492
 PANELS_PORT = 18496
 VA_CA_PORT = 15264
 POSTGRES_PORT = 25932
@@ -182,6 +187,10 @@ HTTP_TIMEOUT_S = 30.0
 #: Points in the one PLAN this module queues. Small on purpose: what is under
 #: test is WHICH lane ran it, not how it scanned.
 PLAN_POINTS = 3
+
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 13
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +315,15 @@ def _served(port: int) -> bool:
     directory's session fixture publishes on a different port, so one process
     cannot be a client of both (the reason the directory conftest's own
     readiness probe is a subprocess).
+
+    It leaves through ``os._exit`` for that file's other reason: a bare
+    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
+    still on its exit hooks. That finalizer's recorded hang follows Channel
+    Access use on a worker thread -- what the connector's executor does --
+    rather than the one main-thread ``caget`` this child makes, which has
+    not been seen to hang. The forced exit is kept as a bound that costs
+    nothing: a probe that will not die is read here as a container that is
+    not serving, and the word is written and flushed before the exit.
     """
     code = (
         "import sys, epics\n"
@@ -497,8 +515,10 @@ class LaneStack:
     repo: Path
     live_port: int
     env: dict[str, str]
-    #: ``{lane: {axis name: (setpoint address, readback address)}}`` -- derived
-    #: per lane by ``osprey up`` into ``<PREFIX>_EPICS_SETPOINTS``.
+    #: ``{lane: {axis name: (setpoint address, readback address)}}`` -- read
+    #: from the device file the build stages for the worker. The file is a
+    #: property of the facility, not of a lane, so both lanes carry the same
+    #: set; keyed per lane because a plan is staged against ONE lane's bridge.
     correctors: dict[str, dict[str, tuple[str, str]]]
     bpms: dict[str, dict[str, str]]
     limits: dict[str, Any]
@@ -508,27 +528,20 @@ class LaneStack:
         return self.repo / "build" / "config.yml"
 
 
-def _parse_pairs(raw: str) -> dict[str, tuple[str, str]]:
-    """``name=SP|RB,...`` back into ``{name: (setpoint, readback)}``."""
-    out: dict[str, tuple[str, str]] = {}
-    for chunk in raw.split(","):
-        if "=" not in chunk:
-            continue
-        name, _, addresses = chunk.partition("=")
-        setpoint, _, readback = addresses.partition("|")
-        out[name.strip()] = (setpoint.strip(), readback.strip())
-    return out
+def _staged_devices(repo: Path) -> tuple[dict[str, tuple[str, str]], dict[str, str]]:
+    """The worker's device set, from the file ``osprey build`` staged for it.
 
-
-def _parse_singles(raw: str) -> dict[str, str]:
-    """``name=ADDRESS,...`` back into ``{name: address}``."""
-    out: dict[str, str] = {}
-    for chunk in raw.split(","):
-        if "=" not in chunk:
-            continue
-        name, _, address = chunk.partition("=")
-        out[name.strip()] = address.strip()
-    return out
+    Read through the worker's own parser, so what these tests plan against is
+    exactly what the container was handed: ``{name: (setpoint, readback)}`` for
+    the settables (a settable with no readback of its own reads its setpoint
+    back) and ``{name: pv}`` for the readables.
+    """
+    staged = repo / "build" / "services" / LANE_ONE / BLUESKY_DEVICES_FILENAME
+    settables, readables = specs_from_file(staged)
+    return (
+        {s.name: (s.setpoint_pv, s.readback_pv or s.setpoint_pv) for s in settables},
+        {r.name: r.read_pv for r in readables},
+    )
 
 
 def _remove_stale_deployment() -> None:
@@ -567,6 +580,15 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
     did not supply it would refuse to start at all -- which is the contract
     ``test_live_lane_refuses_to_start_without_its_addressing`` asserts against
     this very file.
+
+    Readiness is two gates per lane, not one. A bridge answering 200 on
+    ``/health`` says nothing about its queue: the RE worker environment opens
+    in a background task the health probe deliberately excludes, and the
+    manager validates every ``item_add`` against ``plans_allowed``, which is
+    empty until that environment is up. The second gate is
+    :func:`wait_for_worker_environment`, the same one the single-lane deploy
+    suites owe their enqueues; without it the first queue test lands in the
+    window where every plan is "not in the list of allowed plans".
     """
     base = tmp_path_factory.mktemp("bluesky_lane_e2e")
     _remove_stale_deployment()
@@ -589,23 +611,28 @@ def stack(tmp_path_factory: pytest.TempPathFactory, live_endpoint: int):
             except RuntimeError as exc:
                 logs = _docker("logs", "--tail", "60", LANE_CONTAINERS[lane][0], timeout=60)
                 pytest.fail(f"{exc}\n--- {lane} bridge logs ---\n{logs.stdout}\n{logs.stderr}")
+        for lane, base_url in BRIDGE_URLS.items():
+            try:
+                wait_for_worker_environment(base_url)
+            except AssertionError as exc:
+                tails = [
+                    f"--- {name} logs ---\n{tail.stdout}\n{tail.stderr}"
+                    for name in LANE_CONTAINERS[lane][:2]
+                    for tail in (_docker("logs", "--tail", "60", name, timeout=60),)
+                ]
+                pytest.fail(f"lane {lane!r}: {exc}\n" + "\n".join(tails))
 
         env = _env_values(repo)
         limits = json.loads(
             (repo / "build" / "data" / "channel_limits.json").read_text(encoding="utf-8")
         )
+        settables, readables = _staged_devices(repo)
         yield LaneStack(
             repo=repo,
             live_port=live_endpoint,
             env=env,
-            correctors={
-                lane: _parse_pairs(env.get(f"{prefix}_EPICS_SETPOINTS", ""))
-                for lane, prefix in LANE_ENV_PREFIX.items()
-            },
-            bpms={
-                lane: _parse_singles(env.get(f"{prefix}_EPICS_READBACKS", ""))
-                for lane, prefix in LANE_ENV_PREFIX.items()
-            },
+            correctors={lane: dict(settables) for lane in LANE_ENV_PREFIX},
+            bpms={lane: dict(readables) for lane in LANE_ENV_PREFIX},
             limits=limits,
         )
     finally:
@@ -704,7 +731,7 @@ def _tool_result(raw: str) -> dict:
 #:
 #: A draft revision is consumable exactly once (the bridge refuses a re-add with
 #: ``draft_revision_already_launched``), and ``PATCH /draft`` with args identical
-#: to the ones already staged leaves the draft — and therefore its revision —
+#: to the ones already staged leaves the draft -- and therefore its revision —
 #: unchanged. Several tests here stage a plan against one module-scoped
 #: deployment, so without this every staging after the first would hand back the
 #: SPENT revision and the queue tool would refuse for a reason that has nothing
@@ -719,14 +746,14 @@ def _plan_args(stack: LaneStack, lane: str) -> dict[str, Any]:
     ``channel_limits.json`` entry, so nothing here hardcodes a facility channel
     or asks for a value outside the band the deployment declares. Each call
     shifts that band by a sub-percent, band-relative nudge (see
-    :data:`_STAGING`) — enough to make the draft new, far too little to change
+    :data:`_STAGING`) -- enough to make the draft new, far too little to change
     what any test asserts about it, and bounded so the sweep never leaves the
     middle of the declared band however many times this is called.
     """
     correctors = stack.correctors[lane]
     bpms = stack.bpms[lane]
-    assert correctors, f"osprey up wrote no setpoints for lane {lane!r}"
-    assert bpms, f"osprey up wrote no readbacks for lane {lane!r}"
+    assert correctors, f"the build staged no settable devices for lane {lane!r}"
+    assert bpms, f"the build staged no readable devices for lane {lane!r}"
     axis_name = next(iter(correctors))
     setpoint_address, _readback = correctors[axis_name]
     entry = stack.limits[setpoint_address]
@@ -926,29 +953,47 @@ async def test_queue_add_binds_the_item_to_the_active_lane_only(
 ) -> None:
     """The item lands on the bound lane and NOWHERE else. LAYER: containers.
 
-    Asserted on both managers, because "it reached the right lane" and "it did
-    not also reach the other one" are different claims and only the second one
-    catches a fan-out.
+    The deployed queue runs by itself (the preset arms autostart), so an added
+    item never sits pending: it is executing, or already in the run records, by
+    the time anything reads the queue back. The binding is therefore proven
+    from where the item ENDS UP -- drained on the bound lane, with a run record
+    carrying its ``item_uid`` -- never from the pending list. Asserted on both
+    managers, because "it reached the right lane" and "it did not also reach
+    the other one" are different claims and only the second one catches a
+    fan-out.
 
-    The queued item is withdrawn on both paths (see :func:`_withdrawn_after`), so
-    a failure here cannot leak an item into the drain test's queue.
+    The drain is also the teardown: an armed queue clears itself by finishing
+    the item, so the next test starts from an idle manager with nothing to
+    withdraw.
     """
     session_state("va")
-    before_live = _queue_item_uids(LANE_LIVE)
+    live_items_before = _queue_item_uids(LANE_LIVE)
+    runs_before = {lane: set(_run_records(lane)) for lane in BRIDGE_URLS}
 
     revision = _patch_draft(LANE_VA, _plan_args(stack, LANE_VA))
     result = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
     item_uid = result["item"]["item_uid"]
 
-    with _withdrawn_after(LANE_VA, item_uid):
-        assert result["lane"] == LANE_VA, f"queue_add bound the item to the wrong lane: {result}"
-        assert item_uid in _queue_item_uids(LANE_VA), (
-            f"the item queue_add reported is not in lane {LANE_VA!r}'s queue: {result}"
-        )
-        assert _queue_item_uids(LANE_LIVE) == before_live, (
-            "queuing on the va lane changed the live lane's queue; a PLAN composed "
-            "for one machine reached the other's manager"
-        )
+    assert result["lane"] == LANE_VA, f"queue_add bound the item to the wrong lane: {result}"
+    assert _queue_item_uids(LANE_LIVE) == live_items_before, (
+        "queuing on the va lane changed the live lane's queue; a PLAN composed "
+        "for one machine reached the other's manager"
+    )
+
+    _drain(LANE_VA, QUEUE_DRAIN_TIMEOUT_S)
+
+    new_on_va = [
+        record
+        for run_id, record in _run_records(LANE_VA).items()
+        if run_id not in runs_before[LANE_VA]
+    ]
+    assert any(record.get("item_uid") == item_uid for record in new_on_va), (
+        f"the item queue_add bound to lane {LANE_VA!r} never ran there: {new_on_va}"
+    )
+    assert set(_run_records(LANE_LIVE)) == runs_before[LANE_LIVE], (
+        "queuing on the va lane produced a run on the live lane; a PLAN composed "
+        "for one machine executed on the other's manager"
+    )
 
 
 async def test_queue_start_refuses_the_lane_the_session_left(
@@ -958,33 +1003,41 @@ async def test_queue_start_refuses_the_lane_the_session_left(
 
     The mid-queue switch, which is the case the whole binding exists for: the
     item is bound to the lane it was queued on, and starting it after a switch
-    would arm the machine the deployment is no longer pointed at. The refusal is
-    asserted on its machine-readable code, and on both managers staying idle --
-    a refusal that had already started something would be worthless.
+    would arm the machine the deployment is no longer pointed at. The refusal
+    is asserted on its machine-readable code, and on the lane the session moved
+    to gaining nothing from it -- no pending item and no run. The bound lane
+    cannot be asserted idle: the preset arms autostart, so its manager is
+    legitimately executing the item the add itself started, refused start or
+    not.
 
-    The item is withdrawn on both paths for the same reason as the test above
-    (see :func:`_withdrawn_after`): it is queued precisely so it can be left
-    unstarted, and on a failure it would otherwise survive into the drain test.
+    The drain at the end is the teardown -- an armed queue is cleared by letting
+    the item finish, never by withdrawing it (a running item refuses withdrawal
+    and would leak into the next test).
     """
     session_state("va")
+    live_items_before = _queue_item_uids(LANE_LIVE)
+    live_runs_before = set(_run_records(LANE_LIVE))
+
     revision = _patch_draft(LANE_VA, _plan_args(stack, LANE_VA))
     added = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
+    assert added["lane"] == LANE_VA, f"queue_add bound the item to the wrong lane: {added}"
 
-    with _withdrawn_after(LANE_VA, added["item"]["item_uid"]):
-        session_state("live")
-        with assert_raises_error(error_type=lanes_module.REASON_LANE_MISMATCH) as refusal:
-            await get_tool_fn(bluesky_tools.queue_start)(LANE_VA)
+    session_state("live")
+    with assert_raises_error(error_type=lanes_module.REASON_LANE_MISMATCH) as refusal:
+        await get_tool_fn(bluesky_tools.queue_start)(LANE_VA)
 
-        details = refusal["envelope"].get("details", {})
-        assert details.get("active_lane") == LANE_LIVE, (
-            f"the refusal does not name the lane the session moved to: {refusal['envelope']}"
-        )
-        for lane in BRIDGE_URLS:
-            state = _queue_snapshot(lane)["status"].get("manager_state")
-            assert state in {"idle", "closed"}, (
-                f"lane {lane!r}'s manager is {state!r} after a refused start; the "
-                "refusal armed something"
-            )
+    details = refusal["envelope"].get("details", {})
+    assert details.get("active_lane") == LANE_LIVE, (
+        f"the refusal does not name the lane the session moved to: {refusal['envelope']}"
+    )
+    assert _queue_item_uids(LANE_LIVE) == live_items_before, (
+        f"a refused start left a pending item on lane {LANE_LIVE!r}; the refusal armed something"
+    )
+    assert set(_run_records(LANE_LIVE)) == live_runs_before, (
+        f"a refused start produced a run on lane {LANE_LIVE!r}; the refusal armed something"
+    )
+
+    _drain(LANE_VA, QUEUE_DRAIN_TIMEOUT_S)
 
 
 async def test_the_bound_lane_is_the_lane_that_executes(
@@ -992,10 +1045,13 @@ async def test_the_bound_lane_is_the_lane_that_executes(
 ) -> None:
     """The PLAN drains on its own lane, and the other lane runs nothing.
 
-    LAYER: containers -- the acceptance claim of the whole axis. A start on the
-    bound lane is followed to completion and the run is looked for on BOTH
-    lanes, because a plan that executed on the wrong machine would still look
-    like a success from the lane that was asked.
+    LAYER: containers -- the acceptance claim of the whole axis. The preset
+    arms autostart, so the add IS the start: the manager begins executing the
+    item by itself, and an explicit ``queue_start`` would only be refused with
+    ``manager_not_idle`` for asking for something already under way. The run is
+    followed to completion and looked for on BOTH lanes, because a plan that
+    executed on the wrong machine would still look like a success from the lane
+    that was asked.
     """
     session_state("va")
     runs_before = {lane: set(_run_records(lane)) for lane in BRIDGE_URLS}
@@ -1004,9 +1060,6 @@ async def test_the_bound_lane_is_the_lane_that_executes(
     added = _tool_result(await get_tool_fn(bluesky_tools.queue_add)(revision))
     assert added["lane"] == LANE_VA, added
     item_uid = added["item"]["item_uid"]
-
-    started = _tool_result(await get_tool_fn(bluesky_tools.queue_start)(LANE_VA))
-    assert started.get("lane") == LANE_VA, f"the start did not report its lane: {started}"
 
     _drain(LANE_VA, QUEUE_DRAIN_TIMEOUT_S)
 
@@ -1039,47 +1092,6 @@ def _run_records(lane: str) -> dict[str, dict]:
     return {
         record["id"]: record for record in body if isinstance(record, dict) and record.get("id")
     }
-
-
-def _withdraw(lane: str, item_uid: str) -> None:
-    """Remove one pending item from *lane*'s queue, through the bridge's own route.
-
-    Never by reaching into Redis, which would be a different (and untested) path
-    from the one an operator has. Called by the tests that deliberately leave an
-    item queued, so the next test starts from a queue it fully accounts for --
-    the queue is Redis-backed and outlives everything short of a volume removal.
-    """
-    status, body = _request(BRIDGE_URLS[lane], f"/queue/items/{item_uid}", "DELETE")
-    assert status == 200, f"could not withdraw {item_uid} from lane {lane!r}: {status} {body}"
-
-
-@contextlib.contextmanager
-def _withdrawn_after(lane: str, item_uid: str):
-    """Run the block, then take *item_uid* back out of *lane*'s queue -- either way.
-
-    Cleanup has to happen on the FAILURE path too: the deployment is
-    module-scoped and its queue is Redis-backed, so an item left behind by a
-    failing assertion here is still sitting in that lane's queue when the drain
-    test starts it, turning one real failure into a second, misleading one.
-
-    Not a bare ``finally``, and the difference is the point. On the success path
-    the withdraw is asserted, because a cleanup that silently did not happen is
-    the same leak. While an exception is already propagating it is best-effort
-    and merely reported -- a queue the refusal left in an unexpected state would
-    otherwise raise from the cleanup and REPLACE the failure that is the actual
-    news with a confusing one about deleting a queue item.
-    """
-    try:
-        yield
-    except BaseException:
-        try:
-            _withdraw(lane, item_uid)
-        except Exception as cleanup:  # noqa: BLE001 - must never mask the real failure
-            print(  # noqa: T201 - surface it in the run log, next to the failure
-                f"[cleanup] could not withdraw {item_uid} from lane {lane!r}: {cleanup}"
-            )
-        raise
-    _withdraw(lane, item_uid)
 
 
 def _drain(lane: str, timeout: float) -> None:
@@ -1303,3 +1315,17 @@ def test_lanes_off_renders_no_second_lane_containers(single_lane_repo: Path) -> 
         "a lanes-off build made the operator supply live-lane addressing it has "
         "no live lane to use it for"
     )
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_bluesky_lanes.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS

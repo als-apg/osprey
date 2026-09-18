@@ -21,8 +21,6 @@ from osprey.cli import deploy_cmd
 from osprey.deployment import docker_desktop
 from osprey.port_layout import default_port
 
-pytestmark = pytest.mark.unit
-
 #: A config with web terminals rendered, which is what a deployment that owns a
 #: reachable landing page looks like. ``enabled`` is what says the module is
 #: part of this deployment — the port is an override, and a config that leans on

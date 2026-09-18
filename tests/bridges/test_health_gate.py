@@ -24,7 +24,7 @@ def _cfg(**overrides):
     fields = {
         "dispatcher_url": "http://disp:10010",
         "worker_url": "http://work:9190",
-        "gitlab_url": "https://git.als.lbl.gov",
+        "gitlab_url": "https://git.example.com",
         "gitlab_project": "physics/production/als-profiles",
         "gitlab_issues_token": "gltok",
         "trust_env": False,
@@ -61,7 +61,7 @@ def _client(disp=None, work=None, gitlab=None, record=None):
 
     def handler(request):
         host = request.url.host
-        if host == "git.als.lbl.gov":
+        if host == "git.example.com":
             if record is not None:
                 record.append(request)
             return gitlab(request)
@@ -191,7 +191,7 @@ def test_gate_open_reads_real_coreconfig_fields():
     cfg = CoreConfig(
         dispatcher_url="http://disp:10010",
         worker_url="http://work:9190",
-        gitlab_url="https://git.als.lbl.gov",
+        gitlab_url="https://git.example.com",
         gitlab_project="physics/production/als-profiles",
         gitlab_issues_token="real-cfg-token",
     )

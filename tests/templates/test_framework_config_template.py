@@ -29,6 +29,13 @@ from typing import Any
 import pytest
 import yaml
 from jinja2 import TemplateRuntimeError
+from tests._config_render_context import (
+    CONFIG_TEMPLATE,
+    CONFIG_TEMPLATES,
+    MINIMAL_CONFIG_CONTEXT,
+    PROVIDER_CATALOG,
+    render_config,
+)
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.build_cmd import _ariel_server_enabled
@@ -37,47 +44,16 @@ from osprey.cli.templates.manager import TemplateManager, _enable_flags
 from osprey.errors import BuildProfileError
 from osprey.port_layout import DEFAULT_PORT_BASE, layout_ports
 from osprey.profiles.providers import load_provider_catalog
+from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 
-CONFIG_TEMPLATE = "project/config.yml.j2"
-
-#: A catalog small enough to read in a failure message, with an entry carrying a
-#: key the contract does not name — those pass through verbatim.
-_CATALOG: dict[str, Any] = {
-    "house": {
-        "api_key": "${HOUSE_API_KEY}",
-        "base_url": "https://gateway.example.org/v1",
-        "models": {"haiku": "small", "sonnet": "mid", "opus": "large"},
-    },
-    "bare": {"base_url": "http://127.0.0.1:8000/v1", "timeout": 30},
-}
-
-#: The panel ids the framework serves itself, as the manager hands them over.
-_BUILTINS = ["ariel", "channel-finder", "okf", "system-health"]
-
-#: What a hello-world-shaped profile gives the template: no channel-finder
-#: agent, no logbook, no web panels. The floor every other case adds to.
-_MINIMAL_CTX: dict[str, Any] = {
-    "project_name": "demo",
-    "project_root": "/repos/demo",
-    "default_provider": "anthropic",
-    "default_model": "haiku",
-    "port_base": DEFAULT_PORT_BASE,
-    "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
-    "provider_catalog": _CATALOG,
-    "builtin_panels": _BUILTINS,
-    "selected_web_panels": [],
-    "ariel_server_on": False,
-}
-
-
-def _render(**overrides: Any) -> str:
-    context = {**_MINIMAL_CTX, **overrides}
-    return TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
+#: The panel ids one profile *selects*, which is not the registry: the registry
+#: arrives with the shared context and is what a selection is filtered against.
+_SELECTED_BUILTINS = ["ariel", "channel-finder", "okf", "system-health"]
 
 
 def _config(**overrides: Any) -> dict[str, Any]:
-    return yaml.safe_load(_render(**overrides))
+    return yaml.safe_load(render_config(**overrides))
 
 
 def _mode_ctx(mode: str) -> dict[str, Any]:
@@ -105,13 +81,42 @@ def _fully_loaded_ctx(mode: str = "hierarchical") -> dict[str, Any]:
     return {
         **_mode_ctx(mode),
         "ariel_server_on": True,
-        "selected_web_panels": [*_BUILTINS, "events"],
+        "selected_web_panels": [*_SELECTED_BUILTINS, "events"],
         "default_panel": "channel-finder",
         "panel_presets": {"Machine setup": ["channel-finder", "artifacts"]},
         "environment_python": "/usr/bin/python3",
         "environment_packages": ["numpy"],
         "environment_inherit_exclude": ["osprey"],
     }
+
+
+# ── The shared context ───────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("template_name", CONFIG_TEMPLATES)
+def test_the_shared_context_renders_every_config_template(template_name: str):
+    """The shared context satisfies what every bundled config template requires.
+
+    It is the one context every by-hand renderer spreads, so a key a template
+    starts requiring has to fail here — once — rather than in each consumer in
+    turn. ``CONFIG_TEMPLATES`` carries a single name today; the parametrize is
+    what makes a second config template arrive with its coverage written.
+    """
+    config = yaml.safe_load(render_config(template_name))
+
+    assert isinstance(config, dict) and config
+
+
+def test_the_shared_context_carries_the_panel_registry():
+    """The shared context carries the registry the build really injects.
+
+    ``TemplateManager`` injects ``sorted(BUILTIN_PANELS)`` on every real render,
+    and the drift case in ``tests/cli/test_templates.py`` checks a selection
+    against the registry rather than against a literal — taking the registry
+    from here. A hand-written list substituted here would take that case's
+    subject away with nothing saying so.
+    """
+    assert MINIMAL_CONFIG_CONTEXT["builtin_panels"] == sorted(BUILTIN_PANELS)
 
 
 # ── The partition ────────────────────────────────────────────────────────────
@@ -149,7 +154,7 @@ def test_web_theme_is_not_rendered():
 
 
 def test_generated_banner_is_kept():
-    rendered = _render(**_fully_loaded_ctx())
+    rendered = render_config(**_fully_loaded_ctx())
     assert "GENERATED" in rendered.splitlines()[0] or "GENERATED" in rendered.splitlines()[1]
     assert "osprey build" in rendered
 
@@ -236,7 +241,9 @@ def test_provider_and_model_come_from_the_profile_fields():
 
 
 def test_model_falls_back_to_the_haiku_tier():
-    context = {key: value for key, value in _MINIMAL_CTX.items() if key != "default_model"}
+    context = {
+        key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "default_model"
+    }
     config = yaml.safe_load(
         TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
     )
@@ -380,7 +387,9 @@ def test_a_render_without_the_panel_selection_refuses():
     selected tab silently missing — and nothing downstream could tell that
     apart from a profile that selected no builtin.
     """
-    context = {key: value for key, value in _MINIMAL_CTX.items() if key != "selected_web_panels"}
+    context = {
+        key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "selected_web_panels"
+    }
     with pytest.raises(TemplateRuntimeError, match="selected_web_panels"):
         TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
 
@@ -391,7 +400,9 @@ def test_a_render_without_the_builtin_panel_registry_refuses():
     Without it every selected builtin filters away, so the same `panels: {}`
     comes out — an absent registry is a wiring fault, not an empty one.
     """
-    context = {key: value for key, value in _MINIMAL_CTX.items() if key != "builtin_panels"}
+    context = {
+        key: value for key, value in MINIMAL_CONFIG_CONTEXT.items() if key != "builtin_panels"
+    }
     with pytest.raises(TemplateRuntimeError, match="builtin_panels"):
         TemplateManager().jinja_env.get_template(CONFIG_TEMPLATE).render(**context)
 
@@ -493,13 +504,13 @@ def test_ariel_gate_ignores_a_non_boolean_enabled():
 
 
 def test_catalog_renders_verbatim():
-    assert _config()["api"]["providers"] == _CATALOG
+    assert _config()["api"]["providers"] == PROVIDER_CATALOG
 
 
 def test_catalog_keeps_the_files_entry_order():
     """The render is the catalog's own order, so a diff of two builds reads."""
     rendered = list(_config()["api"]["providers"])
-    assert rendered == list(_CATALOG)
+    assert rendered == list(PROVIDER_CATALOG)
 
 
 def test_packaged_catalog_survives_the_round_trip():

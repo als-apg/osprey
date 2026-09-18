@@ -53,8 +53,6 @@ from tests._control_context_fixtures import (
     write_payload,
 )
 
-pytestmark = pytest.mark.unit
-
 # ---------------------------------------------------------------------------
 # the four axes
 # ---------------------------------------------------------------------------

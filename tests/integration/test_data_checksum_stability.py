@@ -152,7 +152,7 @@ class TestRuntimeWriters:
 
         FeedbackStore(hierarchical).record_success(
             query="show me the storage ring correctors",
-            facility="ALS",
+            facility="ERF",
             selections={"system": "MAG"},
             channel_count=42,
         )
@@ -161,7 +161,7 @@ class TestRuntimeWriters:
         PendingReviewStore(pending).capture(
             {
                 "query": "show me the storage ring correctors",
-                "facility": "ALS",
+                "facility": "ERF",
                 "tool_name": "mcp__channel-finder__build_channels",
                 "channel_count": 42,
                 "selections": {"system": "MAG"},

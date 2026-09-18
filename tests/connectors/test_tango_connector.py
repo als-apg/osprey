@@ -9,7 +9,7 @@ PyTango.
 
 import asyncio
 import sys
-import time
+import threading
 from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
@@ -37,6 +37,11 @@ _LIMITS_PATCH = "osprey.connectors.control_system.tango_connector.LimitsValidato
 _TZ_PATCH = "osprey.connectors.control_system.tango_connector.get_facility_timezone"
 
 _ADDRESS = "sr/power_supply/ps01/Current"
+
+#: Ceiling on a blocking stand-in parked inside one thread offload. It elapses
+#: only when the call it guards ran somewhere it should not have, so a broken
+#: offload fails an assertion instead of hanging the suite.
+_OFFLOAD_CEILING_S = 5.0
 
 
 class _Quality:
@@ -377,10 +382,18 @@ class TestEnumReadings:
 # --------------------------------------------------------------------------------------
 
 
-async def _write_with_validator(validator, value=10.0, readback=10.0, **kwargs):
-    """Drive one write through a connector wired with the given validator."""
+async def _write_with_validator(
+    validator, value=10.0, readback=10.0, *, device_error=None, **kwargs
+):
+    """Drive one write through a connector wired with the given validator.
+
+    ``device_error`` makes the ``DeviceProxy`` lookup itself raise, which is
+    what an unreachable device looks like from inside the write's offload.
+    """
     proxy = _make_proxy(read_value=readback)
     mock_tango = _make_tango(proxy)
+    if device_error is not None:
+        mock_tango.DeviceProxy.side_effect = device_error
     with (
         patch.dict(sys.modules, {"tango": mock_tango}),
         patch(_LIMITS_PATCH, return_value=validator),
@@ -543,31 +556,44 @@ class TestNonBlockingOffload:
     """
 
     async def test_validate_and_send_run_off_the_event_loop(self):
-        """A slow (blocking) validate() must NOT starve the event loop.
+        """Validation and the send run on one thread, and it is not the loop's.
 
-        Stands in for max_step's blocking fresh read with a 0.3 s
-        ``time.sleep`` inside validate(). While the write is in flight, a
-        concurrently-awaited 0.05 s sleep must still complete promptly and a
-        ticker must advance — neither is possible if validate ran on the loop.
+        A stand-in for ``max_step``'s blocking fresh read parks inside
+        ``validate()`` until this test releases it. Regaining the loop while
+        that call is still parked is possible only if it never ran there.
+        The thread each fake records says the same thing a second way:
+        ``validate()``, the ``DeviceProxy`` lookup and ``write_attribute``
+        all report one thread, and it is not the one the loop runs on.
         """
+        loop_thread = threading.get_ident()
+        entered = threading.Event()  # validate() has begun
+        release = threading.Event()  # the test lets it finish
+        finished = threading.Event()  # validate() has returned
+        threads: dict[str, int] = {}
+
+        def blocking_validate(_addr, _val, *, read_current=None):
+            threads["validate"] = threading.get_ident()
+            entered.set()
+            release.wait(_OFFLOAD_CEILING_S)
+            finished.set()
+
         validator = _make_limits_validator(confirm=False)
-
-        def slow_validate(_addr, _val, *, read_current=None):
-            time.sleep(0.3)  # stand-in for max_step's blocking fresh read
-
-        validator.validate = MagicMock(side_effect=slow_validate)
+        validator.validate = MagicMock(side_effect=blocking_validate)
 
         proxy = _make_proxy()
+
+        def record_write(_attribute, _value):
+            threads["write"] = threading.get_ident()
+
+        proxy.write_attribute.side_effect = record_write
+
         mock_tango = _make_tango(proxy)
 
-        # A concurrent ticker that can only advance if the loop is being serviced.
-        ticks = 0
+        def build_proxy(_name):
+            threads["proxy"] = threading.get_ident()
+            return proxy
 
-        async def ticker():
-            nonlocal ticks
-            while True:
-                await asyncio.sleep(0.005)
-                ticks += 1
+        mock_tango.DeviceProxy.side_effect = build_proxy
 
         with (
             patch.dict(sys.modules, {"tango": mock_tango}),
@@ -580,21 +606,20 @@ class TestNonBlockingOffload:
             conn = TangoConnector()
             await conn.connect({})
 
-            ticker_task = asyncio.create_task(ticker())
             write_task = asyncio.create_task(conn.write_channel(_ADDRESS, 10.0, confirm=False))
-
-            # Give the write time to reach its offload, then measure how long a
-            # short concurrent sleep takes while validate() blocks a thread.
-            start = time.monotonic()
-            await asyncio.sleep(0.05)
-            elapsed = time.monotonic() - start
-
+            try:
+                began = await asyncio.to_thread(entered.wait, _OFFLOAD_CEILING_S)
+                still_parked = not finished.is_set()
+            finally:
+                release.set()
             result = await write_task
-            ticker_task.cancel()
             await conn.disconnect()
 
-        assert elapsed < 0.2, f"event loop was blocked for {elapsed:.3f}s"
-        assert ticks > 0, "concurrent coroutine was starved (loop blocked)"
+        assert began, "validate() was never called"
+        assert still_parked, "the loop was regained only after validate() returned"
+        assert threads.keys() == {"validate", "proxy", "write"}
+        assert loop_thread not in threads.values()
+        assert len(set(threads.values())) == 1, f"the offload was split: {threads}"
         validator.validate.assert_called_once()
         assert result.outcome is WriteOutcome.UNREQUESTED
         proxy.write_attribute.assert_called_once_with("Current", 10.0)
@@ -650,6 +675,72 @@ class TestWriteTextIsDisplayOnly:
             "NO_ALARM",
             0,
         )
+
+
+# --------------------------------------------------------------------------------------
+# A device that cannot be reached
+# --------------------------------------------------------------------------------------
+
+
+class TestUnreachableDevice:
+    """A ``DeviceProxy`` that cannot be built, on each path that builds one.
+
+    Creating a proxy is itself a database round trip, so a device that is
+    down, or a name no database knows, fails there rather than at the read or
+    the write. The connector does not translate what PyTango raised — the
+    transport's own error is the answer — so a read hands it to the caller
+    unchanged, while a write turns it into the word the write contract owns.
+    """
+
+    async def test_read_hands_the_proxy_failure_to_the_caller(self, connector):
+        conn, _ = connector
+        conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
+        with pytest.raises(RuntimeError, match="not exported"):
+            await conn.read_channel(_ADDRESS)
+
+    async def test_a_proxy_that_could_not_be_built_is_not_cached(self, connector):
+        """A device unreachable for one call is reachable on the next."""
+        conn, proxy = connector
+        conn._tango.DeviceProxy.side_effect = [RuntimeError("device is not exported"), proxy]
+
+        with pytest.raises(RuntimeError):
+            await conn.read_channel(_ADDRESS)
+        assert not conn._proxies
+
+        result = await conn.read_channel(_ADDRESS)
+        assert result.value == 42.0
+        assert list(conn._proxies) == ["sr/power_supply/ps01"]
+
+    async def test_an_unreachable_device_is_an_invalid_channel(self, connector):
+        conn, _ = connector
+        conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
+        assert await conn.validate_channel(_ADDRESS) is False
+
+    async def test_a_write_to_an_unreachable_device_is_failed(self, connector):
+        conn, proxy = connector
+        conn._tango.DeviceProxy.side_effect = RuntimeError("device is not exported")
+        result = await conn.write_channel(_ADDRESS, 10.0)
+        assert result.outcome is WriteOutcome.FAILED
+        assert result.notes == "TANGO did not take the value"
+        assert _ADDRESS in result.error_message
+        assert result.observed_value is None
+        proxy.read_attribute.assert_not_called()
+
+    async def test_a_device_unreachable_during_validation_refuses_the_write(self):
+        """An unmade ``max_step`` check is not permission to write."""
+
+        def validate_against_a_fresh_read(address, _value, *, read_current=None):
+            read_current(address)
+
+        validator = _make_limits_validator()
+        validator.validate = MagicMock(side_effect=validate_against_a_fresh_read)
+
+        result, proxy = await _write_with_validator(
+            validator, device_error=RuntimeError("device is not exported")
+        )
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "VALIDATION_ERROR"
+        proxy.write_attribute.assert_not_called()
 
 
 # --------------------------------------------------------------------------------------

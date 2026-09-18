@@ -78,9 +78,6 @@ def captured_argv(monkeypatch, tmp_path):
     captured: dict = {}
 
     monkeypatch.chdir(tmp_path)
-    # An operator shell that exported the prebuilt-images switch would delete
-    # the dev-mode build from every deploy driven here (see the switch tests).
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     monkeypatch.setattr(
         container_lifecycle,
         "prepare_compose_files",
@@ -505,9 +502,6 @@ def captured_combined_runs(monkeypatch, tmp_path):
     token_calls: list[dict] = []
 
     monkeypatch.chdir(tmp_path)
-    # Same hygiene as captured_argv: the switch tests set this deliberately, and
-    # an exported one would otherwise remove the build these tests count.
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     # Registry mode (default) -- pre-write .env.users so
     # ensure_env_production's exists-check passes (see captured_web_runs).
     (tmp_path / ".env.users").write_text("", encoding="utf-8")
@@ -1344,6 +1338,14 @@ def test_rebuild_deployment_pins_compose_project_name(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle.subprocess, "run", lambda *a, **k: _FakeCompletedProcess()
     )
+    # `rebuild_deployment` defaults to an attached start, whose watched build
+    # runs through Popen rather than `run` -- unpatched it escapes to a real
+    # container runtime.
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: None),
+    )
     captured: dict = {}
     monkeypatch.setattr(
         container_lifecycle.os,
@@ -1382,9 +1384,10 @@ def test_clean_deployment_pins_compose_project_name(monkeypatch, tmp_path):
 # Under Docker's containerd image store, `compose up --build` can build a
 # local-only tag and then fail container-create with "No such image" in the same
 # call. Wherever a build is intended, run `compose build` first, then
-# `up --no-build`. The non-dev services path is deliberately left on a plain
-# `up` (no --no-build) so compose's implicit build-on-up still covers a
-# build-only service with no published upstream tag.
+# `up --no-build` -- a build and a `create` never share one invocation. The path
+# that leaves the build to compose is the detached non-dev one, which is still
+# there to return when compose is done, so its implicit build-on-up still covers
+# a build-only service with no published upstream tag.
 # ---------------------------------------------------------------------------
 
 
@@ -1422,6 +1425,103 @@ def test_deploy_up_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     # A standalone `build` ran, and a subsequent `up --no-build`.
     assert any(c[-1] == "build" for c in runs), joined
     assert any("up" in c and "--no-build" in c for c in runs), joined
+
+
+_EXEC_MARKER = ["<execvpe>"]
+
+
+def _attached_start_stubs(monkeypatch, tmp_path, runs, execd):
+    """The collaborator set every attached-``deploy_up`` argv test shares.
+
+    Records each compose child argv into *runs* -- including a marker for the
+    ``execvpe`` hand-off, so the order of the build against the exec is a fact
+    of one list -- and the exec'd argv into *execd*.
+    """
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, env=None, **k: runs.append(list(cmd)) or _FakeCompletedProcess(),
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "Popen",
+        _fake_popen(lambda cmd, env: runs.append(list(cmd))),
+    )
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvpe",
+        lambda file, args, env: runs.append(_EXEC_MARKER) or execd.update(args=list(args)),
+    )
+
+
+def test_an_attached_start_splits_the_build_from_the_up(monkeypatch, tmp_path):
+    """A non-dev start without ``-d`` builds in a step of its own, then execs
+    ``up --no-build``.
+
+    The exec never returns, so anything that has to happen once the images are
+    built has to happen before it -- an implementation that leaves the build to
+    compose's build-on-up has no process left to do it in.
+    """
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    joined = [" ".join(c) for c in runs]
+    assert any(c[-1] == "build" for c in runs), joined
+    assert "up" in execd["args"], execd
+    assert "--no-build" in execd["args"], execd
+    assert "--build" not in execd["args"], execd
+    build_at = next(i for i, c in enumerate(runs) if c[-1] == "build")
+    exec_at = next(i for i, c in enumerate(runs) if c is _EXEC_MARKER)
+    assert build_at < exec_at, joined
+
+
+def test_an_attached_start_on_a_prebuilt_host_builds_nothing(monkeypatch, tmp_path):
+    """A host that declares its images prebuilt has no build tooling, so the
+    attached shape must not be what gives it a build step."""
+    monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "1")
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    joined = [" ".join(c) for c in runs]
+    assert not any(c[-1] == "build" for c in runs), joined
+    assert "up" in execd["args"], execd
+    assert "--no-build" in execd["args"], execd
+
+
+def test_a_detached_non_dev_start_still_leaves_the_build_to_the_up(monkeypatch, tmp_path):
+    """A detached start returns, so compose's implicit build-on-up -- which is
+    what covers a build-only service with no published upstream tag to pull --
+    stays its build."""
+    runs: list = []
+    execd: dict = {}
+    _attached_start_stubs(monkeypatch, tmp_path, runs, execd)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    joined = [" ".join(c) for c in runs]
+    assert not any(c[-1] == "build" for c in runs), joined
+    ups = [c for c in runs if "up" in c]
+    assert ups, joined
+    assert "--build" not in ups[-1], joined
+    assert "--no-build" not in ups[-1], joined
 
 
 def test_rebuild_deployment_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
@@ -1854,6 +1954,244 @@ def test_the_project_image_build_stages_the_ca_then_clears_it(no_site_env, tmp_p
 
     assert staged_while_building == [True]
     assert not (tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME).exists()
+
+
+def _service_compose(name: str, context: str, *, stages_ca: bool) -> str:
+    """A rendered service whose ``build:`` block names the staged CA, or does not.
+
+    The shape every bundled service template renders: a context spelled relative
+    to the pinned compose project directory, and the site build args the render
+    resolved for it.
+    """
+    args = "        OSPREY_SITE_CA: osprey-site-ca.crt\n" if stages_ca else ""
+    return (
+        "services:\n"
+        f"  {name}:\n"
+        "    build:\n"
+        f"      context: {context}\n"
+        "      dockerfile: Dockerfile\n"
+        "      args:\n"
+        '        OSPREY_PROJECT_NAME: "proj"\n' + args
+    )
+
+
+def _staged_ca(context_dir: Path) -> Path:
+    """Put a copy of the operator's bundle where a render would have staged it."""
+    context_dir.mkdir(parents=True, exist_ok=True)
+    staged = context_dir / container_lifecycle.SITE_CA_CONTEXT_FILENAME
+    staged.write_text("-----BEGIN CERTIFICATE-----\n", encoding="utf-8")
+    return staged
+
+
+def test_clear_staged_service_site_ca_removes_every_context_the_render_staged(tmp_path):
+    """The same rule ``clear_staged_site_ca`` states for argv, keyed on the
+    rendered document: a managed service image is built by compose, so the build
+    arg in the render is the only record of what OSPREY staged."""
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    (services / "docker-compose.graphdb.yml").write_text(
+        _service_compose("graphdb", "./build/services/graphdb", stages_ca=False),
+        encoding="utf-8",
+    )
+    declared = _staged_ca(services / "qmd")
+    theirs = _staged_ca(services / "graphdb")
+
+    container_lifecycle.clear_staged_service_site_ca(
+        ["build/services/docker-compose.qmd.yml", "build/services/docker-compose.graphdb.yml"],
+        tmp_path,
+    )
+
+    assert not declared.exists()
+    assert theirs.is_file()
+
+
+def test_clear_staged_service_site_ca_resolves_a_context_against_the_repo_root(tmp_path):
+    """``./build/services/<name>`` is relative to the PINNED project directory,
+    not to the compose file's own subdirectory — which is what the comment above
+    every rendered ``build:`` block says, and what compose does."""
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = _staged_ca(services / "qmd")
+    # The trap: a reader resolving against the compose file's directory would
+    # clear this one and leave the real copy behind.
+    decoy = _staged_ca(services / "build" / "services" / "qmd")
+
+    container_lifecycle.clear_staged_service_site_ca(
+        ["build/services/docker-compose.qmd.yml"], tmp_path
+    )
+
+    assert not staged.exists()
+    assert decoy.is_file()
+
+
+def test_clear_staged_service_site_ca_ignores_a_document_it_cannot_read(tmp_path):
+    """A cleanup step must never be what fails a deploy that otherwise worked."""
+    services = tmp_path / "build" / "services"
+    services.mkdir(parents=True)
+    (services / "docker-compose.broken.yml").write_text("services: [: :\n", encoding="utf-8")
+    (services / "docker-compose.qmd.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = _staged_ca(services / "qmd")
+
+    container_lifecycle.clear_staged_service_site_ca(
+        [
+            "build/services/docker-compose.gone.yml",
+            "build/services/docker-compose.broken.yml",
+            "build/services/docker-compose.qmd.yml",
+        ],
+        tmp_path,
+    )
+
+    assert not staged.exists()
+
+
+def test_a_deploy_clears_the_service_contexts_it_staged(tmp_path, monkeypatch):
+    """End to end on the detached path: the copy compose read is gone when
+    ``_start_stack`` returns."""
+    repo = tmp_path / "repo"
+    services = repo / "build" / "services"
+    services.mkdir(parents=True)
+    (repo / ".env").write_text("A=x\n", encoding="utf-8")
+    (services / "docker-compose.0.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    staged = _staged_ca(services / "qmd")
+
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+            list(cmd), 0, stdout="", stderr=""
+        ),
+    )
+    # The dev build and the detached `up` both go through this one, which
+    # spawns its own process rather than the patched `subprocess.run`.
+    ran: list[list[str]] = []
+    monkeypatch.setattr(
+        container_lifecycle, "run_captured", lambda cmd, **kwargs: ran.append(list(cmd))
+    )
+
+    container_lifecycle._start_stack(
+        {"project_name": "proj", "deployed_services": ["qmd"]},
+        ["build/services/docker-compose.0.yml"],
+        repo,
+        detached=True,
+        dev_mode=True,
+        env_path=repo / ".env",
+    )
+
+    assert [cmd[-1] for cmd in ran][-2:] == ["build", "-d"], "the deploy did not build and start"
+    assert not staged.exists()
+
+
+def _attached_start(monkeypatch, repo, staged, **kwargs):
+    """Drive ``_start_stack`` attached, recording the state AT the exec.
+
+    Nothing of OSPREY runs after ``os.execvpe``, so a copy that is gone by
+    the time ``_start_stack`` returns proves nothing: the stand-in below is
+    the last moment a real start still exists.
+    """
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda config, files: None)
+    monkeypatch.setattr(
+        container_lifecycle, "_build_project_image", lambda config, dev, env, ctx=None: None
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, *args, **kwargs: subprocess.CompletedProcess(
+            list(cmd), 0, stdout="", stderr=""
+        ),
+    )
+    ran: list[list[str]] = []
+    monkeypatch.setattr(
+        container_lifecycle, "run_captured", lambda cmd, **kwargs: ran.append(list(cmd))
+    )
+    execd: dict = {}
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvpe",
+        lambda file, args, env: execd.update(argv=list(args), staged=staged.exists()),
+    )
+    # An exec that lost its env would otherwise replace the test process
+    # instead of failing an assertion.
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvp",
+        lambda *a: pytest.fail("an attached start must exec WITH its env"),
+    )
+
+    container_lifecycle._start_stack(
+        {"project_name": "proj", "deployed_services": ["qmd"]},
+        ["build/services/docker-compose.0.yml"],
+        repo,
+        detached=False,
+        env_path=repo / ".env",
+        **kwargs,
+    )
+    return ran, execd
+
+
+def _staged_service_repo(tmp_path):
+    """A rendered repo whose one service build context holds the staged CA."""
+    repo = tmp_path / "repo"
+    services = repo / "build" / "services"
+    services.mkdir(parents=True)
+    (repo / ".env").write_text("A=x\n", encoding="utf-8")
+    (services / "docker-compose.0.yml").write_text(
+        _service_compose("qmd", "./build/services/qmd", stages_ca=True), encoding="utf-8"
+    )
+    return repo, _staged_ca(services / "qmd")
+
+
+def test_an_attached_deploy_clears_the_service_contexts_before_it_hands_over(tmp_path, monkeypatch):
+    """End to end on the attached path: the copy compose read is gone at the
+    moment the terminal is handed over, which is the last moment there is a
+    process to clear it in."""
+    repo, staged = _staged_service_repo(tmp_path)
+
+    ran, execd = _attached_start(monkeypatch, repo, staged)
+
+    joined = [" ".join(cmd) for cmd in ran]
+    # The staged file is what the build reads, so the clear has to land after
+    # the build and before the hand-off -- not instead of the build.
+    assert any(cmd[-1] == "build" for cmd in ran), joined
+    assert "up" in execd["argv"], execd
+    assert "--no-build" in execd["argv"], execd
+    assert execd["staged"] is False, execd
+
+
+def test_an_attached_deploy_on_a_prebuilt_host_clears_them_too(tmp_path, monkeypatch):
+    """The render stages the copy whether or not this host builds, so the clear
+    is not conditional on a build having happened here."""
+    monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", "1")
+    repo, staged = _staged_service_repo(tmp_path)
+
+    ran, execd = _attached_start(monkeypatch, repo, staged)
+
+    joined = [" ".join(cmd) for cmd in ran]
+    assert not any(cmd[-1] == "build" for cmd in ran), joined
+    assert execd["staged"] is False, execd
 
 
 def test_site_image_build_args_read_offline_from_the_top_level_key(no_site_env, tmp_path):
@@ -2296,10 +2634,11 @@ class TestResolvePrebuiltImages:
     No build tooling, no reachable registry, images side-loaded from a tarball
     instead. There a dev deploy's ``compose build`` is not slow but impossible,
     and the only thing that can run is an ``up`` against tags already present.
+
+    The environment carries no switch unless a test below puts one there.
     """
 
-    def test_the_default_is_to_build(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+    def test_the_default_is_to_build(self):
         assert container_lifecycle._resolve_prebuilt_images({}) is False
 
     @pytest.mark.parametrize("value", sorted(container_lifecycle._TRUTHY))
@@ -2329,12 +2668,10 @@ class TestResolvePrebuiltImages:
         monkeypatch.setenv("OSPREY_PREBUILT_IMAGES", value)
         assert container_lifecycle._resolve_prebuilt_images({}) is True
 
-    def test_the_config_key_turns_the_switch_on(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+    def test_the_config_key_turns_the_switch_on(self):
         assert container_lifecycle._resolve_prebuilt_images({"prebuilt_images": True}) is True
 
-    def test_the_config_key_can_also_spell_out_the_default(self, monkeypatch):
-        monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
+    def test_the_config_key_can_also_spell_out_the_default(self):
         assert container_lifecycle._resolve_prebuilt_images({"prebuilt_images": False}) is False
 
     def test_env_on_overrides_a_config_that_says_build(self, monkeypatch):
@@ -2402,7 +2739,6 @@ def _compose_builds(cmds: list[list[str]]) -> list[list[str]]:
 
 def test_a_dev_deploy_builds_the_service_images_by_default(monkeypatch, tmp_path):
     """The baseline the switch has to leave alone."""
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
 
     cmds = _dev_deploy_cmds(monkeypatch, tmp_path)
 
@@ -2418,8 +2754,6 @@ def test_the_switch_removes_the_services_build_from_a_dev_deploy(monkeypatch, tm
 
 
 def test_the_config_key_removes_it_too(monkeypatch, tmp_path):
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
-
     cmds = _dev_deploy_cmds(monkeypatch, tmp_path, {"prebuilt_images": True})
 
     assert _compose_builds(cmds) == []
@@ -2492,7 +2826,6 @@ def test_a_non_dev_up_omits_no_build_unless_the_images_are_prebuilt(monkeypatch,
     implicit build-on-up. Suppressing that unconditionally would break every
     ordinary deploy.
     """
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
 
     cmds = _dev_deploy_cmds(monkeypatch, tmp_path, dev_mode=False)
 
@@ -2518,8 +2851,6 @@ def test_the_switch_adds_no_build_to_a_non_dev_up(monkeypatch, tmp_path):
 
 
 def test_the_config_key_adds_no_build_to_a_non_dev_up_too(monkeypatch, tmp_path):
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
-
     cmds = _dev_deploy_cmds(monkeypatch, tmp_path, {"prebuilt_images": True}, dev_mode=False)
 
     up = next(cmd for cmd in cmds if "up" in cmd)
@@ -2613,7 +2944,6 @@ def _project_image_build_calls(monkeypatch, tmp_path, config, *, dev_mode=False)
 
 def test_the_project_image_is_built_when_the_switch_is_off(monkeypatch, tmp_path):
     """The baseline the switch has to leave alone."""
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
 
     cmds, _steps = _project_image_build_calls(monkeypatch, tmp_path, _WORKER_CONFIG)
 
@@ -2632,7 +2962,6 @@ def test_the_switch_removes_the_project_image_build(monkeypatch, tmp_path):
 
 def test_the_config_key_removes_the_project_image_build_too(monkeypatch, tmp_path):
     """The switch is a property of the deployment as well as of the shell."""
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
 
     cmds, steps = _project_image_build_calls(
         monkeypatch, tmp_path, {**_WORKER_CONFIG, "prebuilt_images": True}
@@ -2705,7 +3034,6 @@ def test_the_switch_answers_the_build_target_question_too(monkeypatch):
     monkeypatch.setattr("osprey.version.get_release_version", lambda: "2026.6.2")
     monkeypatch.setattr("osprey.version.get_running_version", lambda: "2026.6.2.post783+g83fda5e60")
 
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     assert container_lifecycle._project_image_build_target(_WORKER_CONFIG, {}) is not None
     assert container_lifecycle._unreleased_pin_problem(_WORKER_CONFIG, {}, dev_mode=False)
 

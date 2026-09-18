@@ -20,7 +20,6 @@ def _clean_singleton():
 class TestEmbeddingProviderRegistry:
     """Unit tests for EmbeddingProviderRegistry."""
 
-    @pytest.mark.unit
     def test_get_builtin_ollama(self):
         """Built-in 'ollama' resolves to OllamaEmbeddingProvider."""
         reg = EmbeddingProviderRegistry()
@@ -28,7 +27,6 @@ class TestEmbeddingProviderRegistry:
         assert cls is not None
         assert cls.name == "ollama"
 
-    @pytest.mark.unit
     def test_get_builtin_openai(self):
         """Built-in 'openai' resolves to OpenAIEmbeddingProvider."""
         reg = EmbeddingProviderRegistry()
@@ -36,13 +34,11 @@ class TestEmbeddingProviderRegistry:
         assert cls is not None
         assert cls.name == "openai"
 
-    @pytest.mark.unit
     def test_get_unknown_returns_none(self):
         """Unknown provider name returns None, never raises."""
         reg = EmbeddingProviderRegistry()
         assert reg.get_provider("does_not_exist") is None
 
-    @pytest.mark.unit
     def test_register_custom_provider(self):
         """Custom providers registered at runtime are resolvable."""
         reg = EmbeddingProviderRegistry()
@@ -55,7 +51,6 @@ class TestEmbeddingProviderRegistry:
         assert cls is not None
         assert cls.name == "ollama"
 
-    @pytest.mark.unit
     def test_list_providers_contains_builtins(self):
         """list_providers returns all built-in embedding provider names."""
         reg = EmbeddingProviderRegistry()
@@ -63,14 +58,12 @@ class TestEmbeddingProviderRegistry:
         assert set(names) == {"ollama", "openai"}
         assert len(names) == 2
 
-    @pytest.mark.unit
     def test_singleton_identity(self):
         """get_embedding_registry() returns the same instance."""
         a = get_embedding_registry()
         b = get_embedding_registry()
         assert a is b
 
-    @pytest.mark.unit
     def test_lazy_load_caches(self):
         """Second get_provider call returns cached class (no re-import)."""
         reg = EmbeddingProviderRegistry()
@@ -78,7 +71,6 @@ class TestEmbeddingProviderRegistry:
         second = reg.get_provider("ollama")
         assert first is second
 
-    @pytest.mark.unit
     def test_register_override_evicts_cache(self):
         """Overwriting an existing entry clears the cache for that name."""
         reg = EmbeddingProviderRegistry()

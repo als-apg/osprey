@@ -38,8 +38,6 @@ from tests.mcp_server.conftest import (
     get_tool_fn,
 )
 
-pytestmark = pytest.mark.unit
-
 _CW_MOD = "osprey.mcp_server.control_system.tools.channel_write"
 _QUEUE_MOD = "osprey.mcp_server.bluesky.tools.queue"
 _FOCUS_MOD = "osprey.mcp_server.workspace.tools.focus_tools"
@@ -533,7 +531,7 @@ async def test_ariel_entry_publish_success_emits_facility_id(_ariel_context):
     mock_service = AsyncMock()
     mock_service.publish_entry.return_value = FacilityEntryCreateResult(
         entry_id="published-001",
-        source_system="ALS eLog",
+        source_system="Example eLog",
         sync_status=SyncStatus.SYNCED,
         message="Published successfully",
     )
@@ -584,7 +582,7 @@ async def test_ariel_entry_publish_auth_required_no_emit(_ariel_context):
 
     mock_service = AsyncMock()
     mock_service.publish_entry.side_effect = AuthenticationRequiredError(
-        "OLOG publishing requires credentials.", source_system="ALS eLog"
+        "OLOG publishing requires credentials.", source_system="Example eLog"
     )
 
     with (

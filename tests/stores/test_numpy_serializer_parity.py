@@ -26,8 +26,6 @@ import pytest
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey.stores.artifact_store import ArtifactStore, serialize_object
 
-pytestmark = pytest.mark.unit
-
 ARRAY = np.arange(12, dtype=np.uint16).reshape(3, 4)
 
 

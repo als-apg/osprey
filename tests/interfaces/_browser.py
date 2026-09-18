@@ -10,7 +10,9 @@ known-benign noise.
 
 ``wait_for_dock_settled`` is the other shared wait: it blocks until the dock has
 finished arranging the shell, for any suite that drives or photographs the
-web-terminal hub.
+web-terminal hub. ``open_hub_page`` is the hub's own entry point — it opens the
+page and waits for the panel rail and the dock grid together — and
+``rail_entry`` builds the locator for one of that rail's buttons.
 """
 
 from __future__ import annotations
@@ -19,11 +21,12 @@ from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
+from playwright.sync_api import expect
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from playwright.sync_api import Page
+    from playwright.sync_api import Browser, Page
 
 # Bounded settle wait after `load` fires. Some interfaces (e.g. the web
 # terminal's SSE-backed panels) hold long-lived connections, so `networkidle`
@@ -32,6 +35,12 @@ _NETWORK_IDLE_TIMEOUT_MS = 5000
 
 _SCRIPT_STYLESHEET_RESOURCE_TYPES = ("script", "stylesheet")
 _SCRIPT_STYLESHEET_EXTENSIONS = (".js", ".css")
+
+# Bounds the hub's first render: the rail's fetch chain (/api/panels, then each
+# panel's config endpoint) and the dockview grid's first group, on a loaded
+# runner. Not a correctness gate -- a bound on a wait that would otherwise hang
+# the suite.
+_HUB_READY_TIMEOUT_MS = 10_000
 
 
 def _same_origin(url: str, origin: tuple[str, str | None, int | None]) -> bool:
@@ -193,3 +202,52 @@ def wait_for_dock_settled(page: Page, *, budget_ms: int = 10_000) -> None:
         "the dock never settled: the boot layout was not announced final, or the "
         "console was still being re-parented when the wait ran out"
     )
+
+
+def rail_entry(page: Page, panel_id: str, *, enabled_only: bool = False):
+    """The panel rail's button for *panel_id*.
+
+    Args:
+        page: An open hub page.
+        panel_id: The panel's id, as the rail stamps it on ``data-panel-id``.
+        enabled_only: Match only once the entry's health poll has settled
+            healthy. The rail signals availability with the ``disabled``
+            CSS class rather than the HTML attribute (``panel-rail.js``
+            ``setEntryEnabled``), so the enabled state is a class condition
+            on the selector, not an attribute one.
+
+    Returns:
+        A locator for the button, which may match nothing.
+    """
+    selector = f'button.panel-rail-button[data-panel-id="{panel_id}"]'
+    return page.locator(f"{selector}:not(.disabled)" if enabled_only else selector)
+
+
+def open_hub_page(browser: Browser, base_url: str, *, viewport: dict | None = None) -> Page:
+    """Open the web terminal and wait for the rail and the dock grid to render.
+
+    Both waits are needed and neither implies the other: ``panel-manager.js``
+    builds the rail asynchronously (it fetches ``/api/panels`` and then each
+    panel's config endpoint) while ``dock-workspace.js`` builds the dockview
+    grid, so a page that has one is not yet a page that has the other. The
+    rail is waited on through the ``artifacts`` entry because that panel is
+    always enabled and is the default fallback, so it is the one entry a hub
+    is guaranteed to grow. It is matched as a button rather than by
+    ``data-panel-id`` alone: panel iframes carry the same attribute.
+
+    Args:
+        browser: The function-scoped chromium fixture. The page it hands back
+            already has the onboarding tour dismissed — see
+            ``conftest._DISMISS_TOUR`` — so nothing here seeds it.
+        base_url: The live server's address.
+        viewport: Page size, for a suite whose subject needs one. Omit it and
+            the browser's default is used.
+
+    Returns:
+        A page whose rail and dockview grid are both on screen.
+    """
+    page = browser.new_page(viewport=viewport) if viewport else browser.new_page()
+    page.goto(base_url, wait_until="domcontentloaded")
+    expect(rail_entry(page, "artifacts")).to_be_attached(timeout=_HUB_READY_TIMEOUT_MS)
+    expect(page.locator(".dv-groupview").first).to_be_visible(timeout=_HUB_READY_TIMEOUT_MS)
+    return page

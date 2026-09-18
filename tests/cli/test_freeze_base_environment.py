@@ -23,9 +23,6 @@ from osprey.cli import build_environment
 from osprey.cli.build_environment import freeze_base_environment
 from osprey.errors import BuildProfileError
 
-pytestmark = pytest.mark.unit
-
-
 # --------------------------------------------------------------------------
 # Helpers
 # --------------------------------------------------------------------------

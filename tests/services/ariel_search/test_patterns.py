@@ -23,9 +23,6 @@ from osprey.services.ariel_search.search.patterns import (
     strip_trailing_question,
 )
 
-pytestmark = pytest.mark.unit
-
-
 # ---------------------------------------------------------------------------
 # strip_trailing_question
 # ---------------------------------------------------------------------------

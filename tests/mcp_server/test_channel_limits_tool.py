@@ -9,8 +9,6 @@ config key that answered, resolved for the deployment's control target).
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -127,7 +125,6 @@ def _get_channel_limits():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_summary_mode():
     """No params → stats, policy, defaults, version."""
     with patch(
@@ -149,7 +146,6 @@ async def test_summary_mode():
     assert data["access_details"]["defaults"]["writable"] is True
 
 
-@pytest.mark.unit
 async def test_summary_confirm_breakdown():
     """Summary reports how many channels resolve to confirm true vs false."""
     with patch(
@@ -171,7 +167,6 @@ async def test_summary_confirm_breakdown():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_lookup_found():
     """Single known channel → full config with the resolved confirm flag."""
     with patch(
@@ -192,7 +187,6 @@ async def test_lookup_found():
     assert "verification" not in ch
 
 
-@pytest.mark.unit
 async def test_lookup_confirm_opt_out():
     """A channel with confirm: false reports it; defaults are not applied over it."""
     with patch(
@@ -207,7 +201,6 @@ async def test_lookup_confirm_opt_out():
     assert ch["confirm"] is False
 
 
-@pytest.mark.unit
 async def test_lookup_not_found_blocked():
     """Unknown channel + allow_unlisted=false → BLOCKED."""
     with patch(
@@ -224,7 +217,6 @@ async def test_lookup_not_found_blocked():
     assert "BLOCKED" in ch["policy_action"]
 
 
-@pytest.mark.unit
 async def test_lookup_not_found_allowed():
     """Unknown channel + allow_unlisted=true → allowed."""
     with patch(
@@ -240,7 +232,6 @@ async def test_lookup_not_found_allowed():
     assert "allowed" in ch["policy_action"]
 
 
-@pytest.mark.unit
 async def test_summary_unset_reports_null_and_deployment_wide_key(control_context_root):
     """Deployment-wide key unset → the summary reports null, not a permissive default."""
     with patch(
@@ -256,7 +247,6 @@ async def test_summary_unset_reports_null_and_deployment_wide_key(control_contex
     assert policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_KEY
 
 
-@pytest.mark.unit
 async def test_lookup_unset_is_refused_naming_the_deployment_wide_key(control_context_root):
     """Unset is nobody's permission: the unlisted channel is refused, key named."""
     with patch(
@@ -275,7 +265,6 @@ async def test_lookup_unset_is_refused_naming_the_deployment_wide_key(control_co
     assert DEPLOYMENT_WIDE_KEY in ch["policy_action"]
 
 
-@pytest.mark.unit
 async def test_posture_is_resolved_for_the_record_target(
     control_context_root, write_control_context
 ):
@@ -296,7 +285,6 @@ async def test_posture_is_resolved_for_the_record_target(
     assert ch["policy_action"] == "allowed (no limits enforced)"
 
 
-@pytest.mark.unit
 async def test_summary_reports_the_per_target_key(control_context_root, write_control_context):
     """A per-type block answers: the summary names that key, not the deployment-wide one."""
     write_control_context(control_context_root, target="va")
@@ -311,7 +299,6 @@ async def test_summary_reports_the_per_target_key(control_context_root, write_co
     assert data["access_details"]["policy"]["allow_unlisted_key"] == VA_KEY
 
 
-@pytest.mark.unit
 async def test_a_record_on_va_answers_the_va_block_not_the_deployment_wide_one(
     control_context_root, write_control_context
 ):
@@ -340,7 +327,6 @@ async def test_a_record_on_va_answers_the_va_block_not_the_deployment_wide_one(
     assert policy["allow_unlisted_key"] == VA_KEY
 
 
-@pytest.mark.unit
 async def test_an_unreadable_record_falls_back_to_the_deployment_wide_block():
     """An unreadable record is not fatal: no target → deployment-wide posture."""
     with (
@@ -357,7 +343,6 @@ async def test_an_unreadable_record_falls_back_to_the_deployment_wide_block():
     assert extract_response_dict(result)["status"] == "success"
 
 
-@pytest.mark.unit
 async def test_hand_built_policy_without_a_key_names_the_deployment_wide_one(
     control_context_root, write_control_context
 ):
@@ -377,7 +362,6 @@ async def test_hand_built_policy_without_a_key_names_the_deployment_wide_one(
     assert ch["allow_unlisted_key"] == DEPLOYMENT_WIDE_KEY
 
 
-@pytest.mark.unit
 async def test_lookup_multiple_mixed():
     """Mix of found + not-found channels."""
     with patch(
@@ -394,7 +378,6 @@ async def test_lookup_multiple_mixed():
     assert "BLOCKED" in channels["NONEXISTENT:PV"]["policy_action"]
 
 
-@pytest.mark.unit
 async def test_read_only_channel_details():
     """Read-only channel shows writable: false."""
     with patch(
@@ -414,7 +397,6 @@ async def test_read_only_channel_details():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_pattern_match():
     """MAG:.* → matches 2 MAG channels."""
     with patch(
@@ -431,7 +413,6 @@ async def test_pattern_match():
     assert "MAG:QF01:CURRENT:SP" in data["access_details"]["channels"]
 
 
-@pytest.mark.unit
 async def test_search_entries_carry_confirm():
     """Compact search entries report confirm, never verification vocabulary."""
     with patch(
@@ -448,7 +429,6 @@ async def test_search_entries_carry_confirm():
     assert all("verification" not in key for entry in channels.values() for key in entry)
 
 
-@pytest.mark.unit
 async def test_pattern_no_match():
     """Non-matching pattern → empty results, still success."""
     with patch(
@@ -463,7 +443,6 @@ async def test_pattern_no_match():
     assert data["summary"]["matches"] == 0
 
 
-@pytest.mark.unit
 async def test_pattern_invalid_regex():
     """Invalid regex → validation_error."""
     fn = _get_channel_limits()
@@ -479,7 +458,6 @@ async def test_pattern_invalid_regex():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_name_contains_matches_regex_metacharacters_literally():
     """name_contains uses literal matching for names with [], (), ., ^, etc."""
     with patch(
@@ -495,7 +473,6 @@ async def test_name_contains_matches_regex_metacharacters_literally():
     assert "Amplifier 2 [J]" in channels
 
 
-@pytest.mark.unit
 async def test_name_contains_treats_dot_as_literal():
     """Literal matching should not treat '.' as a regex wildcard."""
     with patch(
@@ -516,7 +493,6 @@ async def test_name_contains_treats_dot_as_literal():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_filter_writable():
     """filter_by=writable → writable channels only."""
     with patch(
@@ -532,7 +508,6 @@ async def test_filter_writable():
     assert all(ch["writable"] is True for ch in channels.values())
 
 
-@pytest.mark.unit
 async def test_filter_read_only():
     """filter_by=read_only → read-only channels only."""
     with patch(
@@ -548,7 +523,6 @@ async def test_filter_read_only():
     assert "MAG:QF01:CURRENT:SP" in channels
 
 
-@pytest.mark.unit
 async def test_filter_has_step_limit():
     """filter_by=has_step_limit → channels with max_step."""
     with patch(
@@ -564,7 +538,6 @@ async def test_filter_has_step_limit():
     assert "MAG:HCM01:CURRENT:SP" in channels
 
 
-@pytest.mark.unit
 async def test_the_filter_set_carries_no_retired_readback_filter():
     """Only the four live property filters are accepted; a readback one is not.
 
@@ -591,7 +564,6 @@ async def test_the_filter_set_carries_no_retired_readback_filter():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_combined_pattern_and_filter():
     """pattern + filter_by → intersection."""
     with patch(
@@ -608,7 +580,6 @@ async def test_combined_pattern_and_filter():
     assert "MAG:HCM01:CURRENT:SP" in channels
 
 
-@pytest.mark.unit
 async def test_combined_name_contains_and_filter():
     """name_contains + filter_by → literal search filtered by property."""
     with patch(
@@ -629,7 +600,6 @@ async def test_combined_name_contains_and_filter():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_channels_and_pattern_error():
     """Both channels and pattern → validation_error."""
     fn = _get_channel_limits()
@@ -639,7 +609,6 @@ async def test_channels_and_pattern_error():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_channels_and_name_contains_error():
     """Both channels and name_contains → validation_error."""
     fn = _get_channel_limits()
@@ -649,7 +618,6 @@ async def test_channels_and_name_contains_error():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_pattern_and_name_contains_error():
     """Both pattern and name_contains → validation_error."""
     fn = _get_channel_limits()
@@ -659,7 +627,6 @@ async def test_pattern_and_name_contains_error():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_invalid_filter_error():
     """Unknown filter_by value → validation_error."""
     fn = _get_channel_limits()
@@ -675,7 +642,6 @@ async def test_invalid_filter_error():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_limits_disabled():
     """from_config() returns None → disabled response (not an error)."""
     with patch(

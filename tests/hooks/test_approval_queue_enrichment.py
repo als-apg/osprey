@@ -49,8 +49,6 @@ import threading
 import time
 from contextlib import contextmanager
 
-import pytest
-
 from tests._control_context_fixtures import pin_identity, state_dir_under
 
 SCAN_HOOK_CONFIG = {
@@ -188,7 +186,6 @@ def _reason(result) -> str:
     return output["permissionDecisionReason"]
 
 
-@pytest.mark.unit
 def test_matching_revision_renders_shipped_plan_and_source(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -248,7 +245,6 @@ def test_matching_revision_renders_shipped_plan_and_source(
     assert "AGENT-AUTHORED" not in reason
 
 
-@pytest.mark.unit
 def test_matching_revision_labels_unvalidated_session_plan_as_untrusted(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -293,7 +289,6 @@ def test_matching_revision_labels_unvalidated_session_plan_as_untrusted(
     assert "__subclasses__" in reason
 
 
-@pytest.mark.unit
 def test_matching_revision_reports_validated_session_plan_as_passed(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -341,7 +336,6 @@ def test_matching_revision_reports_validated_session_plan_as_passed(
     assert "AGENT-AUTHORED, NOT REVIEWED BY A HUMAN" in reason
 
 
-@pytest.mark.unit
 def test_newline_in_plan_name_cannot_forge_an_enrichment_line(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -384,7 +378,6 @@ def test_newline_in_plan_name_cannot_forge_an_enrichment_line(
     assert "SPOOFED BY THE PLAN NAME" in reason
 
 
-@pytest.mark.unit
 def test_changed_revision_renders_loud_drift_warning(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -433,7 +426,6 @@ def test_changed_revision_renders_loud_drift_warning(
     assert "num_points" in reason
 
 
-@pytest.mark.unit
 def test_empty_draft_renders_explicit_empty_line(tmp_path, hook_runner, make_config, monkeypatch):
     """A never-set / cleared draft renders an explicit EMPTY line, never a
     silent absence of plan detail."""
@@ -455,7 +447,6 @@ def test_empty_draft_renders_explicit_empty_line(tmp_path, hook_runner, make_con
     assert "Tool: queue_add" in reason
 
 
-@pytest.mark.unit
 def test_unreachable_bridge_fails_open(tmp_path, hook_runner, make_config, monkeypatch):
     """A dead bridge must never block the approval prompt: the hook still asks,
     just with the plain tool/policy reason instead of any draft detail.
@@ -476,7 +467,6 @@ def test_unreachable_bridge_fails_open(tmp_path, hook_runner, make_config, monke
     assert "Draft:" not in reason
 
 
-@pytest.mark.unit
 def test_malformed_draft_response_fails_open(tmp_path, hook_runner, make_config, monkeypatch):
     """A `GET /draft` body that is not parseable JSON must fail open exactly
     like an unreachable bridge — plain reason, no draft detail, zero exit."""
@@ -507,7 +497,6 @@ _IDLE_QUEUE = {
 }
 
 
-@pytest.mark.unit
 def test_queue_add_onto_a_running_queue_warns_that_it_executes_immediately(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -537,7 +526,6 @@ def test_queue_add_onto_a_running_queue_warns_that_it_executes_immediately(
     assert "no further approval" in reason
 
 
-@pytest.mark.unit
 def test_queue_add_onto_an_idle_queue_does_not_cry_wolf(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -560,7 +548,6 @@ def test_queue_add_onto_an_idle_queue_does_not_cry_wolf(
     assert "No plan is currently running" in reason
 
 
-@pytest.mark.unit
 def test_queue_add_reports_out_of_band_autostart(tmp_path, hook_runner, make_config, monkeypatch):
     """Autostart on an idle queue is still armed — the queue is started."""
     config = _queue_config(make_config)
@@ -581,7 +568,6 @@ def test_queue_add_reports_out_of_band_autostart(tmp_path, hook_runner, make_con
     assert "no further approval" in reason
 
 
-@pytest.mark.unit
 def test_queue_start_names_every_item_it_would_run(tmp_path, hook_runner, make_config, monkeypatch):
     """`queue_start` takes no arguments, so the prompt IS the statement of what moves.
 
@@ -615,7 +601,6 @@ def test_queue_start_names_every_item_it_would_run(tmp_path, hook_runner, make_c
     assert "AGENT-AUTHORED" in reason
 
 
-@pytest.mark.unit
 def test_queue_start_on_an_empty_queue_says_so(tmp_path, hook_runner, make_config, monkeypatch):
     """Approving a start that would run nothing should read as running nothing."""
     config = _queue_config(make_config)
@@ -628,7 +613,6 @@ def test_queue_start_on_an_empty_queue_says_so(tmp_path, hook_runner, make_confi
     assert "AGENT-AUTHORED" not in reason
 
 
-@pytest.mark.unit
 def test_queue_stop_cancel_renders_the_loud_withdrawal_warning(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -653,7 +637,6 @@ def test_queue_stop_cancel_renders_the_loud_withdrawal_warning(
     assert "A stop is PENDING" in reason
 
 
-@pytest.mark.unit
 def test_plain_queue_stop_is_described_as_a_halt(tmp_path, hook_runner, make_config, monkeypatch):
     """Negative control for the withdrawal warning, plus the limit of a halt.
 
@@ -676,7 +659,6 @@ def test_plain_queue_stop_is_described_as_a_halt(tmp_path, hook_runner, make_con
     assert "no tool here can" not in reason
 
 
-@pytest.mark.unit
 def test_stop_run_renders_the_abort_prompt_end_to_end(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -696,7 +678,6 @@ def test_stop_run_renders_the_abort_prompt_end_to_end(
     assert "left wherever the plan moved it" in reason
 
 
-@pytest.mark.unit
 def test_queue_start_with_an_unreachable_bridge_says_the_queue_is_unseen(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -745,7 +726,6 @@ def _draft_route(plan: str, plan_args: dict, revision: int) -> dict:
     return {"draft": {"plan_name": plan, "plan_args": plan_args}, "revision": revision}
 
 
-@pytest.mark.unit
 def test_queue_add_renders_the_bounded_trajectory_and_declared_channels(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -793,7 +773,6 @@ def test_queue_add_renders_the_bounded_trajectory_and_declared_channels(
     assert posted == [(_preview_route("grid_scan"), plan_args)]
 
 
-@pytest.mark.unit
 def test_queue_add_states_the_exact_total_when_the_pre_flight_truncated(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -830,7 +809,6 @@ def test_queue_add_states_the_exact_total_when_the_pre_flight_truncated(
     assert "… 2 moves not shown …" in reason
 
 
-@pytest.mark.unit
 def test_queue_add_renders_trajectory_unavailable_without_blocking_approval(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -870,7 +848,6 @@ def test_queue_add_renders_trajectory_unavailable_without_blocking_approval(
     assert "Tool: queue_add" in reason
 
 
-@pytest.mark.unit
 def test_queue_add_survives_a_bridge_with_no_pre_flight_route(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -888,7 +865,6 @@ def test_queue_add_survives_a_bridge_with_no_pre_flight_route(
     assert "num_points" in reason
 
 
-@pytest.mark.unit
 def test_a_newline_in_a_previewed_channel_cannot_forge_a_prompt_line(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -922,7 +898,6 @@ def test_a_newline_in_a_previewed_channel_cannot_forge_a_prompt_line(
     assert "Hazard: read-only" in reason
 
 
-@pytest.mark.unit
 def test_queue_start_renders_the_trajectory_of_the_items_it_would_run(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -963,7 +938,6 @@ def test_queue_start_renders_the_trajectory_of_the_items_it_would_run(
     assert posted == [(_preview_route("grid_scan"), {"num_points": 3})]
 
 
-@pytest.mark.unit
 def test_queue_start_previews_only_the_first_three_items_of_a_larger_queue(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1019,7 +993,6 @@ def test_queue_start_previews_only_the_first_three_items_of_a_larger_queue(
     )
 
 
-@pytest.mark.unit
 def test_queue_start_item_preview_skips_the_fetch_once_the_shared_budget_is_spent(
     hook_module,
 ):
@@ -1047,7 +1020,7 @@ def test_queue_start_item_preview_skips_the_fetch_once_the_shared_budget_is_spen
 # The hook budget: what `--budget` buys the pre-flight, counted from hook entry
 # ---------------------------------------------------------------------------
 # The harness kills this hook a fixed number of seconds after it launches it,
-# and the rendered command now states that number (`--budget N`) so the hook
+# and the rendered command states that number (`--budget N`) so the hook
 # and the harness cannot disagree about it. The pre-flight spends what is left
 # of it after the prompt's own overhead, measured from the instant the process
 # entered — a deadline started at the first preview would already be a lie by
@@ -1130,7 +1103,6 @@ def _preview_taking(clock, delay_s: float, attempted: list | None = None):
     return post
 
 
-@pytest.mark.unit
 def test_missing_budget_flag_leaves_the_pre_flight_the_harness_default(hook_module):
     """A render that predates `--budget` passes none, and the hook must assume
     the harness default (5 s) rather than the 20 s a flagged render buys — a
@@ -1142,7 +1114,6 @@ def test_missing_budget_flag_leaves_the_pre_flight_the_harness_default(hook_modu
     assert mod._preview_budget(mod._parse_hook_budget([])) == 2.0
 
 
-@pytest.mark.unit
 def test_budget_flag_is_read_in_both_spellings_and_capped_by_the_ceiling(hook_module):
     """The flag the arming rules render (`--budget 30`) reaches the pre-flight,
     in either spelling, and the approver's own patience still caps it: 30 s of
@@ -1156,7 +1127,6 @@ def test_budget_flag_is_read_in_both_spellings_and_capped_by_the_ceiling(hook_mo
     assert mod._preview_budget(12.0) == 9.0
 
 
-@pytest.mark.unit
 def test_malformed_budget_flag_falls_back_instead_of_failing_the_prompt(hook_module):
     """A render bug in the flag must cost nobody their approval prompt: a value
     that is not a positive number is read as the harness default."""
@@ -1167,7 +1137,6 @@ def test_malformed_budget_flag_falls_back_instead_of_failing_the_prompt(hook_mod
     assert mod._parse_hook_budget(["--budget"]) == 5.0
 
 
-@pytest.mark.unit
 def test_slow_preview_still_renders_within_the_budget_the_flag_bought(hook_module, monkeypatch):
     """The point of the flag: a pre-flight that takes 12 s — well past the 5 s a
     flagless render allows — renders its trajectory in full under `--budget 30`,
@@ -1185,7 +1154,6 @@ def test_slow_preview_still_renders_within_the_budget_the_flag_bought(hook_modul
     assert clock.elapsed == 15.0
 
 
-@pytest.mark.unit
 def test_second_slow_preview_is_cut_by_the_budget_the_first_one_spent(hook_module, monkeypatch):
     """The budget is shared, not per item: two 12 s previews do not cost the
     approver 24 s. The first renders; the second is cut at the deadline and
@@ -1210,7 +1178,6 @@ def test_second_slow_preview_is_cut_by_the_budget_the_first_one_spent(hook_modul
     assert clock.elapsed == 20.0
 
 
-@pytest.mark.unit
 def test_preview_far_past_the_budget_degrades_and_leaves_the_harness_room(hook_module, monkeypatch):
     """A pre-flight that would take 40 s is cut at the deadline, renders the
     budget-spent line, and hands the prompt back with time to spare: under
@@ -1228,7 +1195,6 @@ def test_preview_far_past_the_budget_degrades_and_leaves_the_harness_room(hook_m
     assert clock.elapsed < 27.0
 
 
-@pytest.mark.unit
 def test_budget_deadline_counts_the_time_spent_before_the_first_preview(hook_module, monkeypatch):
     """The deadline runs from hook entry, so time already gone — the queue
     snapshot, a slow config read — is time the pre-flight no longer has. A
@@ -1246,7 +1212,6 @@ def test_budget_deadline_counts_the_time_spent_before_the_first_preview(hook_mod
     assert attempted == []
 
 
-@pytest.mark.unit
 def test_bounded_move_lines_singular_at_exactly_one_hidden_move(hook_module):
     """Grammar pin: exactly one hidden move (11 total, 5 head + 5 tail) reads
     '1 move not shown', not '1 moves not shown'."""
@@ -1265,7 +1230,6 @@ def _moves_for_module(mod, count: int) -> list:
     ]
 
 
-@pytest.mark.unit
 def test_declared_channels_survives_a_non_list_channels_field(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1301,7 +1265,6 @@ def test_declared_channels_survives_a_non_list_channels_field(
     assert "Tool: queue_add" in reason
 
 
-@pytest.mark.unit
 def test_declared_channels_survives_entries_missing_expected_keys(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1335,7 +1298,6 @@ def test_declared_channels_survives_entries_missing_expected_keys(
     assert "Tool: queue_add" in reason
 
 
-@pytest.mark.unit
 def test_preview_fetch_survives_a_plan_name_with_a_lone_surrogate(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1366,7 +1328,6 @@ def test_preview_fetch_survives_a_plan_name_with_a_lone_surrogate(
     assert "Setpoint trajectory: unavailable" in reason
 
 
-@pytest.mark.unit
 def test_role_reason_and_detail_sanitize_embedded_newlines(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1412,7 +1373,6 @@ def test_role_reason_and_detail_sanitize_embedded_newlines(
     assert "Provenance: shipped (SPOOFED)" in reason
 
 
-@pytest.mark.unit
 def test_target_sanitizes_embedded_newlines(tmp_path, hook_runner, make_config, monkeypatch):
     """Sanitization coverage for a move's *target*: like `channel`, it is a
     staged parameter relayed verbatim by the pre-flight, and must not be able
@@ -1481,7 +1441,6 @@ def _queue_start_stamps(state_dir):
     ]
 
 
-@pytest.mark.unit
 def test_the_rendered_start_prompt_leaves_its_queue_token_stamped_on_disk(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
@@ -1511,7 +1470,6 @@ def test_the_rendered_start_prompt_leaves_its_queue_token_stamped_on_disk(
     assert isinstance(stamps[0]["ts"], float)
 
 
-@pytest.mark.unit
 def test_a_start_prompt_that_reached_no_bridge_nulls_the_stamped_queue_token(
     tmp_path, hook_runner, hook_module, make_config, monkeypatch
 ):

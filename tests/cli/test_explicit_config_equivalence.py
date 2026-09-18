@@ -391,7 +391,7 @@ def _retired_upstream_link_deltas(*documents: str) -> tuple[Delta, ...]:
         for document in documents
         for path, fixture in (
             ("web.docs_url", "https://als-apg.github.io/osprey"),
-            ("web.feedback.email", "thellert@lbl.gov"),
+            ("web.feedback.email", "alice@example.com"),
             ("web.feedback.github_repo", "als-apg/osprey"),
         )
     )

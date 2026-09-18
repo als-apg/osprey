@@ -233,7 +233,7 @@ class _ExternalBackendStub:
     external_worker = True
 
     async def external_plan_catalog(self):
-        return [{"name": "geecs_scan_request_plan"}]
+        return [{"name": "scan_request_plan"}]
 
 
 class _ExternalBackendUnreachable:
@@ -252,7 +252,7 @@ def test_external_plan_source_is_an_honest_answer_not_a_404(client: TestClient) 
 
     set_queue_backend(_ExternalBackendStub())
     try:
-        response = client.get("/plans/geecs_scan_request_plan/source")
+        response = client.get("/plans/scan_request_plan/source")
         assert response.status_code == 200
         payload = response.json()
         assert payload["external"] is True
@@ -280,6 +280,6 @@ def test_external_source_with_unreachable_manager_404s_rather_than_guessing(
 
     set_queue_backend(_ExternalBackendUnreachable())
     try:
-        assert client.get("/plans/geecs_scan_request_plan/source").status_code == 404
+        assert client.get("/plans/scan_request_plan/source").status_code == 404
     finally:
         set_queue_backend(None)

@@ -52,8 +52,6 @@ from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
 from osprey.utils import identity as re_export
 from osprey_connectors import identity as ladder
 
-pytestmark = pytest.mark.unit
-
 #: The shipped hooks, as files. They are loaded from here by path rather than
 #: imported as ``osprey.templates...`` so that the ``sys.path`` entry
 #: ``osprey_target_state`` inserts for its own siblings is this module's to undo

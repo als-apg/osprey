@@ -29,8 +29,6 @@ from osprey.utils.identity import (
     acting_identity,
 )
 
-pytestmark = pytest.mark.unit
-
 
 @pytest.fixture
 def no_identity_env(monkeypatch: pytest.MonkeyPatch) -> None:

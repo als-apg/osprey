@@ -31,7 +31,7 @@ from osprey.deployment.web_terminals.render import AUTH_ENV_DIGEST_LABEL
 
 def _config(users):
     return {
-        "facility": {"prefix": "als", "name": "ALS"},
+        "facility": {"prefix": "als", "name": "ERF"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
         "modules": {

@@ -119,7 +119,6 @@ def _png_size(png_bytes: bytes) -> tuple[int, int]:
     return struct.unpack(">II", png_bytes[16:24])
 
 
-@pytest.mark.unit
 async def test_frame_response_carries_summary_and_handle(tmp_path, monkeypatch):
     """A camera frame comes back as a summary plus a working artifact handle."""
     frame = _gaussian_spot()
@@ -145,7 +144,6 @@ async def test_frame_response_carries_summary_and_handle(tmp_path, monkeypatch):
     assert "artifact_status" not in entry
 
 
-@pytest.mark.unit
 async def test_view_hint_names_the_png_by_path(tmp_path, monkeypatch):
     """The image is reachable the established way: Read the PNG at this path."""
     data = await _read(tmp_path, monkeypatch, {ADDRESS: _gaussian_spot()})
@@ -163,7 +161,6 @@ async def test_view_hint_names_the_png_by_path(tmp_path, monkeypatch):
     assert (Path(store.repo_root) / png_relative).exists(), png_relative
 
 
-@pytest.mark.unit
 async def test_npy_round_trip_preserves_the_frame(tmp_path, monkeypatch):
     """numpy.load(data_file) gives back exactly what the machine reported."""
     frame = _gaussian_spot()
@@ -176,7 +173,6 @@ async def test_npy_round_trip_preserves_the_frame(tmp_path, monkeypatch):
     np.testing.assert_array_equal(loaded, frame)
 
 
-@pytest.mark.unit
 async def test_gallery_serves_the_rendered_png(tmp_path, monkeypatch):
     """The entry's primary file is a PNG the gallery's own route serves."""
     frame = _gaussian_spot()
@@ -197,7 +193,6 @@ async def test_gallery_serves_the_rendered_png(tmp_path, monkeypatch):
     assert _png_size(response.content) == (64, 48)
 
 
-@pytest.mark.unit
 async def test_artifact_metadata_and_category_feed_retention(tmp_path, monkeypatch):
     """channel + channel_values are the keys the retention sweep selects on."""
     data = await _read(tmp_path, monkeypatch, {ADDRESS: _gaussian_spot()})
@@ -219,7 +214,6 @@ async def test_artifact_metadata_and_category_feed_retention(tmp_path, monkeypat
     assert stored.access_details["view_hint"]
 
 
-@pytest.mark.unit
 async def test_rgb_frame_renders_from_the_trailing_colour_axis(tmp_path, monkeypatch):
     """With no colorMode reported, a trailing 3-sized axis is the colour axis."""
     frame = np.zeros((32, 40, 3), dtype=np.uint8)
@@ -238,7 +232,6 @@ async def test_rgb_frame_renders_from_the_trailing_colour_axis(tmp_path, monkeyp
     np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
-@pytest.mark.unit
 async def test_reported_color_mode_places_the_colour_axis_first(tmp_path, monkeypatch):
     """RGB1 means the colour components lead: (3, H, W), not (H, W, 3)."""
     frame = np.zeros((3, 32, 40), dtype=np.uint8)
@@ -253,7 +246,6 @@ async def test_reported_color_mode_places_the_colour_axis_first(tmp_path, monkey
     assert _png_size(png) == (40, 32)
 
 
-@pytest.mark.unit
 async def test_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch):
     """A frame the control system calls Mono is not RGB, however its dims line up."""
     frame = np.arange(3 * 32 * 40, dtype=np.uint16).reshape(3, 32, 40)
@@ -266,7 +258,6 @@ async def test_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch):
     np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
-@pytest.mark.unit
 async def test_integer_color_mode_rgb1_places_the_colour_axis_first(tmp_path, monkeypatch):
     """areaDetector sends colorMode as an enum: 2 is RGB1, so (3, H, W)."""
     # Both the leading and the trailing axis are 3, so inference alone would take
@@ -283,7 +274,6 @@ async def test_integer_color_mode_rgb1_places_the_colour_axis_first(tmp_path, mo
     assert _png_size(png) == (3, 800)
 
 
-@pytest.mark.unit
 async def test_integer_color_mode_rgb2_places_the_colour_axis_in_the_middle(tmp_path, monkeypatch):
     """Enum 3 is RGB2: the colour components are the row axis, (H, 3, W)."""
     frame = np.zeros((32, 3, 40), dtype=np.uint8)
@@ -297,7 +287,6 @@ async def test_integer_color_mode_rgb2_places_the_colour_axis_in_the_middle(tmp_
     assert _png_size(png) == (40, 32)
 
 
-@pytest.mark.unit
 async def test_integer_color_mode_rgb3_places_the_colour_axis_last(tmp_path, monkeypatch):
     """Enum 4 is RGB3: the same frame as the RGB1 case, drawn the other way."""
     frame = np.zeros((3, 800, 3), dtype=np.uint8)
@@ -312,7 +301,6 @@ async def test_integer_color_mode_rgb3_places_the_colour_axis_last(tmp_path, mon
     assert _png_size(png) == (800, 3)
 
 
-@pytest.mark.unit
 async def test_integer_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch):
     """Enum 0 is Mono: a 3-plane stack, not a colour frame, whatever its dims."""
     frame = np.arange(3 * 32 * 40, dtype=np.uint16).reshape(3, 32, 40)
@@ -325,7 +313,6 @@ async def test_integer_mono_color_mode_is_not_drawn_as_rgb(tmp_path, monkeypatch
     np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
-@pytest.mark.unit
 async def test_unknown_integer_color_mode_falls_back_to_inference(tmp_path, monkeypatch):
     """A code outside the enum reads as nothing reported, so the shape decides."""
     frame = np.zeros((32, 40, 3), dtype=np.uint8)
@@ -339,7 +326,6 @@ async def test_unknown_integer_color_mode_falls_back_to_inference(tmp_path, monk
     assert _png_size(png) == (40, 32)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [
@@ -364,7 +350,6 @@ def test_color_mode_accepts_only_enum_codes_and_named_modes(raw, expected):
     assert _color_mode(_channel_value(np.zeros((2, 2)), raw)) == expected
 
 
-@pytest.mark.unit
 def test_color_mode_ignores_mock_metadata():
     """A mock's attribute is not a reported mode - the shape still decides."""
     from osprey.mcp_server.control_system.tools.channel_read import _color_mode
@@ -372,7 +357,6 @@ def test_color_mode_ignores_mock_metadata():
     assert _color_mode(MagicMock()) is None
 
 
-@pytest.mark.unit
 async def test_constant_frame_renders_without_dividing_by_zero(tmp_path, monkeypatch):
     """A frame with no contrast still renders - autoscaling must not blow up."""
     frame = np.full((48, 64), 7, dtype=np.uint16)
@@ -387,7 +371,6 @@ async def test_constant_frame_renders_without_dividing_by_zero(tmp_path, monkeyp
     np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
-@pytest.mark.unit
 async def test_all_nan_frame_renders_without_blowing_up(tmp_path, monkeypatch):
     """Every pixel NaN leaves no scale to compute; the frame still stores."""
     frame = np.full((48, 64), np.nan, dtype=np.float64)
@@ -399,7 +382,6 @@ async def test_all_nan_frame_renders_without_blowing_up(tmp_path, monkeypatch):
     assert _png_size(png) == (64, 48)
 
 
-@pytest.mark.unit
 async def test_four_dimensional_value_takes_the_data_only_path(tmp_path, monkeypatch):
     """No honest rendering exists for a 4-D stack; the data is kept anyway."""
     stack = np.arange(2 * 4 * 16 * 40, dtype=np.int32).reshape(2, 4, 16, 40)
@@ -423,7 +405,6 @@ async def test_four_dimensional_value_takes_the_data_only_path(tmp_path, monkeyp
     np.testing.assert_array_equal(loaded, stack)
 
 
-@pytest.mark.unit
 async def test_render_failure_degrades_to_data_only(tmp_path, monkeypatch):
     """A renderable-looking frame whose render blows up still keeps its data."""
     monkeypatch.setattr(
@@ -440,7 +421,6 @@ async def test_render_failure_degrades_to_data_only(tmp_path, monkeypatch):
     np.testing.assert_array_equal(np.load(_resolve(entry)), frame)
 
 
-@pytest.mark.unit
 async def test_retention_fires_after_an_image_save(tmp_path, monkeypatch):
     """The rolling window is swept on the image path too, with the config window."""
     calls: list[tuple] = []
@@ -464,7 +444,6 @@ async def test_retention_fires_after_an_image_save(tmp_path, monkeypatch):
     assert calls == [(ADDRESS, 3)]
 
 
-@pytest.mark.unit
 async def test_retention_keeps_only_the_configured_window(tmp_path, monkeypatch):
     """Repeated frames of one channel do not grow the gallery without bound."""
     monkeypatch.chdir(tmp_path)
@@ -496,7 +475,6 @@ async def test_retention_keeps_only_the_configured_window(tmp_path, monkeypatch)
     assert len(list(store_dir.glob("*.npy"))) == 2
 
 
-@pytest.mark.unit
 async def test_store_failure_degrades_but_read_stays_successful(tmp_path, monkeypatch):
     """A frame the machine did deliver is never reported as a failed read."""
     monkeypatch.setattr(
@@ -516,7 +494,6 @@ async def test_store_failure_degrades_but_read_stays_successful(tmp_path, monkey
     assert "data_file" not in entry
 
 
-@pytest.mark.unit
 async def test_frames_and_waveforms_coexist_in_one_call(tmp_path, monkeypatch):
     """A mixed batch keeps one entry per address, each with its own artifact shape."""
     frame = _gaussian_spot()

@@ -55,7 +55,7 @@ import requests
 from osprey.audit import writer as audit_writer
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.interfaces.web_terminal.session_handoff import ERROR_SESSION_ATTACHED_ELSEWHERE
-from osprey_connectors import posture_store
+from osprey_connectors import control_context, posture_store
 
 # The stack, the waits and the vocabulary all come from the sibling suite. The
 # brief for this task is explicit that there must be ONE chip stack fixture in
@@ -66,6 +66,7 @@ from tests.interfaces.web_terminal.test_posture_toggle_browser import (
     CARD,
     CHIP,
     CHIP_SHORT,
+    CHIP_STATE,
     MODAL_CONFIRM,
     MODAL_TITLE,
     NAMES,
@@ -182,6 +183,99 @@ def _await_poll_tick(page: Page) -> float:
     return page.evaluate("() => window.__ctcProbe.reads[window.__ctcProbe.reads.length - 1]")
 
 
+#: The one server-sent stream the hub's modules read. `panel-sse.js`, the
+#: activity strip `session.js` wires, and the chip all name this URL, and
+#: `createEventSource` (api.js) is what makes that one socket instead of
+#: three.
+FILES_EVENT_STREAM = "/api/files/events"
+
+#: Seeded at document start, so the count covers the page's FIRST socket:
+#: every `EventSource` the page constructs is kept, with the URL it was
+#: opened on. Counting CONSTRUCTIONS rather than opens is the point — a
+#: module that pays for its own connection has already paid by the time the
+#: socket opens, and a duplicate that never opens is still a duplicate under
+#: the browser's per-host cap.
+_STREAM_PROBE = """
+(function () {
+  const Original = window.EventSource;
+  if (!Original) return;
+  const streams = [];
+  window.__ctcStreams = streams;
+  window.EventSource = new Proxy(Original, {
+    construct(target, args) {
+      const stream = new target(...args);
+      streams.push(stream);
+      return stream;
+    },
+  });
+})();
+"""
+
+
+def _live_streams(page: Page, path: str) -> int:
+    """How many event-stream sockets this page is holding open on *path*.
+
+    LIVE rather than constructed: `readyState === 2` is CLOSED, and api.js
+    replaces a socket the browser has given up on with a fresh one, so a
+    reconnection is one socket held and not two. Counting corpses would
+    redden this lane for the behaviour it is not about.
+    """
+    return page.evaluate(
+        "(path) => (window.__ctcStreams || []).filter("
+        "(stream) => stream.url.includes(path) && stream.readyState !== 2).length",
+        path,
+    )
+
+
+def _await_stream_open(page: Page, path: str) -> None:
+    """Block until one of this page's sockets on *path* is OPEN.
+
+    The readiness barrier for everything below: until a stream is open the
+    page is not subscribed to anything, so a count taken before it means
+    only that the page has not got there yet.
+    """
+    page.wait_for_function(
+        "(path) => (window.__ctcStreams || []).some("
+        "(stream) => stream.url.includes(path) && stream.readyState === 1)",
+        arg=path,
+        timeout=TIMEOUT,
+    )
+
+
+#: Subscribe to the stream through the page's OWN copy of api.js — the module
+#: instance app.js loaded, reached by rewriting the entrypoint's `src`, so the
+#: URL is the one app.js's relative `./api.js` resolved to under whatever
+#: prefix this deployment serves. A second copy fetched under any other URL
+#: would carry its own `sharedStreams` map and prove the opposite of what
+#: this asks.
+_ADD_SUBSCRIBER = """
+async (path) => {
+  const entry = document.querySelector('script[type="module"][src$="/js/app.js"]');
+  if (!entry) throw new Error('the hub page loads no app.js module entrypoint');
+  const api = await import(entry.src.replace('/app.js', '/api.js'));
+  window.__ctcExtra = api.createEventSource(path, {});
+}
+"""
+
+#: Installed into a settled page: records every value `data-pending` ever
+#: takes on the chip, including the one it already has. `switching…` is a
+#: sticky state — nothing resolves a wait for a terminus that was never
+#: written, so a point-in-time check would in fact be enough — but a log is
+#: what makes the assertion read as "never" rather than "not just now".
+_PENDING_PROBE = """
+() => {
+  const chip = document.querySelector('#control-target-chip');
+  if (!chip) throw new Error('no chip to probe');
+  const seen = [];
+  window.__ctcPending = seen;
+  if (chip.dataset.pending !== undefined) seen.push(chip.dataset.pending);
+  new MutationObserver(() => {
+    if (chip.dataset.pending !== undefined) seen.push(chip.dataset.pending);
+  }).observe(chip, { attributes: true, attributeFilter: ['data-pending'] });
+}
+"""
+
+
 # ---------------------------------------------------------------------------
 # (1) a switch in one tab, on the frame, in the other
 # ---------------------------------------------------------------------------
@@ -260,6 +354,86 @@ def test_a_switch_in_one_tab_reaches_the_other_before_its_next_poll(
         f"which is within drift of the next one ({IDLE_POLL_MS} ms) — this proves nothing "
         f"about the pushed frame. Reads: {probe['reads']}"
     )
+
+
+# ---------------------------------------------------------------------------
+# (6) one stream for the whole page
+# ---------------------------------------------------------------------------
+
+
+def test_one_event_stream_serves_the_whole_page_across_a_switch(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """Three modules, one socket: the page never pays for the stream twice.
+
+    ``panel-sse.js``, the activity strip ``session.js`` wires and the chip all
+    read ``/api/files/events`` on one page, and ``createEventSource``
+    (``api.js``) is what makes that one socket rather than three. So the number
+    this test takes is a number about the whole PAGE, not about the chip: it is
+    the count of live event-stream sockets the page is holding, and it is
+    asserted at three moments, each ruling out a different way of regaining a
+    second connection.
+
+    At rest after boot, first — whichever modules mounted, they share. Then
+    after one more subscriber is added through the page's OWN ``api.js``: the
+    sharing is a module-registry fact (``sharedStreams`` is a Map inside one
+    loaded copy of that module), so a second copy of it fetched under any other
+    URL, or a subscriber that reached ``EventSource`` directly, shows up here
+    and nowhere else. Then after the deployment moves under the page, because
+    the chip follows a switch by re-READING and must not follow it by
+    re-subscribing.
+
+    The switch is made in a second tab so this page stays a pure watcher: the
+    tab that made the gesture also runs a fast poll while its switch is out,
+    and a lane about connections should not have to reason about which of a
+    page's own timers is running.
+
+    A live controls server is planted so the switch gate has a reachability
+    sweep to read; without one no row offers Switch at all.
+    """
+    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, root):
+        _publish_report(root)
+        watcher, _watcher_session = _settled_chip(
+            chromium_browser, base_url, init_script=_STREAM_PROBE
+        )
+        switcher, _switcher_session = _settled_chip(chromium_browser, base_url)
+        try:
+            _await_stream_open(watcher, FILES_EVENT_STREAM)
+            assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
+                "a settled hub page holds more than one event-stream socket"
+            )
+
+            # A second subscriber, through the page's own api.js.
+            watcher.evaluate(_ADD_SUBSCRIBER, FILES_EVENT_STREAM)
+            assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
+                "subscribing again opened a second socket instead of sharing the one open"
+            )
+
+            # The deployment moves, from the other tab.
+            _open_popover(switcher)
+            _row(switcher, SWITCH_TARGET).locator(".ctc-switch").click()
+            expect(switcher.locator(MODAL_TITLE)).to_have_text(
+                f"Switch to {NAMES[SWITCH_TARGET]}?", timeout=TIMEOUT
+            )
+            switcher.locator(MODAL_CONFIRM).click()
+            expect(switcher.locator(OPEN_MODAL)).to_have_count(0, timeout=TIMEOUT)
+
+            # The watcher learned about it — so the frame really did arrive on a
+            # socket this page is holding — and it learned without opening one.
+            expect(watcher.locator(CHIP_SHORT)).to_have_text(NAMES[SWITCH_TARGET], timeout=TIMEOUT)
+            assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
+                "following the switch cost the page a second socket"
+            )
+
+            # The page's own subscribers keep the socket after ours leaves.
+            watcher.evaluate("() => window.__ctcExtra.stop()")
+            assert _live_streams(watcher, FILES_EVENT_STREAM) == 1, (
+                "the socket closed when the test's subscriber left, so the page's "
+                "own modules were not sharing it"
+            )
+        finally:
+            switcher.close()
+            watcher.close()
 
 
 # ---------------------------------------------------------------------------
@@ -494,5 +668,99 @@ def test_a_real_handoff_and_the_simple_view_leave_the_deployment_where_it_is(
                 "flipping the view re-derived the deployment's generation",
                 final,
             )
+        finally:
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# (7) the machine already held is not a switch
+# ---------------------------------------------------------------------------
+
+
+def test_the_machine_already_held_is_offered_no_switch_and_pends_nothing(
+    tmp_path, monkeypatch, chromium_browser
+):
+    """The machine the deployment stands on is offered no gesture, and pends none.
+
+    Two halves of one fact, which is why they are one lane. The roster answers
+    ``already_active`` for the machine of record, so the popover renders it as
+    the card and not as a row — a card has no Switch slot, so there is no
+    gesture here that could ask for the target the deployment is already on.
+
+    A request for it can still arrive: the agent's own tool makes one, and so
+    does a client whose roster went stale between the render it read and the
+    confirm it sent. The route's answer is what keeps that from stranding every
+    watching page — nothing is written, no generation is minted, and the 202
+    carries the generation the fleet is already on. ``switching…`` is entered on
+    a pending request and left when a terminus resolves it, so a generation
+    minted here would leave a wait that nothing can ever end: no terminus is
+    coming, and the page would sit there until its local TTL reported
+    ``request_expired`` for a request that in fact succeeded.
+
+    The negative is not taken at an arbitrary moment. The chip's own read is
+    watched past the request, so the assertions below are made after the read
+    that would have carried a pending state has happened.
+
+    No reachability sweep is planted, deliberately: ``_switch_mutation`` answers
+    the already-held target before it reaches the convergence check or the gate,
+    so a sweep is not part of what this lane exercises and planting one would
+    suggest it was.
+    """
+    with _chip_hub(tmp_path, monkeypatch) as (base_url, _app, _root):
+        page, _session_id = _settled_chip(chromium_browser, base_url)
+        try:
+            # (i) the interface offers no way to ask for it.
+            _open_popover(page)
+            expect(page.locator(CARD)).to_have_attribute(
+                "data-target", ACTIVE_TARGET, timeout=TIMEOUT
+            )
+            expect(page.locator(f"{CARD} .ctc-switch")).to_have_count(0)
+            expect(_row(page, ACTIVE_TARGET)).to_have_count(0)
+            page.keyboard.press("Escape")
+            expect(page.locator(POPOVER)).to_have_count(0, timeout=TIMEOUT)
+
+            before = _read_record()
+            assert before is not None, "the hub started with no control-context record"
+            settled_state = page.locator(CHIP_STATE).inner_text()
+
+            page.evaluate(_PENDING_PROBE)
+            _install_probe(page)
+
+            # (ii) the request the shipped chip would send. No session id:
+            #      the chip stopped being a session surface, so its body
+            #      carries a target and nothing else.
+            answer = requests.post(
+                f"{base_url}/api/terminal/target",
+                json={"target": ACTIVE_TARGET},
+                timeout=60,
+            )
+            assert answer.status_code == 202, answer.text
+            body = answer.json()
+            assert body["target"] == ACTIVE_TARGET, body
+            assert body["generation"] == RECORD_GENERATION, body
+            assert body["request_id"], body
+            assert body["detail"] == control_context.unchanged_detail(
+                ACTIVE_TARGET, RECORD_GENERATION
+            ), body
+
+            # (iii) nothing moved, and no terminus was written for it.
+            after = _read_record()
+            assert after is not None
+            assert after.target == ACTIVE_TARGET, after
+            assert after.generation == RECORD_GENERATION, after
+            assert after.last_switch == before.last_switch, (
+                "a request that moved nothing wrote a terminus",
+                after.last_switch,
+            )
+
+            # (iv) and no page waits for it. The poll tick is the barrier:
+            #      the read that would have carried a pending state has
+            #      happened by the time these are taken.
+            _await_poll_tick(page)
+            assert page.evaluate("() => window.__ctcPending") == [], (
+                "the chip entered switching… for a request that moved nothing"
+            )
+            expect(page.locator(f"{CHIP}[data-pending]")).to_have_count(0)
+            assert page.locator(CHIP_STATE).inner_text() == settled_state
         finally:
             page.close()
