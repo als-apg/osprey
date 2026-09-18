@@ -406,6 +406,7 @@ _BUILTIN_ARCHIVERS = (
     types.EPICS_ARCHIVER,
     types.MONGODB_ARCHIVER,
     types.DOOCS_ARCHIVER,
+    types.MYA_ARCHIVER,
 )
 
 
@@ -441,6 +442,7 @@ def register_builtin_connectors() -> None:
     from osprey_connectors.archiver.epics_archiver_connector import EPICSArchiverConnector
     from osprey_connectors.archiver.mock_archiver_connector import MockArchiverConnector
     from osprey_connectors.archiver.mongodb_archiver_connector import MongoDBArchiverConnector
+    from osprey_connectors.archiver.mya_archiver_connector import MYAArchiverConnector
     from osprey_connectors.control_system.doocs_connector import DOOCSConnector
     from osprey_connectors.control_system.epics_connector import EPICSConnector
     from osprey_connectors.control_system.mock_connector import MockConnector
@@ -467,6 +469,7 @@ def register_builtin_connectors() -> None:
         (types.EPICS_ARCHIVER, EPICSArchiverConnector),
         (types.MONGODB_ARCHIVER, MongoDBArchiverConnector),
         (types.DOOCS_ARCHIVER, DOOCSArchiverConnector),
+        (types.MYA_ARCHIVER, MYAArchiverConnector),
     ]
 
     for name, connector_class in control_systems:

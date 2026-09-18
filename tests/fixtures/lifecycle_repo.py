@@ -536,7 +536,8 @@ config:
   # The store's coordinates (`archiver.mongodb_archiver.*`) are derived from
   # that block, so they are not written here. The alternatives are
   # "mock_archiver" (synthesized history), "epics_archiver" (an Archiver
-  # Appliance, configured below) and "doocs_archiver" (DOOCS local history).
+  # Appliance, configured below), "doocs_archiver" (DOOCS local history) and
+  # "mya_archiver" (MYA over the myquery HTTP service).
   archiver.type: mongodb_archiver
   # When a read names no bin size, the bin is chosen so a continuously archived
   # channel returns about this many points. The agent is told which bin it got.

@@ -15,6 +15,7 @@ from osprey.connectors.types import (
     MOCK,
     MOCK_ARCHIVER,
     MONGODB_ARCHIVER,
+    MYA_ARCHIVER,
     TANGO,
     VIRTUAL_ACCELERATOR,
 )
@@ -150,6 +151,16 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.connectors.archiver.doocs_archiver_connector",
                     class_name="DOOCSArchiverConnector",
                     description="DOOCS local history connector (requires doocs4py)",
+                ),
+                ConnectorRegistration(
+                    name=MYA_ARCHIVER,
+                    connector_type="archiver",
+                    module_path="osprey.connectors.archiver.mya_archiver_connector",
+                    class_name="MYAArchiverConnector",
+                    description=(
+                        "MYA archiver connector, read over the myquery HTTP "
+                        "service (requires jlab-archiver-client)"
+                    ),
                 ),
             ],
             # ARIEL search modules
