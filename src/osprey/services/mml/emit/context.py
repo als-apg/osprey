@@ -13,14 +13,22 @@ single provenance STRING for the channel database (a string, never a mapping,
 so the loader's system census skips it), bare header entries for the Turtle
 emitter (which adds the ``# `` prefix itself), and OKF front-matter keys.
 
+It is also where one lane leaves a fact the next one needs. The saved lattice
+is written by pyAT and described by the bindings document, which stamps the
+lattice's digest so the served tree can refuse a deck the bindings were not
+derived against; the lattice emitter records that digest, and the pyAT version
+it rendered with, through :meth:`EmitContext.record_artifact`, and the bindings
+emitter reads them back off the same context.
+
 Pure stdlib plus ``click``: the ``knowledge`` extra is only probed, never
 imported at module level.
 """
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -30,7 +38,9 @@ from osprey.services.mml.canonical import sha256_of
 from osprey.services.mml.systems import EXPORTS_KEY, IMPORT_ORDER_KEY
 
 __all__ = [
+    "LATTICE_ARTIFACT",
     "NO_EXPORTER",
+    "EmitArtifact",
     "EmitContext",
     "build_context",
     "exporter_version",
@@ -43,6 +53,27 @@ NO_EXPORTER = "none"
 #: Export-block keys that may carry the exporter version, in precedence order.
 _EXPORTER_KEYS = ("exporter", "exporter_version")
 
+#: The artifact name the saved lattice is recorded under, whatever the file on
+#: disk is called. The bindings document stamps that digest as its
+#: ``lattice_sha256``, so both emitters read one agreed key.
+LATTICE_ARTIFACT = "lattice.json"
+
+
+@dataclass(frozen=True)
+class EmitArtifact:
+    """One file an emit run wrote, and what rendered it.
+
+    Attributes:
+        name: What the artifact is recorded under.
+        sha256: Lowercase hex sha256 of the text that was written.
+        writer: Version of the library that rendered the text, when the lane
+            did not render it itself; ``""`` otherwise.
+    """
+
+    name: str
+    sha256: str
+    writer: str = ""
+
 
 @dataclass(frozen=True)
 class EmitContext:
@@ -54,6 +85,11 @@ class EmitContext:
         exporter_version: The exporter version, or ``none``.
         provenance_string: ``exporter=<v> ao_sha256=<h> mapping_sha256=<h>``.
         header_lines: The three Turtle header entries, without a ``# `` prefix.
+        artifacts: What this run has written so far, keyed by artifact name.
+            A lane that writes a file another lane must describe records it
+            here rather than handing the digest along a call chain; it takes
+            no part in equality, so two contexts over the same inputs still
+            compare equal whatever either has written.
     """
 
     ao_sha256: str
@@ -61,6 +97,7 @@ class EmitContext:
     exporter_version: str
     provenance_string: str
     header_lines: tuple[str, str, str]
+    artifacts: dict[str, EmitArtifact] = field(default_factory=dict, compare=False, repr=False)
 
     @property
     def front_matter(self) -> dict[str, str]:
@@ -70,6 +107,44 @@ class EmitContext:
             "ao_sha256": self.ao_sha256,
             "mapping_sha256": self.mapping_sha256,
         }
+
+    @property
+    def lattice_sha256(self) -> str | None:
+        """Digest of the saved lattice, or ``None`` before one is written."""
+        artifact = self.artifacts.get(LATTICE_ARTIFACT)
+        return None if artifact is None else artifact.sha256
+
+    @property
+    def pyat_version(self) -> str | None:
+        """The pyAT version that rendered the lattice, or ``None``.
+
+        It is recorded here rather than in the lattice file, whose own
+        ``at_version`` key would rewrite every byte of a deck that had not
+        changed each time pyAT was upgraded.
+        """
+        artifact = self.artifacts.get(LATTICE_ARTIFACT)
+        return None if artifact is None or not artifact.writer else artifact.writer
+
+    def record_artifact(self, name: str, text: str, *, writer: str = "") -> EmitArtifact:
+        """Record the digest of one artifact this run wrote.
+
+        Args:
+            name: What to record it under; :data:`LATTICE_ARTIFACT` for the
+                saved lattice.
+            text: Exactly the text that was written.
+            writer: Version of the library that rendered it, when the lane did
+                not render it itself.
+
+        Returns:
+            The recorded artifact, which replaces any earlier one of that name.
+        """
+        artifact = EmitArtifact(
+            name=name,
+            sha256=hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            writer=writer,
+        )
+        self.artifacts[name] = artifact
+        return artifact
 
 
 def build_context(
