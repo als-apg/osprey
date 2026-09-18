@@ -58,10 +58,15 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
+
+from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+
+if TYPE_CHECKING:
+    from osprey.services.virtual_accelerator.bindings import Binding
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -135,14 +140,21 @@ PACKAGED_MANIFEST_PATH = (
 )
 
 # The container-side name of the manifest and the lattice that belongs with it.
-# Relative, so the entrypoint resolves it against the /data/simulation mount --
-# the same spelling `osprey build` writes into a project's .env.
+# Relative, so the entrypoint resolves it against the served directory -- the
+# same spelling `osprey build` writes into a project's .env.
 DEMO_MANIFEST_FILENAME = "channel_manifest.json"
+
+# The lattice the demo tree carries, named from the layout both halves resolve
+# rather than spelled here: the entrypoint refuses a VA_LATTICE that is not the
+# served tree's own file, so a name typed in this suite and a name the build
+# derives would have to be kept in step by hand.
+DEMO_LATTICE_FILENAME = ManifestPaths(data_root=PRESET_SIM_DIR.parent).lattice_json.name
+
 DEMO_NAMESPACE_RUN_ARGS = (
     "-e",
     f"VA_CHANNELS_FILE={DEMO_MANIFEST_FILENAME}",
     "-e",
-    "VA_LATTICE=builtin",
+    f"VA_LATTICE={DEMO_LATTICE_FILENAME}",
 )
 
 
@@ -159,12 +171,52 @@ def stage_demo_data_dir(root: Path) -> Path:
     mount INTO a read-only mount cannot create its own mountpoint: the runtime
     refuses with EROFS. Mounting the preset tree read-write to make room is not
     an option either -- it is the checkout.
+
+    The write bands are staged TWICE, at the served directory and at the data
+    root, because two readers ask two different questions of them: the IOC
+    clamps setpoints from the served directory, and the model builds its
+    variable bounds from the root. A tree carrying them in only one place boots
+    without physics or refuses a lattice outright.
     """
     staged = root / "simulation"
     shutil.copytree(PRESET_SIM_DIR, staged)
     shutil.copy2(PACKAGED_MANIFEST_PATH, staged / DEMO_MANIFEST_FILENAME)
     shutil.copy2(LIMITS_DB_PATH, staged / "channel_limits.json")
+    shutil.copy2(LIMITS_DB_PATH, root / "channel_limits.json")
     return staged
+
+
+def data_root_run_args(data_dir: Path) -> tuple[str, ...]:
+    """The ``docker run`` arguments that mount *data_dir* as part of its tree.
+
+    A served directory is never mounted on its own. The model behind it is
+    resolved against the whole facility tree -- the lattice and the bindings
+    inside the served directory, the write bands its variables are built from
+    at the data root beside it -- so what gets mounted is the ROOT, and
+    ``VA_DATA_DIR`` names the served directory inside it. Mounting the served
+    directory alone carries no bands, and a lattice-backed boot against it is
+    refused.
+
+    ``VA_DATA_DIR`` is composed from the directory's own basename rather than
+    the literal ``simulation``, so this helper passes a caller's layout through
+    instead of assuming one. That is not licence to rename the served
+    directory: a lattice-backed boot still requires the basename to BE
+    ``simulation``, because the entrypoint resolves the model through
+    ``ManifestPaths(data_root=<the mounted root>)``, which anchors the lattice
+    at ``<root>/simulation``, and refuses when that is not where the served
+    lattice sits.
+    """
+    return (
+        "-v",
+        f"{data_dir.parent}:/data:ro",
+        "-e",
+        f"VA_DATA_DIR=/data/{data_dir.name}",
+    )
+
+
+def demo_data_run_args() -> tuple[str, ...]:
+    """:func:`data_root_run_args` for this process's assembled demo tree."""
+    return data_root_run_args(demo_data_dir())
 
 
 _DEMO_DATA_DIR: Path | None = None
@@ -442,8 +494,7 @@ def va_container(va_project: VaProject) -> Iterator[VaProject]:
             CONTAINER_NAME,
             "-p",
             f"127.0.0.1:{CA_PORT}:{CONTAINER_CA_PORT}/tcp",
-            "-v",
-            f"{va_project.data_dir}:/data/simulation:ro",
+            *data_root_run_args(va_project.data_dir),
             # Scenario state is a SEPARATE mount: the host writes it at run
             # time (`osprey sim apply`) while data/ is build-owned.
             "-v",
@@ -519,3 +570,48 @@ async def reconciling():
     yield start
     for loop in started:
         await loop.stop()
+
+
+# ---------------------------------------------------------------------------
+# The corrector a lane drives
+# ---------------------------------------------------------------------------
+
+
+def kick_binding(slot: int) -> Binding:
+    """The ``slot``-th kick binding of the tree this suite's containers serve.
+
+    A lane names the corrector it drives by SLOT rather than by address: which
+    channels kick the beam, and where each of them reads its own field back,
+    is the served tree's ``simulation/va_bindings.json`` to answer rather than
+    a device name written into a test. Document order is the order the facility
+    exported its correctors in, so one slot names one magnet on every run
+    against a given tree.
+
+    A slot is owned by one lane for the life of the session container -- two
+    lanes driving one corrector would read each other's writes -- so each lane
+    takes a slot of its own.
+
+    Called from a lane's fixture rather than at import: a served tree whose
+    bindings document is absent, unreadable or unusable then fails the lanes
+    that drive a corrector, instead of failing collection for every lane in
+    this directory.
+
+    Raises:
+        AssertionError: If the tree binds fewer correctors than ``slot``
+            requires, or if the corrector at ``slot`` is served with no
+            readback of its own.
+    """
+    from osprey.services.virtual_accelerator.bindings import load_bindings
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+
+    document = load_bindings(ManifestPaths(PRESET_SIM_DIR.parent).va_bindings)
+    kicks = [binding for binding in document.bindings if binding.kind == "kick"]
+    assert len(kicks) > slot, (
+        f"the served tree binds {len(kicks)} correctors, too few for a lane's slot {slot}"
+    )
+    corrector = kicks[slot]
+    assert corrector.readback_address is not None, (
+        f"{corrector.setpoint_address} is served with no readback of its own, so a "
+        f"lane cannot tell a magnet's reading from the demand written to it"
+    )
+    return corrector

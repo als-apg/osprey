@@ -82,6 +82,7 @@ import pytest
 import yaml
 
 from osprey.bluesky_bridge_connection import LANE_ONE, SECOND_LANE_KEYS
+from osprey.cli.build_profile_schema import SECOND_LANE_PORT_STRIDE
 from osprey.mcp_server.bluesky import lanes as lanes_module
 from osprey.mcp_server.bluesky.server_context import (
     initialize_server_context,
@@ -117,10 +118,19 @@ LANE_LIVE = SECOND_LANE_KEYS["live"]
 #: has to be able to run beside an already-deployed stack on a shared dev
 #: machine -- a bound-port collision aborts `osprey up` before it creates a
 #: single container, which would read as a lane bug rather than as host state.
-#: Lane 2's bridge port is DERIVED (``bluesky.port + 100``), never configured.
+#:
+#: Lane 2's bridge port is never configured: the product derives it as
+#: ``bluesky.port + SECOND_LANE_PORT_STRIDE``, so the stride is IMPORTED here
+#: rather than restated as a number. A local copy of it would let this module
+#: address a port the deployment does not publish while every assertion still
+#: read as a lane bug.
+#:
+#: ``bluesky.tiled_port`` therefore has two ports to stay clear of -- lane 1's
+#: and the derived lane 2's -- because a tiled port that lands on the
+#: derivation makes ``osprey build`` refuse the two-lane profile outright.
 BRIDGE_PORT = 18490
-SECOND_BRIDGE_PORT = BRIDGE_PORT + 100
-TILED_PORT = 18491
+SECOND_BRIDGE_PORT = BRIDGE_PORT + SECOND_LANE_PORT_STRIDE
+TILED_PORT = 18493
 PANELS_PORT = 18496
 VA_CA_PORT = 15264
 POSTGRES_PORT = 25932
@@ -360,8 +370,7 @@ def live_endpoint():
         f"EPICS_CA_SERVER_PORT={port}",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
-        "-v",
-        f"{e2e_conftest.demo_data_dir()}:/data/simulation:ro",
+        *e2e_conftest.demo_data_run_args(),
         # The namespace, named: the IOC refuses to boot without one rather
         # than picking the framework's demo channels on its own.
         *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,

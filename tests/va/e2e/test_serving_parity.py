@@ -380,8 +380,7 @@ def _serving(prefix: str, *, seeded: bool):
         f"EPICS_CA_SERVER_PORT={port}",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
-        "-v",
-        f"{e2e_conftest.demo_data_dir()}:/data/simulation:ro",
+        *e2e_conftest.demo_data_run_args(),
         # The namespace, named: the IOC refuses to boot without one rather
         # than picking the framework's demo channels on its own.
         *e2e_conftest.DEMO_NAMESPACE_RUN_ARGS,
