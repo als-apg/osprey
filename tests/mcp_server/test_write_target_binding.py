@@ -52,7 +52,11 @@ from osprey.mcp_server.control_system.connector_host_manager import ConnectorHos
 from osprey.mcp_server.control_system.server_context import initialize_server_context
 from osprey.mcp_server.control_system.tools import channel_write as channel_write_module
 from osprey_connectors import control_context, posture_store
-from tests._control_context_fixtures import write_control_context, write_server_report
+from tests._control_context_fixtures import (
+    state_dir_under,
+    write_control_context,
+    write_server_report,
+)
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -121,7 +125,7 @@ def _prepare(tmp_path, monkeypatch, *, session=None):
     monkeypatch.chdir(tmp_path)
     (tmp_path / "config.yml").write_text("control_system:\n  type: mock\n")
     root = tmp_path / "var" / "agent_data"
-    (root / control_context.STATE_DIR_NAME).mkdir(parents=True, exist_ok=True)
+    state_dir_under(root).mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     if session is None:
         monkeypatch.delenv(POSTURE_SESSION_ENV_VAR, raising=False)
@@ -138,10 +142,13 @@ def _root():
 
     The shared writers take the root explicitly — a suite has to be able to lay
     a deployment down before it points the environment at one — while every
-    test here has already stamped it. Deriving it back from the resolved state
-    directory keeps the two from being spelled twice in one file.
+    test here has already stamped it. Reading the stamp back through the store
+    keeps the root from being spelled twice in one file, and answers the ROOT
+    rather than the identity's directory under it: every shared writer appends
+    the ``control_target/<identity>`` hops itself, so a directory that already
+    carries them names a file no reader ever resolves.
     """
-    return control_context.state_dir().parent
+    return posture_store.agent_data_root()
 
 
 def _write_record(target, generation, **fields):

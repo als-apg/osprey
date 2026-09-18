@@ -43,7 +43,11 @@ import os
 import pytest
 
 from osprey.port_layout import default_port
-from tests._control_context_fixtures import write_control_context, write_server_report
+from tests._control_context_fixtures import (
+    state_dir_under,
+    write_control_context,
+    write_server_report,
+)
 
 LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
@@ -108,15 +112,17 @@ def reader(approval):
 def state_dir(tmp_path, reader, monkeypatch):
     """Point the real reader at an empty temp agent-data root.
 
-    Returns the ROOT the shared writers take. The two files land one hop below
-    it, in ``control_target/``, which is what the reader's single path seam is
-    aimed at here. Every report PID is treated as running, since the reports the
-    tests write name servers that do not exist.
+    Returns the ROOT the shared writers take. The two files land in the acting
+    identity's directory below it, which is what the reader's single path seam
+    is aimed at here — asked of
+    :func:`~tests._control_context_fixtures.state_dir_under` so the seam and the
+    writers cannot be pointed at two different directories. Every report PID is
+    treated as running, since the reports the tests write name servers that do
+    not exist.
     """
-    (tmp_path / "control_target").mkdir()
-    monkeypatch.setattr(
-        reader, "resolve_state_dir", lambda hook_input=None: str(tmp_path / "control_target")
-    )
+    state_dir = state_dir_under(tmp_path)
+    state_dir.mkdir(parents=True)
+    monkeypatch.setattr(reader, "resolve_state_dir", lambda hook_input=None: str(state_dir))
     monkeypatch.setattr(reader, "_is_process_alive", lambda pid: True)
     return tmp_path
 

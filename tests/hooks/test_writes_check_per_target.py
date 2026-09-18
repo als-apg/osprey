@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests._control_context_fixtures import write_control_context, write_payload
+from tests._control_context_fixtures import state_dir_under, write_control_context, write_payload
 
 pytestmark = pytest.mark.unit
 
@@ -61,8 +61,15 @@ def agent_data_root(repo_root):
 
 
 def record_path(repo_root):
-    """Where the record lands under *repo_root*, directory created."""
-    directory = agent_data_root(repo_root) / "control_target"
+    """Where the record lands under *repo_root*, directory created.
+
+    Through the shared helper rather than a join here. The hook runs as a
+    subprocess and resolves the identity hop for itself, so a record written
+    above that hop is one the hook never finds: the degradation tests below
+    would then be passing on "no record at all" — a different, legitimate
+    answer — instead of on the unreadable one they laid down.
+    """
+    directory = state_dir_under(agent_data_root(repo_root))
     directory.mkdir(parents=True, exist_ok=True)
     return directory / "control_context.json"
 

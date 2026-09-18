@@ -38,6 +38,7 @@ import pytest
 
 from osprey.mcp_server.control_system import target_eligibility as te
 from osprey_connectors import control_context
+from tests._control_context_fixtures import state_dir_under
 
 # ===========================================================================
 # evaluate_switch: the same gate, context-free, as both callers will ask it
@@ -541,12 +542,18 @@ class _Context:
 
 
 def _write_marker(root: Any, marker: dict[str, Any]) -> None:
-    """Plant one in-flight marker where both callers' readers will find it."""
+    """Plant one in-flight marker where both callers' readers will find it.
+
+    Both readers glob ``target_state.state_dir()``, which carries the acting
+    identity's own hop below ``control_target/``. A marker one level up is one
+    neither caller sees, and the gate then answers "nothing in flight".
+    """
     from osprey.mcp_server.control_system import target_state
 
+    directory = state_dir_under(root)
+    directory.mkdir(parents=True, exist_ok=True)
     path = (
-        root
-        / control_context.STATE_DIR_NAME
+        directory
         / f"{target_state.INFLIGHT_FILE_PREFIX}{marker['pid']}{target_state.INFLIGHT_FILE_SUFFIX}"
     )
     path.write_text(json.dumps(marker), encoding="utf-8")

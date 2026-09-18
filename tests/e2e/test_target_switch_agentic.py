@@ -684,7 +684,7 @@ def switch_deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Swit
 # Putting the deployment back where every scenario expects to find it
 # ---------------------------------------------------------------------------
 
-#: Every file kind the control state is made of, as globs on the state
+#: Every file kind the control state is made of, as globs on one identity's
 #: directory. Named one by one rather than swept wholesale so that a file this
 #: suite does not know about survives a reset instead of being deleted blind.
 CONTROL_STATE_GLOBS = (
@@ -713,6 +713,12 @@ def clear_control_state(repo: Path) -> list[Path]:
     re-derives it in stdlib-only Python, and one glob agrees with both
     spellings.
 
+    Every family lives one directory deeper than the state directory, in the
+    acting identity's own directory, so each pattern is matched under
+    ``<state dir>/*/`` and not on the state directory itself. Files only: the
+    identity directories stay, because they are the tree a writer expects to
+    find and creating one is the writer's business, not this reset's.
+
     Safe only while no server is running — it is a bare delete, without the
     serialisation an owner does around a write.
     """
@@ -721,7 +727,9 @@ def clear_control_state(repo: Path) -> list[Path]:
         if not directory.is_dir():
             continue
         for pattern in CONTROL_STATE_GLOBS:
-            for path in sorted(directory.glob(pattern)):
+            for path in sorted(directory.glob(f"*/{pattern}")):
+                if not path.is_file():
+                    continue
                 path.unlink(missing_ok=True)
                 removed.append(path)
     return removed
@@ -731,8 +739,8 @@ def clear_control_state(repo: Path) -> list[Path]:
 def deployment_starts_at_baseline(request: pytest.FixtureRequest) -> None:
     """Put the deployment back on its baseline target before each scenario.
 
-    The control-context record is one file per DEPLOYMENT and outlives every
-    process that reads it, so a scenario that ends on the live machine leaves
+    The control-context record is one file per DEPLOYMENT and IDENTITY, and
+    outlives every process that reads it, so a scenario that ends on the live machine leaves
     the next one already there — and an agent told to go live, finding the
     deployment live, rightly does not switch. Every floor below that grades a
     switch would then fail on an agent that behaved correctly.
@@ -1412,14 +1420,22 @@ def record_files(deployment: SwitchDeployment) -> list[Path]:
     the deployment repo while the hook side re-derives the same path in
     stdlib-only Python — one glob agrees with both spellings.
 
-    There is one record per deployment, so this is normally a single file. It
-    is sorted anyway, so that a second agent-data root under the repo could
-    only ever add an older file behind the live one.
+    Matched on the whole tail — ``<state dir>/<identity>/<record>`` — because
+    the record sits in the acting identity's own directory under
+    :data:`STATE_DIR_NAME`, one directory per identity. Matching only the
+    immediate parent would match the identity segment, which is a name this
+    suite does not know, and a matcher that accepted any parent would pick up
+    a file of the same name from anywhere under the repo.
+
+    There is one record per identity, and a scenario drives one identity, so
+    this is normally a single file. It is sorted anyway, so that a second
+    identity or agent-data root under the repo could only ever add an older
+    file behind the live one.
     """
     found = [
         path
         for path in deployment.repo.rglob(RECORD_FILENAME)
-        if path.parent.name == STATE_DIR_NAME
+        if path.parent.parent.name == STATE_DIR_NAME
     ]
     return sorted(found, key=lambda path: path.stat().st_mtime, reverse=True)
 

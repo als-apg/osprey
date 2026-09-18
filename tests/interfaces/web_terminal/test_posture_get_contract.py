@@ -53,7 +53,12 @@ from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_state
 from osprey_connectors import control_context, posture_store
-from tests._control_context_fixtures import owner, write_control_context, write_server_report
+from tests._control_context_fixtures import (
+    owner,
+    state_dir_under,
+    write_control_context,
+    write_server_report,
+)
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 CHAT_A = "cccccccc-1111-2222-3333-444444444444"
@@ -257,7 +262,7 @@ def agent_data_root(tmp_path, monkeypatch):
     the other reading the repository's own ``var/agent_data``.
     """
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True)
+    state_dir_under(root).mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
     # A read-only *run* is a deployment-wide fact this process must not inherit
     # from whatever ran before it: it would zero every ``effective`` below.
@@ -371,7 +376,7 @@ def sweep(**targets):
 
 def write_marker(root: Path, *, pid, target="live", session=None, surface=None, kernel_id=None):
     """Plant one execution marker, as the executor and the kernel write it."""
-    directory = root / posture_store.STATE_DIR_NAME
+    directory = state_dir_under(root)
     directory.mkdir(parents=True, exist_ok=True)
     path = (
         directory / f"{target_state.INFLIGHT_FILE_PREFIX}{pid}{target_state.INFLIGHT_FILE_SUFFIX}"

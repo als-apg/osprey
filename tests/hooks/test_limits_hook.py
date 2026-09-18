@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 from osprey_connectors.types import most_restrictive_limits_posture, target_limits_posture
-from tests._control_context_fixtures import write_control_context
+from tests._control_context_fixtures import state_dir_under, write_control_context
 
 
 def _make_limits_config(tmp_path, channels_db, enabled=True, allow_unlisted=False):
@@ -742,7 +742,7 @@ def test_removed_state_directory_takes_the_most_restrictive_posture(tmp_path, ho
     # Arrange
     config = _limits_config(tmp_path, VA_PERMISSIVE)
     _write_session_state(tmp_path, "va")
-    state_dir = tmp_path / "var" / "agent_data" / "control_target"
+    state_dir = state_dir_under(tmp_path / "var" / "agent_data")
     for path in state_dir.iterdir():
         path.unlink()
     state_dir.rmdir()
