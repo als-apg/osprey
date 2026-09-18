@@ -4459,26 +4459,79 @@ def _preflight_archiver_pymongo(config: dict) -> None:
         ) from exc
 
 
-#: The BPM readout fields the seed can reproduce, and the readback axis each one
-#: displaces. Offsets only, and that is the whole design: with the rest of the
-#: readout chain at identity, a reading is exactly ``truth - offset``, so the
-#: seed reproduces the stand-in's systematic error by arithmetic on the value it
-#: already synthesized rather than by running a second copy of the readout. The
-#: same two fields are the only ones the shipped default may carry
+#: The BPM readout fields the seed can reproduce, and the monitor axis each one
+#: displaces, in the spelling a bindings document gives that axis
+#: (``virtual_accelerator.bindings.ATTRIBUTES_BY_KIND``). Offsets only, and that
+#: is the whole design: with the rest of the readout chain at identity, a
+#: reading is exactly ``truth - offset``, so the seed reproduces the stand-in's
+#: systematic error by arithmetic on the value it already synthesized rather
+#: than by running a second copy of the readout. The same two fields are the
+#: only ones the shipped default may carry
 #: (``osprey.cli.build_profile_va_faults.STANDIN_BPM_ERROR_FIELDS``).
-_STANDIN_OFFSET_AXES = {"offset_x": "X", "offset_y": "Y"}
-
-#: The BPM position readback an offset shows up on, as
-#: ``physics_bridge._bpm_address`` spells it. The device id is the stand-in
-#: fam_name (``BPM`` + id) with its family prefix removed.
-_BPM_POSITION_ADDRESS = "SR:DIAG:BPM:{device}:POSITION:{axis}"
-
-#: Family prefix of a BPM fam_name in ``VA_BPM_ERRORS`` grammar.
-_BPM_FAM_PREFIX = "BPM"
+_STANDIN_OFFSET_AXES = {"offset_x": "x", "offset_y": "y"}
 
 #: How the fingerprint names this transform. One kind today; the field exists so
 #: a later transform is a different value here rather than a silent MATCH.
 _STANDIN_TRANSFORM_KIND = "bpm_offsets"
+
+
+def _served_monitor_readings(project_dir: Path):
+    """Where the served tree publishes each monitor reading, and at which element.
+
+    The seed displaces addresses, and the ``VA_BPM_ERRORS`` grammar names
+    devices, so something has to say which address carries which device's
+    reading on which transverse axis. Only the tree being served can: the
+    address grammar is the facility's, the element names are its lattice's, and
+    a deployment that models neither the way a demo ring does would otherwise
+    have a past seeded onto addresses it never serves.
+
+    :param project_dir: The deployment repo root, whose published render is
+        preferred over its source tree — the containers mount the render.
+    :returns: ``(monitors, readings)``, where *monitors* maps every published
+        monitor address to the element it sits at (the lookup
+        ``lattice.errors.resolve_bpm_errors`` performs inside the container)
+        and *readings* maps ``(element, axis)`` to the address the reading is
+        published on. ``(None, None)`` when the served tree carries no bindings
+        document, or one that cannot be read — in which case nothing here can
+        place an offset, and saying so is the honest answer.
+    """
+    from osprey.services.virtual_accelerator.bindings import BindingsError, load_bindings
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import served_data_root
+
+    data_root = served_data_root(project_dir, project_dir / BUILD_DIRNAME)
+    if data_root is None:
+        return None, None
+    path = ManifestPaths(data_root=data_root).va_bindings
+    if not path.is_file():
+        return None, None
+    try:
+        document = load_bindings(path)
+    except (BindingsError, OSError) as exc:
+        logger.warning(
+            "  The served bindings document %s could not be read (%s), so the archive "
+            "seed cannot tell which address carries which monitor's reading. The seeded "
+            "history is the unperturbed machine's.",
+            path,
+            exc,
+        )
+        return None, None
+
+    monitors: dict[str, str] = {}
+    readings: dict[tuple[str, str], str] = {}
+    for binding in document.bindings:
+        if binding.kind != "monitor" or binding.element is None:
+            continue
+        # A monitor serves its reading on its own address and the loader
+        # refuses it a second one, so ``setpoint_address`` is the only spelling
+        # a monitor has -- and it is the one the entrypoint keys its monitor
+        # table on, which is the agreement that lets an offset land where the
+        # container publishes it.
+        address = binding.setpoint_address
+        monitors[address] = binding.element
+        if binding.attribute is not None:
+            readings[binding.element, binding.attribute] = address
+    return monitors, readings
 
 
 def _standin_bpm_error_spec(project_dir: Path) -> str:
@@ -4500,9 +4553,9 @@ def _standin_bpm_error_spec(project_dir: Path) -> str:
     which resolves the env chain and then asks the rule's one owner,
     :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`
     — the same function the render writes the compose interpolation from. The
-    shipped offsets displace the builtin PyAT model, so a deployment whose chain
-    resolves ``VA_LATTICE`` elsewhere is handed the empty set by the render and
-    must be seeded as the unperturbed machine it is.
+    shipped offsets displace a lattice's model, so a deployment whose chain
+    serves no lattice is handed the empty set by the render and must be seeded
+    as the unperturbed machine it is.
 
     The project's own ``.env`` is consulted first and the ambient environment
     second, the same order and for the same reason
@@ -4547,6 +4600,13 @@ def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence
     ``reading = truth - offset``. An operator override naming any other field
     is applied by the container and skipped here, with a warning that names it.
 
+    **Which address a device's offset lands on comes from the served tree**, by
+    way of :func:`_served_monitor_readings`: the bindings say where each
+    monitor publishes its reading and which element it sits at, so the seed
+    displaces the addresses this deployment actually serves rather than a
+    grammar assumed of them. A deployment whose tree binds no monitors seeds
+    the unperturbed machine, which is what it serves.
+
     :param config: The rendered deploy config, read only through
         :func:`~osprey_connectors.standin.archive_belongs_to_standin` — the one
         predicate the recorder's compose entry and its enablement gate bind to,
@@ -4572,19 +4632,43 @@ def _standin_seed_transform(config: dict, project_dir: Path, addresses: Sequence
     if not archive_belongs_to_standin(config):
         return None, None
 
+    spec = parse_bpm_error_spec(_standin_bpm_error_spec(project_dir))
+    if not spec:
+        return None, None
+
+    monitors, readings = _served_monitor_readings(project_dir)
+    if monitors is None:
+        return None, None
+    elements = frozenset(monitors.values())
+
     served = set(addresses)
     offsets: dict[str, float] = {}
     unreproducible: set[str] = set()
-    for fam_name, fields in parse_bpm_error_spec(_standin_bpm_error_spec(project_dir)).items():
-        device = fam_name[len(_BPM_FAM_PREFIX) :] if fam_name.startswith(_BPM_FAM_PREFIX) else ""
+    unplaceable: set[str] = set()
+    for token, fields in spec.items():
+        # Both spellings the document carries, as the container accepts them:
+        # a published monitor address, or the element a monitor sits at.
+        element = monitors.get(token) or (token if token in elements else None)
+        if element is None:
+            unplaceable.add(token)
+            continue
         for field, value in fields.items():
             axis = _STANDIN_OFFSET_AXES.get(field)
             if axis is None:
                 unreproducible.add(field)
                 continue
-            address = _BPM_POSITION_ADDRESS.format(device=device, axis=axis)
-            if address in served:
+            address = readings.get((element, axis))
+            if address is not None and address in served:
                 offsets[address] = value
+
+    if unplaceable:
+        logger.warning(
+            "  The live stand-in's readout perturbation names %s, which the served "
+            "bindings publish no monitor reading for. The seeded history carries no "
+            "offset for those devices, so the recorded present and the seeded past "
+            "will differ by them.",
+            ", ".join(sorted(unplaceable)),
+        )
 
     if unreproducible:
         logger.warning(

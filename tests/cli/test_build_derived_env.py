@@ -25,22 +25,40 @@ from osprey.utils.dotenv import (
     parse_dotenv_file,
 )
 
+#: The lattice name a tree staging bindings earns, as ``ManifestPaths`` lays it out.
+LATTICE_NAME = "lattice.json"
+
+
+def _published_tree(root: Path, *, bindings: bool) -> Path:
+    """Write the published ``data/`` tree one build produced under *root*.
+
+    The tree carries its model files, and its manifest names the document that
+    claimed its partition, when *bindings* is set: ``VA_LATTICE`` is DERIVED
+    from those two together, because the bindings are what tie a channel set to
+    a ring and the census is what says they reached it.
+    """
+    simulation = root / "build" / "data" / "simulation"
+    simulation.mkdir(parents=True)
+    source = "simulation/va_bindings.json" if bindings else "none"
+    (simulation / MANIFEST_FILENAME).write_text(
+        json.dumps({"_metadata": {"partition_source": source}, "channels": []})
+    )
+    if bindings:
+        (simulation / "va_bindings.json").write_text(json.dumps({"bindings": []}))
+        (simulation / LATTICE_NAME).write_text("{}")
+    return root
+
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    """A deployment repo whose build produced a channel manifest.
+    """A deployment repo whose build produced a channel manifest and a model."""
+    return _published_tree(tmp_path, bindings=True)
 
-    The manifest carries a partition census because ``VA_LATTICE`` is DERIVED
-    from it: the built-in lattice moves pyat-coupled channels and nothing else,
-    so a manifest declaring some is what earns ``builtin`` here. A censusless
-    stub would be a manifest claiming no lattice, which is a different case and
-    is covered on its own in ``tests/cli/test_build_va_manifest_honesty.py``.
-    """
-    (tmp_path / "build" / "data" / "simulation").mkdir(parents=True)
-    (tmp_path / "build" / "data" / "simulation" / MANIFEST_FILENAME).write_text(
-        json.dumps({"_metadata": {"by_partition": {"pyat-coupled": 1}}, "channels": []})
-    )
-    return tmp_path
+
+@pytest.fixture
+def latticeless_repo(tmp_path: Path) -> Path:
+    """…and one whose build produced a channel set with no model behind it."""
+    return _published_tree(tmp_path, bindings=False)
 
 
 @pytest.fixture
@@ -58,7 +76,13 @@ def _wire(repo_dir: Path) -> dict[str, str]:
 
 class TestTheKeysLandWhereComposeReads:
     def test_a_repo_with_no_env_yet_gets_one(self, repo):
-        assert _wire(repo) == {"VA_CHANNELS_FILE": MANIFEST_FILENAME, "VA_LATTICE": "builtin"}
+        assert _wire(repo) == {"VA_CHANNELS_FILE": MANIFEST_FILENAME, "VA_LATTICE": LATTICE_NAME}
+
+    def test_a_tree_with_no_bindings_names_no_lattice(self, latticeless_repo):
+        """The manifest is still pointed at; only the model is absent."""
+        env = _wire(latticeless_repo)
+
+        assert env == {"VA_CHANNELS_FILE": MANIFEST_FILENAME, "VA_LATTICE": "none"}
 
     def test_the_keys_written_are_the_keys_the_build_claims_to_own(self, repo):
         """One enumeration, or the stale-pointer scan below misses a key.
@@ -121,7 +145,7 @@ class TestTheOperatorsValueWins:
         """A conflict on one key is not a reason to skip the rest."""
         (repo / ".env").write_text("VA_CHANNELS_FILE=my-own.json\n")
 
-        assert _wire(repo)["VA_LATTICE"] == "builtin"
+        assert _wire(repo)["VA_LATTICE"] == LATTICE_NAME
 
     def test_an_agreeing_value_is_not_a_conflict(self, repo, caplog):
         (repo / ".env").write_text(f"VA_CHANNELS_FILE={MANIFEST_FILENAME}\n")
@@ -169,7 +193,7 @@ class TestABuildThatGeneratedNothing:
 
     def test_every_leftover_key_is_named(self, barren_repo, caplog):
         (barren_repo / ".env").write_text(
-            f"VA_CHANNELS_FILE={MANIFEST_FILENAME}\nVA_LATTICE=builtin\n"
+            f"VA_CHANNELS_FILE={MANIFEST_FILENAME}\nVA_LATTICE={LATTICE_NAME}\n"
         )
 
         with caplog.at_level(logging.WARNING):

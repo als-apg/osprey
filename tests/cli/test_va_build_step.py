@@ -197,19 +197,22 @@ class TestGeneratedFromProfileData:
         # `--env-file <repo>/.env`.
         env = _repo_env(repo_dir)
         assert env["VA_CHANNELS_FILE"] == MANIFEST_FILENAME
-        # Without this the entrypoint defaults a file-backed source to
-        # lattice "none" and the PyAT physics bridge is never built.
-        assert env["VA_LATTICE"] == "builtin"
+        # The lattice is derived from the same published tree: this profile's
+        # tree stages no bindings, so nothing ties its channels to a ring and
+        # the entrypoint is told so by name rather than left to default.
+        assert env["VA_LATTICE"] == "none"
 
-    def test_the_compose_mount_resolves_to_the_directory_written(self, tmp_path):
-        """The pointer and the mount have to name one directory.
+    def test_the_compose_mount_resolves_to_the_tree_written(self, tmp_path):
+        """The pointer and the mount have to name one tree.
 
         ``VA_CHANNELS_FILE`` is a name resolved against the container's data
-        dir, so the value the test above pins is only meaningful if the mount
-        behind ``/data/simulation`` is the directory the manifest was written
-        into. Compose resolves a relative bind source against the pinned
-        project directory — the repo root — so the two are the same directory
-        only when the mount is spelled against ``build/``.
+        dir, so the value the test above pins is only meaningful if what lands
+        at ``/data/simulation`` is the directory the manifest was written into.
+        The mount is the data ROOT — a model reads its write bands from there,
+        one level above what it serves — so the served directory is the mount
+        source plus ``simulation``. Compose resolves a relative bind source
+        against the pinned project directory, the repo root, so the two are the
+        same tree only when the mount is spelled against the output zone.
         """
         repo_dir = tmp_path / "repo"
         _write_profile(repo_dir, deploy_va=True)
@@ -219,12 +222,14 @@ class TestGeneratedFromProfileData:
         compose = (
             project_dir / "services" / "virtual_accelerator" / "docker-compose.yml"
         ).read_text()
-        mount = next(line.strip() for line in compose.splitlines() if ":/data/simulation:" in line)
-        source = mount.removeprefix("- ").split(":/data/simulation:")[0]
-        assert (repo_dir / source).resolve() == (project_dir / "data" / "simulation").resolve(), (
-            f"the VA data mount resolves to {(repo_dir / source).resolve()}, which is not "
-            f"where the build wrote the manifest"
+        mount = next(line.strip() for line in compose.splitlines() if ":/data:" in line)
+        source = mount.removeprefix("- ").split(":/data:")[0]
+        served = (repo_dir / source / "simulation").resolve()
+        assert served == (project_dir / "data" / "simulation").resolve(), (
+            f"the VA data mount serves {served}, which is not where the build wrote the manifest"
         )
+        # And the bands the model needs are inside that same mount, at its root.
+        assert (repo_dir / source / "channel_limits.json").is_file()
 
     def test_a_value_already_on_file_is_never_replaced(self, tmp_path, caplog):
         """The build reports a conflict; it does not resolve one.
@@ -245,7 +250,7 @@ class TestGeneratedFromProfileData:
         env = _repo_env(repo_dir)
         assert env["VA_CHANNELS_FILE"] == "my-own-manifest.json"
         # The key the build DID own and the file did not still lands.
-        assert env["VA_LATTICE"] == "builtin"
+        assert env["VA_LATTICE"] == "none"
         assert "VA_CHANNELS_FILE" in caplog.text
 
     def test_rebuilding_neither_duplicates_nor_rewrites(self, tmp_path):

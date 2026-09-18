@@ -11,11 +11,16 @@
 #
 # The channel namespace is named, never inferred: the IOC has no default one
 # and refuses to boot without VA_CHANNELS_FILE. So for the default run the gate
-# assembles the demo data directory itself -- the preset's simulation tree plus
-# the packaged channel manifest and the preset's channel_limits.json, the
-# layout `osprey build` stages for a project -- and boots against that with the
-# tutorial lattice. Those three are the machine every assertion below is
-# written against.
+# assembles the demo data root itself -- the preset's simulation tree plus the
+# packaged channel manifest and the preset's channel_limits.json, the layout
+# `osprey build` stages for a project -- and boots against that. Those three
+# are the machine every assertion below is written against.
+#
+# The lattice is derived from that tree rather than named: a tree staging the
+# bindings that tie its channels to a ring serves that ring by name, and a tree
+# staging none serves no lattice. The physics assertions (steps 2, 3, 5, 6, 7)
+# therefore hold only for a tree that carries a model; against a latticeless
+# one the gate certifies the serving chain and not the physics behind it.
 #
 # Before asserting anything, the gate proves it is measuring its OWN container:
 # every Channel Access step below runs from the host, and a host client is
@@ -157,11 +162,11 @@ echo "Using container runtime: ${RUNTIME}"
 VENV_PY="${WORKTREE_ROOT}/.venv/bin/python"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-full-build.XXXXXX")"
-DEMO_DATA_DIR=""
+DEMO_DATA_ROOT=""
 cleanup() {
     "${RUNTIME}" rm -f "${CONTAINER}" >/dev/null 2>&1 || true
     rm -rf "${STAGING_DIR}"
-    [[ -n "${DEMO_DATA_DIR}" ]] && rm -rf "${DEMO_DATA_DIR}"
+    [[ -n "${DEMO_DATA_ROOT}" ]] && rm -rf "${DEMO_DATA_ROOT}"
     return 0
 }
 trap cleanup EXIT
@@ -201,24 +206,21 @@ echo "--- Building ${IMAGE} (linux/amd64) ---"
 #
 # A DATA_DIR carrying its own channel_manifest.json is a built project, already
 # in the layout the IOC reads -- manifest and channel_limits.json beside
-# machine.json, which is what `osprey build` stages. Mount it as it stands.
+# machine.json under the served directory, the tree's write bands at the data
+# root one level up, which is what `osprey build` stages. Mount that root as it
+# stands.
 #
 # Otherwise this is the default run, and the answer is the packaged demo
-# manifest plus the tutorial lattice and the preset's drive limits: the machine
-# every assertion below is written against. The packaged preset tree is not in
-# that layout -- no manifest at all (the framework's is package data), and
-# channel_limits.json one level up at the data root -- so the layout is
-# assembled in a temp directory and that is what gets mounted. Assembled rather
-# than overlaid with extra bind mounts because a bind mount INTO a read-only
-# mount cannot create its own mountpoint (the runtime refuses with EROFS), and
-# mounting the tree read-write to make room would leave the container able to
-# write into the checkout.
+# manifest and the preset's drive limits: the machine every assertion below is
+# written against. The packaged preset tree carries no manifest at all (the
+# framework's is package data), so the layout is assembled in a temp directory
+# and that root is what gets mounted. Assembled rather than overlaid with extra
+# bind mounts because a bind mount INTO a read-only mount cannot create its own
+# mountpoint (the runtime refuses with EROFS), and mounting the tree read-write
+# to make room would leave the container able to write into the checkout.
 VA_LATTICE_VALUE="${VA_LATTICE:-}"
 MOUNT_DIR="${DATA_DIR}"
-if [[ -f "${DATA_DIR}/channel_manifest.json" ]]; then
-    : "${VA_LATTICE_VALUE:=none}"
-else
-    : "${VA_LATTICE_VALUE:=builtin}"
+if [[ ! -f "${DATA_DIR}/channel_manifest.json" ]]; then
     # Say what is about to happen, because this branch REINTERPRETS the argument:
     # a DATA_DIR with no manifest beside machine.json is not a built project, so
     # it is being certified as a demo data tree and the channels under test will
@@ -263,14 +265,48 @@ print(MANIFEST_OUTPUT)')"
         exit 1
     fi
 
-    DEMO_DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-demo-data.XXXXXX")"
-    echo "--- Assembling the demo data dir at ${DEMO_DATA_DIR} ---"
-    cp -R "${DATA_DIR}/." "${DEMO_DATA_DIR}/"
-    cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_DIR}/channel_manifest.json"
-    cp "${PRESET_LIMITS}" "${DEMO_DATA_DIR}/channel_limits.json"
-    MOUNT_DIR="${DEMO_DATA_DIR}"
+    # A data ROOT, not a flat directory: the served files go under
+    # `simulation/` and the write bands sit beside it at the root, because that
+    # is the layout a model is resolved against and the whole root is what gets
+    # mounted. The bands are copied to both places -- the IOC clamps setpoints
+    # from the served directory, a model reads its variable bounds from the
+    # root -- so the demo tree answers the same two questions a built one does.
+    DEMO_DATA_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-demo-data.XXXXXX")"
+    echo "--- Assembling the demo data root at ${DEMO_DATA_ROOT} ---"
+    mkdir -p "${DEMO_DATA_ROOT}/simulation"
+    cp -R "${DATA_DIR}/." "${DEMO_DATA_ROOT}/simulation/"
+    cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_ROOT}/simulation/channel_manifest.json"
+    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/simulation/channel_limits.json"
+    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/channel_limits.json"
+    MOUNT_DIR="${DEMO_DATA_ROOT}/simulation"
 fi
 CHANNELS_FILE_VALUE="channel_manifest.json"
+
+# The lattice to certify, read off the mounted tree the same way the build
+# derives it: the bindings file is what says a tree models the channels it
+# names, and the lattice beside it is what the model is built from. A tree
+# carrying neither serves `none` and the IOC boots without physics. An exported
+# VA_LATTICE wins over both, for a tree that keeps its lattice under another
+# name.
+BINDINGS_FILE_VALUE="va_bindings.json"
+LATTICE_FILE_VALUE="lattice.json"
+if [[ -z "${VA_LATTICE_VALUE}" ]]; then
+    if [[ -f "${MOUNT_DIR}/${BINDINGS_FILE_VALUE}" ]]; then
+        VA_LATTICE_VALUE="${LATTICE_FILE_VALUE}"
+    else
+        VA_LATTICE_VALUE="none"
+    fi
+fi
+
+# The container is handed the data ROOT and finds the served directory inside
+# it. A model is resolved against the whole tree -- the lattice and the
+# bindings under the served directory, the write bands its variables are built
+# from at the root -- so mounting the served directory alone carries no bands
+# and refuses a lattice-backed boot. VA_DATA_DIR is named from the directory's
+# own basename rather than assumed to be `simulation`, so a tree that keeps its
+# served files under another name still resolves.
+MOUNT_ROOT="$(cd "${MOUNT_DIR}/.." && pwd)"
+CONTAINER_DATA_DIR="/data/$(basename "${MOUNT_DIR}")"
 
 echo "--- Starting ${CONTAINER} (data dir: ${MOUNT_DIR}; manifest: ${CHANNELS_FILE_VALUE}; VA_LATTICE=${VA_LATTICE_VALUE}) ---"
 # The server port is passed explicitly, from the same CA_PORT the publish maps:
@@ -281,8 +317,9 @@ echo "--- Starting ${CONTAINER} (data dir: ${MOUNT_DIR}; manifest: ${CHANNELS_FI
     -e "EPICS_CA_SERVER_PORT=${CA_PORT}" \
     -e "VA_CHANNELS_FILE=${CHANNELS_FILE_VALUE}" \
     -e "VA_LATTICE=${VA_LATTICE_VALUE}" \
+    -e "VA_DATA_DIR=${CONTAINER_DATA_DIR}" \
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
-    -v "${MOUNT_DIR}:/data/simulation:ro" \
+    -v "${MOUNT_ROOT}:/data:ro" \
     "${IMAGE}" >/dev/null
 
 echo "--- Waiting up to ${BOOT_TIMEOUT_SECS}s for PVs to serve ---"
