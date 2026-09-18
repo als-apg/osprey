@@ -21,6 +21,14 @@ pinned here is one facility installed the way a facility is installed:
   bound by no channel and a PV shared by several devices is what the corpus,
   the channel database, the DuckDB copy and the family page hold.
 
+An export that carries a virtual accelerator chains one verb further, into
+``verify``, and is discovered from the fixtures rather than listed: a directory
+holding a ``*.va.json`` sibling runs the whole lane, writes the five files a
+served machine boots from beside everything the shorter chain already wrote,
+drives that machine through addresses the same run kept, and holds it against
+the exported response matrix. The 1.0 fixtures pin the other side of that:
+their emit says the lane was skipped and writes not one of its files.
+
 Two facility-scale numbers ride on the ALS export, which never enters the repo:
 with ``OSPREY_ALS_MML_EXPORT`` and ``OSPREY_ALS_MML_MAPPING`` set, the same
 chain runs on it and the binding and channel counts of success criterion 5 are
@@ -55,15 +63,30 @@ from osprey.services.facility_knowledge.ttl_generator.model import (
 )
 from osprey.services.mml.emit.channel_db import FIELD_METADATA_KEYS, PROVENANCE_KEY
 from osprey.services.mml.mapping.schema import Mapping, parse_mapping
+from osprey.services.virtual_accelerator.bindings import load_bindings, setpoints
 
 # Every fixture chains through ``emit``, which needs the knowledge extra, and
 # through ``--duckdb``.
 pytest.importorskip("linkml_runtime")
 pytest.importorskip("duckdb")
 
+from tests.cli.test_mml_emit import VA_ARTIFACTS, VA_SKIPPED  # noqa: E402
 from tests.cli.test_mml_import_chain import FIXTURE_IMPORTS  # noqa: E402
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
+
+#: The fixture trees a 2.0 export commits, discovered rather than listed: the
+#: virtual accelerator of an export lives in its ``*.va.json`` sibling, so a
+#: directory that carries one chains all the way through ``verify``. A tree
+#: committed later joins every case in :class:`TestTheVirtualAcceleratorChain`
+#: without a name being typed here.
+TWO_ZERO_TREES = tuple(
+    sorted(
+        directory.name
+        for directory in FIXTURES.iterdir()
+        if directory.is_dir() and any(directory.glob("*.va.json"))
+    )
+)
 
 #: The namespaces every emitted corpus writes its facts and its types in.
 NARAD_P = "https://narad.example.org/property/"
@@ -93,10 +116,16 @@ class Pass:
         artifacts: Every emitted non-DuckDB file under ``data/``, keyed by its
             path relative to the repo root.
         duck: The ``channels`` and ``systems`` row counts of the DuckDB import.
+        emit: Everything ``mml emit`` reported on that pass, for the lines it
+            says rather than writes.
+        verify: Everything ``mml verify`` reported, or ``None`` on a chain that
+            stops at ``emit`` because the export carries no virtual accelerator.
     """
 
     artifacts: dict[str, bytes]
     duck: dict[str, int]
+    emit: str
+    verify: str | None
 
 
 @dataclass(frozen=True)
@@ -191,6 +220,7 @@ def run_chain(
     *,
     name: str,
     passes: int = 2,
+    verify: bool = False,
 ) -> Chain:
     """Install one facility from its export, ``passes`` times over.
 
@@ -205,6 +235,9 @@ def run_chain(
         mapping_source: The reviewed ``mapping.yaml`` to install.
         name: The fixture's name, for reporting.
         passes: How many times to run the whole chain.
+        verify: Whether each pass ends in ``mml verify``. Only an export that
+            carries a virtual accelerator has one to verify; the report lands
+            under ``data/mml/``, which is not part of the emitted tree.
 
     Returns:
         The finished chain, with one :class:`Pass` per run.
@@ -220,11 +253,14 @@ def run_chain(
         _run("mml", "map", "--init", *(("--force",) if index else ()), *where)
         shutil.copy(mapping_source, mapping_path)
         _run("mml", "map", "--check", *where)
-        _run("mml", "emit", "--duckdb", *where)
+        emit = _run("mml", "emit", "--duckdb", *where)
+        checked = _run("mml", "verify", *where).output if verify else None
         records.append(
             Pass(
                 artifacts=_artifacts(root),
                 duck=_duck_counts(root / "data/channel_databases/middle_layer.duckdb"),
+                emit=emit.output,
+                verify=checked,
             )
         )
 
@@ -268,6 +304,43 @@ def chains(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], Chain]:
 def chain(request: pytest.FixtureRequest, chains: Callable[[str], Chain]) -> Chain:
     """Every committed fixture in turn, installed end to end."""
     return chains(request.param)
+
+
+@pytest.fixture(scope="module")
+def two_zero_chains(tmp_path_factory: pytest.TempPathFactory) -> Callable[[str], Chain]:
+    """A per-fixture 2.0 chain, built once and shared by every assertion.
+
+    The whole verb sequence a facility runs: ``import`` pulls the export's
+    ``va`` and ``response`` siblings and its deck in beside the Accelerator
+    Objects, ``map --init`` writes a skeleton carrying a virtual-accelerator
+    block, the reviewed mapping answers it, and ``emit`` and ``verify`` have a
+    machine to build and to hold against the exported response matrix.
+    """
+    built: dict[str, Chain] = {}
+
+    def build(name: str) -> Chain:
+        if name not in built:
+            exports = sorted((FIXTURES / name).glob("*.ao.json"))
+            assert exports, f"{name} commits a virtual accelerator but no export"
+            built[name] = run_chain(
+                tmp_path_factory.mktemp(f"{name}-2-0"),
+                tuple(str(path) for path in exports),
+                (),
+                FIXTURES / name / "mapping.yaml",
+                name=name,
+                verify=True,
+            )
+        return built[name]
+
+    return build
+
+
+@pytest.fixture(scope="module", params=TWO_ZERO_TREES)
+def two_zero_chain(
+    request: pytest.FixtureRequest, two_zero_chains: Callable[[str], Chain]
+) -> Chain:
+    """Every committed 2.0 fixture in turn, installed end to end."""
+    return two_zero_chains(request.param)
 
 
 # ===================================================================
@@ -595,6 +668,19 @@ class TestTheChainRuns:
             assert path.is_file(), f"{path} was not written"
         assert list((data / "facility_knowledge" / "families").glob("*.md"))
 
+    def test_a_one_zero_export_says_the_va_lane_is_skipped_and_writes_none_of_it(
+        self, chain: Chain
+    ) -> None:
+        # Every committed fixture is a 1.0 export: it carries no virtual
+        # accelerator, so each pass adds the one line that says so and not one
+        # of the five files a served machine boots from.
+        assert not (chain.root / "data" / "mml" / "va.json").is_file()
+
+        for index, record in enumerate(chain.passes):
+            assert VA_SKIPPED in record.emit, f"pass {index + 1}"
+            written = sorted(set(record.artifacts) & set(VA_ARTIFACTS))
+            assert not written, f"pass {index + 1} wrote {written}"
+
     def test_a_second_pass_changes_no_emitted_byte(self, chain: Chain) -> None:
         first, second = chain.passes[0], chain.passes[1]
 
@@ -639,6 +725,71 @@ class TestTheChainRuns:
         )
 
         assert isinstance(database[PROVENANCE_KEY], str)
+
+
+# ===================================================================
+# Criterion 1, the other half — an export that carries a machine
+# ===================================================================
+
+
+class TestTheVirtualAcceleratorChain:
+    """A 2.0 export chains one verb further, and the machine it serves is the
+    machine the same run described.
+
+    The fixtures above stop at ``emit`` because a 1.0 export has no virtual
+    accelerator to serve. An export that carries one runs ``import`` → ``map
+    --init`` → the reviewed mapping → ``map --check`` → ``emit --duckdb`` →
+    ``verify``, and the five files a served machine boots from join everything
+    the shorter chain already wrote.
+    """
+
+    def test_a_two_zero_export_is_committed(self) -> None:
+        # Every other case in this class is parametrised over the discovery,
+        # so a fixture directory that stops carrying a ``*.va.json`` would
+        # empty them all silently rather than fail.
+        assert TWO_ZERO_TREES, "no fixture export carries a *.va.json sibling"
+
+    def test_the_lane_runs_and_writes_all_five_files(self, two_zero_chain: Chain) -> None:
+        assert (two_zero_chain.root / "data" / "mml" / "va.json").is_file()
+
+        for index, record in enumerate(two_zero_chain.passes):
+            assert VA_SKIPPED not in record.emit, f"pass {index + 1}"
+            missing = sorted(set(VA_ARTIFACTS) - set(record.artifacts))
+            assert not missing, f"pass {index + 1} is missing {missing}"
+
+    def test_a_second_pass_changes_no_emitted_byte(self, two_zero_chain: Chain) -> None:
+        first, second = two_zero_chain.passes[0], two_zero_chain.passes[1]
+
+        assert set(first.artifacts) >= set(VA_ARTIFACTS)
+        assert second.artifacts == first.artifacts
+
+    def test_every_bound_address_is_one_the_chain_kept(self, two_zero_chain: Chain) -> None:
+        # The machine is driven through the same addresses the deployment
+        # serves: a binding onto an address the review dropped, or onto one the
+        # channel database never heard of, would be a knob with nothing behind it.
+        bound = setpoints(load_bindings(two_zero_chain.root / "data/simulation/va_bindings.json"))
+        kept = _kept_addresses(two_zero_chain.ao, two_zero_chain.document)
+        database = {entry["channel"] for entry in two_zero_chain.database.get_all_channels()}
+
+        assert bound
+        assert set(bound) <= kept
+        assert set(bound) <= database
+
+    def test_verify_compares_the_matrix_the_export_carries(self, two_zero_chain: Chain) -> None:
+        report = two_zero_chain.root / "data" / "mml" / "VA-REPORT.md"
+
+        assert report.is_file()
+        for index, record in enumerate(two_zero_chain.passes):
+            assert record.verify is not None, f"pass {index + 1}"
+            assert "Not one entry" not in record.verify, f"pass {index + 1}: {record.verify}"
+            assert "response entries" in record.verify, f"pass {index + 1}: {record.verify}"
+
+    def test_verify_answers_the_same_on_every_pass(self, two_zero_chain: Chain) -> None:
+        # The passes install the same export over the same mapping, so a
+        # comparison that moved between them would be the chain, not the machine.
+        verdicts = {record.verify for record in two_zero_chain.passes}
+
+        assert len(verdicts) == 1, verdicts
 
 
 # ===================================================================

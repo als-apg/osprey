@@ -7,6 +7,14 @@ line; an acceptance must exit zero. The mutations cover the null slots, the
 PN_LOCAL and case-fold collisions, the section order, the directions table and
 its agreement with the vote, the class/branch hierarchy, and ``--no-derived``.
 
+The ``virtual_accelerator:`` block is checked on the one committed 2.0 export,
+``synthetic``, which has no reviewed mapping of its own: those cases start from
+the skeleton ``map --init`` writes with every other slot answered, so a problem
+count is a statement about the block alone. They cover what the parser refuses
+by name, what the ring refuses, and the three ways the tree and the block can
+disagree -- no block, a block naming another system, and a deck that was never
+imported.
+
 The ``judgments:`` block is checked on the real two-system NSLS-II export,
 whose committed mapping answers thirteen slots. Those cases pin more than a
 key: each says how many problems the whole run may report, so "exactly one
@@ -29,6 +37,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
+from tests.cli.test_mml_map import SYNTHETIC, SYNTHETIC_SYSTEM, _fill
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 
@@ -548,6 +557,138 @@ class TestAcceptances:
 
         assert result.exit_code == 0, result.output
         assert not _problem_lines(result.output, "directions.QM.On")
+
+
+#: Where an open slot's answer lives, per family of the synthetic block.
+IDGAP_ANSWER = "virtual_accelerator.families.IDGAP.slot.answer"
+SEPTUM_ANSWER = "virtual_accelerator.families.SEPTUM.slot.answer"
+
+
+@pytest.fixture
+def va_base(repo: Path) -> dict:
+    """The synthetic 2.0 skeleton with every slot answered, block included.
+
+    ``synthetic`` commits no reviewed mapping, so the base is what ``--init``
+    writes: the block as the export proposes it, and every slot outside it
+    filled, so each case below reports only what its own mutation caused.
+    """
+    result = CliRunner().invoke(cli, ["mml", "import", str(SYNTHETIC)], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    init = CliRunner().invoke(cli, ["mml", "map", "--init"], catch_exceptions=False)
+    assert init.exit_code == 0, init.output
+    document = yaml.safe_load((repo / "data" / "mml" / "mapping.yaml").read_text(encoding="utf-8"))
+    return _fill(document)
+
+
+class TestVirtualAccelerator:
+    """The ``virtual_accelerator`` block, end to end on the 2.0 tree."""
+
+    def test_the_answered_block_passes(self, repo: Path, va_base: dict) -> None:
+        result = _check(repo, va_base)
+
+        assert result.exit_code == 0, result.output
+        assert "passes the check" in result.output
+
+    @pytest.mark.parametrize("key", [IDGAP_ANSWER, SEPTUM_ANSWER], ids=["escape-hatch", "attype"])
+    def test_an_unanswered_slot_is_named_and_is_the_only_problem(
+        self, repo: Path, va_base: dict, key: str
+    ) -> None:
+        document = mutate(va_base, key, None)
+
+        result = _check(repo, document)
+
+        _assert_rejected(result, key, "must not be null")
+        assert _problem_count(result.output) == 1, result.output
+
+    @pytest.mark.parametrize(
+        ("key", "shown"),
+        [
+            (IDGAP_ANSWER, "must be latch, ignore_hook or null"),
+            (SEPTUM_ANSWER, "must be latch, strength:<PolynomB|PolynomA>[<i>]"),
+        ],
+        ids=["escape-hatch", "attype"],
+    )
+    def test_a_word_outside_the_vocabulary_is_refused_by_name(
+        self, repo: Path, va_base: dict, key: str, shown: str
+    ) -> None:
+        # The vocabulary of every slot kind is closed: the refusal names the
+        # words that are in it rather than carrying an unknown one through.
+        document = mutate(va_base, key, "sideways")
+
+        result = _check(repo, document)
+
+        _assert_rejected(result, key, shown)
+        assert "got 'sideways'" in result.output
+        assert "is not a valid mapping document" in result.output
+
+    def test_an_answer_the_ring_refuses_names_the_element_and_the_field(
+        self, repo: Path, va_base: dict
+    ) -> None:
+        # SEPTUM's element is a drift, which carries no multipole at all, so
+        # the answer is refused against the deck rather than the vocabulary.
+        document = mutate(va_base, SEPTUM_ANSWER, "strength:PolynomB[9]")
+
+        result = _check(repo, document)
+
+        _assert_rejected(
+            result,
+            SEPTUM_ANSWER,
+            f"element DR (DriftPass) of SEPTUM in {SYNTHETIC_SYSTEM} takes no PolynomB[9]",
+        )
+        assert _problem_count(result.output) == 1, result.output
+
+    def test_a_mapping_without_a_block_is_asked_once_to_init(
+        self, repo: Path, va_base: dict
+    ) -> None:
+        # One problem for the whole export, not one per family: the mapping
+        # decides nothing about a virtual accelerator the tree carries.
+        document = mutate(va_base, "virtual_accelerator", DELETE)
+
+        result = _check(repo, document)
+
+        _assert_rejected(result, "virtual_accelerator", "run osprey mml map --init")
+        assert _problem_count(result.output) == 1, result.output
+        assert not _lines_starting(result.output, "virtual_accelerator.")
+
+    def test_a_block_naming_another_system_is_one_problem_about_the_system(
+        self, repo: Path, va_base: dict
+    ) -> None:
+        document = mutate(va_base, "virtual_accelerator.system", "LTB")
+
+        result = _check(repo, document)
+
+        _assert_rejected(
+            result,
+            "virtual_accelerator.system",
+            f"names 'LTB', and the export carries a virtual accelerator for {SYNTHETIC_SYSTEM!r}",
+        )
+        assert _problem_count(result.output) == 1, result.output
+
+    def test_a_null_system_is_named(self, repo: Path, va_base: dict) -> None:
+        document = mutate(va_base, "virtual_accelerator.system", None)
+
+        result = _check(repo, document)
+
+        _assert_rejected(result, "virtual_accelerator.system", "must not be null")
+        assert _problem_count(result.output) == 1, result.output
+
+    def test_a_deck_outside_the_tree_is_one_problem_and_judges_no_answer(
+        self, repo: Path, va_base: dict
+    ) -> None:
+        # The deck is what an answer binding an element is held to, so without
+        # it even an answer the ring would refuse is left unjudged.
+        document = mutate(va_base, SEPTUM_ANSWER, "strength:PolynomB[9]")
+        (repo / "data" / "mml" / "lattice" / f"{SYNTHETIC_SYSTEM}.mat").unlink()
+
+        result = _check(repo, document)
+
+        _assert_rejected(
+            result,
+            "virtual_accelerator",
+            f"the deck {SYNTHETIC_SYSTEM} was sampled over is not in the tree",
+        )
+        assert _problem_count(result.output) == 1, result.output
+        assert not _problem_lines(result.output, SEPTUM_ANSWER), result.output
 
 
 class TestNoDerived:
