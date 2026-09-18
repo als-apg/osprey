@@ -466,11 +466,14 @@ def test_every_launched_process_in_a_context_names_the_image_interpreter(
     name = built_repo.name if persona is None else f"{built_repo.name}-{persona}"
     render = _contexts(built_repo)[name] / BUILD_DIR_NAME
 
-    commands = {
-        server.get("command")
-        for server in json.loads((render / ".mcp.json").read_text())["mcpServers"].values()
-    }
+    servers = json.loads((render / ".mcp.json").read_text())["mcpServers"]
+    # A URL-transport server is reached over HTTP and launches no process in
+    # this container, so it names no interpreter; every other server does.
+    launched = {name: server for name, server in servers.items() if "url" not in server}
+    assert launched, "no stdio MCP server in the render"
+    commands = {server.get("command") for server in launched.values()}
     assert commands == {_CONTAINER_INTERPRETER}
+    assert not [name for name, server in servers.items() if "url" in server and "command" in server]
 
     settings = (render / ".claude" / "settings.json").read_text(encoding="utf-8")
     interpreters = re.findall(r"/[\w./-]*/python[\d.]*", settings)

@@ -2610,6 +2610,12 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
     permissionDecision falls through to the normal permission flow, i.e. allows.
     So a tool whose only gate is a matcher the profile declared itself passes
     with a warning rather than silently.
+
+    For ``Bash`` the warning also says what the shell reaches beyond the
+    filesystem: the panel token is in the agent's process env, so a shell
+    command can fire a dispatcher job over ``/panel/events/mcp`` with no
+    approval prompt. A facility reading this warning is deciding whether its own
+    hook is enough, and that decision needs the dispatcher wire in view.
     """
     import logging
 
@@ -2623,10 +2629,17 @@ def test_lint_accepts_a_declared_matcher_but_warns_that_it_proves_nothing(
 
     settings = json.loads((project / ".claude" / "settings.json").read_text())
     assert "Bash" not in settings["permissions"]["deny"]
-    assert any(
-        "Bash" in record.message and "permissionDecision" in record.message
+    gate_warnings = [
+        record.message
         for record in caplog.records
-    ), f"expected an unverifiable-gate warning; got: {[r.message for r in caplog.records]}"
+        if "Bash" in record.message and "permissionDecision" in record.message
+    ]
+    assert gate_warnings, (
+        f"expected an unverifiable-gate warning; got: {[r.message for r in caplog.records]}"
+    )
+    assert any("/panel/events/mcp" in message for message in gate_warnings), (
+        f"the Bash warning must name the dispatcher wire the shell reaches: got {gate_warnings}"
+    )
 
 
 def test_a_framework_matcher_gates_without_the_warning(tmp_path: Path, caplog) -> None:

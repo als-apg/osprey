@@ -19,8 +19,14 @@ from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT, POSTURE_ENV_VAR
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
 from osprey.utils.identity import AUDIT_IDENTITY_ENV as AUDIT_IDENTITY_ENV  # re-exported
 from osprey.utils.identity import IDENTITY_ENV_LADDER
+from osprey.utils.owner_header import OWNER_HEADER
 from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
-from osprey_connectors.posture_store import LAUNCH_POSTURE_ENV_VAR
+from osprey_connectors.posture_store import (
+    CONTROL_CONTEXT_DIR_ENV_VAR,
+    CONTROL_CONTEXT_TREE_ENV_VAR,
+    CONTROL_OWNER_ENV_VAR,
+    LAUNCH_POSTURE_ENV_VAR,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +83,10 @@ class ServerDefinition:
     # Wire transport for URL servers: "http" (streamable-HTTP) or "sse"
     # (legacy Server-Sent Events). Meaningless for stdio servers.
     transport: str = "http"
+    # Request headers for URL servers — the URL transport's counterpart to
+    # ``env``, which a remote server never sees. A stdio server has nowhere to
+    # put them, so they are dropped (with a warning) for one.
+    headers: dict[str, str] = field(default_factory=dict)
     port: int | None = (
         None  # Host/container port for HTTP servers; informational for non-Claude consumers
     )
@@ -89,10 +99,37 @@ class ServerDefinition:
 # Hook helpers (reduce repetition in FRAMEWORK_SERVERS)
 # ---------------------------------------------------------------------------
 
-_APPROVAL = HookEntry(
-    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py"',
-    timeout=5,
-)
+
+def _approval_entry(timeout: int) -> HookEntry:
+    """An approval hook entry whose preview budget is its harness timeout.
+
+    The hook spends part of its run rendering a pre-flight preview of what the
+    tool is about to do, and the harness kills it at ``timeout``. Those are one
+    number, passed here once: a ``--budget`` the timeout cannot cover is a
+    preview the hook starts and the harness discards, leaving the operator to
+    answer the prompt without the detail it was gathering.
+
+    Args:
+        timeout: Seconds the hook has, end to end.
+
+    Returns:
+        The hook entry, carrying the budget on its command line and the same
+        number as its ``HookEntry.timeout``.
+    """
+    return HookEntry(
+        command=(
+            f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py" --budget {timeout}'
+        ),
+        timeout=timeout,
+    )
+
+
+_APPROVAL = _approval_entry(5)
+#: Approval for the Bluesky arming pair, whose prompt renders the queue over
+#: the bridge before an operator can answer: the preview IS the approval, so
+#: these two buy the budget it needs. Every other prompt answers from data the
+#: hook already holds and keeps the default.
+_APPROVAL_PREFLIGHT = _approval_entry(30)
 _WRITES_CHECK = HookEntry(
     command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py"',
     timeout=5,
@@ -126,6 +163,35 @@ def _post_error(matcher: str) -> HookRule:
 # ---------------------------------------------------------------------------
 # Framework server catalog
 # ---------------------------------------------------------------------------
+
+#: Env var holding the bearer an agent child presents to its own web terminal.
+#:
+#: Spelled here rather than imported from ``osprey.interfaces.web_auth``, which
+#: owns it: this registry is loaded by the CLI and the build on every render,
+#: and that module drags the whole web stack in behind it. The literal is
+#: pinned against the constant in ``tests/registry/test_mcp.py``.
+PANEL_TOKEN_ENV_NAME = "OSPREY_PANEL_TOKEN"
+
+#: The event dispatcher's MCP endpoint, as an agent in a web terminal reaches it.
+#:
+#: Not the dispatcher's own port. The bearer that port demands
+#: (``EVENT_DISPATCHER_TOKEN``) is stripped from every agent child env, and the
+#: single process in the container that holds it is the terminal's own panel
+#: proxy — so the entry dials the terminal on loopback and the proxy makes the
+#: hop, minting the owner header on the way.
+#:
+#: Like the env name above, each piece of this URL is owned elsewhere and
+#: spelled literally rather than imported — ``OSPREY_WEB_PORT`` by
+#: ``interfaces.common_middleware``, the ``events`` panel segment by
+#: ``deployment.web_terminals.personas`` (which imports THIS module, so the
+#: import cannot run the other way), the ``/mcp`` tail by ``osprey.dispatch``.
+#: One test pins all of them against their owners.
+#:
+#: The ``:-`` form is load-bearing here and in the bearer header: Claude Code
+#: leaves a bare ``${VAR}`` in place when the variable is unset, so without it
+#: an unset variable becomes the placeholder's own text, used as a port number
+#: or sent as a credential.
+EVENT_DISPATCHER_PROXY_URL = "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp"
 
 FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
     "controls": ServerDefinition(
@@ -477,7 +543,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_pre=[
             *(
-                HookRule(matcher=bsky.matcher(tool), hooks=[_WRITES_CHECK, _APPROVAL])
+                HookRule(matcher=bsky.matcher(tool), hooks=[_WRITES_CHECK, _APPROVAL_PREFLIGHT])
                 for tool in bsky.ARMING_TOOLS
             ),
             HookRule(
@@ -574,6 +640,42 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         permissions_allow=["capabilities", "example_queries", "get_schema", "read_cypher"],
         permissions_ask=[],
         hooks_post=[_post_error("mcp__graph__.*")],
+    ),
+    "event_dispatcher": ServerDefinition(
+        name="event_dispatcher",
+        # A URL server — the first framework one. Nothing is launched here, so
+        # there is no module to name: the dispatcher runs as its own service
+        # and the agent speaks to it over HTTP.
+        module="",
+        url=EVENT_DISPATCHER_PROXY_URL,
+        # The agent never holds the dispatcher's own bearer:
+        # EVENT_DISPATCHER_TOKEN is stripped from every agent child env, so
+        # the one credential this entry can present is the panel token every
+        # child already carries — which is exactly what the proxy on the other
+        # end of the loopback hop checks.
+        headers={"Authorization": f"Bearer ${{{PANEL_TOKEN_ENV_NAME}:-}}"},
+        # Conditional on the EVENTS panel, read through the same predicate that
+        # grants the dispatcher token itself (see the ctx key's own comment in
+        # cli/templates/claude_code.py). A deployment without the panel serves
+        # no proxy route and holds no panel token, so the entry would be a
+        # server whose every call fails at the first hop.
+        condition="event_dispatcher_wired",
+        # Reads report what is configured and what has already run — prompting
+        # for them would train operators to click through prompts that never
+        # precede anything.
+        permissions_allow=["list_triggers", "trigger_history", "trigger_status"],
+        permissions_ask=["manual_fire"],
+        # Approval only, deliberately: firing a job is not itself a
+        # control-system write, and the job's own writes meet the operator's
+        # chip at the tools that make them. Attaching the writes kill switch
+        # here would instead stop a writes-off session from starting even a
+        # read-only job, while claiming a gate enforced a layer further in.
+        hooks_pre=[
+            HookRule(
+                matcher="mcp__event_dispatcher__manual_fire",
+                hooks=[_APPROVAL],
+            ),
+        ],
     ),
 }
 
@@ -944,6 +1046,29 @@ LAUNCH_POSTURE_ENV = LAUNCH_POSTURE_ENV_VAR
 #: the writer that assigns it exists.
 AUDIT_WRITER_ENV = "OSPREY_AUDIT_WRITER"
 
+#: The stamped owner of the work a process is doing — the rung
+#: :func:`~osprey_connectors.posture_store.current_owner` reads from the
+#: environment, and therefore the name whose narrowing an owned write is judged
+#: against. Imported rather than re-spelled: its owner
+#: (:mod:`osprey_connectors.posture_store`) is a package the registry may import
+#: without an import cycle, and it is both the stamp's format authority and its
+#: reader.
+CONTROL_OWNER_ENV = CONTROL_OWNER_ENV_VAR
+
+#: The read-only bind of the whole per-user control-state tree. Only its
+#: PRESENCE is read: it is what makes a container owned-or-nothing instead of
+#: falling through to the account it runs as. Imported from the same reader for
+#: the same reason as the owner stamp.
+CONTROL_CONTEXT_TREE_ENV = CONTROL_CONTEXT_TREE_ENV_VAR
+
+#: The read-write bind of ONE owner's control-state directory — where a terminal
+#: writes the record that says whether it has narrowed its writes, and where the
+#: readers look that record up. Imported from the same reader as the tree bind
+#: above, so the two halves of one bind pair cannot be spelled two ways. The
+#: name is pinned against the rendered environment by
+#: ``tests/registry/test_marker_nonpinnability.py``.
+CONTROL_CONTEXT_DIR_ENV = CONTROL_CONTEXT_DIR_ENV_VAR
+
 #: The audit-critical markers, in one tuple so a drift check can assert
 #: membership rather than re-encode the list. This is the seam the gate-wiring
 #: drift test imports. Spelled off the identity ladder and the posture
@@ -968,6 +1093,16 @@ AUDIT_WRITER_ENV = "OSPREY_AUDIT_WRITER"
 #: executor, into the sandbox child's environment) and inherited by nothing, so
 #: a spec is never a legitimate source — and a spec that could set it could
 #: spell ``writes`` for a run the operator had already narrowed.
+#: The three ``OSPREY_CONTROL_*`` markers are the owner side of the same
+#: question: WHOSE narrowing an owned write is judged against. A spec that could
+#: pin the owner could hand a plan another user's chip — running it at a
+#: narrowing that user never set, or at the deployment ceiling when the real
+#: owner had narrowed. The two binds decide which answer is read at all, so they
+#: are pins on the same fact: ``OSPREY_CONTROL_CONTEXT_TREE`` is read for its
+#: presence alone, which is what makes a container owned-or-nothing, and
+#: ``OSPREY_CONTROL_CONTEXT_DIR`` names the one owner's directory the record is
+#: written to and read from — a directory of the spec's choosing holds no
+#: record, and a missing record reads as "nothing narrowed".
 NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     *IDENTITY_ENV_LADDER,
     POSTURE_ENV_VAR,
@@ -976,6 +1111,9 @@ NON_PINNABLE_AUDIT_MARKERS: tuple[str, ...] = (
     POSTURE_SESSION_ENV,
     OSPREY_AGENT_DATA_ROOT,
     LAUNCH_POSTURE_ENV,
+    CONTROL_OWNER_ENV,
+    CONTROL_CONTEXT_TREE_ENV,
+    CONTROL_CONTEXT_DIR_ENV,
 )
 
 #: Env markers a server spec's ``env:`` may not set — the framework owns them.
@@ -1065,6 +1203,90 @@ def _lint_framework_owned_env(name: str, spec: dict) -> None:
             )
 
 
+#: The header that names the acting human on a wire OSPREY owns.
+#:
+#: Every legitimate value is minted in-container — by the terminal proxy, by
+#: the sidecar's own web gate, or by an MCP tool stamping ``current_owner()``
+#: — and each of those mints strips whatever arrived first. A ``.mcp.json``
+#: entry is not one of those sites: a header set there travels with every
+#: request the agent makes to that server, which is precisely a way to claim
+#: a name the session was never granted. So it is removed from EVERY server's
+#: headers, framework and custom alike, the same way the audit markers are
+#: removed from every server's env.
+#:
+#: Case-folded from the one definition of the header's spelling rather than
+#: retyped, so the name this module strips cannot drift from the name the mints
+#: send and the readers look for. The comparisons below are all case-folded,
+#: because a header name is case-insensitive on the wire.
+_OWNER_HEADER = OWNER_HEADER.casefold()
+
+#: The bearer header. Framework-owned only where the framework mints it.
+#:
+#: A framework URL entry's bearer comes from this module's own catalog — the
+#: value is the framework's, and an ``Authorization`` on such an entry that
+#: the catalog did not declare could only have been pinned from elsewhere.
+#: A CUSTOM server is the opposite case: it authenticates to a service the
+#: framework knows nothing about, and its own bearer is the whole point of
+#: declaring headers at all, so it is kept untouched.
+_AUTHORIZATION_HEADER = "authorization"
+
+
+def _spec_headers(name: str, spec: dict) -> dict:
+    """The ``headers:`` mapping a server spec carries, or ``{}`` when it has none.
+
+    Shaped like :func:`_spec_env`, and for the same reason: a malformed value
+    (a list, a string) must fail closed on the one spec that carries it rather
+    than crash the resolve for every server in the deployment.
+    """
+    raw = spec.get("headers")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        logger.warning(
+            "Server %r has a malformed headers: (expected a mapping, got %s) — ignoring it",
+            name,
+            type(raw).__name__,
+        )
+        return {}
+    return raw
+
+
+def _framework_owned_header_names(sdef: ServerDefinition) -> frozenset[str]:
+    """Case-folded header names that may not reach *sdef*'s rendered entry."""
+    owned = {_OWNER_HEADER}
+    catalog = FRAMEWORK_SERVERS.get(sdef.name)
+    if catalog is not None and not any(
+        key.casefold() == _AUTHORIZATION_HEADER for key in catalog.headers
+    ):
+        owned.add(_AUTHORIZATION_HEADER)
+    return frozenset(owned)
+
+
+def _strip_framework_owned_headers(sdef: ServerDefinition, headers: dict) -> dict:
+    """Remove framework-owned header names from a resolved header map.
+
+    Warns rather than refusing, exactly as :func:`_lint_framework_owned_env`
+    does for env, so a facility learns its header does nothing instead of
+    losing a whole server to a typo. The stripped VALUE is deliberately not
+    logged: a header value is a credential far more often than an env value
+    is, and this warning goes to the same log an operator pastes into a
+    ticket.
+    """
+    owned = _framework_owned_header_names(sdef)
+    for key in list(headers):
+        if key.casefold() not in owned:
+            continue
+        del headers[key]
+        logger.warning(
+            "Server %r sets the %s header in its spec — that header is owned by the "
+            "framework and is removed after the spec is read, so the value is "
+            "ignored; remove it from the spec",
+            sdef.name,
+            key,
+        )
+    return headers
+
+
 # ---------------------------------------------------------------------------
 # Resolution functions
 # ---------------------------------------------------------------------------
@@ -1080,8 +1302,9 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     Returns:
         List of plain dicts, each representing one server with keys:
         name, enabled, url, transport (``"http"``/``"sse"`` for URL servers,
-        ``None`` for stdio), command, args, env, permissions_allow,
-        permissions_ask, fixed_allow, hooks_pre, hooks_post, is_custom.
+        ``None`` for stdio), headers (request headers for URL servers, empty
+        for stdio), command, args, env, permissions_allow, permissions_ask,
+        fixed_allow, hooks_pre, hooks_post, is_custom.
     """
     servers: dict[str, ServerDefinition] = {
         k: copy.deepcopy(v) for k, v in FRAMEWORK_SERVERS.items()
@@ -1362,6 +1585,19 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
         )
         transport = "http"
 
+    headers = _spec_headers(name, spec)
+    if headers and not spec.get("url"):
+        # Same shape as the transport warning above: a stdio server is launched
+        # as a subprocess, so there is no request for a header to ride on. The
+        # spec author meant `env:`, and hearing so is better than watching the
+        # key vanish.
+        logger.warning(
+            "Server %r declares 'headers' but launches via 'command' — stdio "
+            "servers send no request headers (use 'env' instead); ignoring the key",
+            name,
+        )
+        headers = {}
+
     # Resolve pre-tool-use hook presets
     hooks_pre: list[HookRule] = []
     pre_presets = spec.get("hooks", {}).get("pre_tool_use", [])
@@ -1400,6 +1636,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition | None:
         external_args=spec.get("args", []),
         url=spec.get("url"),
         transport=transport,
+        headers=headers,
         port=spec.get("port"),
         permissions_allow=perms.get("allow", []),
         permissions_ask=perms.get("ask", []),
@@ -1453,6 +1690,15 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
     # under, hence the mcp__<name>__ prefix its tools carry.
     env[TOOL_PREFIX_ENV] = sdef.name
 
+    # ── Request headers, settled the same way and in the same place ───
+    # A URL server never sees `env` — the headers are the only channel a
+    # `.mcp.json` entry has for telling a remote server who is calling, which
+    # is why the owner header is settled here beside the audit markers rather
+    # than at the spec reader: this is the one funnel every launch path
+    # crosses.
+    headers = {k: _resolve_placeholder(v, ctx) for k, v in sdef.headers.items()}
+    _strip_framework_owned_headers(sdef, headers)
+
     # Convert hooks to plain dicts
     hooks_pre = [_hook_rule_to_dict(r) for r in sdef.hooks_pre]
     hooks_post = [_hook_rule_to_dict(r) for r in sdef.hooks_post]
@@ -1467,6 +1713,10 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
         # Transport only means something for URL servers; None for stdio so a
         # consumer can never mistake a command server for an HTTP one.
         "transport": sdef.transport if url else None,
+        # Headers ride on requests, so like transport they mean nothing for a
+        # stdio server — empty there rather than absent, so every consumer can
+        # read the key without guarding on the transport.
+        "headers": headers if url else {},
         "command": command,
         "args": args,
         "env": env,

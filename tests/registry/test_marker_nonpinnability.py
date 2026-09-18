@@ -15,6 +15,13 @@ one could file its records under another service's name, present a writes
 posture inside a sandboxed session, or claim a posture provenance it was never
 granted.
 
+The owner side answers the same questions for an owned write: *whose* narrowing
+it is judged against (``OSPREY_CONTROL_OWNER``) and *where* that narrowing is
+read from (the two control-state binds, ``OSPREY_CONTROL_CONTEXT_TREE`` and
+``OSPREY_CONTROL_CONTEXT_DIR``). A spec that could set any of the three could
+hand a plan another user's chip — or aim the read at a directory holding no
+record at all, which reads as "nothing narrowed".
+
 The set is spelled off its sources, not off a hand-picked list: two of the
 containment tests below exist because the first cut listed four markers and
 missed both the ladder's WINNING rung (a spec pinning ``OSPREY_TERMINAL_USER``
@@ -50,6 +57,9 @@ from osprey.registry.mcp import (
     _FRAMEWORK_OWNED_SPEC_ENV,
     AUDIT_IDENTITY_ENV,
     AUDIT_WRITER_ENV,
+    CONTROL_CONTEXT_DIR_ENV,
+    CONTROL_CONTEXT_TREE_ENV,
+    CONTROL_OWNER_ENV,
     FRAMEWORK_SERVERS,
     NON_PINNABLE_AUDIT_MARKERS,
     POSTURE_SESSION_ENV,
@@ -60,6 +70,7 @@ from osprey.registry.mcp import (
 from osprey.utils.identity import AUDIT_IDENTITY_ENV as IDENTITY_MODULE_AUDIT_IDENTITY_ENV
 from osprey.utils.identity import IDENTITY_ENV_LADDER, TERMINAL_USER_ENV
 from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR
+from osprey_connectors import posture_store
 
 
 def _base_ctx(**overrides):
@@ -83,6 +94,15 @@ def _resolve_one(cfg, name, ctx=None):
 #: A spoof value distinct from anything the framework would ever assign, so a
 #: survivor is unmistakably the spec's and not a coincidence.
 SPOOF = "somebody-else"
+
+#: The owner side of the set, spelled out rather than drawn from the tuple under
+#: test, so a marker dropped from the tuple fails a test here instead of quietly
+#: losing its coverage.
+_OWNER_MARKER_LITERALS = (
+    "OSPREY_CONTROL_OWNER",
+    "OSPREY_CONTROL_CONTEXT_TREE",
+    "OSPREY_CONTROL_CONTEXT_DIR",
+)
 
 
 def _spec_for_path(path: str, marker: str) -> dict:
@@ -123,7 +143,38 @@ class TestMarkerSpellings:
             "OSPREY_POSTURE_SESSION",
             "OSPREY_AGENT_DATA_ROOT",
             "OSPREY_LAUNCH_POSTURE",
+            "OSPREY_CONTROL_OWNER",
+            "OSPREY_CONTROL_CONTEXT_TREE",
+            "OSPREY_CONTROL_CONTEXT_DIR",
         )
+
+    def test_the_owner_marker_is_the_posture_store_spelling(self):
+        """The owner decides WHOSE narrowing a write is judged against, so a spec
+        that could pin it could hand a plan another user's chip. Pinned by
+        identity against the module that resolves the owner from it.
+        """
+        assert CONTROL_OWNER_ENV is posture_store.CONTROL_OWNER_ENV_VAR
+        assert CONTROL_OWNER_ENV == "OSPREY_CONTROL_OWNER"
+        assert CONTROL_OWNER_ENV in NON_PINNABLE_AUDIT_MARKERS
+
+    def test_the_control_tree_marker_is_the_posture_store_spelling(self):
+        """Its mere presence makes a container owned-or-nothing instead of
+        falling through to the account it runs as, so a pin can both invent that
+        state and hide it. Pinned by identity against the module that reads it.
+        """
+        assert CONTROL_CONTEXT_TREE_ENV is posture_store.CONTROL_CONTEXT_TREE_ENV_VAR
+        assert CONTROL_CONTEXT_TREE_ENV == "OSPREY_CONTROL_CONTEXT_TREE"
+        assert CONTROL_CONTEXT_TREE_ENV in NON_PINNABLE_AUDIT_MARKERS
+
+    def test_the_control_context_dir_marker_is_non_pinnable(self):
+        """The per-owner directory the chip is written to and read from. Spelled
+        as a literal in the registry — its assignment site is the web-terminal
+        compose template and its reader the container entrypoint, neither of
+        which the registry may import a name from — so the literal is pinned
+        here against the name the rendered compose environment carries.
+        """
+        assert CONTROL_CONTEXT_DIR_ENV == "OSPREY_CONTROL_CONTEXT_DIR"
+        assert CONTROL_CONTEXT_DIR_ENV in NON_PINNABLE_AUDIT_MARKERS
 
     def test_the_agent_data_root_is_non_pinnable(self):
         """The directory the posture answer is READ OUT OF, not only the answer.
@@ -242,6 +293,36 @@ class TestRemovedOnEveryLaunchPath:
         assert marker not in srv["env"], (
             f"{marker} survived the {path} path with value {srv['env'].get(marker)!r}"
         )
+
+    @pytest.mark.parametrize("marker", _OWNER_MARKER_LITERALS)
+    @pytest.mark.parametrize("path", ["framework-override", "extends-clone", "custom-spec"])
+    def test_the_owner_markers_are_stripped_by_literal(self, marker, path):
+        """The owner side, named as LITERALS for the same reason the two above
+        are: a marker missing from the tuple is a marker the parametrised tests
+        never exercise. A spec that could set any of these three could judge a
+        write against somebody else's chip — the owner directly, the two binds
+        by aiming the read at a tree or a directory of the spec's choosing,
+        where an absent record reads as "nothing narrowed".
+        """
+        name = _PATH_SERVER[path]
+        spec = _spec_for_path(path, marker)
+        spec["env"][marker] = SPOOF
+        srv = _resolve_one({"servers": {name: spec}}, name)
+        assert marker not in srv["env"], (
+            f"{marker} survived the {path} path with value {srv['env'].get(marker)!r}"
+        )
+
+    @pytest.mark.parametrize("marker", _OWNER_MARKER_LITERALS)
+    def test_the_owner_markers_warn_as_removed(self, caplog, marker):
+        """The operator hears which owner marker was ignored and how it settled,
+        rather than watching a chip they thought they had pinned do nothing.
+        """
+        spec = _spec_for_path("custom-spec", marker)
+        with caplog.at_level("WARNING"):
+            resolve_servers({"servers": {"site-tools": spec}}, _base_ctx())
+        assert marker in caplog.text
+        assert "site-tools" in caplog.text
+        assert "removed after the spec env merge" in caplog.text
 
     def test_framework_override_spec_env_never_merges(self):
         """Why that path is belt-and-braces: a spec keyed on a FRAMEWORK name

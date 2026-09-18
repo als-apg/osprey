@@ -909,10 +909,18 @@ def _expanded_roster() -> dict[str, str]:
     placeholder ``{channel_finder_pipeline}``; each valid mode is a real package
     with its own ``__main__``, and all four must be covered rather than skipped
     for being unresolvable at import time.
+
+    A URL-transport entry names no module: the agent reaches it over HTTP and
+    the framework starts no process for it, so it has no entry point to walk.
+    ``test_a_url_transport_entry_launches_nothing`` holds that exemption to
+    entries that really do launch nothing.
     """
     roster: dict[str, str] = {}
     for name, definition in FRAMEWORK_SERVERS.items():
         module = definition.module
+        if not module:
+            # URL transport — no process, hence no entry point to audit.
+            continue
         if "{channel_finder_pipeline}" in module:
             for mode in VALID_CHANNEL_FINDER_MODES:
                 roster[f"{name}[{mode}]"] = module.replace("{channel_finder_pipeline}", mode)
@@ -987,6 +995,34 @@ class TestEveryFrameworkServerLaunchesThroughRunMcpServer:
         }
         assert on_disk, "found no FastMCP entry points at all — the walk is broken"
         assert on_disk == rostered
+
+    def test_a_url_transport_entry_launches_nothing(self):
+        """The one exemption from the walk, stated rather than left implicit.
+
+        This class pins a property of servers the framework LAUNCHES. A
+        URL-transport entry is reached over HTTP by a server running as its own
+        service, so there is no child process to start, no entry point to audit
+        and no middleware to install here — and the exemption is sound only
+        while such an entry names no module. An entry carrying both would be
+        launched as a process and skipped by the walk at the same time.
+        """
+        exempt = {
+            name: definition
+            for name, definition in FRAMEWORK_SERVERS.items()
+            if not definition.module
+        }
+        for name, definition in exempt.items():
+            assert definition.url, (
+                f"{name}: no module and no url — nothing launches this server and "
+                f"nothing can reach it either"
+            )
+        both = [name for name, d in FRAMEWORK_SERVERS.items() if d.url and d.module]
+        assert not both, f"servers carrying both a module and a url: {sorted(both)}"
+
+        walked = {name.split("[")[0] for name in _expanded_roster()}
+        assert (walked & FRAMEWORK_SERVERS.keys()) | exempt.keys() == FRAMEWORK_SERVERS.keys(), (
+            "every registered server is either walked as a launched server or exempt"
+        )
 
     @pytest.mark.parametrize("name,module", sorted(_expanded_roster().items()))
     def test_every_framework_server_reaches_run_mcp_server(self, name, module):
