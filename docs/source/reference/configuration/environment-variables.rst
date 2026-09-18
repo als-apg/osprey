@@ -16,6 +16,13 @@ Secrets, and ``.env``
 
    ANTHROPIC_API_KEY=sk-...          # Or OPENAI_API_KEY, GOOGLE_API_KEY, etc.
 
+An opt-in search mode reads its own key the same way. ``TYPESAFE_API_KEY``
+authenticates the ARIEL ``jev`` search mode's reranking calls; the variable it
+is read from is itself configurable, under
+``search_modules.jev.settings.api_key_env``. The key is deliberately not a
+config key, so it never lands in a rendered ``config.yml``. See
+:doc:`/how-to/ariel/search-modes`.
+
 Provider keys live in the deployment repository's ``.env`` and are read from
 there. No environment variable selects which deployment a command acts on:
 every lifecycle verb finds the repository by walking up from the working

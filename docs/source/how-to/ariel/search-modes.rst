@@ -2,7 +2,7 @@
 Search Modes
 ============
 
-ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and ``hybrid``, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the Osprey agent layer, which calls these search modules through ARIEL's MCP tools.
+ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships four: keyword full-text search, embedding-based semantic similarity, ``hybrid``, a merge of the two answered by a separate search sidecar container (qmd), and ``jev``, an opt-in keyword search whose ranking is reviewed by a decision model. All four produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the Osprey agent layer, which calls these search modules through ARIEL's MCP tools.
 
 **Dispatch is registry-driven.** A search request names a mode as a plain string --- ``"keyword"``, ``"semantic"``, ``"hybrid"``. The ``ARIELSearchService`` looks that name up in Osprey's central registry and calls the module's own ``execute``; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface's capabilities API and the agent's MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.
 
@@ -26,6 +26,7 @@ The service refuses a mode that is not registered, or is registered but disabled
    osprey ariel search "RF cavity fault" --mode keyword
    osprey ariel search "RF cavity fault" --mode semantic
    osprey ariel search "RF cavity fault" --mode hybrid
+   osprey ariel search "RF cavity fault" --mode jev       # when enabled
 
 The ``--mode`` choices are read from the registry when the command runs, so a facility that registers its own search module gets it as a choice --- and in ``--help`` --- without any code change.
 
@@ -33,7 +34,7 @@ The ``--mode`` choices are read from the registry when the command runs, so a fa
 Search Modules
 ==============
 
-Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a ``get_tool_descriptor()`` function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL's capabilities API; each built-in module is exposed to the Osprey agent through its own ARIEL MCP tool (``keyword_search``, ``semantic_search``, ``hybrid_search``). The framework ships with the following built-in search modules:
+Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a ``get_tool_descriptor()`` function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL's capabilities API, and the CLI takes its ``--mode`` choices from the same registry, so a registered and enabled module is reachable from both without any further wiring. Reaching the Osprey **agent** is the one thing a descriptor does not do by itself: that needs a matching ARIEL MCP tool, which ``keyword``, ``semantic`` and ``hybrid`` have (``keyword_search``, ``semantic_search``, ``hybrid_search``) and ``jev`` does not yet. The framework ships with the following built-in search modules:
 
 .. tab-set::
 
@@ -205,6 +206,65 @@ Search modules are leaf-level functions that execute a single search strategy ag
          qmd normalises the document paths it reports: ``_`` and ``%`` both become ``-``, runs collapse, and a leading one is dropped. ARIEL rehydrates each hit from the document's title rather than the reported path, so the entries you get back are correct. But two entry IDs that differ *only* in characters qmd collapses --- ``beam_current_setpoint`` and ``beam-current-setpoint``, say --- index as one document, and one of them becomes unreachable through this mode.
 
          Over a real 134,996-entry logbook the measured collision rate is **0.0000%**: every entry ID there is a 4-6 digit decimal string, so no real pair can collide. This matters only for a facility whose entry IDs are not numeric.
+
+   .. tab-item:: jev (opt-in)
+
+      **Module:** ``search/jev.py``
+
+      Keyword retrieval reordered by `Jev <https://docs.typesafe.ai/>`__, TypeSafe's System One decision model. Best when the operator's wording and the logbook's wording differ --- "why did we lose the beam" against entries that say *orbit interlock fired in sector 7* --- and the ranking matters more than the raw match.
+
+      It is the one search mode that is **off unless a deployment turns it on**, and the only one that sends entry text to a third-party endpoint. It is registered in the framework so that enabling it is one config key, and disabled by default so that no deployment inherits that decision.
+
+      **How it works:**
+
+      1. Runs :func:`~osprey.services.ariel_search.search.keyword.keyword_search` for a *candidate pool* --- more rows than the operator asked for (30 by default). Query syntax, filters and :ref:`vocabulary expansion <vocabulary-expansion>` are the ``keyword`` mode's, unchanged.
+      2. Sends one batched request carrying the pool as a single state, with one relevance question per candidate plus two questions about the query itself. The questions are evaluated in parallel, so thirty of them cost about what one costs --- roughly 150 ms, which is what makes search-as-you-type affordable at all.
+      3. Blends the model's relevance with the lexical rank, drops candidates below the relevance floor, and returns the top ``max_results`` of the reordered pool.
+
+      **Re-ranking reorders a pool; it never adds to it.** An entry PostgreSQL did not return cannot appear, whatever the model thinks. The ceiling on what this mode can surface is the ceiling of the underlying full-text search, which is what ``candidate_limit`` raises and lowers.
+
+      **Configuration:**
+
+      .. code-block:: yaml
+
+         ariel:
+           search_modules:
+             jev:
+               enabled: true
+               settings:
+                 candidate_limit: 30        # default; rows fetched for reranking
+                 min_relevance: 0.25        # default; 0-1 floor on model relevance
+                 classify: true             # default; ask the two query-level questions
+                 model: jev-latest          # default
+                 timeout_seconds: 5.0       # default
+                 max_in_flight: 4           # default; per-keystroke callers need this cap
+
+      The API key is **not** a config key. It is read from the environment variable named by ``settings.api_key_env`` (``TYPESAFE_API_KEY`` by default), so it never lands in a rendered ``config.yml``. Enabling the module with that variable unset is reported at startup and in ``osprey ariel status``; searches still work, and return the keyword ranking with a warning.
+
+      .. warning::
+
+         The knobs **must** stay under ``settings:``, for the reason the ``hybrid`` tab gives: ARIEL's search-config loader keeps only ``enabled``, ``provider``, ``model`` and ``settings``, and drops every other key silently.
+
+      **The two query-level questions.** Alongside the per-candidate relevance, each request asks whether the query is literal text the operator expects verbatim, and whether they want the most recent match or the best one. Each answer is applied only above ``classification_confidence`` (0.6): a confident *literal* reading raises the weight the lexical rank keeps, and a confident *recency* reading adds a recency prior. An unsure answer is discarded, because an unsure guess about "the latest one" would reshuffle results for no reason.
+
+      **Search as you type.** This is the only mode that ships with an ``instant_search`` parameter on, and the panel reads it the way it reads ``rerank``: the search runs on every keystroke, debounced, with at most four requests in flight and slower responses superseded by newer ones. Turning the parameter off in **Filters & Options** returns the bar to searching on Enter. A mode that does not declare the parameter --- every other mode --- is unaffected.
+
+      **Re-ranking is never load-bearing.** No API key, a timeout, an error status, an undecodable answer: every one of them returns the keyword ranking with a WARNING diagnostic saying which, and the panel's existing "could not improve the ranking" status line says so on screen. A third-party endpoint being slow never costs the operator their results.
+
+      **What it costs.** One request per search, about 7,800 input tokens for a 30-candidate pool. A per-keystroke search bar multiplies that by how much the operator types, which is what ``max_in_flight`` and the panel's debounce bound. Lower ``candidate_limit`` to spend less per search.
+
+      **Seeing it without a deployment:**
+
+      .. code-block:: bash
+
+         uv run python scripts/demos/jev_instant_search.py
+
+      The demo runs the shipped module over a dozen hand-written entries with an in-memory stand-in for the lexical stage, and prints the keyword ordering next to the reranked one. With ``TYPESAFE_API_KEY`` set it asks the real endpoint; without one it replays a recorded reply so the path still runs.
+
+      .. admonition:: Entry text leaves the facility
+         :class: warning
+
+         Each search sends the query and up to ``snippet_chars`` (600 by default) of each candidate entry's text to ``api.typesafe.ai``. Weigh that against your facility's policy on logbook content before enabling the module, and set ``settings.endpoint`` if you front the service with a gateway of your own.
 
 **Registering a custom search module:**
 

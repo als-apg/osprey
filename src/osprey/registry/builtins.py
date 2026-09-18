@@ -169,6 +169,15 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.services.ariel_search.search.qmd",
                     description="Hybrid keyword and semantic search via the qmd sidecar",
                 ),
+                # Registered but off unless a deployment writes
+                # ``search_modules.jev.enabled: true`` and supplies an API key:
+                # it is the one search mode that sends entry text to a
+                # third-party endpoint, so it is opted into, never inherited.
+                ArielSearchModuleRegistration(
+                    name="jev",
+                    module_path="osprey.services.ariel_search.search.jev",
+                    description="Keyword retrieval reranked by the Jev decision model",
+                ),
             ],
             # ARIEL enhancement modules
             ariel_enhancement_modules=[

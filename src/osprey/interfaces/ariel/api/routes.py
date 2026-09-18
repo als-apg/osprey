@@ -175,12 +175,18 @@ def _resolve_search_mode(service: ARIELSearchService, requested: str | None) -> 
     return mode
 
 
-def _validate_hybrid_overrides(advanced_params: dict[str, Any]) -> None:
-    """Reject malformed hybrid per-query overrides before the search runs.
+#: Modes that take per-query ``rerank`` / ``candidate_limit`` overrides. Both
+#: retrieve a candidate pool and then reorder it, so both read the same two
+#: keys from the same panel controls and must refuse the same bad values.
+RERANKING_MODES = frozenset({"hybrid", "jev"})
+
+
+def _validate_rerank_overrides(advanced_params: dict[str, Any]) -> None:
+    """Reject malformed per-query reranking overrides before the search runs.
 
     The search panel sends ``rerank`` from a toggle and ``candidate_limit`` from
     a number field, so real traffic is already well-formed; a hand-written HTTP
-    caller is not. Both keys are forwarded to the hybrid module verbatim, where
+    caller is not. Both keys are forwarded to the module verbatim, where
     ``"false"`` is truthy and would silently run the slow reranked path the
     caller asked to skip, and a zero or negative width is a nonsense retrieval
     size. The wording matches the config-side parser, so an operator who sets
@@ -211,6 +217,19 @@ def _validate_hybrid_overrides(advanced_params: dict[str, Any]) -> None:
         raise HTTPException(
             status_code=400,
             detail=f"candidate_limit must be a positive integer, got {candidate_limit!r}",
+        )
+
+    # Only the jev module reads this one; validating it for every reranking
+    # mode costs nothing and keeps one rule for the panel's number fields.
+    min_relevance = advanced_params.get("min_relevance")
+    if min_relevance is not None and (
+        not isinstance(min_relevance, (int, float))
+        or isinstance(min_relevance, bool)
+        or not 0 <= min_relevance <= 1
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=f"min_relevance must be a number in [0, 1], got {min_relevance!r}",
         )
 
 
@@ -390,8 +409,8 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
 
     # Validated before the try block so the 400 is not swallowed into a 500.
     service_mode = _resolve_search_mode(service, search_req.mode)
-    if service_mode == "hybrid":
-        _validate_hybrid_overrides(search_req.advanced_params)
+    if service_mode in RERANKING_MODES:
+        _validate_rerank_overrides(search_req.advanced_params)
 
     try:
         # advanced_params takes precedence over top-level filter fields

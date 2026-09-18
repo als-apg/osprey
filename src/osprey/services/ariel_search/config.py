@@ -1014,6 +1014,26 @@ class ARIELConfig:
             except ValueError as exc:
                 errors.append(str(exc))
 
+        if self.is_search_module_enabled("jev"):
+            import os
+
+            from osprey.services.ariel_search.search.jev import JevSearchSettings
+
+            try:
+                jev_settings = JevSearchSettings.from_ariel_config(self)
+            except ValueError as exc:
+                errors.append(str(exc))
+            else:
+                # A missing key is a warning's worth of wrong, not an error's:
+                # the module degrades to the keyword ranking and says so on
+                # every search. Reporting it here is what turns "my searches
+                # stopped being reranked" into one line at startup.
+                if not os.environ.get(jev_settings.api_key_env):
+                    errors.append(
+                        f"{jev_settings.api_key_env} is unset, so search_modules.jev "
+                        "cannot rerank; searches will return the keyword ranking"
+                    )
+
         return errors
 
     def get_search_model(self) -> str | None:

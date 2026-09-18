@@ -57,6 +57,7 @@ def test_a_fresh_registry_resolves_the_framework_search_modes(tmp_path: Path):
         "keyword",
         "semantic",
         "hybrid",
+        "jev",
     }
 
 

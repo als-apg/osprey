@@ -71,6 +71,36 @@ let searchSeq = 0;
  */
 let rerankStatus = null;
 
+// --- Instant search ---
+//
+// A mode that declares an `instant_search` parameter and has it on runs on
+// every keystroke instead of on Enter. The three numbers below are what keep
+// that affordable, and each guards a different failure:
+//
+// * the debounce collapses a burst of typing into one request, so a 20-word
+//   query costs a handful of requests rather than a hundred;
+// * the in-flight cap drops a keystroke's request rather than queueing it,
+//   because a queued request answers a query the operator has already left;
+// * the minimum length keeps the first one or two characters — which match
+//   nearly everything — from being searched at all.
+//
+// Staleness is handled by `searchSeq`, shared with `performSearch`: a slower
+// response that is no longer the newest search never repaints, and pressing
+// Enter supersedes every instant search still in flight.
+
+/** Milliseconds of quiet before a keystroke becomes a request. */
+const INSTANT_DEBOUNCE_MS = 120;
+
+/** Requests allowed in flight at once; a keystroke over the cap is dropped. */
+const MAX_INSTANT_IN_FLIGHT = 4;
+
+/** Shortest query worth a request. */
+const MIN_INSTANT_QUERY_CHARS = 2;
+
+/** @type {ReturnType<typeof setTimeout>|null} */
+let instantTimer = null;
+let instantInFlight = 0;
+
 /**
  * The one-line status each phase shows, per UI mode. Expert names the mechanism
  * because Expert users tune it; Simple says what changed in plain words. The
@@ -193,12 +223,20 @@ export function initSearch(capabilities = null) {
   const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
   const searchBtn = document.getElementById('search-btn');
 
-  // Search input enter key
+  // Search input enter key. A pending instant search is cancelled first: the
+  // operator asked for this query now, and letting the debounce fire after
+  // would run the same search a second time.
   searchInput?.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      cancelInstantSearch();
       performSearch();
     }
+  });
+
+  // Search as you type, for a mode that offers it.
+  searchInput?.addEventListener('input', () => {
+    scheduleInstantSearch(searchInput.value);
   });
 
   // Search button click
@@ -219,10 +257,106 @@ export function initSearch(capabilities = null) {
     if (e.key === 'Escape' && document.activeElement === searchInput && searchInput) {
       searchInput.value = '';
       searchInput.blur();
+      cancelInstantSearch();
     }
   });
 
   initSearchResultsDelegation();
+}
+
+/**
+ * Whether the selected mode is running search-as-you-type right now.
+ *
+ * Read from the mode's own `instant_search` parameter rather than from a mode
+ * name, the way the two-phase path reads `rerank`: a mode that never declares
+ * the parameter answers `undefined` and takes the Enter-only path it always
+ * has, so nothing here changes for keyword, semantic or hybrid.
+ * @returns {boolean}
+ */
+export function instantSearchEnabled() {
+  return getEffectiveParam('instant_search') === true;
+}
+
+/**
+ * Cancel a debounced instant search that has not fired yet.
+ *
+ * Does not touch requests already in flight — those are superseded by
+ * `searchSeq`, not cancelled, because a fetch that has left cannot be recalled
+ * and its response is already guarded.
+ */
+export function cancelInstantSearch() {
+  if (instantTimer === null) return;
+  clearTimeout(instantTimer);
+  instantTimer = null;
+}
+
+/**
+ * Debounce a keystroke into an instant search.
+ *
+ * Backspacing to an empty box is a cancel, and is handled by `clearSearch` —
+ * the module's own routine for it, which supersedes whatever is in flight and
+ * hands back the search button rather than stranding it.
+ * @param {string} value - The input's current value
+ */
+export function scheduleInstantSearch(value) {
+  if (!instantSearchEnabled()) return;
+  cancelInstantSearch();
+
+  const query = value.trim();
+  if (query.length === 0) {
+    clearSearch();
+    return;
+  }
+  if (query.length < MIN_INSTANT_QUERY_CHARS) return;
+
+  instantTimer = setTimeout(() => {
+    instantTimer = null;
+    performInstantSearch(query);
+  }, INSTANT_DEBOUNCE_MS);
+}
+
+/**
+ * Run one instant search.
+ *
+ * Deliberately unlike `performSearch` in three ways, all so that typing does
+ * not feel like searching: no loading state replaces the results on screen
+ * (the previous ones stay until newer ones arrive), the search button is not
+ * disabled (Enter must stay available mid-typing), and the filters panel is
+ * not collapsed under the operator.
+ *
+ * A failure is swallowed to the console rather than painted. A keystroke's
+ * request failing is not something the operator asked for and not something
+ * they can act on; the next keystroke will try again, and pressing Enter gets
+ * the error state from `performSearch` if it is real.
+ * @param {string} query - The query to run
+ * @returns {Promise<void>}
+ */
+export async function performInstantSearch(query) {
+  // A full search owns the bar while it runs: it, not this, resets
+  // `isSearching`, and bumping `searchSeq` underneath it would strand the
+  // search button disabled.
+  if (isSearching) return;
+  if (instantInFlight >= MAX_INSTANT_IN_FLIGHT) return;
+
+  const seq = ++searchSeq;
+  currentQuery = query;
+  const mode = getCurrentMode();
+  /** @type {Object<string, *>} */
+  const advancedParams = getAdvancedParams();
+  const maxResults = advancedParams.max_results || 10;
+
+  instantInFlight++;
+  try {
+    const results = await searchApi.search({ query, mode, maxResults, advancedParams });
+    if (seq !== searchSeq) return;
+    lastResults = results;
+    rerankStatus = hasRerankFallbackWarning(results) ? 'fallback' : null;
+    renderSearchResults(results, mode);
+  } catch (error) {
+    console.error('Instant search failed:', error);
+  } finally {
+    instantInFlight--;
+  }
 }
 
 /**
