@@ -19,7 +19,7 @@ free: a value source pushes once, and the shim fans that one push out to
 every view of the address, so neither source knows how many transports it
 is feeding.
 
-Four properties of the served database are contracts, not preferences:
+Five properties of the served database are contracts, not preferences:
 
 * **The channel set is closed.** One PV per manifest channel, no more, no
   fewer -- whatever the manifest holds. (In the bundled demo tree: the
@@ -50,6 +50,16 @@ Four properties of the served database are contracts, not preferences:
   the two servers seed their first value from different places. A view that
   tracked setpoints but not readings, or agreed only once something moved,
   would be worse than one that tracked nothing: it would *look* correct.
+* **A device gets exactly the records its manifest states.** A device whose
+  setpoint and readback are one address arrives as a single setpoint entry
+  and is served as one record: the accepted write is what that record
+  carries, and there is no second address to pair it with. A device whose
+  readback has an address of its own arrives as two entries sharing one
+  identity, is served as two records, and pairs -- the write path then
+  publishes onto the readback whatever the facility's own reverse
+  calibration makes of the written value. Both shapes are ordinary; what
+  distinguishes them is a record count, so neither is inferred from an
+  address's spelling and both are read off the manifest.
 """
 
 from __future__ import annotations
@@ -326,7 +336,9 @@ class ServingRecords:
     drives, and ``all`` is every record by address for whole-namespace
     consumers. ``setpoint_readbacks`` maps each writable setpoint address to
     its paired readback address, which is the echo the write path owes a
-    client on an accepted write.
+    client on an accepted write. A setpoint whose readback is served on the
+    setpoint address itself has no entry there: one address is one record,
+    and the accepted write is the whole of what it carries.
 
     ``physics_setpoints`` is the pyat-coupled half of that: the addresses
     whose manifest entry declared them setpoints (``subfield ==
@@ -391,6 +403,23 @@ def _channel_key(channel: dict) -> tuple[str, str, str, str, str]:
     )
 
 
+def _pair_key_setpoint(channel: dict) -> str | None:
+    """The setpoint address a channel is keyed on, where that is an address.
+
+    A channel a bindings document put in the served namespace carries no
+    hierarchy path: its four path keys are empty and ``device`` holds the
+    binding's own setpoint address, because the document -- not an address
+    grammar a facility never promised -- is what says two entries are one
+    device's halves. A channel identified by a path names a *device* in that
+    key rather than an address, and a channel with no identity at all names
+    nothing; both answer ``None``, because neither states a setpoint this
+    module could look for.
+    """
+    if channel["ring"] or channel["system"] or channel["family"] or channel["field"]:
+        return None
+    return channel["device"] or None
+
+
 def _initial_value(channel: dict, boot_values: dict[str, Any] | None) -> Any:
     """Boot value for one channel: the type default, unless this is a
     ``:SP``/``:RB`` channel with its own seed in ``boot_values``.
@@ -445,12 +474,16 @@ def build_serving_pvdb(
     Raises:
         ManifestContractError: a channel's record_type/noise combination, or
             the channel set's setpoint/readback pairing, violates a contract
-            the serving layer relies on.
+            the serving layer relies on. Among them: a pyat-coupled channel
+            keyed on a setpoint address the manifest does not carry, which is
+            a manifest and a bindings document describing two different
+            machines.
     """
     records = ServingRecords()
     readback_addresses: dict[tuple[str, str, str, str, str], str] = {}
     setpoint_channels: list[dict] = []
     physics_setpoints: set[str] = set()
+    coupled_pair_keys: list[tuple[str, str]] = []
 
     for channel in channels:
         address = channel["address"]
@@ -481,6 +514,9 @@ def build_serving_pvdb(
         partition = channel["partition"]
         if partition == PARTITION_PYAT_COUPLED:
             records.pyat_coupled[address] = record
+            pair_key = _pair_key_setpoint(channel)
+            if pair_key is not None:
+                coupled_pair_keys.append((address, pair_key))
         elif partition == PARTITION_STATIC_NOISY:
             records.static_noisy[address] = record
 
@@ -491,6 +527,17 @@ def build_serving_pvdb(
             if partition == PARTITION_PYAT_COUPLED:
                 physics_setpoints.add(address)
 
+    for address, pair_key in coupled_pair_keys:
+        if pair_key not in records.pvdb:
+            # A coupled channel keyed on an address states that a write
+            # landing there is where its own value comes from. Keyed on an
+            # address this namespace does not serve, no write can land, and
+            # the channel is served frozen while looking driven.
+            raise ManifestContractError(
+                f"pyat-coupled channel {address!r} is keyed on setpoint {pair_key!r}, "
+                f"which this manifest does not carry"
+            )
+
     for channel in setpoint_channels:
         readback = readback_addresses.get(_channel_key(channel))
         if readback is None:
@@ -500,9 +547,11 @@ def build_serving_pvdb(
                 raise ManifestContractError(
                     f"sp-echo setpoint {channel['address']!r} has no matching RB readback channel"
                 )
-            # A pyat-coupled setpoint may legitimately stand alone (a
-            # synthetic single-channel set); its physics effect is observed
-            # on the BPM readbacks, not on a readback of its own.
+            # A pyat-coupled setpoint stands alone where one address carries
+            # both halves of its device: the accepted write is what that one
+            # record serves, and there is no second address to pair it with.
+            # A setpoint whose readback is a separate address reaches here
+            # with that address beside it and pairs below.
             continue
         records.setpoint_readbacks[channel["address"]] = readback
 

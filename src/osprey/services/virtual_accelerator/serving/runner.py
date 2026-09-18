@@ -91,6 +91,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from p4p.server.thread import SharedPV
 
     from osprey.services.virtual_accelerator.serving.pvdb import ServingRecords
+    from osprey.services.virtual_accelerator.serving.write_path import BoundSetpoint
 
 #: Protocols served. PVA carries the model's own variables and the
 #: ``model_info`` structure; CA carries the co-hosted namespace. CA must be
@@ -174,6 +175,7 @@ class CohostRunner(Runner):
         *,
         on_setpoint: Callable[[str, float], None] | None = None,
         drive_limits: Mapping[str, tuple[float, float]] | None = None,
+        bound_setpoints: Mapping[str, BoundSetpoint] | None = None,
         stuck_setpoints: frozenset[str] = frozenset(),
         prefix: str = "",
         protocol: tuple[str, ...] = DEFAULT_PROTOCOLS,
@@ -203,6 +205,15 @@ class CohostRunner(Runner):
                 propagate nothing, there being no physics to propagate into.
             drive_limits: ``{address: (low, high)}``; each written value is
                 clamped into its band before anything else happens to it.
+            bound_setpoints: what the served bindings document says each
+                writable address does on readback, from
+                :func:`~osprey.services.virtual_accelerator.serving.write_path.bound_setpoints`.
+                Passed in rather than derived here because it takes the
+                document and the model's variables, and this class resolves no
+                tree: it is handed a built database and a built model. Empty
+                (the default) is the lattice-free behaviour: every coupled
+                readback echoes the value written, which is all a deployment
+                with no document can say.
             stuck_setpoints: apply-fault addresses whose readbacks must never
                 move again.
             prefix: prepended to every served name. Empty for a facility
@@ -224,7 +235,14 @@ class CohostRunner(Runner):
             )
 
         self._records = records
+        # The same set reached from the two ends of one tree: the manifest's
+        # coupled partition, and the document's writable bindings. Their union
+        # is what routes through the model, so a setpoint either end knows
+        # about is served by the physics rather than latched -- and the
+        # document's rule is what decides its readback (see the write path).
         physics_setpoints = physics_setpoint_addresses(records)
+        bound = dict(bound_setpoints or {})
+        routed = physics_setpoints | frozenset(bound)
 
         # Bound before the base constructor runs, because the base
         # constructor is what builds the driver, and the driver's first act
@@ -235,6 +253,7 @@ class CohostRunner(Runner):
             records,
             enqueue=self._enqueue if on_setpoint is not None else None,
             physics_setpoints=physics_setpoints,
+            bound_setpoints=bound,
             stuck_setpoints=stuck_setpoints,
             drive_limits=drive_limits,
             refusal_alarm=REFUSAL_ALARM,
@@ -242,7 +261,7 @@ class CohostRunner(Runner):
         )
 
         if on_setpoint is not None:
-            model = SetpointRoutedModel(model, on_setpoint=on_setpoint, routed=physics_setpoints)
+            model = SetpointRoutedModel(model, on_setpoint=on_setpoint, routed=routed)
 
         config = Runner.generate_config(model, prefix=prefix)
         config["protocol"] = list(protocol)

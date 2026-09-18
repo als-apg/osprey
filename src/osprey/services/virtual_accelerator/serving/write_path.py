@@ -46,6 +46,22 @@ two views is one value written once and never two views drifting. What
 differs between them is only how the client is told the write finished, and
 that difference is real: Channel Access can report nothing but success,
 while a PVA put carries an error string back to the client that issued it.
+
+**What a setpoint is, and what its readback is worth, are both read out of
+the bindings document.** ``va_bindings.json`` lists one binding per channel;
+the writable ones are the setpoints that reach the lattice, and each names
+where its readback is served and how its value is produced -- ``identity``
+(the written value), ``inverse`` (mapped back through the facility's own
+``monitor_inverse``) or ``same_as_setpoint`` (one address carrying both).
+Nothing here parses an address, a family or a subfield to recover any of
+that, which is what lets one write path serve every facility:
+:func:`bound_setpoints` turns the document into the route table's input and
+:func:`physics_setpoint_addresses` is the same set as the served database
+states it. The conversion itself is never respelled here either -- an
+``inverse`` readback is the model variable's own
+:meth:`~osprey.services.virtual_accelerator.model.variables._CalibratedSetpoint.readback`,
+so the value a client reads back and the physics the lattice took come from
+one calibration and not from two spellings of it.
 """
 
 from __future__ import annotations
@@ -56,7 +72,7 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from functools import partial
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from lume.model import LUMEModel
 
@@ -64,6 +80,9 @@ from osprey.services.virtual_accelerator.serving.pvdb import (
     ServingRecords,
     discard_pva_post,
 )
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from osprey.services.virtual_accelerator.bindings import BindingsDocument
 
 LOG = logging.getLogger(__name__)
 
@@ -79,6 +98,24 @@ LOG = logging.getLogger(__name__)
 MODE_PHYSICS = "physics"
 MODE_ECHO = "echo"
 MODE_LATCH = "latch"
+
+# How a bound setpoint's readback value is produced. The vocabulary is the
+# bindings document's own
+# (:data:`~osprey.services.virtual_accelerator.bindings.READBACK_RULES`);
+# these names exist so the branch below reads as the rule it implements, and
+# a test pins that the three cover the document's whole vocabulary.
+#
+# ``IDENTITY``          the readback carries the written value, on an address
+#                       of its own. The schema forbids an inverse on such a
+#                       binding, so there is nothing to compute.
+# ``INVERSE``           the readback carries the written value mapped back
+#                       through the facility's sampled ``monitor_inverse``,
+#                       which is the model variable's ``readback``.
+# ``SAME_AS_SETPOINT``  one address carries both, so an accepted write is the
+#                       whole of what is served and no second value exists.
+READBACK_IDENTITY = "identity"
+READBACK_INVERSE = "inverse"
+READBACK_SAME_AS_SETPOINT = "same_as_setpoint"
 
 #: Runner configuration this write path requires, merged over the generated
 #: configuration by the runner. Every key is load-bearing:
@@ -169,6 +206,13 @@ class SetpointRoute:
         mode: one of ``MODE_PHYSICS`` / ``MODE_ECHO`` / ``MODE_LATCH``.
         asyn: whether the served PV declares an asynchronous write, and so
             whether the client is blocked until ``callbackPV`` fires.
+        readback_rule: the document's rule for this readback (one of the
+            ``READBACK_*`` constants), or ``None`` for a setpoint no bindings
+            document described -- an echo pair, a latch, or a coupled
+            setpoint named by addresses alone.
+        readback_value: what the readback carries, as a function of the
+            written value. ``None`` means the written value itself, which is
+            an ``identity`` readback and every echo.
     """
 
     address: str
@@ -176,17 +220,49 @@ class SetpointRoute:
     limits: tuple[float, float] | None
     mode: str
     asyn: bool
+    readback_rule: str | None = None
+    readback_value: Callable[[Any], Any] | None = None
+
+
+@dataclass(frozen=True)
+class BoundSetpoint:
+    """What the bindings document says one writable address does.
+
+    One per writable binding, as :func:`bound_setpoints` reads them. It
+    carries the two facts the write path cannot derive for itself -- where
+    this setpoint's readback is served and what value lands there -- and
+    nothing else: the drive band is the facility's ``channel_limits.json``,
+    the served record is the manifest's, and the physics is the model's.
+
+    Attributes:
+        address: the written address, the document's ``setpoint_address``.
+        readback: where the readback is served, or ``None`` when the setpoint
+            address carries it (``same_as_setpoint``).
+        rule: the document's ``readback`` rule, one of the ``READBACK_*``
+            constants.
+        value: the readback value as a function of the written one, or
+            ``None`` when it *is* the written one.
+    """
+
+    address: str
+    readback: str | None
+    rule: str
+    value: Callable[[Any], Any] | None
 
 
 class SetpointRoutedModel(LUMEModel):
     """A model whose pyat-coupled setpoint writes go through a hook.
 
-    The physics bridge -- not the model -- owns the two things a setpoint
-    write needs beyond the lattice write itself: the magnet calibration
-    applied to the commanded current, and the push of the recomputed BPM
-    readings onto their served PVs. Both have to happen on whichever thread
-    owns the model, and the run loop reaches the model only through
-    ``model.set()``. Wrapping the model is what puts the hook on that
+    The physics bridge -- not the model -- owns what a setpoint write needs
+    around the lattice write itself: applying the commanded value to the
+    model, and pushing the readings that write recomputed onto their served
+    PVs. The conversion from the commanded hardware value to physics is
+    neither one's: it lives on the model variable the bindings document
+    built, so the value handed over here is the client's own, in the
+    facility's own units, and the bridge applies no calibration of its own.
+    Both halves have to happen on whichever thread owns the model, and the
+    run loop reaches the model only through ``model.set()``. Wrapping the
+    model is what puts the hook on that
     thread: every transport the runner serves -- the co-hosted Channel
     Access namespace and the runner's own PVA puts alike -- ends up calling
     the same hook, from the same thread, rather than each transport
@@ -262,8 +338,101 @@ def physics_setpoint_addresses(records: ServingRecords) -> frozenset[str]:
     channel declared; nothing here reads the address text, because a
     facility whose setpoints are not spelled ``...:SP`` has the same
     setpoints.
+
+    The manifest's partition is itself derived from the bindings document at
+    build time, so this set and the keys of :func:`bound_setpoints` over that
+    same document are the same addresses, reached from the two ends of one
+    tree. What only the document carries is what each of them *does* on
+    readback, which is why the served path hands the write path
+    :class:`BoundSetpoint` entries and not bare names.
     """
     return records.physics_setpoints
+
+
+def bound_setpoints(
+    document: BindingsDocument, variables: Mapping[str, Any]
+) -> dict[str, BoundSetpoint]:
+    """What every writable binding of ``document`` does, keyed by address.
+
+    The document-side definition of the coupled setpoints: one entry per
+    writable binding, in document order, and none for a monitor -- a reading
+    is not a setpoint, whatever its address is spelled like. Each entry
+    carries the readback the document declares:
+
+    * ``identity`` -- served on the document's ``readback_address``, carrying
+      the written value. The schema forbids a ``monitor_inverse`` here, so
+      there is nothing to compute and nothing is.
+    * ``inverse`` -- served on the document's ``readback_address``, carrying
+      ``variable.readback(written)``: the setpoint's physics value mapped
+      back along the facility's own sampled reverse path. The variable is
+      asked rather than the curve re-evaluated, so a client's readback and
+      the lattice's physics come from one calibration.
+    * ``same_as_setpoint`` -- no second address. What is served on the
+      setpoint address is the value the client wrote, which is what a
+      setpoint must read back for a read-modify-write client not to drift;
+      a read served from the model's own state is the serving database's
+      business (``serving/pvdb.py``), not this path's.
+
+    Args:
+        document: the served ``va_bindings.json``, already parsed.
+        variables: the model's variables by address, as
+            ``LUMEModel.supported_variables`` returns them. Read for the
+            ``readback`` method of the bindings that need one, and for
+            nothing else -- these are variables, not a model, and
+            ``readback`` is a pure function of immutable calibration data,
+            so calling it costs no lattice and is safe from any thread.
+
+    Returns:
+        One :class:`BoundSetpoint` per writable binding, by address.
+
+    Raises:
+        ValueError: a binding whose readback is produced by the inverse has
+            no variable able to produce it. Serving the written value instead
+            would report a calibration the facility does not have, on a
+            channel whose whole point is that it does; the message names the
+            address.
+    """
+    bound: dict[str, BoundSetpoint] = {}
+    for binding in document.bindings:
+        if not binding.is_writable:
+            continue
+        address = binding.setpoint_address
+        rule = binding.readback
+        if rule == READBACK_SAME_AS_SETPOINT:
+            readback, value = None, None
+        elif rule == READBACK_IDENTITY:
+            readback, value = binding.readback_address, None
+        elif rule == READBACK_INVERSE:
+            readback, value = binding.readback_address, _readback_of(address, variables)
+        else:  # pragma: no cover - the schema admits no fourth rule
+            raise ValueError(
+                f"binding {address!r} declares readback {rule!r}, which is not a rule "
+                "this write path knows how to serve"
+            )
+        bound[address] = BoundSetpoint(address, readback, rule, value)
+    return bound
+
+
+def _readback_of(address: str, variables: Mapping[str, Any]) -> Callable[[Any], Any]:
+    """The model variable's own readback conversion for ``address``."""
+    readback = getattr(variables.get(address), "readback", None)
+    if not callable(readback):
+        raise ValueError(
+            f"setpoint {address!r} serves its readback through the facility's monitor_inverse, "
+            "but the model has no variable of that address able to compute one; the readback "
+            "of such a binding cannot be the value that was written"
+        )
+    return readback
+
+
+def _is_a_number(value: Any) -> bool:
+    """Whether a numeric conversion means anything for ``value``.
+
+    Text, enum states and flags are served on the same path as analog values
+    and neither a drive band nor a calibration describes them. ``bool`` is an
+    ``int``, so it is excluded by name rather than by type.
+    """
+    return not isinstance(value, bool) and isinstance(value, numbers.Real)
 
 
 def clamp_into(value: Any, limits: tuple[float, float] | None) -> Any:
@@ -276,10 +445,7 @@ def clamp_into(value: Any, limits: tuple[float, float] | None) -> Any:
     recomputation of one, so an accepted value is bit-exact wherever it is
     later published.
     """
-    if limits is None:
-        return value
-    # bool is an int, and clamping a flag into a numeric band is meaningless.
-    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+    if limits is None or not _is_a_number(value):
         return value
     low, high = limits
     clamped = min(max(value, low), high)
@@ -305,6 +471,7 @@ class CohostWritePath:
         *,
         enqueue: Callable[..., None] | None = None,
         physics_setpoints: frozenset[str] = frozenset(),
+        bound_setpoints: Mapping[str, BoundSetpoint] | None = None,
         stuck_setpoints: frozenset[str] = frozenset(),
         drive_limits: Mapping[str, tuple[float, float]] | None = None,
         refusal_alarm: tuple[Any, Any] | None = None,
@@ -322,7 +489,20 @@ class CohostWritePath:
                 latch their written value and propagate nothing, which is
                 exactly what they did with no physics hook installed.
             physics_setpoints: the pyat-coupled setpoint addresses (see
-                :func:`physics_setpoint_addresses`).
+                :func:`physics_setpoint_addresses`). Names alone: a setpoint
+                known only this way routes into the model and echoes the
+                value it was written onto whatever readback the manifest
+                paired it with.
+            bound_setpoints: what the bindings document says each writable
+                address does, from :func:`bound_setpoints` -- the served
+                path's form of the same set, carrying the readback rule the
+                facility exported. An address named here and in
+                ``physics_setpoints`` is one setpoint; the document's rule is
+                what decides its readback. An address the document binds but
+                this deployment's namespace does not serve has no PV to write
+                to, and is dropped with a log line rather than refused: which
+                channels a deployment serves is the manifest's business, and
+                ``serving/pvdb.py`` is where that mismatch is reported.
             stuck_setpoints: apply-fault addresses. A stuck setpoint still
                 records the value written to it, but neither the physics hook
                 nor the readback echo fires, so that device's readback simply
@@ -355,16 +535,31 @@ class CohostWritePath:
         self._routes: dict[str, SetpointRoute] = {}
 
         limits = dict(drive_limits or {})
-        writable = set(records.setpoint_readbacks) | set(physics_setpoints)
-        for address in sorted(writable):
+        bound = dict(bound_setpoints or {})
+        coupled = set(physics_setpoints) | set(bound)
+        writable = set(records.setpoint_readbacks) | coupled
+        served = {address for address in writable if address in records.pvdb}
+        unserved = sorted(writable - served)
+        if unserved:
+            LOG.info(
+                "%d bound setpoint(s) are not served by this deployment's namespace "
+                "and are not routed: %s",
+                len(unserved),
+                unserved[:5],
+            )
+        for address in sorted(served):
+            rule: str | None = None
+            readback_value: Callable[[Any], Any] | None = None
             if address in stuck_setpoints:
                 mode, readback = MODE_LATCH, None
-            elif address in physics_setpoints:
+            elif address in coupled:
                 if enqueue is None:
                     mode, readback = MODE_LATCH, None
                 else:
                     mode = MODE_PHYSICS
-                    readback = records.setpoint_readbacks.get(address)
+                    readback, rule, readback_value = self._coupled_readback(
+                        records, address, bound.get(address)
+                    )
             else:
                 mode, readback = MODE_ECHO, records.setpoint_readbacks[address]
 
@@ -374,6 +569,8 @@ class CohostWritePath:
                 limits=limits.get(address),
                 mode=mode,
                 asyn=bool(records.pvdb[address].get("asyn", False)),
+                readback_rule=rule,
+                readback_value=readback_value,
             )
 
         unblocking = sorted(
@@ -387,6 +584,39 @@ class CohostWritePath:
                 "(build_serving_pvdb(..., async_setpoints=True)); these are not: "
                 f"{unblocking[:5]}{' ...' if len(unblocking) > 5 else ''}"
             )
+
+    @staticmethod
+    def _coupled_readback(
+        records: ServingRecords, address: str, entry: BoundSetpoint | None
+    ) -> tuple[str | None, str | None, Callable[[Any], Any] | None]:
+        """Where a coupled setpoint's accepted write is echoed, and as what.
+
+        The bindings document decides both wherever it describes the
+        setpoint. A coupled setpoint known by its name alone keeps the
+        manifest's own SP/RB pairing and echoes the value it was written,
+        which is what such a setpoint did before any document described it.
+
+        Returns:
+            ``(readback address, readback rule, readback conversion)``, any
+            of which may be ``None``: no address to echo onto, no rule
+            because no document named one, and no conversion because the
+            readback *is* the written value.
+        """
+        if entry is None:
+            return records.setpoint_readbacks.get(address), None, None
+        if entry.readback is None or entry.readback in records.pvdb:
+            return entry.readback, entry.rule, entry.value
+        # The document names where the facility serves this readback; this
+        # deployment serves a namespace of its own choosing. Publishing onto
+        # an address no PV carries would be a write into nothing, and the
+        # setpoint is published either way, so the write is not lost.
+        LOG.info(
+            "readback %s of setpoint %s is not served here; the accepted write is "
+            "published on the setpoint alone",
+            entry.readback,
+            address,
+        )
+        return None, entry.rule, None
 
     @property
     def routes(self) -> dict[str, SetpointRoute]:
@@ -521,15 +751,51 @@ class CohostWritePath:
         signal(error)
 
     def _publish(self, driver: WriteDriver, route: SetpointRoute, value: Any) -> None:
-        """Commit ``value`` on the setpoint and its echo, on every view.
+        """Commit ``value`` on the setpoint and its readback, on every view.
 
         Posting is per address rather than a database-wide sweep: the served
         database has thousands of entries and a sweep on each write would
         cost the whole namespace to deliver two values.
+
+        The setpoint carries the client's own value always -- a setpoint that
+        read back something other than what was commanded would make every
+        read-modify-write client drift -- and the readback carries what the
+        binding says it is worth, which is that same value for an ``identity``
+        readback and every echo.
         """
         self._commit(driver, route.address, value)
-        if route.readback is not None:
-            self._commit(driver, route.readback, value)
+        if route.readback is None:
+            return
+        try:
+            readback = self._readback(route, value)
+        except Exception:
+            # The setpoint is already committed above, and `_signal_ca` runs
+            # after this: a failing conversion must cost one readback and not
+            # a client's put-completion, since a Channel Access write whose
+            # `callbackPV` never fires postpones every later write to that PV
+            # for the life of the process.
+            LOG.exception(
+                "failed to compute the %s readback of %s from %s",
+                route.readback_rule,
+                route.address,
+                value,
+            )
+            return
+        self._commit(driver, route.readback, readback)
+
+    def _readback(self, route: SetpointRoute, value: Any) -> Any:
+        """What ``route``'s readback address carries for a written ``value``.
+
+        The model variable's own conversion, or the written value itself
+        where the document exported no way back -- never a re-derivation of
+        the conversion the lattice was written through, and never a value
+        read back out of the model: a readback is what the *written* value is
+        worth, so it is computable here, on whichever thread published it,
+        and it does not change when a later write moves the ring.
+        """
+        if route.readback_value is None or not _is_a_number(value):
+            return value
+        return route.readback_value(value)
 
     def _commit(self, driver: WriteDriver, address: str, value: Any) -> None:
         """Publish one accepted value on both views of one address.
@@ -576,11 +842,16 @@ __all__ = [
     "MODE_LATCH",
     "MODE_PHYSICS",
     "NOT_WRITABLE",
+    "READBACK_IDENTITY",
+    "READBACK_INVERSE",
+    "READBACK_SAME_AS_SETPOINT",
     "RUNNER_CONFIG_POLICY",
+    "BoundSetpoint",
     "CohostWritePath",
     "SetpointRoute",
     "SetpointRoutedModel",
     "WriteDriver",
+    "bound_setpoints",
     "clamp_into",
     "discard_pva_post",
     "physics_setpoint_addresses",

@@ -1358,11 +1358,26 @@ class TestRealNamespace:
 
     @pytest.fixture(scope="class")
     def built(self) -> tuple[ServingRecords, dict[str, Any]]:
+        """The database and the catalog one served tree yields.
+
+        Both are derived from the packaged demo tree and from nothing else,
+        the way the entrypoint derives them for a facility's own tree: the
+        manifest that tree resolves, the nominals and bands its
+        ``machine.json`` and ``channel_limits.json`` carry, and one variable
+        factory per binding in its ``va_bindings.json``. Building the catalog
+        off a different tree than the database would compare two namespaces
+        and prove nothing about either.
+        """
+        from osprey.services.virtual_accelerator.bindings import load_bindings
         from osprey.services.virtual_accelerator.manifest import build_manifest
+        from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
+        from osprey.services.virtual_accelerator.model.bindings import build_action_variables
         from osprey.services.virtual_accelerator.model.catalog import build_variable_catalog
 
-        channels = build_manifest()["channels"]
-        return build_serving_pvdb(channels, async_setpoints=True), build_variable_catalog(channels)
+        channels = build_manifest(PACKAGE_PATHS)["channels"]
+        document = load_bindings(PACKAGE_PATHS.va_bindings)
+        catalog = build_variable_catalog(PACKAGE_PATHS, channels, build_action_variables(document))
+        return build_serving_pvdb(channels, async_setpoints=True), catalog
 
     def test_counts(self, built) -> None:  # noqa: ANN001
         records, catalog = built
@@ -1515,6 +1530,63 @@ class TestRunnerShape:
             if keyword.arg == "pva_post"
         ]
         assert published == ["self._post_pva"]
+
+    def test_the_documents_readback_rules_reach_the_write_path(self, tree: ast.Module) -> None:
+        """The runner is the whole distance between the process that reads the
+        bindings document and the write path that applies it.
+
+        Dropped here, nothing fails: every coupled readback quietly becomes an
+        echo of the value written again, which is exactly what a facility that
+        exported a reverse curve does not have.
+        """
+        init = self._method(tree, "CohostRunner", "__init__")
+        built = [
+            node
+            for node in ast.walk(init)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "CohostWritePath"
+        ]
+
+        assert len(built) == 1, "the write path is built exactly once"
+        forwarded = [
+            keyword.value for keyword in built[0].keywords if keyword.arg == "bound_setpoints"
+        ]
+        assert [ast.unparse(value) for value in forwarded] == ["bound"]
+
+    def test_every_setpoint_either_end_knows_about_routes_through_the_model(
+        self, tree: ast.Module
+    ) -> None:
+        """The routed set is the union of the manifest's coupled partition and
+        the document's writable bindings -- the same union the write path
+        computes for itself.
+
+        Narrowed back to the manifest's half, a setpoint the document binds and
+        the manifest does not partition as coupled would latch here while the
+        write path routed it: one address, two answers about whether the
+        physics serves it.
+        """
+        init = self._method(tree, "CohostRunner", "__init__")
+        wrapped = [
+            node
+            for node in ast.walk(init)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "SetpointRoutedModel"
+        ]
+
+        assert len(wrapped) == 1, "the model is wrapped exactly once"
+        routed = [
+            ast.unparse(keyword.value) for keyword in wrapped[0].keywords if keyword.arg == "routed"
+        ]
+        assert routed == ["routed"]
+        assigned = [
+            ast.unparse(node.value)
+            for node in ast.walk(init)
+            if isinstance(node, ast.Assign)
+            and [ast.unparse(target) for target in node.targets] == ["routed"]
+        ]
+        assert assigned == ["physics_setpoints | frozenset(bound)"]
 
     def test_pva_puts_are_routed_through_the_write_path(self, tree: ast.Module) -> None:
         """The stock handler would enqueue a bare model write for this one
