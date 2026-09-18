@@ -160,7 +160,7 @@ PROBE_BASE_ASSIGNMENT = re.compile(rf'{PROBE_BASE_VAR}="\$\{{{ALS_APG_BASE_URL_E
 # Guards against silent under-discovery: if probe steps are renamed or reshaped
 # so the finder stops matching them, the count check fails loudly instead of
 # passing over an empty list. Raise this when probe lanes are added.
-EXPECTED_MIN_ALS_APG_PROBES = 8
+EXPECTED_MIN_ALS_APG_PROBES = 10
 
 CONFTEST = Path(__file__).resolve().parents[1] / "conftest.py"
 PARALLEL_FLAGS = ("-n 4", "--dist loadgroup")
@@ -7092,7 +7092,7 @@ def test_full_chain_auth_lane_outbudgets_the_single_build_lanes__mutation_back_t
 # Model-spending lanes: `full-ci` on a pull request, on demand on main
 # ---------------------------------------------------------------------------
 #
-# Eight jobs drive real Claude sessions through the gateway. Measured on its
+# Nine jobs drive real Claude sessions through the gateway. Measured on its
 # ledger for the week of 2026-09-01, the set cost about $15 per run and ran on
 # every push of every same-repo PR (~150 a week, on pace for $10k a month).
 # The fix is WHEN, not WHAT: each of these lanes runs on a labeled PR or on
@@ -7107,6 +7107,7 @@ SPENDING_LANES = frozenset(
         "agentic-per-preset",
         "e2e-tests",
         "dispatch-deploy-e2e",
+        "single-user-narrowing-e2e",
         "dispatch-overlay-e2e",
         "scan-agentic-e2e",
         "nextcloud-talk-bridge-e2e",
