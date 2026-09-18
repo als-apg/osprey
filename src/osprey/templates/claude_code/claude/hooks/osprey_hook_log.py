@@ -451,10 +451,12 @@ AUDIT_DIR_RELPATH = "var/audit"
 #: marker: nothing else writes these files.
 AUDIT_SURFACE_PREFIX = "hook_"
 
-#: The identity ladder, mirroring ``osprey.utils.identity``: the multi-user
-#: deployment's per-container user, then the identity of a container that hosts
-#: no single user, then the local account, then an honest floor. Never the
-#: hostname — see that module for why.
+#: The identity ladder, restated from ``osprey_connectors.identity``: the
+#: multi-user deployment's per-container user, then the identity of a container
+#: that hosts no single user, then the local account, then an honest floor.
+#: Never the hostname — see that module for why. Restated rather than imported
+#: because a hook runs outside the osprey venv; the two are held together by
+#: ``tests/connectors/test_identity_ladder.py``.
 TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
 AUDIT_IDENTITY_ENV = "OSPREY_AUDIT_IDENTITY"
 IDENTITY_ENV_LADDER = (TERMINAL_USER_ENV, AUDIT_IDENTITY_ENV)
@@ -551,7 +553,7 @@ def _audit_component(value):
 
 
 def acting_identity():
-    """Who a record names — the ladder of ``osprey.utils.identity``, restated.
+    """Who a record names — the ladder of ``osprey_connectors.identity``, restated.
 
     The answer is used twice, as the record's ``actor`` and as the
     ``var/audit/<identity>/`` directory, so a rung only counts when its value
