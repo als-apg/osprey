@@ -121,6 +121,7 @@ __all__ = [
     "launch_posture_stamp",
     "parse_launch_posture",
     "parse_posture_value",
+    "record_permits",
     "recorded_posture",
     "stamped_agent_data_root",
     "state_dir",
@@ -451,7 +452,24 @@ def store_permits(target: str | None) -> bool:
     # narrow refuses without touching the disk.
     if not launch_permits(target):
         return False
-    # No resolvable target: the most restrictive narrowing wins.
+    return record_permits(target)
+
+
+def record_permits(target: str | None) -> bool:
+    """The record clause of rule 3 alone, without the launch pin.
+
+    :func:`store_permits` is the pin ANDed with this, and is what a caller
+    deciding a write asks. This one is for a caller that already knows the pin
+    refused and still has to say whether the record refuses too — a refusal
+    that named the pin alone would have an operator re-run a script into a
+    narrowing nobody mentioned. It opens the record, which the pin's own
+    refusal does not, so it is asked exactly where that read is unspent.
+
+    Args:
+        target: The control target the write lands on, or ``None`` when the
+            caller cannot name one — in which case the most restrictive
+            narrowing in the record decides.
+    """
     return _permits(recorded_posture(), target)
 
 
