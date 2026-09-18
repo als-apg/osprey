@@ -429,6 +429,16 @@ config:
   # archiver.doocs_archiver.avg_window: 20
   # archiver.doocs_archiver.timeout: 60
 
+  # MYA, read over the myquery HTTP service: every key is optional, because the
+  # client library carries its own server and protocol. A deployment inside the
+  # facility's network needs only `archiver.type: mya_archiver`, plus
+  # `jlab-archiver-client` in its top-level `dependencies:`.
+  # archiver.mya_archiver.myquery_server: your-myquery.example.com
+  # archiver.mya_archiver.protocol: https
+  # archiver.mya_archiver.deployment: ops
+  # archiver.mya_archiver.timeout: 60
+  # archiver.mya_archiver.timezone: America/New_York
+
   # ── Scan plans (Bluesky) ───────────────────────────────────────────────────
   # Both servers are off by default in OSPREY. Turn them on so the agent can
   # write and launch plans, and run read-only health checks.
