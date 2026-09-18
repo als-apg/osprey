@@ -1,6 +1,8 @@
 {
   "name": "Storage ring demo machine",
   "description": "Demo machine model for the control-assistant preset: 12-sector vacuum system, DCCT beam-current monitor, and a two-cavity RF system with klystrons. Drives the mock control-system connector and mock archiver via the simulation engine.",
+  "standin_bpm_errors": "BPM03:offset_x=1.5e-4,offset_y=-1.0e-4;BPM21:offset_x=-2.0e-4;BPM45:offset_y=1.2e-4;BPM63:offset_x=1.0e-4,offset_y=1.8e-4",
+  "standin_bpm_errors_description": "Readout offsets, in metres, that tell a live_standin instance of this machine apart from the machine itself: four beam-position monitors spread around the 72-monitor ring, mixed signs, some single-axis. Offsets only, so a reading is exactly x - offset and the archiver seed can reproduce the same systematic error additively. Magnitudes of 100-200 um sit inside the IOC parse bounds and well clear of the 30 um wander these channels carry, so a comparison of the two instances shows the offset rather than the weather.",
   "channels": {
     "SR:VAC:GAUGE:SR01:PRESSURE:RB": {
       "value": 5e-08,
