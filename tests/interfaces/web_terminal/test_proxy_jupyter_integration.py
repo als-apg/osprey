@@ -92,17 +92,17 @@ def notebook_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     The redirections at the end are what keep this module's own records out of
     the repository, and both have to be made HERE rather than left to the
-    directory-wide autouse fixtures that already do the same job for every
-    other app test. Those are function-scoped, and pytest sets a module-scoped
+    suite-wide autouse fixture that already does the same job for every other
+    app test. That one is function-scoped, and pytest sets a module-scoped
     fixture up before any function-scoped one: ``proxied`` enters the app's
     lifespan, and ``started_session`` posts a session through it, while
-    ``conftest._isolate_audit_zone`` has not run yet. Unredirected in that
-    window the app files ``http_mutation`` and ``web_auth`` lines under
+    ``tests/conftest.py::_isolate_audit_zone`` has not run yet. Unredirected in
+    that window the app files ``http_mutation`` and ``web_auth`` lines under
     ``var/audit/`` in the checkout.
 
-    ``writer.audit_dir`` is the ledger's single seam, the same one the
-    directory's autouse fixture uses — pointed at this module's own tmp root
-    here, and re-pointed at each test's ``tmp_path`` there.
+    ``writer.audit_dir`` is the ledger's single seam, the same one that
+    suite-wide fixture uses — pointed at this module's own tmp root here, and
+    re-pointed at each test's ``tmp_path`` there.
 
     The agent-data stamp is set for the SIDECAR, which is a real subprocess:
     a monkeypatched resolver does not cross that boundary, and the sidecar is

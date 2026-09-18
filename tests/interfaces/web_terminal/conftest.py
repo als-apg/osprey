@@ -25,21 +25,19 @@ tests, and starting it buys nothing but a 30-second window of foreign events.
 Opt back in with ``@pytest.mark.real_workspace_watcher`` when a test genuinely
 needs live file watching through the app factory.
 
-The second autouse fixture here redirects the **audit zone** into ``tmp_path``
-for every test in this directory. Any test that drives ``create_app`` files
-real records — ``HttpAuditMiddleware`` records one ``http_mutation`` line per
-state-changing request — and those would land in the developer's or the
-runner's own ``var/audit/<identity>/`` ledger, indistinguishable from records
-of things that really happened. Sibling modules each did this by hand; doing it
-here means a new app test cannot reintroduce the leak by forgetting to.
+The **audit zone** every test here records into is redirected by
+``tests/conftest.py::_isolate_audit_zone``, suite-wide rather than per
+directory. Any test that drives ``create_app`` files real records —
+``HttpAuditMiddleware`` records one ``http_mutation`` line per state-changing
+request — and those would otherwise land in the developer's or the runner's own
+``var/audit/<identity>/`` ledger, indistinguishable from records of things that
+really happened.
 
-The third autouse fixture keeps the panel-register route's deploy-host check
-off the real machine, and resets that check's TTL cache between tests. It is
-the same class of leak-guard as the other two — machine state reaching into a
-test that never asked for it — and it lived, byte-identical, in four sibling
-modules before it was moved here. Its target constant is exported as
-``HOST_ADDRS_TARGET`` for the tests that patch the helper again from the
-inside to exercise the check itself.
+The second autouse fixture here keeps the panel-register route's deploy-host
+check off the real machine, and resets that check's TTL cache between tests. It
+is the same class of leak-guard — machine state reaching into a test that never
+asked for it. Its target constant is exported as ``HOST_ADDRS_TARGET`` for the
+tests that patch the helper again from the inside to exercise the check itself.
 """
 
 from __future__ import annotations
@@ -50,7 +48,6 @@ from unittest.mock import patch
 
 import pytest
 
-from osprey.audit import writer
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster
 
 
@@ -98,28 +95,6 @@ def stub_workspace_watcher(request):
         StubWorkspaceWatcher,
     ) as stub:
         yield stub
-
-
-@pytest.fixture(autouse=True)
-def _isolate_audit_zone(tmp_path, monkeypatch):
-    """Keep every record these tests fire out of the live ledger.
-
-    ``writer.audit_dir`` is the ledger's one seam: every writer path — the
-    HTTP middleware, the protected-set funnel, the hook emitters — resolves the
-    zone through it, so redirecting it here is enough to contain a whole app
-    test. Returned so a test that wants to *read* what it filed can, without
-    knowing where the zone was put.
-
-    Autouse and unconditional: the modules that need it are exactly the ones
-    whose authors would not think to ask for it, and a test that fires no
-    recorder pays nothing for having the seam redirected. Named privately so it
-    cannot be shadowed by the ``audit_zone`` fixture several modules here
-    define for themselves — those still win, because an explicitly requested
-    fixture is set up after the autouse one and re-points the same seam.
-    """
-    zone = tmp_path / "audit-zone" / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
 
 
 #: Patch target for the panel-register route's own-address probe. Exported so a
