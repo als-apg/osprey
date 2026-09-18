@@ -16,9 +16,14 @@ Path contract
 -------------
 Restated from the writer's docstring, in stdlib terms::
 
-    <agent_data_root>/control_target/control_context.json
-    <agent_data_root>/control_target/server_<server_pid>.json
+    <state_dir>/control_context.json
+    <state_dir>/server_<server_pid>.json
 
+* ``state_dir`` resolves by ONE ladder, the same one the writer and the
+  connector-side reader use: ``OSPREY_CONTROL_CONTEXT_DIR`` when it names a
+  non-blank path — the directory a container has bound for its own state,
+  already per-identity — else
+  ``<agent_data_root>/control_target/<acting_identity()>``;
 * ``agent_data_root`` resolves by ONE rule, the same one the writer and the
   connector-side reader use: the ``OSPREY_AGENT_DATA_ROOT`` stamp when it names
   a non-blank path, else ``<repo_root>/var/agent_data``;
@@ -30,14 +35,18 @@ Restated from the writer's docstring, in stdlib terms::
   baseline fallback, which is the documented fail-closed outcome rather than a
   wrong target — and :func:`posture_unknown` turns that same silence into a
   refusal for every process the stamp did not reach;
-* ONE record for the whole deployment, and one report per controls server,
-  discovered by the glob ``server_*.json``.
+* ``acting_identity()`` restates the ladder :mod:`osprey_connectors.identity`
+  owns, for the reason every constant here is restated. A hook that resolved a
+  different identity from the writer would read a narrowing somebody else
+  published, or read none where one applies;
+* ONE record per identity, and one report per controls server, discovered by
+  the glob ``server_*.json``.
 
 There is no per-session record and no ancestor walk. The target, its generation
-and the operator's narrowings are properties of the DEPLOYMENT: two Claude Code
-sessions sharing a checkout read one file and get one answer, and a hook that
-tried to tell them apart would be inventing a distinction the writer does not
-make.
+and the narrowings are properties of the deployment as ONE identity holds it:
+two Claude Code sessions sharing a checkout and an identity read one file and
+get one answer, and a hook that tried to tell those two apart would be
+inventing a distinction the writer does not make.
 
 Record contract
 ---------------
@@ -199,9 +208,18 @@ try:
 except Exception:  # pragma: no cover - hooks must never crash the agent
     _AGENT_DATA_BASE_DIR = "var/agent_data"
 
-#: Fixed subdirectory of the agent-data root. Mirrors ``STATE_DIR_NAME`` on the
-#: writer; part of the greppable path contract.
+#: Fixed subdirectory of the agent-data root, holding one directory per
+#: identity. Mirrors ``STATE_DIR_NAME`` on the writer; part of the greppable
+#: path contract.
 STATE_DIR_NAME = "control_target"
+
+#: The container's own state directory, bound in by compose. Top rung of the
+#: path contract and already the per-identity directory, so neither fixed hop
+#: is appended to it. Mirrors ``posture_store.CONTROL_CONTEXT_DIR_ENV_VAR``;
+#: read by NAME for the reason every other marker here is, and never confused
+#: with ``OSPREY_CONTROL_CONTEXT_TREE``, which names every identity's
+#: directory and therefore none of them.
+CONTROL_CONTEXT_DIR_ENV_VAR = "OSPREY_CONTROL_CONTEXT_DIR"
 
 #: The record's filename, mirroring ``control_context.RECORD_FILENAME``.
 RECORD_FILENAME = "control_context.json"
@@ -276,6 +294,24 @@ WRITES_ENABLED_LEAF = "writes_enabled"
 #: one string. Its absence is half of :func:`posture_unknown`.
 AGENT_DATA_ROOT_ENV_VAR = "OSPREY_AGENT_DATA_ROOT"
 
+#: The identity ladder, restated from ``osprey_connectors.identity`` — the
+#: multi-user deployment's per-container user, then the identity of a container
+#: that hosts no single user, then the local account, then an honest floor.
+#: Never the hostname; see that module for why, and for why
+#: ``OSPREY_AUDIT_IDENTITY`` may never join a scrub list. Restated rather than
+#: imported for the reason every other constant here is: a hook runs outside the
+#: osprey venv, where neither package exists. ``osprey_hook_log`` carries the
+#: same four names for the audit directory; the three copies are one contract
+#: and must answer alike on every environment they are asked about.
+TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
+AUDIT_IDENTITY_ENV = "OSPREY_AUDIT_IDENTITY"
+IDENTITY_ENV_LADDER = (TERMINAL_USER_ENV, AUDIT_IDENTITY_ENV)
+UNKNOWN_IDENTITY = "unknown"
+
+# What disqualifies a value from being the one path component an identity is.
+_PATH_SEPARATORS = ("/", "\\", "\0")
+_RESERVED_NAMES = (".", "..")
+
 #: This session's audit id. It indexes nothing any more — the posture it used to
 #: key is the deployment's — and it is read only by the write-approval stamp,
 #: which records WHO approved beside what was approved.
@@ -298,9 +334,12 @@ VALID_POSTURES = (POSTURE_SANDBOX, POSTURE_WRITES)
 
 __all__ = [
     "AGENT_DATA_ROOT_ENV_VAR",
+    "AUDIT_IDENTITY_ENV",
+    "CONTROL_CONTEXT_DIR_ENV_VAR",
     "CONTROL_TARGETS",
     "EXECUTION_MODE_ENV_VAR",
     "FALLBACK_BASELINE",
+    "IDENTITY_ENV_LADDER",
     "LIVE_STANDIN_TYPE",
     "MOCK_TYPE",
     "POSTURE_SANDBOX",
@@ -320,9 +359,12 @@ __all__ = [
     "TARGET_LIVE",
     "TARGET_STANDIN",
     "TARGET_VA",
+    "TERMINAL_USER_ENV",
+    "UNKNOWN_IDENTITY",
     "VALID_POSTURES",
     "VIRTUAL_ACCELERATOR_TYPE",
     "WRITES_ENABLED_LEAF",
+    "acting_identity",
     "agent_data_root",
     "baseline_result",
     "effective_writes_for",
@@ -380,6 +422,58 @@ def is_baseline(result):
     return bool(result.get("fallback"))
 
 
+# -- identity --------------------------------------------------------------
+
+
+def _usable(value):
+    """Return *value* stripped if it can serve as an identity, else ``""``.
+
+    An identity is used as a name and as one directory component, so a rung
+    only counts when its value works as both. Blank is the unset case spelled
+    differently — a rendered-but-empty ``environment:`` entry. A separator or a
+    relative name is refused because the same string becomes a directory under
+    the state root, where ``../elsewhere`` would read another identity's
+    narrowing. The refusal stays narrow on purpose: a stricter allowlist would
+    turn a real account name into :data:`UNKNOWN_IDENTITY`.
+    """
+    if not isinstance(value, str):
+        return ""
+    candidate = value.strip()
+    if not candidate or candidate in _RESERVED_NAMES:
+        return ""
+    if any(separator in candidate for separator in _PATH_SEPARATORS):
+        return ""
+    return candidate
+
+
+def acting_identity():
+    """Who this process is, per :data:`IDENTITY_ENV_LADDER` and then the account.
+
+    The same answer the record's writer resolved when it chose which directory
+    to write into: a hook that resolved a different one would read a narrowing
+    somebody else's session published, or read none where one applies.
+
+    Reads the environment on every call, because the markers are set per
+    process by compose and by the entrypoint. Never raises:
+    :func:`getpass.getuser` fails for a uid with no passwd entry, which is
+    ordinary in a slim image rather than exceptional, and every failure lands
+    on :data:`UNKNOWN_IDENTITY`. ``getpass`` is imported inside the try, the
+    same way ``osprey_hook_log`` imports it: the module-level imports are what
+    a hook pays on every tool call, and this rung is reached only by the
+    sessions no container marker names.
+    """
+    for env_name in IDENTITY_ENV_LADDER:
+        candidate = _usable(os.environ.get(env_name))
+        if candidate:
+            return candidate
+    try:
+        import getpass
+
+        return _usable(getpass.getuser()) or UNKNOWN_IDENTITY
+    except Exception:  # pragma: no cover - hooks must never crash the agent
+        return UNKNOWN_IDENTITY
+
+
 # -- paths -----------------------------------------------------------------
 
 
@@ -409,14 +503,30 @@ def agent_data_root(hook_input=None):
 
 
 def resolve_state_dir(hook_input=None):
-    """Directory holding the record, the server reports and the approval stamps.
+    """This identity's record, server reports and approval stamps live here.
+
+    The path contract's ladder: :data:`CONTROL_CONTEXT_DIR_ENV_VAR` when a
+    container carries the bind — nothing is appended to it, because a bind
+    target is already one identity's directory — else
+    :func:`acting_identity` under :data:`STATE_DIR_NAME` under
+    :func:`agent_data_root`.
+
+    Blank, whitespace-only and non-absolute values all name no bind, the same
+    rule the canonical reader applies: a bind is a path in the container's own
+    filesystem, so a relative one would resolve against whatever directory the
+    tool call happened to start in — a directory no writer creates. Expansion
+    is ``os.path.expanduser``, which unlike the ``pathlib`` method does not
+    raise for a ``~`` naming a user this container has no passwd entry for.
 
     ``None`` when the root is unresolvable. Not created here — a reader that
     created state directories would leave litter in every repo a hook ever ran
     in.
     """
+    bound = os.path.expanduser((os.environ.get(CONTROL_CONTEXT_DIR_ENV_VAR) or "").strip())
+    if bound and os.path.isabs(bound):
+        return bound
     root = agent_data_root(hook_input)
-    return None if root is None else os.path.join(root, STATE_DIR_NAME)
+    return None if root is None else os.path.join(root, STATE_DIR_NAME, acting_identity())
 
 
 def record_path(hook_input=None):

@@ -1,8 +1,8 @@
 """The web terminal's one way to change the control-context record.
 
-The record at ``<agent-data root>/control_target/control_context.json`` has a
-single writer — its owner — and when a web terminal is running, that owner is
-the web terminal. Three parts of the server need to change the record: the
+The record at ``<agent-data root>/control_target/<identity>/control_context.json``
+has a single writer — its owner — and when a web terminal is running, that owner
+is the web terminal. Three parts of the server need to change the record: the
 posture route, the target route, and the owner task that claims the record and
 consumes switch requests. All three go through :meth:`ControlContextOwner.mutate_record`,
 and this module exists so that there is exactly one implementation of what

@@ -1,8 +1,10 @@
 """The reconciler that brings this server into line with the control context.
 
 The control target, its generation and the write posture are one record per
-deployment — ``control_target/control_context.json`` — written only by whichever
-process owns it: the web terminal when there is one, else a controls server.
+identity — ``control_target/<identity>/control_context.json`` — written only by
+whichever process owns it: the web terminal when there is one, else a controls
+server. One file per identity is what keeps one operator's target and narrowing
+about that operator's own writes.
 This server is one reader of that record among many, and this task is what
 makes the record true of the connector this process holds.
 
