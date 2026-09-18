@@ -66,6 +66,7 @@ from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
+from osprey_connectors.posture_store import STATE_DIR_NAME
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -641,6 +642,59 @@ def _audit_mount_source(identity: str) -> str:
     return repo_relative_mount_source(f"{AUDIT_DIR_RELPATH}/{identity}")
 
 
+def _container_control_context_dir(container_agent_data_dir: str, identity: str) -> str:
+    """Where *identity*'s terminal writes its control-context record, INSIDE its container.
+
+    The mount target half of the control-context bind, and the value the
+    service's ``OSPREY_CONTROL_CONTEXT_DIR`` carries. Anchored on this
+    service's own ``container_agent_data_dir`` — already resolved by
+    :func:`_container_agent_data_dir` from ``agent_data.base_dir`` — because
+    ``<agent-data root>/<STATE_DIR_NAME>/<identity>`` is exactly where the
+    writer inside resolves its state directory. A target anchored anywhere else
+    points the mount and the writer at two different directories, and nothing
+    reports it: the chip flips, the record lands in the container's writable
+    layer, and every owned write in the deployment goes on as if nothing were
+    narrowed.
+
+    The ``control_target`` half is :data:`~osprey_connectors.posture_store.STATE_DIR_NAME`,
+    never a literal, for the reason that constant exists: a record the writer
+    puts in one directory and a reader looks for in another is a narrowing that
+    silently never applies.
+
+    PER IDENTITY, like the audit zone: a container is handed its own record
+    directory and nothing else under the tree, so another user's record is not
+    merely unreadable to it — it is not in its filesystem, to read or to
+    overwrite with a narrowing that user never made.
+    """
+    return (PurePosixPath(container_agent_data_dir) / STATE_DIR_NAME / identity).as_posix()
+
+
+def _control_context_mount_source(config: Any, identity: str) -> str:
+    """The HOST side of *identity*'s control-context bind, as compose reads it.
+
+    The same directory as :func:`_container_control_context_dir` names inside
+    the container, spelled for the host — ``./var/agent_data/control_target/<identity>``
+    for a stock project. Read from ``agent_data.base_dir`` through the shared
+    :func:`~osprey.utils.workspace.agent_data_base_dir` reader, because that key
+    is what the deploy path provisions the tree under at 2770
+    (``_ensure_agent_data_structure`` on build, ``deploy_up_web_terminals`` on
+    the way up). A literal ``var/agent_data`` here would bind a host directory
+    the deploy never creates, which the container runtime then creates
+    root-owned — so the dropped account inside can write nothing and the chip
+    fails closed on a deployment that changed nothing about control.
+
+    Spelled through the shared bind-source rule with no repo root to resolve
+    against, like every other source this module emits:
+    :func:`render_web_terminals` reads no filesystem. An ABSOLUTE ``base_dir``
+    is therefore left absolute, naming the same path on both sides of the bind
+    — the same distinction :func:`_container_agent_data_dir` makes, and the
+    reason this is derived in Python rather than by stripping the project
+    anchor off the container path in the template.
+    """
+    base = PurePosixPath(agent_data_base_dir(config))
+    return repo_relative_mount_source((base / STATE_DIR_NAME / identity).as_posix())
+
+
 def _launch_token_env_vars(
     config: Any,
     entry: dict[str, Any],
@@ -904,6 +958,10 @@ def render_web_terminals(
     for entry in resolved_users:
         user_ports = allocate_ports(base_ports, entry["index"])
         launch_token_env_vars = _launch_token_env_vars(root, entry, launch_token_personas)
+        # Bound once because two keys below are anchored on it — the volume's
+        # own mount target and the control-context directory nested inside it.
+        # Resolving it twice would let one anchor be changed without the other.
+        container_agent_data_dir = _container_agent_data_dir(root, entry["container_project_dir"])
         services.append(
             {
                 "user": entry["name"],
@@ -924,9 +982,7 @@ def render_web_terminals(
                 # writable layer — so every user's data is discarded the next
                 # time the container is recreated, with nothing to see at
                 # mount time or in any log.
-                "container_agent_data_dir": _container_agent_data_dir(
-                    root, entry["container_project_dir"]
-                ),
+                "container_agent_data_dir": container_agent_data_dir,
                 "extra_mounts": entry["extra_mounts"],
                 # This user's audit identity, and the two ends of the bind that
                 # gives it somewhere to write. All three are derived from the
@@ -940,6 +996,18 @@ def render_web_terminals(
                 "audit_mount_source": _audit_mount_source(entry["name"]),
                 "container_audit_dir": _container_audit_dir(
                     entry["container_project_dir"], entry["name"]
+                ),
+                # The two ends of this user's control-context bind, derived here
+                # for the same reason the audit pair above is: they are one
+                # fact — the directory this terminal writes the record that
+                # says whether it has narrowed its writes to one machine — and
+                # the template consumes both finished, so the path it mounts
+                # and the path it names in OSPREY_CONTROL_CONTEXT_DIR cannot be
+                # spelled apart. Both from the SAME roster name, so the record
+                # a container writes is the one the readers look up for it.
+                "control_context_mount_source": _control_context_mount_source(root, entry["name"]),
+                "container_control_context_dir": _container_control_context_dir(
+                    container_agent_data_dir, entry["name"]
                 ),
                 # Optional per-user window/tab title -> OSPREY_WEB_APP_NAME. None
                 # (the common case: resolve_personas omits the key unless a

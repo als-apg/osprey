@@ -788,17 +788,17 @@ def personas_declaring_bluesky_panel(
     return _personas_whose_config(config, project_root, config_declares_bluesky_panel, persona_root)
 
 
-def bluesky_panel_secret_env_vars(
+def _bluesky_panel_roster_grants(
     config: Any, project_root: Any, persona_root: Any = None
-) -> list[str]:
-    """The per-user secret variables the bluesky-web sidecar is handed.
+) -> list[tuple[str, str]]:
+    """The roster users the bluesky-web sidecar is handed a secret for.
 
-    One name per roster user whose terminal shows the BLUESKY tab — and so
-    proxies into the sidecar with the operator secret ITS container holds,
-    under the fixed ``OSPREY_TERMINAL_SECRET`` name. The sidecar's own compose
-    file (``services/bluesky_web``) lists each of these variables so its web
-    gate accepts every entitled user's secret beside the deployment-wide one,
-    and no user's container is ever handed the deployment secret.
+    The one entitlement walk behind every rendered form of the grant: the
+    variable list the sidecar's compose declares
+    (:func:`bluesky_panel_secret_env_vars`) and the owner map its gate names
+    people by (:func:`bluesky_panel_roster_owners`) are two views of this same
+    answer, so a user can never be handed a key under one and be a stranger
+    under the other.
 
     Entitlement is decided the way the web-terminal render decides every
     per-user grant: a user with a persona (their own, else
@@ -820,8 +820,8 @@ def bluesky_panel_secret_env_vars(
         resolve against it.
     :param persona_root: Where a build in flight has rendered its personas;
         see :func:`_persona_configs`.
-    :return: Variable names (``OSPREY_TERMINAL_SECRET_<SUFFIX>``), one per
-        entitled user; empty when no user shows the tab.
+    :return: ``(username, OSPREY_TERMINAL_SECRET_<SUFFIX>)`` pairs, one per
+        entitled user, in roster order; empty when no user shows the tab.
     """
     from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 
@@ -842,13 +842,67 @@ def bluesky_panel_secret_env_vars(
     entitled_personas = personas_declaring_bluesky_panel(config, project_root, persona_root)
     deploy_declares = config_declares_bluesky_panel(config)
 
-    names: list[str] = []
+    grants: list[tuple[str, str]] = []
     for entry in normalize_users(raw_users):
         persona = refs.get(entry["name"]) or default_persona
         entitled = persona in entitled_personas if persona else deploy_declares
         if entitled:
-            names.append(terminal_secret_var(entry["name"]))
-    return names
+            grants.append((entry["name"], terminal_secret_var(entry["name"])))
+    return grants
+
+
+def bluesky_panel_secret_env_vars(
+    config: Any, project_root: Any, persona_root: Any = None
+) -> list[str]:
+    """The per-user secret variables the bluesky-web sidecar is handed.
+
+    One name per roster user whose terminal shows the BLUESKY tab — and so
+    proxies into the sidecar with the operator secret ITS container holds,
+    under the fixed ``OSPREY_TERMINAL_SECRET`` name. The sidecar's own compose
+    file (``services/bluesky_web``) lists each of these variables so its web
+    gate accepts every entitled user's secret beside the deployment-wide one,
+    and no user's container is ever handed the deployment secret.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :param persona_root: Where a build in flight has rendered its personas;
+        see :func:`_persona_configs`.
+    :return: Variable names (``OSPREY_TERMINAL_SECRET_<SUFFIX>``), one per
+        entitled user; empty when no user shows the tab.
+    """
+    return [var for _, var in _bluesky_panel_roster_grants(config, project_root, persona_root)]
+
+
+def bluesky_panel_roster_owners(config: Any, project_root: Any, persona_root: Any = None) -> str:
+    """Whose secret each variable of the roster grant is.
+
+    Rendered beside the grant as ``OSPREY_TERMINAL_ROSTER_OWNERS`` — comma
+    separated ``SUFFIX=username`` pairs, in the grant's own order. The
+    sidecar's web gate admits any of the granted secrets, and names the
+    operator behind an admitted request by the one that matched; without this
+    map a match says only which slot the credential filled, not whose account
+    it is, and every panel action the deployment records would name nobody.
+
+    Each key is sliced off the variable name the grant itself emits rather
+    than derived from the username a second time, so a key here cannot name a
+    variable the sidecar was not handed. The render refuses a roster name that
+    is not a single ``[A-Za-z0-9][A-Za-z0-9._-]*`` component, which is what
+    makes ``,`` and ``=`` safe as this map's punctuation.
+
+    :param config: The parsed deploy config.
+    :param project_root: Deploy project root; relative ``project_path`` values
+        resolve against it.
+    :param persona_root: Where a build in flight has rendered its personas;
+        see :func:`_persona_configs`.
+    :return: ``"<SUFFIX>=<username>,..."``; empty when no user shows the tab.
+    """
+    from osprey.deployment.web_terminals.auth_credentials import TERMINAL_SECRET_VAR_PREFIX
+
+    return ",".join(
+        f"{var.removeprefix(TERMINAL_SECRET_VAR_PREFIX)}={name}"
+        for name, var in _bluesky_panel_roster_grants(config, project_root, persona_root)
+    )
 
 
 def personas_needing_ariel_password(config: Any, project_root: Any) -> set[str]:
