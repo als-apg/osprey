@@ -14,11 +14,14 @@
 #                 the control-room prompt instead of the CLI's own setup — and
 #                 so the render's permissions.allow list, which Claude Code
 #                 holds until the folder is trusted, applies from the start.
-#   3. Join       Give this image an /etc/group entry for the group that owns
+#   3. Join+probe Give this image an /etc/group entry for the group that owns
 #                 each bind-mounted directory the render named, and add
 #                 `osprey` to it — because `gosu` re-derives the dropped
 #                 process's supplementary groups from that file and discards
-#                 whatever the runtime granted the initial process.
+#                 whatever the runtime granted the initial process — then ask
+#                 each of those directories, as `osprey`, for the access the
+#                 render named it for. Membership is the mechanism; access is
+#                 the property, and the probe is what tells the two apart.
 #   4. Hand back  Return the state zone to the `osprey` user, because steps 1
 #                 and 2 wrote into it as root.
 #   5. Drop       Hand the container's real command to the unprivileged
@@ -348,35 +351,134 @@ join_mounted_group() {
         # something to skip — a failed join must not silence the next one.
         JOINED_GIDS="$JOINED_GIDS $_gid"
 
-        # Membership is the mechanism, not the goal: a 2700 directory, a
-        # read-only bind and an id-mapped mount all accept the usermod above
-        # and still refuse the write. Ask the question the audit trail
-        # actually depends on, as the user that will be asking it — `gosu` is
-        # already known present (main() dies without it) and re-reads
-        # /etc/group, so this sees the membership just granted. Fail-open like
-        # every other arm here: the container boots either way, but its log
-        # says which of the two it is rather than asserting a capability it
-        # never tested.
-        if gosu osprey test -w "$_dir" 2> /dev/null; then
-            log "joined osprey to group $_group (gid $_gid) for $_var=$_dir"
-        else
-            log "WARNING: osprey is in group $_group (gid $_gid) but still cannot write"
-            log "         $_var=$_dir. Check the directory's permission bits (it has to"
-            log "         be group-writable, 2770) and that the bind is not read-only;"
-            log "         records for this identity will be dropped, silently, because"
-            log "         the writer never raises."
-        fi
+        # What this line claims is exactly what happened — a membership, and
+        # nothing about access. Whether the directory can actually be read or
+        # written is a different question, asked once per VARIABLE by
+        # `probe_mounted_dir` below rather than once per gid here: the seen-gid
+        # return above skips every later directory sharing this gid, so a probe
+        # placed in this branch would never run for the second bind of a pair
+        # that shares one group — which is every deployment.
+        log "joined osprey to group $_group (gid $_gid) for $_var=$_dir"
     else
         log "WARNING: could not add osprey to group $_group (gid $_gid) for $_var;"
         log "         it will not be able to write $_dir after the privilege drop."
     fi
 }
 
+# ── access probe ────────────────────────────────────────────────────
+# Membership is the mechanism; access is the property the deployment actually
+# depends on, and the two are not the same thing — a 2700 directory, a
+# read-only bind and an id-mapped mount all accept the usermod above and still
+# refuse the access. So ask the real question, as the user that will be asking
+# it after the drop: `gosu` is already known present (main() dies without it)
+# and re-derives its groups from /etc/group, so it sees a membership granted a
+# moment ago.
+#
+# Deliberately OUTSIDE the join, and run for every variable the render names
+# whether that variable's join happened, was skipped or failed, because
+# membership answers neither half of the question:
+#
+#   * the join returns early for a gid it has already joined, and a pair of
+#     binds carved out of one host tree shares that tree's gid — a probe
+#     inside the join would never run for the second of them;
+#   * a directory can be reachable with no join at all (already owned by
+#     `osprey`, or world-readable), so a REFUSED join with a passing probe is
+#     not a failure and must not be reported as one.
+#
+# Fail-open like every other arm here: the container boots either way, but its
+# log says which of the two it is rather than asserting a capability it never
+# tested. Its own parameter names, because a future edit that moves a call
+# back inside the join must not silently clobber the join's `_var`/`_dir`.
+probe_mounted_dir() {
+    _probe_var=$1
+    _probe_dir=$2
+    # Defaulted, so that a call site passing too few arguments lands in the
+    # unknown-mode arm below rather than aborting the whole entrypoint under
+    # `set -u` — an omitted mode and a misspelled one are the same mistake and
+    # earn the same log line, not a container that never starts.
+    _probe_mode=${3:-}
+
+    # The two ordinary topologies the join skips, which it has already spoken
+    # for one line above: a variable this deployment does not set, and one
+    # naming a path this container does not have. Neither earns a second line.
+    [ -n "$_probe_dir" ] || return 0
+    [ -d "$_probe_dir" ] || return 0
+
+    case "$_probe_mode" in
+        read)
+            # Both bits, because either alone is useless: `-r` without `-x`
+            # lists a directory that cannot be descended, and `-x` without
+            # `-r` opens paths inside one whose names cannot be enumerated. A
+            # reader of a 2770 tree needs both, and gets neither without the
+            # group.
+            if gosu osprey test -r "$_probe_dir" 2> /dev/null \
+                && gosu osprey test -x "$_probe_dir" 2> /dev/null; then
+                return 0
+            fi
+            log "WARNING: osprey cannot read/traverse $_probe_var=$_probe_dir; every owned"
+            log "         write in this container will refuse control_context_unavailable."
+            log "         A remapped host ownership (Docker Desktop's file sharing does"
+            log "         this) is the usual cause, in either shape it reaches this"
+            log "         container: gid 0, refused above as the root group, or the"
+            log "         nobody/nogroup and 32-bit overflow gids, which pass that floor"
+            log "         and are refused by groupadd instead. Fix the host directory's"
+            log "         group and mode (2770) rather than granting this container more."
+            ;;
+        write)
+            # Both bits, for the same reason the read arm checks two: creating
+            # an entry in a directory needs `w` AND `x`, so a group-writable
+            # directory that cannot be entered passes `-w` and refuses every
+            # file the writers below this line create.
+            if gosu osprey test -w "$_probe_dir" 2> /dev/null \
+                && gosu osprey test -x "$_probe_dir" 2> /dev/null; then
+                return 0
+            fi
+            log "WARNING: osprey cannot write/enter $_probe_var=$_probe_dir. Check the"
+            log "         directory's permission bits (it has to be group-writable and"
+            log "         group-executable, 2770) and that the bind is not read-only;"
+            log "         writes to this path will fail after the privilege drop, and the"
+            log "         writers below this line degrade to a log line rather than"
+            log "         raising, so nothing else will say so. A"
+            log "         remapped host ownership (Docker Desktop's file sharing does"
+            log "         this) is one way a bind arrives unwritable: it reaches this"
+            log "         container as gid 0, refused above as the root group, or as the"
+            log "         nobody/nogroup and 32-bit overflow gids, which groupadd refuses."
+            ;;
+        *)
+            # Unreachable from the dispatcher below, whose modes are literals.
+            # Said out loud rather than silently skipped, because a probe that
+            # checks nothing is indistinguishable in the log from one that
+            # passed — which is the failure this whole helper exists to end.
+            log "WARNING: probe_mounted_dir asked for an unknown mode '$_probe_mode' on"
+            log "         $_probe_var=$_probe_dir; no access was checked."
+            ;;
+    esac
+
+    return 0
+}
+
+# Join, then probe, one variable at a time. The probe is not conditional on
+# the join: it decides by ACCESS, never by membership, which is what makes it
+# correct for the read-only tree (no write to check, and a write probe there
+# would report today's "records will be dropped" for a directory nothing in
+# this container writes) and for the second bind of a shared-gid pair.
 join_mounted_groups() {
     JOINED_GIDS=''
+
     join_mounted_group OSPREY_AUDIT_DIR "${OSPREY_AUDIT_DIR:-}"
+    probe_mounted_dir OSPREY_AUDIT_DIR "${OSPREY_AUDIT_DIR:-}" write
+
+    join_mounted_group OSPREY_CONTROL_CONTEXT_DIR "${OSPREY_CONTROL_CONTEXT_DIR:-}"
+    probe_mounted_dir OSPREY_CONTROL_CONTEXT_DIR "${OSPREY_CONTROL_CONTEXT_DIR:-}" write
+
+    join_mounted_group OSPREY_CONTROL_CONTEXT_TREE "${OSPREY_CONTROL_CONTEXT_TREE:-}"
+    probe_mounted_dir OSPREY_CONTROL_CONTEXT_TREE "${OSPREY_CONTROL_CONTEXT_TREE:-}" read
+
     join_mounted_group OSPREY_FACILITY_BUNDLE_DIR "${OSPREY_FACILITY_BUNDLE_DIR:-}"
+    probe_mounted_dir OSPREY_FACILITY_BUNDLE_DIR "${OSPREY_FACILITY_BUNDLE_DIR:-}" write
+
     join_mounted_group OSPREY_ARIEL_MIRROR_DIR "${OSPREY_ARIEL_MIRROR_DIR:-}"
+    probe_mounted_dir OSPREY_ARIEL_MIRROR_DIR "${OSPREY_ARIEL_MIRROR_DIR:-}" write
 }
 
 # ── state-zone hand-back ─────────────────────────────────────────────────────
@@ -402,30 +504,60 @@ join_mounted_groups() {
 # deliberate foreign ownership there is a choice, not damage. `find ! -user
 # osprey` narrows it to what root left behind — with the caveat that it
 # matches ALL foreign ownership, so any other deliberately foreign-owned path
-# under var/ needs a prune of its own, exactly as the audit subdir has one.
-# Fails open like the maintenance steps —
+# under var/ needs a prune of its own, exactly as the group-shared binds below
+# have one. Fails open like the maintenance steps —
 # a container that will not start is worse than one whose audit log needs a
 # manual chown.
 #
-# ONE deliberate exception, pruned by name: the BIND-MOUNTED AUDIT SUBDIR that
-# OSPREY_AUDIT_DIR points at (`var/audit/<identity>/`, the operator's host
-# directory, setgid 2770). It is excluded because the dropped process reaches
-# it through GROUP MEMBERSHIP — the join above — and never through ownership,
-# so there is nothing to hand back. Chowning it would rewrite a host directory
-# the operator owns on every start, break host-side `osprey reset
-# --purge-audit`, and blur the one property that makes the trail legible: root
-# and `osprey` never share ownership of a file in the audit zone, so the uid on
-# a record is evidence of who wrote it. The prune covers the subdir's contents
-# too, which is the point — root's `maintenance` records stay root's.
+# THREE deliberate exceptions, pruned by name — every bind whose contents the
+# dropped process reaches through GROUP MEMBERSHIP (the join above) and never
+# through ownership, so there is nothing to hand back:
+#
+#   * OSPREY_AUDIT_DIR            `var/audit/<identity>/`: the operator's host
+#                                 directory for this container's records.
+#   * OSPREY_CONTROL_CONTEXT_DIR  `var/agent_data/control_target/<owner>/`: the
+#                                 one owner directory this container writes.
+#   * OSPREY_CONTROL_CONTEXT_TREE the whole control-target tree, bound
+#                                 READ-ONLY for the lane and dispatch readers.
+#                                 A deployment binds it outside var/, so the
+#                                 sweep does not reach it — but a chown across
+#                                 a read-only bind fails with EROFS, and a
+#                                 warning on every single start is not the way
+#                                 to discover that one bound it under var/.
+#
+# Chowning any of them rewrites a host directory the operator owns and drops
+# the setgid group that the whole shared-group design rests on; the next
+# `osprey up` re-provisions the group, and the two trade the directory forever.
+# For the audit subdir it also breaks host-side `osprey reset --purge-audit`
+# and blurs the one property that makes the trail legible: root and `osprey`
+# never share ownership of a file in the audit zone, so the uid on a record is
+# evidence of who wrote it. Each prune covers its directory's contents too,
+# which is the point — root's `maintenance` records stay root's.
+#
+# The facility bundle and the ARIEL mirror are group-shared in exactly the same
+# way and are deliberately absent: neither lives under var/, so a prune for
+# them would match nothing while reading like a working exclusion.
 hand_back_state_zone() {
     [ -d "$STATE_DIR" ] || return 0
 
     # Positional parameters are function-local in POSIX sh, so this builds the
     # optional prune expression without touching main()'s "$@" (the command).
+    # One clause per bind, and its own `_hb_` parameter name for the reason
+    # `probe_mounted_dir` has its own: nothing here may quietly depend on what
+    # the join above left in a shared variable.
     set --
-    if [ -n "${OSPREY_AUDIT_DIR:-}" ] && [ -d "${OSPREY_AUDIT_DIR:-}" ]; then
-        set -- -path "$OSPREY_AUDIT_DIR" -prune -o
-    fi
+    for _hb_dir in "${OSPREY_AUDIT_DIR:-}" "${OSPREY_CONTROL_CONTEXT_DIR:-}" \
+        "${OSPREY_CONTROL_CONTEXT_TREE:-}"; do
+        # Unset is an ordinary topology — a dispatch worker writes no owner
+        # directory, a bare `docker run` mounts none of the three. A name that
+        # points at a path this container does not have is the misconfigured
+        # shape, and it gets no clause either: `-path` is an fnmatch PATTERN,
+        # so a prune built from a missing path is dead weight in the predicate
+        # that reads exactly like a working exclusion.
+        [ -n "$_hb_dir" ] || continue
+        [ -d "$_hb_dir" ] || continue
+        set -- "$@" -path "$_hb_dir" -prune -o
+    done
 
     find "$STATE_DIR" "$@" ! -user osprey -exec chown osprey:osprey {} + 2> /dev/null \
         || log "WARNING: could not hand $STATE_DIR back to the osprey user; the app may be unable to write it"

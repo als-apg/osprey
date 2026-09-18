@@ -125,6 +125,23 @@ LIMITS_MOUNT: dict[str, str] = {
     "target": "/app/project/data/channel_limits.json",
 }
 
+#: The finished control-context TREE mount ``_inject_project_metadata`` computes
+#: for a project on the default agent-data root. Unlike the limits mount above,
+#: both keys reach EVERY render — the tree follows ``agent_data.base_dir``, which
+#: every project has — so a context that omitted them would pin a render no
+#: deploy can produce. The container half is taken from the generator's own
+#: constant rather than restated: what this module pins is that the lane mounts
+#: the tree read-only at the path the generator names, not which path that is.
+CONTROL_TREE_SOURCE = "./var/agent_data/control_target"
+
+
+def _control_tree_target() -> str:
+    """The container path the generator mounts the tree at."""
+    from osprey.deployment.compose_generator import _CONTAINER_CONTROL_TREE_DIR
+
+    return _CONTAINER_CONTROL_TREE_DIR
+
+
 #: The one staged device document, and the bind that carries it. The source is
 #: literal (the staging step owns the basename), which is what makes the
 #: two-lane claim below checkable: both lanes render this same string.
@@ -185,6 +202,11 @@ def _context(
         # `<key> | default(osprey_ports.<slot>, true)`, so a context without it
         # is not a render any deploy produces.
         "osprey_ports": layout_ports(DEFAULT_PORT_BASE),
+        # Both halves of the control-context tree, injected unconditionally
+        # because the generator injects them unconditionally: the template, not
+        # the context, decides which lane mounts the tree.
+        "osprey_control_tree_mount_source": CONTROL_TREE_SOURCE,
+        "osprey_container_control_tree_dir": _control_tree_target(),
     }
     if any(posture.values()):
         context["limits_mount"] = LIMITS_MOUNT
@@ -1534,6 +1556,150 @@ def test_a_single_lane_sidecar_render_carries_no_second_lane_names() -> None:
     assert list(service["depends_on"]) == ["bluesky-bridge"]
     for name in service["environment"]:
         assert not name.startswith(("BLUESKY_VA_", "BLUESKY_LIVE_"))
+
+
+# ---------------------------------------------------------------------------
+# The read-only control-context tree
+# ---------------------------------------------------------------------------
+# The per-put reference monitor runs in the queueserver, so that is the lane
+# container that has to see whether the identity behind an owned write has
+# narrowed itself to another machine. It reads the host's whole
+# `control_target/` tree through a read-only bind; the bridge, which executes
+# nothing, reads none of it.
+
+
+def _tree_bind(doc: dict[str, Any], service: str) -> list[str]:
+    """Every volume entry of *service* that carries the control tree."""
+    target = _control_tree_target()
+    return [v for v in doc["services"][service].get("volumes", []) if target in v]
+
+
+def test_a_writes_enabled_lane_binds_the_control_tree_read_only() -> None:
+    """The mount and the variable that arms it are one decision.
+
+    A bind with no variable is a directory nothing reads; a variable with no
+    bind names a path that does not exist inside the container and fails the
+    entrypoint's read probe on every start. The queueserver must carry both.
+    """
+    doc = _render(
+        _context(
+            lanes={"bluesky": _lane_block(BLUESKY_PORT)},
+            deployed_services=["bluesky"],
+            writes_enabled=True,
+        )
+    )
+    target = _control_tree_target()
+    queueserver = doc["services"]["queueserver"]
+
+    assert _tree_bind(doc, "queueserver") == [f"{CONTROL_TREE_SOURCE}:{target}:ro"]
+    assert queueserver["environment"]["OSPREY_CONTROL_CONTEXT_TREE"] == target
+
+
+def test_the_control_tree_is_mounted_whole_and_never_writable() -> None:
+    """Two properties the mount would be wrong without.
+
+    WHOLE: the owner of a queue item arrives with the request, so a mount
+    narrowed to one identity's subdirectory — the shape the audit binds take —
+    would answer for nobody. READ-ONLY: the record belongs to the terminal that
+    wrote it, and a writable tree would let a queued plan rewrite the narrowing
+    that judges it.
+    """
+    doc = _render(
+        _context(
+            lanes={"bluesky": _lane_block(BLUESKY_PORT)},
+            deployed_services=["bluesky"],
+            writes_enabled=True,
+        )
+    )
+    (bind,) = _tree_bind(doc, "queueserver")
+    source, _, mode = bind.rsplit(":", 2)
+
+    assert mode == "ro"
+    assert source == CONTROL_TREE_SOURCE, (
+        "the bind must carry the tree root itself, not one identity's subdirectory"
+    )
+
+
+def test_the_control_tree_lands_outside_the_container_state_zone() -> None:
+    """`hand_back_state_zone` chowns `var/` to the container account on every
+    start, and a chown across a read-only bind fails with EROFS and warns every
+    time. The target therefore lives outside every project root the entrypoint
+    walks — which is a property of the path itself, so it holds in an image
+    whose entrypoint predates the prune list."""
+    target = _control_tree_target()
+
+    assert target.startswith("/")
+    assert not target.startswith("/app"), "the state zone lives under /app/<project>/var"
+    assert "/var/" not in f"{target}/"
+
+
+def test_the_bridge_reads_no_control_tree() -> None:
+    """The bridge is a facade over the manager: it executes no plan and judges
+    no write, so a tree there would be an unread bind widening what a
+    network-reachable container can see."""
+    doc = _render(
+        _context(
+            lanes={"bluesky": _lane_block(BLUESKY_PORT)},
+            deployed_services=["bluesky"],
+            writes_enabled=True,
+        )
+    )
+    bridge = doc["services"]["bluesky-bridge"]
+
+    assert _tree_bind(doc, "bluesky-bridge") == []
+    assert "OSPREY_CONTROL_CONTEXT_TREE" not in bridge["environment"]
+
+
+def test_a_read_only_lane_renders_no_control_tree_at_all() -> None:
+    """Writes refused at the lane's ceiling never reach an owner, so there is
+    nothing for a record to narrow — the same gate the limits DB is behind."""
+    text = _render_text(
+        _context(
+            lanes={"bluesky": _lane_block(BLUESKY_PORT)},
+            deployed_services=["bluesky"],
+        )
+    )
+
+    assert "OSPREY_CONTROL_CONTEXT_TREE" not in text
+    assert _control_tree_target() not in text
+
+
+def test_an_external_worker_lane_renders_no_control_tree() -> None:
+    """A facility-run RE Manager is outside this deployment: it runs no OSPREY
+    RunEngine, so no container here judges its writes and this lane renders no
+    queueserver to mount the tree into."""
+    lane = dict(_lane_block(BLUESKY_PORT))
+    lane["external"] = {"zmq_control_addr": "tcp://facility:60615"}
+    text = _render_text(
+        _context(
+            lanes={"bluesky": lane},
+            deployed_services=["bluesky"],
+            writes_enabled=True,
+        )
+    )
+
+    assert "queueserver" not in yaml.safe_load(text)["services"]
+    assert "OSPREY_CONTROL_CONTEXT_TREE" not in text
+    assert _control_tree_target() not in text
+
+
+def test_the_second_lane_reads_the_same_one_tree() -> None:
+    """The tree is the HOST's record of who narrowed themselves, not a per-lane
+    resource: one operator pointing their terminal elsewhere must be visible to
+    every manager that could run their plan."""
+    doc = _render(
+        _context(
+            lanes={
+                "bluesky": _lane_block(BLUESKY_PORT, target="live"),
+                "bluesky_va": _lane_block(SECOND_LANE_PORT, target="va"),
+            },
+            deployed_services=["bluesky", "bluesky_va"],
+            writes_enabled=True,
+        )
+    )
+
+    assert _tree_bind(doc, "queueserver") == _tree_bind(doc, "bluesky-va-queueserver")
+    assert _tree_bind(doc, "queueserver") != []
 
 
 def _regenerate() -> None:

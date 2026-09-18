@@ -165,6 +165,16 @@ services:
 {%- for var in bluesky_panel_secret_env_vars %}
       {{ var }}: ${{ "{" }}{{ var }}:-}
 {%- endfor %}
+      # WHOSE each of those secrets is, as `<SUFFIX>=<username>` pairs. The
+      # gate admits any of them and names the operator behind the request by
+      # the one that matched, so every queue action the panel relays carries
+      # the account that asked for it rather than the sidecar's own name. A
+      # variable alone cannot answer that: it survives compose interpolation
+      # as a value, not as a name. Not a secret and no interpolation — the
+      # usernames are already in the rendered roster — and resolved from the
+      # same entitlement walk as the grant above, so the two can name
+      # different people only if this file is hand-edited.
+      OSPREY_TERMINAL_ROSTER_OWNERS: "{{ bluesky_panel_roster_owners }}"
 {%- endif %}
       # Marks the container shape for web_auth: an empty secret then refuses
       # startup naming the variable, instead of minting a value that is
