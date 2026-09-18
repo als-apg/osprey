@@ -287,11 +287,11 @@ class TestTheRowsThatNameADeployment:
         self, resolvers: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The single-user case, where the process account is the person."""
-        pin_account(monkeypatch, "thellert")
+        pin_account(monkeypatch, "carol")
         set_rung(monkeypatch, ladder.TERMINAL_USER_ENV, None)
         set_rung(monkeypatch, ladder.AUDIT_IDENTITY_ENV, None)
 
-        assert answers(resolvers) == dict.fromkeys(resolvers, "thellert")
+        assert answers(resolvers) == dict.fromkeys(resolvers, "carol")
 
     def test_a_scrubbed_sandbox_child_still_names_the_person(
         self, resolvers: dict, monkeypatch: pytest.MonkeyPatch
