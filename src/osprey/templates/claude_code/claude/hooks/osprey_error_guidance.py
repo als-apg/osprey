@@ -173,6 +173,10 @@ ERROR_CLASS_MAP = {
     # An interrupted plan is back at the head of the queue; a human decides
     # whether to remove it (approval-gated), never the agent by retrying.
     "interrupted_item_in_queue": "Safety",
+    # The queue moved between the approval prompt and the start call; the
+    # approved list no longer matches what would run. Never retry quoting
+    # the same uid — re-read the queue and get a fresh approval.
+    "queue_changed_since_approval": "Safety",
     # ---- Internal: an OSPREY-side fault an operator has to fix — missing
     # config, missing dependency, a bridge or gallery that answered with an
     # error of its own. Report verbatim; name the service from the envelope.

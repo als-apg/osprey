@@ -46,9 +46,12 @@ import http.server
 import json
 import socket
 import threading
+import time
 from contextlib import contextmanager
 
 import pytest
+
+from tests._control_context_fixtures import pin_identity, state_dir_under
 
 SCAN_HOOK_CONFIG = {
     "server_prefixes": ["mcp__bluesky__"],
@@ -1040,6 +1043,209 @@ def test_queue_start_item_preview_skips_the_fetch_once_the_shared_budget_is_spen
     ]
 
 
+# ---------------------------------------------------------------------------
+# The hook budget: what `--budget` buys the pre-flight, counted from hook entry
+# ---------------------------------------------------------------------------
+# The harness kills this hook a fixed number of seconds after it launches it,
+# and the rendered command now states that number (`--budget N`) so the hook
+# and the harness cannot disagree about it. The pre-flight spends what is left
+# of it after the prompt's own overhead, measured from the instant the process
+# entered — a deadline started at the first preview would already be a lie by
+# the length of the `GET /queue` snapshot taken before it.
+#
+# These tests drive a FAKE clock rather than a slow server: the property under
+# test is arithmetic over `time.monotonic`, and proving it against real delays
+# would cost the suite the very seconds the budget exists to bound.
+
+_BUDGETED_PREVIEW = {
+    "ok": True,
+    "plan": "orm",
+    "channels": _TRAJECTORY_CHANNELS,
+    "moves": _moves(3),
+    "total_moves": 3,
+    "truncated": False,
+    "move_cap": 10000,
+    "reason": None,
+    "detail": None,
+}
+
+
+class _FakeClock:
+    """A `time` stand-in whose `monotonic()` moves only when a test moves it.
+
+    Everything the hook reads off `time` other than `monotonic` is delegated to
+    the real module, so patching this in place of `mod.time` changes the
+    passage of time and nothing else.
+    """
+
+    def __init__(self, start: float = 10_000.0):
+        self.start = float(start)
+        self.now = float(start)
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += float(seconds)
+
+    @property
+    def elapsed(self) -> float:
+        return self.now - self.start
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+def _budgeted_hook(monkeypatch, mod, hook_budget_s: float):
+    """Put *mod* in the state a hook launched with `--budget hook_budget_s` is in.
+
+    Returns the clock, parked at hook entry. A test advances it to spend time
+    the way the real prompt does — three seconds for the queue snapshot, then
+    whatever each preview costs.
+    """
+    clock = _FakeClock()
+    monkeypatch.setattr(mod, "time", clock)
+    monkeypatch.setattr(mod, "_HOOK_ENTERED_AT", clock.now)
+    monkeypatch.setattr(mod, "_PREVIEW_BUDGET_S", mod._preview_budget(hook_budget_s))
+    # `/plans` is fetched once after the loop, for the agent-authored warning;
+    # it is not part of the pre-flight budget and costs this clock nothing.
+    monkeypatch.setattr(mod, "_bridge_get_json", lambda *args, **kwargs: [])
+    return clock
+
+
+def _preview_taking(clock, delay_s: float, attempted: list | None = None):
+    """A `_bridge_post_json` that takes *delay_s* to answer, or times out trying.
+
+    A fetch given less time than it needs burns exactly the time it was given
+    and answers `None` — which is what `urlopen` does to a slow endpoint, and
+    the only behaviour the budget arithmetic depends on.
+    """
+
+    def post(base_url, path, body, timeout):
+        if attempted is not None:
+            attempted.append((path, timeout))
+        clock.advance(min(delay_s, timeout))
+        return _BUDGETED_PREVIEW if delay_s <= timeout else None
+
+    return post
+
+
+@pytest.mark.unit
+def test_missing_budget_flag_leaves_the_pre_flight_the_harness_default(hook_module):
+    """A render that predates `--budget` passes none, and the hook must assume
+    the harness default (5 s) rather than the 20 s a flagged render buys — a
+    pre-flight that outran the harness would be killed mid-render, costing the
+    approver the whole prompt rather than one trajectory."""
+    mod = hook_module("osprey_approval")
+
+    assert mod._parse_hook_budget([]) == 5.0
+    assert mod._preview_budget(mod._parse_hook_budget([])) == 2.0
+
+
+@pytest.mark.unit
+def test_budget_flag_is_read_in_both_spellings_and_capped_by_the_ceiling(hook_module):
+    """The flag the arming rules render (`--budget 30`) reaches the pre-flight,
+    in either spelling, and the approver's own patience still caps it: 30 s of
+    harness budget buys the 20 s ceiling, not 27."""
+    mod = hook_module("osprey_approval")
+
+    assert mod._parse_hook_budget(["--budget", "30"]) == 30.0
+    assert mod._parse_hook_budget(["--budget=30"]) == 30.0
+    assert mod._preview_budget(30.0) == 20.0
+    # Below the ceiling the harness budget binds instead, minus the overhead.
+    assert mod._preview_budget(12.0) == 9.0
+
+
+@pytest.mark.unit
+def test_malformed_budget_flag_falls_back_instead_of_failing_the_prompt(hook_module):
+    """A render bug in the flag must cost nobody their approval prompt: a value
+    that is not a positive number is read as the harness default."""
+    mod = hook_module("osprey_approval")
+
+    assert mod._parse_hook_budget(["--budget", "soon"]) == 5.0
+    assert mod._parse_hook_budget(["--budget", "-4"]) == 5.0
+    assert mod._parse_hook_budget(["--budget"]) == 5.0
+
+
+@pytest.mark.unit
+def test_slow_preview_still_renders_within_the_budget_the_flag_bought(hook_module, monkeypatch):
+    """The point of the flag: a pre-flight that takes 12 s — well past the 5 s a
+    flagless render allows — renders its trajectory in full under `--budget 30`,
+    with nothing degraded."""
+    mod = hook_module("osprey_approval")
+    clock = _budgeted_hook(monkeypatch, mod, 30.0)
+    monkeypatch.setattr(mod, "_bridge_post_json", _preview_taking(clock, 12.0))
+    clock.advance(3.0)  # the GET /queue snapshot, at its own ceiling
+
+    lines = mod._queue_item_lines({"items": [{"name": "orm", "kwargs": {}}]}, "http://bridge")
+
+    assert "    Setpoint trajectory — 3 moves in total:" in lines
+    assert "    Channels this launch would move: SR:C01:COR:SP, SR:C02:COR:SP" in lines
+    assert mod._BUDGET_SPENT_TRAJECTORY_LINE not in lines
+    assert clock.elapsed == 15.0
+
+
+@pytest.mark.unit
+def test_second_slow_preview_is_cut_by_the_budget_the_first_one_spent(hook_module, monkeypatch):
+    """The budget is shared, not per item: two 12 s previews do not cost the
+    approver 24 s. The first renders; the second is cut at the deadline and
+    says so, and the prompt still names both items."""
+    mod = hook_module("osprey_approval")
+    clock = _budgeted_hook(monkeypatch, mod, 30.0)
+    attempted: list[tuple[str, float]] = []
+    monkeypatch.setattr(mod, "_bridge_post_json", _preview_taking(clock, 12.0, attempted))
+    clock.advance(3.0)
+
+    lines = mod._queue_item_lines(
+        {"items": [{"name": "orm", "kwargs": {}}, {"name": "orm2", "kwargs": {}}]},
+        "http://bridge",
+    )
+
+    assert "  1. orm" in lines
+    assert "  2. orm2" in lines
+    assert "    Setpoint trajectory — 3 moves in total:" in lines
+    assert lines.count(mod._BUDGET_SPENT_TRAJECTORY_LINE) == 1
+    # The second fetch was tried, with only the remainder of the budget.
+    assert [timeout for _, timeout in attempted] == [17.0, 5.0]
+    assert clock.elapsed == 20.0
+
+
+@pytest.mark.unit
+def test_preview_far_past_the_budget_degrades_and_leaves_the_harness_room(hook_module, monkeypatch):
+    """A pre-flight that would take 40 s is cut at the deadline, renders the
+    budget-spent line, and hands the prompt back with time to spare: under
+    `--budget 30` the whole hook is done inside 27 s, which is the harness's
+    30 s less the snapshot the pre-flight budget already reserved."""
+    mod = hook_module("osprey_approval")
+    clock = _budgeted_hook(monkeypatch, mod, 30.0)
+    monkeypatch.setattr(mod, "_bridge_post_json", _preview_taking(clock, 40.0))
+    clock.advance(3.0)
+
+    lines = mod._queue_item_lines({"items": [{"name": "orm", "kwargs": {}}]}, "http://bridge")
+
+    assert mod._BUDGET_SPENT_TRAJECTORY_LINE in lines
+    assert "Setpoint trajectory — 3 moves in total:" not in "\n".join(lines)
+    assert clock.elapsed < 27.0
+
+
+@pytest.mark.unit
+def test_budget_deadline_counts_the_time_spent_before_the_first_preview(hook_module, monkeypatch):
+    """The deadline runs from hook entry, so time already gone — the queue
+    snapshot, a slow config read — is time the pre-flight no longer has. A
+    prompt that reached the items with its whole budget already elapsed fetches
+    nothing at all."""
+    mod = hook_module("osprey_approval")
+    clock = _budgeted_hook(monkeypatch, mod, 30.0)
+    attempted: list[tuple[str, float]] = []
+    monkeypatch.setattr(mod, "_bridge_post_json", _preview_taking(clock, 1.0, attempted))
+    clock.advance(21.0)  # past the 20 s ceiling, before a single preview
+
+    lines = mod._queue_item_lines({"items": [{"name": "orm", "kwargs": {}}]}, "http://bridge")
+
+    assert mod._BUDGET_SPENT_TRAJECTORY_LINE in lines
+    assert attempted == []
+
+
 @pytest.mark.unit
 def test_bounded_move_lines_singular_at_exactly_one_hidden_move(hook_module):
     """Grammar pin: exactly one hidden move (11 total, 5 head + 5 tail) reads
@@ -1238,3 +1444,92 @@ def test_target_sanitizes_embedded_newlines(tmp_path, hook_runner, make_config, 
     assert "\\x0a" in reason
     assert not any(line.startswith("Hazard: read-only") for line in lines)
     assert "Hazard: read-only" in reason
+
+
+# ---------------------------------------------------------------------------
+# the queue-start stamp, end to end through the hook subprocess
+# ---------------------------------------------------------------------------
+#
+# The stamp's shape and its nulling rules are pinned at the helper level in
+# `test_write_approval_stamp.py`. What these two rows add is the part only a
+# real subprocess can show: the hook Claude Code actually runs resolves the
+# agent-data root from its own environment and leaves the file where the queue
+# tool — a different process again — will look for it.
+
+_STAMP_SESSION = "web-terminal-session-e2e"
+
+
+def _stamp_state_dir(tmp_path, monkeypatch):
+    """Put the hook subprocess on a throwaway agent-data root, as a session.
+
+    The identity is pinned as well as the root: it names the directory below
+    the root that the stamp lands in, and the hook child resolves it for
+    itself. Pinning it is what puts the assertion here and the write over there
+    on one directory whatever account the suite runs as.
+    """
+    root = tmp_path / "agent_data"
+    monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", _STAMP_SESSION)
+    pin_identity(monkeypatch)
+    return state_dir_under(root)
+
+
+def _queue_start_stamps(state_dir):
+    return [
+        json.loads(path.read_text(encoding="utf-8"))
+        for path in sorted(state_dir.glob("queue_start_approval_*.json"))
+    ]
+
+
+@pytest.mark.unit
+def test_the_rendered_start_prompt_leaves_its_queue_token_stamped_on_disk(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """The listing the approver saw and the token the tool will quote back come
+    from one `GET /queue`, so the start the human approves is the queue they
+    were shown."""
+    config = _queue_config(make_config)
+    state_dir = _stamp_state_dir(tmp_path, monkeypatch)
+    routes = {
+        "/queue": {
+            "status": {"manager_state": "idle", "items_in_queue": 1, "plan_queue_uid": "quid-7"},
+            "items": [{"item_uid": "u1", "name": "orm", "kwargs": {}}],
+            "running_item": None,
+        },
+        "/plans": [{"name": "orm", "provenance": "shipped"}],
+    }
+
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
+
+    assert "1. orm" in reason
+    stamps = _queue_start_stamps(state_dir)
+    assert len(stamps) == 1
+    assert stamps[0]["lane"] == "bluesky"
+    assert stamps[0]["plan_queue_uid"] == "quid-7"
+    assert isinstance(stamps[0]["ts"], float)
+
+
+@pytest.mark.unit
+def test_a_start_prompt_that_reached_no_bridge_nulls_the_stamped_queue_token(
+    tmp_path, hook_runner, hook_module, make_config, monkeypatch
+):
+    """Fail-open in the prompt is fail-closed in the binding: the prompt still
+    renders, and the token a previous prompt left behind is withdrawn rather
+    than inherited by a start nobody could show a queue for."""
+    config = _queue_config(make_config)
+    state_dir = _stamp_state_dir(tmp_path, monkeypatch)
+    state_dir.mkdir(parents=True)
+    slug = hook_module("osprey_approval").write_approval_session_slug(_STAMP_SESSION)
+    stamp = state_dir / f"queue_start_approval_{slug}_bluesky.json"
+    stamp.write_text(
+        json.dumps({"lane": "bluesky", "plan_queue_uid": "quid-old", "ts": 1.0}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{_unused_port()}")
+    reason = _reason(_run_queue_tool(hook_runner, config, tmp_path, "queue_start"))
+
+    assert "the bridge could not be reached" in reason
+    assert json.loads(stamp.read_text(encoding="utf-8"))["plan_queue_uid"] is None

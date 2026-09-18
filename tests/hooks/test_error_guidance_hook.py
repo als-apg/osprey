@@ -727,6 +727,7 @@ EXPECTED_ERROR_CLASSES = {
     "unsupported_connector": "Safety",
     "not_supported": "Safety",
     "interrupted_item_in_queue": "Safety",
+    "queue_changed_since_approval": "Safety",
     # Internal
     "internal_error": "Internal",
     "platform_error": "Internal",

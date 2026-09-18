@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse
-tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan
+tools: channel_write, control_target_set, channel_read, archiver_read, phoebus_drive, execute, execute_file, setup_patch, add_panel_to_rail, remove_panel_from_rail, register_panel, entry_create, entry_publish, draft_concept, queue_add, queue_start, queue_stop, queue_remove, stop_run, write_plan, validate_plan, manual_fire
 safety_layer: 2
 ---
 
@@ -132,6 +132,17 @@ try:
     import osprey_target_state as _target_state
 except Exception:  # pragma: no cover - older render without the reader
     _target_state = None
+
+#: When this hook process entered, as a `time.monotonic` instant.
+#:
+#: The harness kills the hook a fixed number of seconds after it launches it,
+#: and that clock starts here — not when the pre-flight fetches begin. Every
+#: second this prompt spends before the first preview (reading the config,
+#: taking the `GET /queue` snapshot) is a second the harness has already
+#: counted, so the pre-flight deadline is measured from THIS instant rather
+#: than from wherever the render happens to reach. Taken at import so it
+#: cannot drift behind whatever work a later caller does first.
+_HOOK_ENTERED_AT = time.monotonic()
 
 # Fallback write patterns: used when osprey is not importable (e.g., standalone hook).
 # Must stay in sync with get_framework_standard_patterns()["write"] (20 patterns).
@@ -684,16 +695,48 @@ def _stamp_binding(record):
         return None, None
 
 
-def _prune_write_approvals(directory) -> None:
-    """Drop stamps older than :data:`WRITE_APPROVAL_TTL_S`. Never raises."""
-    cutoff = time.time() - WRITE_APPROVAL_TTL_S
+def _approval_stamps_in(directory, prefix) -> list[str]:
+    """Every stamp file name under *prefix* in *directory*. Never raises.
+
+    The one place a stamp kind is enumerated, so the prune pass and the
+    queue-start null pass cannot come to disagree about which files are theirs.
+    An unreadable directory is an empty list: a stamp nobody can see is a stamp
+    nobody compares against, which is the safe half of this contract.
+    """
     try:
         names = os.listdir(directory)
     except OSError:
-        return
-    for name in names:
-        if not (name.startswith(WRITE_APPROVAL_PREFIX) and name.endswith(WRITE_APPROVAL_SUFFIX)):
-            continue
+        return []
+    return [
+        name for name in names if name.startswith(prefix) and name.endswith(WRITE_APPROVAL_SUFFIX)
+    ]
+
+
+def _write_stamp(path, payload) -> None:
+    """Put *payload* at *path* atomically.
+
+    Another process reads these the moment they land, so one lands whole: a
+    reader sees the stamp that was there before or this one, never half of
+    either. Raises on an unwritable disk, which every caller swallows into "no
+    stamp" — the one failure mode that costs a comparison rather than making a
+    wrong one.
+    """
+    tmp = f"{path}.tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle)
+    os.replace(tmp, path)
+
+
+def _prune_approval_stamps(directory, prefix) -> None:
+    """Drop *prefix* stamps older than :data:`WRITE_APPROVAL_TTL_S`. Never raises.
+
+    Parameterised by prefix because the two stamp kinds share this directory and
+    this TTL: a queue-start stamp expires for the same reason a write-approval
+    stamp does — a human who has not clicked within the hour is no longer
+    deciding about the state that was rendered to them.
+    """
+    cutoff = time.time() - WRITE_APPROVAL_TTL_S
+    for name in _approval_stamps_in(directory, prefix):
         path = os.path.join(directory, name)
         try:
             if os.path.getmtime(path) < cutoff:
@@ -739,7 +782,7 @@ def _stamp_write_approval(hook_input, record) -> None:
         if not directory:
             return
         os.makedirs(directory, exist_ok=True)
-        _prune_write_approvals(directory)
+        _prune_approval_stamps(directory, WRITE_APPROVAL_PREFIX)
 
         target, generation = _stamp_binding(record)
         session = _target_state.session_key()
@@ -752,10 +795,7 @@ def _stamp_write_approval(hook_input, record) -> None:
             "session": session,
             "rendered_at": time.time(),
         }
-        tmp = f"{path}.tmp"
-        with open(tmp, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle)
-        os.replace(tmp, path)
+        _write_stamp(path, payload)
     except Exception:
         return
 
@@ -973,11 +1013,67 @@ _TRAJECTORY_EDGE_MOVES = 5
 # the approver can read — rather than as this client giving up with none.
 _PREVIEW_TIMEOUT_S = 15.0
 
+# The harness budget to assume when the hook is invoked without `--budget`.
+# A render that predates the flag gives this hook the harness default, and a
+# pre-flight that outlived it would not degrade the prompt — it would be killed
+# mid-render and produce no prompt at all. Five is what such a render allows.
+_DEFAULT_HOOK_BUDGET_S = 5.0
+
+# What the pre-flight leaves to the rest of the prompt out of the hook's
+# budget. The `GET /queue` snapshot alone is allowed 3 s (`_bridge_get_json`'s
+# default) and it is taken before any preview, so a pre-flight that claimed the
+# whole budget would be claiming time the snapshot has already spent.
+_PROMPT_OVERHEAD_S = 3.0
+
+# The most a pre-flight may ever cost an approver, however generous the
+# harness budget is. Past this the prompt is no longer worth waiting for.
+_PREVIEW_BUDGET_CEILING_S = 20.0
+
+
+def _preview_budget(hook_budget_s: float) -> float:
+    """The pre-flight budget a hook budget of *hook_budget_s* seconds affords.
+
+    Whichever binds first: the harness budget minus what the rest of the prompt
+    needs, or the ceiling an approver is willing to wait. The result can be
+    zero or negative — on a render that gives this hook no room for a
+    pre-flight, every trajectory degrades to the budget-spent line, which is
+    the honest outcome and still a rendered prompt.
+    """
+    return min(_PREVIEW_BUDGET_CEILING_S, hook_budget_s - _PROMPT_OVERHEAD_S)
+
+
+def _parse_hook_budget(argv) -> float:
+    """The `--budget N` seconds in *argv*, or the default when it is absent.
+
+    The flag is how the render tells this hook what the harness will allow it,
+    so that one number sets both the harness timeout and this prompt's
+    pre-flight budget. It is optional in both directions: a render that predates
+    it passes nothing, and a malformed or non-positive value is a render bug
+    that must not cost the approver their prompt — both fall back to the
+    harness default rather than raising.
+    """
+    for index, argument in enumerate(argv):
+        raw = None
+        if argument == "--budget" and index + 1 < len(argv):
+            raw = argv[index + 1]
+        elif argument.startswith("--budget="):
+            raw = argument.split("=", 1)[1]
+        if raw is None:
+            continue
+        try:
+            budget = float(raw)
+        except (TypeError, ValueError):
+            return _DEFAULT_HOOK_BUDGET_S
+        return budget if budget > 0 else _DEFAULT_HOOK_BUDGET_S
+    return _DEFAULT_HOOK_BUDGET_S
+
+
 # Every pre-flight fetch behind ONE prompt, together. `queue_start` previews
-# several items, so each fetch's timeout is clamped to what is left of this
-# budget: the approver waits at most this long for trajectories, whatever the
-# queue holds and however the bridge misbehaves.
-_PREVIEW_BUDGET_S = 20.0
+# several items, so each fetch's timeout is what is left of this budget: the
+# approver waits at most this long for trajectories, whatever the queue holds
+# and however the bridge misbehaves. `main()` re-derives it from `--budget`;
+# the value here is what a caller that never parsed an argv list gets.
+_PREVIEW_BUDGET_S = _PREVIEW_BUDGET_CEILING_S
 
 # How many of a start's pending items get a trajectory. A start drains the
 # whole queue, but previewing every item would cost one bridge round trip each;
@@ -1269,23 +1365,38 @@ def _queue_activity_lines(snapshot) -> list[str]:
     return lines
 
 
+#: What an approver is told in place of a trajectory the shared budget could
+#: not fund. One sentence for every way the deadline can cut a preview —
+#: skipped before the fetch, or cut off during it — because the two are the
+#: same fact to the person deciding: this prompt ran out of time, and that is
+#: not a reason to withhold approval.
+_BUDGET_SPENT_TRAJECTORY_LINE = (
+    "    Setpoint trajectory: unavailable — the pre-flight budget for this "
+    "prompt is spent. Approval is not blocked."
+)
+
+
 def _item_trajectory_lines(base_url: str, item: dict, deadline: float) -> list[str]:
     """One pending item's pre-flight block, indented under its own line.
 
     *deadline* is the whole prompt's pre-flight budget as a `time.monotonic`
-    instant, and each fetch is clamped to what is left of it — so a start's
+    instant, and each fetch gets exactly what is left of it — so a start's
     several previews cost the approver one bounded wait between them all, not
-    one wait per item.
+    one wait per item, and the last item cannot push the prompt past the
+    instant the harness would kill it.
+
+    A preview the deadline cut — skipped because nothing was left, or cut off
+    because the remaining budget ran out mid-fetch — renders the budget-spent
+    line. A preview that failed for any other reason (an unreachable bridge, a
+    refusal) keeps its own reason word: those name something the approver can
+    act on, where a spent budget names only this prompt's own impatience.
     """
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        return [
-            "    Setpoint trajectory: unavailable — the pre-flight budget for this "
-            "prompt is spent. Approval is not blocked."
-        ]
-    preview = _fetch_preview(
-        base_url, item.get("name"), item.get("kwargs"), min(_PREVIEW_TIMEOUT_S, remaining)
-    )
+        return [_BUDGET_SPENT_TRAJECTORY_LINE]
+    preview = _fetch_preview(base_url, item.get("name"), item.get("kwargs"), remaining)
+    if preview is None and time.monotonic() >= deadline:
+        return [_BUDGET_SPENT_TRAJECTORY_LINE]
     return [f"    {line}" for line in _preview_lines(preview)]
 
 
@@ -1300,7 +1411,9 @@ def _queue_item_lines(snapshot, base_url: str) -> list[str]:
     The items that run first also carry their pre-flight trajectory, capped at
     `_MAX_PREVIEWED_QUEUE_ITEMS` and sharing one time budget: the trajectories
     an approver can still act on, without making the prompt's cost grow with
-    the queue.
+    the queue. That budget is measured from hook entry, not from here, because
+    the harness's own clock is — everything spent reaching this point, the
+    `GET /queue` snapshot above all, is already gone from it.
     """
     items = snapshot.get("items") if snapshot else None
     items = [item for item in (items or []) if isinstance(item, dict)]
@@ -1315,7 +1428,7 @@ def _queue_item_lines(snapshot, base_url: str) -> list[str]:
         return lines
 
     lines.append(f"Pending items ({len(items)}), in execution order:")
-    deadline = time.monotonic() + _PREVIEW_BUDGET_S
+    deadline = _HOOK_ENTERED_AT + _PREVIEW_BUDGET_S
     for index, item in enumerate(items[:_MAX_LISTED_QUEUE_ITEMS], start=1):
         rendered = f"  {index}. {_sanitize_label(item.get('name'))}"
         kwargs = item.get("kwargs")
@@ -1794,6 +1907,156 @@ def _lane_start_lines(situation: dict, tool_input: dict) -> tuple[list[str], str
     return lines, requested
 
 
+#: Queue-start stamps live beside the write-approval stamps, under their own
+#: prefix. They bind a different thing — which queue was listed, not which
+#: target was named — and are read by a different tool, so neither kind's prune
+#: may sweep the other's files and neither kind's writer may rewrite them.
+QUEUE_START_APPROVAL_PREFIX = "queue_start_approval_"
+
+
+def _stamped_lane(lane) -> str:
+    """The lane id a start stamp is written under: lane 1 when none is named.
+
+    A single-lane deployment addresses nothing — its start carries no lane and
+    the tool starts the only lane there is — so both sides spell that case the
+    same way rather than inventing a second name for it.
+    """
+    return lane.strip() if isinstance(lane, str) and lane.strip() else _LANE_ONE
+
+
+def queue_start_approval_filename(session, lane) -> str:
+    """The file a start prompt rendered for *lane* under *session* is stamped in.
+
+    One file per (session, lane). A start is addressed to a lane, and two lanes
+    can be prompted in the SAME turn: Claude Code runs the hook for every tool
+    call of a parallel block before any of those tools run, so one file per
+    session would let the second prompt overwrite the first lane's token — and
+    that lane's start would then quote a token from a queue nobody showed its
+    approver.
+
+    The session component is the write stamps' slug, so the queue tool restates
+    one derivation rather than two. Lane ids come from the rendered config's own
+    vocabulary and are already file-name safe; the substitution is there so a
+    config that smuggles in something else names a strange file in this
+    directory instead of a file outside it.
+    """
+    slug = write_approval_session_slug(session)
+    lane_component = re.sub(r"[^A-Za-z0-9_.-]", "-", _stamped_lane(lane))
+    return f"{QUEUE_START_APPROVAL_PREFIX}{slug}_{lane_component}{WRITE_APPROVAL_SUFFIX}"
+
+
+def _plan_queue_uid(snapshot):
+    """The queue's own token as ``GET /queue`` reports it, or ``None``.
+
+    ``None`` for anything that is not a non-empty string — an older bridge that
+    reports no token, a malformed payload — and a stamp carrying ``None`` is one
+    the tool sends no token for. An unbound start is refused by nothing, which
+    is how every deployment behaved before this existed; a token invented here
+    would be refused by everything.
+    """
+    status = snapshot.get("status") if isinstance(snapshot, dict) else None
+    uid = status.get("plan_queue_uid") if isinstance(status, dict) else None
+    return uid if isinstance(uid, str) and uid else None
+
+
+def _stamp_queue_start(hook_input, lane, snapshot) -> None:
+    """Record the queue a start prompt listed, for the tool that will start it.
+
+    A start carries at most a lane id, so what a human approves is the queue
+    they were SHOWN — and any add, move or remove landing between the click and
+    the tool call replaces it. ``GET /queue`` answers the listing and the
+    queue's token in one read, so the token stamped here is the token OF the
+    list rendered above it: the tool quotes it back as
+    ``expected_plan_queue_uid`` and the bridge refuses a start whose queue has
+    moved since.
+
+    A session-less render stamps nothing. The write stamps' ``anon`` collision
+    is benign because that file's name is the write's own hash — every process
+    landing on it stamped the same write. A queue token is not: two
+    unattributed processes looking at two different queues would hand each
+    other bindings, and a start bound to a queue its approver never saw is the
+    one outcome this mechanism exists to prevent.
+
+    Never raises and never blocks the prompt: a stamp that cannot be written is
+    a start that sends no token, exactly as a deployment rendered before this
+    existed behaves.
+    """
+    try:
+        if _target_state is None:
+            return
+        session = _target_state.session_key()
+        if not session:
+            return
+        directory = _target_state.resolve_state_dir(hook_input)
+        if not directory:
+            return
+        os.makedirs(directory, exist_ok=True)
+        _prune_approval_stamps(directory, QUEUE_START_APPROVAL_PREFIX)
+        _write_stamp(
+            os.path.join(directory, queue_start_approval_filename(session, lane)),
+            {
+                "lane": _stamped_lane(lane),
+                "plan_queue_uid": _plan_queue_uid(snapshot),
+                "ts": time.time(),
+            },
+        )
+    except Exception:
+        return
+
+
+def _null_queue_start_stamps(hook_input) -> None:
+    """Withdraw every queue token this session has stamped. Never raises.
+
+    Called from each return that showed no queue. What the approver is being
+    shown right now is no queue at all, and a token from an earlier prompt would
+    otherwise outlive the render that replaced it — the tool would quote a queue
+    the human is no longer looking at.
+
+    Every lane of the session, not only the one being rendered: a prompt that
+    cannot say which lane it is addressing cannot say which lane's binding is
+    still good, and the two other no-queue returns leave the lane's own bridge
+    unread, which says nothing about the other lane either.
+
+    Nulled rather than deleted, so the file still says which lane it belongs to
+    and the tool's warning can name a file that exists. A null token and a
+    missing stamp mean the same thing to the tool: send nothing.
+
+    Scoped to this session by name prefix — another session's stamps describe a
+    queue this render never looked at.
+    """
+    try:
+        if _target_state is None:
+            return
+        session = _target_state.session_key()
+        if not session:
+            return
+        directory = _target_state.resolve_state_dir(hook_input)
+        if not directory:
+            return
+        prefix = f"{QUEUE_START_APPROVAL_PREFIX}{write_approval_session_slug(session)}_"
+        for name in _approval_stamps_in(directory, prefix):
+            path = os.path.join(directory, name)
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    existing = json.load(handle)
+            except (OSError, ValueError):
+                existing = None
+            lane = existing.get("lane") if isinstance(existing, dict) else None
+            try:
+                _write_stamp(
+                    path,
+                    {
+                        "lane": lane if isinstance(lane, str) and lane else None,
+                        "plan_queue_uid": None,
+                        "ts": time.time(),
+                    },
+                )
+            except OSError:
+                continue
+    except Exception:
+        return
+
+
 def _describe_queue_start(
     tool_input: dict, config: dict, hook_input=None, read_record=None
 ) -> list[str]:
@@ -1808,6 +2071,12 @@ def _describe_queue_start(
     the listing is fetched from that lane's bridge. Where no lane can be named —
     none given, one this deployment does not render — there is no queue to show
     that would be honest, and the block says why instead.
+
+    Whatever it renders, it also leaves the binding behind it: a listing stamps
+    the queue's token for the tool to quote back (:func:`_stamp_queue_start`),
+    and every return that shows no queue withdraws the session's tokens
+    (:func:`_null_queue_start_stamps`) so an earlier prompt's queue cannot be
+    the one a later start is bound to.
     """
     situation = _lane_situation(config, hook_input, read_record)
     lane_lines, lane_key = _lane_start_lines(situation, tool_input)
@@ -1822,11 +2091,13 @@ def _describe_queue_start(
             "would start, and listing the other lane's would describe a different "
             "machine."
         )
+        _null_queue_start_stamps(hook_input)
         return lines
 
     base_url = _lane_bridge_url(situation, lane_key, config)
     if base_url is None:
         lines.append(_unaddressable_lane_line(lane_key))
+        _null_queue_start_stamps(hook_input)
         return lines
     snapshot = _queue_snapshot(base_url)
     if snapshot is None:
@@ -1834,7 +2105,11 @@ def _describe_queue_start(
             "Queue contents: unavailable (the bridge could not be reached) — "
             "approving means starting a queue nobody here can see."
         )
+        _null_queue_start_stamps(hook_input)
         return lines
+    # A queue was listed, so there is something to bind the later start to: the
+    # token of THIS read, beside the listing it belongs to.
+    _stamp_queue_start(hook_input, lane_key, snapshot)
     lines.extend(_queue_item_lines(snapshot, base_url))
     return lines
 
@@ -2191,6 +2466,13 @@ def _call_write_posture(config, tool_name, short_name, tool_input, hook_input):
 
 
 def main():
+    # What the harness will allow this hook, straight from the rendered
+    # command. The render derives the `--budget` value and the harness timeout
+    # from one number, so the pre-flight can spend the time it actually has
+    # instead of a constant that may outlive the process holding it.
+    global _PREVIEW_BUDGET_S
+    _PREVIEW_BUDGET_S = _preview_budget(_parse_hook_budget(sys.argv[1:]))
+
     hook_input = get_hook_input()
     if not hook_input:
         sys.exit(0)
