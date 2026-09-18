@@ -629,7 +629,9 @@ def resolve_user_volume_names(config, user):
     return f"{project}_{user}-claude-config", f"{project}_{user}-agent-data"
 
 
-def repo_relative_mount_source(raw, repo_root=None):
+def repo_relative_mount_source(
+    raw: str | os.PathLike[str], repo_root: str | os.PathLike[str] | None = None
+) -> str:
     """Spell a configured host path as a compose bind source.
 
     The one spelling rule every renderer uses, shared so the base compose files
