@@ -1,43 +1,51 @@
-"""Consistency tests binding machine.json's lattice-channel population to the
-namespace-union manifest (task 4.6), after the one-facility calibration grew
-both to the full ALS-U Accumulator Ring inventory declared by
-``osprey.simulation.facility_spec.ALS_U_AR``.
+"""The bundled demo tree holds together: its manifest, its model and its
+scenario seed describe one accelerator.
 
-The manifest (built by
-``osprey.services.virtual_accelerator.manifest.build_manifest()``, and
-committed to disk as ``channel_manifest.json``) classifies every namespace
-address into partition (a) ``pyat-coupled`` (SR magnet CURRENT SP/RB + SR BPM
-POSITION X/Y -- backed by the AT lattice model), (b) ``sp-echo`` (writable but
-physics-free), and (c) ``static-noisy`` (everything else). ``machine.json`` is
-the scenario-seed data the simulation engine serves in mock mode; every
-pyat-coupled address must resolve to a real, calibrated entry there, or a
-mock read/write of that channel is a connection-refused fiction.
+The demo is a facility like any other -- one data tree, resolved through
+:class:`~osprey.services.virtual_accelerator.manifest.paths.ManifestPaths`,
+carrying everything the generator and the service read from it. This module
+reads it as such rather than by climbing to repo paths of its own, so a test
+here cannot be looking at a different set of files than the build is.
 
-This module also pins the manifest-file consistency invariant that ends the
-stale-manifest split-brain: the committed ``channel_manifest.json`` must
-always equal ``build_manifest()``'s live output, so a future lattice/spec
-change can't silently drift the two apart.
+Three things have to agree across that tree:
+
+* **The manifest and the tree it was generated from.** The committed
+  ``channel_manifest.json`` equals what ``build_manifest()`` produces from
+  this tree today. A manifest that has drifted from its sources serves a
+  namespace nothing else in the tree knows about.
+
+* **The manifest and the model.** The ``pyat-coupled`` partition is exactly
+  what the tree's ``va_bindings.json`` binds to elements of its
+  ``lattice.json`` -- the one rule for every tree, the demo included. Its
+  population is therefore derivable from the facility spec the demo's
+  generator works from, which is what the per-family counts here check: spec
+  to generator to bindings to manifest, end to end.
+
+* **The manifest and the scenario seed.** Every pyat-coupled address resolves
+  to a real, calibrated ``machine.json`` entry, because the engine serves
+  that file in mock mode and an address missing from it is a
+  connection-refused fiction rather than a channel.
 """
 
 from __future__ import annotations
 
 import json
-from collections import Counter
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Any
 
 import pytest
 
+from osprey.services.virtual_accelerator.bindings import load_bindings
 from osprey.services.virtual_accelerator.manifest import build_manifest
+from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT, PACKAGE_PATHS
 from osprey.simulation.facility_spec import ALS_U_AR
 from osprey.simulation.machine import parse_machine
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_PATH = REPO_ROOT / "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json"
-MACHINE_PATH = (
-    REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation/machine.json"
-)
+# The demo tree, and the files in it, named the way the build and the service
+# name them: one layout, written down once, rather than a second spelling of
+# it that can drift from the first without either side noticing.
+MANIFEST_PATH = MANIFEST_OUTPUT
+MACHINE_PATH = PACKAGE_PATHS.machine_json
 
 # machine.json's total channel count is a hand-calibrated fact of the
 # scenario-seed file -- unlike the pyat-coupled partition, it has no
@@ -49,7 +57,7 @@ EXPECTED_MACHINE_JSON_CHANNEL_COUNT = 1036
 
 @pytest.fixture(scope="module")
 def manifest() -> dict:
-    return build_manifest()
+    return build_manifest(PACKAGE_PATHS)
 
 
 @pytest.fixture(scope="module")
@@ -63,6 +71,38 @@ def pyat_coupled_channels(manifest_channels) -> list[dict]:
 
 
 @pytest.fixture(scope="module")
+def bindings():
+    """The tree's own bindings, which say which channels the model drives.
+
+    The manifest's coupled entries carry the pair-key shape -- their identity
+    keys are empty, because the document rather than a hierarchy path is what
+    says two addresses are one device's halves -- so a check that needs to know
+    which family or which device an address belongs to asks the document.
+    """
+    return load_bindings(PACKAGE_PATHS.va_bindings)
+
+
+@pytest.fixture(scope="module")
+def addresses_by_family(bindings) -> dict[str, list[str]]:
+    """Every address each family's bindings claim, setpoints and readbacks."""
+    claimed: dict[str, list[str]] = {}
+    for binding in bindings.bindings:
+        for address in (binding.setpoint_address, binding.readback_address):
+            if address is not None:
+                claimed.setdefault(binding.family, []).append(address)
+    return claimed
+
+
+@pytest.fixture(scope="module")
+def setpoints_by_family(bindings) -> dict[str, list[str]]:
+    """Every written address each family's bindings claim."""
+    claimed: dict[str, list[str]] = {}
+    for binding in bindings.bindings:
+        claimed.setdefault(binding.family, []).append(binding.setpoint_address)
+    return claimed
+
+
+@pytest.fixture(scope="module")
 def machine() -> dict:
     return json.loads(MACHINE_PATH.read_text())
 
@@ -72,11 +112,37 @@ def machine_channels(machine) -> dict:
     return machine["channels"]
 
 
+class TestTheDemoTreeCarriesItsOwnModel:
+    """The demo tree holds the lattice and bindings its manifest is built from.
+
+    Which channels are backed by physics is read off the bindings, so a tree
+    without them has no pyat-coupled partition at all -- not an empty one by
+    coincidence, but none by construction. Asking first means the rest of this
+    module reports what actually disagrees instead of every count in it
+    collapsing to zero at once.
+    """
+
+    def test_the_tree_carries_the_lattice_and_the_bindings(self):
+        missing = [
+            path
+            for path in (PACKAGE_PATHS.lattice_json, PACKAGE_PATHS.va_bindings)
+            if not path.is_file()
+        ]
+        assert not missing, (
+            "the demo tree does not carry the model its manifest is generated "
+            f"against: {[str(p) for p in missing]}. Everything downstream of the "
+            "bindings -- the pyat-coupled partition, its census, the physics the "
+            "service serves for it -- is absent until the tree does."
+        )
+
+
 class TestManifestFileConsistency:
-    """The committed channel_manifest.json must never drift from
-    build_manifest()'s live output -- this is the test that ends the
-    stale-manifest split-brain (the old test file pinned counts, 1228/280,
-    that had already gone stale against the grown lattice)."""
+    """The committed channel_manifest.json equals what this tree generates.
+
+    A manifest committed beside the sources it came from is a cache, and a
+    cache that has drifted is worse than none: the service serves the file,
+    every other check reads the sources, and the two describe different
+    namespaces without either side being obviously wrong."""
 
     def test_committed_manifest_equals_build_manifest_output(self, manifest):
         committed = json.loads(MANIFEST_PATH.read_text())
@@ -84,9 +150,14 @@ class TestManifestFileConsistency:
 
 
 class TestPyatCoupledCountMatchesSpec:
-    """The pyat-coupled partition size is fully derived from ALS_U_AR: every
-    magnet/corrector family contributes a CURRENT SP + RB pair per device,
-    and the BPM family contributes a POSITION X + Y pair per device."""
+    """The pyat-coupled partition is the spec's inventory, carried through.
+
+    The demo's bindings are generated from ``ALS_U_AR``, and the manifest's
+    pyat-coupled partition is generated from those bindings, so the spec's
+    device counts have to survive both steps: every magnet and corrector
+    family contributes a CURRENT SP + RB pair per device, and the monitor
+    family a POSITION X + Y pair per device. Counting them here is what makes
+    a device lost anywhere along that chain visible at the end of it."""
 
     def test_total_count_derived_from_facility_spec(self, pyat_coupled_channels):
         mag_and_corrector_devices = sum(
@@ -96,12 +167,15 @@ class TestPyatCoupledCountMatchesSpec:
         expected = mag_and_corrector_devices * 2 + bpm_devices * 2
         assert len(pyat_coupled_channels) == expected
 
-    def test_per_family_counts_match_spec_device_counts(self, pyat_coupled_channels):
-        by_family = Counter(c["family"] for c in pyat_coupled_channels)
+    def test_per_family_counts_match_spec_device_counts(
+        self, addresses_by_family, pyat_coupled_channels
+    ):
+        coupled = {c["address"] for c in pyat_coupled_channels}
         for fam in ALS_U_AR.families:
-            if fam.kind in ("magnet", "corrector"):
-                assert by_family[fam.name] == fam.count * 2, fam.name
-        assert by_family["BPM"] == ALS_U_AR.family("BPM").count * 2
+            claimed = addresses_by_family.get(fam.name, [])
+            assert len(claimed) == fam.count * 2, fam.name
+            assert set(claimed) <= coupled, fam.name
+        assert set(addresses_by_family) == {f.name for f in ALS_U_AR.families}
 
 
 class TestEveryPyatCoupledAddressHasAMachineJsonEntry:
@@ -120,10 +194,11 @@ class TestEveryPyatCoupledAddressHasAMachineJsonEntry:
 
 
 class TestBrBtsSpEchoAddressesStillCovered:
-    """The BR/BTS transport-line sp-echo channels (added by an earlier task,
-    untouched by this calibration) must remain present -- this file is the
-    manifest<->machine.json binding, so it's the right place to keep that
-    guarantee even though this task didn't touch that data."""
+    """The transport lines need scenario entries as much as the ring does.
+
+    Their channels are sp-echo rather than pyat-coupled -- writable, with no
+    physics behind them -- which is exactly why they are easy to lose: nothing
+    in the model refers to them, so only the seed says what they read."""
 
     def test_no_br_bts_sp_echo_address_missing_from_machine_json(
         self, manifest_channels, machine_channels
@@ -146,8 +221,10 @@ class TestMachineJsonChannelCount:
 
 
 class TestNoProvisionalMarkersRemain:
-    """The calibration's whole point was to replace provisional placeholder
-    values with genuine per-device anchors; this pins that it stuck."""
+    """Every entry is a real anchor, not a placeholder standing in for one.
+
+    A placeholder reads like data to every consumer of the seed, so the only
+    place it can be caught is here, where it is still spelled as one."""
 
     def test_zero_provisional_strings_in_machine_json(self):
         text = MACHINE_PATH.read_text()
@@ -158,58 +235,53 @@ class TestSrCorrectorsAreZeroed:
     """SR HCM/VCM CURRENT SP/RB were calibrated to a zeroed baseline (value
     0.0) with a physical current limit (min -12.0 A)."""
 
-    def test_sr_correctors_zeroed_with_current_limit(self, pyat_coupled_channels, machine_channels):
+    def test_sr_correctors_zeroed_with_current_limit(self, addresses_by_family, machine_channels):
         corrector_families = {f.name for f in ALS_U_AR.families if f.kind == "corrector"}
         correctors = [
-            c
-            for c in pyat_coupled_channels
-            if c["ring"] == "SR" and c["family"] in corrector_families and c["field"] == "CURRENT"
+            address
+            for family in sorted(corrector_families)
+            for address in addresses_by_family[family]
         ]
         expected_count = sum(ALS_U_AR.family(name).count for name in corrector_families) * 2
         assert len(correctors) == expected_count
-        for c in correctors:
-            entry = machine_channels[c["address"]]
-            assert entry["value"] == 0.0, c["address"]
-            assert entry["min"] == -12.0, c["address"]
+        for address in correctors:
+            entry = machine_channels[address]
+            assert entry["value"] == 0.0, address
+            assert entry["min"] == -12.0, address
 
 
 class TestSrBpmPositionsAreZeroed:
     """SR BPM POSITION X/Y were calibrated to an ideal (zeroed) closed orbit."""
 
     def test_sr_bpm_positions_zeroed_with_ideal_orbit_description(
-        self, pyat_coupled_channels, machine_channels
+        self, addresses_by_family, machine_channels
     ):
-        bpms = [c for c in pyat_coupled_channels if c["ring"] == "SR" and c["family"] == "BPM"]
+        bpms = addresses_by_family["BPM"]
         expected_count = ALS_U_AR.family("BPM").count * 2
         assert len(bpms) == expected_count
-        for c in bpms:
-            entry = machine_channels[c["address"]]
-            assert entry["value"] == 0.0, c["address"]
-            assert "ideal" in entry["description"].lower(), c["address"]
+        for address in bpms:
+            entry = machine_channels[address]
+            assert entry["value"] == 0.0, address
+            assert "ideal" in entry["description"].lower(), address
 
 
 class TestQfaShfShdCarryGenuineAnchors:
-    """QFA/SHF/SHD (families added by the one-facility spec growth) must be
-    present with genuine, nonzero per-device anchor values -- not a zeroed or
-    provisional placeholder."""
+    """The families whose anchors are genuinely nonzero carry real values.
+
+    A zeroed setpoint is indistinguishable from an uncalibrated one on any
+    family that is legitimately parked at zero, so the check is worth having
+    exactly on the families that are not."""
 
     @pytest.mark.parametrize("family_name", ["QFA", "SHF", "SHD"])
     def test_family_present_with_nonzero_current_setpoints(
-        self, family_name, pyat_coupled_channels, machine_channels
+        self, family_name, setpoints_by_family, machine_channels
     ):
         expected_count = ALS_U_AR.family(family_name).count
-        setpoints = [
-            c
-            for c in pyat_coupled_channels
-            if c["ring"] == "SR"
-            and c["family"] == family_name
-            and c["field"] == "CURRENT"
-            and c["subfield"] == "SP"
-        ]
+        setpoints = setpoints_by_family[family_name]
         assert len(setpoints) == expected_count
-        for c in setpoints:
-            entry = machine_channels[c["address"]]
-            assert entry["value"] != 0.0, c["address"]
+        for address in setpoints:
+            entry = machine_channels[address]
+            assert entry["value"] != 0.0, address
 
 
 @dataclass(frozen=True)

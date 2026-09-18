@@ -1,23 +1,26 @@
-"""Address partitioning and EPICS record-type derivation.
+"""The partition vocabulary, the setpoint vocabulary, and EPICS record types.
 
-Partitions every namespace address into exactly one of three physics-
-fidelity tiers the future IOC needs to treat differently:
+Every namespace address sits in exactly one of three physics-fidelity tiers,
+which the IOC serves differently:
 
-  pyat-coupled -- backed by the AT lattice model: the SR magnet currents that
-                  actually steer the beam, plus the SR BPM readbacks that
-                  observe it.
+  pyat-coupled -- backed by the lattice model: the setpoints a write actually
+                  steers the beam with, plus the monitors that observe it.
+                  These are the addresses the bindings document claims, and
+                  the bindings are the only thing that puts an address here.
   sp-echo      -- writable but physics-free: a write to the setpoint just
                   echoes onto the readback, with no lattice model behind it.
-                  Covers the BR/BTS transport-line magnets (upstream of/
-                  outside the storage-ring lattice) and the SR RF/vacuum
-                  setpoint+readback pairs (RF and vacuum are not part of the
-                  AT lattice model either).
   static-noisy -- everything else: golden references, status/fault flags,
                   and slow telemetry (temperatures, pressures, radiation
                   monitors) that just needs a plausible noisy constant.
 
-An address is assigned to `pyat-coupled` or `sp-echo` only when it clears an
-explicit rule below; everything else falls through to `static-noisy`.
+Which partition an address lands in is read off the facility's own bindings
+(see :mod:`~osprey.services.virtual_accelerator.bindings`) by
+:mod:`~osprey.services.virtual_accelerator.manifest.build`, never decided from
+the address text here: a rule keyed on a ring, system and family name would be
+one facility's naming convention masquerading as a physics fact. What this
+module still owns is the vocabulary those partitions are spelled in, the
+setpoint/readback subfields, and the record type an address is served as --
+all of which are the framework's own and the same for every facility.
 """
 
 from __future__ import annotations
@@ -25,17 +28,11 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from osprey.simulation.facility_spec import ALS_U_AR
-
-# Spec-derived: every magnet/corrector family declared by the facility spec
-# (excludes the BPM monitor family, which is gated separately below).
-MAG_FAMILIES = frozenset(f.name for f in ALS_U_AR.families if f.kind in ("magnet", "corrector"))
-
-# The hierarchy level names this classifier reads, and the identity keys the
-# manifest carries per channel. A hierarchical database declares its own level
-# names, and a facility whose tree is not levelled this way describes a
-# hierarchy no rule below can be evaluated against -- the caller compares the
-# declared names with these and classifies nothing rather than guessing.
+# The hierarchy level names a classified channel is described by, and the
+# identity keys the manifest carries per channel. A hierarchical database
+# declares its own level names, and a facility whose tree is not levelled this
+# way carries no path in these terms -- the caller compares the declared names
+# with these and records no path rather than guessing one.
 CLASSIFIER_LEVELS = ("ring", "system", "family", "device", "field", "subfield")
 
 PARTITION_PYAT_COUPLED = "pyat-coupled"
@@ -82,63 +79,6 @@ def pyat_coupled_setpoint_addresses(channels: Iterable[Mapping[str, Any]]) -> fr
         if channel["partition"] == PARTITION_PYAT_COUPLED
         and channel["subfield"] == SETPOINT_SUBFIELD
     )
-
-
-# SR RF/VAC fields that carry a real writable-setpoint + readback pair.
-# Pure telemetry fields in the same systems (POWER, TEMPERATURE, PRESSURE,
-# ION-PUMP CURRENT) have no setpoint counterpart and stay static-noisy.
-_SR_RF_VAC_SP_ECHO_FIELDS = frozenset({"VOLTAGE", "FREQUENCY", "TUNER"})
-
-
-def classify_partition(path: dict[str, str]) -> str:
-    """Classify one expanded channel's hierarchy path into a manifest partition.
-
-    Args:
-        path: Hierarchy path as produced by HierarchicalChannelDatabase,
-            mapping "ring"/"system"/"family"/"device"/"field"/"subfield" to
-            the selected value for this channel.
-
-    Returns:
-        One of PARTITION_PYAT_COUPLED, PARTITION_SP_ECHO, PARTITION_STATIC_NOISY.
-    """
-    ring, system, family, field, subfield = (
-        path["ring"],
-        path["system"],
-        path["family"],
-        path["field"],
-        path["subfield"],
-    )
-
-    if (
-        ring == "SR"
-        and system == "MAG"
-        and family in MAG_FAMILIES
-        and field == "CURRENT"
-        and subfield in ("SP", "RB")
-    ):
-        return PARTITION_PYAT_COUPLED
-
-    if (
-        ring == "SR"
-        and system == "DIAG"
-        and family == "BPM"
-        and field == "POSITION"
-        and subfield in ("X", "Y")
-    ):
-        return PARTITION_PYAT_COUPLED
-
-    if ring in ("BR", "BTS") and system == "MAG":
-        return PARTITION_SP_ECHO
-
-    if (
-        ring == "SR"
-        and system in ("RF", "VAC")
-        and field in _SR_RF_VAC_SP_ECHO_FIELDS
-        and subfield in ("SP", "RB")
-    ):
-        return PARTITION_SP_ECHO
-
-    return PARTITION_STATIC_NOISY
 
 
 # --- EPICS record type ---------------------------------------------------

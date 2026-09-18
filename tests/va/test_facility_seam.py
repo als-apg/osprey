@@ -47,9 +47,11 @@ Two halves, matching the seam's two promises:
 * **The tutorial machine is still reachable, by name.** There is no longer
   an unconfigured path to it: a boot that names no channel source is refused
   rather than served the framework's bundled demo namespace. The demo is a
-  committed manifest like any other, and asking for it -- the packaged file
-  plus ``VA_LATTICE=builtin``, which is what ``scripts/va/run_va.sh`` does --
-  resolves to the pre-seam behaviour: that namespace, the PyAT lattice.
+  committed manifest like any other, and asking for it -- the packaged file,
+  plus ``VA_LATTICE`` naming the lattice its own tree carries, which is what
+  ``scripts/va/run_va.sh`` does -- resolves to that namespace and that PyAT
+  lattice. Both halves are files named against the served tree, so there is
+  no spelling of either that means "whatever this installation bundles".
   (The deep guarantee is the rest of ``tests/va``, which runs against the
   generated manifest directly, so this half only pins the resolution.)
 
@@ -82,10 +84,22 @@ p4p and the PVA serving package, the same ``main()`` runs to ``virtual
 accelerator IOC serving PVs: 4 channels`` with the physics blocked -- so the
 seam is known to hold across a complete boot, not merely across the part of
 one a development host can reach.
+
+A second, static gate rides in this file, because it guards the same seam from
+the other side. The boot test above proves the no-lattice path depends on no
+physics; :class:`TestTheServiceNamesNoFacility` proves the whole service names
+no facility -- no family, no address token, no constant of one particular
+ring, and no reach into the bundled tree from a module that is serving. The
+two together are what makes "a manifest and a data directory are the whole
+input" a property rather than an intention: one holds at run time on the path
+a facility actually boots, the other holds over every line, including the ones
+no test on a development host reaches.
 """
 
 from __future__ import annotations
 
+import ast
+import io
 import json
 import os
 import re
@@ -93,6 +107,7 @@ import signal
 import subprocess
 import sys
 import time
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -148,6 +163,7 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--run-seam-i
     sys.exit(0)
 
 
+import osprey.services.virtual_accelerator as virtual_accelerator  # noqa: E402
 from osprey.services.virtual_accelerator import entrypoint  # noqa: E402
 from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     PARTITION_SP_ECHO,
@@ -155,7 +171,17 @@ from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     RECORD_TYPE_ANALOG,
     RECORD_TYPE_LONG_STRING,
 )
-from osprey.services.virtual_accelerator.manifest.paths import MANIFEST_OUTPUT  # noqa: E402
+from osprey.services.virtual_accelerator.manifest.classify import (  # noqa: E402
+    _BOOLEAN_FIELDS,
+    _BOOLEAN_SUBFIELDS,
+    READBACK_SUBFIELD,
+    SETPOINT_SUBFIELD,
+)
+from osprey.services.virtual_accelerator.manifest.paths import (  # noqa: E402
+    MANIFEST_OUTPUT,
+    PACKAGE_PATHS,
+)
+from osprey.simulation.facility_spec import ALS_U_AR  # noqa: E402
 
 # A three-part-address facility: the address text carries no six-level
 # grammar; identity (SP<->RB pairing) rides entirely in the hierarchy keys.
@@ -225,10 +251,32 @@ class TestTheTutorialMachineIsNamedNotAssumed:
             entrypoint._resolve_channels_file(tmp_path)
 
     def test_naming_the_packaged_manifest_gives_the_pre_seam_path(self, monkeypatch, tmp_path):
+        # Both halves of the demo are asked for the same way, and both are
+        # files: the namespace is the committed manifest, named outright, and
+        # the physics behind it is the lattice the served tree carries, named
+        # relative to that tree. Neither is a mode the service can be in --
+        # there is no spelling of either that means "whatever this
+        # installation happens to bundle".
         monkeypatch.setenv("VA_CHANNELS_FILE", str(MANIFEST_OUTPUT))
-        monkeypatch.setenv("VA_LATTICE", entrypoint.LATTICE_BUILTIN)
         assert entrypoint._resolve_channels_file(tmp_path) == MANIFEST_OUTPUT
-        assert entrypoint._resolve_lattice_mode() == entrypoint.LATTICE_BUILTIN
+
+        lattice = tmp_path / PACKAGE_PATHS.lattice_json.name
+        lattice.write_text("{}")
+        monkeypatch.setenv("VA_LATTICE", lattice.name)
+        assert entrypoint._resolve_lattice(tmp_path) == lattice
+
+    def test_no_lattice_named_is_no_physics_rather_than_the_bundled_one(
+        self, monkeypatch, tmp_path
+    ):
+        # The other side of the same rule. A boot that names no lattice gets
+        # none -- the demo ring is not the answer to an unanswered question --
+        # and that is what makes the no-physics path reachable on a host
+        # carrying no physics at all.
+        monkeypatch.setenv("VA_LATTICE", entrypoint.LATTICE_NONE)
+        assert entrypoint._resolve_lattice(tmp_path) is None
+
+        monkeypatch.delenv("VA_LATTICE", raising=False)
+        assert entrypoint._resolve_lattice(tmp_path) is None
 
 
 class TestSetpointEchoEngineSync:
@@ -471,3 +519,193 @@ class TestFileBackedBootWithoutPyat:
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait(timeout=10)
+
+
+# The service's own source tree, discovered from the installed package rather
+# than climbed with a fixed number of ``__file__`` parents, so this gate reads
+# the same files from an editable checkout and from a wheel.
+_VA_ROOT = Path(virtual_accelerator.__file__).resolve().parent
+
+# The scripts that derive a served tree's own data and drive its model. They
+# ship beside the service rather than inside it, and the same sentence holds
+# for them: each is pointed at a tree and works from what that tree declares,
+# so a family name here would be one ring's answer baked into the tooling
+# every other ring has to use. They live in the checkout, not in the package.
+_SCRIPT_ROOT = Path(__file__).resolve().parents[2] / "scripts" / "va"
+
+# The families the bundled demo facility declares, read from the spec that
+# declares them: a family added there joins this gate without anyone
+# remembering to add it here.
+_FAMILY_TOKENS = frozenset(ALS_U_AR.family_names())
+
+# The address vocabulary that facility's namespace is spelled in.
+_ADDRESS_TOKENS = frozenset({"SR", "MAG", "DIAG", "CURRENT", "POSITION"})
+
+# The constant naming the facility itself, and the corrector scale its demo
+# lattice was calibrated with.
+_FACILITY_CONSTANTS = frozenset({"ALS_U_AR", "AMPS_PER_RADIAN_KICK"})
+
+_FACILITY_TOKENS = _FAMILY_TOKENS | _ADDRESS_TOKENS | _FACILITY_CONSTANTS
+
+# Whole words only. A token is a facility's name when the code spells it as a
+# name; it is not one when it happens to sit inside a longer identifier, which
+# is why ``VA_BPM_ERRORS`` -- the seeded-readout-error grammar, which every
+# facility's monitors go through -- is not a hit.
+_FACILITY_TOKEN_RE = re.compile(r"\b(" + "|".join(sorted(_FACILITY_TOKENS)) + r")\b")
+
+# The modules that run while the service is serving. ``manifest/`` is
+# deliberately outside: it holds the build-time generator, whose job is to read
+# the bundled tree.
+_SERVING_PATH = ("entrypoint.py", "ioc", "lattice", "model", "serving")
+
+
+def _executable_lines(path: Path) -> list[tuple[int, str]]:
+    """Return ``(lineno, text)`` for the file's code, with its prose removed.
+
+    Docstring lines are dropped and every comment is cut at its ``#``. What is
+    left is what the interpreter acts on -- identifiers, and the string
+    literals the code builds addresses, predicates and messages out of. Those
+    literals stay in scope on purpose: a hardcoded family name arrives as one
+    far more often than as an identifier.
+    """
+    source = path.read_text()
+
+    prose_lines: set[int] = set()
+    for node in ast.walk(ast.parse(source)):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if ast.get_docstring(node, clean=False) is None:
+            continue
+        literal = node.body[0]
+        prose_lines.update(range(literal.lineno, literal.end_lineno + 1))
+
+    # Taken from the tokenizer rather than by looking for ``#``, so a hash
+    # inside a string literal is not mistaken for the start of a comment.
+    comment_column: dict[int, int] = {}
+    for token in tokenize.generate_tokens(io.StringIO(source).readline):
+        if token.type == tokenize.COMMENT:
+            comment_column.setdefault(token.start[0], token.start[1])
+
+    lines: list[tuple[int, str]] = []
+    for number, text in enumerate(source.splitlines(), start=1):
+        if number in prose_lines:
+            continue
+        cut = comment_column.get(number)
+        lines.append((number, text if cut is None else text[:cut]))
+    return lines
+
+
+def _shown(path: Path) -> str:
+    """The file, named the way a reader of the failure would go looking for it."""
+    root = _VA_ROOT if path.is_relative_to(_VA_ROOT) else _SCRIPT_ROOT.parents[1]
+    return str(path.relative_to(root))
+
+
+def _scan(paths: list[Path], pattern: re.Pattern[str]) -> list[str]:
+    """Every match of ``pattern`` in the code of ``paths``, as reportable lines."""
+    hits: list[str] = []
+    for path in paths:
+        for number, text in _executable_lines(path):
+            for match in pattern.finditer(text):
+                hits.append(f"  {_shown(path)}:{number}  {match.group(0)}  ->  {text.strip()}")
+    return hits
+
+
+def _script_modules() -> list[Path]:
+    """The Python scripts under the gate, compiled leftovers of old runs out."""
+    return sorted(path for path in _SCRIPT_ROOT.rglob("*.py") if "__pycache__" not in path.parts)
+
+
+def _service_modules() -> list[Path]:
+    return sorted(_VA_ROOT.rglob("*.py")) + _script_modules()
+
+
+def _serving_path_modules() -> list[Path]:
+    modules: list[Path] = []
+    for name in _SERVING_PATH:
+        target = _VA_ROOT / name
+        modules.extend(sorted(target.rglob("*.py")) if target.is_dir() else [target])
+    return modules
+
+
+class TestTheServiceNamesNoFacility:
+    """The service holds no facility's names.
+
+    Everything the virtual accelerator serves arrives as data -- a channel
+    manifest, a bindings document, a lattice, the tree's own write bands -- so
+    nothing inside it needs to know what a family is called or how an address
+    is spelled. This gate holds that line against the one change that always
+    looks harmless: a single token dropped into a predicate or a format string
+    because the facility at hand happens to spell it that way. One is enough
+    to make the service work on one ring and quietly misbehave on the next,
+    and it survives review precisely because it reads like domain knowledge.
+
+    The scan covers the Python scripts under ``scripts/va`` as well as the
+    service. They are handed a tree the same way the service is -- one derives
+    that tree's write bands from its own ring, another drives its model through
+    the LUME interface -- so a family name in either is the same mistake made
+    one directory further out, where no deployment would meet it and every
+    other facility's operator would. The shell scripts beside them are not
+    read: a token scan of Python source is what this gate knows how to do, and
+    claiming the directory would promise more than it reads.
+
+    The token list is not a curated denylist. The family names come from the
+    spec that declares them, so the gate widens when that facility does.
+    Beside them sit the address vocabulary its namespace is spelled in, and
+    the two constants that name the facility and the corrector scale its demo
+    lattice was calibrated with.
+
+    **Grammar is not a facility.** ``SP``, ``RB``, and the boolean field and
+    subfield tokens the hierarchical record-type rule matches on, belong to
+    the paradigm rather than to any facility: every tree spelled in that
+    paradigm carries them, and a facility that does not spell its channels
+    that way is simply not in that paradigm. They are not carved out of the
+    scan -- carve-outs rot, and each one is a place a real token can be
+    parked -- they are held to be outside the token list, which is checked
+    here.
+
+    **What the code does, not what it says about itself.** Docstrings and
+    comments are stripped before the scan; string literals are not. A token
+    the interpreter acts on is a constant, while the same word in prose is the
+    field's vocabulary being used to explain a rule that holds for every
+    facility -- the physics bridge's own docstring says a facility whose
+    monitors are not called ``BPM`` needs no special case, and a gate that
+    forbade that sentence would forbid the code from documenting the property
+    this gate exists to protect. The tree's committed JSON is out of scope for
+    the mirror-image reason: it is one facility's data, and data is supposed
+    to name a facility.
+    """
+
+    def test_the_exempt_grammar_is_not_a_facility_token(self):
+        grammar = (
+            {SETPOINT_SUBFIELD, READBACK_SUBFIELD} | set(_BOOLEAN_SUBFIELDS) | set(_BOOLEAN_FIELDS)
+        )
+        collision = grammar & _FACILITY_TOKENS
+        assert not collision, (
+            "a token is claimed by both the paradigm's grammar and the demo "
+            f"facility's vocabulary: {sorted(collision)}. One of the two has to "
+            "give, because a gate cannot both forbid a token and rely on it."
+        )
+
+    def test_the_scripts_beside_the_service_are_in_the_scan(self):
+        """The scripts are read from the checkout, so a run that cannot see
+        them would pass this gate by scanning nothing at all."""
+        assert _script_modules(), f"no script was scanned; none was found under {_SCRIPT_ROOT}"
+
+    def test_no_facility_token_reaches_the_service_code(self):
+        hits = _scan(_service_modules(), _FACILITY_TOKEN_RE)
+        assert not hits, (
+            "the virtual accelerator names a facility. Every family, address "
+            "token and constant below belongs to one particular ring, and the "
+            "service is handed all three as data:\n" + "\n".join(hits)
+        )
+
+    def test_the_serving_path_reads_no_packaged_tree(self):
+        hits = _scan(_serving_path_modules(), re.compile(r"\bPACKAGE_PATHS\b"))
+        assert not hits, (
+            "a serving-path module reaches for the bundled tree. PACKAGE_PATHS "
+            "anchors the demo data the build-time generator reads; a process "
+            "that is serving was handed a data directory, and every file it "
+            "needs comes from that one tree. A reference here is a second "
+            "source, silently the demo's, on a process serving a facility:\n" + "\n".join(hits)
+        )
