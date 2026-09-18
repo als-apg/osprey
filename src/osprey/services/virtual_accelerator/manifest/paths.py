@@ -45,6 +45,15 @@ class ManifestPaths:
     its ``data:`` key. ``tier`` selects which ``channel_databases/tiers/``
     subdirectory the file-backed paradigm DBs are read from -- the same
     build-resolved tier ``osprey build`` materializes into the project.
+
+    The layout it resolves is one rule: what the facility carries whatever it
+    simulates -- the machine-state list and the write limits -- sits at the
+    data root, and everything describing the simulated accelerator -- the
+    scenario seed, the lattice, and the bindings that tie channels to it --
+    sits under ``simulation/``, beside the generated manifest. A served tree
+    is resolved through this same class over the data directory the service
+    is given, so build time and serve time share one layout instead of
+    respelling it on each side.
     """
 
     data_root: Path
@@ -69,6 +78,20 @@ class ManifestPaths:
     @property
     def machine_json(self) -> Path:
         return self.data_root / "simulation" / "machine.json"
+
+    @property
+    def lattice_json(self) -> Path:
+        """The pyAT ring the virtual accelerator loads, as saved JSON."""
+        return self.data_root / "simulation" / "lattice.json"
+
+    @property
+    def va_bindings(self) -> Path:
+        """Which channels drive which lattice attributes, and how.
+
+        Its presence is what makes a tree a virtual-accelerator tree: a
+        lattice on its own models nothing any channel can reach.
+        """
+        return self.data_root / "simulation" / "va_bindings.json"
 
     @property
     def machine_state_channels(self) -> Path:
@@ -127,24 +150,35 @@ class ManifestPaths:
 
     @property
     def required_sources(self) -> tuple[Path, ...]:
-        """Every file :func:`build.build_manifest` reads, in read order.
+        """Every file a complete build of this tree needs, in the order it is met.
 
         The one list: both the presence check below and the failure-path probe
         that names a corrupt file (``build._first_unreadable_source``) walk it,
         so a source added here cannot be missed by either. ``channel_limits``
-        is deliberately absent -- the generator never reads it; the build step
-        requires it separately, as the file that must ship *beside* a manifest.
+        is deliberately absent -- it is asked of every tree alike, and the
+        build step requires it separately, as the file that must ship *beside*
+        a manifest.
 
         Only the paradigm databases the tree STAGES are here, because those are
         the ones the generator reads. The scenario seed and the machine-state
         list are required outright: they are one per tree rather than one per
         paradigm, so a tree naming channels while missing them is incomplete
         rather than partial.
+
+        The lattice and the bindings are required exactly when the tree
+        carries bindings, which is what says this tree serves a virtual
+        accelerator; a tree that serves none is complete without either. Once
+        it does, the two are required together, because bindings pointing into
+        a lattice the tree does not carry describe a model nothing can build.
         """
+        simulation_model: tuple[Path, ...] = (
+            (self.lattice_json, self.va_bindings) if self.va_bindings.is_file() else ()
+        )
         return (
             *(self.paradigm_databases[name] for name in self.staged_paradigms),
             self.machine_json,
             self.machine_state_channels,
+            *simulation_model,
         )
 
     def missing_sources(self) -> list[Path]:
