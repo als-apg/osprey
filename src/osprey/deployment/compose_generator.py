@@ -1246,12 +1246,16 @@ def _standin_perturbation(config, repo_root):
 
     Which perturbation follows from which lattice is
     :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`'s
-    to say, beside the shipped value it conditions: outside ``builtin`` there is
-    no PyAT model for those offsets to displace, so the stand-in serves that
-    facility manifest unperturbed rather than carrying faults nothing can apply.
-    Asked here rather than restated, because the build resolves the same rule to
-    decide what it can boot with
+    to say: a chain serving no lattice has no model for those offsets to
+    displace, so the stand-in serves its manifest unperturbed rather than
+    carrying faults nothing can apply. Asked here rather than restated, because
+    the build resolves the same rule to decide what it can boot with
     (:func:`osprey.cli.build_profile_va_faults.effective_standin_bpm_errors`).
+
+    The perturbation itself is the deployment's own
+    (:func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.served_data_root`
+    over the same two roots the lattice resolves from): a deployment is handed
+    the machine its own tree describes, never another facility's devices.
 
     Read through :func:`~osprey_connectors.dotenv.resolved_va_lattice`, the
     resolver validation refuses on
@@ -1274,6 +1278,7 @@ def _standin_perturbation(config, repo_root):
     """
     from osprey.services.virtual_accelerator.manifest.standin_defaults import (
         default_bpm_errors_for_lattice,
+        served_data_root,
     )
     from osprey.utils.workspace import BUILD_DIR_NAME
 
@@ -1281,7 +1286,11 @@ def _standin_perturbation(config, repo_root):
     if not build_dir.is_absolute():
         build_dir = Path(repo_root) / build_dir
     lattice = dotenv.resolved_va_lattice(Path(repo_root), build_dir)
-    return lattice, default_bpm_errors_for_lattice(lattice)
+    default = default_bpm_errors_for_lattice(
+        lattice != dotenv.VA_LATTICE_DEFAULT,
+        served_data_root(Path(repo_root), build_dir),
+    )
+    return lattice, default
 
 
 def _va_noise_level(config):
@@ -1648,9 +1657,9 @@ def _inject_project_metadata(config):
     # present and whose recorded past disagree about which machine it is.
     #
     # Lattice-conditional (:func:`_standin_perturbation`): a deployment whose
-    # chain leaves ``VA_LATTICE`` off ``builtin`` renders the EMPTY set, because
-    # there is no PyAT model for those offsets to displace. That such a stand-in
-    # serves its manifest unperturbed is reported once per render, by
+    # chain serves no lattice renders the EMPTY set, because there is no model
+    # for those offsets to displace. That such a stand-in serves its manifest
+    # unperturbed is reported once per render, by
     # :func:`prepare_compose_files` — not here, which runs per service template.
     #
     # Injected unconditionally — a single-instance render never names the key
@@ -3824,10 +3833,10 @@ def prepare_compose_files(
         config.get("build_dir", "./build"), env_chain_names(resolve_repo_root(config))
     )
 
-    # What a stand-in on a non-builtin lattice actually serves. The shipped
-    # readout perturbation displaces a PyAT model, and a chain that pins
-    # ``VA_LATTICE`` elsewhere has none — so the render hands the stand-in the
-    # EMPTY set (:func:`_standin_perturbation`) instead of refusing the build,
+    # What a stand-in without a lattice actually serves. The shipped readout
+    # perturbation displaces a model, and a chain that serves no lattice has
+    # none — so the render hands the stand-in the EMPTY set
+    # (:func:`_standin_perturbation`) instead of refusing the build,
     # and the operator is told which of the two they got. Reported here rather
     # than beside the derivation because this function runs once per render
     # while ``_inject_project_metadata`` runs once per service template.

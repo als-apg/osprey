@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+import osprey_connectors.dotenv
 from osprey.utils.dotenv import (
     BUILD_DERIVED_KEYS,
     VA_LATTICE_DEFAULT,
@@ -258,17 +259,17 @@ class TestBuildDerivedKeys:
     def test_key_absent_from_render_is_dropped_not_preserved(self):
         """The un-write: a build that skipped generation clears the wiring."""
         rendered = "API_KEY=k\n"
-        existing = "API_KEY=k\nVA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=builtin\n"
+        existing = "API_KEY=k\nVA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=ring.mat\n"
         merged = merge_env_preserving_existing(rendered, existing)
         assert "VA_CHANNELS_FILE" not in merged
         assert "VA_LATTICE" not in merged
         assert "# Preserved from existing .env" not in merged
 
     def test_user_keys_are_still_preserved_alongside(self):
-        rendered = "VA_LATTICE=builtin\n"
+        rendered = "VA_LATTICE=ring.mat\n"
         existing = "VA_LATTICE=none\nMY_SECRET=keep-me\n"
         merged = merge_env_preserving_existing(rendered, existing)
-        assert "VA_LATTICE=builtin" in merged
+        assert "VA_LATTICE=ring.mat" in merged
         assert "MY_SECRET=keep-me" in merged
 
     def test_empty_exemption_restores_preserving_behavior(self):
@@ -289,31 +290,32 @@ class TestResolvedVaLattice:
     these files and renders on another is worse than either reading alone.
     """
 
-    def test_an_empty_chain_answers_the_build_s_own_default(self, tmp_path):
-        """Unset is the build's to speak for — it appends ``VA_LATTICE=builtin``."""
-        assert resolved_va_lattice(tmp_path) == VA_LATTICE_DEFAULT == "builtin"
+    def test_an_empty_chain_serves_no_lattice(self, tmp_path):
+        """A chain naming no lattice file names no lattice to serve."""
+        assert resolved_va_lattice(tmp_path) == VA_LATTICE_DEFAULT == "none"
 
-    def test_a_pinned_value_wins_over_the_default(self, tmp_path):
-        (tmp_path / ".env").write_text("VA_LATTICE=none\n")
-        assert resolved_va_lattice(tmp_path) == "none"
+    def test_a_pinned_file_name_wins_over_the_default(self, tmp_path):
+        (tmp_path / ".env").write_text("VA_LATTICE=ring.mat\n")
+        assert resolved_va_lattice(tmp_path) == "ring.mat"
 
     def test_the_local_file_wins_over_the_shared_defaults(self, tmp_path):
         """The chain's own precedence, not a second ordering invented here."""
         (tmp_path / ".env.shared").write_text("VA_LATTICE=none\n")
-        (tmp_path / ".env").write_text("VA_LATTICE=builtin\n")
-        assert resolved_va_lattice(tmp_path) == "builtin"
+        (tmp_path / ".env").write_text("VA_LATTICE=ring.mat\n")
+        assert resolved_va_lattice(tmp_path) == "ring.mat"
 
     def test_the_shared_defaults_answer_alone_when_local_is_silent(self, tmp_path):
-        (tmp_path / ".env.shared").write_text("VA_LATTICE=none\n")
+        (tmp_path / ".env.shared").write_text("VA_LATTICE=ring.mat\n")
         (tmp_path / ".env").write_text("OTHER=1\n")
-        assert resolved_va_lattice(tmp_path) == "none"
+        assert resolved_va_lattice(tmp_path) == "ring.mat"
 
     def test_a_quoted_value_is_read_as_written(self, tmp_path):
-        (tmp_path / ".env").write_text('VA_LATTICE="  builtin  "\n')
-        assert resolved_va_lattice(tmp_path) == "builtin"
+        """A file name keeps its case: the served tree is searched for it verbatim."""
+        (tmp_path / ".env").write_text('VA_LATTICE="  SR_Ring.mat  "\n')
+        assert resolved_va_lattice(tmp_path) == "SR_Ring.mat"
 
     def test_an_empty_pin_falls_back_to_the_default(self, tmp_path):
-        """``VA_LATTICE=`` names no source, so it is the unset case."""
+        """``VA_LATTICE=`` names no file, so it is the unset case."""
         (tmp_path / ".env").write_text("VA_LATTICE=\n")
         assert resolved_va_lattice(tmp_path) == VA_LATTICE_DEFAULT
 
@@ -323,15 +325,25 @@ class TestResolvedVaLattice:
         build = tmp_path / "repo" / "build"
         build.mkdir(parents=True)
         (repo / ".env").write_text("VA_LATTICE=none\n")
-        (build / ".env").write_text("VA_LATTICE=builtin\n")
-        assert resolved_va_lattice(repo, build) == "builtin"
+        (build / ".env").write_text("VA_LATTICE=ring.mat\n")
+        assert resolved_va_lattice(repo, build) == "ring.mat"
 
     def test_a_build_dir_that_says_nothing_leaves_the_repo_s_answer(self, tmp_path):
         repo = tmp_path / "repo"
         build = tmp_path / "repo" / "build"
         build.mkdir(parents=True)
-        (repo / ".env").write_text("VA_LATTICE=none\n")
-        assert resolved_va_lattice(repo, build) == "none"
+        (repo / ".env").write_text("VA_LATTICE=ring.mat\n")
+        assert resolved_va_lattice(repo, build) == "ring.mat"
+
+    def test_the_module_knows_no_builtin_lattice(self):
+        """``VA_LATTICE`` names a file in the served tree, or ``none`` — nothing else.
+
+        A source-level pin rather than a value one: the spelling is what a
+        reader copies into a chain file, so a stray one in a comment or a
+        docstring is as misleading as one in the code.
+        """
+        source = Path(osprey_connectors.dotenv.__file__).read_text(encoding="utf-8")
+        assert "builtin" not in source
 
 
 class TestEnvLockPath:
