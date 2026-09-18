@@ -135,12 +135,17 @@ codes as prose, for the agent reading them.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
+import re
+import time
 from typing import NoReturn
 
 import anyio
 from fastmcp.exceptions import ToolError
 
+from osprey.audit.posture import posture_session
 from osprey.bluesky_bridge_connection import unwrap_bridge_conflict_detail
 from osprey.mcp_server.bluesky.lanes import (
     LANE_ONE,
@@ -162,12 +167,14 @@ from osprey.mcp_server.bluesky.server_context import (
     bridge_error_message,
     get_server_context,
 )
+from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.target_banner import (
     TargetSituation,
     baseline_refusal,
 )
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import notify_agent_activity_async
+from osprey.utils.owner_header import OWNER_HEADER
 from osprey_connectors import posture_store
 from osprey_connectors.control_system.base import is_readonly_run
 from osprey_connectors.types import (
@@ -192,6 +199,8 @@ from osprey_connectors.types import (
 # is shared with the phoebus refusal all the same, because a user meets the same
 # fact in both places.
 REASON_CONTROL_TARGET_MISMATCH = "control_target_mismatch"
+
+logger = logging.getLogger("osprey.mcp_server.bluesky.tools.queue")
 
 # Who is speaking in the refusal. A deployment renders exactly one plan lane,
 # bound at build time to one control target; serving both takes a second lane,
@@ -296,6 +305,21 @@ _REFUSAL_HINTS: dict[str, list[str]] = {
         "will move on to the next item by itself when this one finishes.",
         "Poll queue_list to follow it. Only if the human wants the plan in motion "
         "STOPPED is there an action here, and that is stop_run, not another start.",
+    ],
+    # Raised by queue_start when the queue moved between the approval prompt
+    # and the call it authorized. The remediation is deliberately NOT "read the
+    # uid the refusal carries and start again with that one": the token exists
+    # to name a list a HUMAN looked at, and re-quoting the bridge's current uid
+    # would hand the start a binding nobody was ever shown.
+    "queue_changed_since_approval": [
+        "NOTHING STARTED. An item was added, removed or re-ordered between the "
+        "approval prompt and this call, so the queue this start would have run is "
+        "not the queue that was approved.",
+        "Re-read it with queue_list and tell the human what the queue holds NOW — "
+        "naming what changed if you can see it — then start again, which puts a "
+        "fresh prompt in front of them.",
+        "Never retry the start unchanged and never quote the uid this refusal "
+        "reports: both would arm a queue no human has looked at.",
     ],
     # Raised by queue_start, but caused by an earlier interruption — which is
     # why the remediation is a HUMAN choice rather than anything to retry.
@@ -1053,6 +1077,40 @@ async def _lane_status_view(situation: LaneSituation) -> dict:
     return view
 
 
+def _with_owner(headers: dict[str, str] | None) -> dict[str, str] | None:
+    """*headers* plus the owner stamp, when this process can name an owner.
+
+    One of the places the ``X-Osprey-Owner`` header is minted. Queued work
+    outlives the session that queued it: the plan runs later, in a queueserver
+    worker whose own account names nobody, so the person it belongs to has to
+    travel with the request. The bridge puts what arrives here onto the item,
+    the worker binds it around the plan's body, and the write monitor reads that
+    owner's narrowing. Without the stamp the plan would run at the deployment
+    ceiling however its owner had narrowed their own writes.
+
+    The owner is whatever :func:`~osprey_connectors.posture_store.current_owner`
+    answers, which is the roster account in a terminal container and the exported
+    stamp in a dispatch job. :data:`~osprey_connectors.posture_store.NO_OWNER` is
+    the one answer never sent, compared by identity because that is the only
+    comparison the sentinel supports: a header spelling the sentinel's text would
+    be a name the reader refuses, and an owner-less request is legitimate — cron
+    fires jobs that way — so it travels with no owner header at all.
+
+    Owner-less and header-less stays ``None`` rather than becoming an empty
+    mapping, so a request that carries nothing is indistinguishable from the one
+    the tools sent before any of this existed.
+
+    Attribution is not authorization: the stamp rides an ungated request (a plain
+    halt) exactly as it rides an armed one, and it is composed separately from
+    the launch token so that withholding the token never withholds the owner.
+    """
+    owner = posture_store.current_owner()
+    if owner is posture_store.NO_OWNER:
+        return headers
+    # The ladder answers a name or the sentinel, and the sentinel returned above.
+    return {**(headers or {}), OWNER_HEADER: str(owner)}
+
+
 # ---------------------------------------------------------------------------
 # Tool 1: capability — can this deployment execute at all?
 # ---------------------------------------------------------------------------
@@ -1295,7 +1353,7 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
     # writes_enabled re-check applied to exactly the armed half of enqueue,
     # with the live manager state read under the bridge's own lock rather than
     # guessed here from a stale status.
-    headers = {"X-Launch-Token": token} if token and writes_ok else None
+    headers = _with_owner({"X-Launch-Token": token} if token and writes_ok else None)
 
     status, body = await anyio.to_thread.run_sync(
         lambda: _http_post_json(
@@ -1370,6 +1428,119 @@ async def queue_add(draft_revision: int, lane: str | None = None) -> str:
 
 
 # ---------------------------------------------------------------------------
+# The queue a start was approved against
+# ---------------------------------------------------------------------------
+# A start carries at most a lane id, so what a human approves is the queue they
+# were SHOWN — and any add, move or remove landing between the click and this
+# call replaces it. The PreToolUse approval hook lists the queue and stamps its
+# `plan_queue_uid` beside the control-context record; this tool quotes that
+# token back as `expected_plan_queue_uid`, and the bridge refuses a start whose
+# queue has moved since (`queue_changed_since_approval`).
+#
+# Every derivation below is the HOOK's, restated. The hook runs outside this
+# venv and can import nothing from it — the same duplication the write-approval
+# stamps already carry — so the two spellings are pinned against each other by
+# the tests instead of by an import.
+
+#: Queue-start stamps live beside the write-approval stamps under their own
+#: prefix: they bind a different thing (which queue was listed, not which target
+#: was named) and are read by a different tool, so neither kind's sweep may
+#: touch the other's files.
+QUEUE_START_APPROVAL_PREFIX = "queue_start_approval_"
+QUEUE_START_APPROVAL_SUFFIX = ".json"
+
+#: How long a stamped binding may be quoted for. The hook's own housekeeping TTL
+#: (``WRITE_APPROVAL_TTL_S``), read here as a rule rather than as sweeping: an
+#: hour-old stamp that survived the prune describes a queue the approver stopped
+#: looking at long ago, and a start bound to it would be bound to a list nobody
+#: is watching. Expiring it sends no token, which is how every deployment
+#: rendered before this existed behaves — never a refusal.
+QUEUE_START_APPROVAL_TTL_S = 3600.0
+
+
+def _queue_start_stamp_name(session: str, lane: str) -> str:
+    """The file the approval prompt for *lane* under *session* stamped.
+
+    One file per (session, lane), because two lanes can be prompted in the same
+    turn: Claude Code runs the hook for every call of a parallel block before
+    any of those tools run, so one file per session would let the second prompt
+    overwrite the first lane's token.
+
+    The session component is a hash rather than the id itself — a session id is
+    a ``kernel:<uuid>`` or whatever the web terminal minted and was never
+    constrained to characters a file name may carry — and the lane has
+    everything outside the safe set substituted away, so a config that smuggles
+    in something else names a strange file in this directory rather than a file
+    outside it. That substitution is exactly why the stamp also carries its lane
+    in the payload: two lane ids can land on one name, and only the payload says
+    which one the prompt was rendered for.
+    """
+    slug = hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
+    lane_component = re.sub(r"[^A-Za-z0-9_.-]", "-", lane)
+    return f"{QUEUE_START_APPROVAL_PREFIX}{slug}_{lane_component}{QUEUE_START_APPROVAL_SUFFIX}"
+
+
+def _approved_queue_uid(lane: str) -> str | None:
+    """The queue token this start's own approval prompt listed, or ``None``.
+
+    ``None`` is the unbound start — the behaviour of every deployment rendered
+    before this mechanism existed — and it is the answer to every uncertainty
+    here: no audit session, no stamp, an unreadable one, a stamp the hook
+    nulled because the prompt showed no queue at all, one that has aged out, or
+    one rendered for a different lane. A token invented or borrowed on any of
+    those paths would bind this start to a queue its approver never saw, which
+    is the single outcome the mechanism exists to prevent; sending nothing only
+    leaves the start as unbound as it always was.
+
+    A session-less call sends nothing for a reason the write stamps do not
+    share. Their sessionless file name collides harmlessly, because the name is
+    the write's own payload hash and every process landing on it stamped the
+    same write. A queue token is not: two unattributed processes looking at two
+    different queues would hand each other bindings.
+
+    The lane in the PAYLOAD is what is compared, not the one in the file name,
+    and a mismatch is warned about rather than passed over: it means this file
+    was written for another lane, and the only way that happens is a name
+    collision or a hook and a tool that disagree — both of which leave every
+    start on this deployment silently unbound, the one failure mode nothing else
+    would surface.
+    """
+    session = posture_session()
+    if not session:
+        return None
+    name = _queue_start_stamp_name(session, lane)
+    try:
+        stamp = target_state.read_file(target_state.state_dir() / name)
+    except Exception:  # pragma: no cover - defensive: reading must not fail a start
+        logger.debug("Could not read the queue-start approval stamp %s", name, exc_info=True)
+        return None
+    if not isinstance(stamp, dict):
+        logger.debug("No queue-start approval stamp at %s; starting unbound", name)
+        return None
+    ts = stamp.get("ts")
+    if not isinstance(ts, (int, float)) or time.time() - ts > QUEUE_START_APPROVAL_TTL_S:
+        logger.debug("The queue-start approval stamp %s has expired; starting unbound", name)
+        return None
+    stamped_lane = stamp.get("lane")
+    if stamped_lane != lane:
+        logger.warning(
+            "The queue-start approval stamp %s was rendered for lane %r, but this start "
+            "is for lane %r, so its queue token is not quoted and this start is unbound. "
+            "Two lane ids whose names substitute to one file, or an approval hook and a "
+            "queue tool deriving the file name differently, both look like this.",
+            name,
+            stamped_lane,
+            lane,
+        )
+        return None
+    uid = stamp.get("plan_queue_uid")
+    if not isinstance(uid, str) or not uid:
+        logger.debug("The queue-start approval stamp %s names no queue; starting unbound", name)
+        return None
+    return uid
+
+
+# ---------------------------------------------------------------------------
 # Tool 4: start draining the queue (the arming action)
 # ---------------------------------------------------------------------------
 @mcp.tool()
@@ -1396,6 +1567,13 @@ async def queue_start(lane: str | None = None) -> str:
     which lane you name is what decides which answer you get. The bridge then
     re-verifies the token, re-checks every queued session plan's validation,
     and opens the worker environment if needed.
+
+    The start is also BOUND to the queue the approval prompt listed, with
+    nothing for you to pass: the prompt records which queue it showed, this tool
+    quotes that back, and the bridge refuses the start if an item was added,
+    removed or re-ordered in between (``queue_changed_since_approval``). A start
+    nothing bound — a deployment without the approval hook, or a prompt that
+    listed no queue — runs the queue as it stands, exactly as before.
 
     Args:
         lane: Which plan lane to start, as returned by ``queue_add`` in its
@@ -1437,6 +1615,13 @@ async def queue_start(lane: str | None = None) -> str:
           panel first. Only after that can it be re-staged through the draft
           and enqueued again, if they want it to run on purpose. Tell them what
           is queued; do not choose for them.
+        - queue_changed_since_approval: the queue moved between the approval
+          prompt and this call — an item was added, removed or re-ordered — so
+          the list this start would run is not the list that was approved.
+          Nothing started. Not retryable: re-read the queue with queue_list,
+          tell the human what it holds now, and start again, which puts a fresh
+          prompt in front of them. Never start again quoting the uid this
+          refusal reports.
         - manager_not_idle: a plan is already running, so there is nothing to
           start. Wait for the queue to drain (poll queue_list), or stop_run to
           halt the plan in motion if that is what the human wants.
@@ -1483,12 +1668,21 @@ async def queue_start(lane: str | None = None) -> str:
     # the bridge is the one authority on arming, and it answers
     # launch_token_required either way.
     token = get_server_context().launch_token_for(bound.key)
-    headers = {"X-Launch-Token": token} if token else None
+    headers = _with_owner({"X-Launch-Token": token} if token else None)
+
+    # The queue the approval prompt listed, quoted back so the bridge can refuse
+    # a start whose queue moved in between. Absent whenever nothing bound this
+    # start to a list (see `_approved_queue_uid`), which leaves the request
+    # exactly as it was before the binding existed.
+    payload: dict[str, str] = {}
+    expected_uid = _approved_queue_uid(bound.key)
+    if expected_uid is not None:
+        payload["expected_plan_queue_uid"] = expected_uid
 
     # anyio's run_sync only forwards positional args, and `headers` is
     # keyword-only on `_http_post_json`, hence the lambda.
     status, body = await anyio.to_thread.run_sync(
-        lambda: _http_post_json("/queue/start", {}, headers=headers, lane=bound.key)
+        lambda: _http_post_json("/queue/start", payload, headers=headers, lane=bound.key)
     )
     if status != 200:
         return _relay_refusal(
@@ -1590,6 +1784,7 @@ async def queue_stop(cancel: bool = False) -> str:
         if not token:
             return _refuse_unarmed("queue_stop(cancel=True)")
         headers = {"X-Launch-Token": token}
+    headers = _with_owner(headers)
 
     status, body = await anyio.to_thread.run_sync(
         lambda: _http_post_json("/queue/stop", {"cancel": cancel}, headers=headers, lane=halt_lane)

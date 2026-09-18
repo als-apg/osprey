@@ -702,10 +702,27 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
 
   startBtn.addEventListener('click', () => {
     if (startBtn.disabled) return;
+    // Bind the start to the queue that is on screen. The uid is read HERE, at
+    // the click, so it is always the last frame's — the stream is the panel's
+    // only reader of the queue, and a queue that moved has already delivered
+    // the frame carrying its new uid.
+    //
+    // The bridge compares this uid under its arming lock and refuses
+    // `queue_changed_since_approval` when the list moved between the glance
+    // and the click. That refusal arrives like every other: `queueWrite` puts
+    // the bridge's own sentence in the notice slot, re-renders nothing, and
+    // never retries — the panel waits, the stream brings the queue that is
+    // actually there, and the operator's next click binds to that one.
+    //
+    // A summary with no uid (a manager the bridge could not read) sends no
+    // expectation at all, which the bridge takes as "start what is there":
+    // the panel must not invent a token it never saw.
+    const uid = state.queue.status?.plan_queue_uid;
+    const body = typeof uid === 'string' && uid !== '' ? { expected_plan_queue_uid: uid } : {};
     void queueWrite(
       'POST',
       '/queue/start',
-      {},
+      body,
       'Queue started — it runs what is queued, and whatever is added.',
       writeOutcomeTone(true)
     );

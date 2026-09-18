@@ -2752,6 +2752,200 @@ describe('booting the shipped bundle', () => {
     expect(banner.className).not.toContain('banner-err');
   });
 
+  /**
+   * The parsed body of the last `POST /queue/start` the panel issued.
+   *
+   * @param {any} fetchMock
+   * @returns {any}
+   */
+  function lastStartBody(fetchMock) {
+    const call = [...fetchMock.mock.calls]
+      .reverse()
+      .find((/** @type {any[]} */ entry) => String(entry[0]).includes('/queue/start'));
+    if (!call) throw new Error('the panel issued no POST /queue/start');
+    return JSON.parse(String(call[1].body));
+  }
+
+  test('Start binds the start to the queue the operator is looking at', async () => {
+    // The uid in the body is what lets the bridge tell "start this queue" from
+    // "start whatever is there now": it compares the uid under its arming lock
+    // and refuses when the list moved between the glance and the click. An
+    // empty body asks for the second meaning, so a start approved against one
+    // queue could arm another — which is the whole failure this row pins shut.
+    const panel = boot();
+    await import(`${BUNDLE}panel.js`);
+    const fetchMock = /** @type {any} */ (globalThis.fetch);
+
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ plan_queue_uid: 'q7' }),
+      items: [item()],
+      running_item: null,
+    });
+    panel.startBtn.click();
+
+    await vi.waitFor(() =>
+      expect(lastStartBody(fetchMock)).toEqual({ expected_plan_queue_uid: 'q7' })
+    );
+  });
+
+  test('a later frame moves what the next Start click binds to', async () => {
+    // The uid is read at the CLICK, not captured when a frame arrives. That is
+    // what makes the answer to a refused start "look, then click again": the
+    // stream is the panel's only reader of the queue, so a queue that moved has
+    // already delivered the frame carrying its new uid, and the next click
+    // binds to the list on screen rather than re-sending a uid the bridge has
+    // already rejected.
+    const panel = boot();
+    await import(`${BUNDLE}panel.js`);
+    const fetchMock = /** @type {any} */ (globalThis.fetch);
+
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ plan_queue_uid: 'q7' }),
+      items: [item()],
+      running_item: null,
+    });
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ plan_queue_uid: 'q8' }),
+      items: [item()],
+      running_item: null,
+    });
+    panel.startBtn.click();
+
+    await vi.waitFor(() =>
+      expect(lastStartBody(fetchMock)).toEqual({ expected_plan_queue_uid: 'q8' })
+    );
+  });
+
+  test('a frame without a queue uid sends no expectation', async () => {
+    // A summary the manager could not fill carries no `plan_queue_uid`. There
+    // is nothing to bind to, so the body stays exactly what it was before any
+    // of this existed: the panel neither invents an expectation nor stops
+    // being able to start. Only the uid is nulled here so the control stays
+    // live and the body is the only thing under test.
+    const panel = boot();
+    await import(`${BUNDLE}panel.js`);
+    const fetchMock = /** @type {any} */ (globalThis.fetch);
+
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ plan_queue_uid: null }),
+      items: [item()],
+      running_item: null,
+    });
+    panel.startBtn.click();
+
+    await vi.waitFor(() => expect(lastStartBody(fetchMock)).toEqual({}));
+  });
+
+  /**
+   * Every `POST /queue/start` the panel issued, oldest first.
+   *
+   * @param {any} fetchMock
+   * @returns {any[]}
+   */
+  function startCalls(fetchMock) {
+    return fetchMock.mock.calls.filter(
+      (/** @type {any[]} */ entry) =>
+        String(entry[0]).includes('/queue/start') && entry[1]?.method === 'POST'
+    );
+  }
+
+  test('a 409 on the start is shown and waited on: no resend, next click carries the new uid', async () => {
+    // The refusal the bound start exists to produce. What matters here is what
+    // the panel does with it: one request went out, the bridge's sentence is
+    // on screen, and NOTHING else leaves the panel. An automatic retry would
+    // be the panel deciding the operator would have approved a list they were
+    // never shown — the exact substitution the uid was added to prevent.
+    //
+    // The list the operator looks at next arrives on the stream: that is the
+    // panel's only reader of the queue, so there is no second HTTP read to
+    // make, and the next click reads the uid of the frame on screen.
+    const CONFLICT =
+      "the queue has changed since it was approved: the start named queue 'q1', but the " +
+      "manager now holds 'q2'. An item has been added, removed or re-ordered in between, " +
+      'so the approved list is not the list this start would run. Re-read GET /queue, ' +
+      'check what it now holds, and start again with the plan_queue_uid it reports.';
+
+    let refused = false;
+    const fetchMock = vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
+      const method = init?.method || 'GET';
+      if (method === 'POST' && String(url).includes('/queue/start')) {
+        if (refused) {
+          return { ok: true, status: 200, json: async () => ({ started: true, armed: true }) };
+        }
+        refused = true;
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({
+            detail: {
+              code: 'queue_changed_since_approval',
+              detail: CONFLICT,
+              plan_queue_uid: 'q2',
+              expected_plan_queue_uid: 'q1',
+            },
+          }),
+        };
+      }
+      return { ok: true, status: 200, json: async () => [] };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const panel = boot();
+    await import(`${BUNDLE}panel.js`);
+    const banner = /** @type {any} */ (document.getElementById('queue-banner'));
+
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ plan_queue_uid: 'q1', items_in_queue: 1 }),
+      items: [item()],
+      running_item: null,
+    });
+    panel.startBtn.click();
+
+    await vi.waitFor(() => expect(banner.textContent).toBe(CONFLICT));
+    expect(banner.hidden).toBe(false);
+    // Amber, not red: a queue that moved is the bridge working as designed,
+    // and the operator has an action — look at the new list and click again.
+    expect(banner.className).toContain('banner-warn');
+    expect(startCalls(fetchMock)).toHaveLength(1);
+    expect(JSON.parse(String(startCalls(fetchMock)[0][1].body))).toEqual({
+      expected_plan_queue_uid: 'q1',
+    });
+
+    // Several turns of the loop: a scheduled resend would land in one of them.
+    for (let turn = 0; turn < 5; turn += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(startCalls(fetchMock)).toHaveLength(1);
+    // A refusal is a state, not a receipt: it is still on screen for the look.
+    expect(banner.textContent).toBe(CONFLICT);
+
+    // The queue the bridge now holds, delivered the only way the panel reads
+    // it. No `GET /queue` is issued — the stream IS the refreshed list.
+    panel.pushFrame({
+      type: 'queue',
+      status: summary({ plan_queue_uid: 'q2', items_in_queue: 2 }),
+      items: [item(), item({ item_uid: 'uid-2' })],
+      running_item: null,
+    });
+    expect(
+      fetchMock.mock.calls.some((/** @type {any[]} */ entry) => String(entry[0]).endsWith('/queue'))
+    ).toBe(false);
+
+    expect(panel.startBtn.disabled).toBe(false);
+    panel.startBtn.click();
+
+    await vi.waitFor(() => expect(startCalls(fetchMock)).toHaveLength(2));
+    expect(JSON.parse(String(startCalls(fetchMock)[1][1].body))).toEqual({
+      expected_plan_queue_uid: 'q2',
+    });
+    await vi.waitFor(() => expect(banner.textContent).toContain('Queue started'));
+  });
+
   test('an armed abort confirm disarms when the running item goes away', async () => {
     // The confirm refers to a specific run. Leaving it armed would let the
     // next click abort whatever the queue moved on to.
