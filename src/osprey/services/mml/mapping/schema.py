@@ -10,37 +10,56 @@ than ignored, because an ignored key is a decision that silently never lands.
 
 Nulls are structurally valid wherever the document may carry an undecided
 slot (a description, a facility token, a family's ``branch``/``class``, a
-direction, a judgment answer). Rejecting them is the semantic checker's job,
-which also owns PN_LOCAL, permutation and cross-reference rules; keeping those
-out of here lets a freshly written skeleton parse before anyone has filled it
-in.
+direction, a judgment answer, a virtual-accelerator system or slot answer).
+Rejecting them is the semantic checker's job, which also owns PN_LOCAL,
+permutation and cross-reference rules; keeping those out of here lets a freshly
+written skeleton parse before anyone has filled it in.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, overload
 
 __all__ = [
+    "ATTYPE_KIND",
     "DIRECTION_VALUES",
+    "ESCAPE_HATCH_KIND",
     "ROWS_BEYOND_KIND",
+    "SHARED_FIELD_KIND",
     "SHARED_KIND",
     "UNBOUND_KIND",
+    "UNIT_CLASSES",
+    "VA_KINDS",
+    "VA_SLOT_KINDS",
+    "VA_VERDICTS",
+    "AttypeAnswer",
     "Branch",
     "Direction",
+    "EscapeHatchAnswer",
     "Facility",
     "Family",
     "FamilyJudgments",
     "Field",
     "FieldAnswer",
+    "KickAnswer",
     "Mapping",
     "MappingError",
+    "MonitorAnswer",
+    "OwnerAnswer",
     "OwnerMap",
     "RowAnswer",
     "SharedAnswer",
+    "SharedFieldAnswer",
+    "StrengthAnswer",
     "System",
     "UnboundAnswer",
+    "VAAnswer",
+    "VAFamily",
+    "VASlot",
+    "VirtualAccelerator",
     "judgment_key",
     "parse_mapping",
 ]
@@ -53,6 +72,31 @@ DIRECTION_VALUES: frozenset[str | None] = frozenset({"read", "write", None})
 ROWS_BEYOND_KIND = "rows_beyond_devices"
 UNBOUND_KIND = "unbound_devices"
 SHARED_KIND = "shared_pvs"
+
+#: The document spelling of each virtual-accelerator slot kind: the question a
+#: rule leaves to a reviewer when it cannot decide a family by itself.
+ATTYPE_KIND = "attype"
+SHARED_FIELD_KIND = "shared_field"
+ESCAPE_HATCH_KIND = "escape_hatch"
+
+#: What a rule reaches for one family: the model drives it, or it stands still.
+VA_VERDICTS: frozenset[str] = frozenset({"couple", "latch"})
+
+#: The element kinds a coupled family binds, the vocabulary the bindings file
+#: and the VA MAP card share.
+VA_KINDS: frozenset[str] = frozenset({"strength", "kick", "monitor", "energy", "rf"})
+
+#: The kinds of slot a reviewer is ever asked to answer.
+VA_SLOT_KINDS: frozenset[str] = frozenset({ATTYPE_KIND, SHARED_FIELD_KIND, ESCAPE_HATCH_KIND})
+
+#: The physics-unit words that spell each element kind, folded to lower case:
+#: an angle for a kick, a length for a monitor. ``strength`` carries no entry
+#: because its class is any other non-empty word, so a unit word is a
+#: strength's exactly when it is in neither set.
+UNIT_CLASSES: dict[str, frozenset[str]] = {
+    "kick": frozenset({"rad", "radian", "radians", "mrad", "mradian", "urad"}),
+    "monitor": frozenset({"m", "meter", "meters", "metre", "mm"}),
+}
 
 
 class MappingError(ValueError):
@@ -228,6 +272,104 @@ def judgment_key(
 
 
 @dataclass(frozen=True)
+class StrengthAnswer:
+    """The ``strength:<PolynomB|PolynomA>[<index>]`` answer: a magnet strength.
+
+    ``index`` is the position in the polynomial, so ``PolynomB[1]`` is a
+    quadrupole gradient and ``PolynomB[2]`` a sextupole one.
+    """
+
+    attribute: Literal["PolynomB", "PolynomA"]
+    index: int
+
+
+@dataclass(frozen=True)
+class KickAnswer:
+    """The ``kick:<0|1>`` answer: a corrector, in the plane of ``KickAngle``."""
+
+    plane: Literal[0, 1]
+
+
+@dataclass(frozen=True)
+class MonitorAnswer:
+    """The ``monitor:<x|y>`` answer: a beam-position reading, in one plane."""
+
+    plane: Literal["x", "y"]
+
+
+@dataclass(frozen=True)
+class OwnerAnswer:
+    """The ``owner:<family>`` answer: which family of a collision binds the field.
+
+    The named family is checked against the collision by the semantic checker;
+    here it is a token.
+    """
+
+    family: str
+
+
+#: What an ``attype`` slot may be answered with; ``None`` is undecided.
+AttypeAnswer = Literal["latch", "energy", "rf"] | StrengthAnswer | KickAnswer | MonitorAnswer
+
+#: What a ``shared_field`` slot may be answered with; ``None`` is undecided.
+SharedFieldAnswer = Literal["latch"] | OwnerAnswer
+
+#: What an ``escape_hatch`` slot may be answered with; ``None`` is undecided.
+EscapeHatchAnswer = Literal["latch", "ignore_hook"]
+
+#: Any slot answer, whatever the slot's kind.
+VAAnswer = AttypeAnswer | SharedFieldAnswer | EscapeHatchAnswer
+
+
+@dataclass(frozen=True)
+class VASlot:
+    """The one question a rule left open for a family, and its answer.
+
+    ``question`` is written out because the card asks it as it stands.
+    ``answer`` is the reviewer's word, parsed into the decision it states;
+    ``None`` is a pending answer, which ``map --check`` refuses.
+    """
+
+    kind: str
+    question: str
+    answer: VAAnswer | None
+
+
+@dataclass(frozen=True)
+class VAFamily:
+    """What the virtual accelerator does with one family.
+
+    A ``couple`` verdict carries what the model needs to drive the family:
+    its ``kind``, the ``element_field`` it writes, the ``calibration`` kind
+    that converts hardware to physics, and where its nominal came from. A
+    ``latch`` verdict carries a ``reason`` instead and binds nothing. Either
+    may carry a ``slot``, which is the question that decides the family once
+    it is answered.
+    """
+
+    verdict: str
+    kind: str | None = None
+    element_field: str | None = None
+    calibration: str | None = None
+    nominal_source: str | None = None
+    reason: str | None = None
+    slot: VASlot | None = None
+
+
+@dataclass(frozen=True)
+class VirtualAccelerator:
+    """The virtual-accelerator block: one verdict per exported family.
+
+    ``system`` names the system the block describes, ``None`` while the choice
+    is the reviewer's. ``families`` keeps document order, so the card lists
+    them as the file spells them.
+    """
+
+    system: str | None
+    families: dict[str, VAFamily] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Mapping:
     """A structurally valid ``mapping.yaml``.
 
@@ -242,6 +384,7 @@ class Mapping:
     families: dict[str, Family] = field(default_factory=dict)
     directions: dict[str, Direction] = field(default_factory=dict)
     judgments: dict[str, FamilyJudgments] = field(default_factory=dict)
+    virtual_accelerator: VirtualAccelerator | None = None
 
     def mapped(self, raw_family: str) -> str:
         """Return the token a raw family is known by downstream.
@@ -387,7 +530,7 @@ def _shown(value: Any) -> str:
 # -- blocks -------------------------------------------------------------------
 
 _TOP_REQUIRED = frozenset({"facility", "systems", "section_order", "families", "directions"})
-_TOP_OPTIONAL = frozenset({"branches", "judgments"})
+_TOP_OPTIONAL = frozenset({"branches", "judgments", "virtual_accelerator"})
 _FACILITY_KEYS = frozenset({"token", "title", "description", "provenance"})
 _SYSTEM_KEYS = frozenset({"name", "description", "provenance"})
 _BRANCH_KEYS = frozenset({"parent", "description"})
@@ -400,6 +543,21 @@ _NONE: frozenset[str] = frozenset()
 _JUDGMENT_KINDS = frozenset({ROWS_BEYOND_KIND, UNBOUND_KIND, SHARED_KIND})
 _FIELD_ANSWER_KEYS = frozenset({"field"})
 _ROW_ANSWERS = "drop, device, a field: entry or null"
+_VA_KEYS = frozenset({"system", "families"})
+_VA_FAMILY_REQUIRED = frozenset({"verdict"})
+_VA_FAMILY_OPTIONAL = frozenset(
+    {"kind", "element_field", "calibration", "nominal_source", "reason", "slot"}
+)
+_VA_SLOT_KEYS = frozenset({"kind", "question", "answer"})
+_VA_VERDICTS_SHOWN = "couple or latch"
+_VA_KINDS_SHOWN = "strength, kick, monitor, energy, rf or null"
+_VA_SLOT_KINDS_SHOWN = "attype, shared_field or escape_hatch"
+_ATTYPE_ANSWERS = (
+    "latch, strength:<PolynomB|PolynomA>[<i>], kick:<0|1>, energy, rf, monitor:<x|y> or null"
+)
+_SHARED_FIELD_ANSWERS = "owner:<family>, latch or null"
+_ESCAPE_HATCH_ANSWERS = "latch, ignore_hook or null"
+_STRENGTH_ANSWER = re.compile(r"strength:(PolynomB|PolynomA)\[(\d+)\]")
 
 
 def _facility(value: Any) -> Facility:
@@ -593,6 +751,100 @@ def _judgments(value: Any) -> dict[str, FamilyJudgments]:
     return judgments
 
 
+def _attype_answer(value: Any, key: str) -> AttypeAnswer | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if value in ("latch", "energy", "rf"):
+            return value
+        match = _STRENGTH_ANSWER.fullmatch(value)
+        if match is not None:
+            attribute: Literal["PolynomB", "PolynomA"] = (
+                "PolynomB" if match[1] == "PolynomB" else "PolynomA"
+            )
+            return StrengthAnswer(attribute=attribute, index=int(match[2]))
+        if value in ("kick:0", "kick:1"):
+            return KickAnswer(plane=0 if value == "kick:0" else 1)
+        if value in ("monitor:x", "monitor:y"):
+            return MonitorAnswer(plane="x" if value == "monitor:x" else "y")
+    raise MappingError(key, f"must be {_ATTYPE_ANSWERS}, got {_shown(value)}")
+
+
+def _shared_field_answer(value: Any, key: str) -> SharedFieldAnswer | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        if value == "latch":
+            return value
+        owner, sep, family = value.partition(":")
+        if owner == "owner" and sep and family:
+            return OwnerAnswer(family=family)
+    raise MappingError(key, f"must be {_SHARED_FIELD_ANSWERS}, got {_shown(value)}")
+
+
+def _escape_hatch_answer(value: Any, key: str) -> EscapeHatchAnswer | None:
+    if value is None:
+        return None
+    if isinstance(value, str) and value in ("latch", "ignore_hook"):
+        return value
+    raise MappingError(key, f"must be {_ESCAPE_HATCH_ANSWERS}, got {_shown(value)}")
+
+
+#: The typed parser of each slot kind's answer vocabulary. Every vocabulary is
+#: closed: a word outside it is refused by name, never carried through.
+_VA_ANSWERS = {
+    ATTYPE_KIND: _attype_answer,
+    SHARED_FIELD_KIND: _shared_field_answer,
+    ESCAPE_HATCH_KIND: _escape_hatch_answer,
+}
+
+
+def _va_slot(value: Any, path: str) -> VASlot | None:
+    if value is None:
+        return None
+    body = _dict(value, path)
+    _keys(body, path, _VA_SLOT_KEYS, _NONE)
+    kind = body["kind"]
+    if not (isinstance(kind, str) and kind in VA_SLOT_KINDS):
+        raise MappingError(f"{path}.kind", f"must be {_VA_SLOT_KINDS_SHOWN}, got {_shown(kind)}")
+    return VASlot(
+        kind=kind,
+        question=_str(body, "question", path, nullable=False),
+        answer=_VA_ANSWERS[kind](body["answer"], f"{path}.answer"),
+    )
+
+
+def _va_family(body: dict, path: str) -> VAFamily:
+    _keys(body, path, _VA_FAMILY_REQUIRED, _VA_FAMILY_OPTIONAL)
+    verdict = body["verdict"]
+    if not (isinstance(verdict, str) and verdict in VA_VERDICTS):
+        raise MappingError(
+            f"{path}.verdict", f"must be {_VA_VERDICTS_SHOWN}, got {_shown(verdict)}"
+        )
+    kind = body.get("kind")
+    if not (kind is None or (isinstance(kind, str) and kind in VA_KINDS)):
+        raise MappingError(f"{path}.kind", f"must be {_VA_KINDS_SHOWN}, got {_shown(kind)}")
+    return VAFamily(
+        verdict=verdict,
+        kind=kind,
+        element_field=_str(body, "element_field", path, nullable=True),
+        calibration=_str(body, "calibration", path, nullable=True),
+        nominal_source=_str(body, "nominal_source", path, nullable=True),
+        reason=_str(body, "reason", path, nullable=True),
+        slot=_va_slot(body.get("slot"), f"{path}.slot"),
+    )
+
+
+def _virtual_accelerator(value: Any) -> VirtualAccelerator:
+    key = "virtual_accelerator"
+    body = _dict(value, key)
+    _keys(body, key, _VA_KEYS, _NONE)
+    families: dict[str, VAFamily] = {}
+    for raw, family, path in _entries(body["families"], f"{key}.families"):
+        families[raw] = _va_family(family, path)
+    return VirtualAccelerator(system=_str(body, "system", key, nullable=True), families=families)
+
+
 def parse_mapping(data: dict) -> Mapping:
     """Parse a loaded ``mapping.yaml`` document, checking structure only.
 
@@ -612,6 +864,7 @@ def parse_mapping(data: dict) -> Mapping:
     _keys(data, "", _TOP_REQUIRED, _TOP_OPTIONAL)
     branches = data.get("branches", _MISSING)
     judgments = data.get("judgments", _MISSING)
+    va = data.get("virtual_accelerator", _MISSING)
     return Mapping(
         facility=_facility(data["facility"]),
         systems=_systems(data["systems"]),
@@ -620,4 +873,5 @@ def parse_mapping(data: dict) -> Mapping:
         families=_families(data["families"]),
         directions=_directions(data["directions"]),
         judgments={} if judgments is _MISSING else _judgments(judgments),
+        virtual_accelerator=None if va is _MISSING else _virtual_accelerator(va),
     )

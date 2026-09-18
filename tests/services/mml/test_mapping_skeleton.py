@@ -12,15 +12,28 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from osprey.services.mml.directions import vote_directions
 from osprey.services.mml.mapping.branches import is_pn_local
-from osprey.services.mml.mapping.schema import parse_mapping
+from osprey.services.mml.mapping.schema import (
+    ATTYPE_KIND,
+    ESCAPE_HATCH_KIND,
+    SHARED_FIELD_KIND,
+    VAFamily,
+    VASlot,
+    parse_mapping,
+)
 from osprey.services.mml.mapping.skeleton import (
+    VA_ANSWERS,
     build_skeleton,
     count_judgment_slots,
+    count_va_slots,
+    dump_va_block,
     dump_yaml,
+    va_block,
+    va_system,
 )
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "mml"
@@ -420,3 +433,249 @@ class TestJudgments:
         before = json.dumps(ao, sort_keys=True)
         build_skeleton(ao, None, vote_directions(ao))
         assert json.dumps(ao, sort_keys=True) == before
+
+
+def _va_ao(*systems: str) -> dict:
+    """A merged export carrying one family per named system."""
+    return {
+        "_import_order": list(systems),
+        **{system: {"BPMx": _bpm(system)} for system in systems},
+    }
+
+
+def _va_ad(**types: str | None) -> dict:
+    """AD blocks stating one ``MachineType`` per system."""
+    return {system: {"Machine": "Quokka", "MachineType": kind} for system, kind in types.items()}
+
+
+def _couple(**extra) -> VAFamily:
+    """A coupled strength family, altered where a lane needs it altered."""
+    body = {
+        "verdict": "couple",
+        "kind": "strength",
+        "element_field": "PolynomB[1]",
+        "calibration": "linear",
+        "nominal_source": "Setpoint",
+    }
+    body.update(extra)
+    return VAFamily(**body)
+
+
+class TestVaSystem:
+    """Which system the virtual-accelerator block describes."""
+
+    def test_va_system_is_the_sole_system(self):
+        """One system needs no narrowing, whatever its MachineType."""
+        assert va_system(_va_ao("SR"), _va_ad(SR=None)) == "SR"
+
+    def test_va_system_is_the_sole_storage_ring(self):
+        """Several systems narrow to the one the export calls a storage ring."""
+        ao = _va_ao("SR", "LTB")
+        ad = _va_ad(SR="StorageRing", LTB="Transport")
+        assert va_system(ao, ad) == "SR"
+
+    def test_va_system_is_null_with_several_storage_rings(self):
+        """Two storage rings leave the choice to the reviewer."""
+        ao = _va_ao("SR", "BR")
+        assert va_system(ao, _va_ad(SR="StorageRing", BR="StorageRing")) is None
+
+    def test_va_system_is_null_when_no_system_says_storage_ring(self):
+        """Several systems and no MachineType narrow to nothing."""
+        assert va_system(_va_ao("SR", "BR"), _va_ad(SR=None, BR=None)) is None
+
+    def test_va_system_narrows_to_what_the_export_carries(self):
+        """A system with no 2.0 block is not a candidate."""
+        ao = _va_ao("SR", "BR")
+        ad = _va_ad(SR="StorageRing", BR="StorageRing")
+        assert va_system(ao, ad, {"BR"}) == "BR"
+
+    def test_va_system_reads_no_ad_at_all(self):
+        """An export with no AD still resolves its sole system."""
+        assert va_system(_va_ao("SR"), None) == "SR"
+
+
+class TestVaBlock:
+    """The block ``map --init`` appends to a mapping."""
+
+    def test_va_block_writes_system_and_families(self):
+        """Both keys are always written, the system pre-filled."""
+        block = va_block({"QF": _couple()}, "SR")
+        assert list(block) == ["system", "families"]
+        assert block["system"] == "SR"
+        assert list(block["families"]) == ["QF"]
+
+    def test_va_block_system_is_null_when_undecided(self):
+        """An undecided system is a null slot, not a missing key."""
+        assert va_block({}, None) == {"system": None, "families": {}}
+
+    def test_va_block_sorts_the_families(self):
+        """Families are written in sorted order whatever the export's."""
+        verdicts = {name: _couple() for name in ("VC", "BPMx", "QF")}
+        assert list(va_block(verdicts, "SR")["families"]) == ["BPMx", "QF", "VC"]
+
+    def test_va_block_couple_writes_only_the_keys_that_apply(self):
+        """A coupled family writes what the model needs and nothing null."""
+        entry = va_block({"QF": _couple()}, "SR")["families"]["QF"]
+        assert entry == {
+            "verdict": "couple",
+            "kind": "strength",
+            "element_field": "PolynomB[1]",
+            "calibration": "linear",
+            "nominal_source": "Setpoint",
+        }
+
+    def test_va_block_couple_omits_the_fields_that_do_not_apply(self):
+        """The energy knob binds no element field, so it writes none."""
+        knob = VAFamily(verdict="couple", kind="energy", nominal_source="Setpoint")
+        assert va_block({"BEND": knob}, "SR")["families"]["BEND"] == {
+            "verdict": "couple",
+            "kind": "energy",
+            "nominal_source": "Setpoint",
+        }
+
+    def test_va_block_couple_keeps_a_reported_note(self):
+        """A coupled family's reason is the disagreeing sibling, and is kept."""
+        entry = va_block({"SQ": _couple(reason="Monitor states m^-1")}, "SR")["families"]["SQ"]
+        assert entry["reason"] == "Monitor states m^-1"
+
+    def test_va_block_latch_writes_verdict_and_reason(self):
+        """A latched family carries why it drives nothing."""
+        latch = VAFamily(verdict="latch", reason="no lattice element")
+        assert va_block({"DCCT": latch}, "SR")["families"]["DCCT"] == {
+            "verdict": "latch",
+            "reason": "no lattice element",
+        }
+
+    def test_va_block_slot_writes_three_keys_with_a_null_answer(self):
+        """An open slot spells its kind and its question, and pends its answer."""
+        slot = VASlot(kind=ATTYPE_KIND, question="what does this family drive?", answer=None)
+        entry = va_block({"IDGAP": VAFamily(verdict="latch", reason="r", slot=slot)}, "SR")
+        assert entry["families"]["IDGAP"]["slot"] == {
+            "kind": ATTYPE_KIND,
+            "question": "what does this family drive?",
+            "answer": None,
+        }
+
+    def test_va_block_parses_on_top_of_a_skeleton(self):
+        """A skeleton carrying the block parses with the structural schema."""
+        document = _skeleton()
+        document["virtual_accelerator"] = va_block(
+            {
+                "QF": _couple(),
+                "DCCT": VAFamily(verdict="latch", reason="no lattice element"),
+            },
+            "SR",
+        )
+        mapping = parse_mapping(yaml.safe_load(dump_yaml(document)))
+        assert mapping.virtual_accelerator is not None
+        assert mapping.virtual_accelerator.system == "SR"
+        assert mapping.virtual_accelerator.families["QF"].element_field == "PolynomB[1]"
+
+    def test_va_block_with_a_null_system_parses(self):
+        """An undecided system is structurally valid; the checker refuses it."""
+        document = _skeleton()
+        document["virtual_accelerator"] = va_block({}, None)
+        parsed = parse_mapping(yaml.safe_load(dump_yaml(document)))
+        assert parsed.virtual_accelerator.system is None
+
+
+class TestVaDump:
+    """The text ``map --init`` appends after the last line."""
+
+    def _dumped(self, kind: str) -> str:
+        slot = VASlot(kind=kind, question="which one?", answer=None)
+        block = va_block({"QF": VAFamily(verdict="latch", reason="r", slot=slot)}, "SR")
+        return dump_va_block(block)
+
+    def test_va_dump_is_one_top_level_key(self):
+        """The text is a document holding only the block."""
+        text = dump_va_block(va_block({"QF": _couple()}, "SR"))
+        assert text.startswith("virtual_accelerator:\n")
+        assert text.endswith("\n")
+        assert list(yaml.safe_load(text)) == ["virtual_accelerator"]
+
+    @pytest.mark.parametrize("kind", [ATTYPE_KIND, SHARED_FIELD_KIND, ESCAPE_HATCH_KIND])
+    def test_va_dump_spells_the_allowed_answers(self, kind):
+        """Every null slot carries its allowed answers on a comment line."""
+        text = self._dumped(kind)
+        assert f"# answers: {VA_ANSWERS[kind]}" in text
+        assert text.index("answer: null") < text.index("# answers:")
+
+    def test_va_dump_comments_only_the_open_slots(self):
+        """A family with no slot gets no comment."""
+        assert "# answers:" not in dump_va_block(va_block({"QF": _couple()}, "SR"))
+
+    def test_va_dump_comment_leaves_the_document_unchanged(self):
+        """The comment is a comment: the parsed block is the block."""
+        block = va_block({"QF": _couple()}, "SR")
+        loaded = yaml.safe_load(self._dumped(ATTYPE_KIND))["virtual_accelerator"]
+        assert loaded["families"]["QF"]["slot"]["answer"] is None
+        assert yaml.safe_load(dump_va_block(block))["virtual_accelerator"] == block
+
+    def test_va_dump_is_deterministic(self):
+        """Two dumps of the same verdicts are byte-identical."""
+        assert self._dumped(ATTYPE_KIND) == self._dumped(ATTYPE_KIND)
+
+    def test_va_dump_appends_onto_a_skeleton(self):
+        """Skeleton text plus block text is one parseable document."""
+        text = dump_yaml(_skeleton()) + dump_va_block(va_block({"QF": _couple()}, "SR"))
+        mapping = parse_mapping(yaml.safe_load(text))
+        assert mapping.virtual_accelerator.families["QF"].kind == "strength"
+
+
+class TestVaSlotCount:
+    """How many virtual-accelerator slots a block asks a reviewer to answer."""
+
+    def test_count_va_slots_counts_the_system_and_each_open_family(self):
+        """The system slot counts once, and each family's slot once."""
+        slot = VASlot(kind=ATTYPE_KIND, question="q", answer=None)
+        verdicts = {
+            "QF": _couple(),
+            "IDGAP": VAFamily(verdict="latch", reason="r", slot=slot),
+            "SEPTUM": VAFamily(verdict="latch", reason="r", slot=slot),
+        }
+        assert count_va_slots(va_block(verdicts, "SR")) == 2
+        assert count_va_slots(va_block(verdicts, None)) == 3
+
+    def test_count_va_slots_of_a_settled_block_is_zero(self):
+        """A block with a system and nothing open asks nothing."""
+        assert count_va_slots(va_block({"QF": _couple()}, "SR")) == 0
+
+
+class TestVaPackageExports:
+    """The mapping package re-exports the virtual-accelerator schema names."""
+
+    def test_va_names_import_from_the_mapping_package(self):
+        """Every name a VA consumer needs is reachable without the submodule."""
+        import osprey.services.mml.mapping as package
+
+        for name in (
+            "ATTYPE_KIND",
+            "ESCAPE_HATCH_KIND",
+            "SHARED_FIELD_KIND",
+            "UNIT_CLASSES",
+            "VA_KINDS",
+            "VA_SLOT_KINDS",
+            "VA_VERDICTS",
+            "AttypeAnswer",
+            "EscapeHatchAnswer",
+            "KickAnswer",
+            "MonitorAnswer",
+            "OwnerAnswer",
+            "SharedFieldAnswer",
+            "StrengthAnswer",
+            "VAAnswer",
+            "VAFamily",
+            "VASlot",
+            "VirtualAccelerator",
+        ):
+            assert hasattr(package, name), name
+            assert name in package.__all__, name
+
+    def test_va_package_exports_are_the_schema_objects(self):
+        """The re-export is the schema's object, not a copy of it."""
+        import osprey.services.mml.mapping as package
+        from osprey.services.mml.mapping import schema
+
+        assert package.VAFamily is schema.VAFamily
+        assert package.VA_SLOT_KINDS is schema.VA_SLOT_KINDS

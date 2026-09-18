@@ -29,6 +29,15 @@ Rules:
   supply group gets one ``shared_pvs``. A family with nothing pending has no
   entry; nothing pending anywhere omits the block, as ``branches`` is omitted.
 
+The ``virtual_accelerator`` block is built apart from the rest, by
+:func:`va_block` from the verdicts
+:func:`~osprey.services.mml.va.verdicts.propose` reaches, because it exists
+only for a 2.0 export and is appended to a document that may already have been
+reviewed. :func:`va_system` names the one system it describes and
+:func:`dump_va_block` serialises it as the text ``map --init`` appends, each
+open slot carrying its allowed answers on a comment line so the reviewer reads
+the vocabulary beside the question.
+
 Grain numbers come from :class:`~osprey.services.mml.family.FamilyView`. The
 module has no I/O; :func:`dump_yaml` only serialises.
 """
@@ -36,6 +45,7 @@ module has no I/O; :func:`dump_yaml` only serialises.
 from __future__ import annotations
 
 import re
+from collections.abc import Container
 from typing import Any
 
 import yaml
@@ -44,9 +54,28 @@ from osprey.services.mml.directions import Vote
 from osprey.services.mml.family import FamilyView, family_views, system_bodies
 from osprey.services.mml.judgments import pending_judgments
 from osprey.services.mml.mapping.branches import is_pn_local
-from osprey.services.mml.mapping.schema import ROWS_BEYOND_KIND, SHARED_KIND, UNBOUND_KIND
+from osprey.services.mml.mapping.schema import (
+    ATTYPE_KIND,
+    ESCAPE_HATCH_KIND,
+    ROWS_BEYOND_KIND,
+    SHARED_FIELD_KIND,
+    SHARED_KIND,
+    UNBOUND_KIND,
+    VAFamily,
+)
 
-__all__ = ["build_skeleton", "count_judgment_slots", "dump_yaml", "section_order"]
+__all__ = [
+    "STORAGE_RING",
+    "VA_ANSWERS",
+    "build_skeleton",
+    "count_judgment_slots",
+    "count_va_slots",
+    "dump_va_block",
+    "dump_yaml",
+    "section_order",
+    "va_block",
+    "va_system",
+]
 
 #: Provenance of prose and directions generated from export facts.
 DERIVED = "derived"
@@ -56,6 +85,26 @@ IMPORTED = "imported"
 
 #: Characters a PN_LOCAL token may not contain, folded to ``_``.
 _NOT_PN_LOCAL = re.compile(r"[^A-Za-z0-9_]+")
+
+#: The ``MachineType`` a virtual accelerator is built for. An export naming
+#: several systems narrows to the one system that states it.
+STORAGE_RING = "StorageRing"
+
+#: What a reviewer may answer each virtual-accelerator slot kind with, as the
+#: comment beside the null slot spells it. The vocabularies themselves are
+#: closed by
+#: :func:`~osprey.services.mml.mapping.schema.parse_mapping`, which refuses a
+#: word outside them by name; these are the same words written for a reader.
+VA_ANSWERS: dict[str, str] = {
+    ATTYPE_KIND: "latch, strength:<PolynomB|PolynomA>[<i>], kick:<0|1>, energy, rf, monitor:<x|y>",
+    SHARED_FIELD_KIND: "owner:<family>, latch",
+    ESCAPE_HATCH_KIND: "latch, ignore_hook",
+}
+
+#: The keys a coupled family writes, in document order. A key the verdict
+#: leaves undecided is omitted rather than written null: the model needs every
+#: one of them, so a null would be a decision nobody made.
+_VA_FAMILY_KEYS = ("kind", "element_field", "calibration", "nominal_source", "reason")
 
 
 def _text(value: Any) -> str | None:
@@ -266,6 +315,112 @@ def count_judgment_slots(document: dict) -> int:
         total += len(entry.get(UNBOUND_KIND, {}))
         total += 1 if SHARED_KIND in entry else 0
     return total
+
+
+def va_system(ao: dict, ad: dict | None, available: Container[str] | None = None) -> str | None:
+    """Return the one system a virtual-accelerator block describes.
+
+    A facility exports one sub-machine per system and the model is built for
+    one of them. A single system is that one whatever it is called; several
+    narrow to the one the AD calls a :data:`STORAGE_RING`, because that is the
+    ring a virtual accelerator stands in for. Anything else is the reviewer's
+    choice, which the skeleton writes as a null slot.
+
+    Args:
+        ao: The merged export; only its system keys and ``_import_order`` are
+            read.
+        ad: AD blocks keyed by system, or ``None`` when the export had none.
+        available: The systems a 2.0 block was imported for, or ``None`` to
+            consider every system of the export. A system outside it is not a
+            candidate, so an export whose ring alone was re-exported resolves
+            to that ring.
+
+    Returns:
+        The system token, or ``None`` when the export does not name one.
+    """
+    pool = [raw for raw in _systems(ao) if available is None or raw in available]
+    if len(pool) == 1:
+        return pool[0]
+    rings = [raw for raw in pool if _text(_ad_block(ad, raw).get("MachineType")) == STORAGE_RING]
+    return rings[0] if len(rings) == 1 else None
+
+
+def va_block(verdicts: dict[str, VAFamily], system_choice: str | None) -> dict:
+    """Build the ``virtual_accelerator`` block of a mapping document.
+
+    Args:
+        verdicts: What the rules reached per family, as
+            :func:`~osprey.services.mml.va.verdicts.propose` returns it.
+        system_choice: The system the block describes, as :func:`va_system`
+            resolved it; ``None`` leaves the slot for the reviewer.
+
+    Returns:
+        The block as plain dicts, in the order it should be written: the
+        system, then every family sorted by name. A family writes its verdict
+        and only the keys that verdict decides, and an open slot writes its
+        kind, its question and a null answer.
+    """
+    families: dict[str, dict] = {}
+    for name in sorted(verdicts):
+        verdict = verdicts[name]
+        entry: dict[str, Any] = {"verdict": verdict.verdict}
+        for key in _VA_FAMILY_KEYS:
+            value = getattr(verdict, key)
+            if value is not None:
+                entry[key] = value
+        if verdict.slot is not None:
+            entry["slot"] = {
+                "kind": verdict.slot.kind,
+                "question": verdict.slot.question,
+                "answer": None,
+            }
+        families[name] = entry
+    return {"system": system_choice, "families": families}
+
+
+def count_va_slots(block: dict) -> int:
+    """Return how many virtual-accelerator slots a block asks a reviewer to answer.
+
+    Args:
+        block: A block, e.g. from :func:`va_block`.
+
+    Returns:
+        One for an undecided system, plus one per family a rule left a slot
+        on -- the number of null slots ``map --check`` refuses.
+    """
+    families = block.get("families", {})
+    open_slots = sum(1 for entry in families.values() if entry.get("slot") is not None)
+    return open_slots + (1 if block.get("system") is None else 0)
+
+
+def dump_va_block(block: dict) -> str:
+    """Serialise the block as the text ``map --init`` appends to a mapping.
+
+    Every open slot is followed by a comment naming what it may be answered
+    with, so the vocabulary reads beside the question rather than in the
+    documentation. Comments are the only thing here that
+    :func:`~osprey.services.mml.mapping.schema.parse_mapping` never sees.
+
+    Args:
+        block: The block, e.g. from :func:`va_block`.
+
+    Returns:
+        The YAML text of a document holding ``virtual_accelerator`` alone,
+        ending in a newline.
+    """
+    lines: list[str] = []
+    kind: str | None = None
+    for line in dump_yaml({"virtual_accelerator": block}).splitlines():
+        stated = line.strip()
+        if stated.startswith("kind: "):
+            spelled = stated.removeprefix("kind: ")
+            kind = spelled if spelled in VA_ANSWERS else None
+        lines.append(line)
+        if kind is not None and stated == "answer: null":
+            indent = line[: len(line) - len(line.lstrip())]
+            lines.append(f"{indent}# answers: {VA_ANSWERS[kind]}")
+            kind = None
+    return "".join(f"{line}\n" for line in lines)
 
 
 def build_skeleton(ao: dict, ad: dict | None, votes: dict[tuple[str, str], Vote]) -> dict:

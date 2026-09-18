@@ -8,14 +8,17 @@ exactly one place, then asserts the problem names that place's key path.
 from __future__ import annotations
 
 import copy
+from types import SimpleNamespace
 
 import pytest
 
 from osprey.services.mml.directions import vote_directions
+from osprey.services.mml.judgments import VAPending
+from osprey.services.mml.mapping import ATTYPE_KIND, VAFamily, VASlot, parse_mapping
 from osprey.services.mml.mapping import check as check_module
-from osprey.services.mml.mapping import parse_mapping
 from osprey.services.mml.mapping.branches import ROOT_CLASS
-from osprey.services.mml.mapping.check import CheckResult, Problem, check_mapping
+from osprey.services.mml.mapping.check import CheckResult, Problem, VAExport, check_mapping
+from tests.templates.mml_export_contract import VA_NOMINAL_KEYS
 
 
 def _ao() -> dict:
@@ -103,10 +106,16 @@ def _document() -> dict:
     }
 
 
-def _check(doc: dict | None = None, ao: dict | None = None, *, no_derived: bool = False):
+def _check(
+    doc: dict | None = None,
+    ao: dict | None = None,
+    *,
+    no_derived: bool = False,
+    va=None,
+):
     doc = _document() if doc is None else doc
     ao = _ao() if ao is None else ao
-    return check_mapping(parse_mapping(doc), ao, vote_directions(ao), no_derived=no_derived)
+    return check_mapping(parse_mapping(doc), ao, vote_directions(ao), no_derived=no_derived, va=va)
 
 
 def _keys(result: CheckResult) -> list[str]:
@@ -692,7 +701,7 @@ class TestRefusedAnswers:
 
     @staticmethod
     def _findings(*entries):
-        return lambda pending, mapping: list(entries)
+        return lambda pending, mapping, va: list(entries)
 
     def test_findings_become_problems(self, monkeypatch):
         """Every entry is rendered at its own key."""
@@ -895,3 +904,110 @@ class TestOwnerMapRules:
             ["SR:QF1:SP", "SR:QF2:SP", "SR:QF2:SP"],
         )
         assert self._owners({2: 2}, ao).problems == []
+
+
+#: The deck the virtual-accelerator fixture was sampled over: one corrector.
+_VA_RING = (SimpleNamespace(FamName="HCM1", PassMethod="CorrectorPass", KickAngle=[0.0, 0.0]),)
+
+#: What that export states about ``HCM``: a type the table does not know, bound
+#: to the deck's first element, which is why the rules leave it to a reviewer.
+_VA_BLOCK = {
+    "families": {
+        "HCM": {
+            "Setpoint": {},
+            "nominals": {
+                "Setpoint": dict(
+                    zip(VA_NOMINAL_KEYS, ([0.0], "rad", "wombat", [[1]], [0]), strict=True)
+                )
+            },
+        }
+    }
+}
+
+#: The one question the rules ask of that block.
+_VA_PROPOSED = {
+    "HCM": VAFamily(
+        verdict="latch",
+        reason="its type is not one the table knows",
+        slot=VASlot(kind=ATTYPE_KIND, question="What does HCM drive?", answer=None),
+    )
+}
+
+
+def _va_export(*, deck: bool = True, system: str = "SR") -> VAExport:
+    """The 2.0 export ``map --check`` holds the block to, deck and all."""
+    pending = (
+        VAPending(system=system, proposed=_VA_PROPOSED, block=_VA_BLOCK, ring=_VA_RING)
+        if deck
+        else None
+    )
+    return VAExport(system=system, pending=pending)
+
+
+def _va_document(answer: str | None = "kick:0", system: str | None = "SR") -> dict:
+    """The passing document plus a virtual-accelerator block answering ``HCM``."""
+    doc = _document()
+    doc["virtual_accelerator"] = {
+        "system": system,
+        "families": {
+            "HCM": {
+                "verdict": "latch",
+                "reason": "its type is not one the table knows",
+                "slot": {
+                    "kind": ATTYPE_KIND,
+                    "question": "What does HCM drive?",
+                    "answer": answer,
+                },
+            }
+        },
+    }
+    return doc
+
+
+class TestVirtualAcceleratorBlock:
+    """The VA block is checked only where the tree carries a 2.0 export of it."""
+
+    def test_va_an_answered_block_passes(self):
+        """The corrector kicks the plane its element carries, so nothing is wrong."""
+        assert _check(_va_document(), va=_va_export()).problems == []
+
+    def test_va_a_one_point_oh_tree_checks_no_block(self):
+        """No 2.0 export, no virtual-accelerator rule: the 1.0 mappings pass unchanged."""
+        assert _check().problems == []
+
+    def test_va_a_mapping_without_the_block_is_refused(self):
+        """The export carries a virtual accelerator the mapping says nothing about."""
+        result = _check(va=_va_export())
+        assert _keys(result) == ["virtual_accelerator"]
+        assert "SR" in result.problems[0].message
+
+    def test_va_a_null_slot_is_refused(self):
+        """The reviewer has yet to answer, which ``unanswered_slots`` reads off alone."""
+        result = _check(_va_document(answer=None), va=_va_export())
+        assert _keys(result) == ["virtual_accelerator.families.HCM.slot.answer"]
+
+    def test_va_a_null_system_is_refused(self):
+        """A block naming no system describes none of them."""
+        result = _check(_va_document(system=None), va=_va_export())
+        assert "virtual_accelerator.system" in _keys(result)
+
+    def test_va_a_block_for_another_system_is_refused(self):
+        """The document decides a system this export carries no virtual accelerator for."""
+        result = _check(_va_document(system="BTS"), va=_va_export())
+        assert _keys(result) == ["virtual_accelerator.system"]
+        assert "BTS" in result.problems[0].message and "SR" in result.problems[0].message
+
+    def test_va_an_answer_the_deck_refuses_is_reported(self):
+        """The element carries no ``PolynomB``, so it cannot be a strength."""
+        result = _check(_va_document(answer="strength:PolynomB[2]"), va=_va_export())
+        assert _keys(result) == ["virtual_accelerator.families.HCM.slot.answer"]
+
+    def test_va_an_uncheckable_answer_needs_the_deck(self):
+        """Without the deck the answers are unchecked, which is itself the problem."""
+        result = _check(_va_document(answer="strength:PolynomB[2]"), va=_va_export(deck=False))
+        assert _keys(result) == ["virtual_accelerator"]
+        assert "lattice/SR.mat" in result.problems[0].message
+
+    def test_va_facts_reach_the_answer_rules(self):
+        """Handing over no facts leaves the answers unjudged; the null slots still read."""
+        assert _check(_va_document(answer="strength:PolynomB[2]")).problems == []

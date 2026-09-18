@@ -15,6 +15,8 @@ the export already left short all survive the judgment unchanged.
 from __future__ import annotations
 
 import copy
+import json
+from pathlib import Path
 
 import pytest
 
@@ -26,6 +28,7 @@ from osprey.services.mml.family import FamilyView, family_views
 from osprey.services.mml.judgments import (
     apply_judgments,
     judged_family_views,
+    judged_va_block,
     pending_judgments,
 )
 from osprey.services.mml.mapping.schema import (
@@ -39,6 +42,7 @@ from osprey.services.mml.mapping.schema import (
     SharedAnswer,
     System,
 )
+from osprey.services.mml.normalize import normalize_family
 
 FAMILY = "QM"
 SYSTEM = "SR"
@@ -669,3 +673,244 @@ class TestJudgedFamilyViews:
         assert views[FAMILY].body["CommonNames"] == ["Q1", "Q2"]
         assert views["BPMx"].n_devices == 2
         assert system_body == before
+
+
+SYNTHETIC = Path(__file__).resolve().parents[2] / "fixtures" / "mml" / "synthetic"
+
+
+def _synthetic(suffix: str) -> dict:
+    """Return one committed file of the synthetic export."""
+    loaded: dict = json.loads((SYNTHETIC / f"quokka.sr.{suffix}.json").read_text())
+    return loaded
+
+
+def _synthetic_family(raw: str, reach: int) -> dict:
+    """Return one exported family, its channel lists stopping at ``reach``.
+
+    The committed export binds every device of every family, so a family whose
+    last devices are unbound -- the export shape a drop answers -- is made from
+    it by cutting the channel lists short of them. Everything else is the
+    export's own.
+    """
+    body = normalize_family(_synthetic("ao")[raw])
+    for field_body in body.values():
+        if not isinstance(field_body, dict):
+            continue
+        for key in ("ChannelNames", "TangoNames"):
+            if key in field_body:
+                field_body[key] = field_body[key][:reach]
+    return body
+
+
+def _value_body() -> dict:
+    """A four-device family carrying every per-device number an export writes.
+
+    The shapes are the ones the committed exports spell: limits as one row of
+    two per device, a gain, an offset, a roll and a golden value per device, a
+    conversion parameter per device, and a parameter cell of one row per
+    parameter and one column per device.
+    """
+    return {
+        "DeviceList": _rows(4),
+        "CommonNames": ["C1", "C2", "C3", "C4"],
+        "Status": [1, 1, 1, 1],
+        "AT": {"ATType": "COR", "ATIndex": [[9, 10], [19, 20], [29, 30], [39, "NaN"]]},
+        "Monitor": {
+            "ChannelNames": ["m1", "m2", "m3"],
+            "HWUnits": ["A", "A", "A"],
+            "Range": [[-1, 1], [-1, 1], [-1, 1], [-2, 2]],
+            "Gain": [1.0, 1.0, 1.0, 0.5],
+            "Offset": [0, 0, 0, 0.25],
+            "Roll": [0, 0, 0, 0.5],
+            "Golden": [0, 0, 0, 1],
+            "HW2PhysicsParams": [0.1, 0.2, 0.3, 0.4],
+            "Physics2HWParams": [[10, 10, 10, 20], [0, 0, 0, 1]],
+        },
+    }
+
+
+class TestPerDeviceValuesAndIndices:
+    """A device leaves every list that holds a slot for it, whatever it holds."""
+
+    def test_a_dropped_device_leaves_the_atindex_of_a_sliced_family(self):
+        """The kick family's slices go with the device that was sliced."""
+        body = _synthetic_family("HC", reach=3)
+        mapping = _mapping({}, family="HC", unbound={4: "drop"})
+        judged = apply_judgments(SYSTEM, "HC", body, mapping)
+        assert judged["DeviceList"] == [[1, 1], [2, 1], [3, 1]]
+        assert judged["AT"]["ATIndex"] == [[9, 10], [19, 20], [29, 30]]
+        assert judged["AT"]["ATType"] == "HCM"
+        assert judged["CommonNames"] == ["qk-hc-1", "qk-hc-2", "qk-hc-3"]
+
+    def test_atindex_range_gain_offset_roll_golden_and_parameters_drop_together(self):
+        """One dropped device leaves every per-device number of the family at once."""
+        judged = _apply_unbound(_value_body(), {4: "drop"})
+        assert _view(judged).n_devices == 3
+        assert judged["AT"]["ATIndex"] == [[9, 10], [19, 20], [29, 30]]
+        monitor = judged["Monitor"]
+        assert monitor["Range"] == [[-1, 1], [-1, 1], [-1, 1]]
+        assert monitor["Gain"] == [1.0, 1.0, 1.0]
+        assert monitor["Offset"] == [0, 0, 0]
+        assert monitor["Roll"] == [0, 0, 0]
+        assert monitor["Golden"] == [0, 0, 0]
+        assert monitor["HW2PhysicsParams"] == [0.1, 0.2, 0.3]
+
+    def test_the_atindex_and_a_parameter_cell_realign_on_different_axes(self):
+        """A cell states its devices along its columns, an index list along its rows."""
+        judged = _apply_unbound(_value_body(), {4: "drop"})
+        assert judged["AT"]["ATIndex"] == [[9, 10], [19, 20], [29, 30]]
+        assert judged["Monitor"]["Physics2HWParams"] == [[10, 10, 10], [0, 0, 0]]
+
+    def test_a_family_wide_range_beside_the_atindex_is_left_alone(self):
+        """A low/high pair is one span for the family, and a scalar one value."""
+        body = _value_body()
+        body["Setpoint"] = {
+            "ChannelNames": ["s1", "s2", "s3"],
+            "Range": [-1, 1],
+            "HW2PhysicsParams": 0.5,
+            "Tolerance": 0.1,
+        }
+        judged = _apply_unbound(body, {4: "drop"})
+        assert judged["Setpoint"]["Range"] == [-1, 1]
+        assert judged["Setpoint"]["HW2PhysicsParams"] == 0.5
+        assert judged["Setpoint"]["Tolerance"] == 0.1
+
+    def test_a_kept_device_leaves_the_atindex_as_the_export_wrote_it(self):
+        """A list already spanning the devices carries the kept one's slot already."""
+        judged = _apply_unbound(_value_body(), {4: "keep"})
+        assert _view(judged).n_devices == 4
+        assert judged["AT"]["ATIndex"] == [[9, 10], [19, 20], [29, 30], [39, "NaN"]]
+        assert judged["Monitor"]["Gain"] == [1.0, 1.0, 1.0, 0.5]
+        assert judged["Monitor"]["Physics2HWParams"] == [[10, 10, 10, 20], [0, 0, 0, 1]]
+        assert judged["Monitor"]["ChannelNames"] == ["m1", "m2", "m3", None]
+
+    def test_a_promoted_row_pads_the_atindex_and_the_parameters(self):
+        """The devices the family grows reach every list that held a slot per device."""
+        body = _value_body()
+        body["Monitor"]["ChannelNames"] = ["m1", "m2", "m3", "m4", "m5"]
+        body["Monitor"]["HWUnits"] = ["A", "A", "A", "A"]
+        judged = _apply(body, {"Monitor": {"m5": "device"}})
+        assert _view(judged).n_devices == 5
+        assert judged["AT"]["ATIndex"] == [[9, 10], [19, 20], [29, 30], [39, "NaN"], ["NaN", "NaN"]]
+        assert judged["Monitor"]["Gain"] == [1.0, 1.0, 1.0, 0.5, "NaN"]
+        assert judged["Monitor"]["Range"] == [[-1, 1], [-1, 1], [-1, 1], [-2, 2], ["NaN", "NaN"]]
+        assert judged["Monitor"]["Physics2HWParams"] == [
+            [10, 10, 10, 20, "NaN"],
+            [0, 0, 0, 1, "NaN"],
+        ]
+
+
+class TestJudgedVaBlock:
+    """The virtual-accelerator block follows the devices its family was left with."""
+
+    def test_the_va_block_loses_the_dropped_device_from_every_row(self):
+        """The kick family's block reads three devices where the export wrote four."""
+        va = {SYSTEM: _synthetic("va")}
+        before = copy.deepcopy(va)
+        mapping = _mapping({}, family="HC", unbound={4: "drop"})
+        judged = judged_va_block(SYSTEM, "HC", va, mapping)
+        assert judged["device_list"] == [[1, 1], [2, 1], [3, 1]]
+        nominal = judged["nominals"]["Setpoint"]
+        assert nominal["values"] == [1.5, -0.8, 0.4]
+        assert nominal["at_index"] == [[9, 10], [19, 20], [29, 30]]
+        assert nominal["at_type"] == "HCM"
+        assert judged["Setpoint"]["calibration"]["gain"] == [0.0001, 0.0001, 0.0001]
+        assert judged["Setpoint"]["calibration"]["offset"] == [0, 0, 0]
+        assert judged["Monitor"]["monitor_inverse"]["gain"] == [10000, 10000, 10000]
+        assert judged["Monitor"]["monitor_inverse"]["offset"] == [-4.44089209850063e-16, 0, 0]
+        assert va == before
+
+    def test_the_va_block_drops_the_rows_of_a_sampled_conversion(self):
+        """A table holds one row of points per device, so a device takes its row."""
+        mapping = _mapping({}, family="BEND", unbound={4: "drop"})
+        judged = judged_va_block(SYSTEM, "BEND", {SYSTEM: _synthetic("va")}, mapping)
+        calibration = judged["Setpoint"]["calibration"]
+        assert len(calibration["grid"]) == 3
+        assert len(calibration["values"]) == 3
+        assert calibration["finite_span"] == [[0, 487.5], [0, 487.5], [0, 487.5]]
+        assert all(len(row) == 33 for row in calibration["grid"])
+
+    def test_the_va_block_keeps_the_energy_table_of_the_device_it_names(self):
+        """The table describes one device's ramp by the row it names, not a slot each."""
+        block = _synthetic("va")["families"]["BEND"]
+        mapping = _mapping({}, family="BEND", unbound={4: "drop"})
+        judged = judged_va_block(SYSTEM, "BEND", {SYSTEM: _synthetic("va")}, mapping)
+        assert judged["energy_table"] == block["energy_table"]
+
+    def test_the_va_block_of_a_family_with_no_answers_is_copied_through(self):
+        """A family the reviewer never answered reads as the export wrote it."""
+        va = {SYSTEM: _synthetic("va")}
+        mapping = _mapping({}, family="HC", unbound={4: "drop"})
+        judged = judged_va_block(SYSTEM, "QF", va, mapping)
+        assert judged == va[SYSTEM]["families"]["QF"]
+
+    def test_the_va_block_reads_a_document_that_is_one_system_already(self):
+        """The document holds one block per system, or is one system's own."""
+        mapping = _mapping({}, family="HC", unbound={4: "drop"})
+        keyed = judged_va_block(SYSTEM, "HC", {SYSTEM: _synthetic("va")}, mapping)
+        bare = judged_va_block(SYSTEM, "HC", _synthetic("va"), mapping)
+        assert keyed == bare
+
+    def test_the_va_block_leaves_an_empty_index_and_a_stated_nominal_alone(self):
+        """The escape hatch states no index at all, and its nominals are per device."""
+        mapping = _mapping({}, family="IDGAP", unbound={2: "drop"})
+        judged = judged_va_block(SYSTEM, "IDGAP", {SYSTEM: _synthetic("va")}, mapping)
+        assert judged["device_list"] == [[1, 1]]
+        assert judged["nominals"]["Setpoint"]["values"] == ["NaN"]
+        assert judged["nominals"]["Setpoint"]["at_index"] == []
+        assert judged["nominals"]["Setpoint"]["synthetic"] == 1
+
+    def test_the_va_block_of_a_one_device_family_states_a_span_not_two_devices(self):
+        """A one-device family writes its device as a flat pair, which is no two slots."""
+        mapping = _mapping({}, family="RF", unbound={1: "drop"})
+        judged = judged_va_block(SYSTEM, "RF", {SYSTEM: _synthetic("va")}, mapping)
+        assert judged["device_list"] == [1, 1]
+        assert judged["nominals"]["Setpoint"]["values"] == 516.883548276
+        assert judged["Setpoint"]["calibration"]["gain"] == 1000000
+
+    def test_the_va_block_pads_its_rows_out_to_the_judged_device_count(self):
+        """A row promoted to a device was no device when the export sampled the rows."""
+        mapping = _mapping({}, family="HC", unbound={})
+        judged = judged_va_block(SYSTEM, "HC", {SYSTEM: _synthetic("va")}, mapping, devices=5)
+        assert judged["device_list"] == [[1, 1], [2, 1], [3, 1], [4, 1], ["NaN", "NaN"]]
+        nominal = judged["nominals"]["Setpoint"]
+        assert nominal["values"] == [1.5, -0.8, 0.4, 0, "NaN"]
+        assert nominal["at_index"] == [[9, 10], [19, 20], [29, 30], [39, "NaN"], ["NaN", "NaN"]]
+        assert judged["Setpoint"]["calibration"]["gain"] == [0.0001] * 4 + ["NaN"]
+
+    def test_the_readout_rows_follow_the_devices_the_family_kept(self):
+        """What corrects a reading is one number per device, so a drop takes its number.
+
+        Left behind, the numbers would keep the export's device order while the
+        device list moved to the judged one, and the third monitor would be
+        corrected by the fourth monitor's gain.
+        """
+        mapping = _mapping({}, family="BPMx", unbound={3: "drop"})
+        judged = judged_va_block(SYSTEM, "BPMx", {SYSTEM: _synthetic("va")}, mapping)
+        readout = judged["Monitor"]["readout"]
+
+        assert judged["device_list"] == [[1, 1], [2, 1], [4, 1]]
+        assert readout["gain"] == [1.02, 0.98, 0.995]
+        assert readout["offset"] == [0.12, -0.05, 0]
+        assert readout["roll"] == [0.001, -0.002, 0.0005]
+        assert readout["crunch"] == [0.002, 0, 0.004]
+
+    def test_a_promoted_row_leaves_the_readout_with_nothing_to_correct_it_by(self):
+        """A device the export never sampled has no correction of its own."""
+        mapping = _mapping({}, family="BPMx", unbound={})
+        judged = judged_va_block(SYSTEM, "BPMx", {SYSTEM: _synthetic("va")}, mapping, devices=5)
+
+        assert judged["Monitor"]["readout"]["gain"] == [1.02, 0.98, 1.01, 0.995, "NaN"]
+
+    def test_a_drop_and_a_pad_leave_the_va_block_at_the_judged_count(self):
+        """The rows are realigned first and padded after, so the order is the judged one."""
+        mapping = _mapping({}, family="HC", unbound={4: "drop"})
+        judged = judged_va_block(SYSTEM, "HC", {SYSTEM: _synthetic("va")}, mapping, devices=4)
+        assert judged["device_list"] == [[1, 1], [2, 1], [3, 1], ["NaN", "NaN"]]
+        assert judged["nominals"]["Setpoint"]["values"] == [1.5, -0.8, 0.4, "NaN"]
+
+    def test_a_family_the_va_document_has_no_block_for_is_refused(self):
+        """A block the document does not hold is a caller's mistake, not an empty one."""
+        mapping = _mapping({}, family="HC", unbound={4: "drop"})
+        with pytest.raises(KeyError, match="HC"):
+            judged_va_block(SYSTEM, "HC", {"LTB": _synthetic("va")}, mapping)

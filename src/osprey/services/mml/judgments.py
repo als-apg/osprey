@@ -34,6 +34,15 @@ refuse exactly the same answers. A slot the reviewer left null decides
 nothing, so it is no answer to judge: :func:`unanswered_slots` reads those off
 the document, and both verbs report them beside the refused answers.
 
+The virtual-accelerator block asks its own questions, and they are answered in
+the same document, so they are validated in the same place. A caller holding
+the facts -- what the rules ask of one system, the export block they were
+decided from, and the deck itself -- hands them over as a :class:`VAPending`,
+and an answer is then read back against the question it answers and against
+the elements it would write: an attribute no bound element carries is refused
+exactly where a row the export cannot carry is. A caller with no such facts
+passes none, and the judgment half validates as it always did.
+
 :func:`apply_judgments` is the other half: it reads the reviewer's answers back
 onto one family body, before any view an emitter uses is built. A dropped
 device leaves every list that holds one slot per device, a kept one gains an
@@ -45,7 +54,9 @@ judged differently in another system; an answer the semantic checker would
 refuse is an internal ``AssertionError`` rather than a second refusal path.
 :func:`judged_family_views` is that half over a whole system, standing in for
 :func:`~osprey.services.mml.family.family_views` wherever an emitter reads the
-grain the reviewer settled on.
+grain the reviewer settled on, and :func:`judged_va_block` is the same answers
+over the virtual-accelerator block the export wrote beside the family, so both
+documents are read in one device order.
 
 The module is pure: the standard library, the family view and the mapping
 schema, no I/O.
@@ -54,7 +65,8 @@ schema, no I/O.
 from __future__ import annotations
 
 import copy
-from collections.abc import Iterable, Iterator
+import math
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import combinations
 from typing import Any
@@ -68,20 +80,29 @@ from osprey.services.mml.mapping.schema import (
     UNBOUND_KIND,
     FamilyJudgments,
     FieldAnswer,
+    KickAnswer,
     Mapping,
+    MonitorAnswer,
+    OwnerAnswer,
     OwnerMap,
     RowAnswer,
+    StrengthAnswer,
     UnboundAnswer,
+    VAAnswer,
+    VAFamily,
     judgment_key,
 )
+from osprey.services.mml.va.verdicts import resolve_attype
 
 __all__ = [
     "PendingJudgments",
     "PendingRow",
     "SupplyGroup",
+    "VAPending",
     "all_pending_judgments",
     "apply_judgments",
     "judged_family_views",
+    "judged_va_block",
     "pending_judgments",
     "unanswered_slots",
     "validate_answers",
@@ -107,6 +128,52 @@ _PER_DEVICE_ARRAYS: tuple[str, ...] = tuple(
 #: exported, because no emitter reads it per device.
 _PER_DEVICE_FIELD_KEYS: tuple[str, ...] = ("HWUnits", "PhysicsUnits", "DataType")
 
+#: Field keys holding one number per device beside the channel lists: the
+#: limits a device is driven between, the gain and offset a reading is
+#: corrected by, the angle and the shear that carry a monitor's planes into the
+#: model's, and the value a reading is compared to.
+_PER_DEVICE_VALUE_KEYS: tuple[str, ...] = (
+    "Range",
+    "Gain",
+    "Offset",
+    "Roll",
+    "Crunch",
+    "Golden",
+)
+
+#: Field keys holding the parameters of a conversion. A cell states one row
+#: per parameter and one column per device, the transpose of every other
+#: per-device list, so both axes are offered and the device count settles
+#: which one the family is realigned along.
+_PER_DEVICE_PARAM_KEYS: tuple[str, ...] = ("HW2PhysicsParams", "Physics2HWParams")
+
+#: The sub-dict carrying a family's element indices, and the key under it that
+#: holds one index per device -- or one row of slice indices per device.
+_AT_KEY = "AT"
+_AT_ROW_KEYS: tuple[str, ...] = ("ATIndex",)
+
+#: Keys whose flat pair of numbers is one low/high span rather than two
+#: devices' slots. Every other key reads a flat list as one slot per device.
+_SPAN_KEYS = frozenset({"Range", "device_list", "finite_span"})
+
+#: The rows of one ``va.json`` family block that carry a slot per device: the
+#: nominal a device sits at, and the parameters of one conversion.
+_VA_NOMINAL_ROW_KEYS: tuple[str, ...] = ("values", "at_index", "synthetic")
+_VA_CONVERSION_KEYS: tuple[str, ...] = ("calibration", "monitor_inverse")
+_VA_CONVERSION_ROW_KEYS: tuple[str, ...] = ("gain", "offset", "grid", "values", "finite_span")
+
+#: The sub-dict carrying what a field's readings are corrected by, and the keys
+#: under it that hold one value per device.
+_VA_READOUT_KEY = "readout"
+_VA_READOUT_ROW_KEYS: tuple[str, ...] = ("gain", "offset", "roll", "crunch")
+
+#: The fields a ``va.json`` family states its facts under, in the order a
+#: family couples through them: what it sets before what it only reads.
+_VA_FIELDS: tuple[str, ...] = ("Setpoint", "Monitor")
+
+#: The element attribute a corrector answer writes, whichever plane it names.
+_VA_KICK_ATTRIBUTE = "KickAngle"
+
 #: Field metadata a moved row carries over whole, list or not.
 _VERBATIM_FIELD_KEYS: tuple[str, ...] = ("MemberOf", "Range", "Tolerance")
 
@@ -115,6 +182,9 @@ _CHANNEL_BLANK = None
 
 #: The blank of a per-device list: the export's own spelling for "no value".
 _DEVICE_BLANK = ""
+
+#: The blank of a per-device number: what the export writes for an absent one.
+_NUMBER_BLANK = "NaN"
 
 
 def _signal(slot: Any) -> str | None:
@@ -619,8 +689,226 @@ def _family_findings(
     yield from _created_fields(raw, judgments, found, mapping, {key for key, _, _ in incompatible})
 
 
+@dataclass(frozen=True)
+class VAPending:
+    """What the virtual-accelerator rules ask of one system, and of what.
+
+    An answer is checked against the deck the export was sampled over, so the
+    caller hands over what it already holds to decide the block in the first
+    place. Nothing here is read from the mapping: this is the export's side of
+    the question the document answers.
+
+    Attributes:
+        system: The system the block describes, named in every message because
+            a family may be asked something different in another one.
+        proposed: One verdict per exported family, as the rules decide them
+            before any answer is read -- what
+            :func:`~osprey.services.mml.va.verdicts.propose` returns. A verdict
+            carrying a slot is a question the document has to answer.
+        block: That system's virtual-accelerator export block, carrying the
+            ``families`` whose stated type and element indices an answer is
+            held to.
+        ring: The deck, every element kept and in saved order. Element indices
+            are one-based into it, as the Middle Layer states them.
+    """
+
+    system: str
+    proposed: dict[str, VAFamily]
+    block: dict
+    ring: Sequence[Any] = ()
+
+
+def _va_key(raw: str, *parts: str) -> str:
+    """The document path of one virtual-accelerator family, or of a key under it."""
+    return ".".join(("virtual_accelerator", "families", raw, *parts))
+
+
+def _va_nominal(block: dict, raw: str) -> dict:
+    """Return the facts one family states under the field it couples through.
+
+    A family that sets something is bound through what it sets and one that
+    only reads through what it reads, which is the order the fields are
+    consulted in.
+    """
+    families = block.get("families") if isinstance(block, dict) else None
+    body = families.get(raw) if isinstance(families, dict) else None
+    if not isinstance(body, dict):
+        return {}
+    name = next((key for key in _VA_FIELDS if key in body), None)
+    nominals = body.get("nominals")
+    nominal = nominals.get(name) if isinstance(nominals, dict) and name is not None else None
+    return nominal if isinstance(nominal, dict) else {}
+
+
+def _va_index(value: Any) -> int | None:
+    """Read one stated element index, which an export may spell as a word."""
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return int(number) if math.isfinite(number) and number == int(number) else None
+
+
+def _va_positions(block: dict, raw: str) -> list[int]:
+    """Return every one-based element index a family binds, in stated order.
+
+    A slice an export writes as a not-a-number is a slice the device does not
+    have, so it binds nothing and is left out.
+    """
+    value = _va_nominal(block, raw).get("at_index")
+    rows = value if isinstance(value, (list, tuple)) else [value]
+    positions = []
+    for row in rows:
+        for item in row if isinstance(row, (list, tuple)) else [row]:
+            index = _va_index(item)
+            if index is not None:
+                positions.append(index)
+    return positions
+
+
+def _va_element_field(block: dict, raw: str) -> str | None:
+    """The element field a family's stated type drives, if its type names one."""
+    resolved = resolve_attype(_va_nominal(block, raw).get("at_type"))
+    return None if resolved is None else resolved[1]
+
+
+def _va_carries(element: Any, attribute: str | None, index: int | None) -> bool:
+    """Whether an element already holds the attribute a write would reach for."""
+    if attribute is None:
+        return True
+    value = getattr(element, attribute, None)
+    if value is None:
+        return False
+    return index is None or len(value) >= index + 1
+
+
+def _va_element_findings(
+    raw: str, va: VAPending, attribute: str | None, index: int | None
+) -> Iterator[_Finding]:
+    """Yield what the deck refuses about the elements an answer would write.
+
+    The first element that refuses the answer settles it: a reviewer answering
+    again reads the same refusal off the next one.
+    """
+    key = _va_key(raw, "slot", "answer")
+    where = f"{raw} in {va.system}"
+    positions = _va_positions(va.block, raw)
+    if not positions:
+        yield (key, f"binds an element of {where}, which states no element index", True)
+        return
+    spelled = attribute if index is None else f"{attribute}[{index}]"
+    for position in positions:
+        if not 1 <= position <= len(va.ring):
+            yield (
+                key,
+                f"ATIndex {position} of {where} is past the end of a ring of {len(va.ring)}",
+                True,
+            )
+            return
+        element = va.ring[position - 1]
+        if not _va_carries(element, attribute, index):
+            name = getattr(element, "FamName", "")
+            pass_method = getattr(element, "PassMethod", "")
+            yield (key, f"element {name} ({pass_method}) of {where} takes no {spelled}", True)
+            return
+
+
+def _va_collision(raw: str, va: VAPending) -> frozenset[str]:
+    """Return the families driving an element field this one also drives.
+
+    Two families collide on one field of one element, so a family binding the
+    other plane of the same corrector is no part of the collision.
+    """
+    families = va.block.get("families") if isinstance(va.block, dict) else None
+    names = list(families) if isinstance(families, dict) else []
+    element_field = _va_element_field(va.block, raw)
+    driven = {(position, element_field) for position in _va_positions(va.block, raw)}
+    return frozenset(
+        name
+        for name in names
+        if name != raw
+        and any(
+            (position, _va_element_field(va.block, name)) in driven
+            for position in _va_positions(va.block, name)
+        )
+    )
+
+
+def _va_owner_findings(raw: str, va: VAPending, answer: OwnerAnswer) -> Iterator[_Finding]:
+    """Yield the owner answers the export has no collision for."""
+    key = _va_key(raw, "slot", "answer")
+    families = va.block.get("families") if isinstance(va.block, dict) else None
+    if not isinstance(families, dict) or answer.family not in families:
+        yield (key, f"names {answer.family}, a family the {va.system} export does not carry", True)
+    elif answer.family != raw and answer.family not in _va_collision(raw, va):
+        yield (
+            key,
+            f"names {answer.family}, which drives no element field of {raw} in {va.system}",
+            True,
+        )
+
+
+def _va_answer_findings(raw: str, va: VAPending, answer: VAAnswer) -> Iterator[_Finding]:
+    """Yield what the export refuses about one answered slot.
+
+    A word settles the family on its own -- a latch binds nothing, the energy
+    knob and the cavity bind a class rather than an index, and a hook is
+    ignored or it is not -- so only an answer naming an element field is held
+    to the deck.
+    """
+    if isinstance(answer, StrengthAnswer):
+        yield from _va_element_findings(raw, va, answer.attribute, answer.index)
+    elif isinstance(answer, KickAnswer):
+        yield from _va_element_findings(raw, va, _VA_KICK_ATTRIBUTE, answer.plane)
+    elif isinstance(answer, MonitorAnswer):
+        yield from _va_element_findings(raw, va, None, None)
+    elif isinstance(answer, OwnerAnswer):
+        yield from _va_owner_findings(raw, va, answer)
+
+
+def _va_findings(mapping: Mapping, va: VAPending) -> Iterator[_Finding]:
+    """Yield one entry per virtual-accelerator answer the export refuses.
+
+    The document is read first, in its own order, and the questions it says
+    nothing about after it, so a reviewer reads the answers they wrote before
+    the ones they have yet to write.
+    """
+    document = mapping.virtual_accelerator
+    families = {} if document is None else document.families
+    for raw, family in families.items():
+        proposed = va.proposed.get(raw)
+        if proposed is None:
+            yield (_va_key(raw), f"names a family the {va.system} export does not carry", True)
+            continue
+        asked, answered = proposed.slot, family.slot
+        if asked is None:
+            if answered is not None:
+                yield (
+                    _va_key(raw, "slot"),
+                    f"answers no open question of {raw} in {va.system}",
+                    True,
+                )
+        elif answered is None:
+            yield (_va_key(raw, "slot"), f"is pending in {va.system} and has no answer", True)
+        elif answered.kind != asked.kind:
+            yield (
+                _va_key(raw, "slot", "kind"),
+                f"answers {answered.kind} where {raw} pends {asked.kind} in {va.system}",
+                True,
+            )
+        elif answered.answer is not None:
+            yield from _va_answer_findings(raw, va, answered.answer)
+    for raw, proposed in va.proposed.items():
+        if proposed.slot is not None and raw not in families:
+            yield (_va_key(raw), f"is pending in {va.system} and has no answer", True)
+
+
 def validate_answers(
-    pending: dict[tuple[str, str], PendingJudgments], mapping: Mapping
+    pending: dict[tuple[str, str], PendingJudgments],
+    mapping: Mapping,
+    va: VAPending | None = None,
 ) -> list[tuple[str, str, bool]]:
     """Return one entry per judgment answer the export or the mapping refuses.
 
@@ -641,14 +929,27 @@ def validate_answers(
     does. An owner answer leaving a group member bound by nothing is legal and
     silent here; ``PROFILE.md`` states the consequence.
 
+    The virtual-accelerator answers are validated on the same terms once a
+    caller hands over the facts they are decided against: the question each
+    family pends, the export block, and the deck. An answer naming an element
+    field is held to the elements it would write -- a strength to the
+    coefficient it sets, a corrector to the plane it kicks, an owner to the
+    families whose field it takes over -- and every entry is one the export
+    cannot carry. Their keys are document paths under
+    ``virtual_accelerator.families``, as ``parse_mapping`` spells them.
+
     Args:
         pending: What each ``(system, raw family)`` asks its reviewer, read off
             the raw export before any answer is applied.
         mapping: The mapping carrying the answers.
+        va: What the virtual-accelerator rules ask of one system and of what.
+            Without it the block is not validated, because nothing states what
+            it was asked; the judgment answers are validated either way.
 
     Returns:
         The entries, grouped by family in document order, the families the
-        document says nothing about last.
+        document says nothing about last, and the virtual-accelerator entries
+        after both.
     """
     by_family: dict[str, list[PendingJudgments]] = {}
     for judged in pending.values():
@@ -668,6 +969,9 @@ def validate_answers(
                 findings.setdefault(entry[0], entry)
         for entry in _missing_slots(raw, judgments, found):
             findings.setdefault(entry[0], entry)
+    if va is not None:
+        for entry in _va_findings(mapping, va):
+            findings.setdefault(entry[0], entry)
     return list(findings.values())
 
 
@@ -679,12 +983,18 @@ def unanswered_slots(mapping: Mapping) -> list[tuple[str, str]]:
     decides nothing. :func:`validate_answers` judges answers and says nothing
     about these, and every caller that refuses a mapping reports both.
 
+    A virtual-accelerator block asks the same way: a family's slot left null is
+    one question, and the system the block describes is another, because a
+    block naming no system describes none of them.
+
     Args:
         mapping: The mapping whose answer slots to read.
 
     Returns:
-        ``(key, message)`` per null slot, in document order, the key rendered
-        by :func:`~osprey.services.mml.mapping.schema.judgment_key`.
+        ``(key, message)`` per null slot, in document order, the judgment slots
+        first with their keys rendered by
+        :func:`~osprey.services.mml.mapping.schema.judgment_key`, the
+        virtual-accelerator slots after them at their document paths.
     """
     slots: list[tuple[str, str]] = []
     for raw, judgments in mapping.judgments.items():
@@ -697,6 +1007,13 @@ def unanswered_slots(mapping: Mapping) -> list[tuple[str, str]]:
                 slots.append((judgment_key(raw, UNBOUND_KIND, ordinal=ordinal), _UNANSWERED))
         if judgments.shared_pvs_present and judgments.shared_pvs is None:
             slots.append((judgment_key(raw, SHARED_KIND), _UNANSWERED))
+    va = mapping.virtual_accelerator
+    if va is not None:
+        if va.system is None:
+            slots.append(("virtual_accelerator.system", _UNANSWERED))
+        for raw, family in va.families.items():
+            if family.slot is not None and family.slot.answer is None:
+                slots.append((_va_key(raw, "slot", "answer"), _UNANSWERED))
     return slots
 
 
@@ -892,22 +1209,119 @@ def _grow_device_list(body: dict, n_devices: int, new_count: int) -> None:
             rows.append([copy.deepcopy(sector), number])
 
 
-def _per_device_lists(body: dict, fields: Iterable[dict]) -> Iterator[tuple[dict, str, Any]]:
+class _CellRow:
+    """One row of a parameter cell, presented as the container that holds it.
+
+    A cell states one row per parameter and one column per device, so the
+    slot a device owns sits inside a row rather than being one. Handing each
+    row over under the cell's own key lets it be realigned by the same
+    registry as every list whose own slots are the devices'.
+    """
+
+    def __init__(self, cell: list, index: int, key: str) -> None:
+        self._cell = cell
+        self._index = index
+        self._key = key
+
+    def get(self, key: str, default: Any = None) -> Any:
+        """Return the row when ``key`` names the cell, else ``default``."""
+        return self._cell[self._index] if key == self._key else default
+
+    def __contains__(self, key: str) -> bool:
+        return key == self._key
+
+    def __getitem__(self, key: str) -> Any:
+        if key != self._key:
+            raise KeyError(key)
+        return self._cell[self._index]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        if key != self._key:
+            raise KeyError(key)
+        self._cell[self._index] = value
+
+
+def _row_blank(value: list) -> Any:
+    """Return the blank a new device joins ``value`` with.
+
+    A list of rows blanks with a row of its own width, so the shape the export
+    wrote survives a device being added; a flat list blanks with one number.
+    """
+    first = value[0] if value else None
+    if isinstance(first, (list, tuple)):
+        return [_NUMBER_BLANK] * len(first)
+    return _NUMBER_BLANK
+
+
+def _is_cell(value: list) -> bool:
+    """Whether ``value``'s two axes can be told apart.
+
+    A cell of rows of one width has a device axis wherever the device count
+    is; a square one says nothing about which of its axes that is, so it is
+    left to be read along its rows like every other per-device list.
+    """
+    if not value or not all(isinstance(row, (list, tuple)) for row in value):
+        return False
+    widths = {len(row) for row in value}
+    return len(widths) == 1 and widths != {len(value)}
+
+
+def _numeric_rows(
+    container: Any, keys: Iterable[str], *, cells: bool = False
+) -> Iterator[tuple[Any, str, Any]]:
+    """Yield the per-device value lists of one container, each with its blank.
+
+    A key is yielded only where it holds a list, because a bare number is one
+    value for the whole family and no list to realign, and a flat pair under a
+    span key is one low/high pair rather than two devices' slots. A cell is
+    offered along both of its axes where they differ in length, so the device
+    count settles which one the family is realigned along; a square cell says
+    nothing about which axis is which and is read along its rows, the way
+    every other per-device list is read.
+    """
+    if not isinstance(container, dict):
+        return
+    for key in keys:
+        value = container.get(key)
+        if not isinstance(value, (list, tuple)):
+            continue
+        if key in _SPAN_KEYS and _is_flat_pair(value):
+            continue
+        rows = list(value)
+        yield container, key, _row_blank(rows)
+        if cells and isinstance(value, list) and _is_cell(rows):
+            for index in range(len(value)):
+                yield _CellRow(value, index, key), key, _NUMBER_BLANK
+
+
+def _per_device_lists(body: dict, fields: Iterable[dict]) -> Iterator[tuple[Any, str, Any]]:
     """Yield every ``(container, key, blank)`` of ``body`` that holds a slot per device.
 
     The channel keys of each field blank as a channel list does; the field's
     unit and data-type keys and the family arrays blank as the export spells a
-    missing value. A key a container does not carry is yielded all the same, so
-    each consumer decides what an absent or scalar value means to it.
+    missing value; a field's per-device numbers, the parameters of its
+    conversions and the element indices under ``AT`` blank as the export
+    spells a missing number. One registry answers for all of them, so a device
+    leaves -- or joins -- every list that holds a slot for it at once.
+
+    A key of the first two groups is yielded whether or not its container
+    carries it, so each consumer decides what an absent or scalar value means
+    to it. A key of the third is yielded only where the container holds a
+    list, because there only the value's own shape tells a list of devices
+    from one value stated for the whole family.
     """
     for field_body in fields:
         for key in CHANNEL_KEYS:
             yield field_body, key, _CHANNEL_BLANK
         for key in _PER_DEVICE_FIELD_KEYS:
             yield field_body, key, _DEVICE_BLANK
+        yield from _numeric_rows(field_body, _PER_DEVICE_VALUE_KEYS)
+        yield from _numeric_rows(field_body, _PER_DEVICE_PARAM_KEYS, cells=True)
+        yield from _numeric_rows(field_body.get(_AT_KEY), _AT_ROW_KEYS)
     for container in _array_containers(body):
         for name in _PER_DEVICE_ARRAYS:
             yield container, name, _DEVICE_BLANK
+        yield from _numeric_rows(container.get(_AT_KEY), _AT_ROW_KEYS)
 
 
 def _pad(
@@ -989,19 +1403,16 @@ def _drop_devices(body: dict, view: FamilyView, indices: frozenset[int], n_devic
 
     The positions are the export's own, so the slots go in one pass and the
     devices that survive keep the order and the numbering they were exported
-    with. No channel list reaches a dropped device -- that is what made it
-    unbound -- so none is touched, and the shortened ``DeviceList`` is the
+    with. The lists come from the one registry the family is realigned by, so
+    a dropped device leaves its channel name, its element index and its
+    conversion parameters together; the shortened ``DeviceList`` is the
     family's new device count.
     """
     for container in _array_containers(body):
         _drop_slots(container, "DeviceList", indices, n_devices)
-        for name in _PER_DEVICE_ARRAYS:
-            _drop_slots(container, name, indices, n_devices)
-    for name in view.fields:
-        field_body = body.get(name)
-        if isinstance(field_body, dict):
-            for key in _PER_DEVICE_FIELD_KEYS:
-                _drop_slots(field_body, key, indices, n_devices)
+    fields = [field for name in view.fields if isinstance(field := body.get(name), dict)]
+    for container, key, _blank in _per_device_lists(body, fields):
+        _drop_slots(container, key, indices, n_devices)
 
 
 def _pad_exact(container: dict, key: str, length: int, count: int, blank: Any) -> None:
@@ -1142,3 +1553,100 @@ def judged_family_views(system: str, body: dict, mapping: Mapping) -> Iterator[F
         yield FamilyView(
             system, view.raw_name, apply_judgments(system, view.raw_name, view.body, mapping)
         )
+
+
+def _va_families(system: str, va_json: dict) -> dict:
+    """Return the family blocks of one system's virtual-accelerator document."""
+    block = va_json.get(system, va_json)
+    if not isinstance(block, dict):
+        return {}
+    families = block.get("families")
+    return families if isinstance(families, dict) else {}
+
+
+def _va_device_count(block: dict) -> int:
+    """Return how many devices the block's rows were written for."""
+    rows = block.get("device_list")
+    if not isinstance(rows, (list, tuple)):
+        return 0
+    return 1 if _is_flat_pair(rows) else len(rows)
+
+
+def _va_per_device_lists(block: dict) -> Iterator[tuple[Any, str, Any]]:
+    """Yield every ``(container, key, blank)`` of one VA block holding a slot per device.
+
+    The block's device list, the nominal of each field, the per-device
+    parameters of its calibration and of its monitor inverse and what its
+    readings are corrected by all carry one entry per device, a sampled
+    conversion one row of points per device. The energy table describes the
+    ramp of the one device it names rather than a slot per device, so it is
+    not one of them.
+    """
+    yield from _numeric_rows(block, ("device_list",))
+    nominals = block.get("nominals")
+    if isinstance(nominals, dict):
+        for nominal in nominals.values():
+            yield from _numeric_rows(nominal, _VA_NOMINAL_ROW_KEYS)
+    for field_block in block.values():
+        if not isinstance(field_block, dict):
+            continue
+        for key in _VA_CONVERSION_KEYS:
+            yield from _numeric_rows(field_block.get(key), _VA_CONVERSION_ROW_KEYS)
+        yield from _numeric_rows(field_block.get(_VA_READOUT_KEY), _VA_READOUT_ROW_KEYS)
+
+
+def judged_va_block(
+    system: str,
+    family: str,
+    va_json: dict,
+    mapping: Mapping,
+    *,
+    devices: int | None = None,
+) -> dict:
+    """Return one family's ``va.json`` block in the judged device order.
+
+    The block holds one row per device the family was exported with -- its
+    device list, its nominals, its element indices and the per-device
+    parameters of every conversion -- so an answer that changed the family's
+    devices changes its rows too, and a consumer reads one device order across
+    the export's two documents.
+
+    Args:
+        system: The system the block sits under, where the document holds one
+            block per system; a document that is already one system's is read
+            as it stands.
+        family: The family's raw name, the key its answers are written under.
+        va_json: The imported virtual-accelerator document; never modified.
+        mapping: The mapping carrying the answers.
+        devices: How many devices the judged family has, where the caller has
+            judged it already. The rows are padded out to it, because a row
+            promoted to a device was no device when the export sampled them.
+            Left out, the block keeps the devices its own list states, less
+            the dropped ones.
+
+    Returns:
+        A new block.
+
+    Raises:
+        KeyError: The document holds no block for that system and family.
+    """
+    families = _va_families(system, va_json)
+    if family not in families:
+        raise KeyError(f"{system!r} has no virtual-accelerator block for family {family!r}")
+    judged: dict = copy.deepcopy(families[family])
+    judgments = mapping.judgments.get(family)
+    if judgments is None:
+        return judged
+    n_devices = _va_device_count(judged)
+    dropped = frozenset(
+        ordinal - 1
+        for ordinal, answer in judgments.unbound_devices.items()
+        if answer == "drop" and 1 <= ordinal <= n_devices
+    )
+    for container, key, _blank in _va_per_device_lists(judged):
+        _drop_slots(container, key, dropped, n_devices)
+    kept = n_devices - len(dropped)
+    if devices is not None and devices > kept:
+        for container, key, blank in _va_per_device_lists(judged):
+            _pad_exact(container, key, kept, devices - kept, blank)
+    return judged

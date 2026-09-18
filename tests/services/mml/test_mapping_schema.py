@@ -27,6 +27,16 @@ from osprey.services.mml.mapping import (
     judgment_key,
     parse_mapping,
 )
+from osprey.services.mml.mapping.schema import (
+    UNIT_CLASSES,
+    KickAnswer,
+    MonitorAnswer,
+    OwnerAnswer,
+    StrengthAnswer,
+    VAFamily,
+    VASlot,
+    VirtualAccelerator,
+)
 
 
 def _document() -> dict:
@@ -729,3 +739,438 @@ class TestMappingError:
     def test_is_a_value_error(self):
         """Callers treating malformed input as ValueError keep working."""
         assert issubclass(MappingError, ValueError)
+
+
+def _va_document() -> dict:
+    """A document whose virtual-accelerator block spells every accepted shape."""
+    data = _document()
+    data["virtual_accelerator"] = {
+        "system": "SR",
+        "families": {
+            "QF": {
+                "verdict": "couple",
+                "kind": "strength",
+                "element_field": "PolynomB[1]",
+                "calibration": "linear",
+                "nominal_source": "getpvmodel",
+            },
+            "HC": {
+                "verdict": "couple",
+                "kind": "kick",
+                "element_field": "KickAngle[0]",
+                "calibration": "table",
+                "nominal_source": "synthetic",
+                "reason": None,
+                "slot": None,
+            },
+            "BDM": {
+                "verdict": "latch",
+                "reason": "element BDM (BndMPoleSymplectic4) takes no KickAngle",
+            },
+            "KickerAmp": {
+                "verdict": "latch",
+                "reason": "KickerAmp is in no ATType table",
+                "slot": {
+                    "kind": "attype",
+                    "question": "What does KickerAmp drive?",
+                    "answer": None,
+                },
+            },
+            "VC": {
+                "verdict": "latch",
+                "reason": "VC and HC resolve to one KickAngle[0]",
+                "slot": {
+                    "kind": "shared_field",
+                    "question": "Which family owns KickAngle[0]?",
+                    "answer": "owner:HC",
+                },
+            },
+            "IDGAP": {
+                "verdict": "latch",
+                "reason": "the Setpoint field carries a SpecialFunctionSet",
+                "slot": {
+                    "kind": "escape_hatch",
+                    "question": "Is the hook safe to ignore?",
+                    "answer": "ignore_hook",
+                },
+            },
+        },
+    }
+    return data
+
+
+def _va_answer(kind: str, answer: object) -> object:
+    """Parse one slot answer of ``kind`` through a whole document."""
+    data = _va_document()
+    data["virtual_accelerator"]["families"]["QF"]["slot"] = {
+        "kind": kind,
+        "question": "Which one?",
+        "answer": answer,
+    }
+    block = parse_mapping(data).virtual_accelerator
+    assert block is not None
+    slot = block.families["QF"].slot
+    assert slot is not None
+    return slot.answer
+
+
+def _va_raises(kind: str, answer: object) -> MappingError:
+    """Refuse one slot answer of ``kind``, at the answer's own key."""
+    data = _va_document()
+    data["virtual_accelerator"]["families"]["QF"]["slot"] = {
+        "kind": kind,
+        "question": "Which one?",
+        "answer": answer,
+    }
+    return _raises(data, "virtual_accelerator.families.QF.slot.answer")
+
+
+class TestVirtualAcceleratorBlock:
+    """The virtual-accelerator block carries one verdict per family."""
+
+    def test_va_block_is_optional(self):
+        """A mapping without the block parses with no block at all."""
+        assert parse_mapping(_document()).virtual_accelerator is None
+
+    def test_va_block_is_accepted_anywhere(self):
+        """virtual_accelerator may sit among the top-level keys in any position."""
+        data = _va_document()
+        first = {"virtual_accelerator": data.pop("virtual_accelerator"), **data}
+        assert next(iter(first)) == "virtual_accelerator"
+        assert (
+            parse_mapping(first).virtual_accelerator
+            == parse_mapping(_va_document()).virtual_accelerator
+        )
+
+    def test_va_system_is_carried(self):
+        """The block names the system whose export it describes."""
+        block = parse_mapping(_va_document()).virtual_accelerator
+        assert block is not None
+        assert block.system == "SR"
+
+    def test_va_system_may_be_undecided(self):
+        """A facility with several systems leaves the choice to the reviewer."""
+        data = _va_document()
+        data["virtual_accelerator"]["system"] = None
+        block = parse_mapping(data).virtual_accelerator
+        assert block is not None
+        assert block.system is None
+
+    def test_va_coupled_family(self):
+        """A coupled family carries the element it binds and how it converts."""
+        block = parse_mapping(_va_document()).virtual_accelerator
+        assert block is not None
+        assert block.families["QF"] == VAFamily(
+            verdict="couple",
+            kind="strength",
+            element_field="PolynomB[1]",
+            calibration="linear",
+            nominal_source="getpvmodel",
+        )
+
+    def test_va_latched_family_carries_its_reason(self):
+        """A latched family says why, and binds nothing."""
+        block = parse_mapping(_va_document()).virtual_accelerator
+        assert block is not None
+        assert block.families["BDM"] == VAFamily(
+            verdict="latch",
+            reason="element BDM (BndMPoleSymplectic4) takes no KickAngle",
+        )
+
+    def test_va_explicit_nulls_read_as_absent_keys(self):
+        """Spelling a key null says the same as leaving it out."""
+        block = parse_mapping(_va_document()).virtual_accelerator
+        assert block is not None
+        assert block.families["HC"].reason is None
+        assert block.families["HC"].slot is None
+
+    def test_va_families_keep_document_order(self):
+        """The block preserves document order, like every other block."""
+        block = parse_mapping(_va_document()).virtual_accelerator
+        assert block is not None
+        assert list(block.families) == ["QF", "HC", "BDM", "KickerAmp", "VC", "IDGAP"]
+
+    def test_va_families_may_be_empty(self):
+        """An export whose every family latched still writes the block."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"] = {}
+        assert parse_mapping(data).virtual_accelerator == VirtualAccelerator(
+            system="SR", families={}
+        )
+
+    def test_va_block_carries_no_provenance(self):
+        """Verdicts and answers add nothing to the provenance walk."""
+        data = _va_document()
+        with_block = list(parse_mapping(data).provenance_slots())
+        del data["virtual_accelerator"]
+        assert with_block == list(parse_mapping(data).provenance_slots())
+
+    def test_va_input_is_not_mutated(self):
+        """Parsing reads the document; it never edits it."""
+        data = _va_document()
+        before = copy.deepcopy(data)
+        parse_mapping(data)
+        assert data == before
+
+    def test_va_dataclasses_are_frozen(self):
+        """Every virtual-accelerator value object refuses assignment."""
+        block = parse_mapping(_va_document()).virtual_accelerator
+        assert block is not None
+        for obj in (block, block.families["QF"], block.families["VC"].slot):
+            with pytest.raises(dataclasses.FrozenInstanceError):
+                obj.kind = "rf"  # type: ignore[misc, union-attr]
+
+
+class TestVASlots:
+    """A slot is the one question a rule could not answer, and its answer."""
+
+    def test_va_slot_is_absent_where_the_rules_decided(self):
+        """A family the rules settled carries no slot."""
+        block = parse_mapping(_va_document()).virtual_accelerator
+        assert block is not None
+        assert block.families["BDM"].slot is None
+
+    def test_va_open_slot_keeps_its_question(self):
+        """An unanswered slot is present, spelled, and undecided."""
+        block = parse_mapping(_va_document()).virtual_accelerator
+        assert block is not None
+        assert block.families["KickerAmp"].slot == VASlot(
+            kind="attype", question="What does KickerAmp drive?", answer=None
+        )
+
+    @pytest.mark.parametrize(
+        ("answer", "expected"),
+        [
+            ("latch", "latch"),
+            ("energy", "energy"),
+            ("rf", "rf"),
+            ("strength:PolynomB[1]", StrengthAnswer(attribute="PolynomB", index=1)),
+            ("strength:PolynomA[0]", StrengthAnswer(attribute="PolynomA", index=0)),
+            ("strength:PolynomB[12]", StrengthAnswer(attribute="PolynomB", index=12)),
+            ("kick:0", KickAnswer(plane=0)),
+            ("kick:1", KickAnswer(plane=1)),
+            ("monitor:x", MonitorAnswer(plane="x")),
+            ("monitor:y", MonitorAnswer(plane="y")),
+            (None, None),
+        ],
+    )
+    def test_va_attype_answers(self, answer, expected):
+        """Every attype spelling parses to the decision it states."""
+        assert _va_answer("attype", answer) == expected
+
+    @pytest.mark.parametrize(
+        ("answer", "expected"),
+        [
+            ("latch", "latch"),
+            ("owner:HC", OwnerAnswer(family="HC")),
+            ("owner:BPM.x", OwnerAnswer(family="BPM.x")),
+            (None, None),
+        ],
+    )
+    def test_va_shared_field_answers(self, answer, expected):
+        """A shared field is owned by one family, or neither couples."""
+        assert _va_answer("shared_field", answer) == expected
+
+    @pytest.mark.parametrize(
+        ("answer", "expected"),
+        [("latch", "latch"), ("ignore_hook", "ignore_hook"), (None, None)],
+    )
+    def test_va_escape_hatch_answers(self, answer, expected):
+        """A hook is either ignored or the family latches."""
+        assert _va_answer("escape_hatch", answer) == expected
+
+    def test_va_answers_are_typed_per_slot_kind(self):
+        """The answered slots of the document carry their parsed values."""
+        block = parse_mapping(_va_document()).virtual_accelerator
+        assert block is not None
+        assert block.families["VC"].slot == VASlot(
+            kind="shared_field",
+            question="Which family owns KickAngle[0]?",
+            answer=OwnerAnswer(family="HC"),
+        )
+        assert block.families["IDGAP"].slot == VASlot(
+            kind="escape_hatch",
+            question="Is the hook safe to ignore?",
+            answer="ignore_hook",
+        )
+
+
+class TestMalformedVABlock:
+    """Every malformed virtual-accelerator spelling is refused at its own key."""
+
+    def test_va_block_not_a_dict(self):
+        """The block holds a system and its families."""
+        data = _va_document()
+        data["virtual_accelerator"] = ["SR"]
+        _raises(data, "virtual_accelerator")
+
+    def test_va_unknown_key(self):
+        """A misspelt block key is refused, not ignored."""
+        data = _va_document()
+        data["virtual_accelerator"]["lattice"] = "quokka.mat"
+        _raises(data, "virtual_accelerator.lattice")
+
+    @pytest.mark.parametrize("slot", ["system", "families"])
+    def test_va_required_block_key(self, slot):
+        """Both block keys are written, even when one is null or empty."""
+        data = _va_document()
+        del data["virtual_accelerator"][slot]
+        _raises(data, f"virtual_accelerator.{slot}")
+
+    def test_va_families_not_a_dict(self):
+        """families is keyed by raw family token."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"] = ["QF"]
+        _raises(data, "virtual_accelerator.families")
+
+    def test_va_family_entry_not_a_dict(self):
+        """A family entry holds its verdict, never the verdict alone."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"]["QF"] = "couple"
+        _raises(data, "virtual_accelerator.families.QF")
+
+    def test_va_non_string_family_key(self):
+        """A family key YAML parsed to a non-string is refused."""
+        data = _va_document()
+        families = data["virtual_accelerator"]["families"]
+        families[3] = families.pop("QF")
+        _raises(data, "virtual_accelerator.families.3")
+
+    def test_va_family_unknown_key(self):
+        """A misspelt family key is refused, not ignored."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"]["QF"]["element"] = "QF_1_1"
+        _raises(data, "virtual_accelerator.families.QF.element")
+
+    def test_va_verdict_is_required(self):
+        """Every family states what the rules reached."""
+        data = _va_document()
+        del data["virtual_accelerator"]["families"]["BDM"]["verdict"]
+        _raises(data, "virtual_accelerator.families.BDM.verdict")
+
+    @pytest.mark.parametrize("verdict", ["couples", "open", "COUPLE", None, True, 1])
+    def test_va_verdict_vocabulary(self, verdict):
+        """A verdict is couple or latch, and nothing else."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"]["QF"]["verdict"] = verdict
+        err = _raises(data, "virtual_accelerator.families.QF.verdict")
+        assert "couple" in err.message
+        assert "latch" in err.message
+
+    @pytest.mark.parametrize("kind", ["strenght", "bpm", "Strength", 3, ["kick"]])
+    def test_va_kind_vocabulary(self, kind):
+        """A kind names one of the element kinds the model can drive."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"]["QF"]["kind"] = kind
+        _raises(data, "virtual_accelerator.families.QF.kind")
+
+    @pytest.mark.parametrize("slot", ["element_field", "calibration", "nominal_source", "reason"])
+    def test_va_family_strings(self, slot):
+        """The descriptive family keys are strings or null."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"]["QF"][slot] = 7
+        _raises(data, f"virtual_accelerator.families.QF.{slot}")
+
+    def test_va_slot_not_a_dict(self):
+        """A slot holds its kind, its question and its answer."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"]["KickerAmp"]["slot"] = "attype"
+        _raises(data, "virtual_accelerator.families.KickerAmp.slot")
+
+    def test_va_slot_unknown_key(self):
+        """A misspelt slot key is refused, not ignored."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"]["KickerAmp"]["slot"]["answers"] = "latch"
+        _raises(data, "virtual_accelerator.families.KickerAmp.slot.answers")
+
+    @pytest.mark.parametrize("slot", ["kind", "question", "answer"])
+    def test_va_slot_required_key(self, slot):
+        """A slot the reviewer can answer spells all three keys."""
+        data = _va_document()
+        del data["virtual_accelerator"]["families"]["KickerAmp"]["slot"][slot]
+        _raises(data, f"virtual_accelerator.families.KickerAmp.slot.{slot}")
+
+    @pytest.mark.parametrize("kind", ["at_type", "shared", "escape", None, 2])
+    def test_va_slot_kind_vocabulary(self, kind):
+        """A slot is one of the three kinds a reviewer is ever asked."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"]["KickerAmp"]["slot"]["kind"] = kind
+        _raises(data, "virtual_accelerator.families.KickerAmp.slot.kind")
+
+    def test_va_slot_question_is_a_string(self):
+        """The question is written out, so the card can ask it."""
+        data = _va_document()
+        data["virtual_accelerator"]["families"]["KickerAmp"]["slot"]["question"] = None
+        _raises(data, "virtual_accelerator.families.KickerAmp.slot.question")
+
+    @pytest.mark.parametrize(
+        "answer",
+        [
+            "quadrupole",
+            "strength",
+            "strength:PolynomC[1]",
+            "strength:PolynomB[]",
+            "strength:PolynomB[-1]",
+            "strength:PolynomB[1] ",
+            "kick",
+            "kick:2",
+            "kick:x",
+            "monitor",
+            "monitor:z",
+            "owner:HC",
+            "ignore_hook",
+            3,
+            ["latch"],
+        ],
+    )
+    def test_va_attype_answer_vocabulary(self, answer):
+        """An attype answer outside the vocabulary is refused by name."""
+        err = _va_raises("attype", answer)
+        assert "strength:<PolynomB|PolynomA>[<i>]" in err.message
+
+    @pytest.mark.parametrize(
+        "answer", ["owner:", "owner", "keep_all", "energy", "rf", "ignore_hook", 3]
+    )
+    def test_va_shared_field_answer_vocabulary(self, answer):
+        """A shared-field answer outside the vocabulary is refused by name."""
+        err = _va_raises("shared_field", answer)
+        assert "owner:<family>" in err.message
+
+    @pytest.mark.parametrize("answer", ["ignore", "ignore_hooks", "owner:HC", "rf", True, 0])
+    def test_va_escape_hatch_answer_vocabulary(self, answer):
+        """An escape-hatch answer outside the vocabulary is refused by name."""
+        err = _va_raises("escape_hatch", answer)
+        assert "ignore_hook" in err.message
+
+    def test_va_message_names_the_answer_and_its_key(self):
+        """str() leads with the path, and the message quotes the refused word."""
+        err = _va_raises("escape_hatch", "ignore")
+        assert str(err).startswith("virtual_accelerator.families.QF.slot.answer: ")
+        assert "'ignore'" in err.message
+
+
+class TestVAUnitClasses:
+    """The physics-unit vocabulary a kind's units check reads."""
+
+    def test_va_kick_units_are_the_angle_words(self):
+        """A kick is spelled in an angle."""
+        assert UNIT_CLASSES["kick"] == frozenset(
+            {"rad", "radian", "radians", "mrad", "mradian", "urad"}
+        )
+
+    def test_va_monitor_units_are_the_length_words(self):
+        """A monitor is spelled in a length."""
+        assert UNIT_CLASSES["monitor"] == frozenset({"m", "meter", "meters", "metre", "mm"})
+
+    def test_va_strength_has_no_closed_vocabulary(self):
+        """A strength is any other non-empty unit word, so it lists none."""
+        assert "strength" not in UNIT_CLASSES
+
+    def test_va_unit_classes_are_disjoint(self):
+        """No unit word belongs to two kinds, so a match names one kind."""
+        assert not UNIT_CLASSES["kick"] & UNIT_CLASSES["monitor"]
+
+    def test_va_unit_words_are_lowercase(self):
+        """The words are folded, so a caller compares one spelling."""
+        for words in UNIT_CLASSES.values():
+            assert all(word == word.lower() and word for word in words)
