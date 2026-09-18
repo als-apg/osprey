@@ -67,6 +67,8 @@ from osprey.services.bluesky_bridge.session_upload import (
     upload_after_validation,
 )
 from osprey.services.bluesky_bridge.validation_record import validation_records
+from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -143,8 +145,21 @@ class MockQueueServer:
         self._history_uid = 0
         self._entered: dict[str, asyncio.Event] = {}
         self._release: dict[str, asyncio.Event] = {}
+        self._status_doc: dict[str, Any] | None = None
+        self._status_cached = False
 
     # ------------------------------------------------------------- test hooks
+
+    def cache_status(self) -> None:
+        """Serve unreloaded ``status()`` reads from a cache, as the client does.
+
+        ``REManagerAPI`` answers ``status()`` from a ~0.5 s cache and only goes
+        to the manager on ``reload=True``. A test that turns this on sees what
+        a cached read costs: the document as of the last reloaded read, however
+        far the queue has moved since — the mock holds it indefinitely so the
+        window is a decision the test makes rather than a clock it races.
+        """
+        self._status_cached = True
 
     def gate(self, method: str) -> tuple[asyncio.Event, asyncio.Event]:
         """Block *method* mid-call. Returns ``(entered, release)`` events."""
@@ -201,8 +216,10 @@ class MockQueueServer:
 
     async def status(self, *, reload: bool = False) -> dict[str, Any]:
         await self._enter("status", reload=reload)
+        if self._status_cached and not reload and self._status_doc is not None:
+            return dict(self._status_doc)
         running_uid = self.running_item["item_uid"] if self.running_item else None
-        return {
+        self._status_doc = {
             "success": True,
             "manager_state": self.manager_state,
             "worker_environment_exists": self.environment_exists,
@@ -217,6 +234,7 @@ class MockQueueServer:
             # would be visible; the bridge publishes an 8-key summary instead.
             "zmq_secret_key": "never-on-the-wire",
         }
+        return dict(self._status_doc)
 
     async def queue_get(self) -> dict[str, Any]:
         await self._enter("queue_get")
@@ -297,6 +315,12 @@ class MockQueueServer:
         self.items.clear()
         self._queue_uid += 1
         return {"success": True, "msg": "queue cleared"}
+
+    async def history_clear(self) -> dict[str, Any]:
+        """Forget every completed item. The pending queue is untouched."""
+        await self._enter("history_clear")
+        self.history.clear()
+        return {"success": True, "msg": "history cleared"}
 
     async def re_pause(self, **kwargs: Any) -> dict[str, Any]:
         """Pause the Run Engine, refusing when no plan is under way.
@@ -1096,6 +1120,103 @@ async def test_an_out_of_band_start_between_the_add_and_the_recheck_withdraws_th
     assert draft._last_launched_revision == 0
 
 
+async def test_a_move_racing_a_bound_start_parks_on_the_arming_lock(
+    connector: Callable[[str | Exception], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reorder cannot land inside a bound start's critical section.
+
+    The start holds the arming lock across {uid compare … start}. A move
+    arriving in that window must park on the same lock and reach the manager
+    only afterwards, so the queue the manager is told to drain is the list the
+    quoted uid named rather than one that moved under the compare.
+    """
+    monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
+    connector("virtual_accelerator")
+    mock = MockQueueServer()
+    app_module.set_queue_backend(QueueBackend(mock))
+    for num_points in (3, 4):
+        revision = await _draft_revision_direct(num_points)
+        await queue.add_queue_item(
+            queue.QueueAddRequest(draft_revision=revision), x_launch_token=""
+        )
+    approved = await queue.get_queue()
+    approved_uid = approved["status"]["plan_queue_uid"]
+    assert [item["item_uid"] for item in approved["items"]] == ["item-1", "item-2"]
+
+    # The start blocks inside `queue_start`: past the uid compare, still
+    # holding the lock, with the manager not yet draining.
+    entered_start, release_start = mock.gate("queue_start")
+    start_task = asyncio.create_task(
+        queue.start_queue(
+            queue.QueueStartRequest(expected_plan_queue_uid=approved_uid),
+            x_launch_token=_TOKEN,
+        )
+    )
+    await asyncio.wait_for(entered_start.wait(), timeout=5)
+
+    move_task = asyncio.create_task(
+        queue.move_queue_item("item-2", queue.QueueMoveRequest(pos_dest="front"))
+    )
+    # Give the move every chance to run: it must park on the lock, not reorder.
+    for _ in range(20):
+        await asyncio.sleep(0)
+    assert "item_move" not in mock.method_names()
+    assert mock.item_uids() == ["item-1", "item-2"]
+
+    release_start.set()
+    assert (await asyncio.wait_for(start_task, timeout=5))["started"] is True
+    assert (await asyncio.wait_for(move_task, timeout=5))["moved"] is True
+
+    # Call ORDER, which is what the lock buys: the reorder reached the manager
+    # only after the start had, so the started queue is the approved one and
+    # the move changes what drains next rather than what was approved.
+    names = mock.method_names()
+    assert names.index("queue_start") < names.index("item_move")
+    assert mock.item_uids() == ["item-2", "item-1"]
+    assert mock.autostart_enabled is True
+
+
+async def test_every_mutation_route_waits_on_the_module_arming_lock_itself(
+    connector: Callable[[str | Exception], None],
+) -> None:
+    """One lock object, not one per route.
+
+    The serialization a bound start relies on is a property of the single
+    module-level `_arming_lock` — a per-route lock would read identically at
+    every call site and serialize nothing. Holding that one object is enough to
+    park a move, a removal and a clear at once, which is what says they wait on
+    the same thing the start takes.
+    """
+    connector("virtual_accelerator")
+    mock = MockQueueServer()
+    mock.items = [
+        {"item_uid": "item-1", "name": "grid_scan"},
+        {"item_uid": "item-2", "name": "grid_scan"},
+    ]
+    app_module.set_queue_backend(QueueBackend(mock))
+
+    await queue._arming_lock.acquire()
+    tasks = [
+        asyncio.create_task(
+            queue.move_queue_item("item-1", queue.QueueMoveRequest(pos_dest="back"))
+        ),
+        asyncio.create_task(queue.remove_queue_item("item-2")),
+        asyncio.create_task(queue.clear_queue_items()),
+    ]
+    try:
+        for _ in range(20):
+            await asyncio.sleep(0)
+        # Not one of them reached the manager while the lock was held.
+        assert mock.method_names() == []
+    finally:
+        queue._arming_lock.release()
+
+    for task in tasks:
+        await asyncio.wait_for(task, timeout=5)
+    assert sorted(mock.method_names()) == ["item_move", "item_remove", "queue_clear"]
+    assert mock.items == []
+
+
 async def test_two_enqueues_of_one_revision_yield_exactly_one_item(
     connector: Callable[[str | Exception], None],
 ) -> None:
@@ -1594,3 +1715,495 @@ def test_starting_a_queue_of_catalog_plans_is_not_gated_on_session_records(
     assert resp.status_code == 200, resp.text
     assert "code" not in resp.json()
     assert manager.manager_state == "starting_queue"
+
+
+# ---------------------------------------------------------------------------
+# Binding a start to the queue that was approved
+# ---------------------------------------------------------------------------
+
+
+def _queue_uid(client: TestClient) -> str:
+    """The manager's ``plan_queue_uid`` as a consumer reads it off `GET /queue`."""
+    resp = client.get("/queue")
+    assert resp.status_code == 200, resp.text
+    uid = resp.json()["status"]["plan_queue_uid"]
+    assert isinstance(uid, str) and uid
+    return uid
+
+
+def test_a_start_naming_a_queue_that_has_moved_is_refused_with_the_current_uid(
+    client: TestClient, manager: MockQueueServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A start carries the uid of the queue its approver read. Re-ordering the
+    queue in between moves that uid, and the start is refused rather than
+    silently re-bound to a list nobody approved — with the CURRENT uid in the
+    body, so the caller can re-read and try again without guessing."""
+    monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
+    for num_points in (3, 4):
+        revision = _draft_revision(client, num_points)
+        assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
+    approved_uid = _queue_uid(client)
+
+    moved = client.post("/queue/items/item-2/move", json={"pos_dest": "front"})
+    assert moved.status_code == 200, moved.text
+    current_uid = _queue_uid(client)
+    assert current_uid != approved_uid
+
+    refused = client.post(
+        "/queue/start",
+        json={"expected_plan_queue_uid": approved_uid},
+        headers={"X-Launch-Token": _TOKEN},
+    )
+
+    assert refused.status_code == 409
+    detail = refused.json()["detail"]
+    assert detail["code"] == "queue_changed_since_approval"
+    assert detail["plan_queue_uid"] == current_uid
+    assert detail["expected_plan_queue_uid"] == approved_uid
+    # The refusal armed nothing and drained nothing: the queue is exactly the
+    # re-ordered list, and the manager was never asked to start.
+    assert [item["item_uid"] for item in manager.items] == ["item-2", "item-1"]
+    assert manager.autostart_enabled is False
+    assert "queue_start" not in manager.method_names()
+
+
+def test_a_start_that_names_no_queue_arms_it_as_before(
+    client: TestClient, manager: MockQueueServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The negative control, and the compatibility contract: `expected_plan_
+    queue_uid` is optional. A start with no body — and one with an explicit
+    null — arms a queue that has moved since it was last read, exactly as every
+    shipped script and the e2e driver already expect."""
+    monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
+    revision = _draft_revision(client)
+    assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
+    stale_uid = _queue_uid(client)
+    assert client.post("/queue/items/item-1/move", json={"pos_dest": "front"}).status_code == 200
+    assert _queue_uid(client) != stale_uid
+
+    bodyless = client.post("/queue/start", headers={"X-Launch-Token": _TOKEN})
+
+    assert bodyless.status_code == 200, bodyless.text
+    assert bodyless.json()["started"] is True
+    assert "code" not in bodyless.json()
+    assert manager.autostart_enabled is True
+
+    explicit_null = client.post(
+        "/queue/start",
+        json={"expected_plan_queue_uid": None},
+        headers={"X-Launch-Token": _TOKEN},
+    )
+
+    assert explicit_null.status_code == 200, explicit_null.text
+    assert "code" not in explicit_null.json()
+
+
+def test_a_uid_taken_before_a_move_earns_one_409_and_the_retry_starts(
+    client: TestClient, manager: MockQueueServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The whole loop a client is meant to run: refuse once, re-read, start.
+
+    The refusal is not sticky and the bridge never re-binds by itself — the
+    second attempt succeeds only because the caller quoted the uid the refusal
+    handed back, which is the point at which a human has looked at the new
+    queue."""
+    monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
+    for num_points in (3, 4):
+        revision = _draft_revision(client, num_points)
+        assert client.post("/queue/items", json={"draft_revision": revision}).status_code == 200
+    approved_uid = _queue_uid(client)
+    assert client.post("/queue/items/item-2/move", json={"pos_dest": "front"}).status_code == 200
+
+    attempts = [
+        client.post(
+            "/queue/start",
+            json={"expected_plan_queue_uid": approved_uid},
+            headers={"X-Launch-Token": _TOKEN},
+        )
+        for _ in range(2)
+    ]
+
+    # Exactly one refusal per attempt on the stale uid — the gate is stateless,
+    # so repeating the stale start repeats the same answer and never leaks into
+    # an arm.
+    assert [resp.status_code for resp in attempts] == [409, 409]
+    fresh_uid = attempts[-1].json()["detail"]["plan_queue_uid"]
+    assert manager.autostart_enabled is False
+
+    started = client.post(
+        "/queue/start",
+        json={"expected_plan_queue_uid": fresh_uid},
+        headers={"X-Launch-Token": _TOKEN},
+    )
+
+    assert started.status_code == 200, started.text
+    body = started.json()
+    assert set(body) == {"started", "armed", "msg"}
+    assert body["started"] is True and body["armed"] is True
+    assert manager.autostart_enabled is True
+    assert manager.manager_state == "starting_queue"
+
+
+def test_the_uid_a_read_publishes_names_the_queue_that_read_returned(
+    client: TestClient, manager: MockQueueServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`GET /queue` answers with the uid of the list it is answering with.
+
+    The route's status read bypasses the client's status cache, so the uid a
+    caller stamps an approval with describes the items it rendered beside it.
+    A cached uid would be the pre-add one while the list is the post-add one,
+    and the bound start built on it would refuse a queue nobody touched: an
+    add onto an armed queue takes its one status read BEFORE the add, so the
+    cache holds the older document for as long as it lives.
+    """
+    monkeypatch.setenv(_TOKEN_ENV, _TOKEN)
+    # An armed queue — whatever armed it — makes the add below an armed add.
+    manager.autostart_enabled = True
+    before_uid = _queue_uid(client)
+    manager.cache_status()
+
+    revision = _draft_revision(client)
+    added = client.post(
+        "/queue/items",
+        json={"draft_revision": revision},
+        headers={"X-Launch-Token": _TOKEN},
+    )
+    assert added.status_code == 200, added.text
+
+    read = client.get("/queue")
+    assert read.status_code == 200, read.text
+    body = read.json()
+    uid = body["status"]["plan_queue_uid"]
+    # The uid moved with the list it is published beside, rather than lagging
+    # behind it.
+    assert uid != before_uid
+    assert [item["item_uid"] for item in body["items"]] == manager.item_uids()
+
+    started = client.post(
+        "/queue/start",
+        json={"expected_plan_queue_uid": uid},
+        headers={"X-Launch-Token": _TOKEN},
+    )
+
+    assert started.status_code == 200, started.text
+    assert started.json()["started"] is True
+    assert manager.manager_state == "starting_queue"
+
+
+# ---------------------------------------------------------------------------
+# Who an enqueued item belongs to
+# ---------------------------------------------------------------------------
+
+
+def test_an_owner_claim_is_trusted_on_its_own_and_gates_nothing(
+    client: TestClient, manager: MockQueueServer
+) -> None:
+    """``X-Osprey-Owner`` is attribution, never authority.
+
+    An idle lane takes an unarmed add, and naming an owner neither arms it nor
+    is refused for carrying no launch token: who an item belongs to and what
+    an add may do are separate questions, answered by the header and by the
+    token against the manager's state. The claim reaches the manager twice —
+    as the reserved kwarg the worker binds, and as the metadata stamp that
+    still names the owner once the item is history — while the plan-identity
+    copy a finished run is rendered from stays the plan's own arguments.
+    """
+    revision = _draft_revision(client)
+
+    resp = client.post(
+        "/queue/items",
+        json={"draft_revision": revision},
+        headers={OWNER_HEADER: "bob"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["armed"] is False
+    (item,) = manager.items
+    assert item["kwargs"][RESERVED_OWNER_KWARG] == "bob"
+    assert item["meta"][qb.OWNER_META_KEY] == "bob"
+    assert item["meta"][qb.PLAN_META_KEY]["kwargs"] == _grid_scan_args()
+
+
+def test_an_owner_claim_the_guard_refuses_costs_the_attribution_not_the_add(
+    client: TestClient, manager: MockQueueServer
+) -> None:
+    """A claim outside the allowlist — here an unexpanded shell placeholder —
+    enqueues as an owner-less add.
+
+    The header is read through the one shared guard, which answers ``None``
+    for every shape it will not pass and raises nothing, so a caller with a
+    name nobody can render loses the attribution and keeps the enqueue.
+    """
+    revision = _draft_revision(client)
+
+    resp = client.post(
+        "/queue/items",
+        json={"draft_revision": revision},
+        headers={OWNER_HEADER: "${OSPREY_OWNER}"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    (item,) = manager.items
+    assert item["kwargs"] == _grid_scan_args()
+    assert qb.OWNER_META_KEY not in item["meta"]
+
+
+def test_every_queue_read_surface_names_the_owner_and_never_the_reserved_kwarg(
+    client: TestClient, manager: MockQueueServer
+) -> None:
+    """What a consumer of this surface can rely on, on every body carrying an item.
+
+    A row says who queued it under ``owner``, and the key that carries the name
+    to the worker is never on the wire: not on the add echo, not on a read, not
+    on the remove echo. A client that replayed one would be claiming to be
+    somebody, and it is not a plan argument to render either.
+    """
+    revision = _draft_revision(client)
+    added = client.post(
+        "/queue/items", json={"draft_revision": revision}, headers={OWNER_HEADER: "bob"}
+    )
+    assert added.status_code == 200, added.text
+    (held,) = manager.items
+
+    listed = client.get("/queue")
+    removed = client.delete(f"/queue/items/{held['item_uid']}")
+
+    # The control: the item the manager holds keeps the kwarg, which is the one
+    # path by which the run itself learns whose it is.
+    assert held["kwargs"][RESERVED_OWNER_KWARG] == "bob"
+
+    assert added.json()["item"]["owner"] == "bob"
+    (row,) = listed.json()["items"]
+    assert row["owner"] == "bob"
+    assert row["kwargs"] == _grid_scan_args()
+    assert removed.json()["item"]["owner"] == "bob"
+    for body in (added.text, listed.text, removed.text):
+        assert RESERVED_OWNER_KWARG not in body, body
+
+
+def test_an_external_worker_lane_names_the_owner_from_the_metadata_stamp(
+    client: TestClient, manager: MockQueueServer
+) -> None:
+    """A facility RE Manager validates every add against the facility plan's own
+    signature, so such a lane carries no reserved kwarg to lift. The owner is
+    stamped on the item's metadata instead, and the row a consumer reads is the
+    same shape on either lane."""
+    manager.items.append(
+        {
+            "item_uid": "facility-1",
+            "item_type": "plan",
+            "name": "count",
+            "kwargs": {"num": 3},
+            "meta": {qb.OWNER_META_KEY: "bob"},
+        }
+    )
+
+    (row,) = client.get("/queue").json()["items"]
+
+    assert row["owner"] == "bob"
+    assert row["kwargs"] == {"num": 3}
+
+
+async def test_the_event_stream_names_the_owner_of_the_items_it_carries(
+    connector: Callable[[str | Exception], None], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The stream is what a live panel renders from, so both rules hold on a
+    frame exactly as they hold on a read."""
+    monkeypatch.setattr(queue, "_POLL_INTERVAL_S", 0.01)
+    connector("virtual_accelerator")
+    mock = MockQueueServer()
+    app_module.set_queue_backend(QueueBackend(mock))
+    revision = await _draft_revision_direct()
+    await queue.add_queue_item(
+        queue.QueueAddRequest(draft_revision=revision), x_launch_token="", x_osprey_owner="bob"
+    )
+
+    response = await queue.queue_events()
+    frames = response.body_iterator
+    try:
+        hello = _parse_frame(await asyncio.wait_for(frames.__anext__(), timeout=5))
+    finally:
+        await frames.aclose()
+
+    _assert_snapshot_frame(hello)
+    (streamed,) = hello["items"]
+    assert streamed["owner"] == "bob"
+    assert streamed["kwargs"] == _grid_scan_args()
+    assert RESERVED_OWNER_KWARG not in json.dumps(hello)
+
+
+def test_an_owner_named_in_the_request_body_is_not_an_owner(
+    client: TestClient, manager: MockQueueServer
+) -> None:
+    """Attribution is read from the header and from nowhere else.
+
+    A body field named ``owner``, and the reserved spelling beside it, name
+    nobody: the enqueued item reaches the manager owner-less on both carriers.
+    A second channel would be one nothing guards — the header goes through the
+    shared reader that decides what counts as a name.
+    """
+    revision = _draft_revision(client)
+
+    resp = client.post(
+        "/queue/items",
+        json={"draft_revision": revision, "owner": "root", RESERVED_OWNER_KWARG: "root"},
+    )
+
+    assert resp.status_code == 200, resp.text
+    (item,) = manager.items
+    assert item["kwargs"] == _grid_scan_args()
+    assert qb.OWNER_META_KEY not in item["meta"]
+    assert "owner" not in resp.json()["item"]
+
+
+# ---------------------------------------------------------------------------
+# The reserved kwarg on the wire: one walk over the whole surface
+# ---------------------------------------------------------------------------
+
+_SURFACE_PREFIXES = ("queue", "history", "runs")
+_HTTP_METHODS = ("get", "post", "put", "patch", "delete", "head", "options")
+
+
+def _queue_surface_routes() -> set[tuple[str, str]]:
+    """Every queue, history and runs route the app publishes, read at test time.
+
+    Taken from the app's own schema rather than listed by hand: a route added
+    to this surface later arrives here with no driver in the walk below, and
+    the walk fails naming it instead of passing over a hole.
+    """
+    return {
+        (method.upper(), path)
+        for path, operations in app.openapi()["paths"].items()
+        for method in operations
+        if method in _HTTP_METHODS and path.split("/")[1] in _SURFACE_PREFIXES
+    }
+
+
+def _assert_no_reserved_key(payload: Any, where: str, path: str = "") -> None:
+    """The reserved owner kwarg appears nowhere in *payload*, at any depth.
+
+    Keys, values and the text of any string are all checked, because all three
+    are ways a client could read the name of the channel back off the wire —
+    a refusal quoting the kwargs it rejected leaks it as readily as a queue row
+    carrying it.
+    """
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            assert key != RESERVED_OWNER_KWARG, f"{where}: reserved key at {path}.{key}"
+            _assert_no_reserved_key(value, where, f"{path}.{key}")
+    elif isinstance(payload, list):
+        for index, value in enumerate(payload):
+            _assert_no_reserved_key(value, where, f"{path}[{index}]")
+    elif isinstance(payload, str):
+        assert RESERVED_OWNER_KWARG not in payload, f"{where}: reserved key in the text at {path}"
+
+
+def test_no_route_of_this_surface_puts_the_reserved_owner_kwarg_on_the_wire(
+    client: TestClient, manager: MockQueueServer, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one walk: every body this surface can answer with, scanned to the leaf.
+
+    The rule is not that the relays strip the key from the shapes somebody
+    thought of — it is that no client of this bridge ever sees it: not on a
+    read, a stream frame, a run record, a mutation echo or a refusal, and not
+    nested inside one. So the routes are read off the app and every one of them
+    is driven here, with an owned item queued, another running and a third in
+    history, so the bodies walked are the bodies a live panel renders.
+
+    The control is the manager's own item, which keeps the kwarg throughout:
+    that is the single channel by which a run learns whose it is, and it is why
+    there is something for each of these bodies to leak. What `add_item` writes
+    onto that item — the reserved kwarg, the metadata stamp and the filtered
+    plan-identity copy the worker republishes in the run's start document — is
+    pinned in `tests/services/bluesky_bridge/test_queue_meta_strip.py`, which
+    is the write side of this same rule.
+    """
+    monkeypatch.setattr(queue, "_POLL_INTERVAL_S", 0.01)
+    walked: set[tuple[str, str]] = set()
+
+    def drive(method: str, template: str, *, url: str | None = None, **kwargs: Any) -> Any:
+        target = url or template
+        resp = client.request(method, target, **kwargs)
+        walked.add((method, template))
+        label = f"{method} {target} -> {resp.status_code}"
+        try:
+            body = resp.json()
+        except ValueError:  # a non-JSON body (an export download) is scanned raw
+            assert RESERVED_OWNER_KWARG not in resp.text, label
+            return resp
+        _assert_no_reserved_key(body, label)
+        return resp
+
+    for num_points in (3, 4, 5):
+        added = drive(
+            "POST",
+            "/queue/items",
+            json={"draft_revision": _draft_revision(client, num_points)},
+            headers={OWNER_HEADER: "bob"},
+        )
+        assert added.status_code == 200, added.text
+    assert added.json()["item"]["owner"] == "bob"
+
+    # One item through to history, one running, one still pending: the three
+    # states a run record is built from, all owned.
+    manager.begin_running()
+    manager.finish_running()
+    manager.begin_running()
+    pending_uid = manager.items[0]["item_uid"]
+    assert all(item["kwargs"][RESERVED_OWNER_KWARG] == "bob" for item in manager.history)
+
+    listed = drive("GET", "/queue")
+    assert [row["owner"] for row in listed.json()["items"]] == ["bob"]
+    assert listed.json()["running_item"]["owner"] == "bob"
+
+    records = drive("GET", "/runs").json()
+    assert len(records) == 3
+    assert {record["owner"] for record in records} == {"bob"}
+    run_id = records[0]["id"]
+
+    drive("GET", "/runs/{run_id}", url=f"/runs/{run_id}")
+    drive("GET", "/runs/{run_id}/data", url=f"/runs/{run_id}/data")
+    drive("GET", "/runs/{run_id}/export", url=f"/runs/{run_id}/export")
+    drive("GET", "/runs/{run_id}/figure", url=f"/runs/{run_id}/figure")
+    drive("POST", "/runs", json={})
+    drive("POST", "/runs/{run_id}/launch", url=f"/runs/{run_id}/launch")
+    drive("POST", "/runs/{run_id}/stop", url=f"/runs/{run_id}/stop")
+
+    # The stream a panel renders live, ended after its hello frame by pushing
+    # the module's own disconnect sentinel into the new subscriber: `TestClient`
+    # buffers a response to completion, so an endless stream would hang.
+    subscribe = queue._subscribe
+
+    async def _subscribe_then_end() -> tuple[Any, dict[str, Any]]:
+        subscriber, hello = await subscribe()
+        subscriber.put_nowait(queue._DISCONNECT)
+        return subscriber, hello
+
+    monkeypatch.setattr(queue, "_subscribe", _subscribe_then_end)
+    with client.stream("GET", "/queue/events") as stream:
+        assert stream.status_code == 200
+        raw_frames = [line for line in stream.iter_lines() if line.startswith("data: ")]
+    walked.add(("GET", "/queue/events"))
+    frames = [_parse_frame(raw) for raw in raw_frames]
+    for frame in frames:
+        _assert_no_reserved_key(frame, "GET /queue/events")
+    assert frames and all(row["owner"] == "bob" for frame in frames for row in frame["items"])
+
+    moved = drive(
+        "POST",
+        "/queue/items/{uid}/move",
+        url=f"/queue/items/{pending_uid}/move",
+        json={"pos_dest": "front"},
+    )
+    assert moved.json()["item"]["owner"] == "bob"
+    removed = drive("DELETE", "/queue/items/{uid}", url=f"/queue/items/{pending_uid}")
+    assert removed.json()["item"]["owner"] == "bob"
+
+    drive("POST", "/queue/start", json={})
+    drive("POST", "/queue/stop", json={})
+    drive("POST", "/queue/abort")
+    drive("DELETE", "/queue/items")
+    drive("DELETE", "/runs/{run_id}", url=f"/runs/{run_id}")
+    drive("DELETE", "/history")
+
+    assert walked == _queue_surface_routes()
