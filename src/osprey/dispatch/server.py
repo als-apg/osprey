@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.server.auth import AccessToken, TokenVerifier
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
@@ -46,6 +47,7 @@ from osprey.dispatch.worker_client import (
     fetch_worker_runs,
     proxy_worker_stream,
 )
+from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 logger = logging.getLogger("osprey.dispatch.server")
 
@@ -97,12 +99,19 @@ async def _dispatch_with_policy(
     dispatch_token: str,
     attempt: int = 1,
     input_files: Any = _INPUT_FILES_UNSET,
+    owner: str | None = None,
 ) -> dict | None:
     """Execute the trigger action and handle on_error policy.
 
     Returns the worker response dict on success (contains run_id, status), a
     ``{"status": "error", "error_code": ...}`` sentinel when the worker refused the
     request non-retryably, or None if the dispatch was dropped/failed after retries.
+
+    ``owner`` is the human the fire is attributed to, and whose narrowing the
+    dispatched run's writes are checked against; ``None`` is the owner-less fire
+    a cron tick or a remote webhook makes. It rides the retry recursion, because
+    a re-dispatch is the same fire: a second attempt that fell to owner-less
+    would run unchecked where the first was checked.
     """
     # Pop the caller's input-file batch OUT of the payload on the FIRST call,
     # before the payload is folded into the prompt or persisted to history — the
@@ -155,6 +164,7 @@ async def _dispatch_with_policy(
             surface_tools=surface_tools,
             input_files=input_files,
             max_turns=max_turns,
+            owner=owner,
         )
         await registry.record_event(trigger.name, payload, "dispatched")
         return result
@@ -213,6 +223,7 @@ async def _dispatch_with_policy(
                 dispatch_token,
                 attempt + 1,
                 input_files=input_files,
+                owner=owner,
             )
         else:
             # drop (or retry exhausted)
@@ -238,6 +249,38 @@ def _sanitize_source_config(cfg: dict[str, Any]) -> dict[str, Any]:
     return {k: ("***" if k.lower() in _SECRET_CONFIG_KEYS else v) for k, v in cfg.items()}
 
 
+def _credential_bytes(value: str) -> bytes:
+    """Encode one side of a bearer comparison for ``compare_digest``.
+
+    ``compare_digest`` refuses a str argument that is not ASCII-only, and both a
+    configured secret and a presented bearer are arbitrary text, so every
+    comparison is made on bytes. ``surrogateescape`` is how the environment
+    decodes bytes that are not valid UTF-8; only the matching encode turns such a
+    secret back into bytes instead of raising, and a raise here would answer 500
+    where a refusal belongs.
+    """
+    return value.encode("utf-8", errors="surrogateescape")
+
+
+#: Gates that have already reported an unconfigured ``EVENT_DISPATCHER_TOKEN``.
+_token_unset_reported: set[str] = set()
+
+
+def _report_token_unset(gate: str) -> None:
+    """Report an unconfigured bearer once per gate, not once per request.
+
+    Both gates re-read the secret on every request, so an unconfigured
+    dispatcher would otherwise repeat one line per request for as long as it
+    serves. The first report carries the whole diagnosis; what tells an operator
+    which gate refused is the response — 503 from the routes, 401 from the
+    transport — not the log.
+    """
+    if gate in _token_unset_reported:
+        return
+    _token_unset_reported.add(gate)
+    logger.warning("EVENT_DISPATCHER_TOKEN is not configured; rejecting every %s request", gate)
+
+
 def _check_auth(request: Request) -> JSONResponse | None:
     """Bearer-token guard for dispatcher routes.
 
@@ -250,12 +293,46 @@ def _check_auth(request: Request) -> JSONResponse | None:
     """
     expected_token = os.environ.get("EVENT_DISPATCHER_TOKEN", "")
     if not expected_token:
-        logger.error("EVENT_DISPATCHER_TOKEN is not configured; rejecting request")
+        _report_token_unset("dashboard route")
         return JSONResponse({"detail": "Server misconfigured"}, status_code=503)
     auth_header = request.headers.get("Authorization", "")
-    if hmac.compare_digest(auth_header, f"Bearer {expected_token}"):
+    if hmac.compare_digest(
+        _credential_bytes(auth_header), _credential_bytes(f"Bearer {expected_token}")
+    ):
         return None
     return JSONResponse({"detail": "Unauthorized"}, status_code=401)
+
+
+class _DispatcherTokenVerifier(TokenVerifier):
+    """Bearer guard for the MCP transport, on the same credential as the routes.
+
+    ``manual_fire`` starts an unattended agent run, so the transport carries the
+    authority of a dashboard write route and is gated by the same secret,
+    ``EVENT_DISPATCHER_TOKEN``, re-read from the environment on every call so a
+    rotation needs no restart (``_check_auth`` re-reads it for the same reason).
+
+    A verifier has exactly one way to refuse: answer ``None``, which the
+    transport reports as 401. An unset token is therefore a 401 here while the
+    custom routes answer 503 — both refuse, and only the route shape can say
+    "misconfigured". The 503 is what an operator diagnoses an unconfigured
+    dispatcher by, so the difference is deliberate rather than an inconsistency.
+
+    The success value carries all three required ``AccessToken`` fields. FastMCP
+    installs the bearer backend as APP-level middleware while only the transport
+    route requires auth, so a value the model could not build would raise for
+    every request that presents a bearer — including the proxied dashboard calls
+    that never touch the transport — turning a refusal into a 500.
+    """
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Authorize a bearer, or answer ``None`` (reported as 401)."""
+        expected_token = os.environ.get("EVENT_DISPATCHER_TOKEN", "")
+        if not expected_token:
+            _report_token_unset("MCP transport")
+            return None
+        if not hmac.compare_digest(_credential_bytes(token), _credential_bytes(expected_token)):
+            return None
+        return AccessToken(token=token, client_id="dispatcher-bearer", scopes=[])
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +373,10 @@ mcp = FastMCP(
         "List triggers, view dispatch history, check status, and manually fire triggers for testing."
     ),
     lifespan=_dispatch_lifespan,
+    # The MCP transport is bearer-gated on EVENT_DISPATCHER_TOKEN, the same
+    # credential _check_auth requires of the dashboard routes. Without this the
+    # transport is the one unauthenticated door into manual_fire.
+    auth=_DispatcherTokenVerifier(),
 )
 
 
@@ -478,12 +559,19 @@ def create_server() -> FastMCP:
         max_queue_depth=dispatcher_cfg.max_queue_depth,
     )
 
-    async def fire_callback(trigger: TriggerConfig, payload: dict[str, Any]) -> str | None:
+    async def fire_callback(
+        trigger: TriggerConfig, payload: dict[str, Any], owner: str | None = None
+    ) -> str | None:
         """Fire a trigger through the dispatch pool.
 
         Returns the dispatch_id of the queued run, or None if the trigger is
         disabled (the webhook source maps None to HTTP 409). Raises
         :class:`QueueFullError` when the pool is saturated (mapped to HTTP 429).
+
+        ``owner`` is the human the fire is attributed to. It defaults to None
+        because a trigger source fires on nobody's behalf — a cron tick and a
+        webhook from a remote system are both owner-less — while a fire a human
+        asked for carries their name.
         """
         if registry._status.get(trigger.name) == "disabled":
             await registry.record_event(trigger.name, payload, "ignored: disabled")
@@ -491,7 +579,7 @@ def create_server() -> FastMCP:
 
         async def fn() -> dict | None:
             return await _dispatch_with_policy(
-                trigger, payload, registry, dispatch_target, dispatch_token
+                trigger, payload, registry, dispatch_target, dispatch_token, owner=owner
             )
 
         # _dispatch_with_policy owns outcome recording ("dispatched" on success,
@@ -732,6 +820,13 @@ def create_server() -> FastMCP:
             {"payload": {...}}       — fire with the given payload
             {"dispatch_id": "..."}   — recorded as retry_of in the response
         With no body, fires with an empty payload.
+
+        The owner is read from the request's ``X-Osprey-Owner`` header, never
+        from the body: a caller must not be able to name the human its re-fire
+        is credited to. A dashboard reached through the panel proxy arrives with
+        the header the proxy mints, so its retry is attributed like a
+        ``manual_fire``; a call straight at the dispatcher's port carries none
+        and re-fires owner-less, as a cron tick does.
         """
         unauth = _check_auth(request)
         if unauth is not None:
@@ -753,9 +848,15 @@ def create_server() -> FastMCP:
         if not isinstance(payload, dict):
             return JSONResponse({"detail": "payload must be an object"}, status_code=400)
 
+        # Starlette's header mapping is case-insensitive, so the header is read
+        # by its canonical spelling. A value that names nobody costs the run its
+        # owner — and with it the narrowing its writes would be checked against
+        # — but never the re-fire itself; see ``owner_from_header``.
+        owner = owner_from_header(request.headers.get(OWNER_HEADER))
+
         async def fn() -> dict | None:
             return await _dispatch_with_policy(
-                trigger, payload, registry, dispatch_target, dispatch_token
+                trigger, payload, registry, dispatch_target, dispatch_token, owner=owner
             )
 
         try:

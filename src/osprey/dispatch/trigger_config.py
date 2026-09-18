@@ -21,6 +21,10 @@ __all__ = [
     "load_triggers",
 ]
 
+# Tool-name prefix of the event dispatcher's own MCP server. A dispatch job may
+# not fire dispatch jobs, so no trigger hands one a tool from this server.
+_DISPATCHER_TOOL_PREFIX = "mcp__event_dispatcher__"
+
 _DEFAULT_ON_ERROR: dict[str, Any] = {
     "action": "drop",
     "max_retries": 0,
@@ -99,6 +103,22 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
         raise ValueError(
             f"Trigger '{name}' field 'action.max_turns' must be an integer >= 1 (got {max_turns!r})"
         )
+
+    # The worker's denylist blocks the dispatcher's firing tool at run time, but
+    # that refusal lands when an event fires. Naming any dispatcher tool here is
+    # an author asking for a recursion that will never run, so the file is where
+    # it is caught — and the message names both the trigger and the tool.
+    allowed_tools = action.get("allowed_tools") or []
+    if isinstance(allowed_tools, str):
+        allowed_tools = [allowed_tools]
+    if isinstance(allowed_tools, (list, tuple)):
+        for tool in allowed_tools:
+            if isinstance(tool, str) and tool.startswith(_DISPATCHER_TOOL_PREFIX):
+                raise ValueError(
+                    f"Trigger '{name}' field 'action.allowed_tools' names the event "
+                    f"dispatcher's own tool '{tool}'; a dispatch job may not fire "
+                    f"dispatch jobs, so no '{_DISPATCHER_TOOL_PREFIX}' tool is allowed"
+                )
 
     on_error_raw = raw.get("on_error")
     if on_error_raw is None:
