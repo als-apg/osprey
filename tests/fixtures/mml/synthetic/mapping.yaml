@@ -1,0 +1,406 @@
+facility:
+  token: Quokka
+  title: Quokka
+  description: 'Quokka, the invented light source the synthetic 2.0 export describes: one storage ring
+    of four cells, taken from the Middle Layer in simulator mode.'
+  provenance: stated
+systems:
+  SR:
+    name: SR
+    description: 'The Quokka storage ring: four cells, each with a dipole, a focusing and a defocusing
+      quadrupole, a chromaticity sextupole carrying a skew trim, orbit correctors and a beam position
+      monitor, plus one cavity, an insertion-device pair and the injection septum.'
+    provenance: stated
+section_order:
+- SR
+families:
+  BDM:
+    branch: Corrector
+    class: BendTrim
+    aliases:
+    - BDM
+    description: 'Bend trim supplies: a small current added to the main dipole string, two devices, setpoint
+      only.'
+    provenance: stated
+    channels: 2
+    fields:
+      Setpoint:
+        description: Trim current asked of each supply.
+        provenance: stated
+  BEND:
+    class: Dipole
+    aliases:
+    - BEND
+    description: Main dipoles, one supply per cell; the family whose current the export offers as the
+      energy knob.
+    provenance: stated
+    channels: 8
+    fields:
+      Monitor:
+        description: Dipole current as the supply reads it back.
+        provenance: stated
+      Setpoint:
+        description: Dipole current asked of each supply.
+        provenance: stated
+  BPMx:
+    class: BeamPositionMonitor
+    aliases:
+    - BPMx
+    description: Horizontal beam position, one reading per cell.
+    provenance: stated
+    channels: 4
+    fields:
+      Monitor:
+        description: Horizontal beam position at the monitor.
+        provenance: stated
+  BPMy:
+    class: BeamPositionMonitor
+    aliases:
+    - BPMy
+    description: Vertical beam position, one reading per cell.
+    provenance: stated
+    channels: 4
+    fields:
+      Monitor:
+        description: Vertical beam position at the monitor.
+        provenance: stated
+  BSOFT:
+    class: Dipole
+    aliases:
+    - BSOFT
+    description: 'Soft-bend supplies: two devices in the bend string with a setpoint and no readback,
+      and so a second candidate for the energy knob.'
+    provenance: stated
+    channels: 2
+    fields:
+      Setpoint:
+        description: Soft-bend current asked of each supply.
+        provenance: stated
+  DCCT:
+    class: BeamCurrentMonitor
+    aliases:
+    - DCCT
+    description: The current transformer that reads the stored beam.
+    provenance: stated
+    channels: 1
+    fields:
+      Monitor:
+        description: Stored beam current.
+        provenance: stated
+  HC:
+    class: HCorrector
+    aliases:
+    - HC
+    description: Horizontal orbit correctors; the three leading cells carry two corrector elements each
+      and the fourth carries one.
+    provenance: stated
+    channels: 8
+    fields:
+      Monitor:
+        description: Corrector current as the supply reads it back.
+        provenance: stated
+      Setpoint:
+        description: Corrector current asked of each supply.
+        provenance: stated
+  IDGAP:
+    branch: Magnet
+    class: InsertionDevice
+    aliases:
+    - IDGAP
+    description: 'The insertion-device gaps: two devices whose gap is asked for and read back in millimetres.'
+    provenance: stated
+    channels: 4
+    fields:
+      Monitor:
+        description: Gap the device reports.
+        provenance: stated
+      Setpoint:
+        description: Gap asked of the device.
+        provenance: stated
+  QD:
+    class: Quadrupole
+    aliases:
+    - QD
+    description: Defocusing quadrupoles, one supply per cell.
+    provenance: stated
+    channels: 8
+    fields:
+      Monitor:
+        description: Quadrupole current as the supply reads it back.
+        provenance: stated
+      Setpoint:
+        description: Quadrupole current asked of each supply.
+        provenance: stated
+  QF:
+    class: Quadrupole
+    aliases:
+    - QF
+    description: Focusing quadrupoles, one supply per cell.
+    provenance: stated
+    channels: 8
+    fields:
+      Monitor:
+        description: Quadrupole current as the supply reads it back.
+        provenance: stated
+      Setpoint:
+        description: Quadrupole current asked of each supply.
+        provenance: stated
+  RF:
+    class: AcceleratingCavity
+    aliases:
+    - RF
+    description: The single accelerating cavity.
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: Cavity frequency as the plant reads it back.
+        provenance: stated
+      Setpoint:
+        description: Cavity frequency asked of the plant.
+        provenance: stated
+  SEPTUM:
+    branch: Magnet
+    class: Septum
+    aliases:
+    - SEPTUM
+    description: The injection septum, which reports its pulse voltage and takes no setting from this
+      export.
+    provenance: stated
+    channels: 1
+    fields:
+      Monitor:
+        description: Septum pulse voltage.
+        provenance: stated
+  SF:
+    class: Sextupole
+    aliases:
+    - SF
+    description: Chromaticity sextupoles, one supply per cell, setpoint only.
+    provenance: stated
+    channels: 4
+    fields:
+      Setpoint:
+        description: Sextupole current asked of each supply.
+        provenance: stated
+  SQ:
+    branch: Quadrupole
+    class: SkewQuadrupole
+    aliases:
+    - SQ
+    description: Skew quadrupole trims wound on the sextupole cores, setpoint only.
+    provenance: stated
+    channels: 4
+    fields:
+      Setpoint:
+        description: Skew trim current asked of each supply.
+        provenance: stated
+  TUNE:
+    branch: Instrumentation
+    class: TuneMonitor
+    aliases:
+    - TUNE
+    description: The tune measurement, one fractional tune per plane.
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: Fractional betatron tune.
+        provenance: stated
+  VC:
+    class: VCorrector
+    aliases:
+    - VC
+    description: Vertical orbit correctors, on the same elements the horizontal correctors sit on.
+    provenance: stated
+    channels: 8
+    fields:
+      Monitor:
+        description: Corrector current as the supply reads it back.
+        provenance: stated
+      Setpoint:
+        description: Corrector current asked of each supply.
+        provenance: stated
+directions:
+  BDM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  BEND.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BEND.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  BPMx.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BPMy.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BSOFT.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  DCCT.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HC.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HC.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  IDGAP.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  IDGAP.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QD.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QD.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QF.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  RF.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  RF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SEPTUM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SQ.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  TUNE.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  VC.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  VC.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+virtual_accelerator:
+  system: SR
+  families:
+    BDM:
+      verdict: latch
+      reason: element BD1 (BndMPoleSymplectic4Pass) takes no KickAngle
+    BEND:
+      verdict: couple
+      kind: energy
+      calibration: table
+      nominal_source: Setpoint
+    BPMx:
+      verdict: couple
+      kind: monitor
+      element_field: x
+      calibration: linear
+      nominal_source: Monitor
+    BPMy:
+      verdict: couple
+      kind: monitor
+      element_field: y
+      calibration: linear
+      nominal_source: Monitor
+    BSOFT:
+      verdict: latch
+      reason: bend2gev is constant at this facility
+    DCCT:
+      verdict: latch
+      reason: no lattice element
+    HC:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[0]
+      calibration: linear
+      nominal_source: Setpoint
+    IDGAP:
+      verdict: latch
+      reason: the AT block reaches this family through SpecialFunctionSet
+      slot:
+        kind: escape_hatch
+        question: the AT block reaches this family through SpecialFunctionSet; does the model drive it?
+        answer: latch
+    QD:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: linear
+      nominal_source: Setpoint
+    QF:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: linear
+      nominal_source: Setpoint
+    RF:
+      verdict: couple
+      kind: rf
+      calibration: linear
+      nominal_source: Setpoint
+    SEPTUM:
+      verdict: latch
+      reason: ATType Septum is not one the table knows
+      slot:
+        kind: attype
+        question: ATType Septum is not one the table knows; what does this family drive?
+        answer: latch
+    SF:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: linear
+      nominal_source: Setpoint
+    SQ:
+      verdict: couple
+      kind: strength
+      element_field: PolynomA[1]
+      calibration: linear
+      nominal_source: Setpoint
+    TUNE:
+      verdict: latch
+      reason: no lattice element
+    VC:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[1]
+      calibration: linear
+      nominal_source: Setpoint
+    Version:
+      verdict: latch
+      reason: no lattice element

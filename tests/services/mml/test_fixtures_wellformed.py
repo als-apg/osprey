@@ -12,17 +12,38 @@ answers a reviewer writes stay pinned next to the shapes that raise them.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import runpy
+import warnings
 from pathlib import Path
 from typing import Any
 
+import at
 import numpy as np
 import pytest
 import yaml
 from scipy.io import loadmat
 from scipy.io.matlab import mat_struct
+
+from tests.templates.mml_export_contract import (
+    EXPORT_BLOCK_KEYS,
+    EXPORTER_VERSION,
+    VA_CALIBRATION_KEYS,
+    VA_ENERGY_TABLE_KEYS,
+    VA_FAMILY_KEYS,
+    VA_LATTICE_KEYS,
+    VA_LINEAR_KEYS,
+    VA_MONITOR_KEYS,
+    VA_NOMINAL_KEYS,
+    VA_READOUT_KEYS,
+    VA_RESPONSE_BLOCK_KEYS,
+    VA_RESPONSE_SIDE_KEYS,
+    VA_SETPOINT_KEYS,
+    VA_TABLE_KEYS,
+    VA_VOCABULARIES,
+)
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "mml"
 
@@ -521,3 +542,353 @@ class TestMat:
         module = runpy.run_path(str(FIXTURES / "mat" / "build_mat.py"))
         rebuilt = module["build"](tmp_path / "rebuilt.mat")
         assert _load_mat(rebuilt) == _load_mat(self.PATH)
+
+
+# ---------------------------------------------------------------------------
+# The synthetic 2.0 export.
+# ---------------------------------------------------------------------------
+
+SYNTHETIC = FIXTURES / "synthetic"
+
+#: Every file ``synthetic/build.py`` commits.
+SYNTHETIC_FILES = (
+    "quokka.sr.lattice.mat",
+    "mismatched.lattice.mat",
+    "quokka.sr.ao.json",
+    "quokka.sr.ad.json",
+    "quokka.sr.va.json",
+    "quokka.sr.response.json",
+)
+
+#: The closed vocabularies as sets, for comparing against what the fixture spends.
+SYNTHETIC_VOCABULARIES = {name: set(words) for name, words in VA_VOCABULARIES.items()}
+
+
+def _synthetic(name: str) -> Any:
+    """Return one committed JSON file of the synthetic export."""
+    return _read_json(SYNTHETIC / name)
+
+
+def _synthetic_va() -> dict[str, Any]:
+    """Return the synthetic ``va.json``."""
+    return _synthetic("quokka.sr.va.json")
+
+
+def _synthetic_calibrations(va: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every calibration and inverse the document holds, in no particular order."""
+    found = []
+    for block in va["families"].values():
+        for field in ("Setpoint", "Monitor"):
+            body = block.get(field)
+            if not body:
+                continue
+            found.append(body["calibration"])
+            if "monitor_inverse" in body:
+                found.append(body["monitor_inverse"])
+    return found
+
+
+def _synthetic_ring(name: str, keep_all: bool):
+    """Load one of the synthetic MAT-files back as pyAT reads ``THERING``."""
+    return at.load_mat(str(SYNTHETIC / name), use="THERING", keep_all=keep_all)
+
+
+def _synthetic_documents() -> dict[str, Any]:
+    """Every JSON document of the synthetic export, by file name."""
+    return {name: _synthetic(name) for name in SYNTHETIC_FILES if name.endswith(".json")}
+
+
+def _assert_conversion(conversion: dict[str, Any], where: str, anchored: bool) -> None:
+    """One calibration or inverse, against the frozen key set a conversion is written in."""
+    keys = set(conversion)
+    assert keys <= set(VA_CALIBRATION_KEYS), where
+    assert {"kind", "grid_source", "fcn"} <= keys, where
+    # The anchor names the point a hardware grid is laid about, which only a
+    # forward calibration lays; a sampled inverse is handed its grid.
+    assert ("anchor" in keys) == anchored, where
+    linear = conversion["kind"] == "linear"
+    carried = set(VA_LINEAR_KEYS) if linear else set(VA_TABLE_KEYS)
+    withheld = set(VA_TABLE_KEYS) if linear else set(VA_LINEAR_KEYS)
+    assert carried <= keys, where
+    assert not withheld & keys, where
+
+
+class TestSyntheticExport:
+    """The synthetic 2.0 export carries every shape of the frozen key set."""
+
+    def test_the_synthetic_fixture_regenerates_byte_identically(self, tmp_path):
+        """Re-running ``build.py`` writes the committed bytes, the MAT-files included."""
+        module = runpy.run_path(str(SYNTHETIC / "build.py"))
+        for rebuilt in module["build"](tmp_path):
+            committed = SYNTHETIC / rebuilt.name
+            assert committed.read_bytes() == rebuilt.read_bytes(), rebuilt.name
+
+    def test_the_synthetic_lattice_pairs_with_its_own_fingerprint(self):
+        """The saved ring answers the four facts ``va.json`` records for it."""
+        fingerprint = _synthetic_va()["lattice"]
+        ring = _synthetic_ring("quokka.sr.lattice.mat", keep_all=True)
+        names = [element.FamName for element in ring]
+
+        assert fingerprint["elements"] == len(ring)
+        digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
+        assert fingerprint["famname_sha256"] == digest
+        assert fingerprint["energy_gev"] > 0
+        # One parameter element, at the head of the ring, one-based.
+        assert fingerprint["ringparam_indices"] == 1
+
+    def test_the_mismatched_synthetic_lattice_fails_the_fingerprint(self):
+        """The counter-example matches on every fact but the digest."""
+        fingerprint = _synthetic_va()["lattice"]
+        ring = _synthetic_ring("mismatched.lattice.mat", keep_all=True)
+        names = [element.FamName for element in ring]
+
+        assert fingerprint["elements"] == len(ring)
+        assert fingerprint["energy_gev"] == ring.energy / 1e9
+        # The parameter element sits where the fingerprint says it does: it
+        # carries the ring's own name, one-based, at the head.
+        assert ring[fingerprint["ringparam_indices"] - 1].FamName == ring.name
+        digest = hashlib.sha256("\n".join(names).encode("utf-8")).hexdigest()
+        assert fingerprint["famname_sha256"] != digest
+
+    def test_the_synthetic_ring_boots(self):
+        """The ring the calibrations were sampled over closes, four-dimensionally and in six."""
+        elements = _synthetic_va()["lattice"]["elements"]
+        ring = _synthetic_ring("quokka.sr.lattice.mat", keep_all=False)
+        ring.disable_6d()
+        # Without the parameter element the ring is one shorter than the
+        # fingerprint counts, which is the bookkeeping the fingerprint states.
+        assert len(ring) == elements - 1
+
+        with warnings.catch_warnings():
+            # pyAT hands back its starting guess with a warning when the solve
+            # does not converge, so a warning here is a ring that does not close.
+            warnings.simplefilter("error", at.AtWarning)
+            orbit = at.find_orbit4(ring)[0]
+            tunes = ring.get_tune()
+            six = at.find_orbit6(ring.enable_6d(copy=True))[0]
+
+        assert np.isfinite(orbit).all()
+        assert np.isfinite(tunes).all()
+        assert all(0.0 < tune < 1.0 for tune in tunes)
+        assert np.isfinite(six).all()
+
+    def test_the_synthetic_va_blocks_stay_inside_the_frozen_key_set(self):
+        """Every family block carries frozen keys only, and the required ones."""
+        for family, block in _synthetic_va()["families"].items():
+            assert set(block) <= set(VA_FAMILY_KEYS), family
+            if set(block) == {"refused"}:
+                continue
+            assert {"device_list", "fields", "energy_candidate"} <= set(block), family
+
+    def test_the_synthetic_export_names_the_version_a_reader_recognises_it_by(self):
+        """Every file of the export carries the same provenance block and the 2.0 token."""
+        for name, document in _synthetic_documents().items():
+            block = document["_export"]
+            assert set(block) == set(EXPORT_BLOCK_KEYS), name
+            assert block["exporter"] == EXPORTER_VERSION, name
+
+    def test_the_synthetic_va_document_walks_the_frozen_key_set_to_its_leaves(self):
+        """Every block under a family — calibration, nominal, energy table — is frozen too."""
+        va = _synthetic_va()
+        assert set(va) == {"_export", "lattice", "families"}
+        assert set(va["lattice"]) == set(VA_LATTICE_KEYS)
+
+        spent: dict[str, set[str]] = {
+            "Setpoint": set(),
+            "Monitor": set(),
+            "calibration": set(),
+            "monitor_inverse": set(),
+            "readout": set(),
+        }
+        for family, block in va["families"].items():
+            assert set(block) <= set(VA_FAMILY_KEYS), family
+            for field, record in block.get("nominals", {}).items():
+                assert set(record) == set(VA_NOMINAL_KEYS), f"{family}.{field}"
+            for field, frozen in (("Setpoint", VA_SETPOINT_KEYS), ("Monitor", VA_MONITOR_KEYS)):
+                body = block.get(field)
+                if not body:
+                    continue
+                assert set(body) <= set(frozen), f"{family}.{field}"
+                assert "calibration" in body, f"{family}.{field}"
+                spent[field] |= set(body)
+                readout = body.get("readout")
+                if readout:
+                    assert set(readout) <= set(VA_READOUT_KEYS), f"{family}.{field}.readout"
+                    spent["readout"] |= set(readout)
+                for role in ("calibration", "monitor_inverse"):
+                    conversion = body.get(role)
+                    if not conversion:
+                        continue
+                    _assert_conversion(
+                        conversion, f"{family}.{field}.{role}", anchored=role == "calibration"
+                    )
+                    spent[role].add(conversion["kind"])
+            table = block.get("energy_table")
+            if table:
+                assert set(table) == set(VA_ENERGY_TABLE_KEYS), family
+
+        # The fixture is the reader's worked example, so it spends the whole of
+        # each key set rather than a corner of it.
+        assert spent["Setpoint"] == set(VA_SETPOINT_KEYS)
+        assert spent["Monitor"] == set(VA_MONITOR_KEYS)
+        assert spent["readout"] == set(VA_READOUT_KEYS)
+        assert spent["calibration"] == spent["monitor_inverse"] == SYNTHETIC_VOCABULARIES["kind"]
+
+    def test_the_synthetic_response_document_stays_inside_the_frozen_key_set(self):
+        """The response document's blocks and both their sides carry frozen keys only."""
+        response = _synthetic("quokka.sr.response.json")
+        assert set(response) == {"_export", "file", "blocks"}
+        for index, block in enumerate(response["blocks"]):
+            assert set(block) == set(VA_RESPONSE_BLOCK_KEYS), index
+            for side in ("monitor", "actuator"):
+                assert set(block[side]) == set(VA_RESPONSE_SIDE_KEYS), f"{index}.{side}"
+
+    def test_the_synthetic_vocabularies_are_closed_and_every_word_is_used(self):
+        """Each closed vocabulary is honoured, and the fixture spends all of it."""
+        va = _synthetic_va()
+        seen = {name: set() for name in SYNTHETIC_VOCABULARIES}
+        for calibration in _synthetic_calibrations(va):
+            for name in ("kind", "grid_source", "anchor"):
+                if name in calibration:
+                    seen[name].add(calibration[name])
+        for block in va["families"].values():
+            if "energy_scaling" in block.get("Setpoint", {}):
+                seen["energy_scaling"].add(block["Setpoint"]["energy_scaling"])
+        assert seen == SYNTHETIC_VOCABULARIES
+
+    def test_the_synthetic_sliced_kick_carries_one_nan_slice(self):
+        """One corrector device is made of one element where the others are made of two."""
+        rows = _synthetic("quokka.sr.ao.json")["HC"]["AT"]["ATIndex"]
+        finite = [sum(1 for entry in row if entry != "NaN") for row in rows]
+        assert sorted(finite) == [1, 2, 2, 2]
+        assert sum(row.count("NaN") for row in rows) == 1
+
+    def test_the_synthetic_inverse_is_not_the_calibration_read_backwards(self):
+        """A family's sampled inverse differs from the inverse of its own calibration."""
+        monitor = _synthetic_va()["families"]["QF"]["Monitor"]
+        gain = monitor["calibration"]["gain"][0]
+        inverse = monitor["monitor_inverse"]["gain"][0]
+        assert monitor["monitor_inverse"]["kind"] == "linear"
+        assert inverse != pytest.approx(1.0 / gain, rel=1e-3)
+
+    def test_the_synthetic_table_calibration_stops_where_its_numbers_do(self):
+        """A conversion with an end writes ``"NaN"`` past it and records the span."""
+        calibration = _synthetic_va()["families"]["BEND"]["Setpoint"]["calibration"]
+        assert calibration["kind"] == "table"
+        for grid, values, span in zip(
+            calibration["grid"], calibration["values"], calibration["finite_span"], strict=True
+        ):
+            assert "NaN" in values
+            assert span[0] == grid[0]
+            assert span[1] < grid[-1]
+
+    def test_the_synthetic_energy_tables_come_both_flat_and_not(self):
+        """One energy candidate's table moves with its current and one does not."""
+        families = _synthetic_va()["families"]
+        candidates = {
+            name: block for name, block in families.items() if block.get("energy_candidate")
+        }
+        flat = {
+            name
+            for name, block in candidates.items()
+            if len(set(block["energy_table"]["values"])) == 1
+        }
+        assert flat and set(candidates) - flat
+        for block in candidates.values():
+            assert block["energy_table"]["energy_at_nominal"] > 0
+
+    def test_the_synthetic_export_carries_both_shapes_of_refusal(self):
+        """One block is a refusal alone; another keeps its facts beside one."""
+        families = _synthetic_va()["families"]
+        alone = [name for name, block in families.items() if set(block) == {"refused"}]
+        beside = [
+            name
+            for name, block in families.items()
+            if "refused" in block and set(block) != {"refused"}
+        ]
+        assert alone and beside
+        assert any("nominals" in families[name] for name in beside)
+
+    def test_the_synthetic_nominal_outside_its_range_falls_back(self):
+        """A family the deck sits outside its own band for is sampled about its nominal."""
+        va = _synthetic_va()
+        band = _synthetic("quokka.sr.ao.json")["HC"]["Setpoint"]["Range"]
+        nominal = va["families"]["HC"]["nominals"]["Setpoint"]["values"]
+        assert max(abs(value) for value in nominal) > band[1]
+        assert va["families"]["HC"]["Setpoint"]["calibration"]["grid_source"] == "fallback"
+
+    def test_the_synthetic_escape_hatch_carries_both_spellings(self):
+        """The escape-hatch family names a replacement write path and a parameter group."""
+        block = _synthetic("quokka.sr.ao.json")["IDGAP"]["AT"]
+        assert "$fn" in block["SpecialFunctionSet"]
+        assert isinstance(block["ATParameterGroup"], str)
+
+    def test_the_synthetic_export_pairs_families_on_one_element(self):
+        """Two families bind the same lattice elements, so one element serves both."""
+        ao = _synthetic("quokka.sr.ao.json")
+        bound = {}
+        for family, body in ao.items():
+            index = body.get("AT", {}).get("ATIndex") if isinstance(body, dict) else None
+            if isinstance(index, list) and index and not isinstance(index[0], list):
+                bound[family] = tuple(index)
+        pairs = [
+            (one, other)
+            for one in bound
+            for other in bound
+            if one < other and bound[one] == bound[other]
+        ]
+        assert pairs
+
+    def test_the_synthetic_one_device_family_is_written_flat(self):
+        """A one-device family's rows are flat arrays and its one index a bare number."""
+        block = _synthetic_va()["families"]["RF"]
+        assert block["device_list"] == [1, 1]
+        nominals = block["nominals"]["Setpoint"]
+        assert isinstance(nominals["values"], float)
+        assert isinstance(nominals["at_index"], (int, float))
+
+    def test_the_synthetic_response_matrix_lines_up_with_its_device_lists(self):
+        """Every block's matrix is one row per monitor and one column per corrector."""
+        response = _synthetic("quokka.sr.response.json")
+        assert response["file"] == ""
+        assert response["blocks"]
+        for block in response["blocks"]:
+            monitors = len(block["monitor"]["device_list"])
+            actuators = len(block["actuator"]["device_list"])
+            assert len(block["data"]) == monitors
+            assert all(len(row) == actuators for row in block["data"])
+            assert len(block["monitor"]["status"]) == monitors
+            assert len(block["actuator"]["status"]) == actuators
+            model = {block["monitor"]["mode"], block["actuator"]["mode"]} & {"Simulator", "Model"}
+            assert block["origin"] == ("model" if model else "measured")
+
+    def test_the_synthetic_response_matrix_marks_the_device_it_lost(self):
+        """A device the file does not hold is flagged down and its row is no number."""
+        blocks = _synthetic("quokka.sr.response.json")["blocks"]
+        dropped = [
+            (block, index)
+            for block in blocks
+            for index, flag in enumerate(block["monitor"]["status"])
+            if flag == 0
+        ]
+        assert dropped
+        for block, index in dropped:
+            assert all(entry == "NaN" for entry in block["data"][index])
+            assert block["monitor"]["data"][index] == "NaN"
+
+    def test_the_synthetic_export_uses_invented_names_only(self):
+        """No real facility name appears in the fixture, its builder or its README."""
+        text = "".join(
+            (SYNTHETIC / name).read_text(encoding="utf-8")
+            for name in SYNTHETIC_FILES
+            if name.endswith(".json")
+        )
+        text += (SYNTHETIC / "build.py").read_text(encoding="utf-8")
+        text += (SYNTHETIC / "README.md").read_text(encoding="utf-8")
+        assert REAL_NAMES.search(text) is None
+
+    def test_the_synthetic_readme_names_every_committed_file(self):
+        """The fixture README has a row for each file the builder writes."""
+        readme = (SYNTHETIC / "README.md").read_text(encoding="utf-8")
+        for name in SYNTHETIC_FILES:
+            assert name in readme
