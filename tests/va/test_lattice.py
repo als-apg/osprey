@@ -1,220 +1,276 @@
-"""Tests for the ALS-U AR PyAT lattice model (virtual accelerator).
+"""The deck a real export run wrote, served as a model.
 
-Every numeric tolerance below is derived from a value measured against the
-real ring while writing this file (see the comment beside each assertion) --
-none of it is copied from the retired 24-cell toy-ring test suite.
+Every other module in this suite hands the model a tree assembled by the test
+that reads it. This one does not: it runs the whole ``osprey mml`` chain --
+import, map, emit -- over a committed 2.0 export fixture, and serves the tree
+that run wrote. What it pins is the seam between the two halves of this
+repository, which neither half can check alone: the deck the emit lane saved,
+the bindings it derived against that deck, the scenario seed and the write
+bands it wrote beside them, and the channel namespace the manifest generator
+builds from all of it, are one accelerator that the virtual accelerator boots.
+
+Three properties of that seam, each of which has been wrong before:
+
+* **Elements are found by the name the bindings carry.** The deck is a bag of
+  named elements and the bindings name them; nothing derives an element from
+  an address, a family or a position.
+* **Positions are not a way in.** ``at.save_json`` drops the deck's
+  ``RingParam`` marker into lattice properties, so the saved deck is one
+  element shorter than the ``.mat`` the export read and the export's own
+  one-based indices do not address it. A consumer that indexed by them would
+  be off by one everywhere and wrong silently.
+* **The cavity is on.** A deck arrives with longitudinal motion disabled, and
+  a served model that left it that way would solve a 4D orbit while claiming
+  the frequency knob does something.
+
+The fixture export describes an invented machine, and every family name in it
+is invented too; nothing below spells one. The emitted tree is built once per
+module and the helper that builds it is shared with
+``test_rollback_families.py``, which drives the same five binding kinds.
 """
 
 from __future__ import annotations
 
-import statistics
-import time
+import json
+import os
+from pathlib import Path
 
-import at
 import pytest
+import yaml
+from click.testing import CliRunner
 
-from osprey.services.virtual_accelerator.lattice import build_ring, orbit_response
-from osprey.services.virtual_accelerator.lattice.inventory import pyat_coupled_device_ids
-from osprey.simulation.facility_spec import ALS_U_AR
+from osprey.cli.main import cli
+from osprey.services.virtual_accelerator.bindings import BindingsDocument, load_bindings
+from osprey.services.virtual_accelerator.manifest import build_manifest
+from osprey.services.virtual_accelerator.manifest.paths import DEFAULT_TIER, ManifestPaths
+from osprey.services.virtual_accelerator.model.pyat import PyATRingModel, UnknownDeviceError
+from tests.cli.test_mml_map import _fill
 
-# Measured mean/median solve time for one orbit_response() call on the dev
-# machine this suite was written on was ~9.5-10.2 ms (10 warm samples, see
-# TestSolveTimeBudget). CI hardware can be substantially slower, so the
-# budget below is kept at roughly 10x that measurement rather than tightened
-# to match it.
-SOLVE_TIME_BUDGET_MS = 100.0
+pytest.importorskip("linkml_runtime")
 
-# Measured max|x_bpm + x_bpm(-I)| over all 72 BPMs for a +-5 A HCM01 kick was
-# ~1.16e-7 m (sextupole feed-down breaks exact antisymmetry once the orbit
-# excursion is large enough to sample the sextupoles' nonlinearity). 2e-6 is
-# the required bound per the task spec, ~17x that measured residual.
-ANTISYMMETRY_TOLERANCE_M = 2e-6
+#: The 2.0 export the chain is run over: an invented ring small enough to read
+#: by eye, covering every binding kind and both slice shapes.
+SYNTHETIC_EXPORT = (
+    Path(__file__).resolve().parents[1] / "fixtures" / "mml" / "synthetic" / "quokka.sr.ao.json"
+)
 
-# Measured relative deviation from perfect linear scaling of the BPM01
-# response to an HCM01 kick, comparing I=5 A doubled to I=10 A directly, was
-# ~-0.08%; comparing I=1 A scaled x12 to I=12 A was ~-0.18%. 0.5% keeps
-# several x margin over both measurements.
-LINEARITY_RELATIVE_TOLERANCE = 5e-3
 
-# Measured max cross-plane leakage (the plane a corrector should NOT move):
-# HCM kicks (HCM01/10/30/50/70 at 10 A) left every BPM's y reading at exactly
-# 0.0 -- with no roll/skew elements in the model, y is algebraically
-# independent of an x-only perturbation. VCM kicks (VCM01/10/30/50/70 at
-# 10 A) left BPM x readings at up to ~8.1e-8 m, consistent with closed-orbit
-# solver noise rather than a real physical coupling. 1e-6 keeps an order of
-# magnitude of margin over that VCM-side noise floor.
-CROSS_PLANE_LEAKAGE_TOLERANCE_M = 1e-6
+def emit_served_tree(root: Path) -> Path:
+    """Run the export chain into *root* and return the served data directory.
+
+    The deployment repository is built the way a facility builds one: the
+    export is imported, a mapping skeleton is written and filled, and ``emit``
+    turns the checked mapping into the artifacts a deployment reads. The tier
+    directory is staged first, so the channel database lands where the
+    manifest generator reads it and the manifest is the one this tree's own
+    namespace produces rather than another tree's.
+
+    Args:
+        root: An empty directory to build the deployment repository in.
+
+    Returns:
+        The repository's ``data/`` directory -- what a served container is
+        handed, and what :class:`PyATRingModel` is pointed at.
+    """
+    (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
+    (root / "data" / "channel_databases" / "tiers" / f"tier{DEFAULT_TIER}").mkdir(parents=True)
+
+    runner = CliRunner()
+    previous = Path.cwd()
+    os.chdir(root)
+    try:
+        imported = runner.invoke(
+            cli, ["mml", "import", str(SYNTHETIC_EXPORT)], catch_exceptions=False
+        )
+        assert imported.exit_code == 0, imported.output
+        init = runner.invoke(cli, ["mml", "map", "--init"], catch_exceptions=False)
+        assert init.exit_code == 0, init.output
+
+        mapping = root / "data" / "mml" / "mapping.yaml"
+        mapping.write_text(
+            yaml.safe_dump(
+                _fill(yaml.safe_load(mapping.read_text(encoding="utf-8"))), sort_keys=False
+            ),
+            encoding="utf-8",
+        )
+
+        emitted = runner.invoke(cli, ["mml", "emit"], catch_exceptions=False)
+        assert emitted.exit_code == 0, emitted.output
+    finally:
+        os.chdir(previous)
+    return root / "data"
 
 
 @pytest.fixture(scope="module")
-def ring() -> at.Lattice:
-    return build_ring()
+def data_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """The tree one emit run wrote."""
+    return emit_served_tree(tmp_path_factory.mktemp("emitted"))
 
 
 @pytest.fixture(scope="module")
-def device_inventory() -> dict[str, list[str]]:
-    return pyat_coupled_device_ids()
+def paths(data_dir: Path) -> ManifestPaths:
+    return ManifestPaths(data_root=data_dir)
 
 
-class TestDeviceInventoryMatchesFacilitySpec:
-    """The lattice's device inventory must match the ALS_U_AR facility spec
-    exactly -- the spec fixes the lattice (and the manifest it's built
-    from), not vice versa (see facility_spec.py's module docstring)."""
-
-    @pytest.mark.parametrize("family", ALS_U_AR.family_names())
-    def test_family_counts_match_spec(self, device_inventory, family):
-        expected_count = ALS_U_AR.family(family).count
-        assert len(device_inventory[family]) == expected_count
-
-    def test_every_device_has_a_lattice_element(self, ring, device_inventory):
-        fam_names = {el.FamName for el in ring}
-        for family, ids in device_inventory.items():
-            for device_id in ids:
-                assert f"{family}{device_id}" in fam_names
-
-    def test_element_counts_match_device_counts_exactly(self, ring, device_inventory):
-        fam_names = [el.FamName for el in ring]
-        for family, ids in device_inventory.items():
-            count = sum(
-                1 for name in fam_names if name.startswith(family) and name[len(family) :] in ids
-            )
-            assert count == len(ids), f"{family}: expected {len(ids)} elements, found {count}"
+@pytest.fixture(scope="module")
+def document(paths: ManifestPaths) -> BindingsDocument:
+    return load_bindings(paths.va_bindings)
 
 
-class TestClosedOrbitStability:
-    def test_closed_orbit_exists_at_nominal_settings(self, ring):
-        # Measured: at.find_orbit4 on the nominal (uncorrected) ring returns
-        # exactly [0, 0, 0, 0, 0, 0] -- this is an ideal, unperturbed lattice
-        # with no misalignments applied, so the closed orbit sits on-axis to
-        # well under 1e-6 m at every BPM.
-        orbit0, _ = at.find_orbit4(ring)
-        assert orbit0 == pytest.approx([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], abs=1e-6)
-
-    def test_one_turn_matrix_is_stable_in_both_planes(self, ring):
-        m44, _ = at.find_m44(ring)
-        trace_x = m44[0, 0] + m44[1, 1]
-        trace_y = m44[2, 2] + m44[3, 3]
-        # |trace| < 2 is the standard stability criterion for a linear
-        # transfer matrix (real, bounded betatron tune in that plane).
-        # Measured on this ring: trace_x ~= 0.366, trace_y ~= -0.943.
-        assert abs(trace_x) < 2.0, f"horizontal plane unstable: trace={trace_x}"
-        assert abs(trace_y) < 2.0, f"vertical plane unstable: trace={trace_y}"
+@pytest.fixture(scope="module")
+def channels(paths: ManifestPaths) -> list[dict]:
+    """The namespace a deployment of that tree resolves, generated from it."""
+    return build_manifest(paths)["channels"]
 
 
-class TestOrbitResponse:
-    """orbit_response's current->kick calibration (AMPS_PER_RADIAN_KICK,
-    see lattice/calibration.py) is chosen so a corrector's typical +-10 A range
-    stays in the small-signal/quasi-linear regime on the real AR lattice
-    (tens of microns of orbit shift). What's tested here is the physically
-    required shape of that response -- nonzero, linear to a measured
-    tolerance, antisymmetric to a measured tolerance, and plane-decoupled --
-    not a specific hand-picked number.
+@pytest.fixture(scope="module")
+def booted(data_dir: Path, channels: list[dict]) -> PyATRingModel:
+    """The model the emitted tree serves."""
+    return PyATRingModel(data_dir, channels)
+
+
+class TestTheEmittedTreeBootsAModel:
+    """The chain's output is consumable, end to end, with nothing hand-made."""
+
+    def test_the_run_wrote_every_file_the_model_reads(self, paths: ManifestPaths) -> None:
+        assert paths.missing_sources() == []
+        assert paths.channel_limits.is_file()
+
+    def test_every_binding_of_the_document_became_a_variable(
+        self, booted: PyATRingModel, document: BindingsDocument
+    ) -> None:
+        assert set(booted.supported_variables) == {
+            binding.setpoint_address for binding in document.bindings
+        }
+
+    def test_the_generated_namespace_serves_every_bound_address(
+        self, channels: list[dict], document: BindingsDocument
+    ) -> None:
+        """The manifest and the bindings are derived from one export, so the
+        addresses the document binds are addresses the deployment serves.
+        A bound address the namespace omits reaches no variable at all."""
+        served = {channel["address"] for channel in channels}
+        assert {binding.setpoint_address for binding in document.bindings} <= served
+
+    def test_the_document_states_the_deck_the_same_run_saved(
+        self, paths: ManifestPaths, document: BindingsDocument
+    ) -> None:
+        """``build_ring`` refuses a deck the bindings were not derived
+        against, so a model booting at all is that check passing -- this
+        pins the deck it passed on as the one this run wrote."""
+        assert paths.lattice_json.read_bytes()
+        assert document.system
+        assert document.energy_gev > 0.0
+
+
+class TestElementsAreFoundByTheNameTheBindingCarries:
+    def test_every_bound_element_is_named_exactly_once_in_the_deck(
+        self, booted: PyATRingModel, document: BindingsDocument
+    ) -> None:
+        """What ``unique_element_index`` enforces at construction: a deck that
+        repeats a bound name gives two elements one setpoint, and each would
+        overwrite the other."""
+        counts: dict[str, int] = {}
+        for element in booted.lattice:
+            counts[element.FamName] = counts.get(element.FamName, 0) + 1
+        bound = {piece.element for binding in document.bindings for piece in binding.slices} | {
+            binding.element for binding in document.bindings if binding.element
+        }
+        assert bound
+        assert sorted(name for name in bound if counts.get(name, 0) != 1) == []
+
+    def test_each_slice_of_a_shared_write_is_its_own_element(
+        self, booted: PyATRingModel, document: BindingsDocument
+    ) -> None:
+        """A write shared over pieces reaches every piece, so every piece has
+        to be findable -- not only the one the binding reads back from."""
+        shared = [binding for binding in document.bindings if len(binding.slices) > 1]
+        assert shared, "the export binds nothing over more than one element"
+        for binding in shared:
+            indices = [booted.element_index(piece.element) for piece in binding.slices]
+            assert len(set(indices)) == len(indices)
+
+    def test_a_name_the_deck_does_not_carry_is_refused_naming_it(
+        self, booted: PyATRingModel
+    ) -> None:
+        with pytest.raises(UnknownDeviceError):
+            booted.element_index("no_element_of_this_deck_is_called_this")
+
+
+class TestTheDeckIsNeverIndexedByExportPosition:
+    """The export's own element indices do not address the saved deck.
+
+    ``at.save_json`` folds the deck's ``RingParam`` marker into the lattice's
+    properties, so the saved deck is one element shorter than the ring the
+    export read, and the export's one-based indices are one further along than
+    the position of the same element here. Every index in the two files below
+    would be off, in the same direction, for every element -- which is exactly
+    the kind of wrong that still produces a plausible orbit.
     """
 
-    def test_positive_hcm_kick_moves_its_paired_bpm(self):
-        # HCM<nn> is co-located immediately upstream of BPM<nn> in the same
-        # straight section -- its own BPM is the unambiguous "downstream
-        # BPM" for this corrector.
-        readings = orbit_response("HCM01", 10.0)
-        x, y = readings["BPM01"]
-        assert x != 0.0
-        assert y == pytest.approx(0.0)
+    def test_no_binding_carries_a_deck_position(self, document: BindingsDocument) -> None:
+        """A binding locates an element by name and a component by index.
+        ``index`` is into an element's own storage, never into the deck."""
+        for binding in document.bindings:
+            assert binding.element is None or isinstance(binding.element, str)
+            for piece in binding.slices:
+                assert isinstance(piece.element, str)
 
-    def test_response_is_antisymmetric_about_zero_current(self):
-        # Measured max residual over all 72 BPMs for +-5 A on HCM01 was
-        # ~1.16e-7 m; see ANTISYMMETRY_TOLERANCE_M above.
-        positive = orbit_response("HCM01", 5.0)
-        negative = orbit_response("HCM01", -5.0)
-        for bpm_name in positive:
-            resid = positive[bpm_name][0] + negative[bpm_name][0]
-            assert abs(resid) < ANTISYMMETRY_TOLERANCE_M, (
-                f"{bpm_name}: antisymmetry residual {resid} exceeds {ANTISYMMETRY_TOLERANCE_M}"
-            )
+    def test_the_saved_deck_is_shorter_than_the_positions_the_export_states(
+        self, booted: PyATRingModel, paths: ManifestPaths
+    ) -> None:
+        """The off-by-one made concrete, so the trap is visible rather than
+        only described: the highest position the export states is past the
+        end of the deck a consumer would index with it."""
+        export = json.loads(SYNTHETIC_EXPORT.read_text(encoding="utf-8"))
+        stated = [
+            value
+            for name, family in export.items()
+            if name != "_export" and isinstance(family, dict)
+            for value in _numbers(family.get("AT", {}).get("ATIndex"))
+        ]
+        assert stated, "the export states no element position to be trapped by"
+        assert max(stated) > len(booted.lattice)
 
-    def test_response_is_linear_in_current(self):
-        # Measured: doubling I=5 A -> I=10 A on HCM01/BPM01 deviates from
-        # perfect linear scaling by ~-0.08%; see
-        # LINEARITY_RELATIVE_TOLERANCE above.
-        base = orbit_response("HCM01", 5.0)["BPM01"][0]
-        doubled = orbit_response("HCM01", 10.0)["BPM01"][0]
-        assert doubled == pytest.approx(2.0 * base, rel=LINEARITY_RELATIVE_TOLERANCE)
-
-    def test_zero_current_gives_zero_response(self):
-        x, y = orbit_response("HCM01", 0.0)["BPM01"]
-        assert x == pytest.approx(0.0, abs=1e-12)
-        assert y == pytest.approx(0.0, abs=1e-12)
-
-    @pytest.mark.parametrize("corrector_name", ["HCM01", "HCM10", "HCM30", "HCM50", "HCM70"])
-    def test_hcm_only_moves_horizontal_plane(self, corrector_name):
-        # Measured: every one of these HCM correctors left all 72 BPMs' y
-        # readings at exactly 0.0 at 10 A -- with no roll/skew elements in
-        # this model, y is algebraically decoupled from an x-only kick.
-        readings = orbit_response(corrector_name, 10.0)
-        for bpm_name, (_x, y) in readings.items():
-            assert abs(y) < CROSS_PLANE_LEAKAGE_TOLERANCE_M, (
-                f"{bpm_name} y should be unaffected by an {corrector_name} kick, got {y}"
-            )
-
-    @pytest.mark.parametrize("corrector_name", ["VCM01", "VCM10", "VCM30", "VCM50", "VCM70"])
-    def test_vcm_only_moves_vertical_plane(self, corrector_name):
-        # Measured: these VCM correctors left BPM x readings at up to
-        # ~8.1e-8 m (VCM50) at 10 A -- consistent with closed-orbit solver
-        # noise, not a real physical coupling; see
-        # CROSS_PLANE_LEAKAGE_TOLERANCE_M above.
-        readings = orbit_response(corrector_name, 10.0)
-        for bpm_name, (x, _y) in readings.items():
-            assert abs(x) < CROSS_PLANE_LEAKAGE_TOLERANCE_M, (
-                f"{bpm_name} x should be unaffected by a {corrector_name} kick, got {x}"
-            )
-
-    def test_vcm_paired_bpm_responds(self):
-        readings = orbit_response("VCM05", 10.0)
-        _x, y = readings["BPM05"]
-        assert y != 0.0
-
-    def test_corrector_kick_resets_between_calls(self):
-        # A call with zero current after a nonzero one must not carry over
-        # residual state (orbit_response resets KickAngle before returning).
-        orbit_response("HCM01", 10.0)
-        x, y = orbit_response("HCM01", 0.0)["BPM01"]
-        assert x == pytest.approx(0.0, abs=1e-12)
-        assert y == pytest.approx(0.0, abs=1e-12)
-
-    def test_unknown_corrector_raises(self):
-        with pytest.raises(ValueError):
-            orbit_response("HCM99", 10.0)
-
-    def test_malformed_corrector_name_raises(self):
-        with pytest.raises(ValueError):
-            orbit_response("QF01", 10.0)
-
-    def test_returns_every_bpm(self):
-        readings = orbit_response("HCM01", 10.0)
-        assert len(readings) == ALS_U_AR.family("BPM").count
-        assert all(name.startswith("BPM") for name in readings)
+    def test_the_deck_the_model_holds_is_the_file_this_run_wrote(
+        self, booted: PyATRingModel, paths: ManifestPaths
+    ) -> None:
+        saved = json.loads(paths.lattice_json.read_text(encoding="utf-8"))
+        assert len(saved["elements"]) == len(booted.lattice)
 
 
-class TestSolveTimeBudget:
-    def test_solve_time_under_budget(self):
-        """The solve stays interactive -- guards against an algorithmic regression.
+def _numbers(value: object) -> list[float]:
+    """Every finite number anywhere inside a nested export value."""
+    if isinstance(value, bool) or value is None:
+        return []
+    if isinstance(value, (int, float)):
+        return [float(value)]
+    if isinstance(value, list):
+        return [number for item in value for number in _numbers(item)]
+    return []
 
-        Asserted on the median rather than the slowest sample. A shared CI
-        runner descheduling this process mid-sample says nothing about the
-        solver: on macos-latest the same ten samples ranged 24-134 ms around a
-        median of 43 ms, so the slowest one alone exceeded a budget the typical
-        one cleared twice over. ``max()`` also only drifts upward as the sample
-        count grows, which makes the guard fail more often the longer it runs
-        while the code under test is unchanged. The median moves only when the
-        solve genuinely gets slower, which is the regression this guards.
-        """
-        # Warm up (first call includes one-time import/JIT overhead).
-        orbit_response("HCM01", 1.0)
 
-        samples = []
-        for i in range(10):
-            t0 = time.perf_counter()
-            orbit_response("HCM01", float(i))
-            t1 = time.perf_counter()
-            samples.append((t1 - t0) * 1000.0)
+class TestTheServedRingSolvesSixDimensionally:
+    def test_longitudinal_motion_is_on(self, booted: PyATRingModel) -> None:
+        """A deck is saved 4D; ``build_ring`` enables the cavity, and without
+        that the frequency knob the export binds would move nothing."""
+        assert booted.lattice.is_6d
 
-        assert statistics.median(samples) < SOLVE_TIME_BUDGET_MS, samples
+    def test_the_deck_carries_the_cavity_the_document_binds(
+        self, booted: PyATRingModel, document: BindingsDocument
+    ) -> None:
+        cavities = [binding for binding in document.bindings if binding.kind == "rf"]
+        assert cavities, "the export binds no cavity"
+        for binding in cavities:
+            element = booted.lattice[booted.element_index(binding.element)]
+            assert hasattr(element, binding.attribute)
+
+    def test_the_orbit_the_model_publishes_is_the_one_the_cavity_closes(
+        self, booted: PyATRingModel, document: BindingsDocument
+    ) -> None:
+        """Every reading the served tree publishes is a finite number, which a
+        deck without a stable six-dimensional orbit would not produce."""
+        monitors = [binding for binding in document.bindings if binding.kind == "monitor"]
+        assert monitors
+        readings = booted.get([binding.setpoint_address for binding in monitors])
+        assert all(reading == reading for reading in readings.values())

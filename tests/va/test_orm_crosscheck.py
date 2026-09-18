@@ -1,29 +1,35 @@
-"""Cross-check: the ORM measured by driving `PhysicsBridge` against the
-independent `lattice/response.py` model oracle (task 5.1).
+"""The orbit response a client measures is the orbit response the model states.
 
-Two physics code paths that never call each other are compared here:
-`PhysicsBridge` (the live IOC-facing setpoint -> orbit -> BPM-reading path,
-including the seeded-error read pipeline `bind()`/`_push_bpm_readbacks` wires
-up) and `lattice.response.orbit_response` (an offline, from-scratch model of
-the same corrector-kick -> closed-orbit response, built and cached
-independently in `response.py`'s own module-global ring). Building a
-response-slope matrix from each and comparing them proves the live bridge's
-physics matches the model, not merely that each is internally consistent.
+Two paths reach the same number and neither calls the other. The *measured*
+path is the live one a plan takes: writes arrive at ``PhysicsBridge`` as
+addresses and hardware values, readings come back out of the records
+``bind()`` wired up, and the slope is fitted from those readings alone. The
+*oracle* path is
+:func:`~osprey.services.virtual_accelerator.lattice.response.orbit_response`,
+the verify lane a facility's own exported response matrix is checked against:
+it sweeps one binding on its own model and converts both ends through the
+calibrations the bindings document carries.
 
-Corrector and BPM device ids are derived from the manifest's pyat-coupled
-inventory (`lattice.inventory`), never hardcoded preset channel names, per
-the epic's VA-safety-test convention.
+Each is built on its own model instance, so they share a served tree and
+nothing else -- no lattice, no variable catalog, no solved orbit. Agreement
+therefore means the serving layer adds nothing between a client and the
+physics: not a unit it converted twice, not a sign, not a value it cached past
+a write. Either path alone would be internally consistent while wrong.
 
-The model side (`_model_matrix`) evaluates `orbit_response` over the SAME
-5-point sweep and fits it with the SAME degree-1 `numpy.polyfit` that
-`orm_analysis.build_response_matrix` fits over the measured rows -- estimator
-identity, not just independent data sources. On the real AR lattice's
-nonlinear (sextupole-bearing) closed-orbit response, a two-point
-finite-difference slope and a 5-point polyfit slope over the same sweep are
-different numbers, so anything less than an identical estimator on both
-sides would make the <=1e-9 agreement below meaningless; see `test_lattice.py`
-and `calibration.py`'s `AMPS_PER_RADIAN_KICK` comment for why the ring is
-nonlinear enough for this to matter.
+Two comparisons, in two tolerance regimes, and the difference between them is
+the point:
+
+* against the oracle's own estimator -- the same two-point secant over the same
+  sweep -- any disagreement at all is a code-path bug, so the bound is machine
+  precision;
+* against the estimator a real ``orm`` plan run uses -- a degree-1 fit over a
+  five-point sweep, in ``orm_analysis.build_response_matrix`` -- the two are
+  genuinely different numbers on a ring whose response is not perfectly
+  straight, so the bound admits that curvature and no more.
+
+Correctors are chosen by binding *kind* and monitors by theirs; which plane
+each moves is measured, never assumed. No family name or device count appears
+below.
 """
 
 from __future__ import annotations
@@ -32,30 +38,56 @@ import numpy as np
 import pytest
 
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
+from osprey.services.virtual_accelerator.bindings import Binding, BindingsDocument, load_bindings
 from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
-from osprey.services.virtual_accelerator.lattice import inventory, orbit_response
+from osprey.services.virtual_accelerator.lattice.calibration import to_physics
+from osprey.services.virtual_accelerator.lattice.response import orbit_response
+from osprey.services.virtual_accelerator.manifest import build_manifest
+from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
+from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 
-# Symmetric sweep parameters, matching the real `orm` plan's contract
-# (`plans_core/orm.py`'s `build_plan`): a sweep centred on each corrector's
-# own idle value is required by `build_response_matrix`'s degenerate-fit
-# guard. The VA's correctors idle at 0 A, so here that centre IS zero — on a
-# ring holding a corrected orbit it would be the working point instead, and
-# the same symmetric sweep would be written about that.
-SPAN_A = 5.0
-NUM_POINTS = 5
+#: The full width of the sweep both paths drive, in the hardware unit the
+#: facility states for a corrector. Wide enough to move an orbit far above the
+#: solver's own repeatability, narrow enough to stay in the small-signal
+#: regime the exported kick calibration is written for.
+_SWEEP = 4.0
 
-_AXES = ("X", "Y")
+#: How many correctors the comparison drives. Three is enough for a column
+#: each of the two planes and one to spare, and every one of them costs closed
+#: orbit solves on both paths.
+_ACTUATORS = 3
+
+#: Points in the five-point sweep a real ``orm`` plan run emits.
+_PLAN_POINTS = 5
+
+#: Machine-precision agreement between two evaluations of one estimator. The
+#: two paths compute the same quotient from the same two solves, so what is
+#: left is the last bits of the arithmetic.
+_IDENTICAL = 1.0e-9
+
+#: How far the plan's five-point fit may sit from the oracle's two-point
+#: secant. They are different estimators of a response that is not perfectly
+#: linear in the kick, so they disagree by the ring's own curvature over the
+#: sweep -- small, but many orders above the bound above. A sign error or a
+#: transposed matrix blows through this by orders of magnitude.
+_ESTIMATOR_SPREAD = 1.0e-3
+
+#: A seeded readout offset, in the unit the monitor publishes.
+_OFFSET = 0.5
 
 
-class _FakeRecord:
-    """Minimal duck-typed stand-in for a softioc In record: just `.set()`.
+@pytest.fixture(scope="module")
+def document() -> BindingsDocument:
+    return load_bindings(PACKAGE_PATHS.va_bindings)
 
-    Mirrors `test_physics_bridge.py`'s `FakeRecord` -- reading through
-    `bind()`'s bound records (rather than `bpm_positions()`, the physics-only
-    truth) exercises the same seeded-error read pipeline
-    (`_push_bpm_readbacks`/`errors.bpm_read`) a real `orm` plan reads BPM RB
-    channels through.
-    """
+
+@pytest.fixture(scope="module")
+def channels() -> list[dict]:
+    return build_manifest()["channels"]
+
+
+class FakeRecord:
+    """The one thing the bridge asks of a record: that it can be ``set``."""
 
     def __init__(self) -> None:
         self.value: float | None = None
@@ -64,155 +96,210 @@ class _FakeRecord:
         self.value = value
 
 
-def _corrector_and_bpm_names() -> tuple[list[str], list[str]]:
-    """Generic corrector/BPM device names from the manifest inventory.
+def _actuators(document: BindingsDocument) -> list[Binding]:
+    """The correctors driven, spread across the document rather than adjacent.
 
-    A handful of correctors (not the full HCM+VCM inventory) keeps the sweep
-    fast while still exercising both planes; every BPM is read at every
-    point, matching the real plan's "read all BPMs" contract.
+    Adjacent devices in one straight section answer almost the same column;
+    spreading them means a transposed or mis-ordered matrix cannot pass by
+    looking roughly right.
     """
-    inv = inventory.pyat_coupled_device_ids()
-    correctors = [f"HCM{d}" for d in inv["HCM"][:3]] + [f"VCM{d}" for d in inv["VCM"][:3]]
-    bpms = [f"BPM{d}" for d in inv["BPM"]]
-    return correctors, bpms
+    kicks = [binding for binding in document.bindings if binding.kind == "kick"]
+    assert len(kicks) >= _ACTUATORS, "the tree binds too few correctors to compare"
+    stride = len(kicks) // _ACTUATORS
+    return [kicks[index * stride] for index in range(_ACTUATORS)]
 
 
-def _sweep_currents(span: float, num: int) -> list[float]:
-    """The symmetric kick sequence `build_plan` sweeps, about a 0 A idle."""
-    step = (2 * span) / (num - 1)
-    return [-span + i * step for i in range(num)]
+def _monitors(document: BindingsDocument) -> list[Binding]:
+    return [binding for binding in document.bindings if binding.kind == "monitor"]
 
 
-def _sp_address(corrector: str) -> str:
-    family, device = corrector[:3], corrector[3:]
-    return f"SR:MAG:{family}:{device}:CURRENT:SP"
+def _plane(monitor: Binding) -> int:
+    """Which half of an ``orbit_response`` entry a monitor's axis is."""
+    return 0 if monitor.attribute == "x" else 1
 
 
-def _bpm_axis_address(bpm: str, axis: str) -> str:
-    device = bpm[len("BPM") :]
-    return f"SR:DIAG:BPM:{device}:POSITION:{axis}"
+def _oracle(model: PyATRingModel, document: BindingsDocument) -> dict[str, np.ndarray]:
+    """The oracle's response column for each driven corrector.
+
+    Keyed by the corrector's address, each column one physics-per-physics
+    entry per monitor binding, in document order -- the shape the measured
+    matrix below is built in, so the two can be compared row for row.
+    """
+    monitors = _monitors(document)
+    columns = {}
+    for binding in _actuators(document):
+        response = orbit_response(model, binding, _SWEEP, monitors=monitors)
+        columns[binding.setpoint_address] = np.array(
+            [response[monitor.element][_plane(monitor)] for monitor in monitors]
+        )
+    return columns
 
 
-def _readback_key(bpm: str, axis: str) -> str:
-    return f"{bpm}:{axis}"
-
-
-def _bind_bpm_records(bridge: PhysicsBridge, bpms: list[str]) -> dict[tuple[str, str], _FakeRecord]:
-    records: dict[str, _FakeRecord] = {}
-    by_axis: dict[tuple[str, str], _FakeRecord] = {}
-    for bpm in bpms:
-        for axis in _AXES:
-            rec = _FakeRecord()
-            records[_bpm_axis_address(bpm, axis)] = rec
-            by_axis[(bpm, axis)] = rec
+def _bridge(
+    channels: list[dict], document: BindingsDocument, **kwargs
+) -> tuple[PhysicsBridge, dict]:
+    """A bridge on its own model, reading through bound records."""
+    bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels), **kwargs)
+    records = {monitor.setpoint_address: FakeRecord() for monitor in _monitors(document)}
     bridge.bind(records)
-    return by_axis
+    return bridge, records
 
 
-def _measure_rows(
-    bridge: PhysicsBridge, correctors: list[str], bpms: list[str], span: float, num: int
-) -> list[dict[str, float]]:
-    """Drive `bridge` over a symmetric sweep of each corrector in turn.
+def _read(records: dict, document: BindingsDocument) -> np.ndarray:
+    """One orbit read off the records, converted to physics per monitor.
 
-    Builds rows in the same shape `_orm_plan` emits: every row carries every
-    corrector's current (the just-swept one at its commanded value, every
-    other one at its idle 0.0 -- FR10's SP->RB echo means a real bridge's
-    corrector readback equals what we set here exactly) alongside every BPM
-    axis reading, read through `bind()`'s bound records.
+    The bridge publishes each reading in the unit its own monitor states; the
+    binding's calibration is the one curve that takes that to physics, and the
+    oracle used the same one on its side.
     """
-    by_axis = _bind_bpm_records(bridge, bpms)
-    currents = _sweep_currents(span, num)
-    rows: list[dict[str, float]] = []
+    return np.array(
+        [
+            float(to_physics(monitor.calibration, records[monitor.setpoint_address].value))
+            for monitor in _monitors(document)
+        ]
+    )
 
-    for corrector in correctors:
+
+def _span(binding: Binding, held: float) -> float:
+    """The actuator's sweep width in physics, through its own calibration."""
+    return float(to_physics(binding.calibration, held + _SWEEP / 2)) - float(
+        to_physics(binding.calibration, held - _SWEEP / 2)
+    )
+
+
+def _measured_secant(
+    bridge: PhysicsBridge, records: dict, document: BindingsDocument
+) -> dict[str, np.ndarray]:
+    """The oracle's estimator, evaluated through the live path.
+
+    Two arms either side of where each corrector idles, the corrector restored
+    before the next is driven -- so every column is a dither about one orbit.
+    """
+    columns = {}
+    for binding in _actuators(document):
+        address = binding.setpoint_address
+        held = _held(bridge, binding)
         try:
-            for current in currents:
-                bridge.on_setpoint(_sp_address(corrector), current)
-                row = {c: (current if c == corrector else 0.0) for c in correctors}
-                for bpm in bpms:
-                    for axis in _AXES:
-                        row[_readback_key(bpm, axis)] = by_axis[(bpm, axis)].value
-                rows.append(row)
+            bridge.on_setpoint(address, held + _SWEEP / 2)
+            high = _read(records, document)
+            bridge.on_setpoint(address, held - _SWEEP / 2)
+            low = _read(records, document)
         finally:
-            bridge.on_setpoint(_sp_address(corrector), 0.0)
+            bridge.on_setpoint(address, held)
+        columns[address] = (high - low) / _span(binding, held)
+    return columns
 
-    return rows
 
+def _held(bridge: PhysicsBridge, binding: Binding) -> float:
+    """Where a corrector idles: the nominal the served tree declares for it.
 
-def _model_matrix(correctors: list[str], bpms: list[str], currents: list[float]) -> np.ndarray:
-    """The independent model-oracle response matrix from `lattice/response.py`.
-
-    Evaluates `orbit_response` at the SAME `currents` sweep and fits the SAME
-    degree-1 `numpy.polyfit` that `build_response_matrix` fits over the
-    measured rows -- estimator identity, not just data-source independence.
-    This matters because the estimators are not interchangeable: the
-    real AR lattice's sextupoles (see `calibration.py`'s `AMPS_PER_RADIAN_KICK`
-    comment) make the closed-orbit response mildly nonlinear in kick angle,
-    so a two-point finite-difference slope and a 5-point polyfit slope over
-    the same sweep are two different numbers, not two estimates of the same
-    one. Using anything but the identical estimator on both sides would
-    reintroduce that discrepancy into the comparison below and make the
-    <=1e-9 agreement meaningless; with identical estimators, any agreement
-    failure can only mean the two code paths (bridge vs. oracle) disagree.
+    Not zero. Zero is where a machine with no orbit to correct happens to
+    idle, and a facility that seeds its correctors elsewhere still has to
+    produce the same response about its own working point.
     """
-    n_axes = len(_AXES)
-    readbacks = [_readback_key(bpm, axis) for bpm in bpms for axis in _AXES]
-    matrix = np.zeros((len(readbacks), len(correctors)))
-    for j, corrector in enumerate(correctors):
-        readings = [orbit_response(corrector, current) for current in currents]
-        for i, bpm in enumerate(bpms):
-            for a in range(n_axes):
-                values = [reading[bpm][a] for reading in readings]
-                slope, _intercept = np.polyfit(currents, values, deg=1)
-                matrix[i * n_axes + a, j] = slope
-    return matrix
+    return float(binding.nominal)
 
 
-def test_measured_orm_matches_model_oracle_to_1e9_relative():
-    """SC: measured ORM == lattice/response.py model oracle to <=1e-9 relative."""
-    correctors, bpms = _corrector_and_bpm_names()
-    readbacks = [_readback_key(bpm, axis) for bpm in bpms for axis in _AXES]
-
-    bridge = PhysicsBridge()
-    rows = _measure_rows(bridge, correctors, bpms, SPAN_A, NUM_POINTS)
-    measured = build_response_matrix(rows, correctors, readbacks)
-    model = _model_matrix(correctors, bpms, _sweep_currents(SPAN_A, NUM_POINTS))
-
-    nonzero = np.abs(model) > 1e-15
-    assert nonzero.any(), "model oracle produced an all-zero matrix -- test setup is broken"
-
-    rel_err = np.abs(measured[nonzero] - model[nonzero]) / np.abs(model[nonzero])
-    max_rel_err = float(rel_err.max())
-    assert max_rel_err <= 1e-9, f"measured vs model relative error {max_rel_err:.3e} exceeds 1e-9"
-
-    # Structurally-zero entries (a corrector's own out-of-plane response,
-    # e.g. an HCM's effect on a BPM's Y reading) must measure as exactly zero
-    # too, not merely "small relative to a zero reference".
-    if (~nonzero).any():
-        assert np.max(np.abs(measured[~nonzero])) < 1e-12
+@pytest.fixture(scope="module")
+def oracle(channels: list[dict], document: BindingsDocument) -> dict[str, np.ndarray]:
+    """One oracle evaluation, on a model nothing else touches."""
+    return _oracle(PyATRingModel(PACKAGE_PATHS.data_root, channels), document)
 
 
-def test_seeded_bpm_offset_leaves_measured_orm_unchanged():
-    """SC: a seeded BPM electrical offset leaves the measured ORM unchanged
-    within the noise floor -- the ORM's structural blind spot (E5)."""
-    correctors, bpms = _corrector_and_bpm_names()
-    readbacks = [_readback_key(bpm, axis) for bpm in bpms for axis in _AXES]
-    offset_bpm = bpms[0]
+class TestTheLivePathAndTheOracleAreOnePhysics:
+    def test_the_measured_secant_is_the_oracles_number(
+        self, channels: list[dict], document: BindingsDocument, oracle: dict[str, np.ndarray]
+    ) -> None:
+        bridge, records = _bridge(channels, document)
 
-    clean_bridge = PhysicsBridge()
-    clean_rows = _measure_rows(clean_bridge, correctors, bpms, SPAN_A, NUM_POINTS)
-    clean_matrix = build_response_matrix(clean_rows, correctors, readbacks)
+        measured = _measured_secant(bridge, records, document)
 
-    offset_bridge = PhysicsBridge(bpm_errors={offset_bpm: {"offset_x": 50e-6, "offset_y": 30e-6}})
-    offset_rows = _measure_rows(offset_bridge, correctors, bpms, SPAN_A, NUM_POINTS)
-    offset_matrix = build_response_matrix(offset_rows, correctors, readbacks)
+        for address, column in measured.items():
+            assert column == pytest.approx(oracle[address], rel=_IDENTICAL, abs=_IDENTICAL), address
 
-    # Sanity: the offset actually perturbed the offset BPM's *readings* --
-    # otherwise this test would vacuously pass by comparing two identical
-    # matrices for the wrong reason.
-    clean_first_reading = clean_rows[0][_readback_key(offset_bpm, "X")]
-    offset_first_reading = offset_rows[0][_readback_key(offset_bpm, "X")]
-    assert offset_first_reading == pytest.approx(clean_first_reading - 50e-6, abs=1e-12)
+    def test_the_response_is_not_trivially_zero(self, oracle: dict[str, np.ndarray]) -> None:
+        """Guards the agreement above: two empty columns agree perfectly."""
+        for address, column in oracle.items():
+            assert np.max(np.abs(column)) > 0.0, address
 
-    delta = float(np.max(np.abs(offset_matrix - clean_matrix)))
-    assert delta < 1e-9, f"BPM-offset-seeded ORM diverged from clean ORM by {delta:.3e}"
+    def test_each_corrector_answers_a_column_of_its_own(
+        self, oracle: dict[str, np.ndarray]
+    ) -> None:
+        """Two correctors producing one column would make the comparison blind
+        to a mis-ordered matrix."""
+        columns = list(oracle.values())
+        for index, column in enumerate(columns):
+            for other in columns[index + 1 :]:
+                assert not np.allclose(column, other)
+
+    def test_a_seeded_readout_offset_leaves_the_measured_response_alone(
+        self, channels: list[dict], document: BindingsDocument, oracle: dict[str, np.ndarray]
+    ) -> None:
+        """A constant cancels out of a two-sided difference, so a readout
+        offset must not reach a response. One that did would make every
+        measured matrix a function of the readout faults seeded that day."""
+        monitor = _monitors(document)[0]
+        bridge, records = _bridge(
+            channels,
+            document,
+            bpm_errors={monitor.element: {"offset_x": _OFFSET, "offset_y": _OFFSET}},
+        )
+
+        measured = _measured_secant(bridge, records, document)
+
+        for address, column in measured.items():
+            assert column == pytest.approx(oracle[address], rel=_IDENTICAL, abs=_IDENTICAL), address
+
+
+class TestThePlansEstimatorAgreesWithTheOracle:
+    def test_the_fitted_matrix_matches_the_oracle_within_the_rings_curvature(
+        self, channels: list[dict], document: BindingsDocument, oracle: dict[str, np.ndarray]
+    ) -> None:
+        """The shape a real ``orm`` run emits, fitted by the code that fits it.
+
+        Every row carries every corrector's current, the sweep of each is
+        centred on where that corrector idles, and the others sit at their own
+        working points throughout -- the invariant
+        ``build_response_matrix`` checks and fits against.
+        """
+        bridge, records = _bridge(channels, document)
+        actuators = _actuators(document)
+        monitors = _monitors(document)
+        addresses = [binding.setpoint_address for binding in actuators]
+        idle = {binding.setpoint_address: _held(bridge, binding) for binding in actuators}
+        offsets = np.linspace(-_SWEEP / 2, _SWEEP / 2, _PLAN_POINTS)
+
+        rows: list[dict[str, float]] = []
+        for binding in actuators:
+            address = binding.setpoint_address
+            try:
+                for offset in offsets:
+                    bridge.on_setpoint(address, idle[address] + float(offset))
+                    reading = _read(records, document)
+                    rows.append(
+                        {
+                            **idle,
+                            address: idle[address] + float(offset),
+                            **{
+                                monitor.setpoint_address: float(value)
+                                for monitor, value in zip(monitors, reading, strict=True)
+                            },
+                        }
+                    )
+            finally:
+                bridge.on_setpoint(address, idle[address])
+
+        fitted = build_response_matrix(
+            rows, addresses, [monitor.setpoint_address for monitor in monitors]
+        )
+
+        for column, binding in enumerate(actuators):
+            address = binding.setpoint_address
+            # The fit is physics-per-hardware: its readings went through the
+            # monitors' curves above, its currents did not. One secant of the
+            # actuator's own curve over the same sweep puts it in the oracle's
+            # units -- exact for a straight calibration, and the honest local
+            # linearization for a curved one.
+            in_physics = fitted[:, column] * (_SWEEP / _span(binding, idle[address]))
+            reference = np.max(np.abs(oracle[address]))
+            assert np.max(np.abs(in_physics - oracle[address])) <= _ESTIMATOR_SPREAD * reference
