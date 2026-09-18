@@ -34,6 +34,7 @@ __all__ = [
     "Direction",
     "Vote",
     "VoteSource",
+    "field_vote",
     "vote_directions",
 ]
 
@@ -87,9 +88,25 @@ def _tag_words(member_of: Any) -> set[str]:
     return set()
 
 
-def _system_vote(name: str, body: dict) -> tuple[Direction | None, VoteSource]:
-    """Vote one field in one system."""
-    words = _tag_words(body.get("MemberOf"))
+def field_vote(name: str, member_of: Any) -> tuple[Direction | None, VoteSource]:
+    """Vote one field's direction from its name and its ``MemberOf`` tags.
+
+    The rule itself, taken apart from where the field was read: the module
+    docstring states it, this function is it, and every caller -- the mapping
+    voter below, and the VA channel manifest, which votes the same fields off
+    the emitted channel database rather than off the raw export -- reaches
+    exactly one copy of it.
+
+    Args:
+        name: The field's own name, e.g. ``Setpoint``.
+        member_of: The field's ``MemberOf`` value, in any of the shapes an
+            export writes it (a string, a nested list, or absent).
+
+    Returns:
+        ``(direction, source)`` -- the direction, or ``None`` when the tags
+        contradict each other and when neither tags nor name decide.
+    """
+    words = _tag_words(member_of)
     hits = {direction for direction, table in MEMBEROF_WORDS.items() if words.intersection(table)}
     if len(hits) == 2:
         return None, "undecided"
@@ -99,6 +116,11 @@ def _system_vote(name: str, body: dict) -> tuple[Direction | None, VoteSource]:
         if name.endswith(suffixes):
             return direction, "grammar"
     return None, "undecided"
+
+
+def _system_vote(name: str, body: dict) -> tuple[Direction | None, VoteSource]:
+    """Vote one field in one system."""
+    return field_vote(name, body.get("MemberOf"))
 
 
 def vote_directions(ao: dict) -> dict[tuple[str, str], Vote]:

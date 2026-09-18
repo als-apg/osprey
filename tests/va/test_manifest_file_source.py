@@ -119,6 +119,58 @@ class TestLoadManifestFile:
         }
 
 
+class TestABindingsShapedPairLoadsThroughTheSeam:
+    """The shape the bindings partition emits is a shape this reader accepts.
+
+    A coupled pair carries its identity in ``device`` alone -- the setpoint's
+    own address -- and leaves the other four keys empty, which is what the
+    schema allows and what pairs the two halves in the serving layer. The two
+    sides of that contract are written in different modules, so the file the
+    generator produces is loaded back here rather than assumed loadable.
+    """
+
+    def test_a_coupled_pair_keyed_on_the_setpoint_address_loads(self, tmp_path):
+        setpoint = "ZZEXP:MAG:Q:01:CUR:SP"
+        readback = "ZZEXP:MAG:Q:01:CUR:RB"
+        pair = [
+            _channel_entry(
+                address,
+                ring="",
+                system="",
+                family="",
+                device=setpoint,
+                field="",
+                subfield=subfield,
+                partition="pyat-coupled",
+                noise=False,
+            )
+            for address, subfield in ((setpoint, "SP"), (readback, "RB"))
+        ]
+
+        loaded = load_manifest_file(_write_manifest(tmp_path, pair))
+
+        assert loaded == pair
+        assert {channel["device"] for channel in loaded} == {setpoint}
+
+    def test_a_monitor_loads_under_the_axis_it_reads(self, tmp_path):
+        """``X``/``Y`` is neither ``SP`` nor ``RB``: read, and paired with nothing."""
+        address = "ZZEXP:DIAG:BPM:01:POS:X"
+        monitor = _channel_entry(
+            address,
+            ring="",
+            system="",
+            family="",
+            device=address,
+            field="",
+            subfield="X",
+            partition="pyat-coupled",
+        )
+
+        loaded = load_manifest_file(_write_manifest(tmp_path, [monitor]))
+
+        assert loaded[0]["subfield"] == "X"
+
+
 class TestSubfieldVocabularyHasOneProducer:
     """``SP``/``RB`` are declared once, by the manifest, and read everywhere else.
 

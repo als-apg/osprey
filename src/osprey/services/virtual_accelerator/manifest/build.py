@@ -7,6 +7,16 @@ that they describe the same namespace), unions in the scenario-seed
 template against the result, and classifies every address into a manifest
 partition plus an EPICS record type.
 
+The partition is read off the tree's own files, never off the address text.
+``simulation/va_bindings.json`` is the authority for the pyat-coupled
+partition: the addresses it binds are the ones a write steers the beam with,
+and a tree carrying no bindings couples nothing. What is left is sp-echo where
+the tree states a setpoint's readback -- the SP/RB halves of one device field
+in a hierarchical database, the read-voted sibling of a write-voted field in a
+middle-layer one -- and static-noisy everywhere else. One rule for every
+facility: a partition keyed on ring, system or family names would be one
+facility's naming convention masquerading as a physics fact.
+
 Every source is anchored on a :class:`~.paths.ManifestPaths`, so the same
 generator serves the bundled tree (the default, and the framework's own
 tutorial machine) and the facility data tree ``osprey build`` is building from
@@ -31,11 +41,13 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+from collections.abc import Callable, Collection, Container, Iterable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from osprey.errors import BuildProfileError
 
+from ..bindings import BindingsDocument, load_bindings
 from . import classify, loaders
 from .classify import READBACK_SUBFIELD, SETPOINT_SUBFIELD
 from .paths import MANIFEST_OUTPUT, PACKAGE_PATHS, ManifestPaths
@@ -147,17 +159,35 @@ class ParadigmExpansion:
             order; empty when it did not load or the tree stages none.
         corrupt: The staged databases that are present and could not be read,
             in read order. Each contributed zero addresses.
+        middle_layer_channels: The middle-layer database's channel records, in
+            read order; empty when it did not load or the tree stages none.
+            They carry the signal group (system, family, field path) and the
+            field metadata the read/write vote and the sp-echo pairing are
+            decided from on a tree with no hierarchy path.
     """
 
     addresses: dict[str, set[str]]
     hierarchy_paths: dict[str, dict[str, str]]
     corrupt: tuple[CorruptParadigm, ...]
     hierarchy_levels: tuple[str, ...] = ()
+    middle_layer_channels: tuple[dict, ...] = ()
 
 
-def _hierarchical_expansion(
-    paths: ManifestPaths,
-) -> tuple[set[str], dict[str, dict[str, str]], tuple[str, ...]]:
+@dataclass(frozen=True)
+class _Expanded:
+    """What one paradigm loader answered, in the shape the caller merges.
+
+    Every paradigm answers this same shape so the loop over the staged ones
+    stays one loop: the fields a given format cannot state are simply empty.
+    """
+
+    addresses: set[str]
+    hierarchy_paths: dict[str, dict[str, str]]
+    hierarchy_levels: tuple[str, ...] = ()
+    middle_layer_channels: tuple[dict, ...] = ()
+
+
+def _hierarchical_expansion(paths: ManifestPaths) -> _Expanded:
     """Expand the hierarchical database into its addresses, paths and levels.
 
     It is the one paradigm that declares a hierarchy path, and it is read once
@@ -166,7 +196,23 @@ def _hierarchical_expansion(
     """
     channels, levels = loaders.load_hierarchical_database(paths)
     by_address = {c.address: c.path for c in channels}
-    return set(by_address), by_address, levels
+    return _Expanded(addresses=set(by_address), hierarchy_paths=by_address, hierarchy_levels=levels)
+
+
+def _middle_layer_expansion(paths: ManifestPaths) -> _Expanded:
+    """Expand the middle-layer database into its addresses and its records.
+
+    The records are kept, not just the addresses: on a tree that stages no
+    hierarchical database they are the only statement of which addresses are
+    the read and write halves of one device field, and of which addresses are
+    measurements rather than setpoints.
+    """
+    channels = loaders.load_middle_layer_channels(paths)
+    return _Expanded(
+        addresses={channel["address"] for channel in channels},
+        hierarchy_paths={},
+        middle_layer_channels=tuple(channels),
+    )
 
 
 def _paradigm_addresses(paths: ManifestPaths) -> ParadigmExpansion:
@@ -190,16 +236,17 @@ def _paradigm_addresses(paths: ManifestPaths) -> ParadigmExpansion:
     """
     loader_by_paradigm = {
         "hierarchical": lambda: _hierarchical_expansion(paths),
-        "in_context": lambda: (loaders.load_in_context_addresses(paths), {}, ()),
-        "middle_layer": lambda: (loaders.load_middle_layer_addresses(paths), {}, ()),
+        "in_context": lambda: _Expanded(loaders.load_in_context_addresses(paths), {}),
+        "middle_layer": lambda: _middle_layer_expansion(paths),
     }
     addresses: dict[str, set[str]] = {}
     hierarchy_paths: dict[str, dict[str, str]] = {}
     hierarchy_levels: tuple[str, ...] = ()
+    middle_layer_channels: tuple[dict, ...] = ()
     corrupt: list[CorruptParadigm] = []
     for name in paths.staged_paradigms:
         try:
-            expanded, paths_by_address, declared_levels = loader_by_paradigm[name]()
+            expansion = loader_by_paradigm[name]()
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "The tier-%d %s channel database at %s is present and could not be read "
@@ -218,15 +265,263 @@ def _paradigm_addresses(paths: ManifestPaths) -> ParadigmExpansion:
                 )
             )
             continue
-        addresses[name] = expanded
-        hierarchy_paths.update(paths_by_address)
-        if declared_levels:
-            hierarchy_levels = declared_levels
+        addresses[name] = expansion.addresses
+        hierarchy_paths.update(expansion.hierarchy_paths)
+        if expansion.hierarchy_levels:
+            hierarchy_levels = expansion.hierarchy_levels
+        if expansion.middle_layer_channels:
+            middle_layer_channels = expansion.middle_layer_channels
     return ParadigmExpansion(
         addresses=addresses,
         hierarchy_paths=hierarchy_paths,
         corrupt=tuple(corrupt),
         hierarchy_levels=hierarchy_levels,
+        middle_layer_channels=middle_layer_channels,
+    )
+
+
+# --- the partition rule --------------------------------------------------
+
+#: The identity keys a setpoint and its readback are paired on: every
+#: hierarchy level but the subfield, which is the one level they differ in.
+#: Read off the single list of level names rather than respelled, so this and
+#: ``serving/pvdb._channel_key`` -- which pairs the SERVED records on the same
+#: five keys -- cannot drift apart.
+_PAIR_LEVELS: tuple[str, ...] = classify.CLASSIFIER_LEVELS[:-1]
+
+#: The direction vote that says an address is measured rather than written.
+#: A measured address is the one a simulated machine adds noise to; a written
+#: one reports back what it was given.
+_READ_VOTE = "read"
+
+#: What ``_metadata.partition_source`` says when nothing claimed the
+#: pyat-coupled partition, because the tree carries no bindings document.
+PARTITION_SOURCE_NONE = "none"
+
+
+def _read_votes(channels: Collection[dict]) -> dict[str, str | None]:
+    """The read/write direction voted for each middle-layer address.
+
+    One vote per address, decided from the field it was read under by the same
+    rule the MML mapping's own voter applies
+    (:func:`osprey.services.mml.directions.field_vote`): the field's
+    ``MemberOf`` tags first, then its name's suffix, then undecided. Reaching
+    that function rather than restating the rule is the point -- a second copy
+    of it here would let the manifest and the mapping disagree about which
+    half of a device field an address is.
+
+    Imported inside the call, and only where there is a vote to cast: the
+    virtual-accelerator container imports this module and reads no MML export,
+    so it never pays for that package's import graph.
+    """
+    if not channels:
+        return {}
+
+    from osprey.services.mml.directions import field_vote
+
+    votes: dict[str, str | None] = {}
+    for channel in channels:
+        direction, _ = field_vote(channel["field"], channel.get("MemberOf"))
+        votes[channel["address"]] = direction
+    return votes
+
+
+def _middle_layer_pairs(
+    channels: Iterable[dict], votes: Mapping[str, str | None]
+) -> dict[str, str]:
+    """Setpoint to readback, for every pair a middle-layer database states.
+
+    A middle-layer database groups its addresses by signal -- one list per
+    ``(system, family, field path)``, one position per device -- so a
+    write-voted group and a read-voted group of the same family that measure
+    the same quantity are the read and write halves of one device field, and
+    the pair is taken at each device position the two groups share. The
+    position, not the place in the surviving list: a field that leaves a
+    device blank, or names one address twice, keeps addresses whose places
+    have shifted against its sibling field's.
+
+    The same QUANTITY, not merely the same family, because a family may state
+    a second write-voted field in other units beside its setpoint, or a
+    boolean control beside it; the hardware units and the device count tell
+    those apart, and a family name cannot. A group stating no hardware units
+    states no quantity and pairs with nothing -- an absent unit is the absence
+    of a statement, not a statement of equality. A group with no single such
+    partner is left unpaired rather than guessed at, which serves it
+    static-noisy: a write echoing onto a readback measuring something else
+    would be a reading the facility never claimed.
+    """
+    groups: dict[tuple, dict[int, str]] = {}
+    quantity: dict[tuple, tuple] = {}
+    for channel in channels:
+        slot = channel.get("slot")
+        if slot is None:
+            continue
+        key = (
+            channel["system"],
+            channel["family"],
+            channel["field"],
+            tuple(channel["subfield"] or ()),
+        )
+        # One address per device position: an address listed at a position
+        # another address already holds names no further device.
+        groups.setdefault(key, {}).setdefault(slot, channel["address"])
+        quantity.setdefault(key, (channel.get("HWUnits"), channel.get("Units")))
+
+    by_family: dict[tuple, list[tuple]] = {}
+    for key in groups:
+        by_family.setdefault(key[:2], []).append(key)
+
+    def vote(key: tuple) -> str | None:
+        # Constant within a group: every address under one field was voted
+        # from that field's own name and tags.
+        return votes.get(next(iter(groups[key].values())))
+
+    def stated_quantity(key: tuple) -> tuple | None:
+        """What a group measures, or ``None`` where it states no units."""
+        hw_units, units = quantity[key]
+        return (hw_units, units) if hw_units else None
+
+    pairs: dict[str, str] = {}
+    for family_keys in by_family.values():
+        reads = [key for key in family_keys if vote(key) == _READ_VOTE]
+        for write_key in family_keys:
+            if vote(write_key) != "write":
+                continue
+            measured = stated_quantity(write_key)
+            if measured is None:
+                continue
+            candidates = [
+                read_key
+                for read_key in reads
+                if stated_quantity(read_key) == measured
+                and len(groups[read_key]) == len(groups[write_key])
+            ]
+            if len(candidates) != 1:
+                continue
+            readbacks = groups[candidates[0]]
+            for slot, setpoint in groups[write_key].items():
+                readback = readbacks.get(slot)
+                # A family whose two halves are one address states a readback
+                # that IS the setpoint; there is no second channel to echo
+                # into, so it is not a pair.
+                if readback is not None and readback != setpoint:
+                    pairs[setpoint] = readback
+    return pairs
+
+
+def _hierarchical_pairs(path_by_address: Mapping[str, dict[str, str]]) -> dict[str, str]:
+    """Setpoint to readback, for every pair a hierarchy path states.
+
+    The two halves of one device field differ in exactly one level, the
+    subfield, so a pair is the reserved ``SP``/``RB`` vocabulary found on two
+    paths that agree on every other level -- the key the serving layer pairs
+    its own records on.
+    """
+    halves: dict[tuple[str, ...], dict[str, str]] = {}
+    for address, path in path_by_address.items():
+        key = tuple(path[level] for level in _PAIR_LEVELS)
+        halves.setdefault(key, {})[path["subfield"]] = address
+    return {
+        group[SETPOINT_SUBFIELD]: group[READBACK_SUBFIELD]
+        for group in halves.values()
+        if SETPOINT_SUBFIELD in group
+        and READBACK_SUBFIELD in group
+        and group[SETPOINT_SUBFIELD] != group[READBACK_SUBFIELD]
+    }
+
+
+def _unambiguous_pairs(stated: Mapping[str, str], addresses: Container[str]) -> dict[str, str]:
+    """Keep the stated pairs that identify exactly one pair each.
+
+    The manifest is a namespace, so two records naming one address are one
+    channel, and a pair is taken only when nothing else claims either half. A
+    pair is dropped -- both halves served static-noisy instead -- when the
+    source states it ambiguously: a readback claimed by two setpoints, a
+    setpoint that is itself another pair's readback, or a readback that is
+    itself a setpoint. Shared by every source that states pairs, so none of
+    them can be laxer than another about it.
+    """
+    claimed: dict[str, list[str]] = {}
+    for setpoint, readback in stated.items():
+        claimed.setdefault(readback, []).append(setpoint)
+    return {
+        setpoint: readback
+        for setpoint, readback in stated.items()
+        if readback in addresses
+        and len(claimed[readback]) == 1
+        and setpoint not in claimed
+        and readback not in stated
+    }
+
+
+def _bound_entries(
+    document: BindingsDocument, record: Callable[[str], tuple[str, bool]]
+) -> dict[str, ManifestEntry]:
+    """One entry per address the bindings document claims, keyed by address.
+
+    These are the pyat-coupled partition, and the document is the only thing
+    that puts an address in it. Each entry carries the pair-key shape: the
+    identity keys are empty except ``device``, which holds the binding's own
+    setpoint address, because the bindings -- not the address text and not a
+    hierarchy path -- are what says these two addresses are one device's two
+    halves. A written binding emits its setpoint as ``SP`` and its readback as
+    ``RB``; one that serves both on a single address emits that address alone
+    as ``SP``; a monitor emits its own address under the transverse axis it
+    reads, ``X`` or ``Y``.
+
+    Every entry is analog: a bound address carries a number by construction,
+    whatever a channel database's record-type grammar would have said about
+    its name. The noise flag still comes from the tree's own record-type rule
+    (*record*), so a measured address jitters and a written one does not.
+
+    Args:
+        document: The tree's bindings.
+        record: The record type and noise flag for one address, as the tree's
+            own sources answer it.
+    """
+    entries: dict[str, ManifestEntry] = {}
+    for binding in document.bindings:
+        setpoint = binding.setpoint_address
+        if binding.kind == "monitor":
+            halves = {setpoint: (binding.attribute or "").upper()}
+        elif binding.readback_address is None:
+            halves = {setpoint: SETPOINT_SUBFIELD}
+        else:
+            halves = {
+                setpoint: SETPOINT_SUBFIELD,
+                binding.readback_address: READBACK_SUBFIELD,
+            }
+        for address, subfield in halves.items():
+            entries[address] = _echo_entry(
+                address,
+                pair_key=setpoint,
+                subfield=subfield,
+                partition=classify.PARTITION_PYAT_COUPLED,
+                noise=record(address)[1],
+            )
+    return entries
+
+
+def _path_entry(
+    address: str,
+    path: dict[str, str],
+    *,
+    partition: str,
+    record_type: str,
+    noise: bool,
+) -> ManifestEntry:
+    """One manifest entry for an address whose hierarchy path is known."""
+    return ManifestEntry(
+        address=address,
+        ring=path["ring"],
+        system=path["system"],
+        family=path["family"],
+        device=path["device"],
+        field=path["field"],
+        subfield=path["subfield"],
+        partition=partition,
+        record_type=record_type,
+        noise=noise,
     )
 
 
@@ -243,12 +538,17 @@ def build_manifest(paths: ManifestPaths = PACKAGE_PATHS) -> dict:
     What a subset costs is stated rather than hidden. The cross-paradigm
     agreement gate can only compare what is here, so a single database is taken
     at its word. And ``hierarchical`` is the one paradigm that declares a
-    hierarchy path, so without it every channel carries empty identity keys and
-    lands in the static-noisy partition; the setpoint/readback pairing those
-    keys drive is not available. ``_metadata`` names the databases that fed the
+    hierarchy path, so without it every channel carries empty identity keys;
+    the setpoint/readback pairing those keys drive is then read off the
+    middle-layer database's own signal groups instead, and a tree staging
+    neither pairs nothing. ``_metadata`` names the databases that fed the
     manifest, the ones that were absent, and the ones that were staged and
     could not be read, so a reader of the manifest alone can see which case
     they are in.
+
+    The pyat-coupled partition is the tree's ``simulation/va_bindings.json``
+    and nothing else: a tree carrying no bindings serves no channel from a
+    lattice model, whatever its addresses are called.
 
     That last group is the degradation stated twice: an unreadable database
     contributes no addresses AND is named with the reason it failed, so the
@@ -266,6 +566,9 @@ def build_manifest(paths: ManifestPaths = PACKAGE_PATHS) -> dict:
             unreadable, so nothing usable is left to build from.
         loaders.ParadigmMismatchError: if the paradigm DBs it DOES stage and
             can read disagree on the address set they expand to.
+        bindings.BindingsError: if the tree carries a bindings document that
+            breaks the schema. It names the file and the key, and the manifest
+            is not built from a document whose meaning is in doubt.
     """
     # The ``graph`` paradigm is exempt from the agreement gate and stays exempt.
     # The gate compares address sets expanded from tiered database files; a
@@ -328,28 +631,86 @@ def build_manifest(paths: ManifestPaths = PACKAGE_PATHS) -> dict:
         )
         path_by_address = {}
 
-    entries: list[ManifestEntry] = []
-    for address in sorted(addresses):
+    # The record type and the noise flag are the tree's own grammar, and they
+    # are decided per address independently of the partition. A hierarchy path
+    # states the record shape directly (a status flag is boolean and does not
+    # jitter); a middle-layer database states no record shape at all, so every
+    # address is analog and only the read/write vote is left to say whether it
+    # is measured -- and therefore noisy -- or written.
+    votes = _read_votes(expansion.middle_layer_channels)
+
+    def record_for(address: str) -> tuple[str, bool]:
         path = path_by_address.get(address)
-        if path is None:
-            entries.append(_pathless_entry(address, noise=False))
+        if path is not None:
+            return classify.derive_record_type(path)
+        return classify.RECORD_TYPE_ANALOG, votes.get(address) == _READ_VOTE
+
+    # The bindings document is the only thing that claims the pyat-coupled
+    # partition, and it claims its addresses whether or not a channel database
+    # named them: the manifest's coupled entries ARE the bindings file, which
+    # is the equality the deployed model is built against.
+    document = load_bindings(paths.va_bindings) if paths.va_bindings.is_file() else None
+    bound = _bound_entries(document, record_for) if document is not None else {}
+
+    # What is left pairs the way the tree states pairs: a hierarchy path says
+    # it with the reserved SP/RB subfields, a middle-layer database with a
+    # read-voted sibling group. A pair with a bound half is not an echo pair --
+    # the bindings already gave that address a model to answer from.
+    stated = (
+        _hierarchical_pairs(path_by_address)
+        if path_by_address
+        else _middle_layer_pairs(expansion.middle_layer_channels, votes)
+    )
+    stated = {
+        setpoint: readback
+        for setpoint, readback in stated.items()
+        if setpoint not in bound and readback not in bound
+    }
+    pairs = _unambiguous_pairs(stated, addresses)
+    echo_readbacks = set(pairs.values())
+
+    entries: list[ManifestEntry] = list(bound.values())
+    for address in sorted(addresses):
+        if address in bound or address in echo_readbacks:
+            # Claimed by the bindings, or emitted below beside its setpoint.
             continue
-        partition = classify.classify_partition(path)
-        record_type, noise = classify.derive_record_type(path)
-        entries.append(
-            ManifestEntry(
-                address=address,
-                ring=path["ring"],
-                system=path["system"],
-                family=path["family"],
-                device=path["device"],
-                field=path["field"],
-                subfield=path["subfield"],
-                partition=partition,
-                record_type=record_type,
-                noise=noise,
-            )
+        readback = pairs.get(address)
+        partition = (
+            classify.PARTITION_SP_ECHO if readback is not None else classify.PARTITION_STATIC_NOISY
         )
+        record_type, noise = record_for(address)
+        path = path_by_address.get(address)
+        if path is not None:
+            entries.append(
+                _path_entry(
+                    address, path, partition=partition, record_type=record_type, noise=noise
+                )
+            )
+            if readback is not None:
+                readback_type, readback_noise = record_for(readback)
+                entries.append(
+                    _path_entry(
+                        readback,
+                        path_by_address[readback],
+                        partition=partition,
+                        record_type=readback_type,
+                        noise=readback_noise,
+                    )
+                )
+        elif readback is not None:
+            entries.append(
+                _echo_entry(address, pair_key=address, subfield=SETPOINT_SUBFIELD, noise=noise)
+            )
+            entries.append(
+                _echo_entry(
+                    readback,
+                    pair_key=address,
+                    subfield=READBACK_SUBFIELD,
+                    noise=record_for(readback)[1],
+                )
+            )
+        else:
+            entries.append(_pathless_entry(address, noise=noise))
 
     return _finish_manifest(
         entries,
@@ -357,6 +718,12 @@ def build_manifest(paths: ManifestPaths = PACKAGE_PATHS) -> dict:
         source_paradigms=list(expansion.addresses),
         absent_paradigms=list(paths.absent_paradigms),
         unclassified_reason=unclassified_reason,
+        partition_source=(
+            str(paths.va_bindings.relative_to(paths.data_root))
+            if document is not None
+            else PARTITION_SOURCE_NONE
+        ),
+        bindings_novel_addresses=sorted(set(bound) - addresses),
         corrupt_paradigms=[
             {
                 "paradigm": c.paradigm,
@@ -375,6 +742,8 @@ def _finish_manifest(
     source_paradigms: list[str],
     absent_paradigms: list[str],
     corrupt_paradigms: list[dict],
+    partition_source: str = PARTITION_SOURCE_NONE,
+    bindings_novel_addresses: list[str] | None = None,
     source_corpus: str | None = None,
     unclassified_reason: str | None = None,
 ) -> dict:
@@ -397,6 +766,16 @@ def _finish_manifest(
             by design, so there is nothing absent to report.
         corrupt_paradigms: The staged databases that could not be read, as
             rendered metadata rows.
+        partition_source: What claimed the pyat-coupled partition -- the
+            tree-relative path of the bindings document that did, or
+            :data:`PARTITION_SOURCE_NONE` for a tree carrying none, whose
+            channels are all sp-echo or static-noisy. Always recorded, so a
+            reader of the manifest alone can tell an accelerator with no model
+            behind it from one whose model file went missing.
+        bindings_novel_addresses: Addresses the bindings claim that no channel
+            database named. Normally empty -- one emit run writes both files --
+            and recorded when it is not, because those channels reach the
+            served namespace from the bindings alone.
         source_corpus: The knowledge-graph source the entries came from (the
             channel search index built from the corpus), as an operator would
             name it, or ``None`` for a database-sourced manifest -- the key
@@ -454,7 +833,10 @@ def _finish_manifest(
         "machine_json_channel_count": len(machine_json_channels),
         "machine_json_novel_addresses": novel_machine_json,
         "source_paradigms": source_paradigms,
+        "partition_source": partition_source,
     }
+    if bindings_novel_addresses:
+        metadata["bindings_novel_addresses"] = bindings_novel_addresses
     if source_corpus is not None:
         metadata["source_corpus"] = source_corpus
     if unclassified_reason is not None:
@@ -533,16 +915,26 @@ def _graph_missing_sources(paths: ManifestPaths) -> list[Path]:
     return missing
 
 
-def _echo_entry(address: str, *, pair_key: str, subfield: str) -> ManifestEntry:
-    """One half of a setpoint-echo pair the roster states.
+def _echo_entry(
+    address: str,
+    *,
+    pair_key: str,
+    subfield: str,
+    partition: str = classify.PARTITION_SP_ECHO,
+    noise: bool = False,
+) -> ManifestEntry:
+    """One half of a pair whose pair key is the setpoint's own address.
 
     The container pairs a setpoint with its readback on the five identity keys
     ``(ring, system, family, device, field)``, differing only in subfield
-    (``serving/pvdb._channel_key``). The graph states no hierarchy path, so
-    the pair is keyed on the one thing that identifies it -- the setpoint's
-    own address, carried in ``device`` -- and the other four keys stay empty,
-    exactly as on a pathless entry. That is enough for the IOC to echo a write
-    to the setpoint onto the readback, which is all the partition promises.
+    (``serving/pvdb._channel_key``). Where the source states the pair itself
+    rather than a hierarchy path -- the knowledge-graph roster, a
+    middle-layer database, and the bindings document, which pairs addresses no
+    path could be trusted to agree with -- the pair is keyed on the one thing
+    that identifies it, the setpoint's own address carried in ``device``, and
+    the other four keys stay empty, exactly as on a pathless entry. That is
+    enough for the IOC to pair the two halves, which is all either partition
+    needs of the keys.
     """
     return ManifestEntry(
         address=address,
@@ -552,9 +944,9 @@ def _echo_entry(address: str, *, pair_key: str, subfield: str) -> ManifestEntry:
         device=pair_key,
         field="",
         subfield=subfield,
-        partition=classify.PARTITION_SP_ECHO,
+        partition=partition,
         record_type=classify.RECORD_TYPE_ANALOG,
-        noise=False,
+        noise=noise,
     )
 
 
@@ -586,17 +978,7 @@ def _graph_entries(records) -> list[ManifestEntry]:
         if record.readback is not None:
             stated.setdefault(record.address, record.readback)
     addresses = {record.address for record in records}
-    claimed = {}
-    for setpoint, readback in stated.items():
-        claimed.setdefault(readback, []).append(setpoint)
-    pairs = {
-        setpoint: readback
-        for setpoint, readback in stated.items()
-        if readback in addresses
-        and len(claimed[readback]) == 1
-        and setpoint not in claimed
-        and readback not in stated
-    }
+    pairs = _unambiguous_pairs(stated, addresses)
     readbacks = set(pairs.values())
 
     entries: list[ManifestEntry] = []
@@ -684,10 +1066,17 @@ class PreparedManifest:
     sources, disagreeing paradigm DBs -- has already happened by the time a
     caller holds one of these, so the decision to wire ``VA_CHANNELS_FILE``
     into the project's ``.env`` can be made before anything is written.
+
+    ``model_sources`` are the files describing the simulated accelerator
+    itself -- the lattice and the bindings that tie channels to it -- which
+    ship beside the manifest so the container finds the whole model under the
+    one directory it mounts. It is empty for a tree that serves no virtual
+    accelerator.
     """
 
     manifest: dict
     limits_source: Path
+    model_sources: tuple[Path, ...] = ()
 
 
 def prepare_project_manifest(
@@ -722,8 +1111,9 @@ def prepare_project_manifest(
         The prepared manifest, or ``None`` when this tree cannot back one: it
         stages no paradigm database at this tier, the databases it stages name
         no channel, every one of them is present and unreadable, it is missing
-        the scenario seed, the machine-state list or the drive limits, or the
-        databases it does stage disagree. :func:`manifest_gap_reason` says
+        the scenario seed, the machine-state list, the drive limits or the
+        lattice its bindings point into, or the databases it does stage
+        disagree. :func:`manifest_gap_reason` says
         which, in the words the refusal is written in. A caller deploying a
         virtual accelerator MUST refuse on ``None`` rather than continue.
 
@@ -818,7 +1208,15 @@ def prepare_project_manifest(
         )
         return None
 
-    return PreparedManifest(manifest=manifest, limits_source=paths.channel_limits)
+    model_files = (paths.lattice_json, paths.va_bindings)
+    return PreparedManifest(
+        manifest=manifest,
+        limits_source=paths.channel_limits,
+        # Read off the required sources rather than re-deciding which model
+        # files a tree carries, so what ships beside the manifest is exactly
+        # what the build just refused to go without.
+        model_sources=tuple(path for path in paths.required_sources if path in model_files),
+    )
 
 
 def _staged_expansion_is_empty(paths: ManifestPaths, expansion: ParadigmExpansion) -> bool:
@@ -935,10 +1333,10 @@ def _first_unreadable_source(paths: ManifestPaths) -> Path | None:
 
 
 def write_project_manifest(prepared: PreparedManifest, project_data_dir: Path) -> Path:
-    """Write a prepared manifest and its drive limits into ``data/simulation/``.
+    """Write a prepared manifest, its drive limits and its model into ``data/simulation/``.
 
-    Both files land in the directory the container already bind-mounts, so
-    neither needs a compose change: ``VA_CHANNELS_FILE`` resolves relative
+    Every file lands in the directory the container already bind-mounts, so
+    none of them needs a compose change: ``VA_CHANNELS_FILE`` resolves relative
     names against the data dir, and the entrypoint reads ``channel_limits.json``
     from beside it. The limits file is copied rather than bind-mounted
     single-file, which fails at container init.
@@ -947,6 +1345,11 @@ def write_project_manifest(prepared: PreparedManifest, project_data_dir: Path) -
     facility overlay applied to ``data/channel_limits.json`` is what the VA
     enforces), falling back to the source tree the manifest was prepared
     from.
+
+    The lattice and the bindings are copied byte for byte: the digest recorded
+    for the lattice when it was emitted is the digest of these bytes, so
+    anything that re-serialises them describes a different ring than the one
+    the provenance names.
 
     Returns:
         The path the manifest was written to.
@@ -958,6 +1361,14 @@ def write_project_manifest(prepared: PreparedManifest, project_data_dir: Path) -
     if not limits_source.is_file():
         limits_source = prepared.limits_source
     shutil.copy2(limits_source, simulation_dir / LIMITS_FILENAME)
+
+    for source in prepared.model_sources:
+        destination = simulation_dir / source.name
+        # A tree built in place already holds its model where the container
+        # reads it, and copying a file onto itself is the one copy that fails.
+        if destination.exists() and destination.samefile(source):
+            continue
+        shutil.copy2(source, destination)
 
     manifest_path = simulation_dir / MANIFEST_FILENAME
     manifest_path.write_text(json.dumps(prepared.manifest, indent=2) + "\n")
