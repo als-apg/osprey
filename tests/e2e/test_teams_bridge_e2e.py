@@ -479,7 +479,14 @@ def built_repo(tmp_path_factory: pytest.TempPathFactory) -> Path:
             text=True,
             timeout=BUILD_TIMEOUT_SEC,
             check=False,
-            env={**os.environ, "CLAUDECODE": ""},
+            # The provider's `requires_base_url` gate refuses a build without an
+            # endpoint, and this module's whole contract is that it needs no
+            # repository configuration at all (no secret, no Actions variable) --
+            # a fork PR's runner has neither. So the endpoint is pinned to a
+            # loopback port nobody answers: no assertion here ever reads model
+            # output, and a run that cannot reach its gateway carries a run_id
+            # exactly like one refused for want of an API key.
+            env={**os.environ, "CLAUDECODE": "", "ALS_APG_BASE_URL": "http://127.0.0.1:9/v1"},
         )
 
     init = _osprey(
