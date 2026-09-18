@@ -1081,6 +1081,17 @@ def pytest_configure(config):
         "test that asserts an unauthenticated 401/403 through a TestClient.",
     )
 
+    # Registered here for the same reason: the lane it marks lives in one file,
+    # which also owns the resolution that decides whether the marked tests can
+    # run at all, so the marker and its reason are read together.
+    config.addinivalue_line(
+        "markers",
+        "requires_als_profiles: the full install chain over a real facility's "
+        "MML export, which never enters the repo — needs that facility's "
+        "profiles checkout and the MATLAB its 2.0 export is produced on, and "
+        "skips with a named reason anywhere else.",
+    )
+
     global _CI_DIAGNOSTICS
     _CI_DIAGNOSTICS = ci_diagnostics.recorder_from_env()
     if _CI_DIAGNOSTICS is not None:
