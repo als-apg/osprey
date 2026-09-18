@@ -97,9 +97,12 @@ from tests.e2e.profile_edits import set_pairs
 #: 24000, SDK helpers 25000) so a reader checking for a collision reads one list.
 PORT_BASE = 20800
 
-#: Outside the block by design, in the same 1506x series the other deploy e2es
-#: claim one from each (queue 15064, ORM 15065, substrate 15066, archiver 15067,
-#: dispatch 15068): the Channel Access port cannot be derived from PORT_BASE.
+#: Outside the block by design: the Channel Access port cannot be derived from
+#: PORT_BASE, so it is claimed separately. The deploy e2es that pin a CA port
+#: take theirs from this same 1506x series, and the ones whose stack can accept
+#: any port reserve a free one at import instead — so the series carries no
+#: fixed roster to copy, and ``grep -rn VA_CA_PORT tests/e2e`` is what a new
+#: claim is checked against. 15069 is this module's and is claimed nowhere else.
 VA_CA_PORT = 15069
 
 #: The deployment repo's directory name IS the deployment's name, and compose
