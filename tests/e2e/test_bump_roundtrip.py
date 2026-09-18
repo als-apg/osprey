@@ -210,11 +210,13 @@ HEALTH_TIMEOUT_SEC = 300.0
 #
 # Positions within the roster-derived device lists, not device names -- the
 # deployed project's own channel roster owns which devices exist.
-# These are the SAME positions `tests/va/test_bump_crosscheck.py` picks (its
-# lists come from `lattice.inventory.pyat_coupled_device_ids()`, which sorts by
-# device id, and `select_correctors`/`select_bpms` sort by full address over
-# the same pyat-coupled partition -- so position i is the same magnet either
-# way), and they are picked for CONDITIONING rather than for aesthetics.
+# Both sides read the same population -- the bindings document's kick and
+# monitor bindings -- but they key it differently: the crosscheck in
+# `tests/va/test_bump_crosscheck.py` orders by ring position, and this lane
+# takes the selectors' address-ordered output. Position i therefore names the
+# same magnet in both only on a tree whose address order follows the ring, as
+# the demo tree's does. The positions are picked for CONDITIONING rather than
+# for aesthetics.
 #
 # The three correctors are clustered inside one sixth of the ring with enough
 # betatron phase between them to close a bump: the probed response comes back
@@ -442,29 +444,38 @@ class DeployedBumpStack:
 def _horizontal_devices(
     records: Sequence[ChannelRecord],
 ) -> tuple[list[str], list[str]]:
-    """The HCM corrector setpoints and BPM X readbacks of the deployed project.
+    """The horizontal corrector setpoints and horizontal BPM readbacks of the
+    deployed project.
 
-    One plane only. This bump is horizontal: it is built from HCM correctors
-    and verified on the BPMs' X axis, which is the one plane a single response
-    fit can span. Mixing in a VCM would add a column that moves no X reading at
-    all, leaving the fitted response rank-deficient -- which
-    ``fit_probe_response`` correctly refuses, before any bump is solved.
+    One plane only. This bump is horizontal: it is built from correctors that
+    kick in the horizontal plane and verified on the monitors that read it,
+    which is the one plane a single response fit can span. A corrector of the
+    other plane would add a column that moves no reading at all, leaving the
+    fitted response rank-deficient -- which ``fit_probe_response`` correctly
+    refuses, before any bump is solved.
 
-    Both lists come from ``select_correctors``/``select_bpms``, so they are the
-    deployed project's own roster entries, restricted to the pyat-coupled
-    partition (a write actually steers the beam through the AT
-    lattice model), and sorted by address -- which for one family and one field
-    is device-id order.
+    Which plane a device belongs to is read off the deployed tree's own
+    bindings: a corrector's kick binding names the ``KickAngle`` component it
+    writes, and a monitor's binding names the transverse axis it reads. Both
+    lists come from ``select_correctors``/``select_bpms``, so they are the
+    deployed project's own roster entries in address order.
     """
+    document = _orm_stack.served_bindings(records)
+    kicks = {
+        binding.setpoint_address
+        for binding in document.bindings
+        if binding.kind == "kick" and binding.index == _orm_stack.KICK_HORIZONTAL
+    }
+    monitors = {
+        binding.setpoint_address
+        for binding in document.bindings
+        if binding.kind == "monitor" and binding.attribute == _orm_stack.MONITOR_X
+    }
     correctors = [
-        address
-        for address in _orm_stack.select_correctors(records, count=None)
-        if address.split(":")[2] == "HCM"
+        address for address in _orm_stack.select_correctors(records, count=None) if address in kicks
     ]
     bpms = [
-        address
-        for address in _orm_stack.select_bpms(records, count=None)
-        if address.endswith(":POSITION:X")
+        address for address in _orm_stack.select_bpms(records, count=None) if address in monitors
     ]
     return correctors, bpms
 
@@ -513,8 +524,8 @@ def deployed_bump_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[De
 
         # Only the devices this bump names reach the worker namespace: every one
         # of them is a Channel Access connection the RE worker environment has to
-        # open before the queue will accept a plan, and the full 144-device
-        # inventory would spend that on devices no assertion here reads.
+        # open before the queue will accept a plan, and the facility's whole
+        # corrector set would spend that on devices no assertion here reads.
         all_correctors = _orm_stack.select_correctors(records, count=None)
         _orm_stack.write_devices_file(
             repo,

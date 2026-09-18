@@ -30,10 +30,11 @@ these proofs assert about the substrate is unchanged.
 No preset channel names are hardcoded: every address used below is derived
 from the deployment repo's own ``data/channel_limits.json`` — the same bytes
 the build copies into the build zone for the deployed containers (writable ⟺ a
-``:SP`` address) restricted to sp-echo pairs (``classify_partition`` — a
-write to a pyat-coupled ``:SP`` has ring-wide physics side effects, wrong for
-an isolated fault/equivalence probe; sp-echo is a pure software echo, exactly
-what P3-P5 need).
+``:SP`` address) restricted to sp-echo pairs — the writable addresses the
+tree's own ``va_bindings.json`` does NOT claim. A write the lattice model is
+coupled to has ring-wide physics side effects, wrong for an isolated
+fault/equivalence probe; sp-echo is a pure software echo, exactly what P3-P5
+need.
 
 Container safety: every docker invocation below names an exact container/image
 — never a wildcard, never ``system prune``/``--volumes``. The one forced
@@ -217,42 +218,42 @@ def _channel_limits(repo: Path) -> dict[str, Any]:
     return json.loads((repo / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
-def _select_sp_echo_pairs(channel_limits: dict[str, Any], count: int) -> list[tuple[str, str]]:
+def _select_sp_echo_pairs(
+    repo: Path, channel_limits: dict[str, Any], count: int
+) -> list[tuple[str, str]]:
     """Derive ``count`` disjoint sp-echo (``:SP``, ``:RB``) pairs from the
     deployed render's own channel_limits.json -- no hardcoded preset
     channels.
 
     A channel is writable (candidate ``:SP``) iff its channel_limits.json
     entry exists with that address ending ``:SP`` (the connector's own
-    writability contract). Restricted to the sp-echo partition
-    (``classify_partition``) rather than every writable ``:SP``: a
-    pyat-coupled ``:SP`` write has ring-wide physics side effects (moves
-    other BPMs via the lattice model), wrong for an isolated
-    equivalence/fault probe -- sp-echo is a pure, isolated software copy
-    (write SP, RB follows immediately, nothing else touched).
+    writability contract). Restricted to the sp-echo partition rather than
+    every writable ``:SP``: a write the lattice model is coupled to has
+    ring-wide physics side effects (it moves other monitors through the
+    model), wrong for an isolated equivalence/fault probe -- sp-echo is a
+    pure, isolated software copy (write SP, RB follows immediately, nothing
+    else touched).
+
+    Which of the two a channel is, is read off the deployment's own
+    ``simulation/va_bindings.json``, through the one helper that spells what a
+    binding claims (``_orm_stack.claimed_addresses``): a claimed address is
+    coupled to the model, and a writable address no binding claims is the
+    software echo this probe wants.
     """
-    from osprey.services.virtual_accelerator.manifest import PARTITION_SP_ECHO, classify_partition
+    from osprey.services.virtual_accelerator.bindings import load_bindings
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+
+    document = load_bindings(ManifestPaths(repo / "data").va_bindings)
+    coupled = _orm_stack.claimed_addresses(document)
 
     keys = {k for k in channel_limits if not k.startswith("_") and k != "defaults"}
     sp_keys = sorted(k for k in keys if k.endswith(":SP"))
 
     pairs: list[tuple[str, str]] = []
     for sp in sp_keys:
-        parts = sp.split(":")
-        if len(parts) != 6:
-            continue
-        ring, system, family, device, field, subfield = parts
-        path = {
-            "ring": ring,
-            "system": system,
-            "family": family,
-            "device": device,
-            "field": field,
-            "subfield": subfield,
-        }
-        if classify_partition(path) != PARTITION_SP_ECHO:
-            continue
         rb = sp[:-3] + ":RB"
+        if sp in coupled or rb in coupled:
+            continue
         if rb in keys:
             pairs.append((sp, rb))
 
@@ -422,7 +423,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # from the repo's own channel limits, the same bytes the build is about to
     # copy into the build zone.
     limits = _channel_limits(repo)
-    sp3, sp4, sp5 = _select_sp_echo_pairs(limits, count=3)
+    sp3, sp4, sp5 = _select_sp_echo_pairs(repo, limits, count=3)
     pairs = {"p3": sp3, "p4": sp4, "p5": sp5}
     _write_devices_file(repo, pairs)
 
