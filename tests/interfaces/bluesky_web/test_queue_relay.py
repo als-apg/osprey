@@ -8,9 +8,10 @@ exception: they import the package-level app to prove the queue paths are
 actually wired and collide with nothing, and to pin the ``/results`` ->
 BLUESKY-panel mount alias.
 
-Two contracts carry most of the weight here, and both are asserted on BODIES,
-not just status codes -- a status-code-only assertion is how a wire contract
-rots without a test noticing:
+Three contracts carry most of the weight here, and none of them is asserted on
+a status code alone -- a status-code-only assertion is how a wire contract rots
+without a test noticing; the first two are pinned on relayed BODIES and the
+third on the headers the bridge actually receives:
 
 - **Refusals pass through verbatim.** The bridge mints every queue refusal as
   ``{"detail": {"code": <machine-readable>, "detail": <sentence>, ...extras}}``.
@@ -20,6 +21,10 @@ rots without a test noticing:
 - **The launch token is server-side only.** It is resolved in-process (env var
   or config, via the shared resolver), rides every queue WRITE, never rides a
   read, is never accepted from the incoming request, and is never echoed back.
+- **The owner comes from the gate, not from the wire.** It is whatever
+  credential the auth gate matched (read off the scope state it stamps), rides
+  every queue WRITE, is absent when that credential named nobody, and an
+  inbound ``X-Osprey-Owner`` is dropped rather than proxied or merged.
 """
 
 from __future__ import annotations
@@ -35,6 +40,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.bluesky_web import queue_relay
+from osprey.interfaces.common_middleware import OPERATOR_SECRET_HEADER, WebAuthMiddleware
+from osprey.interfaces.web_auth import WebCredentials
+from osprey.utils.owner_header import OWNER_HEADER
 
 _BRIDGE_URL = "http://bridge.test"
 TOKEN = "s3cr3t-launch-token"  # noqa: S105 - test fixture value, not a real secret
@@ -428,6 +436,153 @@ def test_the_token_is_never_echoed_back_to_the_caller(monkeypatch: pytest.Monkey
 
     assert TOKEN not in response.text
     assert TOKEN not in str(dict(response.headers))
+
+
+# ---------------------------------------------------------------------------
+# Owner: minted from the credential the gate matched, on every write, never
+# taken from the incoming request
+# ---------------------------------------------------------------------------
+
+# A roster the gate can answer three different ways, so each row below chooses
+# its answer by the secret it presents rather than by reaching inside the
+# middleware: ``op1``'s secret names a human, the entry with an empty owners
+# slot authorises without naming one (``UNNAMED_OPERATOR``), and the last names
+# an account the header's charset cannot carry.
+_OWN_SECRET = "deployment-wide-secret"  # noqa: S105 - test fixture value
+_OP1_SECRET = "op1-roster-secret"  # noqa: S105 - test fixture value
+_UNNAMED_SECRET = "roster-secret-nobody-owns"  # noqa: S105 - test fixture value
+_UNRENDERABLE_SECRET = "roster-secret-for-bjoern"  # noqa: S105 - test fixture value
+
+# The write surface, as the launch-token rows spell it: the owner rides all of
+# it for the same reason the token does.
+_WRITE_SURFACE = [
+    ("post", "/queue/items", {"draft_revision": 1}),
+    ("post", "/queue/items/item-a/move", {"pos_dest": "front"}),
+    ("delete", "/queue/items", None),
+    ("delete", "/queue/items/item-a", None),
+    ("delete", "/history", None),
+    ("delete", "/runs/run-1", None),
+    ("post", "/queue/start", None),
+    ("post", "/queue/stop", {"cancel": True}),
+    ("post", "/queue/abort", None),
+]
+
+
+def _gated_recording_app() -> tuple[FastAPI, list[httpx.Request], list[bytes]]:
+    """``_recording_app`` with the real auth gate in front of it.
+
+    Every other row here mounts the router on an unguarded app, which is right:
+    the relay's behaviour does not depend on the gate. The owner does -- it IS
+    the gate's answer to "who is calling" -- so these rows install
+    :class:`WebAuthMiddleware` with a known roster and let each request pick an
+    identity by the secret it presents, the way a browser hop does. Asserting
+    against the real middleware rather than a hand-set ``request.state`` is the
+    point: a stamp that stopped happening, or started naming an unnamed
+    operator, has to fail here.
+
+    These rows carry ``@pytest.mark.no_auth_seam``. The suite-wide seam
+    force-sets the operator-secret header to the app's OWN secret on every
+    TestClient request, which would overwrite the roster secret the row is
+    presenting and make every identity the same one.
+    """
+    app, seen, contents = _recording_app(200, {})
+    app.add_middleware(WebAuthMiddleware)
+    app.state.web_credentials = WebCredentials(
+        operator_secret=_OWN_SECRET,
+        panel_token="panel-token",  # noqa: S106 - test fixture value
+        roster_secrets=(_OP1_SECRET, _UNNAMED_SECRET, _UNRENDERABLE_SECRET),
+        roster_owners=("op1", "", "björn"),
+    )
+    return app, seen, contents
+
+
+@pytest.mark.no_auth_seam
+def test_the_gates_owner_is_minted_and_an_inbound_claim_is_dropped() -> None:
+    """The header the bridge reads names the credential's account -- ``op1`` --
+    and not the ``bob`` the caller asked to be filed as. The browser sits
+    inside a session an agent can drive, so an inbound owner is a claim and
+    never evidence; the from-scratch header set is what makes that structural.
+    """
+    app, seen, _ = _gated_recording_app()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/queue/items",
+            json={"draft_revision": 1},
+            headers={OPERATOR_SECRET_HEADER: _OP1_SECRET, OWNER_HEADER: "bob"},
+        )
+
+    assert response.status_code == 200
+    # get_list, not a plain lookup: this has to fail if the inbound claim rode
+    # along BESIDE the minted value instead of being replaced by it.
+    assert seen[0].headers.get_list(OWNER_HEADER) == ["op1"]
+
+
+@pytest.mark.no_auth_seam
+@pytest.mark.parametrize(("method", "path", "payload"), _WRITE_SURFACE)
+def test_every_write_carries_the_minted_owner(method: str, path: str, payload: dict | None) -> None:
+    """One edit covers the whole write surface because every route delegates to
+    the same forwarder -- and the bridge, not this sidecar, decides what it
+    does with an owner on any given route."""
+    app, seen, _ = _gated_recording_app()
+
+    with TestClient(app) as client:
+        client.request(
+            method.upper(), path, json=payload, headers={OPERATOR_SECRET_HEADER: _OP1_SECRET}
+        )
+
+    assert seen[0].headers[OWNER_HEADER] == "op1"
+
+
+@pytest.mark.no_auth_seam
+def test_no_owner_header_when_the_credential_named_nobody() -> None:
+    """A secret the deployment issued but whose owner it never rendered
+    authorises the write and attributes nothing. "Nobody" has to reach the
+    bridge as an absent header, not as a guess -- and least of all as the
+    ``bob`` this request also asked for."""
+    app, seen, _ = _gated_recording_app()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/queue/start",
+            headers={OPERATOR_SECRET_HEADER: _UNNAMED_SECRET, OWNER_HEADER: "bob"},
+        )
+
+    assert response.status_code == 200
+    assert OWNER_HEADER not in seen[0].headers
+
+
+@pytest.mark.no_auth_seam
+def test_an_account_the_header_cannot_carry_costs_the_attribution_not_the_write() -> None:
+    """The gate records an account outside the header's charset verbatim, and
+    httpx encodes a header value as ASCII -- so relaying it unchecked would
+    raise mid-request and turn this write, the emergency abort included, into a
+    500. The shared reader's allowlist guards the minting site, so the write
+    reaches the bridge owner-less instead: exactly the end state the bridge
+    would have reached by refusing the value itself."""
+    app, seen, _ = _gated_recording_app()
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/queue/abort", headers={OPERATOR_SECRET_HEADER: _UNRENDERABLE_SECRET}
+        )
+
+    assert response.status_code == 200
+    assert len(seen) == 1
+    assert OWNER_HEADER not in seen[0].headers
+
+
+def test_no_owner_header_when_nothing_stamped_the_connection() -> None:
+    """The unguarded harness is the "state unset" case in its purest form:
+    nothing minted an owner, so nothing is sent -- and the inbound header is
+    dropped here too, since the forwarded set is built from scratch whether or
+    not a gate ran."""
+    app, seen, _ = _recording_app(200, {"started": True, "msg": ""})
+
+    with TestClient(app) as client:
+        client.post("/queue/start", headers={OWNER_HEADER: "bob"})
+
+    assert OWNER_HEADER not in seen[0].headers
 
 
 # ---------------------------------------------------------------------------

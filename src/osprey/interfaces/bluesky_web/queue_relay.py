@@ -80,6 +80,33 @@ bridge's gating policy here. When the bridge does refuse, its ``503``/``403``
 ``launch_token_required`` body reaches the panel intact -- a far better signal
 than a locally-synthesized one.
 
+The owner is the second thing this module adds to a write, and like the token
+it comes from in-process state rather than from the wire. The auth gate
+(:class:`~osprey.interfaces.common_middleware.WebAuthMiddleware`) drops every
+inbound ``X-Osprey-Owner`` and, when the credential it matched named an
+account, records that account on the connection's scope state -- read here as
+``request.state.osprey_owner``. Every queue write carries that name onward as
+``X-Osprey-Owner`` so the bridge can file the queued plan under the human who
+asked for it, and carries no such header at all when the state value is
+unset: a cookie session, a ``?token=`` exchange and the deployment-wide secret
+presented at this sidecar's own address all authorise without naming anybody,
+and "nobody" has to reach the bridge as an absent header rather than as a
+guess. A browser-supplied owner is dropped for the same reason a
+browser-supplied token is -- the panel sits inside a session an agent can
+drive, so an inbound value is a claim and never evidence -- and it is the
+from-scratch header set that makes that structural rather than a rule someone
+has to remember.
+
+The minted value goes through ``osprey.utils.owner_header.owner_from_header``,
+the same allowlist the bridge applies when it reads the header, and is omitted
+when that reader refuses it. Nothing is attributable either way -- a name the
+bridge would refuse arrives as no owner -- but forwarding one is not free:
+httpx encodes a header value as ASCII, and the gate records an account outside
+that range verbatim, so relaying it unchecked would raise mid-request and turn
+every queue write, the emergency abort included, into a 500. Losing an
+attribution is the whole cost of a name nobody can render; losing the abort is
+not on the table.
+
 A connection-level failure to reach the bridge (refused connection, DNS
 failure, timeout, ...) becomes a 502 with the same fixed detail body the other
 relays use -- never an uncaught 500. HTTP-level error responses from the
@@ -117,10 +144,20 @@ from osprey.interfaces.bluesky_web.read_proxy import (
     resolve_lane_bridge_url,
 )
 from osprey.utils.http_proxy import HOP_BY_HOP
+from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 router = APIRouter()
 
 _LAUNCH_TOKEN_HEADER = "X-Launch-Token"
+
+#: Where the auth gate records who an admitted connection belongs to. The
+#: contract is that gate's own ``_OWNER_STATE_KEY`` docstring in
+#: ``osprey.interfaces.common_middleware``: the key is set only when the
+#: credential it matched named an account, and is absent -- never blank -- when
+#: it named nobody. Reached with ``getattr`` and a default rather than plain
+#: attribute access, because Starlette's ``state`` raises ``AttributeError``
+#: for a key nothing set, and "nothing set" is the ordinary owner-less case.
+_OWNER_STATE_ATTR = "osprey_owner"
 
 logger = logging.getLogger("osprey.interfaces.bluesky_web.queue_relay")
 
@@ -195,10 +232,11 @@ async def _forward_write(
 
     The forwarded header set is built from scratch: exactly the body's
     content-type (only when there IS a body -- an empty body must reach the
-    bridge as "no body", not as an empty JSON document) plus the in-process
-    launch token when one resolves. Nothing from the incoming request's
-    headers is proxied, which is what makes a browser-supplied
-    ``X-Launch-Token`` unusable rather than merely discouraged.
+    bridge as "no body", not as an empty JSON document), the in-process launch
+    token when one resolves, and the owner the gate minted when it named one.
+    Nothing from the incoming request's headers is proxied, which is what makes
+    a browser-supplied ``X-Launch-Token`` or ``X-Osprey-Owner`` unusable rather
+    than merely discouraged.
 
     ``timeout`` overrides the shared client's default for this one request, the
     way ``queue_events`` does for the SSE stream. Only the abort needs it; every
@@ -232,6 +270,12 @@ async def _forward_write(
     token = _resolve_token_or_none(lane)
     if token:
         headers[_LAUNCH_TOKEN_HEADER] = token
+    # Minted from the credential the gate matched, never proxied: see the
+    # module docstring for why the reader's allowlist guards the minting site
+    # too, and why a refused name costs an attribution rather than the request.
+    owner = owner_from_header(getattr(request.state, _OWNER_STATE_ATTR, None))
+    if owner:
+        headers[OWNER_HEADER] = owner
 
     # multi_items(), not a dict: repeated query keys are preserved exactly as
     # they arrived. The lane addresses the sidecar and is stripped.

@@ -500,13 +500,16 @@ def test_valid_query_token_does_exactly_one_operator_comparison():
     """The gate answers a ``?token=`` GET after a single constant-time compare."""
     credentials = WebCredentials(operator_secret=OPERATOR_SECRET, panel_token=PANEL_TOKEN)
     calls: list[str | None] = []
-    original = credentials.verify_operator
+    # ``identify_operator`` is the one compare loop; ``verify_operator`` is a
+    # wrapper over it, so counting here counts whichever of the two the gate
+    # reaches for.
+    original = credentials.identify_operator
 
-    def _counting(candidate: str | None) -> bool:
+    def _counting(candidate: str | None) -> Any:
         calls.append(candidate)
         return original(candidate)
 
-    credentials.verify_operator = _counting  # type: ignore[method-assign]
+    credentials.identify_operator = _counting  # type: ignore[method-assign]
 
     reached: list[bool] = []
 

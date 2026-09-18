@@ -1,4 +1,4 @@
-"""Tests for shared FastAPI middleware (cache-control + exception logging)."""
+"""Tests for shared FastAPI middleware (cache-control, exception logging, owner stamp)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,14 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.common_middleware import (
     ExceptionLoggingMiddleware,
     NoCacheStaticMiddleware,
+    _stamp_owner,
 )
+from osprey.utils.owner_header import OWNER_HEADER
+
+#: The owner header's wire name as an ASGI scope carries it. Derived from the
+#: shared spelling rather than retyped, so a rename cannot leave the
+#: assertions below watching a header nothing mints.
+OWNER_WIRE_NAME = OWNER_HEADER.lower().encode("latin-1")
 
 
 @pytest.fixture
@@ -94,3 +101,90 @@ class TestExceptionLoggingMiddleware:
         resp = exc_client.get("/fine")
         assert resp.status_code == 200
         assert resp.json() == {"ok": True}
+
+
+class TestStampOwner:
+    """Unit contract for ``_stamp_owner``, the gate's one owner-minting site.
+
+    The middleware's admit paths are driven over raw ASGI scopes in
+    ``test_auth_middleware.py``; what is pinned here is the scope surgery
+    itself, whose two halves — drop every inbound value, append only a minted
+    one — are what make the gate a trust boundary for attribution rather than a
+    relay of whatever a browser claimed.
+    """
+
+    @staticmethod
+    def _owners(scope) -> list[bytes]:
+        """Every owner-header value left on ``scope``, in wire order."""
+        return [value for name, value in scope["headers"] if name.lower() == OWNER_WIRE_NAME]
+
+    def test_a_named_account_replaces_every_inbound_claim(self):
+        scope = {
+            "type": "http",
+            "headers": [
+                (b"x-osprey-owner", b"bob"),
+                (b"X-Osprey-Owner", b"carol"),
+                (b"host", b"localhost:8080"),
+            ],
+        }
+
+        _stamp_owner(scope, "op1")
+
+        # Exactly one value, whatever the request carried and however it spelled
+        # it: a reader taking the first occurrence would otherwise be steerable
+        # by a forged header placed ahead of the minted one.
+        assert self._owners(scope) == [b"op1"]
+        assert (b"host", b"localhost:8080") in scope["headers"]
+        assert scope["state"]["osprey_owner"] == "op1"
+
+    def test_nobody_drops_the_claim_and_leaves_the_state_unset(self):
+        """The sidecar's own door: authorised, attributable to no one."""
+        scope = {
+            "type": "http",
+            "headers": [(b"x-osprey-owner", b"bob")],
+            "state": {"osprey_owner": "stale"},
+        }
+
+        _stamp_owner(scope, None)
+
+        assert self._owners(scope) == []
+        # Unset rather than blank: a reader tells "nobody" from a name by the
+        # key's absence, so a value left behind would be read as an attribution.
+        assert "osprey_owner" not in scope["state"]
+
+    def test_an_empty_account_names_nobody(self):
+        scope = {"type": "http", "headers": [(b"x-osprey-owner", b"bob")]}
+
+        _stamp_owner(scope, "")
+
+        assert self._owners(scope) == []
+        assert "osprey_owner" not in scope["state"]
+
+    def test_a_scope_without_state_gets_one(self):
+        """ASGI leaves ``state`` optional; Starlette's ``request.state`` reads it."""
+        scope = {"type": "http", "headers": []}
+
+        _stamp_owner(scope, "op1")
+
+        assert scope["state"] == {"osprey_owner": "op1"}
+
+    def test_a_websocket_scope_is_stamped_too(self):
+        scope = {"type": "websocket", "headers": [(b"x-osprey-owner", b"bob")]}
+
+        _stamp_owner(scope, "alice")
+
+        assert self._owners(scope) == [b"alice"]
+        assert scope["state"]["osprey_owner"] == "alice"
+
+    def test_an_account_outside_latin_1_is_mangled_rather_than_raised(self):
+        """Encoding may not fail: a 500 here would refuse a valid credential.
+
+        The mangled value fails the reader's charset guard, so such a request
+        is recorded owner-less — the one failure this path is allowed to have.
+        """
+        scope = {"type": "http", "headers": []}
+
+        _stamp_owner(scope, "小明")
+
+        assert len(self._owners(scope)) == 1
+        assert scope["state"]["osprey_owner"] == "小明"

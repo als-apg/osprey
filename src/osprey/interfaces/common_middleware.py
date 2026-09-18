@@ -44,6 +44,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
 from osprey.interfaces.web_auth import Tier, WebCredentials, classify, get_web_credentials
+from osprey.utils.owner_header import OWNER_HEADER
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.audit.dedup import RecordedDecision
@@ -1042,6 +1043,76 @@ async def _peek_body(receive: Receive) -> tuple[bytes | None, Receive]:
     return body, replay
 
 
+#: The ASGI wire spelling of the owner header — lower-cased, as a scope's
+#: header names are. Derived from the one place that header is named rather
+#: than retyped, so the minting site here cannot drift from the readers.
+_OWNER_HEADER_WIRE = OWNER_HEADER.lower().encode("latin-1")
+
+#: Where the gate records who an admitted connection belongs to. Read by an
+#: in-process route as ``request.state.osprey_owner`` (Starlette's ``state``
+#: property is backed by this same scope dict), so a relay that builds its own
+#: forwarded headers can mint the owner from the credential the gate matched
+#: instead of trusting anything inbound.
+_OWNER_STATE_KEY = "osprey_owner"
+
+
+def _stamp_owner(scope: Scope, account: str | None) -> None:
+    """Record who this admitted connection belongs to — or that it names nobody.
+
+    Two edits to the scope, and the first is the one that carries the security
+    property:
+
+    * **every inbound ``X-Osprey-Owner`` is dropped, whatever ``account`` is.**
+      That header decides who a queued plan is filed under and whose chip
+      governs its writes, and the browser sending it sits inside a session the
+      agent can drive, so an inbound value is a claim and never evidence. The
+      gate is where the claim stops, unconditionally: at a shared sidecar's own
+      address a login names nobody, and dropping only on the naming paths would
+      leave exactly that door able to attribute a plan to a roster user.
+    * **the minted value is appended only when the credential named an
+      account.** A cookie, a ``?token=`` exchange, a panel token and the
+      deployment-wide secret presented at a sidecar all authorise without
+      naming a human; such a connection carries no owner header at all and
+      leaves :data:`_OWNER_STATE_KEY` unset, which is how a reader downstream
+      tells "nobody" from a name it may trust. An empty ``account`` is not a
+      name and is treated as nobody.
+
+    ``latin-1`` for the same reason :func:`_scope_headers` decodes that way — it
+    is the ASGI wire encoding — and ``replace`` because encoding must not be
+    able to fail: an account name outside that range would otherwise turn a
+    valid credential into a 500. Mangled, the value fails
+    :func:`~osprey.utils.owner_header.owner_from_header` at the reader and the
+    work is recorded owner-less, which is the one failure this path may have.
+
+    The two halves of the stamp therefore disagree for an account outside
+    ``latin-1``: :data:`_OWNER_STATE_KEY` holds the credential's account
+    verbatim while the header carries the ``replace``-mangled bytes, and two
+    such accounts collapse to the same header value. The end state is the same
+    either way — ``owner_from_header``'s allowlist refuses both the mangled
+    bytes and the raw non-ASCII name, so the work is owner-less — so a relay
+    minting its own forwarded header from the state key inherits a value it
+    cannot attribute rather than one it might attribute wrongly.
+
+    Called on ``http`` and ``websocket`` scopes alike — a terminal websocket
+    carries keystrokes into a shell, so it is as much a write path as a POST —
+    and on no other type, the gate having already passed those through.
+    """
+    state = scope.setdefault("state", {})
+    if account:
+        state[_OWNER_STATE_KEY] = account
+    else:
+        state.pop(_OWNER_STATE_KEY, None)
+
+    headers = [
+        (name, value)
+        for name, value in (scope.get("headers") or ())
+        if name.lower() != _OWNER_HEADER_WIRE
+    ]
+    if account:
+        headers.append((_OWNER_HEADER_WIRE, account.encode("latin-1", "replace")))
+    scope["headers"] = headers
+
+
 class WebAuthMiddleware:
     """Pure-ASGI gate refusing every unauthenticated request to an interface app.
 
@@ -1101,6 +1172,17 @@ class WebAuthMiddleware:
     to its cookie — deliberate: falling through would make the number of
     comparisons, and so the time, depend on how many credentials were wrong.
 
+    **Every admitted connection is stamped with its owner** by
+    :func:`_stamp_owner`, from the credential that matched and never from an
+    inbound header. Only the operator secret can name anyone, and only in a
+    shape where the process knows which human holds it; the cookie, the
+    ``?token=`` exchange and the panel token admit without naming, and the
+    stamp says so by leaving the connection owner-less. The inbound header is
+    dropped either way — and on the exempt paths the gate passes through
+    without authenticating at all, so no route can become owner-readable and
+    exempt at once — which is what makes this gate, with the terminal proxy, a
+    trust boundary for attribution rather than a relay of claims.
+
     Refusals are shaped per protocol: HTTP answers ``401``/``403`` with a JSON
     ``{"detail": ...}`` — or, when the caller's ``Accept`` asks for HTML (a
     browser *navigating*, rather than a script fetching), a small HTML page
@@ -1152,6 +1234,13 @@ class WebAuthMiddleware:
         # the very page whose job is to trade it for a cookie.
         query_token = _exchange_query_token(scope)
         if exempt and query_token is None:
+            # An exempt route authenticates nobody, so it names nobody — but the
+            # inbound claim still has to die here, because "which routes are
+            # exempt" and "which routes read an owner" are two lists nothing
+            # keeps in step. Stamping unconditionally means the gate drops the
+            # header on every path it passes, exempt or not, and widening the
+            # exempt set can never open an attribution hole.
+            _stamp_owner(scope, None)
             await self.app(scope, receive, send)
             return
 
@@ -1169,7 +1258,10 @@ class WebAuthMiddleware:
             if exempt:
                 # An exempt page needs no credential, so an unpopulatable holder
                 # must not take it down; the exchange simply does not happen and
-                # the page renders as it would have with no token at all.
+                # the page renders as it would have with no token at all. The
+                # stamp needs no credential either, so the inbound claim dies
+                # here too.
+                _stamp_owner(scope, None)
                 await self.app(scope, receive, send)
                 return
             logger.error(
@@ -1192,11 +1284,19 @@ class WebAuthMiddleware:
         # arbitrary route.
         if query_token is not None:
             if credentials.verify_operator(query_token):
+                # A login URL names nobody: it is the deployment's secret in an
+                # address bar, and the session it mints is anonymous for the
+                # whole of its life. Stamped all the same, so the inbound
+                # header is dropped on the one request that reaches a page.
+                _stamp_owner(scope, None)
                 await self._exchange(scope, send, credentials, headers)
             elif exempt:
                 # No credential is needed here anyway: decline the exchange and
                 # let the page render, rather than inventing a refusal for a
-                # route that is open by design.
+                # route that is open by design. A declined exchange names
+                # nobody, and the stamp drops the inbound claim as on every
+                # other passed-through path.
+                _stamp_owner(scope, None)
                 await self.app(scope, receive, send)
             else:
                 await self._refuse(scope, send, 401, _INVALID_DETAIL, headers)
@@ -1204,12 +1304,18 @@ class WebAuthMiddleware:
 
         secret = (headers.get(OPERATOR_SECRET_HEADER) or "").strip()
         if secret:
-            if not credentials.verify_operator(secret):
+            # The same one compare-all loop ``verify_operator`` wraps, asked for
+            # the answer it throws away: which operator this is. Three answers,
+            # and the last two must not be confused — a secret that authorises
+            # without naming a human admits the caller and attributes nothing.
+            identity = credentials.identify_operator(secret)
+            if identity is None:
                 await self._refuse(scope, send, 401, _INVALID_DETAIL, headers)
                 return
             if self._origin_refused(scope, headers, strict=False):
                 await self._refuse(scope, send, 403, _ORIGIN_DETAIL, headers)
                 return
+            _stamp_owner(scope, identity if isinstance(identity, str) else None)
             await self.app(scope, receive, send)
             return
 
@@ -1252,6 +1358,10 @@ class WebAuthMiddleware:
         if self._origin_refused(scope, headers, strict=True):
             await self._refuse(scope, send, 403, _ORIGIN_DETAIL, headers)
             return
+        # A session id names no account: nothing about the login that minted it
+        # was attributable, and inferring an owner from the browser's own header
+        # is exactly the claim this gate exists to drop.
+        _stamp_owner(scope, None)
         await self.app(scope, receive, send)
 
     async def _authenticate_panel(
@@ -1269,7 +1379,8 @@ class WebAuthMiddleware:
         left to the route table. A websocket carries a live channel — the
         terminal's sockets carry keystrokes into a shell — so the panel token,
         which exists for the narrow set of arrangement calls an in-process
-        companion makes, must never open one. Deciding this structurally means a
+        companion makes and for the terminal proxy's HTTP hop to the event
+        dispatcher's MCP transport, must never open one. Deciding this structurally means a
         future ``("GET", "/api/...")`` panel-tier route cannot accidentally
         become reachable over a websocket handshake that synthesises ``GET``.
         """
@@ -1296,6 +1407,9 @@ class WebAuthMiddleware:
         if classify(method, path, body_has_url) is not Tier.PANEL:
             await self._refuse(scope, send, 401, _TIER_DETAIL, headers)
             return
+        # The panel token is one shared value held by every in-process
+        # companion, so it identifies a component and never a person.
+        _stamp_owner(scope, None)
         await self.app(scope, receive, send)
 
     def _origin_refused(self, scope: Scope, headers: dict[str, str], *, strict: bool) -> bool:
