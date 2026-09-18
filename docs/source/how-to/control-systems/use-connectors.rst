@@ -361,6 +361,43 @@ independently of the control system:
       connector's MongoDB client ships with OSPREY, so there is nothing extra
       to install.
 
+   .. tab-item:: MYA
+      :sync: mya
+
+      MYA, Jefferson Lab's archiver, read over its ``myquery`` HTTP service.
+      Every key is optional -- the ``jlab-archiver-client`` library carries its
+      own server and protocol -- so a deployment inside the facility's network
+      needs only the type:
+
+      .. code-block:: yaml
+
+         archiver:
+           type: mya_archiver
+
+      To name a different myquery host, a non-production MYA deployment, or the
+      zone its naive timestamps are read in:
+
+      .. code-block:: yaml
+
+         archiver:
+           type: mya_archiver
+           mya_archiver:
+             myquery_server: myquery.facility.edu
+             deployment: ops        # MYA deployment to query
+             timeout: 60            # seconds
+             timezone: America/New_York   # default: system.timezone
+
+      The client library is not installed with OSPREY. Add it to the profile's
+      top-level ``dependencies:`` so the image carries it::
+
+         dependencies:
+           - jlab-archiver-client>=2.0.0
+
+      Aggregates (``mean``, ``min``, ``max``, ``std``...) are computed by
+      myquery's ``mystats`` endpoint. ``median`` is the exception -- MYA does
+      not compute one -- so that mode alone fetches raw events and bins them
+      client-side.
+
 Contracts and Custom Connectors
 -------------------------------
 

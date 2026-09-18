@@ -79,10 +79,17 @@ MOCK_ARCHIVER = "mock_archiver"
 EPICS_ARCHIVER = "epics_archiver"
 MONGODB_ARCHIVER = "mongodb_archiver"
 DOOCS_ARCHIVER = "doocs_archiver"
+MYA_ARCHIVER = "mya_archiver"
 
 # -- CLI choice lists (only types with implementations) --
 CLI_CONTROL_SYSTEM_TYPES = [MOCK, EPICS, VIRTUAL_ACCELERATOR, DOOCS, TANGO]
-CLI_ARCHIVER_TYPES = [MOCK_ARCHIVER, EPICS_ARCHIVER, MONGODB_ARCHIVER, DOOCS_ARCHIVER]
+CLI_ARCHIVER_TYPES = [
+    MOCK_ARCHIVER,
+    EPICS_ARCHIVER,
+    MONGODB_ARCHIVER,
+    DOOCS_ARCHIVER,
+    MYA_ARCHIVER,
+]
 
 #: Settable, not initable. A deployment may be pointed at its stand-in once it
 #: has one — ``osprey set connector=live_standin`` is how a session starts on
