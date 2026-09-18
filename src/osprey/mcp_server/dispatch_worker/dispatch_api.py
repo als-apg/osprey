@@ -308,6 +308,11 @@ DENIED_TOOLS: set[str] = {
     "BashOutput",
     "KillShell",
     "KillBash",
+    # A job may not fire jobs. ``trigger_config`` already refuses the whole
+    # ``mcp__event_dispatcher__`` prefix when the triggers file is loaded; this
+    # entry is the run-time floor, which holds whatever a dispatch request asks
+    # for and whether or not the dispatcher is wired into the render at all.
+    "mcp__event_dispatcher__manual_fire",
 }
 
 
@@ -476,6 +481,15 @@ class DispatchRequest(BaseModel):
     ``max_turns`` defaults to :data:`DISPATCH_MAX_TURNS`, this deployment's own
     ceiling, so a caller that names none gets the facility's number rather than
     a framework literal.
+
+    ``owner`` is the person the dispatcher attributed the fire to, read there
+    from the owner header — never a claim the job makes about itself. It is
+    additive and defaults to ``None``: a body from a dispatcher naming no owner
+    validates and its run is held to the deployment ceiling, as a cron fire is.
+    Worker and dispatcher are separately deployed images, so the field must be
+    declared here to survive at all — an undeclared key is dropped silently, and
+    the run would be judged against nobody's narrowing while the fire was
+    attributed to a person.
     """
 
     prompt: str
@@ -484,6 +498,7 @@ class DispatchRequest(BaseModel):
     surface_prompt: str | None = None
     surface_tools: list[str] | None = None
     input_files: list[InputFile] | None = None
+    owner: str | None = None
 
 
 class DispatchResponse(BaseModel):
@@ -652,6 +667,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 run_id=run_id,
                 surface_prompt=request.surface_prompt,
                 surface_tools=request.surface_tools,
+                owner=request.owner,
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )

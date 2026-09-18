@@ -57,6 +57,7 @@ def client(monkeypatch):
         run_id=None,
         surface_prompt=None,
         surface_tools=None,
+        owner=None,
     ):
         if event_queue is not None:
             await event_queue.put({"type": "done"})
@@ -760,3 +761,70 @@ def test_dispatch_request_max_turns_is_taken_from_the_body_when_given() -> None:
     request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[], max_turns=60)
 
     assert request.max_turns == 60
+
+
+# ---------------------------------------------------------------------------
+# Owner on the wire
+# ---------------------------------------------------------------------------
+
+
+def _capture_run_dispatch(monkeypatch) -> dict[str, Any]:
+    """Replace the runner with a stub that records the keywords it was called with."""
+    captured: dict[str, Any] = {}
+
+    async def _capturing_run_dispatch(**kwargs):
+        captured.update(kwargs)
+        queue = kwargs.get("event_queue")
+        if queue is not None:
+            await queue.put({"type": "done"})
+        return dict(_CANNED_RESULT)
+
+    monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _capturing_run_dispatch)
+    return captured
+
+
+def test_dispatch_body_owner_reaches_the_runner(client, monkeypatch):
+    """The owner the dispatcher put on the wire is carried into the run.
+
+    The request model is the only thing standing between the dispatcher's
+    payload and the runner: a field the model does not declare is dropped
+    silently, and the run would be judged against no one's narrowing while the
+    fire itself was attributed to a person.
+    """
+    captured = _capture_run_dispatch(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"], "owner": "alice"},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    _wait_for_terminal(client, resp.json()["run_id"])
+
+    assert captured["owner"] == "alice"
+
+
+def test_dispatch_body_without_an_owner_runs_owner_less(client, monkeypatch):
+    """A fire nobody is attributed to — cron — reaches the runner with no owner."""
+    captured = _capture_run_dispatch(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    _wait_for_terminal(client, resp.json()["run_id"])
+
+    assert captured["owner"] is None
+
+
+def test_dispatch_request_owner_is_additive() -> None:
+    """A body naming no owner validates, so a dispatcher predating the field works.
+
+    Worker and dispatcher are separately deployed images; a required field here
+    would turn every fire from an older dispatcher into a 422.
+    """
+    request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[])
+
+    assert request.owner is None

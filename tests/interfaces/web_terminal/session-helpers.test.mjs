@@ -30,6 +30,7 @@ describe('serverClass', () => {
       'phoebus',
       'bluesky',
       'health',
+      'event_dispatcher',
     ]) {
       expect(serverClass(name), name).not.toBe('srv-unknown');
     }
