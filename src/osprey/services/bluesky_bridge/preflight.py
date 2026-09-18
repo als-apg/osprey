@@ -1,12 +1,12 @@
-"""What a worker plan wrapper settles before it hands a plan to the RunEngine.
+"""What both worker plan wrappers settle around a run, in one voice.
 
 Both wrappers in this package — ``qserver_startup._make_plan_function`` for a
 catalog plan and ``session_upload.install_session_plan`` for a session one —
-build the same connector-mediated devices in the same worker process, and both
-have the same two things to say before a run starts: whether the channels it
-declares are alive, and, when a declared name does not resolve, what this
-worker actually holds. One copy of each lives here so the two wrappers cannot
-answer an operator differently.
+build the same connector-mediated devices in the same worker process, and have
+the same things to say about a run: whether the channels it declares are alive,
+what this worker actually holds when a declared name does not resolve, and
+whose narrowing refused a write the run tried to make. One copy of each lives
+here so the two wrappers cannot answer an operator differently.
 
 The reachability half: ask the connector, before anything moves.
 
@@ -73,6 +73,8 @@ import os
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
+
+from osprey_connectors.errors import ChannelWriteBlockedError
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.preflight")
 
@@ -464,6 +466,119 @@ def probe_before_motion(plan_name: str, declared: Mapping[str, Any]) -> Iterator
         f"refusing plan {plan_name!r} before it moves anything — "
         f"lane {lane} (target {target}):\n" + "\n".join(clauses)
     )
+
+
+def warn_if_write_refused(
+    log: logging.Logger, plan_name: str, owner: object, error: BaseException
+) -> None:
+    """Log the one line a refused write earns, wherever the refusal surfaced.
+
+    This is the per-*refusal* seam, and both worker plan wrappers call it from
+    the single handler that sees everything a run raises. A refusal mid-plan
+    reaches the operator as the run record's error, which says what was refused
+    but nothing about *whose* narrowing refused it; this line is where that is
+    recorded. It is the whole of a wrapper's response — logging a refusal is
+    not handling it, and there is no ledger entry to write, the monitor having
+    already recorded its decision.
+
+    A refusal arrives in one of two shapes, and which one depends on where the
+    write was made rather than on anything about the refusal. Raised in the
+    plan's own frame it arrives as itself. Raised inside a device's ``set()``
+    it does not arrive at all: that write runs in the task the device's
+    ``AsyncStatus`` wraps it into, and the RunEngine takes the exception off
+    the finished status and throws ``bluesky.utils.FailedStatus`` into the plan
+    instead, carrying the refusal as the status's reported exception and as its
+    own cause. Both shapes are the same event and earn the same single line, so
+    neither the wrapper nor the plan author has to know which one a write took.
+
+    Anything else a run raises is not this seam's business and goes unlogged;
+    the caller re-raises it untouched and the run's own error reports it.
+
+    Args:
+        log: The wrapper's logger, so the line stays on the channel of the
+            module that ran the plan. Its name is what distinguishes the two
+            wrappers; the text does not, deliberately, since that is the half
+            they must not be able to spell differently.
+        plan_name: The plan's name, as the line should name it.
+        owner: Whose narrowing the refusal was decided for, as the owner ladder
+            answers it — not the raw bound value, so an owner-less run says
+            what actually governed it.
+        error: Whatever the run raised.
+    """
+    refusal = _refused_write(error)
+    if refusal is None:
+        return
+    # Both spellings of the reason: the machine-readable code in brackets, for
+    # a log reader that groups refusals without parsing prose, and last the
+    # monitor's own operator-facing message, whose closing clause is the word
+    # the verdict decided on.
+    # The refused write is the subject and the plan is a parenthetical to it:
+    # who a refusal was decided FOR is what this line adds, and a head clause
+    # naming the plan as the actor would read as though the plan — or its owner
+    # — did the refusing, which is the misattribution the refusal class itself
+    # is built to avoid. The refuser is named by the message at the tail, which
+    # is the only text that knows whether it was the monitor or the control
+    # system.
+    log.warning(
+        "a write to %s was refused (plan %r, owner %s) [%s] — %s",
+        refusal.channel_address,
+        plan_name,
+        owner,
+        refusal.reason,
+        refusal,
+    )
+
+
+def _refused_write(error: BaseException) -> ChannelWriteBlockedError | None:
+    """The refusal *error* carries, or ``None`` if it carries none.
+
+    The cause is read before the status because it is a plain attribute the
+    same ``raise`` statement sets, while asking a status for its exception is a
+    call into a foreign object — and a seam that only describes a failure must
+    never be able to replace it with one of its own. The status is read anyway,
+    because a RunEngine that reported a failed status without chaining the
+    exception onto it would still be handing over the refusal.
+
+    Contract read from bluesky 1.15.1
+    (``run_engine.py::_status_object_completed`` raises ``FailedStatus(status)
+    from status.exception()``), the floor this package pins; re-verify it if
+    that floor moves. Duck-typed rather than imported, so this module stays
+    free of the worker container's stack.
+
+    The status is asked with the same bound bluesky reads it with, and the
+    caller is what makes that mandatory: a wrapper offers this every exception
+    its run raises, so ``args[0]`` is whatever a plan put there. Asked
+    unbounded, a status-like that never finished — a sync ``ophyd`` status, a
+    pending future — waits forever inside the handler that still has to
+    re-raise, which turns a failure an operator could read into a lane that
+    wedges silently. Nothing this call can do is allowed to escape either, and
+    that includes what is not an ``Exception``: a cancellation raised out of
+    here would leave the run reporting a cancel instead of what actually
+    failed.
+    """
+    if isinstance(error, ChannelWriteBlockedError):
+        return error
+    if isinstance(error.__cause__, ChannelWriteBlockedError):
+        return error.__cause__
+    status = error.args[0] if error.args else None
+    reported = getattr(status, "exception", None)
+    if not callable(reported):
+        return None
+    try:
+        underlying = reported(timeout=0)
+    except TypeError:
+        # A status-like whose signature does not take that keyword. Asked once
+        # more positionally rather than bare: the bound is the point, and bare
+        # is the shape that waits.
+        try:
+            underlying = reported(0)
+        except BaseException:
+            return None
+    except BaseException:
+        return None
+    if isinstance(underlying, ChannelWriteBlockedError):
+        return underlying
+    return None
 
 
 def _plural(count: int) -> str:

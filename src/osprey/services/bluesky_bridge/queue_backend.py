@@ -53,6 +53,8 @@ from typing import Any
 
 from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeoutError
 
+from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+
 logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
 
 # Read by `bluesky_queueserver_api` itself when `REManagerAPI` is constructed
@@ -131,6 +133,13 @@ RUN_ID_META_KEY = "osprey_run_id"
 # only place a completed run's plan identity survives into Tiled, so this stamp
 # is what lets results be rendered as the plan the operator actually asked for.
 PLAN_META_KEY = "osprey_plan"
+
+# The item-metadata key carrying the owner who enqueued the item. The owner
+# reaches the worker as a reserved kwarg, which is stripped before anything
+# renders or replays the item's plan arguments; this stamp is the copy that
+# stays readable on the item itself, so a queue row and a history entry still
+# name their owner once the enqueuing process is gone.
+OWNER_META_KEY = "osprey_owner"
 
 # Manager states in which a plan is under way (or about to be). Enqueuing during
 # one of these is an armed operation — the item joins a queue that is already
@@ -800,6 +809,7 @@ class QueueBackend:
         item: Any,
         *,
         run_id: str | None = None,
+        owner: str | None = None,
         pos: Any = None,
         before_uid: str | None = None,
         after_uid: str | None = None,
@@ -810,11 +820,46 @@ class QueueBackend:
         name and kwargs — under :data:`PLAN_META_KEY`, so a finished run can be
         rendered as the plan it was without consulting the queue.
 
+        An owner rides the item twice, because the two carriers answer two
+        different questions. The reserved kwarg
+        (:data:`~osprey_connectors.posture_store.RESERVED_OWNER_KWARG`) is the
+        only channel that reaches the worker's plan wrapper, which binds it for
+        the duration of the run; :data:`OWNER_META_KEY` is the stamp that keeps
+        the item itself attributable on a queue row or in history, where no
+        plan is running to ask. The plan-identity copy is built WITHOUT the
+        reserved key: that copy is the one that travels into the run's start
+        document, where it is read back as the plan a run's results are
+        rendered as, and the owner is not one of the plan's arguments. The
+        item's own ``kwargs`` keep it — that is the copy the worker binds.
+
+        *owner* is the only source of that kwarg: the key is dropped from the
+        top level of the kwargs the item arrived with and re-added from this
+        argument alone. An item carrying the key already would otherwise bind
+        its run to a name the caller never stamped, and be judged against that
+        name's narrowing. Top level is where the drop belongs because that is
+        the only depth the wrapper binds from: the same key nested inside a
+        plan argument is one of that argument's own values and names nobody.
+
+        Two items take the metadata stamp alone, because neither has a kwargs
+        surface the owner may ride: an item enqueued onto a lane whose worker
+        is external, where the facility's RE Manager binds against the plan's
+        own signature and would refuse a parameter it has no name for, and an
+        item that is not a plan, where a kwargs mapping the manager does not
+        expect would turn an attribution into a refused enqueue.
+
         Args:
             item: A queueserver item — a plain dict, or a ``BItem``/``BPlan``.
             run_id: OSPREY's run id for this item. Threaded through the item's
                 metadata so the RunEngine's start document carries it and live
                 rows and Tiled results can be matched back to the enqueued run.
+            owner: Who enqueued the item, or ``None`` for an owner-less add.
+                A name reaches this service by one channel only, the
+                ``X-Osprey-Owner`` header
+                (:data:`osprey.utils.owner_header.OWNER_HEADER`) minted from
+                the credential the caller authenticated with; no request body
+                names an owner. The caller has already decided what counts as a
+                name — this stamps the value it was handed and judges nothing
+                but emptiness.
             pos: Queue position, per queueserver (``"front"``, ``"back"``, or an
                 index). Defaults to the manager's own default (back).
             before_uid: Insert ahead of this item.
@@ -825,13 +870,32 @@ class QueueBackend:
             server-assigned ``item_uid``.
         """
         payload = self._as_item_dict(item)
-        if run_id is not None:
+        arriving_kwargs = payload.get("kwargs")
+        # Filtered, not merely un-injected: the reserved key is reserved
+        # whoever put it there, so both the copy the worker binds and the copy
+        # the start document republishes are built from these plan arguments.
+        plan_kwargs = (
+            {key: value for key, value in arriving_kwargs.items() if key != RESERVED_OWNER_KWARG}
+            if isinstance(arriving_kwargs, dict)
+            else {}
+        )
+        stamps_kwarg = (
+            bool(owner) and payload.get("item_type") == "plan" and not self.external_worker
+        )
+        if isinstance(arriving_kwargs, dict) or stamps_kwarg:
+            payload["kwargs"] = (
+                {**plan_kwargs, RESERVED_OWNER_KWARG: owner} if stamps_kwarg else plan_kwargs
+            )
+        if run_id is not None or owner:
             meta = dict(payload.get("meta") or {})
-            meta[RUN_ID_META_KEY] = run_id
-            meta[PLAN_META_KEY] = {
-                "name": payload.get("name"),
-                "kwargs": dict(payload.get("kwargs") or {}),
-            }
+            if run_id is not None:
+                meta[RUN_ID_META_KEY] = run_id
+                meta[PLAN_META_KEY] = {
+                    "name": payload.get("name"),
+                    "kwargs": dict(plan_kwargs),
+                }
+            if owner:
+                meta[OWNER_META_KEY] = owner
             payload["meta"] = meta
 
         kwargs: dict[str, Any] = {"item": payload}
@@ -1410,3 +1474,37 @@ class QueueBackend:
         if isinstance(item, dict):
             return dict(item)
         raise QueueRequestRejectedError(f"Not a queue item: {type(item).__name__}")
+
+
+def split_owner(item: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    """An item without its reserved owner kwarg, plus the owner it carried.
+
+    The owner reaches an item two ways. The reserved kwarg
+    (:data:`~osprey_connectors.posture_store.RESERVED_OWNER_KWARG`) is what the
+    plan wrapper binds, and it is not a plan argument: nothing may render it,
+    replay it, or hand it to a plan's signature. :data:`OWNER_META_KEY` is the
+    stamp on the item's own metadata. The kwarg wins when an item carries both,
+    because it is the value the worker will actually bind.
+
+    Queueserver's ``kwargs`` and ``meta`` are whatever the enqueuer put there,
+    so both reads tolerate any shape, and an owner that is not a non-empty
+    string is no owner at all. The returned item is a copy — its ``kwargs``
+    included — so a caller's item is never mutated, which is the same rule
+    :meth:`QueueBackend._as_item_dict` follows on the write side.
+    """
+    stripped = dict(item)
+    kwarg_owner: Any = None
+    kwargs = item.get("kwargs")
+    if isinstance(kwargs, dict):
+        kwarg_owner = kwargs.get(RESERVED_OWNER_KWARG)
+        stripped["kwargs"] = {
+            key: value for key, value in kwargs.items() if key != RESERVED_OWNER_KWARG
+        }
+    meta_owner: Any = None
+    meta = item.get("meta")
+    if isinstance(meta, dict):
+        meta_owner = meta.get(OWNER_META_KEY)
+    for candidate in (kwarg_owner, meta_owner):
+        if isinstance(candidate, str) and candidate:
+            return stripped, candidate
+    return stripped, None

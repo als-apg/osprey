@@ -28,6 +28,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     QueueRequestRejectedError,
     QueueUnavailableError,
 )
+from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 
 
 class FakeManager:
@@ -750,6 +751,79 @@ def test_run_id_of_tolerates_items_without_osprey_metadata() -> None:
     assert qb.run_id_of({"meta": {"other": 1}}) is None
     assert qb.run_id_of({"meta": None}) is None
     assert qb.run_id_of({}) is None
+
+
+def test_owner_meta_key_is_the_stamp_queueserver_carries() -> None:
+    """The metadata spelling crosses into the manager's history, so it is pinned."""
+    assert qb.OWNER_META_KEY == "osprey_owner"
+
+
+def test_split_owner_lifts_the_reserved_kwarg_off_the_item() -> None:
+    item = {"name": "scan", "kwargs": {"detectors": ["d1"], RESERVED_OWNER_KWARG: "alice"}}
+
+    stripped, owner = qb.split_owner(item)
+
+    assert owner == "alice"
+    assert stripped == {"name": "scan", "kwargs": {"detectors": ["d1"]}}
+
+
+def test_split_owner_lifts_the_owner_from_the_metadata_stamp() -> None:
+    item = {"name": "scan", "kwargs": {"detectors": ["d1"]}, "meta": {qb.OWNER_META_KEY: "bob"}}
+
+    stripped, owner = qb.split_owner(item)
+
+    assert owner == "bob"
+    assert stripped == item
+
+
+def test_split_owner_prefers_the_kwarg_over_the_metadata_stamp() -> None:
+    """The kwarg is what the worker will bind, so it is the owner of record."""
+    item = {
+        "name": "scan",
+        "kwargs": {RESERVED_OWNER_KWARG: "alice"},
+        "meta": {qb.OWNER_META_KEY: "bob"},
+    }
+
+    stripped, owner = qb.split_owner(item)
+
+    assert owner == "alice"
+    assert stripped == {"name": "scan", "kwargs": {}, "meta": {qb.OWNER_META_KEY: "bob"}}
+
+
+def test_split_owner_yields_no_owner_when_the_item_carries_neither() -> None:
+    assert qb.split_owner({"name": "scan", "kwargs": {"detectors": ["d1"]}}) == (
+        {"name": "scan", "kwargs": {"detectors": ["d1"]}},
+        None,
+    )
+    assert qb.split_owner({"name": "scan"}) == ({"name": "scan"}, None)
+
+
+@pytest.mark.parametrize("unusable", [None, "", 7, ["alice"]])
+def test_split_owner_reads_an_unusable_owner_as_no_owner(unusable: Any) -> None:
+    """Both reads are shape-tolerant: `kwargs` and `meta` are the enqueuer's own."""
+    kwarg_item = {"kwargs": {RESERVED_OWNER_KWARG: unusable}}
+    assert qb.split_owner(kwarg_item) == ({"kwargs": {}}, None)
+    assert qb.split_owner({"meta": {qb.OWNER_META_KEY: unusable}})[1] is None
+
+
+def test_split_owner_tolerates_items_whose_kwargs_are_not_a_mapping() -> None:
+    assert qb.split_owner({"kwargs": None}) == ({"kwargs": None}, None)
+    assert qb.split_owner({"meta": None}) == ({"meta": None}, None)
+
+
+def test_split_owner_never_mutates_the_item_it_was_handed() -> None:
+    """Callers read items they do not own — the queue's own dicts included."""
+    item = {
+        "name": "scan",
+        "kwargs": {"detectors": ["d1"], RESERVED_OWNER_KWARG: "alice"},
+        "meta": {qb.OWNER_META_KEY: "bob", qb.RUN_ID_META_KEY: "run-3"},
+    }
+    snapshot = json.loads(json.dumps(item))
+
+    stripped, _ = qb.split_owner(item)
+
+    assert item == snapshot
+    assert stripped["kwargs"] is not item["kwargs"]
 
 
 # --------------------------------------------------------------- construction

@@ -13,6 +13,13 @@ the whole feature is dead), while every item on the wire carries only
 row to its run). Both relays are checked against a real response: `GET /queue`
 over `TestClient`, and the SSE stream over an actual `TestClient.stream`
 capture of the hello frame plus a driven change frame.
+
+The last section pins the other half of the same stamp — what `add_item`
+WRITES when the add names an owner. The owner reaches the worker as a reserved
+kwarg on the item and is stamped on the item's metadata, but the plan-identity
+copy is built without it, because that copy is the one carrier a read-side
+strip can never reach: it travels into the run's start document, which the
+results table and the live-row recorder both read back.
 """
 
 from __future__ import annotations
@@ -26,10 +33,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import document_plane, draft, plan_loader, queue
+from osprey.services.bluesky_bridge import document_plane, draft, live_rows, plan_loader, queue
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.queue_backend import QueueBackend
+from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
@@ -295,3 +303,217 @@ async def test_a_streamed_change_frame_carries_no_plan_stamp(
     (streamed,) = frame["items"]
     assert streamed["meta"] == {qb.RUN_ID_META_KEY: _RUN_ID}
     assert qb.PLAN_META_KEY not in json.dumps(frame)
+
+
+# ---------------------------------------------------------------------------
+# The owner an enqueue stamps
+# ---------------------------------------------------------------------------
+
+
+def _plan_item(**extra_args: Any) -> dict[str, Any]:
+    """An item in the shape the add route builds, before any stamping."""
+    args = dict(_GRID_SCAN_ARGS)
+    args.update(extra_args)
+    return {"item_type": "plan", "name": "grid_scan", "kwargs": args}
+
+
+def _added_item(manager: FakeManager) -> dict[str, Any]:
+    """The item dict the one recorded ``item_add`` call actually carried."""
+    adds = [kwargs for method, kwargs in manager.calls if method == "item_add"]
+    assert len(adds) == 1
+    return adds[0]["item"]
+
+
+def _start_document(item: dict[str, Any], run_uid: str = "run-uid-1") -> dict[str, Any]:
+    """The start document a worker publishes for *item*.
+
+    It carries the item's METADATA and the RunEngine's own uid — never the
+    item's kwargs, because the worker has no kwargs-to-metadata channel. That
+    is why the plan stamp is filtered where it is written: no strip applied on
+    a queue read can reach this document.
+    """
+    return {**item["meta"], "uid": run_uid}
+
+
+async def test_an_owned_add_sends_the_owner_as_a_kwarg_and_stamps_a_filtered_plan_copy() -> None:
+    """The reserved kwarg is the only channel that reaches the plan wrapper, so
+    it rides the item's own ``kwargs``; the plan-identity copy is built without
+    it, because that copy is what the run's start document republishes as the
+    plan its results are rendered as."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    await backend.add_item(_plan_item(), run_id=_RUN_ID, owner="bob")
+
+    item = _added_item(manager)
+    assert item["kwargs"][RESERVED_OWNER_KWARG] == "bob"
+    # The plan's own arguments ride beside it, untouched.
+    assert {
+        key: value for key, value in item["kwargs"].items() if key != RESERVED_OWNER_KWARG
+    } == _GRID_SCAN_ARGS
+    assert item["meta"][qb.OWNER_META_KEY] == "bob"
+    assert item["meta"][qb.PLAN_META_KEY] == {"name": "grid_scan", "kwargs": _GRID_SCAN_ARGS}
+    assert item["meta"][qb.RUN_ID_META_KEY] == _RUN_ID
+
+
+async def test_an_external_worker_add_carries_the_owner_in_metadata_only() -> None:
+    """A facility-run RE Manager binds an item against the plan's own
+    signature, which has no parameter for an owner — so the kwarg would be
+    refused there and the metadata stamp is the whole attribution."""
+    manager = FakeManager()
+    backend = QueueBackend(manager, external_worker=True)
+
+    await backend.add_item(_plan_item(), run_id=_RUN_ID, owner="bob")
+
+    item = _added_item(manager)
+    # Nowhere on the item: not in kwargs, not in the plan stamp, not in meta.
+    assert RESERVED_OWNER_KWARG not in json.dumps(item)
+    assert item["kwargs"] == _GRID_SCAN_ARGS
+    assert item["meta"][qb.OWNER_META_KEY] == "bob"
+
+
+async def test_an_owned_add_with_no_run_id_still_names_its_owner() -> None:
+    """The plan stamp is written only for an item the bridge gave a run id.
+    The owner stamp cannot sit behind that condition, or an add that mints no
+    run id would reach the queue unattributable."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    await backend.add_item(_plan_item(), owner="bob")
+
+    item = _added_item(manager)
+    assert item["meta"] == {qb.OWNER_META_KEY: "bob"}
+    assert item["kwargs"][RESERVED_OWNER_KWARG] == "bob"
+
+
+async def test_an_owner_less_add_stamps_no_owner_anywhere() -> None:
+    """The negative control: without an owner the item is exactly the item a
+    stamped enqueue has always produced."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    await backend.add_item(_plan_item(), run_id=_RUN_ID)
+
+    item = _added_item(manager)
+    assert item["kwargs"] == _GRID_SCAN_ARGS
+    assert item["meta"] == {
+        qb.RUN_ID_META_KEY: _RUN_ID,
+        qb.PLAN_META_KEY: {"name": "grid_scan", "kwargs": _GRID_SCAN_ARGS},
+    }
+
+
+async def test_an_item_arriving_with_the_reserved_key_keeps_it_out_of_the_plan_metadata() -> None:
+    """The plan copy is filtered, not merely un-injected: the key is reserved
+    whoever put it there, and the start document is the one carrier no
+    read-side strip can reach."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    await backend.add_item(_plan_item(**{RESERVED_OWNER_KWARG: "smuggled"}), run_id=_RUN_ID)
+
+    item = _added_item(manager)
+    assert item["meta"][qb.PLAN_META_KEY]["kwargs"] == _GRID_SCAN_ARGS
+
+
+async def test_the_plan_metadata_a_results_table_republishes_carries_no_reserved_key() -> None:
+    """A finished run's table payload publishes ``start[PLAN_META_KEY]``
+    verbatim as its ``plan`` (`app._tiled_run_snapshot`), so the stamp written
+    at enqueue is the whole of what stands between the reserved key and every
+    reader of that run."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+    await backend.add_item(_plan_item(), run_id=_RUN_ID, owner="bob")
+
+    start = _start_document(_added_item(manager))
+
+    assert start[qb.PLAN_META_KEY] == {"name": "grid_scan", "kwargs": _GRID_SCAN_ARGS}
+    assert start[qb.OWNER_META_KEY] == "bob"
+
+
+async def test_the_live_row_recorders_plan_metadata_carries_no_reserved_key() -> None:
+    """The document plane opens each run's recorder with the start document's
+    plan stamp and hands that value back on every live-rows read — the second
+    reader of the same filtered copy, and the one a panel renders live."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+    await backend.add_item(_plan_item(), run_id=_RUN_ID, owner="bob")
+    start = _start_document(_added_item(manager))
+
+    try:
+        document_plane.RunDocumentRouter()("start", start)
+        recorded = live_rows.get(_RUN_ID)
+    finally:
+        live_rows._clear()
+
+    assert recorded is not None
+    assert recorded["plan"] == {"name": "grid_scan", "kwargs": _GRID_SCAN_ARGS}
+
+
+async def test_the_reserved_key_an_item_arrived_with_never_reaches_the_worker() -> None:
+    """The item's own ``kwargs`` are the carrier the worker BINDS, so the
+    filter has to hold there and not only on the plan-identity copy.
+
+    A reserved key the enqueuer put on the item is dropped whoever put it
+    there: an owner-less add reaches the manager owner-less, and the run is
+    judged against nobody's narrowing rather than against a name the bridge
+    never stamped.
+    """
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    await backend.add_item(_plan_item(**{RESERVED_OWNER_KWARG: "smuggled"}), run_id=_RUN_ID)
+
+    item = _added_item(manager)
+    assert item["kwargs"] == _GRID_SCAN_ARGS
+    assert qb.OWNER_META_KEY not in item["meta"]
+
+
+async def test_the_stamped_owner_replaces_a_reserved_key_the_item_arrived_with() -> None:
+    """The value this call was handed is the single source of the key, so an
+    owned add cannot end up naming two people — one to the worker, another on
+    the row a queue read renders."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    await backend.add_item(
+        _plan_item(**{RESERVED_OWNER_KWARG: "smuggled"}), run_id=_RUN_ID, owner="bob"
+    )
+
+    item = _added_item(manager)
+    assert item["kwargs"][RESERVED_OWNER_KWARG] == "bob"
+    assert item["meta"][qb.OWNER_META_KEY] == "bob"
+    assert "smuggled" not in json.dumps(item)
+
+
+async def test_an_external_worker_lane_drops_a_reserved_key_it_would_be_refused_for() -> None:
+    """A facility RE Manager binds every add against the plan's own signature,
+    which has no parameter for the reserved key — so an item arriving with one
+    would be refused there. The lane that cannot carry the kwarg carries none,
+    whatever the item brought."""
+    manager = FakeManager()
+    backend = QueueBackend(manager, external_worker=True)
+
+    await backend.add_item(
+        _plan_item(**{RESERVED_OWNER_KWARG: "smuggled"}), run_id=_RUN_ID, owner="bob"
+    )
+
+    item = _added_item(manager)
+    assert RESERVED_OWNER_KWARG not in json.dumps(item)
+    assert item["meta"][qb.OWNER_META_KEY] == "bob"
+
+
+async def test_an_instruction_takes_the_metadata_stamp_alone() -> None:
+    """Only a plan has a kwargs surface an owner may ride: a queueserver
+    instruction is bound against its own signature, so giving it kwargs would
+    turn an attribution into a refused enqueue. The metadata stamp is the whole
+    attribution there, the same shape an external-worker lane takes."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    await backend.add_item({"item_type": "instruction", "name": "queue_stop"}, owner="bob")
+
+    assert _added_item(manager) == {
+        "item_type": "instruction",
+        "name": "queue_stop",
+        "meta": {qb.OWNER_META_KEY: "bob"},
+    }

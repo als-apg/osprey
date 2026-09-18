@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import document_plane
-from .queue_backend import run_id_of
+from .queue_backend import run_id_of, split_owner
 
 # The lifecycle states a run record reports. Deliberately the same vocabulary
 # the pre-queue bridge published, so consumers that only ever branched on
@@ -66,6 +66,11 @@ def _plan_args(item: dict[str, Any]) -> dict[str, Any]:
     Queueserver item ``kwargs`` ARE the plan's PARAMS fields, unwrapped (see
     ``qserver_startup.py``'s kwargs contract) — there is no ``params``
     envelope to unpack here.
+
+    The item passed in is the one
+    :func:`~.queue_backend.split_owner` returned: the reserved owner kwarg is
+    an attribution channel, not a plan argument, and nothing on the read side
+    may render or replay it as one.
     """
     kwargs = item.get("kwargs")
     return dict(kwargs) if isinstance(kwargs, dict) else {}
@@ -149,7 +154,14 @@ def record_from_item(item: dict[str, Any], status: str) -> dict[str, Any]:
     entirely when nothing is known, never reported as a fabricated ``0.0``
     (an unknown denominator is common for agent-authored session plans, and a
     consumer must be able to tell "no idea" from "just started").
+
+    ``owner`` is whoever enqueued the item, lifted out of the item by
+    :func:`~.queue_backend.split_owner` — the same read-side split ``GET
+    /queue`` applies through ``_public_item``, which these records never pass
+    through. It is omitted when the item names nobody, so a consumer can tell
+    an unattributed run from one attributed to an empty name.
     """
+    item, owner = split_owner(item)
     run_id = run_id_of(item)
     record: dict[str, Any] = {
         "id": run_id,
@@ -157,6 +169,8 @@ def record_from_item(item: dict[str, Any], status: str) -> dict[str, Any]:
         "plan_name": item.get("name"),
         "plan_args": _plan_args(item),
     }
+    if owner is not None:
+        record["owner"] = owner
 
     item_uid = item.get("item_uid")
     if isinstance(item_uid, str):
