@@ -138,6 +138,9 @@ slow; keep it serial so serving + testing don't contend).
 
 ## Prerequisites
 
+- **The dev dependencies installed** — `uv sync --extra dev` from the repo root
+  (each cell runs `pytest tests/e2e/`). On the benchmark box, in the remote
+  checkout (`OSPREY_BENCH_REMOTE_REPO`).
 - A CBORG key (`~/.cborg_key`) for open models; an als-apg key (`~/.als_apg_key`)
   for the Anthropic reference bracket. A local server (e.g. `ds4`) needs no key.
 - A live, seeded **ARIEL Postgres** for the scenario columns (rf_cavity,
