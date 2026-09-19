@@ -95,6 +95,12 @@ from tests.e2e.profile_edits import set_pairs
 #: in this suite (dispatch 20700, overlay 21100, sandbox-escape 21400, web-deploy
 #: 21700, bump 21900, queue 22000, preflight 22100, full-chain 23000, jupyter
 #: 24000, SDK helpers 25000) so a reader checking for a collision reads one list.
+#:
+#: One entry in that list is not clear of this one: the dispatch module's block
+#: starts at 20700, and its web-terminal slot lands on 20800 — the base itself.
+#: The two modules therefore cannot deploy on one host whatever else moves, and
+#: they do not have to: each has its own CI lane. Stated so a reader who finds
+#: the overlap knows it is accounted for rather than missed.
 PORT_BASE = 20800
 
 #: Outside the block by design: the Channel Access port cannot be derived from

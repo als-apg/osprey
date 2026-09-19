@@ -523,10 +523,29 @@ def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
     The sweep band is the middle half of the corrector's OWN
     ``channel_limits.json`` entry, so this never hardcodes a facility channel
     and never asks the reference monitor for a value outside its band.
+
+    The corrector NAMES come from the device file the build staged, derived
+    from the facility channel roster; the band VALUES come from the limits
+    projection, which gates a subset of those channels and enumerates none of
+    them. The two are not the same set, so the axis is the first staged
+    corrector the limits file actually BOUNDS — indexing the projection by the
+    first staged name raises inside a fixture the stages cannot report from.
     """
-    axis_name = next(iter(stack.correctors))
-    sp_address, _rb = stack.correctors[axis_name]
-    entry = stack.limits[sp_address]
+    axis = next(
+        (
+            (name, entry)
+            for name, (sp_address, _rb) in stack.correctors.items()
+            if isinstance(entry := stack.limits.get(sp_address), dict)
+            and "min_value" in entry
+            and "max_value" in entry
+        ),
+        None,
+    )
+    assert axis is not None, (
+        "no staged corrector carries a channel_limits band, so this plan has no "
+        f"axis to sweep (staged correctors: {sorted(stack.correctors)})"
+    )
+    axis_name, entry = axis
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     start = lo + 0.375 * (hi - lo)
     stop = lo + 0.625 * (hi - lo)

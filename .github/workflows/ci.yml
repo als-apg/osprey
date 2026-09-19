@@ -54,10 +54,12 @@ on:
 
 # Model-spending lanes: `full-ci` on a pull request, on demand on main.
 #
-# Eight jobs drive real Claude sessions through the ALS-APG gateway
-# (agentic-per-preset x2, e2e-tests, dispatch-deploy-e2e, dispatch-overlay-e2e,
-# scan-agentic-e2e, nextcloud-talk-bridge-e2e, gchat-bridge-e2e,
-# target-switch-agentic-e2e). Measured on the gateway ledger for the week of
+# These jobs drive real Claude sessions through the ALS-APG gateway:
+# agentic-per-preset (x2), e2e-tests, dispatch-deploy-e2e,
+# single-user-narrowing-e2e, dispatch-overlay-e2e, scan-agentic-e2e,
+# nextcloud-talk-bridge-e2e, gchat-bridge-e2e, target-switch-agentic-e2e.
+# The list is the whole set, and tests/deployment/test_ci_workflow_wiring.py
+# holds it against the workflow. Measured on the gateway ledger for the week of
 # 2026-09-01: the full set costs about $15 per run and ran on every push of
 # every same-repo PR -- ~150 runs a week, ~$2,300, on pace for $10k a month,
 # 95% of everything the group spends on models. Two things drive that and
@@ -5817,6 +5819,7 @@ jobs:
             echo "- Tier 3 — Agentic flow (both presets)"
             echo "- E2E Tests"
             echo "- Dispatch Deploy E2E / Dispatch Overlay E2E"
+            echo "- Single-User Narrowing E2E"
             echo "- Nextcloud Talk Bridge E2E / Google Chat Bridge E2E"
             echo "- Scan Stack Agentic E2E"
             echo "- Control-Target Switch Agentic E2E"
@@ -5848,6 +5851,7 @@ jobs:
             echo "- Tier 3 — Agentic flow (both presets)"
             echo "- E2E Tests"
             echo "- Dispatch Deploy E2E / Dispatch Overlay E2E"
+            echo "- Single-User Narrowing E2E"
             echo "- Nextcloud Talk Bridge E2E / Google Chat Bridge E2E"
             echo "- Scan Stack Agentic E2E"
             echo "- Control-Target Switch Agentic E2E"

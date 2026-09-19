@@ -23,11 +23,11 @@ permissions:
 
 jobs:
   # Nothing else in this workflow runs a test, so without this job a tag can
-  # publish a tree whose agentic lanes never ran. Those eight lanes are gated
-  # on the `full-ci` label, and `all-checks-passed` counts a conditionally
-  # skipped lane as a pass — so an unlabeled release PR merges fully green
-  # having proved nothing about the agent paths. This is where that is caught,
-  # before the wheel is built.
+  # publish a tree whose agentic lanes never ran. Every lane `REQUIRED` below
+  # names is gated on the `full-ci` label, and `all-checks-passed` counts a
+  # conditionally skipped lane as a pass — so an unlabeled release PR merges
+  # fully green having proved nothing about the agent paths. This is where that
+  # is caught, before the wheel is built.
   verify-full-ci:
     name: Verify Full CI On The Tagged Tree
     runs-on: ubuntu-latest

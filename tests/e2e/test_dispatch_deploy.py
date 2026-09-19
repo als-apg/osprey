@@ -49,6 +49,18 @@ deployment's own trigger set and narrow the firing user on the host tree:
   O4 the gate:           an uncredentialed call to ``/panel/events/mcp`` is
                          refused at the terminal and never reaches the dispatcher.
 
+The preset also deploys a Bluesky bridge beside the dispatcher, which makes
+this the one stack in the suite where a plan an agent QUEUES can be read back
+off the queue. That is the owner's other carrier — the MCP server stamps the
+enqueue, the bridge lifts the name onto the item, and the item outlives the run
+— so two more rows ride the same deploy:
+
+  Q1 the queued plan:    a plan queued by a job fired through a terminal's panel
+                         hop is attributed to that terminal's user on the queue.
+  Q2 nobody's plan:      the same probe fired at the webhook queues a plan that
+                         names nobody — the control without which Q1 passes on a
+                         wire that stamps every enqueue with one name.
+
 COEXISTENCE: every host-published web port, the virtual accelerator's Channel
 Access port (the one ``port_base`` does not move), the web-container name
 prefix (``facility.prefix``) and the compose PROJECT NAME are e2e-unique,
@@ -87,10 +99,12 @@ import urllib.error
 import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
 
+from osprey import bluesky_tool_names
 from osprey.deployment.compose_generator import (
     CONTROL_TREE_MARKER_NAME,
     control_target_identity_dir,
@@ -101,6 +115,7 @@ from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
+from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -259,6 +274,24 @@ ENV_PROBE_PANEL_TRIGGER = "owner-env-panel"
 ENV_PROBE_CRON_TRIGGER = "owner-env-cron"
 WRITE_PROBE_PANEL_TRIGGER = "owner-write-panel"
 WRITE_PROBE_CRON_TRIGGER = "owner-write-cron"
+QUEUE_PROBE_PANEL_TRIGGER = "owner-queue-panel"
+QUEUE_PROBE_CRON_TRIGGER = "owner-queue-cron"
+
+#: The preset deploys a Bluesky bridge beside the dispatcher, on this
+#: deployment's own port block — so the queue an agent enqueues onto is
+#: readable from the host without a second deploy. Derived rather than pinned:
+#: the slot moves with :data:`PORT_BASE` exactly as every other published port
+#: of this stack does.
+BRIDGE_URL = f"http://localhost:{default_port('bluesky', base=PORT_BASE)}"
+
+#: The draft client name this module edits the shared plan draft under. The
+#: bridge records it on the draft, so a stray edit from a panel or another
+#: client is visible as somebody else's name rather than as this module's.
+DRAFT_CLIENT_ID = "dispatch-deploy-e2e"
+
+#: The queue tool the queue probes are held to. Imported rather than spelled,
+#: so a tool rename detaches the trigger's allowlist from the tool loudly.
+QUEUE_ADD_TOOL = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_ADD)
 
 #: A channel the preset's virtual accelerator publishes, and it must be a
 #: WRITABLE setpoint inside its limits. The limits check is a PreToolUse hook
@@ -349,6 +382,20 @@ _WRITE_PROBE_ACTION = f"""    source: webhook
         - mcp__controls__channel_write
 """
 
+#: The queue probe. Unlike the other two it needs a value the trigger file
+#: cannot know — which draft revision to queue — so the fire carries it in the
+#: event payload, which the dispatcher folds into the prompt.
+_QUEUE_PROBE_ACTION = f"""    source: webhook
+    action:
+      prompt: >-
+        Call the Bluesky queue-add tool exactly once, queuing the draft
+        revision named by draft_revision in the event payload, and then report
+        the tool's response verbatim. Do not retry and do not call any other
+        tool.
+      allowed_tools:
+        - {QUEUE_ADD_TOOL}
+"""
+
 _OWNER_PROBE_TRIGGERS = (
     "\n  # -- e2e owner probes (appended by tests/e2e/test_dispatch_deploy.py) --\n"
     "  #\n"
@@ -361,6 +408,8 @@ _OWNER_PROBE_TRIGGERS = (
     f"  - name: {ENV_PROBE_CRON_TRIGGER}\n{_ENV_PROBE_ACTION}"
     f"  - name: {WRITE_PROBE_PANEL_TRIGGER}\n{_WRITE_PROBE_ACTION}"
     f"  - name: {WRITE_PROBE_CRON_TRIGGER}\n{_WRITE_PROBE_ACTION}"
+    f"  - name: {QUEUE_PROBE_PANEL_TRIGGER}\n{_QUEUE_PROBE_ACTION}"
+    f"  - name: {QUEUE_PROBE_CRON_TRIGGER}\n{_QUEUE_PROBE_ACTION}"
 )
 
 
@@ -1195,6 +1244,10 @@ _MANUAL_FIRE_CLIENT = r"""
 import json, os, sys, urllib.error, urllib.request
 
 mode, trigger = sys.argv[1], sys.argv[2]
+# The event payload, as JSON. The dispatcher folds it into the prompt the
+# worker runs, so a probe whose instruction needs a value the trigger file
+# could not know is told it here.
+payload = json.loads(sys.argv[3]) if len(sys.argv) > 3 else {}
 secret = (os.environ.get("OSPREY_TERMINAL_SECRET") or "").strip()
 
 # Two variables name a port in a per-user terminal container and they are not
@@ -1273,7 +1326,7 @@ if status == 200 and session:
             "jsonrpc": "2.0",
             "id": 2,
             "method": "tools/call",
-            "params": {"name": "manual_fire", "arguments": {"name": trigger, "payload": {}}},
+            "params": {"name": "manual_fire", "arguments": {"name": trigger, "payload": payload}},
         },
         session,
     )
@@ -1303,11 +1356,11 @@ def _sse_payloads(body: str) -> list[dict]:
     return payloads
 
 
-def _run_manual_fire_client(mode: str, trigger: str) -> dict:
+def _run_manual_fire_client(mode: str, trigger: str, payload: dict | None = None) -> dict:
     """One invocation of the in-container MCP client."""
     result = subprocess.run(
         ["docker", "exec", _web_container(FIRING_USER), "python3", "-c", _MANUAL_FIRE_CLIENT]
-        + [mode, trigger],
+        + [mode, trigger, json.dumps(payload or {})],
         capture_output=True,
         text=True,
         timeout=180,
@@ -1319,7 +1372,9 @@ def _run_manual_fire_client(mode: str, trigger: str) -> dict:
     return json.loads(result.stdout.strip().splitlines()[-1])
 
 
-def _manual_fire_through_the_panel_proxy(trigger: str, *, authenticated: bool = True) -> dict:
+def _manual_fire_through_the_panel_proxy(
+    trigger: str, *, authenticated: bool = True, payload: dict | None = None
+) -> dict:
     """Call ``manual_fire`` for *trigger* from inside the firing user's terminal.
 
     Waits for that container to be healthy and for its terminal to answer first.
@@ -1332,12 +1387,12 @@ def _manual_fire_through_the_panel_proxy(trigger: str, *, authenticated: bool = 
     _wait_for_container_health(_web_container(FIRING_USER), CONTAINER_HEALTH_TIMEOUT_SEC)
     mode = "authenticated" if authenticated else "anonymous"
     deadline = time.monotonic() + HEALTH_TIMEOUT_SEC
-    fired = _run_manual_fire_client(mode, trigger)
+    fired = _run_manual_fire_client(mode, trigger, payload)
     while not fired.get("initialize", {}).get("status") and time.monotonic() < deadline:
         # Status 0 is a transport failure, which at this point means the terminal
         # is still coming up inside a container Docker already calls healthy.
         time.sleep(3.0)
-        fired = _run_manual_fire_client(mode, trigger)
+        fired = _run_manual_fire_client(mode, trigger, payload)
     if authenticated and fired.get("initialize", {}).get("status") not in (200, None):
         # The terminal answered and refused. Carry its own log out with the
         # answer: a refusal at this hop is about what that container knows —
@@ -1756,4 +1811,211 @@ def test_a_chip_toggle_lands_the_owners_own_record_on_the_host_tree(
         f"{READONLY_USER}'s chip moved {READWRITE_USER}'s record: posture is per "
         f"identity, so one operator narrowing themselves must leave every other "
         f"roster user exactly as they were.\nbefore={before!r}\nafter={after!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The owner on a QUEUED PLAN (Q1-Q2).
+#
+# O1-O3 follow the owner into a run's environment and into the verdict on a
+# direct control-system write. A plan is the other thing a job can send toward
+# the machine, and it travels by a different carrier: the agent's Bluesky MCP
+# server stamps ``X-Osprey-Owner`` on the enqueue, the bridge lifts the name
+# onto the item, and the item outlives the run that composed it — so the queue
+# a human reads is what still says who put each plan there.
+#
+# The preset deploys that bridge beside the dispatcher, so these rows need no
+# second stack: they compose a plan through the bridge's own draft surface,
+# fire the probe through both doors, and read the queue back.
+#
+# The queue is STOPPED first, and that is a precondition rather than a subject:
+# the shipped preset arms the queue at boot, where an add IS the launch and the
+# item leaves the queue for the run feed. A stopped queue holds the item where
+# the owner can be read off it. Nothing else in this module touches the queue.
+# ---------------------------------------------------------------------------
+
+
+def _queue_snapshot() -> dict[str, Any]:
+    status, body = _queue_drive.request(BRIDGE_URL, "/queue", "GET")
+    assert status == 200, f"GET /queue failed: {status} {body}"
+    return body
+
+
+def _stop_the_queue() -> None:
+    """Disarm the deployment's queue, so an add composes rather than launches.
+
+    The Stop is ungated by design — halting is never something to hold an
+    operator at — and on an idle queue it is purely the disarm.
+    """
+    status, body = _queue_drive.request(BRIDGE_URL, "/queue/stop", "POST", timeout=60.0)
+    assert status == 200, f"POST /queue/stop failed: {status} {body}"
+    deadline = time.monotonic() + 30.0
+    while time.monotonic() < deadline:
+        if not _queue_drive.queue_is_armed(BRIDGE_URL):
+            return
+        time.sleep(1.0)
+    raise AssertionError(
+        "the queue was still armed 30s after a Stop, so an add would launch the "
+        f"plan instead of holding it: {_queue_snapshot().get('status')}"
+    )
+
+
+def _a_short_plan(repo: Path) -> dict[str, Any]:
+    """``grid_scan`` arguments naming this deployment's OWN devices.
+
+    Read back from the device file the build staged and from the deployment's
+    own ``channel_limits.json`` rather than authored here: the enqueue is
+    validated against the names the worker registered, so a plan composed from
+    a hardcoded facility channel would be refused ``unknown_device`` and these
+    rows would fail on an address rather than on the owner. The sweep is the
+    middle half of the axis's own band, and two points, because nothing here
+    ever runs the plan.
+
+    The device NAMES come from the roster the build derived
+    (``_orm_stack.staged_devices``); the band VALUES come from the limits
+    projection, which gates a subset of those channels and enumerates none of
+    them (see ``_orm_stack.channel_limits``). The two are not the same set, so
+    the axis is the first staged corrector the limits file actually BOUNDS —
+    indexing the projection by the first staged name would raise deep inside a
+    deploy, naming nothing about the owner.
+    """
+    correctors, bpms = _orm_stack.staged_devices(repo)
+    assert correctors and bpms, (
+        f"the build staged no settable/readable device pair under {repo}, so "
+        "there is no plan to compose"
+    )
+    limits = _orm_stack.channel_limits(repo)
+    axis = next(
+        (
+            (name, entry)
+            for name, (setpoint_address, _readback) in correctors.items()
+            if isinstance(entry := limits.get(setpoint_address), dict)
+            and "min_value" in entry
+            and "max_value" in entry
+        ),
+        None,
+    )
+    assert axis is not None, (
+        "no staged corrector carries a channel_limits band, so this plan has no "
+        f"axis to sweep (staged correctors: {sorted(correctors)})"
+    )
+    axis_name, entry = axis
+    low, high = float(entry["min_value"]), float(entry["max_value"])
+    return {
+        "readbacks": [next(iter(bpms))],
+        "axes": [
+            {
+                "setpoint": axis_name,
+                "start": low + 0.375 * (high - low),
+                "stop": low + 0.625 * (high - low),
+                "num_points": 2,
+            }
+        ],
+    }
+
+
+def _drain_and_stage(repo: Path) -> int:
+    """Empty the pending queue and stage one plan; return its draft revision."""
+    _queue_drive.drain_pending_queue(BRIDGE_URL)
+    remaining = _queue_snapshot().get("items") or []
+    assert not remaining, f"the queue still holds {len(remaining)} item(s) after draining"
+    return _queue_drive.stage_draft(
+        BRIDGE_URL, "grid_scan", _a_short_plan(repo), client_id=DRAFT_CLIENT_ID
+    )
+
+
+def _one_queued_item_after(trigger: str, run: dict, record: dict) -> dict:
+    """The single item *trigger*'s run left on the queue.
+
+    The queue was drained to empty before the fire, so exactly one item is the
+    whole claim that the agent's enqueue is what produced it. Any other count
+    reports the queue AND what the queue-add tool answered, because a run whose
+    add was refused and a run that queued twice are indistinguishable from the
+    count alone.
+    """
+    answers = _tool_answers(record, "__queue_add")
+    evidence = _owner_run_evidence(trigger, run, record)
+    assert answers, (
+        f"the {trigger} probe never called the queue-add tool, so no plan was "
+        f"ever enqueued.\n{evidence}"
+    )
+    joined = "\n".join(answers)
+    items = _queue_snapshot().get("items") or []
+    assert len(items) == 1, (
+        f"the {trigger} probe left {len(items)} item(s) on a queue drained to "
+        "empty before the fire; exactly one is what the enqueue produced. The "
+        f"queue-add tool answered:\n{joined[:_EVIDENCE_CAP]}\nqueue: {items}\n{evidence}"
+    )
+    return items[0]
+
+
+def test_a_panel_fired_run_that_enqueues_a_plan_stamps_the_firing_user(
+    deployed_stack: Path,
+) -> None:
+    """Q1: the plan a job queues carries the name of the human who fired the job.
+
+    The owner's second carrier, end to end on real containers: the proxy minted
+    the name from the firing user's own terminal, the dispatcher read it off the
+    header, the worker exported it, the agent's Bluesky server stamped it onto
+    the enqueue, and the bridge lifted it onto the item. The queue an operator
+    reads is where it lands, which is the point of carrying it — an item
+    outlives the run that composed it, so the queue is the only surface that can
+    still say whose plan this is.
+
+    Attribution is not authorization, and this row is where the difference
+    shows: the firing user is narrowed to read-only — the same record O2 judges
+    a write against — and the enqueue is permitted anyway, because composing a
+    queue moves nothing. What the narrowing withholds is the launch token, and
+    a stopped queue needs none.
+    """
+    _queue_drive.wait_for_worker_environment(BRIDGE_URL)
+    _stop_the_queue()
+    revision = _drain_and_stage(deployed_stack)
+
+    fired = _manual_fire_through_the_panel_proxy(
+        QUEUE_PROBE_PANEL_TRIGGER, payload={"draft_revision": revision}
+    )
+    assert (fired.get("call") or {}).get("status") == 200, (
+        f"manual_fire through the panel proxy failed: {fired}"
+    )
+
+    run = _wait_for_terminal_run(QUEUE_PROBE_PANEL_TRIGGER)
+    record = _persisted_run_record(run["run_id"])
+    item = _one_queued_item_after(QUEUE_PROBE_PANEL_TRIGGER, run, record)
+    assert item.get("owner") == FIRING_USER, (
+        f"the queued plan names {item.get('owner')!r} as its owner, not "
+        f"{FIRING_USER!r}. The job was fired from that user's terminal, so the "
+        f"item their agent enqueued is theirs.\nitem: {item}\n"
+        f"{_owner_run_evidence(QUEUE_PROBE_PANEL_TRIGGER, run, record)}"
+    )
+
+
+def test_a_cron_shaped_run_queues_a_plan_that_belongs_to_nobody(
+    deployed_stack: Path,
+) -> None:
+    """Q2: the control for Q1 — an owner-less job queues an owner-less plan.
+
+    Without it, a wire that stamped every enqueue with one name would satisfy
+    Q1 exactly as the real one does. The webhook door mints nothing, so the run
+    it dispatches carries no owner and the item its agent queues names nobody:
+    the queue port is the facility's, a plan can reach it from outside OSPREY,
+    and such an item is attributed to no one rather than to whoever fired last.
+
+    Asserted as the ABSENCE of the key, which is how the bridge relays an item
+    that named nobody — an empty string or a null there would be an owner
+    nobody set.
+    """
+    _queue_drive.wait_for_worker_environment(BRIDGE_URL)
+    _stop_the_queue()
+    revision = _drain_and_stage(deployed_stack)
+
+    _fire(QUEUE_PROBE_CRON_TRIGGER, {"draft_revision": revision})
+
+    run = _wait_for_terminal_run(QUEUE_PROBE_CRON_TRIGGER)
+    record = _persisted_run_record(run["run_id"])
+    item = _one_queued_item_after(QUEUE_PROBE_CRON_TRIGGER, run, record)
+    assert "owner" not in item, (
+        f"a webhook fire carries no owner, so the plan its run queued must name "
+        f"nobody — this item names {item.get('owner')!r}.\nitem: {item}\n"
+        f"{_owner_run_evidence(QUEUE_PROBE_CRON_TRIGGER, run, record)}"
     )

@@ -123,7 +123,11 @@ VA_CA_PORT = _reserve_free_port()
 # ``<project>-<service>`` (services/*/docker-compose.yml.j2), so derive both
 # (via resolve_project_name, exactly as the templates do) rather than hardcode
 # host-global names that break the moment the templates are namespaced per-project.
-PROJECT_NAME = "proj"
+#
+# The name itself is this module's alone. A compose project is addressed BY
+# NAME: two modules sharing one name adopt each other's containers, and a
+# teardown from either side removes the other module's running stack.
+PROJECT_NAME = "osprey-e2e-va-substrate"
 VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 VA_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-va:local"
 
