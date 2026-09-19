@@ -88,6 +88,7 @@ from osprey.utils.identity import acting_identity
 from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, write_record
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
+from tests.e2e._mcp_sse import sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -500,26 +501,6 @@ def _wait_for_worker_feed(timeout: float) -> None:
     )
 
 
-def _sse_payloads(body: str) -> list[dict]:
-    """Every JSON object an SSE body's ``data:`` lines carry.
-
-    The dispatcher's MCP transport answers in ``text/event-stream`` frames even
-    for a single response, so a caller reading the result unwraps the frame
-    rather than json-loading the body. A line that is not JSON is skipped rather
-    than raised on: the caller asserts on what it found, and a parse error here
-    would replace that assertion with a traceback about framing.
-    """
-    payloads: list[dict] = []
-    for line in body.splitlines():
-        if not line.startswith("data:"):
-            continue
-        try:
-            payloads.append(json.loads(line[len("data:") :].strip()))
-        except json.JSONDecodeError:
-            continue
-    return payloads
-
-
 def _mcp_post(body: dict, *, owner: str | None, session: str | None = None) -> tuple:
     headers = {
         "Content-Type": "application/json",
@@ -595,36 +576,6 @@ def _manual_fire(trigger: str, *, owner: str | None) -> dict:
     return out
 
 
-def _tool_result(payloads: list[dict]) -> dict:
-    """The tool's own answer, parsed out of the JSON-RPC response.
-
-    Three layers have to come off, and each one is a place an earlier draft of
-    this helper got it wrong. The SSE frame carries a JSON-RPC envelope; the
-    envelope's ``result`` carries MCP content parts; and the text part is
-    ITSELF a JSON document, serialised as a string. Searching the envelope for a
-    substring cannot work: re-serialising it escapes the inner document's quotes
-    (``\\"dispatched\\": true``), so the match fails on a call that succeeded.
-
-    Read from ``structuredContent.result`` when FastMCP wrapped it there and
-    from the first text content part otherwise, because which one appears is a
-    property of the server's wrapping rather than of the answer.
-    """
-    envelope = next((item for item in payloads if "result" in item), None)
-    assert envelope is not None, f"no JSON-RPC result among the SSE payloads: {payloads}"
-    result = envelope["result"]
-    assert not result.get("isError"), f"the dispatcher reported a tool error: {result}"
-
-    raw = (result.get("structuredContent") or {}).get("result")
-    if raw is None:
-        parts = result.get("content") or []
-        text_parts = [part.get("text") for part in parts if part.get("type") == "text"]
-        assert text_parts, f"the tool answered with no text content: {result}"
-        raw = text_parts[0]
-    if isinstance(raw, dict):
-        return raw
-    return json.loads(raw)
-
-
 def _fire_and_assert_dispatched(trigger: str, *, owner: str | None) -> None:
     deadline = time.monotonic() + HEALTH_TIMEOUT_SEC
     fired = _manual_fire(trigger, owner=owner)
@@ -638,9 +589,9 @@ def _fire_and_assert_dispatched(trigger: str, *, owner: str | None) -> None:
     )
     call = fired.get("call") or {}
     assert call.get("status") == 200, f"manual_fire for {trigger} failed: {fired}"
-    payloads = _sse_payloads(call.get("body") or "")
+    payloads = sse_payloads(call.get("body") or "")
     assert payloads, f"manual_fire returned no SSE payload: {call.get('body')!r}"
-    answer = _tool_result(payloads)
+    answer = tool_result(payloads)
     assert answer.get("dispatched") is True, f"manual_fire did not dispatch {trigger}: {answer}"
     # The trigger name is asserted too, so a fire that dispatched the OTHER probe
     # cannot satisfy this: the owned and owner-less rows read one run each out of

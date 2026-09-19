@@ -116,6 +116,7 @@ from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, w
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
 from tests.e2e import _orm_stack, _queue_drive
+from tests.e2e._mcp_sse import sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -265,6 +266,10 @@ _DEMO_PAYLOAD = {
 #: The roster user whose terminal fires the jobs below, and whose narrowing the
 #: fired jobs' writes are judged against.
 FIRING_USER = READWRITE_USER
+
+#: The ``.mcp.json`` key of the dispatcher wire — the framework server entry a
+#: persona's render carries exactly when that persona selects the EVENTS panel.
+DISPATCHER_MCP_SERVER = "event_dispatcher"
 
 #: Triggers this module appends to the deployment's own ``triggers.yml`` before
 #: the build. Two probes, each fired through BOTH doors, so the owner-carrying
@@ -1191,9 +1196,17 @@ def test_readwrite_persona_arms_writes(deployed_stack: Path) -> None:
 
 
 def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
-    """T4: both persona projects declare the IDENTICAL ``.mcp.json`` server set
-    — the tier boundary is enforcement (``writes_enabled``), never a quietly
-    different tool surface."""
+    """T4: both persona projects declare the IDENTICAL control-system server
+    set — that tier boundary is enforcement (``writes_enabled``), never a
+    quietly different tool surface.
+
+    The dispatcher wire is the one entry that differs, and it must: it follows
+    the persona's EVENTS panel (see the owner-attribution note above), so the
+    persona that may fire triggers declares it and the read-only persona — which
+    holds no panel to reach it through and no credential to present — does not.
+    Both halves are asserted, so neither an extra difference nor a dispatcher
+    entry leaking into the read-only render can pass.
+    """
 
     def mcp_server_keys(render: Path) -> set[str]:
         mcp_path = render / ".mcp.json"
@@ -1202,10 +1215,18 @@ def test_tiers_share_identical_mcp_surface(deployed_stack: Path) -> None:
 
     readonly_keys = mcp_server_keys(_persona_dir(deployed_stack, READONLY_PROJECT))
     readwrite_keys = mcp_server_keys(_persona_dir(deployed_stack, READWRITE_PROJECT))
-    assert readonly_keys == readwrite_keys, (
-        "the two tiers must declare the identical MCP server set (the boundary "
-        f"is writes_enabled, not tool absence): readonly={sorted(readonly_keys)} "
-        f"readwrite={sorted(readwrite_keys)}"
+    assert DISPATCHER_MCP_SERVER in readwrite_keys, (
+        "the read-write persona selects the EVENTS panel, so its render must declare "
+        f"the dispatcher wire: readwrite={sorted(readwrite_keys)}"
+    )
+    assert DISPATCHER_MCP_SERVER not in readonly_keys, (
+        "the read-only persona carries no EVENTS panel, so a dispatcher entry in its "
+        f"render is a server it cannot reach: readonly={sorted(readonly_keys)}"
+    )
+    assert readonly_keys == readwrite_keys - {DISPATCHER_MCP_SERVER}, (
+        "apart from the dispatcher wire the two tiers must declare the identical MCP "
+        "server set (the boundary is writes_enabled, not tool absence): "
+        f"readonly={sorted(readonly_keys)} readwrite={sorted(readwrite_keys)}"
     )
 
 
@@ -1333,27 +1354,6 @@ if status == 200 and session:
     out["call"] = {"status": status, "body": body[:4000]}
 print(json.dumps(out))
 """
-
-
-def _sse_payloads(body: str) -> list[dict]:
-    """Every JSON object an SSE body's ``data:`` lines carry.
-
-    The dispatcher's MCP transport answers in ``text/event-stream`` frames even
-    for a single response and the proxy relays the body byte-identical, so a
-    caller reading the result unwraps the frame rather than json-loading the
-    body. A line that is not JSON is skipped rather than raised on: the caller
-    asserts on what it found, and a parse error here would replace that
-    assertion with a traceback about framing.
-    """
-    payloads: list[dict] = []
-    for line in body.splitlines():
-        if not line.startswith("data:"):
-            continue
-        try:
-            payloads.append(json.loads(line[len("data:") :].strip()))
-        except json.JSONDecodeError:
-            continue
-    return payloads
 
 
 def _run_manual_fire_client(mode: str, trigger: str, payload: dict | None = None) -> dict:
@@ -1497,10 +1497,15 @@ def test_manual_fire_owner_reaches_the_dispatch_run(deployed_stack: Path) -> Non
     )
     call = fired.get("call") or {}
     assert call.get("status") == 200, f"manual_fire through the panel proxy failed: {fired}"
-    payloads = _sse_payloads(call.get("body") or "")
+    payloads = sse_payloads(call.get("body") or "")
     assert payloads, f"manual_fire returned no SSE payload: {call.get('body')!r}"
-    assert '"dispatched": true' in json.dumps(payloads), (
-        f"manual_fire did not dispatch {ENV_PROBE_PANEL_TRIGGER}: {payloads}"
+    answer = tool_result(payloads)
+    assert answer.get("dispatched") is True, (
+        f"manual_fire did not dispatch {ENV_PROBE_PANEL_TRIGGER}: {answer}"
+    )
+    assert answer.get("trigger") == ENV_PROBE_PANEL_TRIGGER, (
+        f"manual_fire dispatched {answer.get('trigger')!r} rather than "
+        f"{ENV_PROBE_PANEL_TRIGGER!r}: {answer}"
     )
 
     run = _wait_for_terminal_run(ENV_PROBE_PANEL_TRIGGER)

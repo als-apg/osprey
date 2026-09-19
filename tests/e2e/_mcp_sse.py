@@ -1,0 +1,61 @@
+"""Reading a tool's answer off the dispatcher's MCP transport.
+
+The deploy-backed suites call ``manual_fire`` over the dispatcher's streamable
+HTTP transport, directly or through the web terminal's panel proxy, and both
+read the answer the same way. The reading lives here once because it has a trap
+in it (see :func:`tool_result`) that a second copy is free to fall back into.
+"""
+
+from __future__ import annotations
+
+import json
+
+
+def sse_payloads(body: str) -> list[dict]:
+    """Every JSON object an SSE body's ``data:`` lines carry.
+
+    The dispatcher's MCP transport answers in ``text/event-stream`` frames even
+    for a single response, so a caller reading the result unwraps the frame
+    rather than json-loading the body. A line that is not JSON is skipped rather
+    than raised on: the caller asserts on what it found, and a parse error here
+    would replace that assertion with a traceback about framing.
+    """
+    payloads: list[dict] = []
+    for line in body.splitlines():
+        if not line.startswith("data:"):
+            continue
+        try:
+            payloads.append(json.loads(line[len("data:") :].strip()))
+        except json.JSONDecodeError:
+            continue
+    return payloads
+
+
+def tool_result(payloads: list[dict]) -> dict:
+    """The tool's own answer, parsed out of the JSON-RPC response.
+
+    Three layers have to come off, and each one is a place an earlier draft of
+    this helper got it wrong. The SSE frame carries a JSON-RPC envelope; the
+    envelope's ``result`` carries MCP content parts; and the text part is
+    ITSELF a JSON document, serialised as a string. Searching the envelope for a
+    substring cannot work: re-serialising it escapes the inner document's quotes
+    (``\\"dispatched\\": true``), so the match fails on a call that succeeded.
+
+    Read from ``structuredContent.result`` when FastMCP wrapped it there and
+    from the first text content part otherwise, because which one appears is a
+    property of the server's wrapping rather than of the answer.
+    """
+    envelope = next((item for item in payloads if "result" in item), None)
+    assert envelope is not None, f"no JSON-RPC result among the SSE payloads: {payloads}"
+    result = envelope["result"]
+    assert not result.get("isError"), f"the dispatcher reported a tool error: {result}"
+
+    raw = (result.get("structuredContent") or {}).get("result")
+    if raw is None:
+        parts = result.get("content") or []
+        text_parts = [part.get("text") for part in parts if part.get("type") == "text"]
+        assert text_parts, f"the tool answered with no text content: {result}"
+        raw = text_parts[0]
+    if isinstance(raw, dict):
+        return raw
+    return json.loads(raw)
