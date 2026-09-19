@@ -56,7 +56,8 @@ It is the weak, panel-tier-only credential
 panel tools and its SessionStart/UserPromptSubmit/approval hooks cannot do
 their job without it. That tier is panel arrangement and activity plus one
 thing that is neither: the terminal proxy's hop to the event dispatcher's MCP
-transport, which is how a session's agent fires a dispatch job. The three seams that re-add it are
+transport, which is how a session's agent fires a dispatch job. The three seams
+that re-add it are
 :func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env` (PTY),
 :func:`osprey.interfaces.web_terminal.operator_session.build_operator_child_env`
 (the SDK operator and chat sessions) and :func:`osprey.cli.chat_cmd.chat`

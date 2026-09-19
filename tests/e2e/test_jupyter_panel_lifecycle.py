@@ -257,14 +257,16 @@ def _agent_pid() -> int:
 def _record_path(agent_data_root: str) -> str:
     """Where this container's control-context record lives, inside the container.
 
-    One record per acting identity rather than one per deployment, and every
-    process in this container resolves that identity to the roster user the
-    container belongs to: compose stamps both ``OSPREY_TERMINAL_USER`` and
-    ``OSPREY_AUDIT_IDENTITY`` with it, which are the first two rungs of the
-    ladder every surface shares. So this is the file the kernel, the chip, the
-    hooks and the controls servers all read to learn which machine the
-    deployment is on — there is still nothing to match and nothing to choose
-    between, because a one-user render has one identity.
+    One record per roster user rather than one per deployment, and the bind is
+    what decides which: compose hands every service
+    ``OSPREY_CONTROL_CONTEXT_DIR`` naming this directory, and a process that
+    carries that bind resolves its state directory to it without consulting
+    the identity ladder at all. The ladder is why spelling the path out here
+    is faithful rather than a second answer -- it names the same directory the
+    bind does, because the render derives both from the roster user this
+    container belongs to. So this is the file the kernel, the chip, the hooks
+    and the controls servers all read to learn which machine the deployment is
+    on.
     """
     return f"{agent_data_root}/{STATE_DIR_NAME}/{USER}/{RECORD_FILENAME}"
 

@@ -876,6 +876,25 @@ class TestMembershipIsNotReportedAsAccess:
         assert str(audit) in warnings[0], "the warning does not name the directory"
         assert "gosu" in run.order, "a failed probe blocked the container's boot"
 
+    def test_the_write_warning_names_the_remap_in_both_its_shapes(self, sandbox: Sandbox):
+        """The operator-facing half, as the read arm's warning carries it too.
+
+        An ownership remap is the overwhelmingly common cause of a bind that
+        arrives unwritable, and it reaches the container in two shapes that
+        look nothing alike in the log: gid 0, refused by name at the privilege
+        floor, and the nobody and overflow gids, which pass that floor and die
+        at ``groupadd``. An operator told about one shape and stuck on the
+        other reads the warning as not applying to them.
+        """
+        audit = sandbox.audit_mount(gid=3000)
+
+        run = sandbox.run(audit_dir=audit, probe_rc=1)
+
+        assert "Docker Desktop" in run.stderr
+        assert "gid 0" in run.stderr
+        assert "nobody/nogroup" in run.stderr
+        assert "overflow" in run.stderr
+
     def test_the_membership_line_claims_a_membership_and_nothing_more(self, sandbox: Sandbox):
         """It is printed by the join, so it says only what the join did. Any
         wording that also asserted writability would be a claim the join is in

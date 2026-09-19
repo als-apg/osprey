@@ -1070,12 +1070,6 @@ def auto_register_user_owned(project_dir: Path, canonical_name: str):
     config_add_to_list(config_path, ["scaffold", "user_owned"], canonical_name)
 
 
-def output_path_to_canonical(output_path: str, registry: BuildArtifactCatalog) -> str | None:
-    """Reverse-lookup: map an output file path to its canonical artifact name."""
-    art = registry.get_by_output(output_path)
-    return art.canonical_name if art else None
-
-
 def _build_framework_hook_rules(
     selected_hooks: list[str],
 ) -> tuple[list[dict], list[dict]]:

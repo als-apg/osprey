@@ -772,6 +772,21 @@ def _tree_record_unreadable(record_file: Path, detail: str) -> str:
     )
 
 
+def _tree_record_oversized(record_file: Path) -> str:
+    """The remedy for a record too large to be the one a chip wrote.
+
+    Its own sentence rather than the unreadable one's: the mode and the group
+    permitted this read, so an operator sent to check them finds both correct
+    and learns nothing. A record is a few hundred bytes, and one past the bound
+    is a file something other than the chip put at that name.
+    """
+    return (
+        f"the control-context record {record_file} is larger than the "
+        f"{_RECORD_READ_LIMIT} bytes a record may be, so it was not read — "
+        "re-select the control target to write the record again"
+    )
+
+
 def _tree_bind_unusable() -> str:
     """The remedy for a bind that is set and names no directory to open.
 
@@ -978,6 +993,12 @@ def _read_tree_record(tree: Path, owner: str) -> _TreeRead:
         logger.debug("Could not read the control-context record at %s", record_file, exc_info=True)
         if getattr(exc, "errno", None) == errno.ELOOP:
             return _TreeRead({}, _tree_planted_link(record_file, "record"))
+        if getattr(exc, "errno", None) == errno.EFBIG:
+            # Asked by name for the same reason the planted link is: the size
+            # bound refuses a file whose mode and group are beyond reproach, so
+            # the generic remedy points at two things an operator then finds
+            # correct.
+            return _TreeRead({}, _tree_record_oversized(record_file))
         detail = getattr(exc, "strerror", None) or type(exc).__name__
         return _TreeRead({}, _tree_record_unreadable(record_file, f"could not be read ({detail})"))
     if record is None:

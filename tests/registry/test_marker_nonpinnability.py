@@ -166,13 +166,13 @@ class TestMarkerSpellings:
         assert CONTROL_CONTEXT_TREE_ENV == "OSPREY_CONTROL_CONTEXT_TREE"
         assert CONTROL_CONTEXT_TREE_ENV in NON_PINNABLE_AUDIT_MARKERS
 
-    def test_the_control_context_dir_marker_is_non_pinnable(self):
-        """The per-owner directory the chip is written to and read from. Spelled
-        as a literal in the registry — its assignment site is the web-terminal
-        compose template and its reader the container entrypoint, neither of
-        which the registry may import a name from — so the literal is pinned
-        here against the name the rendered compose environment carries.
+    def test_the_control_context_dir_marker_is_the_posture_store_spelling(self):
+        """The per-owner directory the chip is written to and read from, so a pin
+        aims the read at a directory holding no record — which reads as "nothing
+        narrowed". Pinned by identity against the module that reads it, the same
+        constant the web-terminal overlay assigns it under.
         """
+        assert CONTROL_CONTEXT_DIR_ENV is posture_store.CONTROL_CONTEXT_DIR_ENV_VAR
         assert CONTROL_CONTEXT_DIR_ENV == "OSPREY_CONTROL_CONTEXT_DIR"
         assert CONTROL_CONTEXT_DIR_ENV in NON_PINNABLE_AUDIT_MARKERS
 

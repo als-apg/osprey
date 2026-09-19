@@ -52,6 +52,7 @@ from typing import Any
 import pytest
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from osprey.audit.posture import POSTURE_ENV_VAR
 from osprey.services.bluesky_bridge import qserver_startup, session_upload
 from osprey.services.bluesky_bridge.session_upload import install_session_plan
 from osprey_connectors import posture_store
@@ -81,17 +82,47 @@ _CHANNEL = "SR:BEND:SETPOINT"
 _DEVICE_NAME = "motor"
 _SETPOINT = 3.5
 
-# A refusal as the reference monitor writes one. The operator-facing half is
-# `error_message`, whose closing clause is the verdict's own word — taken from
-# the verdict rather than typed out here, so a renamed member fails these rows
-# instead of leaving them agreeing with a spelling nothing answers any more.
-# The wrapper's warning carries that message, so the reason reaches the log
-# line from the refusal rather than from a second spelling of it.
-_REFUSAL_REASON = "WRITES_DISABLED"
-_REFUSAL_MESSAGE = (
-    f"Write to '{_CHANNEL}' refused by reference monitor: another user has narrowed "
-    f"control of this target to themselves — {StoreVerdict.NARROWING}"
-)
+_REFUSAL_TARGET = "vacuum"
+_CONNECTOR_TYPE = "epics"
+
+
+def refuse_a_narrowed_write() -> None:
+    """Raise the refusal the reference monitor raises for a narrowed target.
+
+    Composed by the monitor's own result builder and raised through its own
+    denial contract, rather than typed out here: the reason code and the
+    operator-facing sentence are what these rows look for in the wrapper's
+    warning, and a message written by the test would agree with that line
+    whatever either of them said.
+
+    Every caller runs under :func:`monitor_refusal_inputs`, which settles the
+    three environment answers that fork this refusal onto other wordings.
+
+    Public because the session wrapper's plan source imports it: both wrappers
+    have to meet the same refusal, and a plan file is exec'd in a namespace of
+    its own that sees nothing of this module.
+    """
+    from osprey_connectors.control_system import base as connector_base
+
+    connector_base.raise_for_write_result(
+        connector_base._writes_disabled_result(
+            _CHANNEL,
+            _SETPOINT,
+            _CONNECTOR_TYPE,
+            _REFUSAL_TARGET,
+            store_verdict=StoreVerdict.NARROWING,
+        )
+    )
+    raise AssertionError("a refused write result must raise")
+
+
+def _monitor_refusal() -> ChannelWriteBlockedError:
+    """That same refusal as an object, for a caller that hands it on."""
+    try:
+        refuse_a_narrowed_write()
+    except ChannelWriteBlockedError as refusal:
+        return refusal
+    raise AssertionError("unreachable")
 
 
 class _Params(BaseModel):
@@ -117,7 +148,7 @@ def _owner_probe_plan(devices: Any, params: Any) -> Any:
 def _refusing_plan(devices: Any, params: Any) -> Any:
     """Run one message, then meet a gated write that refuses."""
     yield current_owner()
-    raise ChannelWriteBlockedError(_CHANNEL, _REFUSAL_REASON, message=_REFUSAL_MESSAGE)
+    refuse_a_narrowed_write()
 
 
 _PROBE_SOURCE = '''PLAN_METADATA = {"name": "stub_plan"}
@@ -139,12 +170,13 @@ def build_plan(devices, params):
         yield current_owner()
 '''
 
-_REFUSAL_SOURCE = f'''PLAN_METADATA = {{"name": "stub_plan"}}
+_REFUSAL_SOURCE = '''PLAN_METADATA = {"name": "stub_plan"}
 
 from pydantic import BaseModel, ConfigDict
 
-from osprey_connectors.errors import ChannelWriteBlockedError
 from osprey_connectors.posture_store import current_owner
+
+from tests.services.bluesky_bridge.test_plan_wrapper_owner import refuse_a_narrowed_write
 
 
 class PARAMS(BaseModel):
@@ -156,9 +188,37 @@ class PARAMS(BaseModel):
 def build_plan(devices, params):
     """Run one message, then meet a gated write that refuses."""
     yield current_owner()
-    raise ChannelWriteBlockedError(
-        {_CHANNEL!r}, {_REFUSAL_REASON!r}, message={_REFUSAL_MESSAGE!r}
-    )
+    refuse_a_narrowed_write()
+'''
+
+#: What the channel reported back when the value was sent and did not stick.
+_FAILURE_OUTCOME = "MISMATCH"
+
+
+def _failing_plan(devices: Any, params: Any) -> Any:
+    """Run one message, then meet a write the channel did not confirm."""
+    yield current_owner()
+    raise ChannelWriteFailedError(_CHANNEL, _FAILURE_OUTCOME)
+
+
+_FAILURE_SOURCE = f'''PLAN_METADATA = {{"name": "stub_plan"}}
+
+from pydantic import BaseModel, ConfigDict
+
+from osprey_connectors.errors import ChannelWriteFailedError
+from osprey_connectors.posture_store import current_owner
+
+
+class PARAMS(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    steps: int = 2
+
+
+def build_plan(devices, params):
+    """Run one message, then meet a write the channel did not confirm."""
+    yield current_owner()
+    raise ChannelWriteFailedError({_CHANNEL!r}, {_FAILURE_OUTCOME!r})
 '''
 
 
@@ -177,6 +237,32 @@ def clean_owner_environment(monkeypatch: pytest.MonkeyPatch):
     posture_store._owner_var.set(NO_OWNER)
     yield
     posture_store._owner_var.set(NO_OWNER)
+
+
+@pytest.fixture(autouse=True)
+def monitor_refusal_inputs(monkeypatch: pytest.MonkeyPatch):
+    """Settle the three answers that decide which refusal wording is raised.
+
+    Each forks :func:`refuse_a_narrowed_write` onto a different message, and a
+    test process answers all three the way no deployment does: a build profile
+    it cannot read reads as writes-disabled deployment-wide, and an inherited
+    readonly mode or launch pin refuses before the target is consulted at all.
+    Settled here rather than at the raise, so what a row meets is the
+    narrowed-target arm — the one a queued plan meets — on any machine.
+    """
+
+    def armed(key: str, default: Any = None) -> Any:
+        return {"writes_enabled": True} if key == "control_system" else default
+
+    monkeypatch.setattr("osprey_connectors.config.get_config_value", armed)
+    monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    monkeypatch.delenv(POSTURE_ENV_VAR, raising=False)
+
+
+@pytest.fixture
+def monitor_refusal() -> ChannelWriteBlockedError:
+    """The refusal these rows are written against, as the monitor raises it."""
+    return _monitor_refusal()
 
 
 def _catalog_wrapper(plan: Any) -> Any:
@@ -210,6 +296,14 @@ def refusing_wrapper(request: pytest.FixtureRequest) -> tuple[Any, str]:
     if request.param == "catalog":
         return _catalog_wrapper(_refusing_plan), qserver_startup.logger.name
     return _session_wrapper(_REFUSAL_SOURCE), session_upload.logger.name
+
+
+@pytest.fixture(params=["catalog", "session"])
+def failing_wrapper(request: pytest.FixtureRequest) -> tuple[Any, str]:
+    """Both wrappers around the plan whose write failed rather than was refused."""
+    if request.param == "catalog":
+        return _catalog_wrapper(_failing_plan), qserver_startup.logger.name
+    return _session_wrapper(_FAILURE_SOURCE), session_upload.logger.name
 
 
 def _warnings_from(caplog: pytest.LogCaptureFixture, logger_name: str) -> list[logging.LogRecord]:
@@ -291,7 +385,9 @@ def test_an_undeclared_kwarg_is_still_refused(probe_wrapper: Any) -> None:
 
 
 def test_a_refused_write_logs_exactly_one_warning_naming_the_owner(
-    refusing_wrapper: tuple[Any, str], caplog: pytest.LogCaptureFixture
+    refusing_wrapper: tuple[Any, str],
+    monitor_refusal: ChannelWriteBlockedError,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """One line, naming the plan, the owner, the channel and the reason.
 
@@ -320,14 +416,16 @@ def test_a_refused_write_logs_exactly_one_warning_naming_the_owner(
     # Both halves of the reason: the refusal's own code, which a log reader can
     # group on without parsing prose, and the verdict word the operator-facing
     # message closes with, carried in from the refusal rather than re-derived.
-    assert _REFUSAL_REASON in line
+    assert monitor_refusal.reason in line
     assert StoreVerdict.NARROWING in line
 
     assert posture_store._owner_var.get() is NO_OWNER
 
 
 def test_the_refusal_travels_on_unchanged(
-    refusing_wrapper: tuple[Any, str], caplog: pytest.LogCaptureFixture
+    refusing_wrapper: tuple[Any, str],
+    monitor_refusal: ChannelWriteBlockedError,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The worker reports ``Plan failed: {ex}``, so the text must survive.
 
@@ -342,9 +440,31 @@ def test_the_refusal_travels_on_unchanged(
             list(wrapper(**{RESERVED_OWNER_KWARG: _OWNER}))
 
     assert type(refusal.value) is ChannelWriteBlockedError
-    assert str(refusal.value) == _REFUSAL_MESSAGE
+    assert str(refusal.value) == str(monitor_refusal)
     assert refusal.value.channel_address == _CHANNEL
     assert refusal.value.reason == "WRITES_DISABLED"
+
+
+def test_a_write_that_failed_in_the_plans_own_frame_earns_no_line(
+    failing_wrapper: tuple[Any, str], caplog: pytest.LogCaptureFixture
+) -> None:
+    """A channel that disagreed is nobody's narrowing, so nobody is named.
+
+    The handler is offered every exception the plan raises, and this one is a
+    write that was attempted: naming an owner for it would attribute to a
+    person a disagreement between a setpoint and a readback. The sibling row
+    over a real RunEngine pins the same property for the other shape a failed
+    write arrives in.
+    """
+    wrapper, logger_name = failing_wrapper
+
+    with caplog.at_level(logging.WARNING, logger=logger_name):
+        with pytest.raises(ChannelWriteFailedError) as failure:
+            list(wrapper(**{RESERVED_OWNER_KWARG: _OWNER}))
+
+    assert _warnings_from(caplog, logger_name) == []
+    assert failure.value.channel_address == _CHANNEL
+    assert posture_store._owner_var.get() is NO_OWNER
 
 
 def test_an_owner_less_refusal_names_the_sentinel(
@@ -422,7 +542,7 @@ class _RefusingConnector(FakeConnector):
         super().__init__(readbacks={_CHANNEL: 0.0})
 
     async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
-        raise ChannelWriteBlockedError(channel_address, _REFUSAL_REASON, message=_REFUSAL_MESSAGE)
+        refuse_a_narrowed_write()
 
 
 def _device(connector: Any) -> ConnectorSettable:
@@ -461,7 +581,9 @@ def writing_wrapper(request: pytest.FixtureRequest) -> tuple[Any, str]:
 
 
 def test_a_refusal_inside_a_device_write_earns_the_same_one_line(
-    writing_wrapper: tuple[Any, str], caplog: pytest.LogCaptureFixture
+    writing_wrapper: tuple[Any, str],
+    monitor_refusal: ChannelWriteBlockedError,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The shape every refusal an operator meets actually has.
 
@@ -486,13 +608,13 @@ def test_a_refusal_inside_a_device_write_earns_the_same_one_line(
     assert _PLAN_NAME in line
     assert _OWNER in line
     assert _CHANNEL in line
-    assert _REFUSAL_REASON in line
+    assert monitor_refusal.reason in line
     assert StoreVerdict.NARROWING in line
 
     # The run still fails on the monitor's own wording, which is what the item
     # reports: the line is written beside the refusal, never instead of it.
     assert isinstance(failure.value.__cause__, ChannelWriteBlockedError)
-    assert str(failure.value.__cause__) == _REFUSAL_MESSAGE
+    assert str(failure.value.__cause__) == str(monitor_refusal)
     assert StoreVerdict.NARROWING in str(failure.value)
     assert connector.readbacks[_CHANNEL] == 0.0
 
@@ -605,9 +727,7 @@ def make_status_like(kind: str) -> Any:
     its own that sees nothing of this module.
     """
     if kind == _LEGACY_SHAPE:
-        return _LegacyStatus(
-            ChannelWriteBlockedError(_CHANNEL, _REFUSAL_REASON, message=_REFUSAL_MESSAGE)
-        )
+        return _LegacyStatus(_monitor_refusal())
     return _STALLING_SHAPES[kind]()
 
 

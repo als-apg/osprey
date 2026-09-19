@@ -387,19 +387,6 @@ def _in_mcp_server_process() -> bool:
     return any(parts[i : i + span] == _MCP_SERVER_PACKAGE_PARTS for i in range(len(parts)))
 
 
-#: The audit session id a session child is stamped with. Read by NAME rather
-#: than imported from ``osprey.audit.posture``, which declares it for the
-#: stamping side: this package is the lean connector chain and must not grow an
-#: ``osprey`` import to learn one string. Same rule, and the same reason, as
-#: :data:`osprey_connectors.posture_store.AGENT_DATA_ROOT_ENV_VAR`.
-POSTURE_SESSION_ENV_VAR = "OSPREY_POSTURE_SESSION"
-
-
-def _posture_session() -> str | None:
-    """The audit session id this process's session was stamped with, if any."""
-    return (os.environ.get(POSTURE_SESSION_ENV_VAR) or "").strip() or None
-
-
 def _posture_store_verdict(control_target: str | None) -> "StoreVerdictDetail":
     """What the operator's record says about writing to *control_target*.
 

@@ -66,7 +66,7 @@ from osprey.interfaces.web_auth import DEFAULT_SESSION_LIFETIME
 from osprey.port_layout import _MAX_PORT, default_port, resolve_port_base
 from osprey.utils.facility import resolve_facility_name
 from osprey.utils.workspace import AUDIT_DIR_RELPATH, agent_data_base_dir
-from osprey_connectors.posture_store import STATE_DIR_NAME
+from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR, STATE_DIR_NAME
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -1388,6 +1388,14 @@ def render_web_terminals(
         # can gate the label block on plain truthiness.
         "auth_env_digest": auth_env_digest or "",
         "auth_env_digest_label": AUTH_ENV_DIGEST_LABEL,
+        # The variable name this overlay ASSIGNS the per-owner control-context
+        # directory to, handed to the template rather than spelled there: the
+        # readers resolve their state directory through this same constant, and
+        # a name the assignment side spells for itself is a bind whose two ends
+        # agree until one of them is renamed -- after which the terminal writes
+        # a record nothing looks for, and a missing record reads as "nothing
+        # narrowed".
+        "control_context_dir_env": CONTROL_CONTEXT_DIR_ENV_VAR,
         # Which CHECKOUT this stack belongs to, baked into every container and
         # volume label the template emits. Derived through the same helper the
         # services stack renders from, so one deployment cannot end up with two

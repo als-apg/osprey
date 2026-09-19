@@ -60,6 +60,7 @@ from osprey.mcp_server.dispatch_worker.input_files_policy import (
     MAX_INGEST_FILES,
     MAX_TOTAL_DECODED_BYTES,
 )
+from tests.conftest import dispatcher_route_registry
 
 _MiB = 1024 * 1024
 
@@ -354,14 +355,20 @@ class _FakeEntryPoint:
 
 
 @pytest.fixture(autouse=True)
-def _reset_mcp_routes():
-    baseline = list(server.mcp._additional_http_routes)
-    yield
-    server.mcp._additional_http_routes = baseline
+def dispatch_server_build():
+    """Build dispatcher apps through the shared route registry.
+
+    ``create_server()`` appends its routes to a module-level FastMCP singleton,
+    so a registration an earlier caller left behind answers ahead of this
+    module's own. The registry keeps only the newest registration of each route
+    and hands the singleton back carrying what it had on the way in.
+    """
+    with dispatcher_route_registry() as build:
+        yield build
 
 
 @pytest.fixture
-def app(tmp_path, monkeypatch):
+def app(tmp_path, monkeypatch, dispatch_server_build):
     path = tmp_path / "triggers.yml"
     path.write_text(
         "dispatcher:\n"
@@ -384,7 +391,7 @@ def app(tmp_path, monkeypatch):
         return [_FakeEntryPoint("webhook", WebhookSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
-    return server.create_server().http_app()
+    return dispatch_server_build().http_app()
 
 
 def _poll_until_terminal(client: TestClient, dispatch_id: str, tries: int = 50) -> dict:

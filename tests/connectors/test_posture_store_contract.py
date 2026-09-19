@@ -1143,6 +1143,10 @@ def test_an_oversized_record_in_the_tree_is_unavailable(bound_tree):
     assert narrowed == {}
     assert unavailable is not None
     assert str(path) in unavailable
+    # Its own remedy, not the unreadable record's: this file's mode and group
+    # permitted the read, so an operator sent to check them finds both correct.
+    assert "larger than" in unavailable
+    assert "mode and group" not in unavailable
     assert (
         posture_store.store_verdict("live", "alice")
         is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE

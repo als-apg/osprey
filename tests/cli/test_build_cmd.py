@@ -1957,24 +1957,6 @@ POSTURE_CONFIG: dict = {
 }
 
 
-def _write_tier_profile(profile_dir: Path, paradigm: str, tier: int | None = None) -> Path:
-    """Write a minimal control_assistant profile pinned to a single paradigm
-    and (optionally) a tier."""
-    profile_data: dict = {
-        "name": "Tier Test",
-        "data": "data",
-        "provider": "cborg",
-        "model": "haiku",
-        "channel_finder_mode": paradigm,
-        "config": dict(POSTURE_CONFIG),
-    }
-    if tier is not None:
-        profile_data["tier"] = tier
-    path = profile_dir / "tier-profile.yml"
-    path.write_text(yaml.dump(profile_data, default_flow_style=False))
-    return path
-
-
 def _tier_repo(tmp_path: Path, paradigm: str, tier: int | None = None) -> Path:
     """A deployment repo whose profile pins one paradigm and, optionally, a tier.
 

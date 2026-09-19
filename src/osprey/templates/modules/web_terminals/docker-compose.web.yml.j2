@@ -972,7 +972,7 @@ services:
          The CONTAINER path, never the host one — the entrypoint stats the
          directory it can actually see. Unconditional, like the audit pair:
          every terminal here can narrow, whatever `auth.method` says. #}
-      - OSPREY_CONTROL_CONTEXT_DIR={{ svc.container_control_context_dir }}
+      - {{ control_context_dir_env }}={{ svc.container_control_context_dir }}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
       {#- The bundle mount's target, named for the same entrypoint contract: the
          root phase is to iterate exactly the directories these two variables

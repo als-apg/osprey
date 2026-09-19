@@ -19,6 +19,7 @@ from osprey.dispatch import server
 from osprey.dispatch.sources.webhook import WebhookSource
 from osprey.dispatch.trigger_config import TriggerConfig
 from osprey.dispatch.worker_client import WorkerRejectedRequestError
+from tests.conftest import dispatcher_route_registry
 
 _FILES = [
     {"filename": "plot.png", "mime": "image/png", "content_b64": "QUJD" * 100, "ingest": True},
@@ -203,14 +204,20 @@ class _FakeEntryPoint:
 
 
 @pytest.fixture(autouse=True)
-def _reset_mcp_routes():
-    baseline = list(server.mcp._additional_http_routes)
-    yield
-    server.mcp._additional_http_routes = baseline
+def dispatch_server_build():
+    """Build dispatcher apps through the shared route registry.
+
+    ``create_server()`` appends its routes to a module-level FastMCP singleton,
+    so a registration an earlier caller left behind answers ahead of this
+    module's own. The registry keeps only the newest registration of each route
+    and hands the singleton back carrying what it had on the way in.
+    """
+    with dispatcher_route_registry() as build:
+        yield build
 
 
 @pytest.fixture
-def app(tmp_path, monkeypatch):
+def app(tmp_path, monkeypatch, dispatch_server_build):
     path = tmp_path / "triggers.yml"
     path.write_text(
         "dispatcher:\n"
@@ -232,7 +239,7 @@ def app(tmp_path, monkeypatch):
         return [_FakeEntryPoint("webhook", WebhookSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
-    return server.create_server().http_app()
+    return dispatch_server_build().http_app()
 
 
 def test_health_capability_advertised(app):

@@ -204,8 +204,9 @@ def _record_target(repo) -> str | None:
 
     The path comes from :func:`~osprey_connectors.control_context.record_path_under`
     rather than being composed here, so this test reads the file the hooks
-    write even if the hops change. That works because this lane deploys no
-    containers: the test process, the SDK and every hook it spawns share one
+    read even if the hops change. The controls MCP server is what writes it,
+    at startup; no hook writes it at all. That works because this lane deploys
+    no containers: the test process, the SDK and every hook it spawns share one
     environment, so they all land on the same rung of the identity ladder —
     the account the suite runs as. A literal login here would be wrong on any
     other machine.

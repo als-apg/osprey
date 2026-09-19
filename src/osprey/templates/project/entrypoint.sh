@@ -265,10 +265,19 @@ join_mounted_group() {
     case "$_gid" in
         '' | *[!0-9]*)
             log "WARNING: could not read the owning group of $_var=$_dir;"
-            log "         the osprey user may be unable to write it after the drop."
+            log "         the osprey user may be unable to reach it after the drop."
             return 0
             ;;
     esac
+
+    # This helper is mode-blind, so its warnings name REACH and never write:
+    # the group is what a bind is shared through whichever way it is used, and
+    # the read-only control-state tree arrives here on the same footing as the
+    # directories this container writes. A line telling an operator that writes
+    # will fail names a consequence that mount never has, and sends them looking
+    # for a writer that does not exist. Which of the two a given mount needs is
+    # `probe_mounted_dir`'s question, because the mode is told to it and not to
+    # this function.
 
     # Refuse the root group and the system range, loudly and without failing
     # the boot. Joining a gid below 100 would hand the agent's user the root
@@ -303,7 +312,7 @@ join_mounted_group() {
         log "         group. REFUSING to add osprey to it. A bind mount that looks"
         log "         root-owned inside the container usually means the host's"
         log "         ownership was remapped (Docker Desktop does this), not that"
-        log "         gid $_gid is the group the deployment meant to share. Writes to"
+        log "         gid $_gid is the group the deployment meant to share. Access to"
         log "         that path will fail after the privilege drop; fix the host"
         log "         directory's group rather than granting this one."
         return 0
@@ -326,7 +335,7 @@ join_mounted_group() {
         # rather than as the corrupt group file it is.
         if [ -z "$_group" ]; then
             log "WARNING: /etc/group has a malformed entry for gid $_gid ($_var=$_dir);"
-            log "         the osprey user will not be able to write that mount."
+            log "         the osprey user will not be able to reach that mount."
             return 0
         fi
     else
@@ -335,7 +344,7 @@ join_mounted_group() {
         _group="osprey-mount-$_gid"
         if ! groupadd --gid "$_gid" "$_group" > /dev/null 2>&1; then
             log "WARNING: no group for gid $_gid and could not create one ($_var=$_dir);"
-            log "         the osprey user will not be able to write that mount. A gid"
+            log "         the osprey user will not be able to reach that mount. A gid"
             log "         above GID_MAX (65534 = nobody/nogroup, or 4294967295) is"
             log "         refused by groupadd and means the mount's ownership was"
             log "         remapped, not that a group is missing."
@@ -361,7 +370,7 @@ join_mounted_group() {
         log "joined osprey to group $_group (gid $_gid) for $_var=$_dir"
     else
         log "WARNING: could not add osprey to group $_group (gid $_gid) for $_var;"
-        log "         it will not be able to write $_dir after the privilege drop."
+        log "         it will not be able to reach $_dir after the privilege drop."
     fi
 }
 

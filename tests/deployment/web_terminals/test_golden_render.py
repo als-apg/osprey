@@ -20,13 +20,12 @@ runtime surprise in a downstream lifecycle/e2e test.
     separate, unreviewed "make the test pass again" commit) — so the diff a
     reviewer sees is exactly: template change + the resulting golden delta,
     side by side.
-  - To regenerate: call `render_web_terminals(EXAMPLE_CONFIG)` (defined
-    below) and overwrite `golden/docker-compose.web.yml`,
-    `golden/nginx.conf`, and `golden/landing.html` with the three returned
-    values (`docker-compose.web.yml`, `nginx/nginx.conf`, and
-    `nginx/landing.html` respectively). The `golden/tls_custom_port/`
-    variant regenerates the same way from `_tls_custom_port_config()`, and
-    holds `nginx.conf` alone. Do not hand-edit the golden files.
+  - To regenerate: run this module as a script
+    (``python tests/deployment/web_terminals/test_golden_render.py``), which
+    rewrites the four files this module pins from today's renderer and
+    re-inserts the per-checkout sentinel. Do not hand-edit the golden files,
+    and do not regenerate `golden/pre_audit_roles/`: that baseline is frozen
+    at the shape it recorded, and `test_auth_off_baseline_pin.py` says why.
 
 `golden/tls_custom_port/` is the ONE variant this module keeps: the same
 facility with TLS terminated on a non-default port. It exists because the
@@ -268,3 +267,37 @@ def test_bare_string_users_render_no_persona_sublabel() -> None:
     landing = artifacts["nginx/landing.html"]
 
     assert 'class="landing-card-sublabel"' not in landing
+
+
+def _regenerate() -> None:
+    """Overwrite this module's goldens from today's renderer.
+
+    Rendered from the same two configs the pinned tests render, so a
+    regenerated golden can only differ where the renderer does. The
+    per-checkout repo id is put back as :data:`_REPO_ID_SENTINEL` on the way
+    out, which is what makes the written file the same on every machine.
+
+    The four files this module pins, and no others: ``golden/pre_audit_roles/``
+    is a frozen baseline whose whole value is that it predates the current
+    renderer. Read the update discipline in this module's docstring before
+    running it.
+    """
+    repo_id = _rendered_repo_id()
+    artifacts = render_web_terminals(EXAMPLE_CONFIG)
+    written = {
+        "docker-compose.web.yml": artifacts["docker-compose.web.yml"],
+        "nginx.conf": artifacts["nginx/nginx.conf"],
+        "landing.html": artifacts["nginx/landing.html"],
+        _TLS_CUSTOM_PORT_GOLDEN: render_web_terminals(_tls_custom_port_config())[
+            "nginx/nginx.conf"
+        ],
+    }
+    for name, text in written.items():
+        path = _GOLDEN_DIR / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text.replace(repo_id, _REPO_ID_SENTINEL), encoding="utf-8")
+        print(f"wrote {path}")
+
+
+if __name__ == "__main__":
+    _regenerate()

@@ -1778,9 +1778,17 @@ def test_web_stack_up_expands_a_home_relative_agent_data_root_for_control_target
     assert not (tmp_path / "~").exists()
 
 
-@pytest.mark.parametrize("base_dir", [None, "srv/data"])
+@pytest.mark.parametrize(
+    "spell_base_dir",
+    [
+        pytest.param(lambda tmp_path: None, id="stock"),
+        pytest.param(lambda tmp_path: "srv/data", id="under-the-project"),
+        pytest.param(lambda tmp_path: "~/osprey_data", id="home-relative"),
+        pytest.param(lambda tmp_path: str(tmp_path / "elsewhere"), id="absolute"),
+    ],
+)
 def test_provisioned_control_target_dir_is_the_source_the_render_binds(
-    monkeypatch, tmp_path, base_dir
+    monkeypatch, tmp_path, spell_base_dir
 ):
     """The provisioned directory and the bind source are two spellings of one path.
 
@@ -1789,9 +1797,18 @@ def test_provisioned_control_target_dir_is_the_source_the_render_binds(
     reports a disagreement: the deploy provisions one directory, the runtime
     creates the other root-owned, and the chip then fails closed on a deployment
     that changed nothing about control.
+
+    Over every shape `agent_data.base_dir` can take, because each is anchored by
+    a different rule on each side: the project-relative one is joined onto two
+    different roots, the home-relative one is expanded against the account
+    running the deploy, and the absolute one is carried through untouched.
     """
     from osprey.deployment.web_terminals import render
 
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    base_dir = spell_base_dir(tmp_path)
     config = _sidecar_config("local") if base_dir is None else _relocated_config(base_dir)
 
     _up_with_roster(monkeypatch, tmp_path, roster=("alice",), config=config)

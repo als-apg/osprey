@@ -14,24 +14,24 @@ from __future__ import annotations
 import pytest
 from starlette.testclient import TestClient
 
-from osprey.dispatch import server
+from tests.conftest import dispatcher_route_registry
 
 
 @pytest.fixture(autouse=True)
-def _reset_mcp_routes():
-    """Reset the shared FastMCP singleton's routes around each test.
+def dispatch_server_build():
+    """Build dispatcher apps through the shared route registry.
 
-    Mirrors ``tests/dispatch/test_server_routes.py``: ``create_server()``
-    mutates a module-level FastMCP singleton and appends dashboard routes to
-    it on every call, so each test starts from a clean slate.
+    ``create_server()`` appends its routes to a module-level FastMCP singleton,
+    so a registration an earlier caller left behind answers ahead of this
+    module's own. The registry keeps only the newest registration of each route
+    and hands the singleton back carrying what it had on the way in.
     """
-    baseline = list(server.mcp._additional_http_routes)
-    yield
-    server.mcp._additional_http_routes = baseline
+    with dispatcher_route_registry() as build:
+        yield build
 
 
 @pytest.fixture
-def app(tmp_path, monkeypatch):
+def app(tmp_path, monkeypatch, dispatch_server_build):
     """Build the dispatcher ASGI app with no triggers configured.
 
     The design-system route needs none of the trigger/webhook machinery, so
@@ -39,7 +39,7 @@ def app(tmp_path, monkeypatch):
     handles that by starting with an empty trigger list.
     """
     monkeypatch.setenv("TRIGGERS_YML", str(tmp_path / "does-not-exist.yml"))
-    return server.create_server().http_app()
+    return dispatch_server_build().http_app()
 
 
 def test_serves_known_asset_with_200_and_css_content_type(app):
