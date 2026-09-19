@@ -4,7 +4,7 @@
 Event Dispatch
 ==============
 
-How to turn external events (webhooks, cron ticks) into headless Osprey agent runs.
+How to turn external events (webhooks, cron ticks) into headless OSPREY agent runs.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -225,9 +225,9 @@ answer straight away — ``list_triggers``, ``trigger_status`` and
 ``trigger_history``. The fourth, ``manual_fire``, starts a job and asks first.
 
 Ask for it in plain language — *"fire the save-report trigger"* — and an
-approval prompt appears. The prompt names the tool, ``manual_fire``. It does not
-name the trigger, so the name to check is the one in the agent's own message
-just above the prompt.
+approval prompt appears. It names the trigger the fire would start, and the
+payload where the call carries one, so the name to check is on the prompt
+rather than in the agent's message above it.
 
 The job runs as you
 -------------------

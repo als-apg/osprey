@@ -1086,6 +1086,15 @@ def _budgeted_hook(monkeypatch, mod, hook_budget_s: float):
     return clock
 
 
+def _item_budget_spent_line(mod) -> str:
+    """The budget-spent line as it renders under a numbered queue item.
+
+    The line itself carries no indent — an enqueue prompt renders it at the
+    top level — so a start's copy is the same sentence one item's indent in.
+    """
+    return f"    {mod._BUDGET_SPENT_TRAJECTORY_LINE}"
+
+
 def _preview_taking(clock, delay_s: float, attempted: list | None = None):
     """A `_bridge_post_json` that takes *delay_s* to answer, or times out trying.
 
@@ -1150,7 +1159,7 @@ def test_slow_preview_still_renders_within_the_budget_the_flag_bought(hook_modul
 
     assert "    Setpoint trajectory — 3 moves in total:" in lines
     assert "    Channels this launch would move: SR:C01:COR:SP, SR:C02:COR:SP" in lines
-    assert mod._BUDGET_SPENT_TRAJECTORY_LINE not in lines
+    assert _item_budget_spent_line(mod) not in lines
     assert clock.elapsed == 15.0
 
 
@@ -1172,7 +1181,7 @@ def test_second_slow_preview_is_cut_by_the_budget_the_first_one_spent(hook_modul
     assert "  1. orm" in lines
     assert "  2. orm2" in lines
     assert "    Setpoint trajectory — 3 moves in total:" in lines
-    assert lines.count(mod._BUDGET_SPENT_TRAJECTORY_LINE) == 1
+    assert lines.count(_item_budget_spent_line(mod)) == 1
     # The second fetch was tried, with only the remainder of the budget.
     assert [timeout for _, timeout in attempted] == [17.0, 5.0]
     assert clock.elapsed == 20.0
@@ -1190,7 +1199,7 @@ def test_preview_far_past_the_budget_degrades_and_leaves_the_harness_room(hook_m
 
     lines = mod._queue_item_lines({"items": [{"name": "orm", "kwargs": {}}]}, "http://bridge")
 
-    assert mod._BUDGET_SPENT_TRAJECTORY_LINE in lines
+    assert _item_budget_spent_line(mod) in lines
     assert "Setpoint trajectory — 3 moves in total:" not in "\n".join(lines)
     assert clock.elapsed < 27.0
 
@@ -1208,7 +1217,7 @@ def test_budget_deadline_counts_the_time_spent_before_the_first_preview(hook_mod
 
     lines = mod._queue_item_lines({"items": [{"name": "orm", "kwargs": {}}]}, "http://bridge")
 
-    assert mod._BUDGET_SPENT_TRAJECTORY_LINE in lines
+    assert _item_budget_spent_line(mod) in lines
     assert attempted == []
 
 

@@ -972,6 +972,46 @@ _TARGET_DESCRIBERS = {
 }
 
 
+def _describe_manual_fire(tool_input, config, hook_input=None, read_record=None) -> list[str]:
+    """Name the trigger a manual fire would start, and the payload it carries.
+
+    The tool name alone says a job would start; it does not say which one, and
+    the approver cannot be asked to take that from the agent's own message. The
+    trigger name is the whole of the decision here, so it is read straight from
+    the call being approved rather than from anywhere that could answer for a
+    different one.
+
+    Nothing is fetched. The dispatcher is reached through the terminal's panel
+    proxy on a token this hook does not hold, so what the trigger is wired to
+    do, and whether it is enabled at all, are the dispatcher's answers to give
+    when the fire arrives. Naming the call is what this prompt can state
+    truthfully.
+    """
+    name = tool_input.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return ["Trigger: not named in this call — nothing would be dispatched."]
+
+    lines = [f"Trigger: {_sanitize_label(name.strip())}"]
+    payload = tool_input.get("payload")
+    if payload:
+        lines.append(f"Payload: {_sanitize_label(json.dumps(payload, default=str))}")
+    return lines
+
+
+#: Tool short name -> describer, for tools described from the CALL rather than
+#: from anything this hook would have to reach for. A third table beside the two
+#: above because that is the distinction that decides what a describer may
+#: claim: these render the arguments being approved and nothing else, where the
+#: others answer from the control context or from the bridge.
+#:
+#: The key is a literal for the same reason the other tables' keys are — this
+#: hook is deployed standalone and cannot import the name the dispatcher
+#: registers.
+_CALL_DESCRIBERS = {
+    "manual_fire": _describe_manual_fire,
+}
+
+
 def _revision_match_line(pinned, current_revision) -> str:
     """One line stating whether the live draft still matches the pinned revision.
 
@@ -1006,12 +1046,6 @@ def _revision_match_line(pinned, current_revision) -> str:
 # regardless. Five and five keeps a grid scan's trajectory to eleven lines,
 # short enough that the warning lines above it stay on screen.
 _TRAJECTORY_EDGE_MOVES = 5
-
-# One pre-flight fetch's ceiling. Set just above the bridge's own budget for
-# the call (~10 s of polling plus at most one in-flight RPC) so a slow
-# pre-flight comes back as the bridge's own `preview_timed_out` — a reason word
-# the approver can read — rather than as this client giving up with none.
-_PREVIEW_TIMEOUT_S = 15.0
 
 # The harness budget to assume when the hook is invoked without `--budget`.
 # A render that predates the flag gives this hook the harness default, and a
@@ -1068,11 +1102,12 @@ def _parse_hook_budget(argv) -> float:
     return _DEFAULT_HOOK_BUDGET_S
 
 
-# Every pre-flight fetch behind ONE prompt, together. `queue_start` previews
-# several items, so each fetch's timeout is what is left of this budget: the
-# approver waits at most this long for trajectories, whatever the queue holds
-# and however the bridge misbehaves. `main()` re-derives it from `--budget`;
-# the value here is what a caller that never parsed an argv list gets.
+# Every pre-flight fetch behind ONE prompt, together. Each fetch's timeout is
+# what is left of this budget — one item on an enqueue, several on a start —
+# so the approver waits at most this long for trajectories, whatever the queue
+# holds and however the bridge misbehaves. `main()` re-derives it from
+# `--budget`; the value here is what a caller that never parsed an argv list
+# gets.
 _PREVIEW_BUDGET_S = _PREVIEW_BUDGET_CEILING_S
 
 # How many of a start's pending items get a trajectory. A start drains the
@@ -1371,33 +1406,62 @@ def _queue_activity_lines(snapshot) -> list[str]:
 #: same fact to the person deciding: this prompt ran out of time, and that is
 #: not a reason to withhold approval.
 _BUDGET_SPENT_TRAJECTORY_LINE = (
-    "    Setpoint trajectory: unavailable — the pre-flight budget for this "
+    "Setpoint trajectory: unavailable — the pre-flight budget for this "
     "prompt is spent. Approval is not blocked."
 )
 
 
-def _item_trajectory_lines(base_url: str, item: dict, deadline: float) -> list[str]:
-    """One pending item's pre-flight block, indented under its own line.
+def _preview_deadline() -> float:
+    """This prompt's pre-flight budget as a `time.monotonic` instant.
 
-    *deadline* is the whole prompt's pre-flight budget as a `time.monotonic`
-    instant, and each fetch gets exactly what is left of it — so a start's
-    several previews cost the approver one bounded wait between them all, not
-    one wait per item, and the last item cannot push the prompt past the
-    instant the harness would kill it.
+    Every pre-flight behind one prompt shares it, so an approver waits at most
+    the budget once, whatever the prompt previews. Measured from hook entry
+    rather than from the first fetch, because that is where the harness's own
+    clock starts: the config read and the `GET /queue` snapshot are already
+    gone from it by the time anything is previewed.
+    """
+    return _HOOK_ENTERED_AT + _PREVIEW_BUDGET_S
 
-    A preview the deadline cut — skipped because nothing was left, or cut off
-    because the remaining budget ran out mid-fetch — renders the budget-spent
-    line. A preview that failed for any other reason (an unreachable bridge, a
+
+def _budgeted_preview_lines(base_url: str, plan_name, plan_args, deadline: float) -> list[str]:
+    """One pre-flight's lines, fetched with whatever is left of *deadline*.
+
+    The fetch's ceiling is the remaining budget rather than a constant of its
+    own, so no preview can outlive the process the harness will kill — and
+    several previews behind one prompt cost the approver one bounded wait
+    between them all rather than one wait each.
+
+    What a slow bridge yields therefore depends on which budget binds. With
+    more than the bridge's own budget left (~10 s of polling plus at most one
+    in-flight RPC) the bridge answers first and the approver reads its
+    `preview_timed_out`; with less, this client gives up first and the
+    budget-spent line says so. A preview the deadline cut — skipped because
+    nothing was left, or cut off mid-fetch — renders that line either way. A
+    preview that failed for any other reason (an unreachable bridge, a
     refusal) keeps its own reason word: those name something the approver can
     act on, where a spent budget names only this prompt's own impatience.
     """
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         return [_BUDGET_SPENT_TRAJECTORY_LINE]
-    preview = _fetch_preview(base_url, item.get("name"), item.get("kwargs"), remaining)
+    preview = _fetch_preview(base_url, plan_name, plan_args, remaining)
     if preview is None and time.monotonic() >= deadline:
         return [_BUDGET_SPENT_TRAJECTORY_LINE]
-    return [f"    {line}" for line in _preview_lines(preview)]
+    return _preview_lines(preview)
+
+
+def _item_trajectory_lines(base_url: str, item: dict, deadline: float) -> list[str]:
+    """One pending item's pre-flight block, indented under its own line.
+
+    The indent is all this adds: a start's items are a numbered list, and a
+    trajectory belongs to the item above it rather than to the prompt.
+    """
+    return [
+        f"    {line}"
+        for line in _budgeted_preview_lines(
+            base_url, item.get("name"), item.get("kwargs"), deadline
+        )
+    ]
 
 
 def _queue_item_lines(snapshot, base_url: str) -> list[str]:
@@ -1409,11 +1473,9 @@ def _queue_item_lines(snapshot, base_url: str) -> list[str]:
     would multiply the prompt's bridge calls by the queue length.
 
     The items that run first also carry their pre-flight trajectory, capped at
-    `_MAX_PREVIEWED_QUEUE_ITEMS` and sharing one time budget: the trajectories
-    an approver can still act on, without making the prompt's cost grow with
-    the queue. That budget is measured from hook entry, not from here, because
-    the harness's own clock is — everything spent reaching this point, the
-    `GET /queue` snapshot above all, is already gone from it.
+    `_MAX_PREVIEWED_QUEUE_ITEMS` and sharing one time budget (see
+    :func:`_preview_deadline`): the trajectories an approver can still act on,
+    without making the prompt's cost grow with the queue.
     """
     items = snapshot.get("items") if snapshot else None
     items = [item for item in (items or []) if isinstance(item, dict)]
@@ -1428,7 +1490,7 @@ def _queue_item_lines(snapshot, base_url: str) -> list[str]:
         return lines
 
     lines.append(f"Pending items ({len(items)}), in execution order:")
-    deadline = _HOOK_ENTERED_AT + _PREVIEW_BUDGET_S
+    deadline = _preview_deadline()
     for index, item in enumerate(items[:_MAX_LISTED_QUEUE_ITEMS], start=1):
         rendered = f"  {index}. {_sanitize_label(item.get('name'))}"
         kwargs = item.get("kwargs")
@@ -1820,7 +1882,7 @@ def _describe_queue_add(
     # Before the source block: the trajectory is the answer to "what would this
     # move", and burying it under a plan body the approver has to scroll past
     # is the same as not showing it.
-    lines.extend(_preview_lines(_fetch_preview(base_url, plan_name, plan_args, _PREVIEW_TIMEOUT_S)))
+    lines.extend(_budgeted_preview_lines(base_url, plan_name, plan_args, _preview_deadline()))
     lines.extend(_describe_plan_provenance(base_url, plan_name))
     return lines
 
@@ -2624,6 +2686,13 @@ def main():
         try:
             reason_parts.extend(
                 _TARGET_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
+            )
+        except Exception:
+            pass
+    elif short_name in _CALL_DESCRIBERS:
+        try:
+            reason_parts.extend(
+                _CALL_DESCRIBERS[short_name](tool_input, config, hook_input, read_record)
             )
         except Exception:
             pass
