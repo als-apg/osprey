@@ -1532,9 +1532,16 @@ class BuildProfile:
         # `web_panels` is what shows a tab, and the build writes `enabled` onto
         # every rendered block from it, so a `config:` line saying otherwise is
         # two spellings of one fact disagreeing.
-        from .build_profile_panels import panel_selection_errors
+        from .build_profile_panels import panel_id_errors, panel_selection_errors
 
         errors.extend(panel_selection_errors(self.config, self.web_panels))
+
+        # A `web.panels.<id>` the served terminal could never route: the id is
+        # one URL path segment and a header value on every proxied hop, and the
+        # terminal refuses to start on an id outside that class. The same
+        # verdict is read here so the line is named while it is still a line in
+        # a profile rather than a container that will not boot.
+        errors.extend(panel_id_errors(self.config))
 
         # Validate default_panel: must be a tab this render shows — selected in
         # web_panels, or universal. Catches typos like `default_panel: areil`,

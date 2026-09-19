@@ -17,10 +17,18 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
-from osprey.interfaces.common_middleware import apply_url_prefix, compute_url_prefix
+from osprey.interfaces.common_middleware import (
+    MOUNT_SEGMENT_RE,
+    apply_url_prefix,
+    compute_url_prefix,
+)
 from osprey.interfaces.web_terminal.feedback_destination import resolve_feedback_destination
 from osprey.interfaces.web_terminal.routes.agent_activity import record_activity
-from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
+from osprey.profiles.web_panels import (
+    BUILTIN_PANEL_LABELS,
+    BUILTIN_PANELS,
+    panel_id_refusal,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1271,13 +1279,32 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
 
     Raises:
         HTTPException: 403 when runtime panel registration is disabled.
-        HTTPException: 422 when the URL fails security validation or the host
-            is not in the configured allowlist.
+        HTTPException: 422 when the id is one no request for the panel could be
+            routed with, when the id collides with a built-in or config-defined
+            panel, when the URL fails security validation, or when the host is
+            not in the configured allowlist.
     """
     if not getattr(request.app.state, "allow_runtime_panels", False):
         raise HTTPException(
             status_code=403,
             detail="Runtime panel registration is disabled. Set web.allow_runtime_panels: true to enable.",
+        )
+
+    # The class a panel id is spellable in, the same one a config-declared id
+    # is held to (:func:`~osprey.profiles.web_panels.panel_id_refusal`). A
+    # registration arrives after that gate and reaches the same places: the
+    # proxy's own ``/panel/<id>`` paths and the forwarded-prefix header of every
+    # hop it makes for this panel, escaped for neither. An id outside the class
+    # would register cleanly and then fail every request the panel serves. The
+    # wording is this route's own, because a registration has no config block to
+    # name back to the caller.
+    if panel_id_refusal(body.id) is not None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Panel id {body.id!r} must match {MOUNT_SEGMENT_RE.pattern!r}: the id is a "
+                "URL path segment and a header value on every proxied request for the panel."
+            ),
         )
 
     # Reserve both built-in ids and config-defined panel ids. Config-defined ids

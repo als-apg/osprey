@@ -93,6 +93,12 @@ the entries for you):
          path: /dashboard              # optional: page the tab opens (default /)
          health_endpoint: /healthz     # optional: lets the hub report status
 
+The key you write the entry under (``events`` here) is the panel's id, and the
+terminal serves the tab under that id, so it has to be spellable in a URL:
+letters, digits, ``.``, ``_`` and ``-``, beginning with a letter or a digit. An
+id outside that is refused when the terminal starts, and ``osprey validate``
+names it in the profile first.
+
 The hub shows the service as a tab and proxies requests to it from the same
 origin, so the browser never needs direct access to the backing port. The tab
 is the named path: where the backing service is also reachable at an address of
