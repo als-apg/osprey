@@ -245,6 +245,40 @@ def _capture_request(app, response_factory=None):
     return captured
 
 
+@pytest.fixture
+def capture_over_a_real_client():
+    """Give the proxy a real ``httpx.AsyncClient`` and return what it encoded.
+
+    The transport is a stub, so nothing leaves the process, but the client in
+    front of it is the real one: it builds the request, which is where a header
+    value it cannot encode raises. Keys arrive lower-cased, as httpx normalises
+    them.
+
+    A fixture rather than a plain helper so the client it installs is closed
+    again, like everything else this module hands a test.
+    """
+    installed: list[httpx.AsyncClient] = []
+
+    def install(app) -> dict[str, str]:
+        captured: dict[str, str] = {}
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            captured.update(request.headers)
+            return httpx.Response(
+                200, json={"ok": True}, headers={"content-type": "application/json"}
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        installed.append(client)
+        app.state.proxy_client = client
+        return captured
+
+    yield install
+
+    for client in installed:
+        asyncio.run(client.aclose())
+
+
 def _lower(headers):
     return {k.lower(): v for k, v in headers.items()}
 
@@ -666,11 +700,12 @@ class TestOwnerMint:
         work the backend files is owner-less, exactly as it is for a login that
         named nobody.
 
-        The unspellable account reaches the mint through the local-account rung
-        rather than through ``OSPREY_TERMINAL_USER``, because that marker also
-        spells the container's URL prefix: setting it here would send the same
-        characters out in ``x-forwarded-prefix`` as well, and the row would then
-        be pinning two different header failures at once.
+        The local account is the rung such a name can still arrive on. The
+        marker above it also spells the container's URL mount, and a mount
+        outside that charset is refused before the container starts
+        (``compute_url_prefix``), so a multi-user deployment never reaches this
+        path with a name it cannot spell — a single-user host, whose account
+        name nobody chose for this, does.
         """
         app, _client = panels_app
         identity_markers.setattr("getpass.getuser", lambda: "renée")
@@ -1513,3 +1548,38 @@ class TestRedirectPrefixIdempotence:
     def test_prefix_aware_absolute_backend_location_is_rebasded_without_doubling(self):
         aware = self.BACKEND + self.PREFIX + "/day/2026-08-31"
         assert self._rewrite(aware) == self.PREFIX + "/day/2026-08-31"
+
+
+class TestTheHopSendsHeadersItsOwnClientCanEncode:
+    """Every value this hop assembles survives the client that carries it.
+
+    The rows above read headers off a stubbed ``request``, which encodes
+    nothing. httpx encodes header values as ASCII and raises on anything else,
+    so a value assembled from deployment configuration rather than from the
+    request — the mount prefix, the minted owner — could fail every panel
+    request while a stubbed row stayed green. This sends through a real client
+    over a stub transport, so the encode actually happens.
+
+    What keeps an unspellable mount away from this hop is that no such
+    container starts; that refusal is pinned where the prefix is computed, in
+    ``test_prefix_injection.py``'s ``TestAMountMustBeSpellable``.
+    """
+
+    def test_the_multi_user_mount_reaches_the_backend_as_the_panel_it_fronts(
+        self, panels_app, identity_markers, capture_over_a_real_client
+    ):
+        """The backend is told the path the browser reached the panel by.
+
+        The prefix names this container's own mount, so a backend building an
+        absolute URL from it sends the browser back through the front door
+        rather than to a path only the container can see.
+        """
+        app, _client = panels_app
+        identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+        captured = capture_over_a_real_client(app)
+
+        resp = _cookie_client(app).get("/panel/trusted/api/status")
+
+        assert resp.status_code == 200
+        assert captured["x-forwarded-prefix"] == "/u/alice/panel/trusted"
+        assert captured[OWNER_WIRE_NAME] == "alice"

@@ -33,6 +33,7 @@ import html
 import json
 import logging
 import os
+import re
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import parse_qs, parse_qsl, urlencode
@@ -67,7 +68,9 @@ __all__ = [
     "MAX_BODY_PEEK_BYTES",
     "MAX_FORWARDED_VALUE_CHARS",
     "MAX_SESSION_COOKIE_CANDIDATES",
+    "MOUNT_SEGMENT_RE",
     "OPERATOR_SECRET_HEADER",
+    "OWNER_STATE_KEY",
     "REASON_MUTATION",
     "REASON_MUTATION_UNANSWERED",
     "REASON_ROUTE_REFUSED",
@@ -159,6 +162,29 @@ EXTERNAL_ORIGIN_ENV = "OSPREY_TERMINAL_EXTERNAL_ORIGIN"
 #: credential, and every layer that builds a browser-facing URL must derive the
 #: same prefix from it.
 TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
+
+#: The names a mount segment may be spelled with.
+#:
+#: :func:`compute_url_prefix` splices the name into URL paths *and* into header
+#: values — ``x-forwarded-prefix`` on every proxied panel hop, the token
+#: exchange's ``Location`` — and escapes it for neither, so the name has to
+#: stand for itself in both: ASCII, and nothing a path would have to
+#: percent-encode. nginx admits the same characters in front of the same mount,
+#: so a name outside them has no front door to arrive through either.
+#:
+#: The first character must be alphanumeric, which is what keeps ``.`` and
+#: ``..`` from naming a mount. nginx's own class is applied to a URI it has
+#: already normalised; a mount name is normalised by nobody, and ``/u/..`` is a
+#: prefix that climbs out of the mount it claims to name wherever it is
+#: resolved. :func:`is_exempt_path` refuses a dot-segment on the same grounds.
+#:
+#: Not the same question as
+#: :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`, which
+#: is stricter and gates the roster at render time — that one asks which names a
+#: deployment can keep apart (one audit directory each, one nginx location
+#: each), this one asks which names this process can spell. A rendered
+#: deployment clears both; a hand-set variable is what this one is here for.
+MOUNT_SEGMENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 #: How many same-named session cookies the gate will weigh before giving up.
 #: A page on a neighbouring host under the same registrable domain can set a
@@ -489,13 +515,39 @@ def compute_url_prefix() -> str:
     user's own mount. The Web Terminal's routes and templates import both
     halves from here too, so there is one implementation rather than two.
 
+    A name outside :data:`MOUNT_SEGMENT_RE` is refused rather than spelled.
+    There is no mount it could name: nginx routes the container under the
+    literal name and admits only that class in front of it, so the front door
+    has no location to match, and the name reaches a header value on every
+    proxied panel hop — where a client that encodes headers as ASCII fails the
+    request outright. Refusing costs the container its start, which is where a
+    misconfigured name is cheapest to read: the alternative is a deployment that
+    boots, serves its own pages, and answers 500 for every panel.
+
     Returns:
         ``"/u/<user>"`` when :data:`TERMINAL_USER_ENV` is set and non-empty;
         otherwise ``""``, which makes every application of it a no-op and
         preserves single-origin/dev behaviour exactly.
+
+    Raises:
+        ValueError: If the variable holds a name outside
+            :data:`MOUNT_SEGMENT_RE`. The message names the variable, the value
+            and the class, because the operator who set it is the only one who
+            can change it.
     """
     user = os.environ.get(TERMINAL_USER_ENV, "").strip()
-    return f"/u/{user}" if user else ""
+    if not user:
+        return ""
+    if not MOUNT_SEGMENT_RE.fullmatch(user):
+        raise ValueError(
+            f"{TERMINAL_USER_ENV}={user!r} must match {MOUNT_SEGMENT_RE.pattern!r}: "
+            "the name is spliced unescaped into this container's URL mount and into "
+            "the forwarded-prefix header of every proxied panel request, and a "
+            "character outside that class routes to nothing at the front door and "
+            "fails the panel hop. Rename the account, or unset the variable to serve "
+            "at the root."
+        )
+    return f"/u/{user}"
 
 
 def apply_url_prefix(prefix: str, path: str) -> str:
@@ -1052,8 +1104,11 @@ _OWNER_HEADER_WIRE = OWNER_HEADER.lower().encode("latin-1")
 #: in-process route as ``request.state.osprey_owner`` (Starlette's ``state``
 #: property is backed by this same scope dict), so a relay that builds its own
 #: forwarded headers can mint the owner from the credential the gate matched
-#: instead of trusting anything inbound.
-_OWNER_STATE_KEY = "osprey_owner"
+#: instead of trusting anything inbound. Exported because that reader is the
+#: contract: a relay spelling the key for itself agrees with the gate only
+#: until one of them is renamed, after which every write it forwards is
+#: owner-less and nothing says so.
+OWNER_STATE_KEY = "osprey_owner"
 
 
 def _stamp_owner(scope: Scope, account: str | None) -> None:
@@ -1073,7 +1128,7 @@ def _stamp_owner(scope: Scope, account: str | None) -> None:
       account.** A cookie, a ``?token=`` exchange, a panel token and the
       deployment-wide secret presented at a sidecar all authorise without
       naming a human; such a connection carries no owner header at all and
-      leaves :data:`_OWNER_STATE_KEY` unset, which is how a reader downstream
+      leaves :data:`OWNER_STATE_KEY` unset, which is how a reader downstream
       tells "nobody" from a name it may trust. An empty ``account`` is not a
       name and is treated as nobody.
 
@@ -1085,7 +1140,7 @@ def _stamp_owner(scope: Scope, account: str | None) -> None:
     work is recorded owner-less, which is the one failure this path may have.
 
     The two halves of the stamp therefore disagree for an account outside
-    ``latin-1``: :data:`_OWNER_STATE_KEY` holds the credential's account
+    ``latin-1``: :data:`OWNER_STATE_KEY` holds the credential's account
     verbatim while the header carries the ``replace``-mangled bytes, and two
     such accounts collapse to the same header value. The end state is the same
     either way — ``owner_from_header``'s allowlist refuses both the mangled
@@ -1099,9 +1154,9 @@ def _stamp_owner(scope: Scope, account: str | None) -> None:
     """
     state = scope.setdefault("state", {})
     if account:
-        state[_OWNER_STATE_KEY] = account
+        state[OWNER_STATE_KEY] = account
     else:
-        state.pop(_OWNER_STATE_KEY, None)
+        state.pop(OWNER_STATE_KEY, None)
 
     headers = [
         (name, value)
@@ -1178,10 +1233,12 @@ class WebAuthMiddleware:
     shape where the process knows which human holds it; the cookie, the
     ``?token=`` exchange and the panel token admit without naming, and the
     stamp says so by leaving the connection owner-less. The inbound header is
-    dropped either way — and on the exempt paths the gate passes through
-    without authenticating at all, so no route can become owner-readable and
-    exempt at once — which is what makes this gate, with the terminal proxy, a
-    trust boundary for attribution rather than a relay of claims.
+    dropped either way, the exempt paths included: they authenticate nobody, so
+    they name nobody, and they are stamped all the same — which is the
+    guarantee that holds however the exempt set is widened, since an exempt
+    route then reads nobody rather than a claim. That is what makes this gate,
+    with the terminal proxy, a trust boundary for attribution rather than a
+    relay of claims.
 
     Refusals are shaped per protocol: HTTP answers ``401``/``403`` with a JSON
     ``{"detail": ...}`` — or, when the caller's ``Accept`` asks for HTML (a

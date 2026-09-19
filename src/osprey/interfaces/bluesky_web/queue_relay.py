@@ -143,6 +143,7 @@ from osprey.interfaces.bluesky_web.read_proxy import (
     _forward_get,
     resolve_lane_bridge_url,
 )
+from osprey.interfaces.common_middleware import OWNER_STATE_KEY
 from osprey.utils.http_proxy import HOP_BY_HOP
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
@@ -150,14 +151,14 @@ router = APIRouter()
 
 _LAUNCH_TOKEN_HEADER = "X-Launch-Token"
 
-#: Where the auth gate records who an admitted connection belongs to. The
-#: contract is that gate's own ``_OWNER_STATE_KEY`` docstring in
-#: ``osprey.interfaces.common_middleware``: the key is set only when the
-#: credential it matched named an account, and is absent -- never blank -- when
-#: it named nobody. Reached with ``getattr`` and a default rather than plain
-#: attribute access, because Starlette's ``state`` raises ``AttributeError``
-#: for a key nothing set, and "nothing set" is the ordinary owner-less case.
-_OWNER_STATE_ATTR = "osprey_owner"
+#: Where the auth gate records who an admitted connection belongs to. Imported
+#: from the gate rather than retyped, and the contract is that constant's own
+#: docstring: the key is set only when the credential it matched named an
+#: account, and is absent -- never blank -- when it named nobody. Reached with
+#: ``getattr`` and a default rather than plain attribute access, because
+#: Starlette's ``state`` raises ``AttributeError`` for a key nothing set, and
+#: "nothing set" is the ordinary owner-less case.
+_OWNER_STATE_ATTR = OWNER_STATE_KEY
 
 logger = logging.getLogger("osprey.interfaces.bluesky_web.queue_relay")
 

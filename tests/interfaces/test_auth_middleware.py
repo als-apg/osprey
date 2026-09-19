@@ -1848,6 +1848,27 @@ def test_an_exempt_path_admits_owner_less_and_still_drops_the_claim(
     assert stamped_owner(admitted) is None
 
 
+def test_an_exempt_websocket_admits_owner_less_and_still_drops_the_claim(
+    middleware, downstream, app_stub, identity_markers
+):
+    """The exempt guarantee holds for a socket, not only for a request.
+
+    The websocket arm reaches the pass-through through its own branch, so an
+    exempt path that drops the claim over HTTP says nothing about the socket:
+    a terminal socket carries keystrokes into a shell, and one admitted with a
+    browser's owner claim still attached would attribute them to whoever the
+    claim named.
+    """
+    identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+    scope = ws_scope("/static/js/app.js", {OWNER_HEADER: "bob"}, app=app_stub)
+
+    drive(middleware, scope, incoming=[])
+
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == []
+    assert stamped_owner(admitted) is None
+
+
 @pytest.mark.no_auth_seam
 def test_a_route_behind_a_real_stack_reads_the_owner_off_request_state(
     roster_credentials, identity_markers

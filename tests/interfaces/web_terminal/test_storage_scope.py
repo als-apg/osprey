@@ -215,7 +215,20 @@ class TestUnusualUsernames:
         the last line of defence — but a value that could close the attribute
         would rewrite the document's root element, and the template must never
         be the reason that is possible.
+
+        The hostile value is handed to the stamp rather than to the
+        environment. A mount is held to a charset with nothing in it to escape
+        and a container named outside it does not start at all
+        (``compute_url_prefix``), so the environment can no longer carry such a
+        name to a served page — while the template's own guarantee is about
+        whatever value it is given.
         """
-        body = _serve(workspace_dir, 'a"><script>x</script>')[page_id]
+        hostile = 'a"><script>x</script>'
+        with patch(
+            "osprey.interfaces.web_terminal.app.resolve_storage_scope",
+            return_value=hostile,
+        ):
+            body = _serve(workspace_dir, "alice")[page_id]
+
         assert "<script>x</script>" not in body
         assert f'{ATTR}="a&#34;&gt;&lt;script&gt;' in _html_tag(body)
