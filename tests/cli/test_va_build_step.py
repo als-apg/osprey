@@ -31,7 +31,17 @@ from osprey.services.virtual_accelerator.manifest.build import (
     MANIFEST_FILENAME,
 )
 from osprey.services.virtual_accelerator.manifest.loaders import load_manifest_file
+from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from osprey.utils.dotenv import parse_dotenv_file
+
+#: The name ``VA_LATTICE`` carries over a tree that stages a model — the ring's
+#: own file name, read off the paths object the build derives the value through
+#: so the two cannot disagree about what that file is called.
+LATTICE_FILENAME = ManifestPaths(data_root=Path("data")).lattice_json.name
+
+#: The ``VA_LATTICE`` value naming no ring at all, which is also the
+#: entrypoint's reading of an unset key.
+LATTICE_NONE = "none"
 
 
 def _bundle_data_dir() -> Path:
@@ -74,11 +84,20 @@ def _write_profile(
     deploy_va: bool = False,
     live_standin: int | None = None,
     config: dict | None = None,
+    model: bool = True,
 ) -> Path:
     """A profile sourcing its own copy of the bundled control-assistant tree.
 
     ``hierarchical`` resolves to tier 3, the tier whose three paradigm
     databases agree — the shape the generator can actually build from.
+
+    ``model`` keeps or drops the two files that make the copied tree a model:
+    the bindings document tying its channels to a ring, and the ring itself.
+    The bundle stages both, so a deployment that copies it whole is a demo
+    serving its own ring; a facility whose tree carries neither has channels
+    that reach no model. Which of the two a tree is decides ``VA_LATTICE``, so
+    the shapes are named here rather than left to whatever the bundle happens
+    to ship.
 
     Written directly at the deployment repo's root, exactly where
     ``osprey build`` looks for it — this suite exercises the build step in
@@ -101,6 +120,10 @@ def _write_profile(
     """
     repo_dir.mkdir(parents=True, exist_ok=True)
     shutil.copytree(_bundle_data_dir(), repo_dir / "data")
+    if not model:
+        paths = ManifestPaths(data_root=repo_dir / "data")
+        for path in (paths.va_bindings, paths.lattice_json):
+            path.unlink(missing_ok=True)
 
     profile: dict = {
         "name": "VA Build Step Test",
@@ -171,7 +194,7 @@ class TestGeneratedFromProfileData:
 
         # Both land in the render's own data/simulation/, which is the
         # directory the VA compose file mounts — pinned as its own property by
-        # test_the_compose_mount_resolves_to_the_directory_written below, so
+        # test_the_compose_mount_resolves_to_the_tree_written below, so
         # this test can be about the files alone.
         simulation = project_dir / "data" / "simulation"
         assert (simulation / MANIFEST_FILENAME).is_file()
@@ -197,10 +220,32 @@ class TestGeneratedFromProfileData:
         # `--env-file <repo>/.env`.
         env = _repo_env(repo_dir)
         assert env["VA_CHANNELS_FILE"] == MANIFEST_FILENAME
-        # The lattice is derived from the same published tree: this profile's
-        # tree stages no bindings, so nothing ties its channels to a ring and
-        # the entrypoint is told so by name rather than left to default.
-        assert env["VA_LATTICE"] == "none"
+        # The lattice is derived from the same published tree rather than
+        # asserted: this profile copies the bundle whole, so the bindings tying
+        # its channels to a ring are staged beside them and the ring is named
+        # by its own file name. The modelless shape is pinned below.
+        assert env["VA_LATTICE"] == LATTICE_FILENAME
+
+    def test_a_tree_without_a_model_is_pointed_at_no_lattice(self, tmp_path):
+        """The other half of the derivation, over a real build.
+
+        A facility's tree stages channel databases and no ring, and the
+        manifest generated from it is every bit as usable — the accelerator
+        serves those channels, it just steers nothing with them. Naming a
+        lattice over such a tree would put physics behind a namespace that does
+        not describe it, so the key is written, and written as the value that
+        names no file. The pointer at the manifest is unaffected: the two keys
+        answer different questions about the same tree.
+        """
+        repo_dir = tmp_path / "repo"
+        _write_profile(repo_dir, model=False)
+
+        project_dir = _build(repo_dir)
+
+        env = _repo_env(repo_dir)
+        assert env["VA_CHANNELS_FILE"] == MANIFEST_FILENAME
+        assert env["VA_LATTICE"] == LATTICE_NONE
+        assert not (project_dir / "data" / "simulation" / LATTICE_FILENAME).exists()
 
     def test_the_compose_mount_resolves_to_the_tree_written(self, tmp_path):
         """The pointer and the mount have to name one tree.
@@ -250,7 +295,7 @@ class TestGeneratedFromProfileData:
         env = _repo_env(repo_dir)
         assert env["VA_CHANNELS_FILE"] == "my-own-manifest.json"
         # The key the build DID own and the file did not still lands.
-        assert env["VA_LATTICE"] == "none"
+        assert env["VA_LATTICE"] == LATTICE_FILENAME
         assert "VA_CHANNELS_FILE" in caplog.text
 
     def test_rebuilding_neither_duplicates_nor_rewrites(self, tmp_path):

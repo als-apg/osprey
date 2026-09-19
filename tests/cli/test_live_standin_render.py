@@ -54,9 +54,6 @@ from osprey.cli.build_cmd import build as build_command
 from osprey.health.core.containers import containers
 from osprey.health.models import CheckResult, Status
 from osprey.port_layout import default_port
-from osprey.services.virtual_accelerator.manifest.standin_defaults import (
-    STANDIN_BPM_ERRORS_DEFAULT,
-)
 from tests.fixtures.lifecycle_repo import EXEMPLAR_DIRNAME, build_exemplar_repo
 
 #: Every test here renders a deployment for real — seconds each, not
@@ -503,26 +500,34 @@ class TestTheRenderedComposeStandsTwoMachinesUp:
         # their Channel Access stack.
         assert standin["image"] == compose["services"]["virtual-accelerator"]["image"]
 
-    def test_live_standin_render_ships_the_perturbation_as_an_overridable_default(
+    def test_live_standin_render_gives_the_stand_in_an_overridable_variable_of_its_own(
         self, standin_build
     ) -> None:
-        """The stand-in reads differently, from its own variable, by default.
+        """The stand-in's readout perturbation is the operator's, under its own name.
 
-        An instance that perturbs nothing reads identically to the machine
-        beside it, and telling the two apart is the whole point — so the
-        default is baked into the render rather than left to the operator's
-        ``.env``, and it arrives under a variable of its own so setting a fault
-        on one machine cannot set it on both.
+        Two machines, two variables: the stand-in reads ``VA_BPM_ERRORS`` from
+        ``VA_STANDIN_BPM_ERRORS`` and the sandbox accelerator beside it from
+        ``VA_BPM_ERRORS``, so setting a fault on one machine cannot set it on
+        both.
 
         Substituted on UNSET (``${VAR-default}``) and not on empty
-        (``${VAR:-default}``): an operator who writes ``VA_STANDIN_BPM_ERRORS=``
-        is asking for a stand-in that reads clean, and the colon form would hand
-        them the perturbation back.
+        (``${VAR:-default}``). An operator who writes ``VA_STANDIN_BPM_ERRORS=``
+        is asking for a stand-in that reads clean, and the form rendered here
+        gives them one: wherever the tree's own default is a perturbation, the
+        colon form would substitute it back over that deliberate empty value.
+
+        The default this deployment's stand-in falls back to is empty, and that
+        is a property of its tree rather than of the render: BPM offsets displace
+        readings taken off a model, and this repo's ``data/`` stages no ring for
+        them to displace, so the render carries no faults nothing could apply.
+        The other side of that rule — a deployment whose tree does serve a
+        lattice, whose stand-in falls back to the shipped perturbation — is
+        pinned in ``tests/deployment/test_va_compose_instances.py``.
         """
         services = _compose(standin_build, "virtual_accelerator")["services"]
 
         assert services["live-standin"]["environment"]["VA_BPM_ERRORS"] == (
-            f"${{VA_STANDIN_BPM_ERRORS-{STANDIN_BPM_ERRORS_DEFAULT}}}"
+            "${VA_STANDIN_BPM_ERRORS-}"
         )
         assert services["virtual-accelerator"]["environment"]["VA_BPM_ERRORS"] == (
             "${VA_BPM_ERRORS:-}"

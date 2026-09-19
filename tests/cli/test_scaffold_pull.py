@@ -218,6 +218,7 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/mml/mml_export.m",
     "data/raw/CSV_EXAMPLE.csv",
     "data/raw/address_list.csv",
+    "data/simulation/lattice.json",
     "data/simulation/machine.json",
     "data/simulation/scenarios/bpm-polarity/logbook.json",
     "data/simulation/scenarios/bpm-polarity/scenario.json",
@@ -227,6 +228,7 @@ CONTROL_ASSISTANT_PULLABLE = [
     "data/simulation/scenarios/rf-thermal/logbook.json",
     "data/simulation/scenarios/rf-thermal/scenario.json",
     "data/simulation/scenarios/vacuum-burst/scenario.json",
+    "data/simulation/va_bindings.json",
     "web-terminal-context/base.md",
 ]
 
