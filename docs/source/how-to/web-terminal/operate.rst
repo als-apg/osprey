@@ -47,7 +47,7 @@ What you get
 
 The window has three working areas plus a header:
 
-- **Terminal** (right) — a real terminal running the Osprey agent. It survives
+- **Terminal** (right) — a real terminal running the OSPREY agent. It survives
   reconnects, and you can keep a few background conversations alive and hop
   between them.
 - **Workspace** (left) — a live view of your project files. New artifacts,
@@ -413,6 +413,8 @@ says nothing about the chip.
    a narrowing at once --- turning writes off refuses the running cell's next
    write --- and takes a widening, or a switch, on the next cell you run. See
    :doc:`notebooks`.
+
+   .. _web-terminal-service-door:
 
    Where a deployment also serves a panel at an address of its own, that
    address is a **service door, not a terminal**. Log in there directly and the

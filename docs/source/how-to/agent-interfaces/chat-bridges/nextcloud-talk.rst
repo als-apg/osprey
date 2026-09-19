@@ -4,7 +4,7 @@
 Nextcloud Talk
 ==============
 
-How to let your team ask the Osprey agent questions from a Nextcloud Talk room,
+How to let your team ask the OSPREY agent questions from a Nextcloud Talk room,
 and get answers, plots, and files back in the same room.
 
 .. dropdown:: Before you start

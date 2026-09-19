@@ -2,7 +2,7 @@ Architecture
 ============
 
 OSPREY deploys agentic AI in safety-critical control system environments, such as
-particle accelerators. It uses **the Osprey agent** as the orchestrator, **MCP servers** as
+particle accelerators. It uses **the OSPREY agent** as the orchestrator, **MCP servers** as
 the tool interface, and **pluggable connectors** for protocol-agnostic hardware access.
 
 .. figure:: /_static/resources/architecture.png

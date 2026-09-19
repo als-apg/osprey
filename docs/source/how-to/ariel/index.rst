@@ -20,7 +20,7 @@ implement your own and plug them into the full pipeline without modifying ARIEL'
 source code. Out of the box, adapters are included for the reference logbook
 formats listed on :doc:`data-ingestion`, and search strategies range from fast
 keyword lookup to embedding-based semantic similarity, with multi-step
-reasoning over results delegated to the Osprey agent layer.
+reasoning over results delegated to the OSPREY agent layer.
 
 .. figure:: /_static/resources/ariel_overview.svg
    :alt: ARIEL Logbook Search Architecture
@@ -132,7 +132,7 @@ reasoning over results delegated to the Osprey agent layer.
 
             .. tab-item:: Agent Chat
 
-               Ask the Osprey agent. The logbook-search MCP tools connect the
+               Ask the OSPREY agent. The logbook-search MCP tools connect the
                agent to the ARIEL search service, so it can combine logbook
                results with other context.
 

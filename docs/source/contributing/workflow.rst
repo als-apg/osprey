@@ -190,10 +190,10 @@ newly-published third-party package at install time — the precise supply-chain
 exposure the cooldown exists to reduce. The human read of the diff is the point,
 not an inconvenience around it.
 
-Osprey Agent Workflow Skill
+OSPREY Agent Workflow Skill
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If you use the Osprey agent (e.g., via `Claude Code <https://docs.claude.com/en/docs/claude-code>`_),
+If you use the OSPREY agent (e.g., via `Claude Code <https://docs.claude.com/en/docs/claude-code>`_),
 the ``/osprey:contribute`` skill gives guided help following this workflow. It
 walks you through branching, commits, push, PR, and CI iteration,
 auto-detecting whether you have push access to ``als-apg/osprey`` or are

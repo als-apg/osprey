@@ -204,11 +204,11 @@ request --- a field in its body, an argument to a tool --- names nobody. The acc
 not treated as a secret: it travels with proxied requests and appears in the deployment's own
 logs. What the two doors protect is that nobody can choose to be someone else.
 
-The panel's own address is a service door, not a terminal: someone who logs in there directly
-is not named, and the plans they queue run at the lane's ceiling. In the single-user
-containerised shape, where one sidecar is reached with the deployment-wide secret, requests
-name nobody by design --- that secret says a request is allowed, not who sent it. See
-:doc:`/how-to/web-terminal/operate`.
+The panel's own address is neither of those doors: a login there mints no name at all. See
+:ref:`service door, not a terminal <web-terminal-service-door>` for what that costs the person
+using it. In the single-user containerised shape, where one sidecar is reached with the
+deployment-wide secret, requests name nobody by design --- that secret says a request is
+allowed, not who sent it.
 
 A job the OSPREY agent fires goes out through the terminal's own panel proxy. The agent never
 holds the dispatcher's key; the proxy holds it, adds it on the way out and stamps the same name

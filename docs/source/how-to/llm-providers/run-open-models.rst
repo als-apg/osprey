@@ -5,7 +5,7 @@ Run Open & Local Models
 
 OSPREY is built so the volatile pieces — the model and the agent harness — can be
 swapped without touching the framework. This guide covers what already works
-today: running the Osprey agent on **open-weight and locally hostable models**.
+today: running the OSPREY agent on **open-weight and locally hostable models**.
 
 Two independent axes
 --------------------

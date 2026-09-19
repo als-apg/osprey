@@ -2,7 +2,7 @@
 Bluesky Plans
 =============
 
-The Osprey agent can run real measurement plans — sweep magnets, read beam
+The OSPREY agent can run real measurement plans — sweep magnets, read beam
 monitors, and collect the data — through the same chat and panels you already
 use. The plans and the queue are `Bluesky <https://blueskyproject.io/>`_'s;
 Osprey deploys those services, wires them to your control system, and puts the

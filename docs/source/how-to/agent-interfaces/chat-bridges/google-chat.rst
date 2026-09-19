@@ -4,7 +4,7 @@
 Google Chat
 ===========
 
-How to let your team ask the Osprey agent questions from a Google Chat space,
+How to let your team ask the OSPREY agent questions from a Google Chat space,
 and get answers, plots, and files back in the same conversation.
 
 .. dropdown:: Before you start

@@ -94,7 +94,10 @@ the entries for you):
          health_endpoint: /healthz     # optional: lets the hub report status
 
 The hub shows the service as a tab and proxies requests to it from the same
-origin, so the browser never needs direct access to the backing port.
+origin, so the browser never needs direct access to the backing port. The tab
+is the named path: where the backing service is also reachable at an address of
+its own, a login there names nobody, and what it does is governed by nobody's
+chip — see :ref:`service door, not a terminal <web-terminal-service-door>`.
 
 Theming a URL-backed panel
 --------------------------

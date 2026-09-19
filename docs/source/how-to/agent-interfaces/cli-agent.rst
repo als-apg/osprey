@@ -4,7 +4,7 @@
 Run the Agent from the Command Line
 ===================================
 
-Two commands run the Osprey agent without the web terminal. ``osprey chat``
+Two commands run the OSPREY agent without the web terminal. ``osprey chat``
 opens an interactive session in your native terminal; ``osprey query`` runs a
 single headless prompt and exits with a meaningful code, for CI pipelines and
 automated workflows.
@@ -25,7 +25,7 @@ automated workflows.
 Interactive Sessions (``osprey chat``)
 ======================================
 
-The CLI chat interface launches the Osprey agent in your native terminal while
+The CLI chat interface launches the OSPREY agent in your native terminal while
 running OSPREY's companion services in the background. This runs the agent
 in the full terminal TUI — keyboard shortcuts, slash commands, native
 scrollback — with access to companion services (artifact gallery, session
@@ -50,7 +50,7 @@ This command:
 3. Starts the translation proxy if the provider needs it (see
    :doc:`../llm-providers/configure-providers`).
 4. Launches companion web servers in the background.
-5. Opens the Osprey agent TUI in your terminal.
+5. Opens the OSPREY agent TUI in your terminal.
 
 Options
 ^^^^^^^
@@ -74,7 +74,7 @@ Companion Services
 ------------------
 
 On startup, ``osprey chat`` launches every framework companion server whose
-``auto_launch`` is on. Each server's URL is printed before the Osprey agent
+``auto_launch`` is on. Each server's URL is printed before the OSPREY agent
 starts:
 
 .. code-block:: text
@@ -84,7 +84,7 @@ starts:
      ARIEL server       http://127.0.0.1:10300/?token=…
 
 Each line is a login URL — the ``?token=`` carries this session's operator
-secret. Open it in a browser to reach the service while the Osprey agent runs
+secret. Open it in a browser to reach the service while the OSPREY agent runs
 in your terminal; the address without the token will not sign you in. Which
 servers start depends on your ``config.yml`` — each server respects its own
 ``auto_launch`` setting. Unlike ``osprey web``, chat does not consult
@@ -93,7 +93,7 @@ here, because chat opens companions as browser tabs rather than as a panel
 rail.
 
 The servers run as background threads and stop automatically when you exit
-the Osprey agent.
+the OSPREY agent.
 
 When to Use CLI vs. Web Terminal
 --------------------------------
@@ -106,7 +106,7 @@ When to Use CLI vs. Web Terminal
      - Web terminal (``osprey web``)
    * - Native terminal experience
      - Browser-based split-pane UI
-   * - Full Osprey agent TUI with keyboard shortcuts
+   * - Full OSPREY agent TUI with keyboard shortcuts
      - Embedded terminal emulator
    * - Companion services in separate browser tabs
      - Companion services as side panels
