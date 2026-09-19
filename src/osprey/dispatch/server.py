@@ -47,6 +47,7 @@ from osprey.dispatch.worker_client import (
     fetch_worker_runs,
     proxy_worker_stream,
 )
+from osprey.utils.bearer import credential_bytes
 from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 logger = logging.getLogger("osprey.dispatch.server")
@@ -249,19 +250,6 @@ def _sanitize_source_config(cfg: dict[str, Any]) -> dict[str, Any]:
     return {k: ("***" if k.lower() in _SECRET_CONFIG_KEYS else v) for k, v in cfg.items()}
 
 
-def _credential_bytes(value: str) -> bytes:
-    """Encode one side of a bearer comparison for ``compare_digest``.
-
-    ``compare_digest`` refuses a str argument that is not ASCII-only, and both a
-    configured secret and a presented bearer are arbitrary text, so every
-    comparison is made on bytes. ``surrogateescape`` is how the environment
-    decodes bytes that are not valid UTF-8; only the matching encode turns such a
-    secret back into bytes instead of raising, and a raise here would answer 500
-    where a refusal belongs.
-    """
-    return value.encode("utf-8", errors="surrogateescape")
-
-
 #: Gates that have already reported an unconfigured ``EVENT_DISPATCHER_TOKEN``.
 _token_unset_reported: set[str] = set()
 
@@ -297,7 +285,7 @@ def _check_auth(request: Request) -> JSONResponse | None:
         return JSONResponse({"detail": "Server misconfigured"}, status_code=503)
     auth_header = request.headers.get("Authorization", "")
     if hmac.compare_digest(
-        _credential_bytes(auth_header), _credential_bytes(f"Bearer {expected_token}")
+        credential_bytes(auth_header), credential_bytes(f"Bearer {expected_token}")
     ):
         return None
     return JSONResponse({"detail": "Unauthorized"}, status_code=401)
@@ -330,7 +318,7 @@ class _DispatcherTokenVerifier(TokenVerifier):
         if not expected_token:
             _report_token_unset("MCP transport")
             return None
-        if not hmac.compare_digest(_credential_bytes(token), _credential_bytes(expected_token)):
+        if not hmac.compare_digest(credential_bytes(token), credential_bytes(expected_token)):
             return None
         return AccessToken(token=token, client_id="dispatcher-bearer", scopes=[])
 

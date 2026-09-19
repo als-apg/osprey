@@ -191,6 +191,22 @@ def test_dispatch_wrong_token(client):
     assert resp.status_code == 401
 
 
+def test_dispatch_with_a_non_ascii_bearer_still_answers_401(client):
+    """A header byte outside ASCII is a wrong credential, not a server fault.
+
+    ``compare_digest`` refuses two ``str`` arguments unless both are ASCII-only,
+    and Starlette decodes the header as latin-1, so comparing the decoded
+    strings would turn a wrong bearer into a 500. The header goes on the wire as
+    raw bytes because that is the only way to send one.
+    """
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers={"Authorization": "Bearer tökén-ünicode".encode("latin-1")},
+    )
+    assert resp.status_code == 401
+
+
 def test_dispatch_no_auth_header(client):
     # HTTPBearer auto-error rejects a missing Authorization header. The exact
     # code depends on the FastAPI version (older: 403, current: 401); accept

@@ -217,8 +217,9 @@ async def test_a_secret_that_is_not_utf8_refuses_rather_than_raising(dispatcher_
     ``os.environ`` hands such a value back with one lone surrogate per undecodable
     byte, which the default encoder refuses to turn back into bytes. A raise on
     the comparison path is a 500 on *every* bearer request — an unreachable
-    dispatcher instead of a refused caller — so both gates encode the way the
-    environment decoded.
+    dispatcher instead of a refused caller — so both gates encode through
+    :func:`~osprey.utils.bearer.credential_bytes`, which carries a surrogate
+    rather than refusing it.
     """
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "secret-\udcff")
 

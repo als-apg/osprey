@@ -57,6 +57,7 @@ from osprey.mcp_server.dispatch_worker.input_files_policy import (
     sanitize_filename,
     validate_input_files,
 )
+from osprey.utils.bearer import credential_bytes
 from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
@@ -429,8 +430,11 @@ def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sc
             detail="DISPATCH_WORKER_TOKEN is not configured",
         )
     # Constant-time comparison to avoid leaking the token via timing, matching
-    # the dispatcher's _check_auth / WebhookSource._handle.
-    if not hmac.compare_digest(credentials.credentials, expected):
+    # the dispatcher's _check_auth / WebhookSource._handle — over bytes, so a
+    # bearer carrying anything outside ASCII is refused rather than raised on.
+    if not hmac.compare_digest(
+        credential_bytes(credentials.credentials), credential_bytes(expected)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid bearer token",

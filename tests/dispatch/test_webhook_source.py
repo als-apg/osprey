@@ -62,6 +62,50 @@ async def test_handle_unauthorized_missing_header(started_source):
 
 
 @pytest.mark.asyncio
+async def test_handle_unauthorized_non_ascii_header(started_source):
+    """A bearer outside ASCII is refused, never raised on.
+
+    ``compare_digest`` refuses two ``str`` arguments unless both are ASCII-only,
+    and an Authorization header carries whatever bytes a caller chose — which
+    the route adapter hands here as the latin-1 text Starlette decoded. Compared
+    as strings, a wrong credential would answer 500 instead of 401, and the
+    route would be the one surface a caller could fault from outside.
+    """
+    source, _, callback = started_source
+    body, status = await source._handle("deploy", "Bearer tökén", {})
+    assert status == 401
+    assert body == {"detail": "Unauthorized"}
+    assert callback.calls == []
+
+
+@pytest.mark.asyncio
+async def test_handle_admits_the_bearer_whose_text_matches_the_configured_one(
+    started_source, monkeypatch
+):
+    """Refusing what does not match must not become refusing everything.
+
+    The gate admits when the two sides are the same text, whatever characters
+    that text is made of. Stated over a non-ASCII pair because that is the pair
+    the bytes comparison changed; both operands are given here as the same
+    ``str``, which is this coroutine's contract and not a claim about the wire.
+
+    Over the wire the two sides cannot agree outside ASCII at all: an
+    Authorization header reaches this method as latin-1 text while the secret
+    comes from ``os.environ`` as UTF-8, so the same characters re-encode to
+    different bytes. A configured secret therefore has to be ASCII to be
+    presentable — see :mod:`osprey.utils.bearer`.
+    """
+    source, trigger, callback = started_source
+    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "sécret")
+
+    body, status = await source._handle("deploy", "Bearer sécret", {})
+
+    assert status == 202
+    assert callback.calls == [(trigger, {})]
+    assert body["dispatch_id"] == "dispatch-123"
+
+
+@pytest.mark.asyncio
 async def test_handle_unconfigured_token_fails_closed(started_source, monkeypatch):
     """With no EVENT_DISPATCHER_TOKEN set, auth fails closed (503), never open."""
     source, _, callback = started_source
