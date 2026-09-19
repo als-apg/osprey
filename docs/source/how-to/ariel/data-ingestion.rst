@@ -148,6 +148,16 @@ The built-in enhancement modules:
       The vector index over those tables is an HNSW index. It takes no sizing
       parameter, so there is nothing about it to author per deployment.
 
+      .. note::
+
+         Deployments created before the switch to HNSW used an IVFFlat index
+         trained over an empty table, which silently gave semantic search low
+         recall. The ``text_embedding_hnsw_index`` migration rebuilds the
+         index on upgrade; treat semantic-search results from before that
+         migration as unreliable. Creating the HNSW index before a bulk load
+         is correct but slower to ingest --- a performance trade-off, not a
+         reason to defer the index.
+
       **Requirements:** Ollama (or another embedding provider) running with the specified model.
 
    .. tab-item:: Semantic Processor
