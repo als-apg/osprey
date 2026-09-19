@@ -19,7 +19,9 @@ WRITES when the add names an owner. The owner reaches the worker as a reserved
 kwarg on the item and is stamped on the item's metadata, but the plan-identity
 copy is built without it, because that copy is the one carrier a read-side
 strip can never reach: it travels into the run's start document, which the
-results table and the live-row recorder both read back.
+results table and the live-row recorder both read back. That section also
+pins the one item the stamp cannot be written onto — a plan whose arguments
+are not a mapping — which is refused rather than rewritten.
 """
 
 from __future__ import annotations
@@ -36,7 +38,7 @@ from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import document_plane, draft, live_rows, plan_loader, queue
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
-from osprey.services.bluesky_bridge.queue_backend import QueueBackend
+from osprey.services.bluesky_bridge.queue_backend import QueueBackend, QueueItemInvalidError
 from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
@@ -500,6 +502,68 @@ async def test_an_external_worker_lane_drops_a_reserved_key_it_would_be_refused_
     item = _added_item(manager)
     assert RESERVED_OWNER_KWARG not in json.dumps(item)
     assert item["meta"][qb.OWNER_META_KEY] == "bob"
+
+
+async def test_a_plan_whose_arguments_are_not_a_mapping_is_refused_and_never_queued() -> None:
+    """Stamping an owner onto such an item means replacing its arguments with
+    the stamp, which queues a plan nobody composed under the name that
+    triggered the replacement. The add is refused instead, and the manager is
+    never asked to hold anything."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    with pytest.raises(QueueItemInvalidError) as excinfo:
+        await backend.add_item(
+            {"item_type": "plan", "name": "grid_scan", "kwargs": ["BPM1"]},
+            run_id=_RUN_ID,
+            owner="bob",
+        )
+
+    assert "mapping" in str(excinfo.value)
+    assert [method for method, _ in manager.calls] == []
+
+
+async def test_the_same_arguments_are_refused_for_an_add_that_names_nobody() -> None:
+    """One malformed request, one answer: the shape of a plan's arguments is
+    not a thing an owner's presence decides."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    with pytest.raises(QueueItemInvalidError):
+        await backend.add_item(
+            {"item_type": "plan", "name": "grid_scan", "kwargs": ["BPM1"]}, run_id=_RUN_ID
+        )
+
+    assert [method for method, _ in manager.calls] == []
+
+
+async def test_a_plan_that_brought_no_arguments_takes_the_owner_kwarg_alone() -> None:
+    """Absent arguments are not malformed ones — a plan whose every parameter
+    has a default is enqueued as itself, with the reserved kwarg the only key
+    the item carries."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    await backend.add_item({"item_type": "plan", "name": "count"}, owner="bob")
+
+    item = _added_item(manager)
+    assert item["kwargs"] == {RESERVED_OWNER_KWARG: "bob"}
+    assert item["meta"] == {qb.OWNER_META_KEY: "bob"}
+
+
+async def test_an_instructions_arguments_are_left_to_the_manager_to_judge() -> None:
+    """The refusal covers exactly what the owner stamp covers — a plan's own
+    kwargs. An instruction is bound against its own signature by the manager,
+    which is the authority on what that signature accepts, and the bridge does
+    not add a second opinion."""
+    manager = FakeManager()
+    backend = QueueBackend(manager)
+
+    await backend.add_item(
+        {"item_type": "instruction", "name": "queue_stop", "kwargs": "not-a-mapping"}, owner="bob"
+    )
+
+    assert _added_item(manager)["kwargs"] == "not-a-mapping"
 
 
 async def test_an_instruction_takes_the_metadata_stamp_alone() -> None:

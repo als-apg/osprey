@@ -299,6 +299,31 @@ def test_enqueue_with_a_stale_revision_409s_without_touching_the_queue(
     assert "item_add" not in manager.method_names()
 
 
+def test_an_item_the_backend_refuses_as_malformed_is_a_400_with_its_own_code(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed item is the caller's to correct, so it earns a 400 and a
+    code of its own rather than the 409 that tells a caller to re-read the
+    queue's state. The reservation is released: the revision was never
+    launched."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc())
+    _install(manager)
+    revision = _make_draft(client)
+
+    async def _refuse(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise qb.QueueItemInvalidError("Plan arguments must be a mapping of argument names.")
+
+    monkeypatch.setattr(QueueBackend, "add_item", _refuse)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "invalid_item"
+    assert "item_add" not in manager.method_names()
+    assert draft._launching == set()
+
+
 @pytest.mark.parametrize("state", sorted(qb.QUEUE_ACTIVE_MANAGER_STATES))
 def test_unarmed_enqueue_is_refused_while_the_manager_is_active(
     client: TestClient, connector, monkeypatch: pytest.MonkeyPatch, state: str

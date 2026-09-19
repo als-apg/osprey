@@ -121,8 +121,6 @@ def _external_parameter_schemas() -> dict[str, dict[str, Any]]:
     return schemas
 
 
-QSERVER_PUBLIC_KEY_ENV = "QSERVER_ZMQ_PUBLIC_KEY"
-
 # The item-metadata key carrying OSPREY's own run id through queueserver and
 # into the RunEngine's start documents, which is how live rows and Tiled results
 # are matched back to the run the operator enqueued.
@@ -420,6 +418,18 @@ class QueueRequestRejectedError(QueueBackendError):
     """The manager was reached and refused the request (bad state, unknown uid, ...)."""
 
     reason = "queue_request_rejected"
+
+
+class QueueItemInvalidError(QueueBackendError):
+    """The item itself is malformed, so the manager is never asked to hold it.
+
+    Distinct from :class:`QueueRequestRejectedError` because the two send the
+    caller to different places: a rejection is the manager's answer about the
+    queue's state, which a re-read explains, while this one is about the
+    request the caller composed, which only the caller can correct.
+    """
+
+    reason = "invalid_item"
 
 
 class EnvironmentUnavailableError(QueueBackendError):
@@ -840,6 +850,14 @@ class QueueBackend:
         the only depth the wrapper binds from: the same key nested inside a
         plan argument is one of that argument's own values and names nobody.
 
+        A plan whose ``kwargs`` is present but is not a mapping is refused, and
+        nothing is queued. The only other way to stamp an owner onto such an
+        item is to replace those arguments with the stamp alone, which queues a
+        plan nobody composed and attributes it to the person whose name
+        triggered the replacement. The refusal does not depend on the add
+        naming an owner: one malformed request, one answer, whichever door it
+        arrives at.
+
         Two items take the metadata stamp alone, because neither has a kwargs
         surface the owner may ride: an item enqueued onto a lane whose worker
         is external, where the facility's RE Manager binds against the plan's
@@ -871,6 +889,11 @@ class QueueBackend:
         """
         payload = self._as_item_dict(item)
         arriving_kwargs = payload.get("kwargs")
+        is_plan = payload.get("item_type") == "plan"
+        if is_plan and arriving_kwargs is not None and not isinstance(arriving_kwargs, dict):
+            raise QueueItemInvalidError(
+                "Plan arguments must be a mapping of argument names to values."
+            )
         # Filtered, not merely un-injected: the reserved key is reserved
         # whoever put it there, so both the copy the worker binds and the copy
         # the start document republishes are built from these plan arguments.
@@ -879,9 +902,7 @@ class QueueBackend:
             if isinstance(arriving_kwargs, dict)
             else {}
         )
-        stamps_kwarg = (
-            bool(owner) and payload.get("item_type") == "plan" and not self.external_worker
-        )
+        stamps_kwarg = bool(owner) and is_plan and not self.external_worker
         if isinstance(arriving_kwargs, dict) or stamps_kwarg:
             payload["kwargs"] = (
                 {**plan_kwargs, RESERVED_OWNER_KWARG: owner} if stamps_kwarg else plan_kwargs

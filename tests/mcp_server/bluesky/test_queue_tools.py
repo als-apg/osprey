@@ -112,7 +112,7 @@ def _stop_fn():
 def _headers_without_owner(m) -> dict[str, str]:
     """The headers one forwarded request carried, minus the owner stamp.
 
-    Every POST to the bridge carries ``X-Osprey-Owner`` whenever the ladder can
+    Every write to the bridge carries ``X-Osprey-Owner`` whenever the ladder can
     name an owner, and under test the process account always can. The launch
     token rows below are about the token and nothing else, so they compare the
     rest of the header dict exactly: a stray third header still fails them,
@@ -1143,8 +1143,10 @@ async def test_queue_remove_is_ungated_by_writes_and_token(tmp_path, monkeypatch
         result = await _remove_fn()("u1")
 
     assert extract_response_dict(result) == body
-    # No launch token header on a removal — there is nothing to arm.
-    assert "headers" not in m.call_args.kwargs
+    # No launch token header on a removal — there is nothing to arm. The owner
+    # stamp is not a credential and rides on regardless; it is pinned by the
+    # owner section at the end of the file.
+    assert _headers_without_owner(m) == {}
 
 
 # =========================================================================
@@ -1230,6 +1232,28 @@ async def test_an_ungated_stop_still_carries_the_owner(tmp_path, monkeypatch):
         await _stop_fn()()
 
     assert m.call_args.kwargs["headers"] == {OWNER_HEADER: "rosterbob"}
+
+
+async def test_a_removal_names_who_withdrew_the_work(tmp_path, monkeypatch):
+    """Withdrawing queued work is a change to the queue like any other, so it
+    is attributed like any other. The removal carries no launch token — it arms
+    nothing — which pins that the stamp does not ride the gating decision."""
+    _as_terminal_user(monkeypatch, "rosterbob")
+    _configure(tmp_path, monkeypatch, writes=False, token=None)
+    with patch(f"{_MOD}._http_delete_json", return_value=(200, {"removed": True})) as m:
+        await _remove_fn()("u1")
+
+    assert m.call_args.kwargs["headers"] == {OWNER_HEADER: "rosterbob"}
+
+
+async def test_an_owner_less_removal_sends_no_headers_at_all(tmp_path, monkeypatch):
+    """The same absent-not-empty rule the other writes keep."""
+    _as_owner_less_tree_container(monkeypatch, tmp_path)
+    _configure(tmp_path, monkeypatch, writes=False, token=None)
+    with patch(f"{_MOD}._http_delete_json", return_value=(200, {"removed": True})) as m:
+        await _remove_fn()("u1")
+
+    assert m.call_args.kwargs["headers"] is None
 
 
 async def test_an_owner_less_stop_sends_no_headers_at_all(tmp_path, monkeypatch):

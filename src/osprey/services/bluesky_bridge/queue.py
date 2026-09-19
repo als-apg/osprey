@@ -105,6 +105,7 @@ from .queue_backend import (
     NothingRunningError,
     QueueBackend,
     QueueBackendError,
+    QueueItemInvalidError,
     QueueRequestRejectedError,
     QueueUnavailableError,
     is_queue_active,
@@ -221,8 +222,13 @@ def _http_error(exc: QueueBackendError) -> HTTPException:
       would only be one more thing to learn.
     - `QueueRequestRejectedError` / `NothingRunningError` are 409 — the manager
       answered and the request does not apply.
+    - `QueueItemInvalidError` is 400 — the request itself is malformed, and the
+      fix is in the caller's hands, the same reading `_refuse_unknown_devices`
+      gives an item naming a device that does not exist.
     """
     detail: dict[str, Any] = {"code": exc.reason, "detail": str(exc)}
+    if isinstance(exc, QueueItemInvalidError):
+        return HTTPException(status_code=400, detail=detail)
     if isinstance(exc, ExecutionUnavailableError):
         detail["capability"] = exc.capability.to_dict()
         retryable = exc.reason in (REASON_MANAGER_UNREACHABLE, REASON_MANAGER_NOT_CONFIGURED)

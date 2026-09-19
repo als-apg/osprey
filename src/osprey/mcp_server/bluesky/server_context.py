@@ -4,7 +4,10 @@ Holds the resolved facility-side Bluesky bridge connection (base URL and launch
 token) for the MCP server process and exposes the module-level HTTP primitives
 every tool module uses to talk to the bridge. Centralizing the primitives here
 means every tool gets identical ``bluesky_bridge_unreachable`` handling without
-repeating a try/except around each HTTP call.
+repeating a try/except around each HTTP call. The one piece of request
+composition every write shares lives here for the same reason: ``_with_owner``
+stamps the caller's identity, so no tool module can send a write that names
+nobody while its neighbours name somebody.
 
 The bridge URL / launch token resolution itself and the ``bridge_error_message``
 helper live in the shared leaf ``osprey.bluesky_bridge_connection``, imported by
@@ -52,6 +55,8 @@ from osprey.bluesky_bridge_connection import (
 )
 from osprey.mcp_server.bluesky.lanes import REASON_UNKNOWN_LANE, resolve_lane_situation
 from osprey.mcp_server.errors import make_error
+from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors import posture_store
 
 logger = logging.getLogger("osprey.mcp_server.bluesky.server_context")
 
@@ -368,3 +373,44 @@ def _http_delete_json(
     Same unreachable-bridge/error-body contract as :func:`_http_get_json`.
     """
     return _request_json(httpx.delete, path, lane=lane, headers=headers)
+
+
+def _with_owner(headers: dict[str, str] | None) -> dict[str, str] | None:
+    """*headers* plus the owner stamp, when this process can name an owner.
+
+    One of the places the ``X-Osprey-Owner`` header is minted. Queued work
+    outlives the session that queued it: the plan runs later, in a queueserver
+    worker whose own account names nobody, so the person it belongs to has to
+    travel with the request. The bridge puts what arrives here onto the item,
+    the worker binds it around the plan's body, and the write monitor reads that
+    owner's narrowing. Without the stamp the plan would run at the deployment
+    ceiling however its owner had narrowed their own writes.
+
+    Every write this server sends the bridge carries it — the add, the start,
+    the halt, the abort, the removal — which is why it is composed here beside
+    the HTTP primitives rather than in any one tool module. The other door onto
+    the same bridge, the web sidecar's queue relay, stamps every write it
+    forwards; two doors that named their callers differently would make the
+    deployment's record of a change depend on which one it came through.
+
+    The owner is whatever :func:`~osprey_connectors.posture_store.current_owner`
+    answers, which is the roster account in a terminal container and the exported
+    stamp in a dispatch job. :data:`~osprey_connectors.posture_store.NO_OWNER` is
+    the one answer never sent, compared by identity because that is the only
+    comparison the sentinel supports: a header spelling the sentinel's text would
+    be a name the reader refuses, and an owner-less request is legitimate — cron
+    fires jobs that way — so it travels with no owner header at all.
+
+    Owner-less and header-less stays ``None`` rather than becoming an empty
+    mapping, so a request that carries nothing is indistinguishable from the one
+    the tools sent before any of this existed.
+
+    Attribution is not authorization: the stamp rides an ungated request (a plain
+    halt) exactly as it rides an armed one, and it is composed separately from
+    the launch token so that withholding the token never withholds the owner.
+    """
+    owner = posture_store.current_owner()
+    if owner is posture_store.NO_OWNER:
+        return headers
+    # The ladder answers a name or the sentinel, and the sentinel returned above.
+    return {**(headers or {}), OWNER_HEADER: str(owner)}

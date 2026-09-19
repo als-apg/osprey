@@ -9,7 +9,8 @@ finishes. Three properties carry the weight here and are asserted directly:
    ``queue_stop``, and for the same reason: a halt that can be refused for a
    policy reason is a halt with a failure mode. The tests below put the process
    in the *most* refusable posture available (writes disabled, no token) and
-   assert the HTTP call still goes out bare.
+   assert the HTTP call still goes out carrying no credential — the owner stamp
+   it does carry names who stopped the run and gates nothing.
 2. **Refusals are relayed verbatim.** The bridge's ``code`` becomes the
    envelope's ``error_type``, its sentence the ``error_message``, and the whole
    detail dict the ``details`` — nothing is reworded, and in particular an
@@ -34,6 +35,9 @@ import yaml
 from osprey.mcp_server.bluesky import server_context
 from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
 from osprey.mcp_server.bluesky.tools import stop
+from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.identity import TERMINAL_USER_ENV
+from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 _MOD = "osprey.mcp_server.bluesky.tools.stop"
@@ -55,6 +59,18 @@ def _reset_bluesky_context():
 
 def _fn():
     return get_tool_fn(stop.stop_run)
+
+
+def _headers_without_owner(m) -> dict[str, str]:
+    """The headers the abort carried, minus the owner stamp.
+
+    Every write this server sends carries ``X-Osprey-Owner`` whenever the
+    identity ladder can name an owner, and under test the process account
+    always can. The rows about gating compare the REST of the header dict
+    exactly, so a credential sneaking onto the abort still fails them.
+    """
+    headers = m.call_args.kwargs["headers"] or {}
+    return {name: value for name, value in headers.items() if name != OWNER_HEADER}
 
 
 def _locked_down(tmp_path, monkeypatch) -> None:
@@ -122,18 +138,16 @@ async def test_stop_run_is_ungated_with_writes_off_and_no_token(tmp_path, monkey
     assert extract_response_dict(result)["aborted"] is True
     assert post.call_count == 1
     # `_http_post_json(path, payload)` — the path and payload are positional, so
-    # any header would have to arrive as the `headers` keyword. There is none,
-    # on purpose. Asserted by NAME rather than as "no keywords at all": the call
-    # legitimately carries a `timeout` budget (see
-    # `test_stop_run_budgets_above_the_bridges_composed_abort`), and a
-    # keyword-count assertion would conflate a transport budget with an arming
-    # credential — the one thing this test exists to forbid.
-    assert "headers" not in post.call_args.kwargs
-    # `lane` joined `timeout` on the same footing: it is an ADDRESS (which plan
-    # lane's bridge), not a credential, and on a single-lane deployment it is
-    # None — the only lane there is. Same reasoning as the timeout budget: this
-    # assertion forbids arming headers, not transport arguments.
-    assert set(post.call_args.kwargs) == {"lane", "timeout"}
+    # any header arrives as the `headers` keyword. The only one there is the
+    # owner stamp, which names who stopped the run and gates nothing; an arming
+    # credential is the thing this test exists to forbid, and comparing the rest
+    # of the dict exactly still fails the moment one appears.
+    assert _headers_without_owner(post) == {}
+    # `lane` and `timeout` stand on the same footing: an ADDRESS (which plan
+    # lane's bridge, None on a single-lane deployment) and a transport budget
+    # (see `test_stop_run_budgets_above_the_bridges_composed_abort`). This
+    # assertion forbids arming credentials, not transport arguments.
+    assert set(post.call_args.kwargs) == {"headers", "lane", "timeout"}
     assert post.call_args.kwargs["lane"] is None
 
 
@@ -150,6 +164,36 @@ async def test_stop_run_does_not_read_the_writes_kill_switch(tmp_path, monkeypat
                 await _fn()()
 
     assert writes.call_count == 0
+
+
+async def test_an_abort_names_who_stopped_the_run(tmp_path, monkeypatch):
+    """The emergency halt is attributed like every other write this server
+    sends, and in the posture where nothing else is: writes disabled, no token,
+    the header dict holding the owner alone."""
+    monkeypatch.delenv(CONTROL_OWNER_ENV_VAR, raising=False)
+    monkeypatch.delenv(CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
+    monkeypatch.setenv(TERMINAL_USER_ENV, "rosterbob")
+    _locked_down(tmp_path, monkeypatch)
+
+    with patch(f"{_MOD}._http_post_json", return_value=(200, _ABORT_OK)) as post:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _fn()()
+
+    assert post.call_args.kwargs["headers"] == {OWNER_HEADER: "rosterbob"}
+
+
+async def test_an_owner_less_abort_sends_no_headers_at_all(tmp_path, monkeypatch):
+    """Nothing to say means no header dict, not an empty one — the same
+    absent-not-empty rule the queue tools' writes keep."""
+    monkeypatch.delenv(CONTROL_OWNER_ENV_VAR, raising=False)
+    monkeypatch.setenv(CONTROL_CONTEXT_TREE_ENV_VAR, str(tmp_path / "control-context"))
+    _locked_down(tmp_path, monkeypatch)
+
+    with patch(f"{_MOD}._http_post_json", return_value=(200, _ABORT_OK)) as post:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _fn()()
+
+    assert post.call_args.kwargs["headers"] is None
 
 
 async def test_stop_run_relays_nothing_running_verbatim():

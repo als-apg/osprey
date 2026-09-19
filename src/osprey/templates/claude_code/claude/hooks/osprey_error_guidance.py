@@ -128,6 +128,8 @@ ERROR_CLASS_MAP = {
     "session_plan_not_in_namespace": "Validation",
     "manager_not_idle": "Validation",
     "queue_request_rejected": "Validation",
+    # The item as composed cannot be queued at all: its arguments are the fix.
+    "invalid_item": "Validation",
     # ---- Data: a lookup that missed. Report what was asked for and that
     # nothing was found; suggest refining.
     "not_found": "Data",

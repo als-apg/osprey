@@ -44,7 +44,7 @@ import json
 import anyio
 
 from osprey.mcp_server.bluesky.server import mcp
-from osprey.mcp_server.bluesky.server_context import _http_post_json
+from osprey.mcp_server.bluesky.server_context import _http_post_json, _with_owner
 
 # The refusal relay and its hint table live with the other queue tools: the
 # abort answers to the same bridge vocabulary, and a second copy here would be
@@ -130,8 +130,21 @@ async def stop_run() -> str:
     # single-lane deployment this resolves nothing and probes nothing.
     lane = await resolve_halt_lane()
 
+    # The one header an abort carries, and it gates nothing: it names who
+    # stopped the run, the way every other write from this server names who
+    # made it. The web sidecar stamps its abort the same way, so the two doors
+    # send the same request.
+    headers = _with_owner(None)
+
     status, body = await anyio.to_thread.run_sync(
-        functools.partial(_http_post_json, "/queue/abort", {}, lane=lane, timeout=_ABORT_TIMEOUT)
+        functools.partial(
+            _http_post_json,
+            "/queue/abort",
+            {},
+            headers=headers,
+            lane=lane,
+            timeout=_ABORT_TIMEOUT,
+        )
     )
     if status != 200:
         return _relay_refusal(
