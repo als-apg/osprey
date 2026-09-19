@@ -30,7 +30,13 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import draft, history_removals, plan_loader, queue
+from osprey.services.bluesky_bridge import (
+    draft,
+    history_removals,
+    plan_loader,
+    queue,
+    queue_removals,
+)
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.plan_fields import (
@@ -133,12 +139,14 @@ def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     draft._clear()
     queue._clear()
     history_removals._clear()
+    queue_removals._clear()
     app_module.set_queue_backend(None)
     yield
     plan_loader.reset_facility_plans()
     draft._clear()
     queue._clear()
     history_removals._clear()
+    queue_removals._clear()
     app_module.set_queue_backend(None)
 
 
@@ -1630,7 +1638,9 @@ def test_clear_drops_every_pending_item_ungated(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert resp.json() == {"cleared": True, "msg": "cleared"}
-    assert manager.method_names() == ["queue_clear"]
+    # The read is the removal log's: the manager's reply to a clear names
+    # nothing it dropped, so the items are listed inside the lock first.
+    assert manager.method_names() == ["queue_get", "queue_clear"]
 
 
 def test_clear_relays_a_manager_refusal_as_409(client: TestClient) -> None:
@@ -1786,6 +1796,8 @@ def test_abort_with_nothing_running_is_a_409_nothing_running(client: TestClient)
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "nothing_running"
+    # Nothing is issued at all: not the pause, not the abort, and not the read
+    # that names what was stopped — there is nothing to name.
     assert manager.method_names() == ["status"]
 
 

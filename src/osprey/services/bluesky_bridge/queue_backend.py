@@ -1017,9 +1017,17 @@ class QueueBackend:
            refused because the plan has not begun yet; an immediate pause that
            already landed is not re-applied, because the loop exits the moment
            the state reads ``paused``.
-        4. ``re_abort`` — the plan's remaining points are discarded and the
+        4. ``queue_get`` — the running item, read so the caller can say WHICH
+           plan was stopped. It sits HERE and nowhere earlier: the Run Engine
+           is paused by now, so the hardware is already held and this read can
+           only delay the unwind, never the halt. Best-effort — a refusal or an
+           answer with nothing running yields ``None`` and the abort goes on
+           unnamed, because what is being stopped is never worth the stop. It
+           costs the abort nothing it did not already risk: a manager that
+           would not answer this read would not answer ``re_abort`` either.
+        5. ``re_abort`` — the plan's remaining points are discarded and the
            queue is left stopped.
-        5. One final ``status(reload=True)`` purely to report the state. A
+        6. One final ``status(reload=True)`` purely to report the state. A
            failure here is swallowed: the abort has already been accepted, and
            turning a reporting failure into a 503 would tell the operator the
            machine did not stop when it did.
@@ -1032,10 +1040,15 @@ class QueueBackend:
 
         Returns:
             ``{"aborted": True, "abort_pending", "paused_first", "manager_state",
-            "msg"}``. ``abort_pending`` is True when the manager had not yet
-            settled out of an active state at the moment of the final read — the
-            abort is accepted and unwinding, not finished. ``msg`` is the
-            manager's own sentence, relayed rather than rewritten.
+            "msg", "stopped_item"}``. ``abort_pending`` is True when the manager
+            had not yet settled out of an active state at the moment of the
+            final read — the abort is accepted and unwinding, not finished.
+            ``msg`` is the manager's own sentence, relayed rather than
+            rewritten. ``stopped_item`` is the manager's own object for the
+            plan this abort stopped, or ``None`` when step 4 did not name one;
+            it still carries the plan's arguments and the reserved owner kwarg,
+            so it is for the caller's own use and never for a client — a route
+            that answers with it shapes it first.
 
         Raises:
             NothingRunningError: No plan was under way (409 at the route layer).
@@ -1068,6 +1081,8 @@ class QueueBackend:
                     "nothing left to abort; the queue is idle."
                 )
 
+        stopped_item = await self._running_item_for_abort()
+
         result = await self._call("re_abort")
 
         try:
@@ -1084,7 +1099,36 @@ class QueueBackend:
             "paused_first": paused_first,
             "manager_state": final_state,
             "msg": str(result.get("msg") or ""),
+            "stopped_item": stopped_item,
         }
+
+    async def _running_item_for_abort(self) -> dict[str, Any] | None:
+        """The paused plan, for naming it afterwards. Never raises.
+
+        Called between the pause and ``re_abort``, where the Run Engine is
+        already held: the cost of this read is paid by the unwind, not by the
+        stop. A manager that refuses, and an answer carrying no running item,
+        both give ``None``, so the abort that follows is never conditional on
+        the read having worked.
+
+        It waits as long as any other call in the composition does, bounded by
+        the client's own receive timeout, and is deliberately NOT wrapped in a
+        shorter cancellable wait. The client holds one request socket under a
+        lock and restores it after ITS OWN timeout, not after a cancellation:
+        abandoning a request early leaves that socket waiting for a reply
+        nobody will collect, and the next call — ``re_abort``, the discard
+        itself — fails on a socket the library must then rebuild. A shorter
+        bound would trade a slow halt for a failed one. Nothing is given up by
+        waiting, either: a manager that will not answer this read is a manager
+        that will not answer the discard.
+        """
+        try:
+            state = await self.items()
+        except QueueBackendError as exc:
+            logger.warning("could not read the plan being aborted, so it is unnamed: %s", exc)
+            return None
+        running_item = state.get("running_item")
+        return running_item if isinstance(running_item, dict) and running_item else None
 
     async def _pause_for_abort(self) -> str | None:
         """Drive the Run Engine to ``paused`` (or observe it go ``idle``).

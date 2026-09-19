@@ -168,6 +168,63 @@ def test_get_queue_relays_a_running_item_with_progress_verbatim() -> None:
     assert response.json()["running_item"]["progress"]["fraction"] is None
 
 
+def test_get_queue_removals_round_trips_body_and_status() -> None:
+    """The bridge's record of withdrawn queue work: a read like any other."""
+    log = [
+        {
+            "at": "2026-09-19T21:05:04.113217+00:00",
+            "action": "remove",
+            "owner": "anna",
+            "uid": "item-a",
+            "name": "count_scan",
+            "item_type": "plan",
+            "item_owner": "bob",
+            "run_id": "run-1",
+        }
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.method == "GET"
+        assert request.url.path == "/queue/removals"
+        return httpx.Response(200, json=log)
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/queue/removals")
+
+    assert response.status_code == 200
+    assert response.json() == log
+
+
+def test_get_queue_removals_never_sends_the_launch_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A read, so there is nothing to arm and no credential to send."""
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", TOKEN)
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json=[])
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        client.get("/queue/removals")
+
+    assert "x-launch-token" not in seen[0].headers
+
+
+def test_get_queue_removals_bridge_unreachable_returns_502() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("no route")
+
+    app = _build_app(handler)
+    with TestClient(app) as client:
+        response = client.get("/queue/removals")
+
+    assert response.status_code == 502
+
+
 def test_get_queue_never_sends_the_launch_token(monkeypatch: pytest.MonkeyPatch) -> None:
     """No read is ever arming-gated, so the credential has no business on one."""
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", TOKEN)
@@ -1049,6 +1106,7 @@ def test_router_exposes_exactly_the_bridge_queue_surface() -> None:
 
     assert paths == {
         "/queue": {"get"},
+        "/queue/removals": {"get"},
         "/queue/items": {"post", "delete"},
         "/queue/items/{uid}/move": {"post"},
         "/queue/items/{uid}": {"delete"},

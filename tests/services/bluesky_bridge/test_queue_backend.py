@@ -320,7 +320,16 @@ async def test_abort_pauses_immediately_then_aborts(fast_abort_backend) -> None:
 
     result = await fast_abort_backend(manager).abort()
 
-    assert manager.method_names() == ["status", "re_pause", "status", "re_abort", "status"]
+    # `queue_get` names the plan being stopped, and sits AFTER the pause: by
+    # then the hardware is held, so the read delays the unwind and not the stop.
+    assert manager.method_names() == [
+        "status",
+        "re_pause",
+        "status",
+        "queue_get",
+        "re_abort",
+        "status",
+    ]
     assert manager.kwargs_for("re_pause") == [{"option": "immediate"}]
     assert result["aborted"] is True
     assert result["paused_first"] is True
@@ -353,7 +362,7 @@ async def test_abort_skips_the_pause_when_the_engine_is_already_paused(
 
     result = await fast_abort_backend(manager).abort()
 
-    assert manager.method_names() == ["status", "re_abort", "status"]
+    assert manager.method_names() == ["status", "queue_get", "re_abort", "status"]
     assert result["paused_first"] is False
 
 
@@ -381,10 +390,50 @@ async def test_abort_retries_the_pause_across_the_starting_queue_window(
         "status",
         "re_pause",  # retried once it is executing
         "status",
+        "queue_get",  # names the paused plan, once the pause has landed
         "re_abort",
         "status",
     ]
     assert result["aborted"] is True
+
+
+async def test_abort_returns_the_plan_it_stopped(fast_abort_backend) -> None:
+    """``stopped_item`` is what lets a caller say WHICH plan was halted. It is
+    the manager's own object, arguments and all, so it is the caller's to shape
+    before it reaches anybody."""
+    running = {"item_uid": "u1", "name": "count_scan", "kwargs": {"detectors": ["det1"]}}
+    manager = FakeManager(
+        status=[status_doc(manager_state="paused"), status_doc(manager_state="idle")],
+        queue_get={"success": True, "items": [], "running_item": running},
+    )
+
+    result = await fast_abort_backend(manager).abort()
+
+    assert result["stopped_item"] == running
+
+
+@pytest.mark.parametrize(
+    "queue_get",
+    [
+        {"success": True, "items": [], "running_item": {}},
+        RequestFailedError("manager said no", {}),
+    ],
+    ids=["nothing-running-in-the-answer", "refused"],
+)
+async def test_an_unnamed_plan_never_holds_up_the_abort(fast_abort_backend, queue_get: Any) -> None:
+    """Whatever the read answers, the discard follows it: the read exists to
+    name the plan, and a stop that depended on naming it would be a stop with
+    one more failure mode."""
+    manager = FakeManager(
+        status=[status_doc(manager_state="paused"), status_doc(manager_state="idle")],
+        queue_get=queue_get,
+    )
+
+    result = await fast_abort_backend(manager).abort()
+
+    assert result["aborted"] is True
+    assert result["stopped_item"] is None
+    assert "re_abort" in manager.method_names()
 
 
 async def test_abort_refuses_when_nothing_is_running(fast_abort_backend) -> None:

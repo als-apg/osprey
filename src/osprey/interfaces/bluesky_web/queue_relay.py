@@ -9,6 +9,7 @@ pattern as those two.
 The relayed surface mirrors the bridge's queue contract one-for-one:
 
 - ``GET /queue`` -> ``{status, items, running_item}``
+- ``GET /queue/removals`` -> the queue work that has been withdrawn, newest first
 - ``POST /queue/items`` -> enqueue the shared draft at a pinned revision
 - ``POST /queue/items/{uid}/move`` -> reorder one queued item
 - ``DELETE /queue/items/{uid}`` -> drop one queued item
@@ -305,6 +306,19 @@ async def _forward_write(
 async def get_queue(request: Request) -> JSONResponse:
     """Relay the queue snapshot: status summary, pending items, running item."""
     return await _forward_get(request, "/queue")
+
+
+@router.get("/queue/removals")
+async def get_queue_removals(request: Request) -> JSONResponse:
+    """Relay the bridge's record of withdrawn queue work, newest first.
+
+    A read like every other read here: no launch token, no owner header, body
+    and status relayed verbatim. The names in the response were minted by the
+    bridge from what the auth gate matched, so nothing about who sees this list
+    is decided in this module — a viewer who may read the queue may read what
+    has left it.
+    """
+    return await _forward_get(request, "/queue/removals")
 
 
 @router.post("/queue/items")

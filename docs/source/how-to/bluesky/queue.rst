@@ -55,6 +55,14 @@ One queue, three ways to drive it
         the list, and the card's **Clear** removes them all after a
         confirming click; the Results view offers **Remove from history** for
         the run on screen. Run data is kept — see *Where the data lives*.
+      - Under those runs, History also lists **what was taken off the queue**
+        — one quiet row for every plan removed, whether one at a time or by
+        clearing the queue, and one for every plan aborted. Each gives the time
+        and the name of whoever asked. It is the only place a withdrawn plan is
+        still named: the queue server keeps no record of one. A row with no name
+        means the request authorised without naming anybody, which some do. The
+        rows are a record of what happened, and nothing on the queue is allowed
+        or refused because of them. The card's **Clear** empties both halves.
       - A **Simple mode** hides the expert details and leaves the essentials:
         the form, the queue, the results, and the halts.
 
@@ -94,9 +102,12 @@ One queue, three ways to drive it
                                     the queue it means — expected_plan_queue_uid)
          POST   /queue/stop         stop after the running item, and disarm
          POST   /queue/abort        abort the running plan, and disarm — never gated
+         DELETE /queue/items/<uid>  drop one waiting item
          DELETE /queue/items        drop every waiting item
          GET    /queue              what is queued and running, and the queue's own
                                     plan_queue_uid
+         GET    /queue/removals     what was taken off the queue, newest first,
+                                    and who asked (X-Osprey-Owner names the asker)
          GET    /runs               recent runs; /runs/<id>/data for the numbers,
                                     /runs/<id>/figure for the plotted view
          DELETE /runs/<id>          remove one finished run from the list
@@ -292,6 +303,10 @@ quirks worth knowing:
      Clearing the history clears the queue server's own record; removing one
      run hides it from OSPREY's list — the panel and the agent alike — and the
      bridge remembers that across its own restarts.
+   - **What was taken off the queue** is the bridge's own record and survives
+     its restarts too. The newest few hundred withdrawals are kept, and
+     clearing the history clears them along with the runs they are listed
+     beside.
 
 .. dropdown:: For deployers — what is running
    :color: info

@@ -48,9 +48,11 @@ import {
   haltsPinned,
   finishedRunId,
   historyChanged,
+  historyClearConfirmNote,
   historyClearControl,
   historyEmptyState,
   historyRecords,
+  removalRecords,
   itemParamSummary,
   itemRunId,
   moveDownBody,
@@ -548,23 +550,70 @@ describe('stripControls', () => {
 });
 
 describe('historyClearControl', () => {
+  const RUN = { id: 'r1', status: 'completed', planName: null, error: null };
+  const WITHDRAWAL = { at: '2026-09-19T21:05:00+00:00', time: '21:05', text: 'anna removed orm' };
+
   test('dead until history has been read, and with nothing listed', () => {
-    expect(historyClearControl([], false)).toEqual({
+    expect(historyClearControl([], [], false)).toEqual({
       disabled: true,
       reason: 'Completed runs could not be loaded.',
     });
-    expect(historyClearControl([], true)).toEqual({ disabled: true, reason: 'No completed runs.' });
+    expect(historyClearControl([], [], true)).toEqual({
+      disabled: true,
+      reason: 'Nothing listed.',
+    });
   });
 
   test('live once a completed run is listed', () => {
-    expect(historyClearControl([{ id: 'r1', status: 'completed', planName: null, error: null }], true)).toEqual({
+    expect(historyClearControl([RUN], [], true)).toEqual({ disabled: false, reason: null });
+  });
+
+  test('live on withdrawals alone — the one write behind it clears those too', () => {
+    expect(historyClearControl([], [WITHDRAWAL], true)).toEqual({ disabled: false, reason: null });
+  });
+
+  test('rows on screen beat an unread runs half: they are still removable', () => {
+    expect(historyClearControl([], [WITHDRAWAL], false)).toEqual({
       disabled: false,
       reason: null,
     });
   });
 });
 
+describe('historyClearConfirmNote', () => {
+  test('names the half that is there, singular and plural', () => {
+    expect(historyClearConfirmNote(1, 0)).toBe(
+      'Click again to remove the completed run from the list.'
+    );
+    expect(historyClearConfirmNote(3, 0)).toBe(
+      'Click again to remove all 3 completed runs from the list.'
+    );
+    expect(historyClearConfirmNote(0, 1)).toBe(
+      'Click again to remove the removed-plan row from the list.'
+    );
+    expect(historyClearConfirmNote(0, 2)).toBe(
+      'Click again to remove the 2 removed-plan rows from the list.'
+    );
+  });
+
+  test('names both halves when the card holds both', () => {
+    expect(historyClearConfirmNote(3, 2)).toBe(
+      'Click again to remove all 3 completed runs and the 2 removed-plan rows from the list.'
+    );
+  });
+
+  test('nothing listed has nothing to say', () => {
+    expect(historyClearConfirmNote(0, 0)).toBeNull();
+  });
+});
+
 describe('historyChanged: the bridge-owned key', () => {
+  test('a withdrawal moves queue_removals and no history key — still a re-fetch', () => {
+    expect(
+      historyChanged(summary({ queue_removals: 0 }), summary({ queue_removals: 1 }))
+    ).toBe(true);
+  });
+
   test('a run removed elsewhere moves runs_removed and nothing else — still a re-fetch', () => {
     expect(historyChanged(summary({ runs_removed: 0 }), summary({ runs_removed: 1 }))).toBe(true);
   });
@@ -1002,6 +1051,91 @@ describe('historyRecords', () => {
   test('a non-list response yields an empty list rather than throwing', () => {
     expect(historyRecords(null)).toEqual([]);
     expect(historyRecords({ detail: 'bluesky bridge unreachable' })).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Removal records — the withdrawn queue work listed under the completed runs
+// ---------------------------------------------------------------------------
+
+/** One record as `GET /queue/removals` serves it. */
+function removal(overrides = {}) {
+  return {
+    at: '2026-09-19T21:05:00+00:00',
+    action: 'remove',
+    owner: 'anna',
+    uid: 'item-a',
+    name: 'count_scan',
+    item_type: 'plan',
+    item_owner: 'bob',
+    run_id: 'run-1',
+    ...overrides,
+  };
+}
+
+describe('removalRecords', () => {
+  test('a removal names who did it and what they took', () => {
+    const [record] = removalRecords([removal()]);
+    expect(record.text).toBe('anna removed count_scan');
+  });
+
+  test('an abort says what it stopped, not what it removed', () => {
+    const [record] = removalRecords([removal({ action: 'abort' })]);
+    expect(record.text).toBe('anna aborted count_scan');
+  });
+
+  test('an owner-less record reads as the bare sentence, never as "unknown"', () => {
+    expect(removalRecords([removal({ owner: null })])[0].text).toBe('removed count_scan');
+    expect(removalRecords([removal({ owner: '' })])[0].text).toBe('removed count_scan');
+  });
+
+  test('a record with no plan name falls back to what its action says', () => {
+    const cleared = removalRecords([removal({ action: 'clear', name: null })])[0];
+    const aborted = removalRecords([removal({ action: 'abort', name: null })])[0];
+    const removed = removalRecords([removal({ name: null })])[0];
+    expect(cleared.text).toBe('anna cleared the queue');
+    expect(aborted.text).toBe('anna aborted the running plan');
+    expect(removed.text).toBe('anna removed a queued plan');
+  });
+
+  test("today's record shows the clock alone", () => {
+    // Built from local fields on both sides, so the row and the "now" it is
+    // compared against are in one zone whatever the machine's is.
+    const at = new Date(2026, 8, 19, 21, 5);
+    const [record] = removalRecords([removal({ at: at.toISOString() })], new Date(2026, 8, 19, 23, 0));
+    expect(record.time).toBe('21:05');
+  });
+
+  test('an older record carries its date, so yesterday cannot read as today', () => {
+    const at = new Date(2026, 8, 18, 21, 5);
+    const [record] = removalRecords([removal({ at: at.toISOString() })], new Date(2026, 8, 19, 0, 30));
+    expect(record.time).toBe('09-18 21:05');
+  });
+
+  test('the same clock time in another year is still dated', () => {
+    const at = new Date(2025, 8, 19, 21, 5);
+    const [record] = removalRecords([removal({ at: at.toISOString() })], new Date(2026, 8, 19, 21, 30));
+    expect(record.time).toBe('09-19 21:05');
+  });
+
+  test('unparseable stays empty rather than Invalid Date', () => {
+    expect(removalRecords([removal({ at: 'not a time' })])[0].time).toBe('');
+    expect(removalRecords([removal({ at: null })])[0].time).toBe('');
+  });
+
+  test('an action this panel cannot describe is skipped, not guessed at', () => {
+    expect(removalRecords([removal({ action: 'reordered' }), removal({ action: null })])).toEqual([]);
+  });
+
+  test('order is the bridge’s — newest first, untouched', () => {
+    const records = removalRecords([removal({ name: 'newest' }), removal({ name: 'oldest' })]);
+    expect(records.map((r) => r.text)).toEqual(['anna removed newest', 'anna removed oldest']);
+  });
+
+  test('a non-list response yields an empty list rather than throwing', () => {
+    expect(removalRecords(null)).toEqual([]);
+    expect(removalRecords({ detail: 'bluesky bridge unreachable' })).toEqual([]);
+    expect(removalRecords([null, 'junk'])).toEqual([]);
   });
 });
 
@@ -2585,14 +2719,54 @@ describe('booting the shipped bundle', () => {
 
     const before = fetchMock.mock.calls.length;
     removes[0].click();
-    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(before + 2));
+    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(before + 3));
     const [url, init] = fetchMock.mock.calls[before];
     expect(String(url)).toContain('/runs/r2');
     expect(init.method).toBe('DELETE');
-    // The list is re-read right away, not left to the next frame.
-    const [again, againInit] = fetchMock.mock.calls[before + 1];
-    expect(String(again)).toMatch(/\/runs$/);
-    expect(againInit?.method ?? 'GET').toBe('GET');
+    // The list is re-read right away, not left to the next frame — and the
+    // withdrawals listed under it are re-read in the same pass.
+    const followUps = fetchMock.mock.calls.slice(before + 1);
+    const reread = followUps.find(([again]) => /\/runs$/.test(String(again)));
+    expect(reread).toBeDefined();
+    expect(reread?.[1]?.method ?? 'GET').toBe('GET');
+    expect(followUps.some(([again]) => String(again).endsWith('/queue/removals'))).toBe(true);
+  });
+
+  test('a withdrawal is listed under the runs: no badge, no actions, nothing to open', async () => {
+    const fetchMock = vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
+      const method = init?.method || 'GET';
+      if (method === 'GET' && String(url).endsWith('/runs')) {
+        return { ok: true, status: 200, json: async () => HISTORY_RUNS };
+      }
+      if (method === 'GET' && String(url).endsWith('/queue/removals')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { at: '2026-09-19T21:05:00+00:00', action: 'remove', owner: 'anna', name: 'count_scan' },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    boot();
+    await import(`${BUNDLE}panel.js`);
+    const list = /** @type {any} */ (document.getElementById('history-items'));
+    await vi.waitFor(() => expect(list.querySelectorAll('.queue-row.removal')).toHaveLength(1));
+
+    const row = list.querySelector('.queue-row.removal');
+    // Either time shape: whether this fixed record is "today" depends on the
+    // day the suite runs, and the two shapes are pinned in the unit rows above.
+    expect(row.querySelector('.queue-time').textContent).toMatch(/^(\d{2}-\d{2} )?\d{2}:\d{2}$/);
+    expect(row.querySelector('.queue-name').textContent).toBe('anna removed count_scan');
+    // Not a run: nothing to select, nothing to open, no control on it.
+    expect(row.querySelector('button')).toBeNull();
+    expect(row.querySelector('.badge')).toBeNull();
+    expect(row.querySelector('[data-run-id]')).toBeNull();
+    // And it sits under the completed runs, not among them.
+    const rows = [...list.querySelectorAll('.queue-row')];
+    expect(rows[rows.length - 1]).toBe(row);
   });
 
   test('the history Clear is dead until runs are listed, then two clicks send DELETE /history', async () => {
@@ -2614,6 +2788,44 @@ describe('booting the shipped bundle', () => {
 
     clearBtn.click();
     expect(clearBtn.textContent).toBe(CLEAR_LABEL);
+    await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(before + 1));
+    const [url, init] = fetchMock.mock.calls[before];
+    expect(String(url)).toMatch(/\/history$/);
+    expect(init.method).toBe('DELETE');
+  });
+
+  test('withdrawals alone keep the Clear live, and the note says what goes', async () => {
+    const fetchMock = vi.fn(async (/** @type {any} */ url, /** @type {any} */ init) => {
+      const method = init?.method || 'GET';
+      if (method === 'GET' && String(url).endsWith('/runs')) {
+        return { ok: true, status: 200, json: async () => [] };
+      }
+      if (method === 'GET' && String(url).endsWith('/queue/removals')) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            { at: '2026-09-19T21:05:00+00:00', action: 'remove', owner: 'anna', name: 'orm' },
+            { at: '2026-09-19T21:00:00+00:00', action: 'abort', owner: 'bob', name: 'orm' },
+          ],
+        };
+      }
+      return { ok: true, status: 200, json: async () => ({}) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    boot();
+    await import(`${BUNDLE}panel.js`);
+    const clearBtn = /** @type {any} */ (document.getElementById('history-clear-btn'));
+
+    // No completed runs at all, and the Clear is still the way these rows go.
+    await vi.waitFor(() => expect(clearBtn.disabled).toBe(false));
+    clearBtn.click();
+    expect(document.getElementById('history-clear-note')?.textContent).toBe(
+      'Click again to remove the 2 removed-plan rows from the list.'
+    );
+
+    const before = fetchMock.mock.calls.length;
+    clearBtn.click();
     await vi.waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(before + 1));
     const [url, init] = fetchMock.mock.calls[before];
     expect(String(url)).toMatch(/\/history$/);

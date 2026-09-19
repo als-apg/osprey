@@ -72,6 +72,17 @@ a failed run.
 A deployment whose capability record says it cannot execute (mock connector,
 unreadable config, no manager) refuses enqueue outright — a browse-only
 deployment must never hold queue items it can never run.
+
+**Who a write is for.** ``X-Osprey-Owner`` names the person a request is made
+for, read through `owner_from_header` and never from a body field. The add
+stamps it onto the item, so the plan runs under that person's narrowing. The
+three routes that take work off the queue — the single removal, the clear and
+the abort — record it instead, in `queue_removals.py`, and `GET
+/queue/removals` serves that log: the manager keeps no record of a removal at
+all, so without this a withdrawn row simply stops existing. Recording happens
+only after the manager has acted, and can never fail the write. The header
+gates nothing anywhere: attribution is not authorization, and no route here
+does more, less, or anything different because a request named somebody.
 """
 
 from __future__ import annotations
@@ -112,6 +123,7 @@ from .queue_backend import (
     run_id_of,
     split_owner,
 )
+from .queue_removals import ACTION_ABORT, ACTION_CLEAR, ACTION_REMOVE, removal_log
 from .security import verify_launch_token
 from .session_upload import (
     SessionPlanNotReadyError,
@@ -784,15 +796,22 @@ async def _check_devices_exist(
 def _status_summary(status: dict[str, Any]) -> dict[str, Any]:
     """The bounded, diffable projection of a manager status document.
 
-    ``runs_removed`` is the one key that is the bridge's, not the manager's:
-    how many history runs `DELETE /runs/{id}` has hidden from the OSPREY view.
-    It is in the summary so a removal moves the diff and every subscriber
-    re-reads history — the manager's own uids do not move for it.
+    Two keys are the bridge's, not the manager's, and both are here for the
+    same reason: a change the manager's own uids do not move still has to reach
+    every subscriber, and the summary diff is what wakes them.
+
+    - ``runs_removed`` — how many history runs `DELETE /runs/{id}` has hidden
+      from the OSPREY view.
+    - ``queue_removals`` — how many withdrawals the removal log holds. A queue
+      removal does move the manager's queue uid, but a panel listing those
+      withdrawals beside the completed runs watches the HISTORY keys, which a
+      removal from the pending queue leaves exactly where they were.
     """
     summary: dict[str, Any] = {"available": True}
     for key in _SUMMARY_KEYS:
         summary[key] = status.get(key)
     summary["runs_removed"] = len(removed_runs())
+    summary["queue_removals"] = len(removal_log())
     return summary
 
 
@@ -802,6 +821,7 @@ def _unavailable_summary(reason: str) -> dict[str, Any]:
     for key in _SUMMARY_KEYS:
         summary[key] = None
     summary["runs_removed"] = None
+    summary["queue_removals"] = None
     return summary
 
 
@@ -1240,6 +1260,11 @@ def _added_item_uid(add_result: dict[str, Any]) -> str | None:
 async def _remove_item_best_effort(backend: QueueBackend, uid: str | None) -> bool:
     """Undo an unarmed add the re-check refused. Never raises.
 
+    Not an operator withdrawing work, so it appends nothing to the removal log:
+    the item it drops is one this same request added moments earlier and the
+    caller is told the enqueue was refused. A record of it would report a
+    removal nobody made, of work nobody ever had.
+
     Returns True only when the item is verifiably gone. False means an
     unarmed item may remain in an armed queue — the lock guarantees no
     *bridge*-side start raced this add, so reaching that state implies an
@@ -1258,6 +1283,50 @@ async def _remove_item_best_effort(backend: QueueBackend, uid: str | None) -> bo
         logger.error("failed to remove item %s after the arming re-check refused it: %s", uid, exc)
         return False
     return True
+
+
+def _record_removal(action: str, owner: str | None, item: Any = None) -> None:
+    """Append one withdrawal to the removal log. Never raises.
+
+    Recording is what the deployment learns from a removal, not part of
+    performing it: the manager has already dropped the item by the time this
+    runs, and a log that could turn a delivered removal into an HTTP failure
+    would be worse than a log with a gap in it. A failure is therefore a
+    warning and the route answers success.
+    """
+    try:
+        removal_log().append(action, owner, item)
+    except Exception as exc:  # noqa: BLE001 - a record must not fail the write
+        logger.warning("could not record a %s on the queue removal log: %s", action, exc)
+
+
+async def _pending_items_best_effort(backend: QueueBackend) -> list[Any] | None:
+    """The pending items as the manager holds them, or ``None`` if it did not say.
+
+    Read for the removal log alone, so every failure answers ``None`` rather
+    than raising: a clear that the manager will perform must not be refused
+    because the list it is about to drop could not be listed first.
+    """
+    try:
+        state = await backend.items()
+    except QueueBackendError as exc:
+        logger.warning("queue read before a clear failed, so the clear is recorded bare: %s", exc)
+        return None
+    items = state.get("items")
+    return list(items) if isinstance(items, list) else None
+
+
+@router.get("/queue/removals")
+async def list_queue_removals() -> list[dict[str, Any]]:
+    """The queue work that has been withdrawn, newest first.
+
+    Reads the bridge's own log (`queue_removals.py`) and nothing else — the
+    manager keeps no record of a removal, which is the whole reason this
+    surface exists. Bounded by the log itself, so the response size does not
+    grow with the deployment's age, and served without touching the manager,
+    so it answers while the manager is down.
+    """
+    return removal_log().records()
 
 
 @router.post("/queue/items/{uid}/move")
@@ -1287,21 +1356,33 @@ async def move_queue_item(uid: str, body: QueueMoveRequest) -> dict[str, Any]:
 
 
 @router.delete("/queue/items/{uid}")
-async def remove_queue_item(uid: str) -> dict[str, Any]:
+async def remove_queue_item(
+    uid: str,
+    x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
+) -> dict[str, Any]:
     """Drop one queued item. Ungated: removing pending work arms nothing.
 
     Held under ``_arming_lock`` for the reason a move is: a removal changes the
     list a bound start named, so it may not land inside that start's critical
     section.
+
+    Who asked is read from ``X-Osprey-Owner``, through `owner_from_header` and
+    from nowhere else, exactly as an enqueue reads it — a name refused there
+    costs the attribution and not the removal, and a missing header is the
+    ordinary owner-less call. The record is appended after the manager has
+    answered, so a refused or failed removal records nothing: this log says
+    what happened to the queue, and a removal that did not happen is not it.
     """
+    owner = owner_from_header(x_osprey_owner)
     backend = _get_backend()
     try:
         async with _arming_lock:
             result = await backend.remove(uid)
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
-    _notify_change()
     removed_item = result.get("item")
+    _record_removal(ACTION_REMOVE, owner, removed_item)
+    _notify_change()
     return {
         "removed": True,
         "item": _public_item(removed_item) if isinstance(removed_item, dict) else None,
@@ -1480,7 +1561,9 @@ async def stop_queue(
 
 
 @router.post("/queue/abort")
-async def abort_running_plan() -> dict[str, Any]:
+async def abort_running_plan(
+    x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
+) -> dict[str, Any]:
     """Abort the plan running RIGHT NOW. Completely ungated.
 
     The emergency halt, and the only OSPREY surface that stops a plan already
@@ -1526,7 +1609,21 @@ async def abort_running_plan() -> dict[str, Any]:
     The SSE poller is nudged as usual; an abort moves ``manager_state``,
     ``running_item_uid`` and the history keys, so the change reaches panels
     within one tick either way.
+
+    WHO STOPPED IT is read from ``X-Osprey-Owner`` like every other queue
+    write, and recorded once the manager has accepted the abort — a refused
+    abort stopped nothing and records nothing. WHAT was stopped comes back as
+    ``stopped_item``, which `QueueBackend.abort` reads between the pause and
+    the discard, where the hardware is already held and nothing can be delayed
+    but the unwind. Nothing on this route precedes the pause.
+
+    ``stopped_item`` is the manager's own object and still carries the plan's
+    arguments and the reserved owner kwarg, so it is popped off before the
+    result becomes the response body: it feeds the record and reaches no
+    client. The response shape is the one `queue_relay` and the panels already
+    read, unchanged.
     """
+    owner = owner_from_header(x_osprey_owner)
     backend = _get_backend()
     try:
         result = await backend.abort()
@@ -1535,6 +1632,7 @@ async def abort_running_plan() -> dict[str, Any]:
         # pause can land before the plan ends); let the poller re-read.
         _notify_change()
         raise _http_error(exc) from exc
+    _record_removal(ACTION_ABORT, owner, result.pop("stopped_item", None))
     # The manager disarms itself when a plan is aborted; this is the same
     # disarm said explicitly, so the requeued copy of the aborted plan cannot
     # be picked up by an autostart the manager had not yet cleared. Best
@@ -1548,7 +1646,9 @@ async def abort_running_plan() -> dict[str, Any]:
 
 
 @router.delete("/queue/items")
-async def clear_queue_items() -> dict[str, Any]:
+async def clear_queue_items(
+    x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
+) -> dict[str, Any]:
     """Drop every PENDING item. Ungated: removing pending work arms nothing.
 
     The running item, if any, is untouched — halting it is `POST /queue/abort`.
@@ -1556,13 +1656,29 @@ async def clear_queue_items() -> dict[str, Any]:
     Held under ``_arming_lock`` for the reason a move and a removal are: an
     emptied queue is the largest change a bound start's named list can undergo,
     and it may not land inside that start's critical section.
+
+    The manager's own reply to a clear names nothing it dropped, so the items
+    are read INSIDE the lock, immediately before the clear, and the removal log
+    gets one record per item — a clear reads as the several withdrawals it is,
+    not as one event whose contents an operator has to reconstruct. The lock is
+    what makes that read honest: every bridge-side add, move, remove and start
+    waits behind it, so nothing this bridge does can change the list between
+    the read and the clear. A read the manager refuses costs the detail and not
+    the clear: one record is then written naming the action alone.
     """
+    owner = owner_from_header(x_osprey_owner)
     backend = _get_backend()
     try:
         async with _arming_lock:
+            dropped = await _pending_items_best_effort(backend)
             result = await backend.clear()
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
+    if dropped is None:
+        _record_removal(ACTION_CLEAR, owner)
+    else:
+        for item in dropped:
+            _record_removal(ACTION_CLEAR, owner, item)
     _notify_change()
     return {"cleared": True, "msg": str(result.get("msg") or "")}
 
@@ -1574,7 +1690,10 @@ async def clear_history() -> dict[str, Any]:
     The running item and the pending queue are untouched. The runs' data stays
     in Tiled — this forgets the manager's record of them, nothing more. The
     OSPREY-side removals (`DELETE /runs/{id}`) are emptied with it, since the
-    entries they masked are gone.
+    entries they masked are gone. So is the queue removal log, for the reason
+    that makes this route worth pressing: it empties the history an operator is
+    looking at, and a panel that listed withdrawn work beside the completed runs
+    would go on listing it after the list was cleared.
     """
     backend = _get_backend()
     try:
@@ -1582,6 +1701,7 @@ async def clear_history() -> dict[str, Any]:
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
     removed_runs().clear()
+    removal_log().clear()
     _notify_change()
     return {"cleared": True, "msg": str(result.get("msg") or "")}
 

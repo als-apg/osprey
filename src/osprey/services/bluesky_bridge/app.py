@@ -321,7 +321,8 @@ app = FastAPI(title="OSPREY Bluesky Bridge", lifespan=_lifespan)
 app.include_router(draft.router)
 
 # The queue surface (`GET /queue`, `POST /queue/items`, move/remove, token-
-# gated `POST /queue/start`, `POST /queue/stop`, `GET /queue/events` SSE) is
+# gated `POST /queue/start`, `POST /queue/stop`, `GET /queue/events` SSE,
+# `GET /queue/removals`) is
 # its own self-contained module for the same reason the draft is: its arming
 # lock, SSE poller, and last-status cache belong together. It reaches back
 # into this module only through `get_queue_backend()`, the process's single

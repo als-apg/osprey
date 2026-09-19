@@ -692,7 +692,12 @@ def test_the_queue_read_publishes_a_bounded_status_summary(
     assert set(body) == {"status", "items", "running_item"}
     assert [item["item_uid"] for item in body["items"]] == ["item-1"]
     assert body["running_item"] is None
-    assert set(body["status"]) == {"available", "runs_removed", *queue._SUMMARY_KEYS}
+    assert set(body["status"]) == {
+        "available",
+        "runs_removed",
+        "queue_removals",
+        *queue._SUMMARY_KEYS,
+    }
     assert body["status"]["available"] is True
     assert body["status"]["items_in_queue"] == 1
     assert "zmq_secret_key" not in json.dumps(body)
@@ -1213,7 +1218,14 @@ async def test_every_mutation_route_waits_on_the_module_arming_lock_itself(
 
     for task in tasks:
         await asyncio.wait_for(task, timeout=5)
-    assert sorted(mock.method_names()) == ["item_move", "item_remove", "queue_clear"]
+    # `queue_get` is the clear's: it lists what it is about to drop so the
+    # removal log can name each item, and it waits on the same lock.
+    assert sorted(mock.method_names()) == [
+        "item_move",
+        "item_remove",
+        "queue_clear",
+        "queue_get",
+    ]
     assert mock.items == []
 
 
@@ -1260,7 +1272,12 @@ def _assert_snapshot_frame(frame: dict[str, Any]) -> None:
     """Every frame on this stream is a full snapshot in one fixed shape."""
     assert set(frame) == {"type", "status", "items", "running_item"}
     assert frame["type"] in ("hello", "queue")
-    assert set(frame["status"]) == {"available", "runs_removed", *queue._SUMMARY_KEYS}
+    assert set(frame["status"]) == {
+        "available",
+        "runs_removed",
+        "queue_removals",
+        *queue._SUMMARY_KEYS,
+    }
     assert frame["status"]["available"] is True
     # Negative control: a snapshot is never a refusal, and never leaks the raw
     # status document's 0MQ material.
@@ -2203,6 +2220,12 @@ def test_no_route_of_this_surface_puts_the_reserved_owner_kwarg_on_the_wire(
     drive("POST", "/queue/stop", json={})
     drive("POST", "/queue/abort")
     drive("DELETE", "/queue/items")
+    # Read after the withdrawals above, so the log it serves is not empty. A
+    # record names the plan and the owner it was enqueued under, which is the
+    # reserved kwarg's value reached by the one path that may publish it — the
+    # walk proves the kwarg itself is not among what a record carries.
+    withdrawn = drive("GET", "/queue/removals").json()
+    assert "bob" in {record["item_owner"] for record in withdrawn}
     drive("DELETE", "/runs/{run_id}", url=f"/runs/{run_id}")
     drive("DELETE", "/history")
 
