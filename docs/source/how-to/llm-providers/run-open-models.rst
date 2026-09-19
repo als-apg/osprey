@@ -92,12 +92,7 @@ wires the judge, and runs one isolated worker per (model, seed) cell. Adding a
 model — or a provider like the local DeepSeek (``ds4``) server — is a config
 edit, not a script edit.
 
-Each cell runs ``pytest tests/e2e/``, so the dev dependencies have to be
-installed first:
-
 .. code-block:: bash
-
-   uv sync --extra dev
 
    # see the resolved plan without running anything
    scripts/benchmark/matrix.py --dry-run
