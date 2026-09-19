@@ -95,13 +95,17 @@ SERVICE_PORT_KEYS = (
 
 #: The compose file each store/service publishes from, so the compose half can
 #: be read back per service rather than as one undifferentiated pile.
+#:
+#: The dispatch pair is absent because it publishes nothing: it runs in the host
+#: namespace, where the container's listening socket IS a host socket and there
+#: is no port map to publish. Its half of the agreement is the port it binds,
+#: asserted on its own below.
 SERVICE_COMPOSE_DIRS = (
     "postgresql",
     "mongodb",
     "graphdb",
     "openobserve",
     "qmd",
-    "event_dispatcher",
     "bluesky",
     "bluesky_web",
 )
@@ -449,6 +453,25 @@ class TestTheComposeHalfAgrees:
             f"{service_dir} publishes {sorted(set(published) - named)}, "
             f"which build/config.yml does not name"
         )
+
+    def test_the_host_mode_dispatch_pair_binds_what_the_config_names(
+        self, dotted_render: Rendered
+    ) -> None:
+        """The pair's half of the agreement is a bind, not a publish.
+
+        In the host namespace there is no port map to compare, so the number
+        that has to follow the base is the one each half is told to listen on.
+        A pair that published anything here would be a render that kept a
+        ``ports:`` block compose rejects outright.
+        """
+        assert dotted_render.published("event_dispatcher") == []
+        assert dotted_render.published("dispatch_worker") == []
+
+        dispatcher = dotted_render.composes["event_dispatcher"]["services"]["event-dispatcher"]
+        assert dispatcher["environment"]["FASTMCP_PORT"] == str(_slot_port("dispatcher"))
+
+        worker = dotted_render.composes["dispatch_worker"]["services"]["dispatch-worker-1"]
+        assert worker["environment"]["DISPATCH_WORKER_PORT"] == str(_slot_port("worker", 1))
 
 
 # ── The panel half ───────────────────────────────────────────────────────────

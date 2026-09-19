@@ -58,6 +58,15 @@ is allowed to do with a chat question:
        - NEXTCLOUD_APP_PASSWORD
        - NEXTCLOUD_ROOMS
 
+.. note::
+
+   The bridge and the dispatch pair must sit on the same network. Workers go on
+   the host's network whenever the agent has to reach a control system or a
+   co-deployed bridge at a loopback address (:ref:`deployment-network-attachment`),
+   and this bridge then has to move with them: add
+   ``services.nextcloud_bridge.network: host`` to your profile's ``config:``
+   block. ``osprey build`` refuses a split pair and names the key to change.
+
 Rooms and credentials are **not** profile settings. They are runtime values you
 supply, because they differ per deployment and the password must never be baked
 into a build. Listing them under ``env.required`` documents them in

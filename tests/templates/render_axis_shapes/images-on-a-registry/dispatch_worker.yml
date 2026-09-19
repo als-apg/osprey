@@ -154,6 +154,22 @@ services:
       # which is right from the host and wrong from here.
       OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
       OSPREY_OTEL_OPENOBSERVE_PORT: "5080"
+      # The plan queue's bridge, by its in-network compose service key — the
+      # same address the Bluesky sidecar is handed. Without it the agent this
+      # worker runs falls back to the loopback URL of the bridge's PUBLISHED
+      # port, which from this network namespace is this container's own, and
+      # every queue call is refused on connect.
+      #
+      # A LITERAL address, so it is gated on this project deploying the bridge
+      # for the same reason the archiver link below is: a deployment whose
+      # queue is a bridge someone else runs has a config block that is already
+      # right from anywhere, and `bluesky-bridge` would resolve to nothing.
+      #
+      # Bridge arm only. On the host namespace the published port is reachable
+      # on loopback, which is what the config block already says, and a compose
+      # DNS name rendered into a host-mode service is refused by the build's
+      # cross-boundary check.
+      BLUESKY_BRIDGE_URL: http://bluesky-bridge:10080
 
       # `archiver-mongodb` is the store's network alias, pinned in the mongodb
       # template precisely so this name survives the per-project container_name;

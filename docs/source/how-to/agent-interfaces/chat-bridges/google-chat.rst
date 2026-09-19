@@ -57,6 +57,15 @@ allowed to do with a chat question — and the block is only meaningful next to 
        - GCHAT_SUBSCRIPTION
        - GCHAT_APP_ID
 
+.. note::
+
+   The bridge and the dispatch pair must sit on the same network. Workers go on
+   the host's network whenever the agent has to reach a control system or a
+   co-deployed bridge at a loopback address (:ref:`deployment-network-attachment`),
+   and this bridge then has to move with them: add
+   ``services.gchat_bridge.network: host`` to your profile's ``config:`` block.
+   ``osprey build`` refuses a split pair and names the key to change.
+
 The queue, the service-account key and the bucket for files are **not** profile
 settings. Which queue this deployment reads, which key file it signs in with,
 and which storage bucket files are published through all differ per deployment —

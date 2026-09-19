@@ -1461,6 +1461,71 @@ def test_worker_archiver_link_stays_gated_on_a_deployed_store(network: str | Non
     assert "OSPREY_ARCHIVER_MONGODB_HOST" not in rendered
 
 
+def test_worker_plan_queue_link_names_the_bridge_service_on_the_bridge() -> None:
+    """On the compose network the queue is reached by the bridge's service key.
+
+    Left unset, the agent this worker runs falls back to the loopback URL of the
+    bridge's published port, which inside a network-joined container is that
+    container's own — so every queue call is refused on connect.
+    """
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=["bluesky"],
+        services_extra={"bluesky": {"port": 10080}},
+    )
+    environment = _worker_service(rendered)["environment"]
+
+    assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
+
+
+def test_worker_plan_queue_link_covers_a_second_lane() -> None:
+    """Each deployed lane is addressed under its own env prefix.
+
+    Two lanes are two bridges, and a worker handed only lane one would queue
+    against the wrong machine or against nothing at all.
+    """
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=["bluesky", "bluesky_va"],
+        services_extra={"bluesky": {"port": 10080}, "bluesky_va": {"port": 10081}},
+    )
+    environment = _worker_service(rendered)["environment"]
+
+    assert environment["BLUESKY_BRIDGE_URL"] == "http://bluesky-bridge:10080"
+    assert environment["BLUESKY_VA_BRIDGE_URL"] == "http://bluesky-va-bridge:10081"
+
+
+def test_worker_plan_queue_link_is_absent_on_the_host_namespace() -> None:
+    """Host mode needs no link, and a compose DNS name there is refused.
+
+    From the host namespace the bridge answers on the port it publishes, which
+    is what the config block already says; a compose service name rendered into
+    a host-mode service fails the build's own cross-boundary check.
+    """
+    rendered = _render_worker_template(
+        env_present=True,
+        deployed_services=["bluesky", "bluesky_va"],
+        dispatch_worker={"network": "host"},
+        services_extra={"bluesky": {"port": 10080}, "bluesky_va": {"port": 10081}},
+    )
+
+    assert "BLUESKY_BRIDGE_URL" not in rendered
+    assert "BLUESKY_VA_BRIDGE_URL" not in rendered
+
+
+@pytest.mark.parametrize("network", [None, "host"])
+def test_worker_plan_queue_link_stays_gated_on_a_deployed_bridge(network: str | None) -> None:
+    """A facility-run bridge's config block is already right from anywhere.
+
+    Naming ``bluesky-bridge`` for a queue this project does not deploy would
+    send the worker to a name that resolves to nothing, in either mode.
+    """
+    rendered = _render_worker_template(
+        env_present=True, dispatch_worker={} if network is None else {"network": network}
+    )
+    assert "BLUESKY_BRIDGE_URL" not in rendered
+
+
 @pytest.mark.parametrize("network", [None, "host"])
 def test_worker_carries_the_env_digest_label(network: str | None) -> None:
     """The chain's content hash rides in as a label, in both modes.

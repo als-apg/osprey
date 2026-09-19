@@ -366,6 +366,22 @@ values live in ``.env`` / ``.env.shared`` and rotate with an edit and a restart.
 The worker gets the same list as the dispatcher: a run acting on what a trigger
 saw has to be able to see it too.
 
+The worker's own reach is a separate question, and it is a network one. A
+dispatched job runs the same OSPREY agent a web terminal runs, so it reaches
+the control system and the plan queue at whatever addresses your deployment was
+written with. When those are this machine's own — a control system, a Bluesky
+bridge or an archiver running beside the stack — the pair belongs on the host's
+network::
+
+   dispatch:
+     network: host
+     triggers: my_triggers.yml
+
+Without it a job runs, the agent answers, and every write and every queue call
+is refused on connect: inside a container on the compose network, ``localhost``
+is the container. See :ref:`deployment-network-attachment` for what that
+setting changes and what has to move with it.
+
 .. _event-dispatch-auth:
 
 Authentication
