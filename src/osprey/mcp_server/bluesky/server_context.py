@@ -387,8 +387,10 @@ def _with_owner(headers: dict[str, str] | None) -> dict[str, str] | None:
     ceiling however its owner had narrowed their own writes.
 
     Every write this server sends the bridge carries it — the add, the start,
-    the halt, the abort, the removal — which is why it is composed here beside
-    the HTTP primitives rather than in any one tool module. The other door onto
+    the halt, the abort, the removal, the draft edit and the draft discard —
+    which is why it is composed here beside the HTTP primitives rather than in
+    any one tool module. A write that named nobody among writes that name
+    somebody is the one shape this placement rules out. The other door onto
     the same bridge, the web sidecar's queue relay, stamps every write it
     forwards; two doors that named their callers differently would make the
     deployment's record of a change depend on which one it came through.
