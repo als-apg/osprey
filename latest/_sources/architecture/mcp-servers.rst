@@ -3,7 +3,7 @@ MCP Servers
 
 OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
-servers. The Osprey agent discovers servers from ``.mcp.json`` at startup and calls
+servers. The OSPREY agent discovers servers from ``.mcp.json`` at startup and calls
 tools via stdio JSON-RPC. The **10 core in-tree servers** below are the ones a
 deployment normally renders; build profiles can inject additional servers beyond
 them.

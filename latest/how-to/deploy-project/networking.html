@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -554,6 +554,21 @@ so a dispatcher on the compose network and workers on the host’s could not
 reach each other at all. Writing <code class="docutils literal notranslate"><span class="pre">network:</span></code> on <code class="docutils literal notranslate"><span class="pre">services.event_dispatcher</span></code>
 or <code class="docutils literal notranslate"><span class="pre">services.dispatch_worker</span></code> individually is rejected by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>,
 which tells you to set <code class="docutils literal notranslate"><span class="pre">dispatch.network</span></code> instead.</p>
+<p>A dispatch worker is the usual reason to reach for the host namespace. The
+worker runs the same OSPREY agent a web terminal runs, so it reaches the
+control system and the plan queue at the addresses the deployment was written
+with — and on a deployment that runs those beside it, those addresses are this
+machine’s own <code class="docutils literal notranslate"><span class="pre">localhost</span></code>. Inside a container on the compose network that
+name means the container, so writes and queue calls are refused on connect
+while every health check still passes. Put the pair on the host network and
+the addresses mean what they say. The bundled <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset does
+exactly that, and any profile that keeps a control system or a co-deployed
+bridge at a loopback address should too.</p>
+<p>A worker kept on the compose network still reaches a plan queue this project
+deploys: OSPREY hands it the bridge’s in-network address instead. The control
+system is the half with no such answer, because one connector block is read by
+every consumer at once — the host-networked terminals included — so there is no
+address that is right for the worker and for them at the same time.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 400" role="img" aria-labelledby="network-attachment-title network-attachment-desc">
   <title id="network-attachment-title">Bridge and host network attachment compared</title>

@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -583,7 +583,12 @@ beside it explains the buttons.</p>
 screen after a confirming click, and it runs now. On a stopped queue
 the same button reads <strong>Add to queue</strong>: the plan waits.</p></li>
 <li><p><strong>Start</strong> (BLUESKY, Queue tab) — arms a stopped queue: it runs
-everything waiting, in order, and whatever is added later.</p></li>
+everything waiting, in order, and whatever is added later. It starts
+the queue you are looking at. If the list moved between your glance and
+your click the start is refused with the bridge’s own sentence, and
+nothing is started. The panel’s live stream brings the new list in, and
+a click sends whatever the stream has delivered by then — so a click
+that follows the refusal immediately can meet it a second time.</p></li>
 <li><p><strong>Stop</strong> and <strong>Abort</strong> (BLUESKY) — never disabled. Stop lets the
 current plan finish; Abort stops it right now, after a second,
 confirming click. Both leave the queue stopped. They sit on the Queue
@@ -597,6 +602,14 @@ is editable right up until it runs.</p></li>
 the list, and the card’s <strong>Clear</strong> removes them all after a
 confirming click; the Results view offers <strong>Remove from history</strong> for
 the run on screen. Run data is kept — see <em>Where the data lives</em>.</p></li>
+<li><p>Under those runs, History also lists <strong>what was taken off the queue</strong>
+— one quiet row for every plan removed, whether one at a time or by
+clearing the queue, and one for every plan aborted. Each gives the time
+and the name of whoever asked. It is the only place a withdrawn plan is
+still named: the queue server keeps no record of one. A row with no name
+means the request authorised without naming anybody, which some do. The
+rows are a record of what happened, and nothing on the queue is allowed
+or refused because of them. The card’s <strong>Clear</strong> empties both halves.</p></li>
 <li><p>A <strong>Simple mode</strong> hides the expert details and leaves the essentials:
 the form, the queue, the results, and the halts.</p></li>
 </ul>
@@ -631,17 +644,31 @@ HTTP API</label><div class="sd-tab-content docutils">
 own tooling can too:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>POST   /queue/items        add the current draft revision (runs at once
                            on an armed queue — then needs the launch token)
-POST   /queue/start        arm the queue (needs the launch token)
+POST   /queue/start        arm the queue (needs the launch token; may name
+                           the queue it means — expected_plan_queue_uid)
 POST   /queue/stop         stop after the running item, and disarm
 POST   /queue/abort        abort the running plan, and disarm — never gated
+DELETE /queue/items/&lt;uid&gt;  drop one waiting item
 DELETE /queue/items        drop every waiting item
-GET    /queue              what is queued and running
+GET    /queue              what is queued and running, and the queue&#39;s own
+                           plan_queue_uid
+GET    /queue/removals     what was taken off the queue, newest first,
+                           and who asked (X-Osprey-Owner names the asker)
 GET    /runs               recent runs; /runs/&lt;id&gt;/data for the numbers,
                            /runs/&lt;id&gt;/figure for the plotted view
 DELETE /runs/&lt;id&gt;          remove one finished run from the list
 DELETE /history            remove every finished run from the list
 </pre></div>
 </div>
+<p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/queue/start</span></code> takes one optional body field,
+<code class="docutils literal notranslate"><span class="pre">expected_plan_queue_uid</span></code>: the <code class="docutils literal notranslate"><span class="pre">plan_queue_uid</span></code> that <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/queue</span></code>
+reported when you last read it. Sending it back means <em>start this
+queue</em>. If an item was added, removed or re-ordered in between, the start
+is refused with <code class="docutils literal notranslate"><span class="pre">409</span> <span class="pre">queue_changed_since_approval</span></code> and nothing is
+started. The refusal reports the queue’s current uid so a client can say
+what moved; it is not a uid to start with. Read <code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/queue</span></code> again, let
+somebody look at what it now holds, and send the uid from that read. Omit
+the field and the start arms whatever is queued now.</p>
 <p>Every refusal comes back with a <code class="docutils literal notranslate"><span class="pre">detail</span></code> object of the form
 <code class="docutils literal notranslate"><span class="pre">{&quot;code&quot;:</span> <span class="pre">...,</span> <span class="pre">&quot;detail&quot;:</span> <span class="pre">...}</span></code> — a stable code for software to
 branch on, a sentence for a human to read. The panels and the agent
@@ -720,6 +747,34 @@ for the live one. Where it is granted, the agent’s
 is the arming decision. Where it is not, <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> is refused with
 <code class="docutils literal notranslate"><span class="pre">launch_token_required</span></code> and the start stays with you, from the BLUESKY
 queue panel’s own <strong>Start</strong> button.</p>
+<p class="sd-card-text">What you approve when you approve a start is <strong>the queue you were shown</strong>.
+The prompt lists it and records which queue it listed, for that session and
+that lane; the tool quotes it back, and the bridge refuses the start if an
+item was added, removed or re-ordered in between
+(<code class="docutils literal notranslate"><span class="pre">queue_changed_since_approval</span></code>). Nothing is started and nothing is
+re-bound to the new list — a queue you never saw is not a queue you
+approved. Read the queue again, see what it now holds, and start again,
+which puts a fresh prompt in front of you. A prompt that had no queue to
+list binds nothing, and its start runs the queue as it stands.</p>
+<p class="sd-card-text">Listing the queue means reading it over the bridge while you wait, so the
+two arming prompts — <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> and <code class="docutils literal notranslate"><span class="pre">queue_start</span></code> — are given 30
+seconds where the other prompts are given five. The listing itself stops at
+around 20 of those; the rest is headroom, so a slow bridge costs you some of
+the detail rather than the prompt.</p>
+<p class="sd-card-text">A plan is also bound to <strong>whoever queued it</strong>. Queued through one of
+OSPREY’s named doors — the PLAN tab, the BLUESKY panel in its web-terminal
+tab, the agent’s <code class="docutils literal notranslate"><span class="pre">queue_add</span></code> — onto a lane this deployment runs, a plan
+carries that person’s name, and its writes obey their own read-only
+narrowing from the header chip (<a class="reference internal" href="../web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>)
+wherever the plan runs.</p>
+<p class="sd-card-text">Not every route in is a named one. The same panel served at an address of
+its own is a service door rather than a terminal, and a login there names
+nobody. The queue server, in turn, is the facility’s rather than OSPREY’s,
+so a plan can reach it without passing an OSPREY door at all. Either way the
+plan carries whatever name it claims, or none, and runs at the lane’s
+ceiling — what the deployment armed for that lane, with nobody’s chip on
+top. A lane whose plans run on the facility’s own worker sits outside all of
+this, and a name shown on one of its items is a label rather than a gate.</p>
 <p class="sd-card-text">On a two-lane deployment the BLUESKY panel carries a <strong>lane picker</strong> in its
 status strip, labelled by the machine each lane drives. The panel is bound
 to one lane at a time — plans, shared draft, queue and results all follow
@@ -747,6 +802,10 @@ command that switches to an executing connector.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">session_plan_unvalidated</span></code></dt><dd><p class="sd-card-text">An agent-written plan must pass validation, byte for byte, before it
 runs — see <a class="reference internal" href="write-plans.html"><span class="doc">Write Your Own Plans</span></a>.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">queue_changed_since_approval</span></code></dt><dd><p class="sd-card-text">The start named a queue, and the queue moved before the start arrived —
+an item was added, removed or re-ordered. Nothing was started. Read the
+queue again, check what it now holds, and start again.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">interrupted_item_in_queue</span></code></dt><dd><p class="sd-card-text">The queue still holds a plan someone stopped — see the next dropdown.</p>
 </dd>
@@ -787,6 +846,10 @@ going and its data still lands in Tiled.</p></li>
 Clearing the history clears the queue server’s own record; removing one
 run hides it from OSPREY’s list — the panel and the agent alike — and the
 bridge remembers that across its own restarts.</p></li>
+<li><p class="sd-card-text"><strong>What was taken off the queue</strong> is the bridge’s own record and survives
+its restarts too. The newest few hundred withdrawals are kept, and
+clearing the history clears them along with the runs they are listed
+beside.</p></li>
 </ul>
 </div>
 </details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">

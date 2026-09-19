@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -762,15 +762,7 @@ the machine’s own channels out of the namespace would add no gate to them. It
 would only hide from the agent the channels it is allowed to <em>read</em>, and push
 you back to hand-written device files that nothing keeps in step with the
 facility.</p>
-<p>Two things stand behind that decision, and both are worth knowing:</p>
-<p><strong>The build refuses an armed lane with no limits.</strong> When a lane’s device set is
-derived, and a <em>deployed</em> lane’s control target has writes armed while limits
-checking is not switched on for the same target, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> stops and
-names both keys. A lane the profile does not deploy is not examined. Limits checking that is off builds no validator at all, so every derived
-device would take whatever value a plan asked for with no database consulted.
-Authored device files are exempt — that set is your own list. The refusal is
-per lane and per target: a virtual-accelerator lane with limits on does not
-excuse a live lane without them.</p>
+<p>One more thing stands behind that decision, and it is worth knowing:</p>
 <p><strong>A run is refused before it moves anything.</strong> A device file names channels; it
 cannot promise the IOC serving them is up, and an unreachable channel used to
 surface mid-plan — as a connection error out of the first read, with setpoints

@@ -4,7 +4,7 @@
 Python Executor Contract
 ========================
 
-The two MCP tools the Osprey agent calls to run Python --- their parameters,
+The two MCP tools the OSPREY agent calls to run Python --- their parameters,
 what a successful call returns, and how a failing one reports itself. For how
 the service works and what it is allowed to touch, see
 :doc:`/architecture/python-executor`.

@@ -4,7 +4,7 @@
 Chat Bridges
 ============
 
-A chat bridge lets your team ask the Osprey agent questions from a chat room
+A chat bridge lets your team ask the OSPREY agent questions from a chat room
 they already sit in. Someone mentions the agent in the room, and the answer
 comes back in the same conversation — plots included, and on Nextcloud Talk and
 Google Chat other files too.

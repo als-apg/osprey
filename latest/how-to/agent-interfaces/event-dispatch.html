@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -519,13 +519,14 @@
                   
   <section id="event-dispatch">
 <span id="how-to-event-dispatch"></span><h1>Event Dispatch<a class="headerlink" href="#event-dispatch" title="Link to this heading">#</a></h1>
-<p>How to turn external events (webhooks, cron ticks) into headless Osprey agent runs.</p>
+<p>How to turn external events (webhooks, cron ticks) into headless OSPREY agent runs.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
 <li><p class="sd-card-text">What the event dispatcher and dispatch worker do</p></li>
 <li><p class="sd-card-text">How to bring the pipeline up and fire your first trigger</p></li>
+<li><p class="sd-card-text">How to fire a trigger from a web-terminal session, and who the job runs as</p></li>
 <li><p class="sd-card-text">How to author your own triggers in <code class="docutils literal notranslate"><span class="pre">triggers.yml</span></code></p></li>
 <li><p class="sd-card-text">How the two bearer tokens guard inbound and internal traffic</p></li>
 </ul>
@@ -737,6 +738,68 @@ profile when the web terminals cannot reach the dispatcher on <code class="docut
 every persona follows it, and a persona that pins a different one is refused.</p>
 </section>
 </section>
+<section id="firing-a-trigger-from-a-session">
+<span id="event-dispatch-from-a-session"></span><h2>Firing a Trigger from a Session<a class="headerlink" href="#firing-a-trigger-from-a-session" title="Link to this heading">#</a></h2>
+<p>A deployment that declares the EVENTS panel also hands the agent in each web
+terminal a small <code class="docutils literal notranslate"><span class="pre">event_dispatcher</span></code> MCP server, so a job can be started from
+the session an operator is already working in. Three of its tools read and
+answer straight away — <code class="docutils literal notranslate"><span class="pre">list_triggers</span></code>, <code class="docutils literal notranslate"><span class="pre">trigger_status</span></code> and
+<code class="docutils literal notranslate"><span class="pre">trigger_history</span></code>. The fourth, <code class="docutils literal notranslate"><span class="pre">manual_fire</span></code>, starts a job and asks first.</p>
+<p>Ask for it in plain language — <em>“fire the save-report trigger”</em> — and an
+approval prompt appears. It names the trigger the fire would start, and the
+payload where the call carries one, so the name to check is on the prompt
+rather than in the agent’s message above it.</p>
+<section id="the-job-runs-as-you">
+<h3>The job runs as you<a class="headerlink" href="#the-job-runs-as-you" title="Link to this heading">#</a></h3>
+<p>Approve, and the run is attributed to your account: the terminal’s proxy stamps
+your name onto the call, and the worker starts the agent under it. Every
+control-system write that job makes then meets your <a class="reference internal" href="../web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">control-target chip</span></a> — narrow yourself to read-only and the job you
+fired refuses its first write, with the refusal you would have seen in the
+terminal. The name comes from the session the call left, never from a tool
+argument or a header the agent can set, so there is no way to fire on someone
+else’s behalf.</p>
+<p>A job that cron or an inbound webhook started carries no name, and neither does
+one whose account name the dispatcher cannot read — a name that is not a plain
+account spelling is refused, and the only trace is a warning in the dispatcher’s
+own log. No chip narrows a job with no name: it runs with whatever writes the
+deployment gives it.</p>
+</section>
+<section id="where-the-tools-work">
+<h3>Where the tools work<a class="headerlink" href="#where-the-tools-work" title="Link to this heading">#</a></h3>
+<p>The entry is rendered wherever the profile declares the EVENTS panel — which
+includes a bare <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> session and the dispatch worker’s own runs.
+Neither of those has a terminal serving the panel route, so the server cannot
+connect and reports itself <code class="docutils literal notranslate"><span class="pre">failed</span></code> or <code class="docutils literal notranslate"><span class="pre">needs-auth</span></code> while the session
+starts. That is inert: the session comes up as usual, without the dispatcher
+tools. <strong>The dispatcher tools are reachable from a web-terminal session only.</strong></p>
+<p>A job also cannot fire jobs. A trigger whose <code class="docutils literal notranslate"><span class="pre">allowed_tools</span></code> names any
+<code class="docutils literal notranslate"><span class="pre">mcp__event_dispatcher__</span></code> tool is refused when the triggers file loads, with
+an error naming both the trigger and the tool, and the worker’s server-side
+denylist blocks <code class="docutils literal notranslate"><span class="pre">manual_fire</span></code> whatever a dispatch request asks for.</p>
+</section>
+<section id="how-the-call-is-authorized">
+<h3>How the call is authorized<a class="headerlink" href="#how-the-call-is-authorized" title="Link to this heading">#</a></h3>
+<p>The agent never holds <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> — it is stripped from every
+agent child environment. The MCP entry points at the terminal’s own panel proxy
+instead, and presents the panel token the agent already carries. The proxy is
+the one place in the container holding the dispatcher’s bearer: it drops
+whatever the caller sent, injects the bearer, and adds your account name. It
+does that only for the events backend the configuration declares, and only when
+that backend answers on loopback — an EVENTS panel pointed at a dashboard
+elsewhere receives neither the bearer nor your name.</p>
+</section>
+<section id="a-shell-reaches-the-same-route">
+<h3>A shell reaches the same route<a class="headerlink" href="#a-shell-reaches-the-same-route" title="Link to this heading">#</a></h3>
+<p>The panel token sits in the agent process’s environment, so a persona whose
+profile lifts the <code class="docutils literal notranslate"><span class="pre">Bash</span></code> deny — a build failure unless that profile also
+declares its own <code class="docutils literal notranslate"><span class="pre">PreToolUse</span></code> gate covering the shell — can post to the proxy
+route from a shell command and fire a job with no approval prompt. What that
+skips is the prompt, not the rest: such a job still carries your name from the
+proxy, still meets your chip at every write, and still runs under the worker’s
+denylist. Code running in a sandbox holds neither the panel token nor the
+terminal’s port, so it cannot make this call.</p>
+</section>
+</section>
 <section id="authoring-triggers">
 <h2>Authoring Triggers<a class="headerlink" href="#authoring-triggers" title="Link to this heading">#</a></h2>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -807,6 +870,21 @@ env chain, through one profile key:</p>
 values live in <code class="docutils literal notranslate"><span class="pre">.env</span></code> / <code class="docutils literal notranslate"><span class="pre">.env.shared</span></code> and rotate with an edit and a restart.
 The worker gets the same list as the dispatcher: a run acting on what a trigger
 saw has to be able to see it too.</p>
+<p>The worker’s own reach is a separate question, and it is a network one. A
+dispatched job runs the same OSPREY agent a web terminal runs, so it reaches
+the control system and the plan queue at whatever addresses your deployment was
+written with. When those are this machine’s own — a control system, a Bluesky
+bridge or an archiver running beside the stack — the pair belongs on the host’s
+network:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">dispatch</span><span class="p">:</span>
+  <span class="n">network</span><span class="p">:</span> <span class="n">host</span>
+  <span class="n">triggers</span><span class="p">:</span> <span class="n">my_triggers</span><span class="o">.</span><span class="n">yml</span>
+</pre></div>
+</div>
+<p>Without it a job runs, the agent answers, and every write and every queue call
+is refused on connect: inside a container on the compose network, <code class="docutils literal notranslate"><span class="pre">localhost</span></code>
+is the container. See <a class="reference internal" href="../deploy-project/networking.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a> for what that
+setting changes and what has to move with it.</p>
 </section>
 <section id="authentication">
 <span id="event-dispatch-auth"></span><h2>Authentication<a class="headerlink" href="#authentication" title="Link to this heading">#</a></h2>
@@ -817,8 +895,9 @@ the <strong>profile’s</strong> <code class="docutils literal notranslate"><spa
 rebuild comes up on the same token. To pick your own values, set them in the
 profile’s <code class="docutils literal notranslate"><span class="pre">.env</span></code> and rebuild:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> — guards <strong>inbound</strong> webhook and write endpoints.
-Send it as <code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;token&gt;</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> — guards <strong>inbound</strong> webhook and write endpoints,
+and the MCP transport at <code class="docutils literal notranslate"><span class="pre">/mcp</span></code> that <code class="docutils literal notranslate"><span class="pre">manual_fire</span></code> arrives on. Send it as
+<code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;token&gt;</span></code>.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">DISPATCH_WORKER_TOKEN</span></code> — guards the <strong>dispatcher → worker</strong> calls.</p></li>
 </ul>
 <p>Anything that drives the pipeline from outside holds both. A <a class="reference internal" href="chat-bridges/index.html"><span class="doc">chat bridge</span></a>, for instance, fires its trigger at the dispatcher with
@@ -828,8 +907,14 @@ them stalls partway through every question.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-shield-lock" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.533.133 5.25 1.68A1.75 1.75 0 0 1 15 3.48V7c0 1.566-.32 3.182-1.303 4.682-.983 1.498-2.585 2.813-5.032 3.855a1.697 1.697 0 0 1-1.33 0c-2.447-1.042-4.049-2.357-5.032-3.855C1.32 10.182 1 8.566 1 7V3.48a1.75 1.75 0 0 1 1.217-1.667l5.25-1.68a1.748 1.748 0 0 1 1.066 0Zm-.61 1.429.001.001-5.25 1.68a.251.251 0 0 0-.174.237V7c0 1.36.275 2.666 1.057 3.859.784 1.194 2.121 2.342 4.366 3.298a.196.196 0 0 0 .154 0c2.245-.957 3.582-2.103 4.366-3.297C13.225 9.666 13.5 8.358 13.5 7V3.48a.25.25 0 0 0-.174-.238l-5.25-1.68a.25.25 0 0 0-.153 0ZM9.5 6.5c0 .536-.286 1.032-.75 1.3v2.45a.75.75 0 0 1-1.5 0V7.8A1.5 1.5 0 1 1 9.5 6.5Z"></path></svg></span><span class="sd-summary-text">How the tokens work</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
-<p class="sd-card-text">The dispatcher <strong>fails closed</strong> (HTTP 503) if <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> is
-unset — it never accepts an empty token. The dashboard <em>read</em> endpoints (run
+<p class="sd-card-text">The dispatcher <strong>fails closed</strong> if <code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> is unset — it
+never accepts an empty token. The webhook and dashboard routes answer HTTP
+503 while it is unset, which is how an unconfigured dispatcher announces
+itself, and 401 for anything else, a missing header included. The MCP
+transport at
+<code class="docutils literal notranslate"><span class="pre">/mcp</span></code> answers 401 in both cases: a bearer check there has one way to
+refuse, so it cannot draw the distinction the routes draw. The dashboard
+<em>read</em> endpoints (run
 feed, trigger list, state, SSE stream) are gated by the same token: the
 in-terminal EVENTS tab injects it server-side so the browser never holds it,
 while the standalone dashboard receives it via a one-time URL-fragment
@@ -904,6 +989,13 @@ handoff.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fire-a-trigger">Fire a Trigger</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-events-panel">The EVENTS Panel</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-derived-url">Auto-derived URL</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#firing-a-trigger-from-a-session">Firing a Trigger from a Session</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#the-job-runs-as-you">The job runs as you</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#where-the-tools-work">Where the tools work</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#how-the-call-is-authorized">How the call is authorized</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-shell-reaches-the-same-route">A shell reaches the same route</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authoring-triggers">Authoring Triggers</a></li>

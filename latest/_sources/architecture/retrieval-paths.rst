@@ -12,7 +12,7 @@ index and its own answer to whether embeddings are involved at all.
    :class: only-light
    :figclass: only-light
    :width: 100%
-   :alt: The three retrieval stacks — the ARIEL Postgres stack, the qmd sidecar, and the embedding-free channel finder — each feeding MCP tools the Osprey agent calls.
+   :alt: The three retrieval stacks — the ARIEL Postgres stack, the qmd sidecar, and the embedding-free channel finder — each feeding MCP tools the OSPREY agent calls.
 
    Every retrieval path, left to right: sources, ingest-time processing,
    indexes, query paths, and the agent.
@@ -21,7 +21,7 @@ index and its own answer to whether embeddings are involved at all.
    :class: only-dark
    :figclass: only-dark
    :width: 100%
-   :alt: The three retrieval stacks — the ARIEL Postgres stack, the qmd sidecar, and the embedding-free channel finder — each feeding MCP tools the Osprey agent calls.
+   :alt: The three retrieval stacks — the ARIEL Postgres stack, the qmd sidecar, and the embedding-free channel finder — each feeding MCP tools the OSPREY agent calls.
 
    Every retrieval path, left to right: sources, ingest-time processing,
    indexes, query paths, and the agent.

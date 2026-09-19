@@ -3,7 +3,7 @@
 Configure LLM Providers
 =======================
 
-Osprey uses LLM providers in two contexts: **the Osprey agent** (the main agent)
+Osprey uses LLM providers in two contexts: **the OSPREY agent** (the main agent)
 communicates over the Anthropic Messages API, while **MCP tool servers** call
 the same named providers directly through `LiteLLM <https://docs.litellm.ai/>`_.
 This guide covers how to configure providers for both.
@@ -73,7 +73,7 @@ Available Providers
      - *(none)*
      - OpenAI (proxied)
 
-**Protocol** indicates how the provider communicates with the Osprey agent:
+**Protocol** indicates how the provider communicates with the OSPREY agent:
 
 - **Anthropic (native)**: Speaks the Anthropic Messages API directly. No
   translation needed.
@@ -178,7 +178,7 @@ rendered one. The rendered file has two relevant sections:
 
 1. ``api.providers`` — declares available providers with their endpoints and
    model IDs.
-2. ``claude_code`` — selects which provider the Osprey agent uses and at which
+2. ``claude_code`` — selects which provider the OSPREY agent uses and at which
    model tier.
 
 The YAML blocks below show that **rendered** ``build/config.yml``, so you can
@@ -279,7 +279,7 @@ custom providers.
 Model Tier Mapping
 ------------------
 
-The Osprey agent uses three model tiers — ``haiku`` (fast/cheap), ``sonnet``
+The OSPREY agent uses three model tiers — ``haiku`` (fast/cheap), ``sonnet``
 (balanced), and ``opus`` (most capable). Each provider maps these to its own model
 IDs via the ``models`` block in its ``providers.yml`` entry.
 
@@ -318,12 +318,12 @@ Agents can also be pinned to specific tiers:
 Protocol Translation
 --------------------
 
-The Osprey agent speaks the Anthropic Messages API. Providers that only offer an
+The OSPREY agent speaks the Anthropic Messages API. Providers that only offer an
 OpenAI-compatible endpoint (marked *OpenAI (proxied)* above) need protocol
 translation.
 
 Osprey handles this automatically: when an OpenAI-only provider is selected,
-a local translation proxy starts on a random port before the Osprey agent launches.
+a local translation proxy starts on a random port before the OSPREY agent launches.
 No manual configuration is required — you never invoke the proxy yourself.
 
 The path is identical whether the endpoint is self-hosted (``ollama``, ``vllm``
@@ -433,15 +433,15 @@ The framework automatically:
 
 - Detects that ``my-provider`` is not a built-in Anthropic-native provider.
 - Starts the translation proxy to bridge Anthropic → OpenAI protocols.
-- Reads the Osprey agent's auth token from ``MY_PROVIDER_API_KEY``. The launcher
+- Reads the OSPREY agent's auth token from ``MY_PROVIDER_API_KEY``. The launcher
   derives that variable name from the provider's own name — uppercased, dashes to
   underscores — and never reads the entry's ``api_key`` value, so the name here
   lines up only because the provider is called ``my-provider``.
-- Injects the resolved model IDs into the Osprey agent's environment.
+- Injects the resolved model IDs into the OSPREY agent's environment.
 
 .. note::
 
-   **This no-code entry serves the Osprey agent.** MCP tool servers resolve a
+   **This no-code entry serves the OSPREY agent.** MCP tool servers resolve a
    provider by *name* against the built-in table in this guide, so a
    config-only entry means nothing to them and a tool call that asks for it
    fails with ``Unknown provider``. Giving an MCP tool server a new provider

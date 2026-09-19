@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -522,7 +522,7 @@
                   
   <section id="google-chat">
 <span id="how-to-google-chat"></span><h1>Google Chat<a class="headerlink" href="#google-chat" title="Link to this heading">#</a></h1>
-<p>How to let your team ask the Osprey agent questions from a Google Chat space,
+<p>How to let your team ask the OSPREY agent questions from a Google Chat space,
 and get answers, plots, and files back in the same conversation.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
@@ -567,6 +567,15 @@ allowed to do with a chat question — and the block is only meaningful next to 
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GCHAT_SUBSCRIPTION</span>
 <span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GCHAT_APP_ID</span>
 </pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The bridge and the dispatch pair must sit on the same network. Workers go on
+the host’s network whenever the agent has to reach a control system or a
+co-deployed bridge at a loopback address (<a class="reference internal" href="../../deploy-project/networking.html#deployment-network-attachment"><span class="std std-ref">Network attachment: bridge or host</span></a>),
+and this bridge then has to move with them: add
+<code class="docutils literal notranslate"><span class="pre">services.gchat_bridge.network:</span> <span class="pre">host</span></code> to your profile’s <code class="docutils literal notranslate"><span class="pre">config:</span></code> block.
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> refuses a split pair and names the key to change.</p>
 </div>
 <p>The queue, the service-account key and the bucket for files are <strong>not</strong> profile
 settings. Which queue this deployment reads, which key file it signs in with,

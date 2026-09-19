@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -384,6 +384,10 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="safety-chain.html">Safety Chain</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
@@ -459,7 +463,7 @@ credentials are stripped), not inside an isolated machine. Code it runs can
 write anywhere the executor process can, apart from the deployment’s own
 sources and render — see <a class="reference internal" href="#python-executor-protected-paths"><span class="std std-ref">What executed code may not change</span></a>, which also
 says plainly how far that protection goes.
-The Osprey agent uses it via the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool to perform data analysis,
+The OSPREY agent uses it via the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.</p>
 <section id="what-it-does">
 <h2>What It Does<a class="headerlink" href="#what-it-does" title="Link to this heading">#</a></h2>
@@ -470,7 +474,7 @@ structured JSON.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 168" role="img" aria-labelledby="python-executor-title python-executor-desc">
   <title id="python-executor-title">Python executor</title>
-  <desc id="python-executor-desc">Code from the Osprey agent enters the execute MCP tool, passes layered safety checks, runs as a subprocess on the host, and returns structured JSON with stdout, figures, and artifacts.</desc>
+  <desc id="python-executor-desc">Code from the OSPREY agent enters the execute MCP tool, passes layered safety checks, runs as a subprocess on the host, and returns structured JSON with stdout, figures, and artifacts.</desc>
   <defs>
     <marker id="python-executor-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -483,7 +487,7 @@ structured JSON.</p>
 
   <rect class="mask" x="44" y="56" width="136" height="56" rx="6"/>
   <rect class="nb-in" x="44" y="56" width="136" height="56" rx="6"/>
-  <text class="tn" x="112" y="80" text-anchor="middle">Osprey agent</text>
+  <text class="tn" x="112" y="80" text-anchor="middle">OSPREY agent</text>
   <text class="ts" x="112" y="96" text-anchor="middle">writes code</text>
   <rect class="mask" x="228" y="56" width="136" height="56" rx="6"/>
   <rect class="nb" x="228" y="56" width="136" height="56" rx="6"/>
@@ -856,12 +860,12 @@ connector (EPICS, Mock, etc.) and notebooks remain reproducible.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>There is no in-framework code-generation pipeline. The Osprey agent generates
+<p>There is no in-framework code-generation pipeline. The OSPREY agent generates
 Python code itself and invokes the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool directly.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Write approval is handled by the <code class="docutils literal notranslate"><span class="pre">execution_mode</span></code> parameter. The Osprey agent
+<p>Write approval is handled by the <code class="docutils literal notranslate"><span class="pre">execution_mode</span></code> parameter. The OSPREY agent
 requests user confirmation before calling <code class="docutils literal notranslate"><span class="pre">execute</span></code> with
 <code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readwrite&quot;</span></code>—there is no separate approval API.</p>
 </div>

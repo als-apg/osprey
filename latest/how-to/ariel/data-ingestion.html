@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -688,6 +688,16 @@ Text Embedding</label><div class="sd-tab-content docutils">
 </div>
 <p>The vector index over those tables is an HNSW index. It takes no sizing
 parameter, so there is nothing about it to author per deployment.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Deployments created before the switch to HNSW used an IVFFlat index
+trained over an empty table, which silently gave semantic search low
+recall. The <code class="docutils literal notranslate"><span class="pre">text_embedding_hnsw_index</span></code> migration rebuilds the
+index on upgrade; treat semantic-search results from before that
+migration as unreliable. Creating the HNSW index before a bulk load
+is correct but slower to ingest — a performance trade-off, not a
+reason to defer the index.</p>
+</div>
 <p><strong>Requirements:</strong> Ollama (or another embedding provider) running with the specified model.</p>
 </div>
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">

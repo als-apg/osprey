@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -384,6 +384,10 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="safety-chain.html">Safety Chain</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">MCP Servers</a></li>
@@ -453,14 +457,14 @@
 <h1>MCP Servers<a class="headerlink" href="#mcp-servers" title="Link to this heading">#</a></h1>
 <p>OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through <a class="reference external" href="https://github.com/jlowin/fastmcp">FastMCP</a>
-servers. The Osprey agent discovers servers from <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> at startup and calls
+servers. The OSPREY agent discovers servers from <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> at startup and calls
 tools via stdio JSON-RPC. The <strong>10 core in-tree servers</strong> below are the ones a
 deployment normally renders; build profiles can inject additional servers beyond
 them.</p>
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 488" role="img" aria-labelledby="mcp-server-map-title mcp-server-map-desc">
   <title id="mcp-server-map-title">The MCP server map</title>
-  <desc id="mcp-server-map-desc">The Osprey agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, which run as child processes of the harness and expose no network port.</desc>
+  <desc id="mcp-server-map-desc">The OSPREY agent's tool calls pass the PreToolUse hook chain before reaching any of the seven core stdio MCP servers, which run as child processes of the harness and expose no network port.</desc>
   <defs>
     <marker id="mcp-server-map-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -479,7 +483,7 @@ them.</p>
   <!-- agent -->
   <rect class="mask" x="412" y="24" width="136" height="56" rx="6"/>
   <rect class="nb-in" x="412" y="24" width="136" height="56" rx="6"/>
-  <text class="tn" x="480" y="48" text-anchor="middle">Osprey agent</text>
+  <text class="tn" x="480" y="48" text-anchor="middle">OSPREY agent</text>
   <text class="ts" x="480" y="64" text-anchor="middle">reads .mcp.json</text>
   <!-- hook chain (focal) -->
   <rect class="mask" x="200" y="120" width="560" height="52" rx="6"/>

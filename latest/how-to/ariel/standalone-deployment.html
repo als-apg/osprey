@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -520,7 +520,7 @@
   <section id="standalone-deployment">
 <h1>Standalone Deployment<a class="headerlink" href="#standalone-deployment" title="Link to this heading">#</a></h1>
 <p>The <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset packages ARIEL together with a <strong>sandboxed
-Osprey agent</strong> scoped to ARIEL’s MCP surface. There is no
+OSPREY agent</strong> scoped to ARIEL’s MCP surface. There is no
 control-system runtime, no shell, no filesystem writes, no Python executor.
 Skills and plugins extend what the agent can <em>reason about</em> over your
 logbook corpus; they cannot extend what it can <em>touch</em> on your host.</p>
@@ -536,7 +536,7 @@ landing page beside the operator logins, sharing that deployment’s
 PostgreSQL and logbook. This page is the route when ARIEL should stand
 alone; <a class="reference internal" href="../web-terminal/multi-user/index.html#how-to-multi-user"><span class="std std-ref">Multi-User Support</span></a> covers the persona.</p>
 </div>
-<a class="reference internal image-reference" href="../../_images/ariel_standalone.png"><img alt="ARIEL-standalone bundle: PostgreSQL+pgvector, the ARIEL service, and a sandboxed Osprey agent reaching ARIEL only through the MCP boundary" class="align-center" src="../../_images/ariel_standalone.png" style="width: 100%;" />
+<a class="reference internal image-reference" href="../../_images/ariel_standalone.png"><img alt="ARIEL-standalone bundle: PostgreSQL+pgvector, the ARIEL service, and a sandboxed OSPREY agent reaching ARIEL only through the MCP boundary" class="align-center" src="../../_images/ariel_standalone.png" style="width: 100%;" />
 </a>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
@@ -584,7 +584,7 @@ re-run <code class="docutils literal notranslate"><span class="pre">osprey</span
 1. Configure</label><div class="sd-tab-content docutils">
 <p class="sd-card-text">Create a new project from the <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset. This
 skeleton ships with Postgres+pgvector services, the ARIEL config,
-and the sandboxed Osprey agent persona — no channel finder, no
+and the sandboxed OSPREY agent persona — no channel finder, no
 archiver, no Python executor:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>init<span class="w"> </span>my-logbook<span class="w"> </span>--preset<span class="w"> </span>ariel-standalone
 <span class="nb">cd</span><span class="w"> </span>my-logbook
@@ -624,7 +624,7 @@ ingest the bundled demo logbook with embeddings:</p>
 <label class="sd-tab-label" for="sd-tab-item-5">
 Web Terminal</label><div class="sd-tab-content docutils">
 <p class="sd-card-text">Launch the web terminal. It hosts the ARIEL search panel
-<em>and</em> an Osprey agent chat surface scoped to the ARIEL MCP
+<em>and</em> an OSPREY agent chat surface scoped to the ARIEL MCP
 tools and the <code class="docutils literal notranslate"><span class="pre">logbook-deep-research</span></code> skill.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>web
 </pre></div>

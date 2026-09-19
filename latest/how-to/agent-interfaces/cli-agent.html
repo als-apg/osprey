@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -519,7 +519,7 @@
                   
   <section id="run-the-agent-from-the-command-line">
 <span id="how-to-cli-agent"></span><h1>Run the Agent from the Command Line<a class="headerlink" href="#run-the-agent-from-the-command-line" title="Link to this heading">#</a></h1>
-<p>Two commands run the Osprey agent without the web terminal. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>
+<p>Two commands run the OSPREY agent without the web terminal. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>
 opens an interactive session in your native terminal; <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> runs a
 single headless prompt and exits with a meaningful code, for CI pipelines and
 automated workflows.</p>
@@ -538,7 +538,7 @@ output, and the read-only guarantee</p></li>
 </div>
 </details><section id="interactive-sessions-osprey-chat">
 <h2>Interactive Sessions (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>)<a class="headerlink" href="#interactive-sessions-osprey-chat" title="Link to this heading">#</a></h2>
-<p>The CLI chat interface launches the Osprey agent in your native terminal while
+<p>The CLI chat interface launches the OSPREY agent in your native terminal while
 running OSPREY’s companion services in the background. This runs the agent
 in the full terminal TUI — keyboard shortcuts, slash commands, native
 scrollback — with access to companion services (artifact gallery, session
@@ -559,7 +559,7 @@ is reported as a warning and the session starts anyway.</p></li>
 <li><p>Starts the translation proxy if the provider needs it (see
 <a class="reference internal" href="../llm-providers/configure-providers.html"><span class="doc">Configure LLM Providers</span></a>).</p></li>
 <li><p>Launches companion web servers in the background.</p></li>
-<li><p>Opens the Osprey agent TUI in your terminal.</p></li>
+<li><p>Opens the OSPREY agent TUI in your terminal.</p></li>
 </ol>
 <section id="options">
 <h4>Options<a class="headerlink" href="#options" title="Link to this heading">#</a></h4>
@@ -580,7 +580,7 @@ global installation.</p>
 <section id="companion-services">
 <h3>Companion Services<a class="headerlink" href="#companion-services" title="Link to this heading">#</a></h3>
 <p>On startup, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code> launches every framework companion server whose
-<code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> is on. Each server’s URL is printed before the Osprey agent
+<code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> is on. Each server’s URL is printed before the OSPREY agent
 starts:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Companion servers
   Artifact gallery   http://127.0.0.1:10200/?token=…
@@ -588,7 +588,7 @@ starts:</p>
 </pre></div>
 </div>
 <p>Each line is a login URL — the <code class="docutils literal notranslate"><span class="pre">?token=</span></code> carries this session’s operator
-secret. Open it in a browser to reach the service while the Osprey agent runs
+secret. Open it in a browser to reach the service while the OSPREY agent runs
 in your terminal; the address without the token will not sign you in. Which
 servers start depends on your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — each server respects its own
 <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> setting. Unlike <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, chat does not consult
@@ -596,7 +596,7 @@ servers start depends on your <code class="docutils literal notranslate"><span c
 here, because chat opens companions as browser tabs rather than as a panel
 rail.</p>
 <p>The servers run as background threads and stop automatically when you exit
-the Osprey agent.</p>
+the OSPREY agent.</p>
 </section>
 <section id="when-to-use-cli-vs-web-terminal">
 <h3>When to Use CLI vs. Web Terminal<a class="headerlink" href="#when-to-use-cli-vs-web-terminal" title="Link to this heading">#</a></h3>
@@ -614,7 +614,7 @@ the Osprey agent.</p>
 <tr class="row-even"><td><p>Native terminal experience</p></td>
 <td><p>Browser-based split-pane UI</p></td>
 </tr>
-<tr class="row-odd"><td><p>Full Osprey agent TUI with keyboard shortcuts</p></td>
+<tr class="row-odd"><td><p>Full OSPREY agent TUI with keyboard shortcuts</p></td>
 <td><p>Embedded terminal emulator</p></td>
 </tr>
 <tr class="row-even"><td><p>Companion services in separate browser tabs</p></td>

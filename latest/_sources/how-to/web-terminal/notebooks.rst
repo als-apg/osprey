@@ -131,6 +131,18 @@ cell ends, a switch asked for anywhere in the deployment is refused and names
 the kernel holding the target, so whoever asked knows to interrupt it rather
 than wait on nothing. A cell that touches no channel holds nothing.
 
+The record a cell reads is the one belonging to whoever the kernel's terminal
+is acting as, and a kernel finds it without being told. The build points each
+terminal's container at its own record directory through
+``OSPREY_CONTROL_CONTEXT_DIR``, and a kernel reads that; where nothing names
+one, it falls back to the agent-data root and the name it is acting as. Where
+its own audit records are filed is a separate question, answered by that name
+rather than by a directory: a kernel starts with most of the environment around
+it stripped away, and ``OSPREY_AUDIT_IDENTITY`` --- the name the deployment
+gives the container it runs in --- is what survives the stripping. In a
+multi-user deployment both answers are the user whose terminal the kernel
+belongs to, so a cell reads that user's own chip settings and nobody else's.
+
 A cell carries no target at all in two cases: the deployment's control-context
 record is missing or unreadable, or it names a machine this deployment cannot
 build --- a target whose connector block was never rendered, or was removed

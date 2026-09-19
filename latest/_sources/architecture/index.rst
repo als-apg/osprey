@@ -2,7 +2,7 @@ Architecture
 ============
 
 OSPREY deploys agentic AI in safety-critical control system environments, such as
-particle accelerators. It uses **the Osprey agent** as the orchestrator, **MCP servers** as
+particle accelerators. It uses **the OSPREY agent** as the orchestrator, **MCP servers** as
 the tool interface, and **pluggable connectors** for protocol-agnostic hardware access.
 
 .. figure:: /_static/resources/architecture.png
@@ -24,9 +24,10 @@ architecture of their own:
       :link-type: doc
       :shadow: md
 
-      Every tool call passes a chain of PreToolUse hooks before it reaches an
-      MCP server — the kill switch, the limits database, and the human
-      approval gate.
+      Four ways to write to a machine — a channel write, agent-written
+      Python, a Bluesky plan, a notebook cell — and what stands in the way of
+      each: the PreToolUse hooks, the gates below them, the connector, and
+      the audit trail.
 
    .. grid-item-card:: Data Flow
       :link: data-flow

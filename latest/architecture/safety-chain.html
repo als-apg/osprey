@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -255,10 +255,6 @@
   
 
   
-    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
-      <span class="fa-solid fa-outdent"></span>
-    </button>
-  
 </div>
 
     </header>
@@ -384,6 +380,10 @@
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Safety Chain</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="data-flow.html">Data Flow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="retrieval-paths.html">Retrieval Paths</a></li>
 <li class="toctree-l1"><a class="reference internal" href="mcp-servers.html">MCP Servers</a></li>
@@ -451,86 +451,446 @@
                   
   <section id="safety-chain">
 <span id="architecture-safety-chain"></span><h1>Safety Chain<a class="headerlink" href="#safety-chain" title="Link to this heading">#</a></h1>
-<p>Every tool call the agent makes through the harness passes through a configurable chain of
-<strong>PreToolUse hooks</strong> before reaching the MCP server. OSPREY’s MCP servers are stdio child
-processes the harness starts — they expose no network port of their own — so every tool call
-that reaches one has already passed the hook chain. That guarantee belongs to the harness: a
-process on the host that runs the server command itself is outside it, which is why host access
-is part of the trust boundary. The chain for <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — the most safety-critical tool — has three stages:</p>
+<p>Every tool call that could write to a machine passes a chain of checks — the <strong>PreToolUse
+hooks</strong> — before it reaches the server that would carry it out; a tool that only reads
+passes without them. OSPREY’s servers are started by the
+harness itself and expose no network port of their own, so nothing reaches one without
+passing the checks first. That guarantee belongs to the harness: a process on the host that
+starts a server by hand sits outside it, which is why access to the host is part of the trust
+boundary.</p>
+<p>The checks are the first gate, not the only one. There are four ways a value reaches a
+machine — a single channel write, Python the agent wrote, a Bluesky plan, and a notebook
+cell — and each has gates of its own below the checks. Two of them can also be driven by a
+person, from the BLUESKY panel or a Jupyter cell, and a person’s action goes through none of
+the checks. All four end at the same connector and leave the same audit record.</p>
+<p>A write also carries a name — whose write it is. Narrowing a machine to read-only is
+that person’s decision about their own writes, so the name decides which narrowing a write
+is judged against. <a class="reference internal" href="#architecture-safety-chain-owner"><span class="std std-ref">Whose write is it</span></a>, at the foot of
+this page, says where the name comes from and what it does not cover.</p>
 <div class="osprey-diagram">
-<svg viewBox="0 0 960 328" role="img" aria-labelledby="safety-chain-title safety-chain-desc">
-  <title id="safety-chain-title">Write-path safety chain</title>
-  <desc id="safety-chain-desc">Every channel_write passes three gates in order — the writes_check kill switch, the limits database, and the human approval gate — before the MCP server executes it; failing any gate blocks the write.</desc>
+<svg viewBox="0 0 1220 1066" role="img" aria-labelledby="safety-chain-title safety-chain-desc">
+  <title id="safety-chain-title">Four ways to change something on the machine, and what stands in the way of each</title>
+  <desc id="safety-chain-desc">The deployment's settings — which machine it points at, whether writes are switched on for that machine, and whether the person who asked has narrowed it to read-only, one record per person — are read by the gates. An operator asks the OSPREY agent in plain language; every tool call that could write then passes the checks: are writes switched on, and does a human approve, which the operator answers at the terminal prompt; a channel write also passes a limits check on the way, which the other tools do not. Once approved, the call reaches its server: a channel write goes to the control-system server, which checks the limits once more; a Python run has its code read before it runs and then runs in its own guarded process; queueing a plan reaches the Bluesky queue, which the operator can also drive from the panel without those checks, which needs a launch token to start or to take work while running, and where a start is bound to the queue the approver looked at and is refused if that queue changed; before and during a run every channel the plan declares must answer first, each write is checked as it happens, and the name on the queued item rides into the plan's task so each of its writes is judged against that person's narrowing; a Jupyter cell is run by the operator directly, and its kernel re-reads the settings before every cell. All four end at the connector, which asks the records on every write whether this person may write to this machine now and gets back one of three answers — permitted, narrowing, or control_context_unavailable when the records could not be read — refuses on either of the last two, and a refusal the records decided ends its message in that word, while a refusal decided elsewhere says its own reason — a run pinned read-only when it launched is told to re-run the script. The connector then checks the value against the limits where limits checking is on, sends the value, and, where the channel's policy asks for it, waits for the machine and reads the channel back. A request is named at two doors only, in the X-Osprey-Owner header: the terminal's proxy, and the sidecar's own login gate, each taking the name from the credential that got the request in rather than from what the request claimed. A job the agent fires leaves through the terminal's panel proxy, the one place that holds the dispatcher's key: it adds the key, stamps the same name, and the job's own writes re-enter at the top of the picture as tool calls. Three gaps are documented rather than closed: a plan added straight to the queue from inside a container, under any name it claims or none, a persona allowed a shell reaching the panel's dispatcher address, and a direct login at the panel's own address, which names nobody. A name that arrived by a door OSPREY does not mint at is unvouched, and it binds all the same, so the plan is judged against whoever it names. A plan nobody is named on runs at the lane's ceiling, which is what the lanes this deployment deploys allow; an external-worker lane runs on the facility's own RunEngine and devices, outside both the narrowing and that ceiling, where the name on an item is attribution.</desc>
   <defs>
     <marker id="safety-chain-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
-      <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-muted)"/>
+    </marker>
+    <marker id="safety-chain-arr-acc" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
+      <polygon points="0,0 8,3 0,6" style="fill: var(--od-accent)"/>
     </marker>
   </defs>
-  <!-- arrows first -->
-  <line class="e" x1="164" y1="108" x2="232" y2="108" marker-end="url(#safety-chain-arr)"/>
-  <line class="e" x1="352" y1="108" x2="420" y2="108" marker-end="url(#safety-chain-arr)"/>
-  <line class="e" x1="540" y1="108" x2="608" y2="108" marker-end="url(#safety-chain-arr)"/>
-  <line class="e" x1="728" y1="108" x2="796" y2="108" marker-end="url(#safety-chain-arr)"/>
-  <path class="e" d="M292,136 V216 Q292,224 300,224 H442 Q450,224 450,232 V240" marker-end="url(#safety-chain-arr)"/>
-  <line class="e" x1="480" y1="136" x2="480" y2="240" marker-end="url(#safety-chain-arr)"/>
-  <path class="e" d="M668,136 V216 Q668,224 660,224 H518 Q510,224 510,232 V240" marker-end="url(#safety-chain-arr)"/>
-  <!-- pass labels -->
-  <rect class="mask" x="364" y="88" width="44" height="12" rx="2"/>
-  <text class="ta" x="386" y="97" text-anchor="middle">ENABLED</text>
-  <rect class="mask" x="556" y="88" width="36" height="12" rx="2"/>
-  <text class="ta" x="574" y="97" text-anchor="middle">VALID</text>
-  <rect class="mask" x="738" y="88" width="48" height="12" rx="2"/>
-  <text class="ta" x="762" y="97" text-anchor="middle">APPROVED</text>
-  <!-- fail labels -->
-  <rect class="mask" x="232" y="164" width="52" height="12" rx="2"/>
-  <text class="ta ta-warn" x="258" y="173" text-anchor="middle">DISABLED</text>
-  <rect class="mask" x="488" y="164" width="44" height="12" rx="2"/>
-  <text class="ta ta-warn" x="510" y="173" text-anchor="middle">INVALID</text>
-  <rect class="mask" x="676" y="164" width="52" height="12" rx="2"/>
-  <text class="ta ta-warn" x="702" y="173" text-anchor="middle">REJECTED</text>
-  <!-- nodes -->
-  <rect class="mask" x="44" y="80" width="120" height="56" rx="6"/>
-  <rect class="nb-in" x="44" y="80" width="120" height="56" rx="6"/>
-  <text class="tn" x="104" y="104" text-anchor="middle">Osprey agent</text>
-  <text class="ts" x="104" y="120" text-anchor="middle">channel_write</text>
-  <rect class="mask" x="232" y="80" width="120" height="56" rx="6"/>
-  <rect class="nb" x="232" y="80" width="120" height="56" rx="6"/>
-  <text class="tn" x="292" y="104" text-anchor="middle">writes_check</text>
-  <text class="ts" x="292" y="120" text-anchor="middle">kill switch</text>
-  <rect class="mask" x="420" y="80" width="120" height="56" rx="6"/>
-  <rect class="nb" x="420" y="80" width="120" height="56" rx="6"/>
-  <text class="tn" x="480" y="104" text-anchor="middle">limits</text>
-  <text class="ts" x="480" y="120" text-anchor="middle">min · max · step</text>
-  <rect class="mask" x="608" y="80" width="120" height="56" rx="6"/>
-  <rect class="nb-foc" x="608" y="80" width="120" height="56" rx="6"/>
-  <text class="tn" x="668" y="104" text-anchor="middle">approval</text>
-  <text class="ts" x="668" y="120" text-anchor="middle">human gate</text>
-  <rect class="mask" x="796" y="80" width="120" height="56" rx="6"/>
-  <rect class="nb" x="796" y="80" width="120" height="56" rx="6"/>
-  <text class="tn" x="856" y="104" text-anchor="middle">MCP server</text>
-  <text class="ts" x="856" y="120" text-anchor="middle">executes write</text>
-  <rect class="mask" x="420" y="240" width="120" height="48" rx="6"/>
-  <rect class="nb-warn" x="420" y="240" width="120" height="48" rx="6"/>
-  <text class="tn" x="480" y="260" text-anchor="middle">blocked</text>
-  <text class="ts" x="480" y="276" text-anchor="middle">write refused</text>
+
+  <!-- settings band -->
+  <rect class="mask" x="40" y="40" width="1120" height="64" rx="6"/>
+  <rect class="nb-st" x="40" y="40" width="1120" height="64" rx="6"/>
+  <text class="tn" x="60" y="62">Deployment settings, read by the gates below</text>
+  <text class="ts" x="60" y="80">which machine the deployment points at · whether writes are switched on for it · whether the person who asked has narrowed it to read-only, one record per person</text>
+  <text class="ts" x="60" y="94">the machine and the narrowing are read fresh by the next check, the next cell, the next write · the writes switch in config.yml takes a rebuild</text>
+
+  <!-- actors -->
+  <line class="e-acc" x1="860" y1="152" x2="340" y2="152" marker-end="url(#safety-chain-arr-acc)"/>
+  <rect class="mask" x="530" y="146" width="140" height="12" rx="2"/>
+  <text class="ta ta-acc" x="600" y="155" text-anchor="middle">asks in plain language</text>
+
+  <rect class="mask" x="40" y="124" width="300" height="56" rx="6"/>
+  <rect class="nb-in" x="40" y="124" width="300" height="56" rx="6"/>
+  <text class="tn" x="190" y="146" text-anchor="middle">OSPREY agent</text>
+  <text class="ts" x="190" y="162" text-anchor="middle">can only act by calling tools</text>
+
+  <rect class="mask" x="860" y="124" width="300" height="56" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="860" y="124" width="300" height="56" rx="6"/>
+  <text class="tn" x="1010" y="146" text-anchor="middle">Operator</text>
+  <text class="ts" x="1010" y="162" text-anchor="middle">a person at the terminal</text>
+
+  <!-- agent → checks -->
+  <line class="e" x1="190" y1="180" x2="190" y2="220" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="130" y="194" width="120" height="12" rx="2"/>
+  <text class="ta" x="190" y="203" text-anchor="middle">each tool call that could write</text>
+
+  <!-- operator → approval -->
+  <line class="e-acc" x1="1010" y1="180" x2="1010" y2="248" marker-end="url(#safety-chain-arr-acc)"/>
+  <rect class="mask" x="1018" y="206" width="120" height="12" rx="2"/>
+  <text class="ta ta-acc" x="1022" y="215">approves or refuses</text>
+
+  <!-- operator → direct actions, below the checks -->
+  <path class="e-acc" d="M1160,138 H1180 V400 H759 V412" marker-end="url(#safety-chain-arr-acc)"/>
+  <line class="e-acc" x1="1005" y1="400" x2="1005" y2="412" marker-end="url(#safety-chain-arr-acc)"/>
+  <rect class="mask" x="1024" y="394" width="142" height="12" rx="2"/>
+  <text class="ta ta-acc" x="1095" y="403" text-anchor="middle">acts directly · no checks</text>
+
+  <!-- checks zone -->
+  <rect class="zone" x="40" y="224" width="1120" height="152" rx="6"/>
+  <text class="te" x="56" y="242">CHECKS BEFORE A TOOL THAT COULD WRITE RUNS</text>
+
+  <!-- channel write: through the limits check -->
+  <line class="e" x1="380" y1="284" x2="430" y2="284" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="770" y1="284" x2="820" y2="284" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="382" y="268" width="48" height="12" rx="2"/>
+  <text class="ta" x="405" y="277" text-anchor="middle">a channel</text>
+  <rect class="mask" x="382" y="292" width="48" height="12" rx="2"/>
+  <text class="ta" x="405" y="301" text-anchor="middle">write</text>
+  <!-- everything else: straight to approval -->
+  <path class="e" d="M340,308 H400 V334 H800 V308 H820" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="500" y="328" width="200" height="12" rx="2"/>
+  <text class="ta" x="600" y="337" text-anchor="middle">run Python · queue or start a plan</text>
+
+  <rect class="mask" x="40" y="252" width="340" height="64" rx="6"/>
+  <rect class="nb" x="40" y="252" width="340" height="64" rx="6"/>
+  <text class="tn" x="210" y="274" text-anchor="middle">Are writes switched on?</text>
+  <text class="ts" x="210" y="290" text-anchor="middle">the kill switch</text>
+  <text class="ts" x="210" y="303" text-anchor="middle">writes off for this machine, or narrowed: refused</text>
+
+  <rect class="mask" x="430" y="252" width="340" height="64" rx="6"/>
+  <rect class="nb" x="430" y="252" width="340" height="64" rx="6"/>
+  <text class="tn" x="600" y="274" text-anchor="middle">Is the value within limits?</text>
+  <text class="ts" x="600" y="290" text-anchor="middle">channel writes only · in the database · writable · range</text>
+  <text class="ts" x="600" y="303" text-anchor="middle">step size: left to the connector, which reads first</text>
+
+  <rect class="mask" x="820" y="252" width="340" height="64" rx="6"/>
+  <rect class="nb-foc" x="820" y="252" width="340" height="64" rx="6"/>
+  <text class="tn" x="990" y="274" text-anchor="middle">Does a human approve?</text>
+  <text class="ts" x="990" y="290" text-anchor="middle">the operator answers a prompt at the terminal</text>
+  <text class="ts" x="990" y="303" text-anchor="middle">for Python, the exact code is shown in a review notebook</text>
+
+  <text class="ts" x="56" y="354">how often approval is asked is set per tool: always · only when the request could write (the check reads the request itself) · never</text>
+  <text class="ts" x="56" y="368">where no machine may be written at all, channel writes and plan queueing are switched off outright and Python is always asked · stopping a plan never is</text>
+
+  <!-- approval → servers -->
+  <path class="e" d="M990,316 V386 H130 V412" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="376" y1="386" x2="376" y2="412" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="603" y1="386" x2="603" y2="412" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="960" y="342" width="60" height="12" rx="2"/>
+  <text class="ta" x="990" y="351" text-anchor="middle">approved</text>
+  <rect class="mask" x="86" y="392" width="88" height="12" rx="2"/>
+  <text class="ta" x="130" y="401" text-anchor="middle">channel write</text>
+  <rect class="mask" x="343" y="392" width="66" height="12" rx="2"/>
+  <text class="ta" x="376" y="401" text-anchor="middle">run Python</text>
+  <rect class="mask" x="564" y="392" width="78" height="12" rx="2"/>
+  <text class="ta" x="603" y="401" text-anchor="middle">queue a plan</text>
+
+  <!-- column A · channel write -->
+  <rect class="mask" x="40" y="416" width="180" height="56" rx="6"/>
+  <rect class="nb" x="40" y="416" width="180" height="56" rx="6"/>
+  <text class="tn" x="130" y="438" text-anchor="middle">control-system server</text>
+  <text class="ts" x="130" y="454" text-anchor="middle">one call · one or more channels</text>
+  <line class="e" x1="130" y1="472" x2="130" y2="492" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="40" y="496" width="180" height="84" rx="6"/>
+  <rect class="nb" x="40" y="496" width="180" height="84" rx="6"/>
+  <text class="tn" x="130" y="518" text-anchor="middle">the server checks again</text>
+  <text class="ts" x="130" y="536" text-anchor="middle">the limits, once more</text>
+  <text class="ts" x="130" y="549" text-anchor="middle">the machine is still the one</text>
+  <text class="ts" x="130" y="562" text-anchor="middle">the operator approved</text>
+  <line class="e" x1="130" y1="580" x2="130" y2="744" marker-end="url(#safety-chain-arr)"/>
+
+  <!-- column B · run Python -->
+  <rect class="mask" x="236" y="416" width="280" height="56" rx="6"/>
+  <rect class="nb" x="236" y="416" width="280" height="56" rx="6"/>
+  <text class="tn" x="376" y="438" text-anchor="middle">Python server</text>
+  <text class="ts" x="376" y="454" text-anchor="middle">code the agent wrote · read-only or read-write</text>
+  <line class="e" x1="376" y1="472" x2="376" y2="492" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="236" y="496" width="280" height="97" rx="6"/>
+  <rect class="nb" x="236" y="496" width="280" height="97" rx="6"/>
+  <text class="tn" x="376" y="518" text-anchor="middle">the code is read before it runs</text>
+  <text class="ts" x="376" y="536" text-anchor="middle">dangerous patterns are refused</text>
+  <text class="ts" x="376" y="549" text-anchor="middle">writes into the deployment's own files are refused</text>
+  <text class="ts" x="376" y="562" text-anchor="middle">read-only code may not import client libraries</text>
+  <text class="ts" x="376" y="575" text-anchor="middle">read-only code that spells a write is refused</text>
+  <line class="e" x1="376" y1="593" x2="376" y2="613" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="236" y="617" width="280" height="110" rx="6"/>
+  <rect class="nb-bnd" x="236" y="617" width="280" height="110" rx="6"/>
+  <text class="tn" x="376" y="639" text-anchor="middle">the code runs in its own process</text>
+  <text class="ts" x="376" y="657" text-anchor="middle">read-only code cannot write, even if it tries</text>
+  <text class="ts" x="376" y="670" text-anchor="middle">client-library writes are checked against limits</text>
+  <text class="ts" x="376" y="683" text-anchor="middle">it cannot write into the deployment's own files</text>
+  <text class="ts" x="376" y="696" text-anchor="middle">it is stopped after a time limit</text>
+  <text class="ts" x="376" y="709" text-anchor="middle">the result is saved before the process ends</text>
+  <line class="e" x1="376" y1="727" x2="376" y2="744" marker-end="url(#safety-chain-arr)"/>
+
+  <!-- column C · queue a plan -->
+  <rect class="mask" x="532" y="416" width="142" height="56" rx="6"/>
+  <rect class="nb" x="532" y="416" width="142" height="56" rx="6"/>
+  <text class="tn" x="603" y="438" text-anchor="middle">Bluesky server</text>
+  <text class="ts" x="603" y="454" text-anchor="middle">queue a plan · start it</text>
+  <rect class="mask" x="690" y="416" width="142" height="56" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="690" y="416" width="142" height="56" rx="6"/>
+  <text class="tn" x="761" y="434" text-anchor="middle">BLUESKY panel</text>
+  <text class="ts" x="761" y="449" text-anchor="middle">operator clicks Start</text>
+  <text class="ts" x="761" y="462" text-anchor="middle">skips the checks above</text>
+  <line class="e" x1="603" y1="472" x2="603" y2="492" marker-end="url(#safety-chain-arr)"/>
+  <line class="e" x1="761" y1="472" x2="761" y2="492" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="532" y="496" width="300" height="97" rx="6"/>
+  <rect class="nb" x="532" y="496" width="300" height="97" rx="6"/>
+  <text class="tn" x="682" y="518" text-anchor="middle">the queue</text>
+  <text class="ts" x="682" y="536" text-anchor="middle">start, or add while it runs: needs a launch token</text>
+  <text class="ts" x="682" y="549" text-anchor="middle">per lane and role · adds to a stopped queue need none</text>
+  <text class="ts" x="682" y="562" text-anchor="middle">a start is bound to the queue the approver saw</text>
+  <text class="ts" x="682" y="575" text-anchor="middle">changed since? refused, and the view refreshes</text>
+  <line class="e" x1="682" y1="593" x2="682" y2="613" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="532" y="617" width="300" height="97" rx="6"/>
+  <rect class="nb" x="532" y="617" width="300" height="97" rx="6"/>
+  <text class="tn" x="682" y="639" text-anchor="middle">before and during a run</text>
+  <text class="ts" x="682" y="657" text-anchor="middle">every channel the plan declares must answer first</text>
+  <text class="ts" x="682" y="670" text-anchor="middle">each write: writes on for the machine? within limits?</text>
+  <text class="ts" x="682" y="683" text-anchor="middle">the name on the item rides into the plan's task</text>
+  <text class="ts" x="682" y="696" text-anchor="middle">each write judged against that person's narrowing</text>
+  <line class="e" x1="682" y1="714" x2="682" y2="744" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="576" y="722" width="212" height="14" rx="2"/>
+  <text class="ts" x="682" y="732" text-anchor="middle">stopping a plan never needs a token</text>
+
+  <!-- column D · Jupyter cell -->
+  <rect class="mask" x="850" y="416" width="310" height="56" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="850" y="416" width="310" height="56" rx="6"/>
+  <text class="tn" x="1005" y="434" text-anchor="middle">JUPYTER cell</text>
+  <text class="ts" x="1005" y="449" text-anchor="middle">the operator runs it</text>
+  <text class="ts" x="1005" y="462" text-anchor="middle">skips the checks above</text>
+  <line class="e" x1="1005" y1="472" x2="1005" y2="492" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="850" y="496" width="310" height="84" rx="6"/>
+  <rect class="nb" x="850" y="496" width="310" height="84" rx="6"/>
+  <text class="tn" x="1005" y="518" text-anchor="middle">the notebook kernel</text>
+  <text class="ts" x="1005" y="536" text-anchor="middle">starts with writes off · before each cell re-reads:</text>
+  <text class="ts" x="1005" y="549" text-anchor="middle">which machine · writes on? · narrowed?</text>
+  <text class="ts" x="1005" y="562" text-anchor="middle">a refused write is shown in the cell</text>
+  <line class="e" x1="1005" y1="580" x2="1005" y2="744" marker-end="url(#safety-chain-arr)"/>
+  <rect class="mask" x="866" y="592" width="278" height="14" rx="2"/>
+  <text class="ts" x="1005" y="602" text-anchor="middle">agent edits stay in notebooks/ and artifacts/</text>
+
+  <!-- connector band -->
+  <rect class="mask" x="40" y="748" width="1120" height="94" rx="6"/>
+  <rect class="nb nb-acc-stroke" x="40" y="748" width="1120" height="94" rx="6"/>
+  <text class="tn" x="60" y="770">Connector — the last step before the machine</text>
+  <text class="ts" x="60" y="788">asks the records, on every write: may this person write to this machine now? — permitted · narrowing · control_context_unavailable (the records could not be read)</text>
+  <text class="ts" x="60" y="802">either refusal stands whichever path the write took, a running plan included · a refusal the records decided ends its message in that word, so the reason survives into the run record and the audit line</text>
+  <text class="ts" x="60" y="816">where limits checking is on, checks the value against the limits: allowed range · step size · may this channel be written</text>
+  <text class="ts" x="60" y="830">sends the value · where that channel's policy asks for it, waits for the machine to confirm and reads the channel back to compare</text>
+  <line class="e" x1="600" y1="842" x2="600" y2="862" marker-end="url(#safety-chain-arr)"/>
+
+  <!-- control system -->
+  <rect class="mask" x="500" y="866" width="200" height="44" rx="6"/>
+  <rect class="nb-ext" x="500" y="866" width="200" height="44" rx="6"/>
+  <text class="tn" x="600" y="884" text-anchor="middle">control system</text>
+  <text class="ts" x="600" y="899" text-anchor="middle">the machine</text>
+
+  <!-- whose write is it · the two doors, the fired job, the documented gaps -->
+  <rect class="zone" x="40" y="938" width="1120" height="116" rx="6"/>
+  <text class="te" x="56" y="956">WHOSE WRITE IS IT — AND WHAT THIS PICTURE DOES NOT COVER</text>
+  <text class="ts" x="56" y="976">a request is named at two doors only: the terminal's proxy, and the sidecar's own login gate — each from the credential that got the request in, never from what the request claimed</text>
+  <text class="ts" x="56" y="1040">a name that arrived any other way is unvouched: it binds all the same, so the plan is judged against whoever it names</text>
+  <text class="ts" x="56" y="992">a job the agent fires leaves through the terminal's panel proxy, the one place holding the dispatcher's key: it adds the key, stamps the same name, and the job's own writes re-enter above</text>
+  <text class="ts" x="56" y="1008">gaps: a plan added to the queue from inside a container, under any name or none · a persona allowed a shell reaching the panel's dispatcher address · a direct login at the panel's address, unnamed</text>
+  <text class="ts" x="56" y="1024">an unnamed plan runs at the lane's ceiling, on lanes this deployment deploys · an external-worker lane is the facility's own RunEngine: outside the narrowing and the ceiling, the name is attribution</text>
+
+  <!-- the fired job's writes come back in as tool calls -->
+  <path class="e-acc e-dash" d="M40,992 H22 V152 H40" marker-end="url(#safety-chain-arr-acc)"/>
+  <rect class="mask" x="8" y="440" width="12" height="220" rx="2"/>
+  <text class="ta ta-acc" transform="translate(17,550) rotate(-90)" text-anchor="middle">a fired job's own tool calls arrive here</text>
+
 </svg>
 </div>
+</section>
+<section id="the-checks">
+<h1>The checks<a class="headerlink" href="#the-checks" title="Link to this heading">#</a></h1>
+<p>They run in this order; a channel write meets all three, a Python run and a plan meet the
+first and the last:</p>
 <ol class="arabic simple">
-<li><p><strong>osprey_writes_check</strong> — Kill switch. Blocks a write when the deployment’s control
-target is not armed for writes — <code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.writes_enabled</span></code>
-in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, or the <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> a type with no block of
-its own inherits. Applies to both <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> and <code class="docutils literal notranslate"><span class="pre">execute</span></code>.</p></li>
-<li><p><strong>osprey_limits</strong> — Validates the setpoint against the channel limits database
-(min, max, step size, writable flag). Only applies to <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>.</p></li>
-<li><p><strong>osprey_approval</strong> — Human approval gate. Per-tool policy dispatch: <code class="docutils literal notranslate"><span class="pre">always</span></code> (require
-approval every time), <code class="docutils literal notranslate"><span class="pre">selective</span></code>, or <code class="docutils literal notranslate"><span class="pre">skip</span></code>. Under <code class="docutils literal notranslate"><span class="pre">selective</span></code> the hook itself
-inspects the call and prompts only when an <code class="docutils literal notranslate"><span class="pre">execute</span></code> request is <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> or its
-code contains a control-system write pattern; a <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> is prompted for every
-time. An <code class="docutils literal notranslate"><span class="pre">execute</span></code> that needs approval has its code saved as a <strong>Pre-Execution Review</strong>
-notebook in the artifact gallery, linked from the prompt, so the operator reviews the
-exact code that will run. The approval is the terminal prompt; the gallery only shows
-the code.</p></li>
+<li><p><strong>Are writes switched on?</strong> (<code class="docutils literal notranslate"><span class="pre">osprey_writes_check</span></code>) — the kill switch. It refuses any
+write when writes are switched off for the machine the deployment points at —
+<code class="docutils literal notranslate"><span class="pre">control_system.connector.&lt;type&gt;.writes_enabled</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, or the
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> a type without that key inherits — and when the person
+who asked has narrowed that machine to read-only from their own terminal. It applies to channel
+writes, read-write Python runs, and queueing or starting a plan. Where no machine may be
+written at all, channel writes and plan queueing are switched off outright rather than
+refused call by call, and a Python run is always asked. Stopping a plan is never switched
+off.</p></li>
+<li><p><strong>Is the value within limits?</strong> (<code class="docutils literal notranslate"><span class="pre">osprey_limits</span></code>) — checks a channel write against the
+limits database: that the channel is in it, that it may be written, and the allowed range.
+The step size is left to the connector, the only layer that can read the channel first.
+Channel writes only.</p></li>
+<li><p><strong>Does a human approve?</strong> (<code class="docutils literal notranslate"><span class="pre">osprey_approval</span></code>) — the operator answers a prompt at the
+terminal. How often it asks is set per tool: <code class="docutils literal notranslate"><span class="pre">always</span></code>, <code class="docutils literal notranslate"><span class="pre">selective</span></code>, or <code class="docutils literal notranslate"><span class="pre">skip</span></code>. Under
+<code class="docutils literal notranslate"><span class="pre">selective</span></code> the check reads the request itself and asks only when a Python run is
+read-write or its code contains a write; a channel write is always asked. When a Python run
+needs approval, the exact code is saved as a <strong>Pre-Execution Review</strong> notebook in the
+artifact gallery and linked from the prompt, so the operator can read what is about to run.
+The approval is the terminal prompt; the gallery only shows the code.</p></li>
 </ol>
+<p>Every check reads the deployment’s settings: which machine the deployment points at, and
+whether the person who asked has narrowed it, come from the records the deployment keeps —
+one per person — read fresh on every call, so a switch made anywhere reaches the agent’s
+next tool call; whether writes are switched on for that machine is rendered from
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> at build time and takes a rebuild to change. See
+<a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-session-posture"><span class="std std-ref">The control-target chip</span></a> for the narrowing and
+<a class="reference internal" href="../how-to/control-systems/switch-control-target.html"><span class="doc">Switch the Control Target at Run Time</span></a> for the machine.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>After upgrading a deployment, choose the machine again. Records an older version kept in
+a single file, at <code class="docutils literal notranslate"><span class="pre">var/agent_data/control_target/control_context.json</span></code>, are not read —
+including a narrowing that record held.</p>
+</div>
+</section>
+<section id="four-paths-below-the-checks">
+<h1>Four paths below the checks<a class="headerlink" href="#four-paths-below-the-checks" title="Link to this heading">#</a></h1>
+<section id="one-channel-write">
+<h2>One channel write<a class="headerlink" href="#one-channel-write" title="Link to this heading">#</a></h2>
+<p>One call, one or more channels, each with its value; one approval covers the call. The three
+checks are its first gates. The control-system server then checks the limits once more and
+that the machine is still the one the operator approved, and hands the values to the
+connector.</p>
+</section>
+<section id="python-the-agent-wrote">
+<h2>Python the agent wrote<a class="headerlink" href="#python-the-agent-wrote" title="Link to this heading">#</a></h2>
+<p>A Python run carries a whole program, so the per-write checks can only judge what they can read
+in it. The Python executor takes over from there. Before the code runs, it is read: dangerous
+patterns are refused, code that writes into the deployment’s own files is refused, and
+read-only code may neither import a control-system client library nor spell a write. Then
+the code runs in its own process with guards in place: read-only code cannot write even if it
+tries, writes through the client libraries are checked against the limits, it cannot write
+into the deployment’s own files, and it is stopped after a time limit. When the code finishes, its result is saved to a record and the process ends at once,
+so nothing a library does on the way out can hold it open; the executor reports the run from
+that record. All nine layers are described on <a class="reference internal" href="python-executor.html"><span class="doc">Python Executor</span></a>.</p>
+</section>
+<section id="a-bluesky-plan">
+<h2>A Bluesky plan<a class="headerlink" href="#a-bluesky-plan" title="Link to this heading">#</a></h2>
+<p>The agent queues or starts a plan through its Bluesky tools, which pass the kill switch and
+the approval prompt. A person reaches the same queue from the BLUESKY panel’s <strong>Start</strong> button,
+with none of the checks in the way. Both then meet the gates the queue holds:</p>
+<ul class="simple">
+<li><p><strong>A launch token.</strong> Sending work toward hardware — starting the queue, or adding to a queue
+that is already running — needs a credential the deployment holds per lane, and grants to a
+role only where that role may write to the machine the lane drives.</p></li>
+<li><p><strong>Every channel the plan declares must answer first.</strong> Before a run starts, each channel the
+plan declares it will read or write is asked to respond; if any does not, the run is refused
+before anything is written.</p></li>
+<li><p><strong>Each write is checked as it happens.</strong> Are writes on for the machine the lane drives, is
+the value within limits, and has the person the plan belongs to narrowed that machine.</p></li>
+</ul>
+<p>Stopping a plan never needs a token, anywhere. See <a class="reference internal" href="../how-to/bluesky/queue.html"><span class="doc">Plans and the Queue</span></a> for the token
+and <a class="reference internal" href="../how-to/bluesky/write-plans.html"><span class="doc">Write Your Own Plans</span></a> for the pre-run check.</p>
+<p><strong>A plan carries the name of whoever queued it.</strong> The name rides along on the queued item, and
+the lane’s own container reads it back when the plan starts: the plan runs inside a task that
+holds that name, so each of its writes is judged against that person’s narrowing — nobody
+else’s, and a narrowing made after the plan started reaches its next write. A queue row OSPREY
+relays shows the name only when the item carries one.</p>
+<p>The queue has other doors, and a plan that came through one of those carries whatever name it
+claims, or none at all. OSPREY did not put that name there and cannot vouch for it. A claimed
+name still binds: the plan’s writes are judged against that person’s narrowing, and the row
+shows the name. A plan carrying no name runs at whatever the lane itself allows — <strong>the
+lane’s ceiling</strong>.</p>
+<p><strong>A start is bound to the queue the approver looked at.</strong> The approval prompt records which
+queue was shown, and the start carries that queue’s identity with it; if the queue changed in
+between — a plan added, moved or removed — the start is refused and the view refreshes
+rather than running something the approver never saw. That holds for the agent’s tool, the
+BLUESKY panel’s <strong>Start</strong> button and the terminal’s queue bar alike.</p>
+</section>
+<section id="a-jupyter-cell">
+<h2>A Jupyter cell<a class="headerlink" href="#a-jupyter-cell" title="Link to this heading">#</a></h2>
+<p>A cell is run by a person, so no tool call and none of the checks are involved. What guards it
+are the deployment’s settings, which the notebook kernel carries. The kernel starts with writes
+off, and before every cell it re-reads which machine the deployment points at and whether it
+may write; a switch made anywhere reaches the next cell, and narrowing the machine reaches a
+cell already running, because the connector checks the narrowing on every write. A refused
+write is shown in the cell, with a line saying what to do where something in the notebook
+would change it. The agent may edit notebooks only in the <code class="docutils literal notranslate"><span class="pre">notebooks</span></code> and <code class="docutils literal notranslate"><span class="pre">artifacts</span></code>
+folders under the agent-data root, held there by a file-write guard that protects the host’s
+files, not the machine. See <a class="reference internal" href="../how-to/web-terminal/notebooks.html"><span class="doc">Notebooks</span></a>.</p>
+</section>
+</section>
+<section id="what-every-path-shares">
+<h1>What every path shares<a class="headerlink" href="#what-every-path-shares" title="Link to this heading">#</a></h1>
+<p><strong>The connector.</strong> Every path ends at the connector, the last step before the machine. On
+every write it asks the deployment’s records one question — may this person write to this
+machine right now — and gets back one of three answers:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">permitted</span></code></dt><dd><p>nothing is in the way; the write goes on to the limits check below.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">narrowing</span></code></dt><dd><p>the person this write belongs to has narrowed this machine to read-only. Narrowing refuses
+at once, whichever path the write took, including a plan already running.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">control_context_unavailable</span></code></dt><dd><p>the records could not be read — no record where one was expected, or a directory the
+container cannot see into. The write is refused rather than allowed, and the refusal names
+what to check.</p>
+</dd>
+</dl>
+<p>Where the records are what refused a write, the message ends in the word they answered with,
+<code class="docutils literal notranslate"><span class="pre">narrowing</span></code> or <code class="docutils literal notranslate"><span class="pre">control_context_unavailable</span></code>, so the reason survives being passed along —
+through a plan that failed, through a run record, into the audit line. Refusals decided
+elsewhere read differently and say so: a Python run that was pinned read-only when it launched
+is told to re-run the script, because a write state set since applies to the next run, not to
+one already in flight.</p>
+<p>Where limits checking is on, the connector then checks the value against the limits — the
+allowed range, the step size, and whether the channel may be written at all. It sends the value
+and, where that channel’s policy asks for it, waits for the machine to confirm, reads the
+channel back and compares what it now holds with what was sent. See
+<a class="reference internal" href="../reference/contracts/connectors.html"><span class="doc">Connector Contracts</span></a>.</p>
+<p><strong>The audit trail.</strong> Every refusal and every approval prompt on every path, and every tool
+call that was allowed, is written down as one line under <code class="docutils literal notranslate"><span class="pre">var/audit/</span></code> in the deployment
+repository, by the check, the server or the Python executor that made the decision; the
+connector writes none itself, the path that called it does. Each line records the write
+posture in force and who acted, or which kernel. See <a class="reference internal" href="../reference/contracts/audit-trail.html#reference-audit-trail"><span class="std std-ref">Audit Trail Contract</span></a>.</p>
+</section>
+<section id="whose-write-is-it">
+<span id="architecture-safety-chain-owner"></span><h1>Whose write is it<a class="headerlink" href="#whose-write-is-it" title="Link to this heading">#</a></h1>
+<section id="where-the-name-comes-from">
+<h2>Where the name comes from<a class="headerlink" href="#where-the-name-comes-from" title="Link to this heading">#</a></h2>
+<p>A request carries a name only because one of two doors put it there, and both put it there the
+same way — in the <code class="docutils literal notranslate"><span class="pre">X-Osprey-Owner</span></code> header, from the credential that got the request in,
+never from what the request claimed.</p>
+<ul class="simple">
+<li><p><strong>The web terminal’s proxy</strong> strips any name a request arrives with and sets the account
+whose terminal it is.</p></li>
+<li><p><strong>The sidecar’s own login gate</strong> overwrites the name on every request it admits, from the
+credential that matched.</p></li>
+</ul>
+<p>That header is the only place a request’s name is read from: a name written anywhere else in a
+request — a field in its body, an argument to a tool — names nobody. The account name is
+not treated as a secret: it travels with proxied requests and appears in the deployment’s own
+logs. What the two doors protect is that nobody can choose to be someone else.</p>
+<p>The panel’s own address is neither of those doors: a login there mints no name at all. See
+<a class="reference internal" href="../how-to/web-terminal/operate.html#web-terminal-service-door"><span class="std std-ref">service door, not a terminal</span></a> for what that costs the person
+using it. In the single-user containerised shape, where one sidecar is reached with the
+deployment-wide secret, requests name nobody by design — that secret says a request is
+allowed, not who sent it.</p>
+<p>A job the OSPREY agent fires goes out through the terminal’s own panel proxy. The agent never
+holds the dispatcher’s key; the proxy holds it, adds it on the way out and stamps the same name
+the rest of that terminal’s traffic carries. The worker that runs the job hands that name on to
+the job’s own agent session, so the job runs as the person who asked and the writes it makes
+meet their narrowing. A backend behind the EVENTS panel is handed that key and that name
+only when the deployment’s config declares it <strong>and</strong> it answers on the loopback address —
+the same rule the operator secret follows. See <a class="reference internal" href="../how-to/agent-interfaces/event-dispatch.html"><span class="doc">Event Dispatch</span></a>.</p>
+</section>
+<section id="what-the-boundary-does-not-cover">
+<h2>What the boundary does not cover<a class="headerlink" href="#what-the-boundary-does-not-cover" title="Link to this heading">#</a></h2>
+<p>The queue belongs to the facility, and OSPREY gates its own doors to it, not every door. Three
+gaps follow from that, and a deployment should know them:</p>
+<ul class="simple">
+<li><p><strong>A plan added from inside a container.</strong> Something already running there — a Python run,
+or a persona whose profile allows a shell — can reach the queue’s own port and add a plan
+under any name it chooses, or none. The gap is that such a name is unvouched: OSPREY did not
+mint it, and it binds all the same, so the plan is judged against whoever it names. With no
+name it runs at the lane’s ceiling.</p></li>
+<li><p><strong>A shell reaching the panel’s dispatcher address.</strong> The panel token sits in the agent’s own
+environment, so the same shell can fire a job without the approval prompt. Building a persona
+that allows a shell warns about exactly this, and a sandboxed run cannot do it — neither the
+token nor the port is there. The job still runs as the real person, under their narrowing.</p></li>
+<li><p><strong>A direct login at the panel’s own address.</strong> Unnamed, as above, and at the lane’s ceiling.</p></li>
+</ul>
+<p><strong>The lane’s ceiling</strong> is what a lane allows when nobody is named, and it describes the lanes
+this deployment deploys. An external-worker lane (<code class="docutils literal notranslate"><span class="pre">bluesky.external:</span></code>) is a facility’s own
+RunEngine and devices: no OSPREY check runs inside it, so neither a person’s narrowing nor the
+lane’s ceiling reaches its writes. The name OSPREY puts on such an item is attribution — it
+says who queued the plan, not what gated it.</p>
+</section>
+<section id="where-the-narrowing-records-live">
+<h2>Where the narrowing records live<a class="headerlink" href="#where-the-narrowing-records-live" title="Link to this heading">#</a></h2>
+<p>Each person’s record sits in a directory of its own under the deployment’s agent-data root, and
+the lane and dispatch containers read that tree without being able to write to it. The tree is
+shared by group, so a narrowing is readable by the accounts that share it; it is state, not a
+secret. The build refuses to set the tree up on a planted symlink, and the readers do not
+follow links, so nothing on the path can be swapped for a record from somewhere else. That
+guarantee rests on one thing the operator owns: the agent-data root itself must not be writable
+by the shared group. A deployment that moves the agent-data root onto shared storage has to
+keep the root owned by the account that deploys. The arrangement uses POSIX file ownership and
+runs on Linux and macOS hosts.</p>
+</section>
 </section>
 
 
@@ -567,28 +927,6 @@ the code.</p></li>
             </div>
             
             
-              
-                <dialog id="pst-secondary-sidebar-modal"></dialog>
-                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
-
-
-  <div class="sidebar-secondary-item">
-
-  
-  <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/architecture/safety-chain.rst">
-      <i class="fa-solid fa-pencil"></i>
-      
-      
-        
-          Edit on GitHub
-        
-      
-    </a>
-  </div>
-</div>
-
-</div></div>
               
             
           </div>

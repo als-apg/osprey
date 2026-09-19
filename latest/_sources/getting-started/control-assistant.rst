@@ -155,7 +155,7 @@ terminal with ``osprey chat``; the web terminal from Hello World
 
 .. note::
 
-   On first run, the Osprey agent will ask you to trust the MCP servers in this
+   On first run, the OSPREY agent will ask you to trust the MCP servers in this
    project. Accept to allow the agent to use the control system and channel-finder
    tools.
 

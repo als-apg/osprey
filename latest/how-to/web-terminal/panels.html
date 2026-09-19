@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -611,8 +611,16 @@ the entries for you):</p>
 <span class="w">      </span><span class="nt">health_endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/healthz</span><span class="w">     </span><span class="c1"># optional: lets the hub report status</span>
 </pre></div>
 </div>
+<p>The key you write the entry under (<code class="docutils literal notranslate"><span class="pre">events</span></code> here) is the panel’s id, and the
+terminal serves the tab under that id, so it has to be spellable in a URL:
+letters, digits, <code class="docutils literal notranslate"><span class="pre">.</span></code>, <code class="docutils literal notranslate"><span class="pre">_</span></code> and <code class="docutils literal notranslate"><span class="pre">-</span></code>, beginning with a letter or a digit. An
+id outside that is refused when the terminal starts, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">validate</span></code>
+names it in the profile first.</p>
 <p>The hub shows the service as a tab and proxies requests to it from the same
-origin, so the browser never needs direct access to the backing port.</p>
+origin, so the browser never needs direct access to the backing port. The tab
+is the named path: where the backing service is also reachable at an address of
+its own, a login there names nobody, and what it does is governed by nobody’s
+chip — see <a class="reference internal" href="operate.html#web-terminal-service-door"><span class="std std-ref">service door, not a terminal</span></a>.</p>
 </section>
 <section id="theming-a-url-backed-panel">
 <h2>Theming a URL-backed panel<a class="headerlink" href="#theming-a-url-backed-panel" title="Link to this heading">#</a></h2>

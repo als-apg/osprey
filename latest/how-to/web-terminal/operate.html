@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -556,7 +556,7 @@ restart — their sessions live in a store on disk; <code class="docutils litera
 <h2>What you get<a class="headerlink" href="#what-you-get" title="Link to this heading">#</a></h2>
 <p>The window has three working areas plus a header:</p>
 <ul class="simple">
-<li><p><strong>Terminal</strong> (right) — a real terminal running the Osprey agent. It survives
+<li><p><strong>Terminal</strong> (right) — a real terminal running the OSPREY agent. It survives
 reconnects, and you can keep a few background conversations alive and hop
 between them.</p></li>
 <li><p><strong>Workspace</strong> (left) — a live view of your project files. New artifacts,
@@ -590,7 +590,9 @@ Where a deployment runs the Bluesky panel, a <strong>Bluesky queue</strong> item
 for either bar: a dot and a word for what the queue is doing, the running
 plan and how far it is, and a card with the queued plans, <strong>Open Bluesky</strong>
 and — if you switch them on in its options — the panel’s own Start, Stop and
-Abort.</p></li>
+Abort. Start there arms the queue the card is showing; if the list moved
+before the click landed the start is refused, and the item re-reads the queue
+so your next click is a decision about what is actually queued.</p></li>
 </ul>
 <p>The settings drawer lets you read and edit the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> — and
 the agent’s own setup and memory files — from the browser, so you rarely need
@@ -812,14 +814,17 @@ same machine and the same write states: one of them turning writes off on a
 machine takes them away from everyone, and a switch made in one window applies
 in the other. That is the point — a write state you can only see from the
 page you happen to be on is not a safety control.</p>
-<p>Both are recorded together in
-<code class="docutils literal notranslate"><span class="pre">var/agent_data/control_target/control_context.json</span></code>, written as soon as you
-click and read back when a server starts, so restarting the container never
-quietly turns writes back on or moves the deployment off the machine somebody
-put it on. Coming back to the deployment baseline is a switch like any other.</p>
-<p>On a multi-user deployment every user has their own container and their own
-volumes (<a class="reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a>), so “the deployment” here means the stack
-that user is working in.</p>
+<p>Both are recorded together on disk, written as soon as you click and read back
+when a server starts, so restarting the container never quietly turns writes
+back on or moves the deployment off the machine somebody put it on. Coming back
+to the deployment baseline is a switch like any other.</p>
+<p>That record sits in a directory named for whoever the terminal is acting as:
+<code class="docutils literal notranslate"><span class="pre">var/agent_data/control_target/&lt;name&gt;/control_context.json</span></code>. On a multi-user
+deployment every user has their own container and their own volumes
+(<a class="reference internal" href="multi-user/index.html"><span class="doc">Multi-User Support</span></a>), so “the deployment” here means the stack that user
+is working in, and <code class="docutils literal notranslate"><span class="pre">&lt;name&gt;</span></code> is that user — alice’s settings are in
+<code class="docutils literal notranslate"><span class="pre">control_target/alice/</span></code> on the host, and no user’s chip decides another
+user’s writes.</p>
 </section>
 <section id="what-refuses-a-write-and-how-firmly">
 <h3>What refuses a write, and how firmly<a class="headerlink" href="#what-refuses-a-write-and-how-firmly" title="Link to this heading">#</a></h3>
@@ -908,6 +913,13 @@ window you are looking at.</p>
 a narrowing at once — turning writes off refuses the running cell’s next
 write — and takes a widening, or a switch, on the next cell you run. See
 <a class="reference internal" href="notebooks.html"><span class="doc">Notebooks</span></a>.</p>
+<p id="web-terminal-service-door">Where a deployment also serves a panel at an address of its own, that
+address is a <strong>service door, not a terminal</strong>. Log in there directly and the
+deployment has no name to put on what you do, so nobody’s chip applies to
+it: a plan queued from that page runs at its lane’s ceiling — what the
+deployment armed for that lane — rather than under yours. Reaching the
+same panel from its tab in the terminal is the named path, and the one the
+chip governs.</p>
 </div>
 </section>
 </section>

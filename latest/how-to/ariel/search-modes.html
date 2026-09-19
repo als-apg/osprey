@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 18, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 19, 2026"/>
   </head>
   
   
@@ -519,7 +519,7 @@
                   
   <section id="search-modes">
 <h1>Search Modes<a class="headerlink" href="#search-modes" title="Link to this heading">#</a></h1>
-<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the Osprey agent layer, which calls these search modules through ARIEL’s MCP tools.</p>
+<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and <code class="docutils literal notranslate"><span class="pre">hybrid</span></code>, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the OSPREY agent layer, which calls these search modules through ARIEL’s MCP tools.</p>
 <p><strong>Dispatch is registry-driven.</strong> A search request names a mode as a plain string — <code class="docutils literal notranslate"><span class="pre">&quot;keyword&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;semantic&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;hybrid&quot;</span></code>. The <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> looks that name up in Osprey’s central registry and calls the module’s own <code class="docutils literal notranslate"><span class="pre">execute</span></code>; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface’s capabilities API and the agent’s MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -576,7 +576,7 @@ osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"
 <p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> choices are read from the registry when the command runs, so a facility that registers its own search module gets it as a choice — and in <code class="docutils literal notranslate"><span class="pre">--help</span></code> — without any code change.</p>
 <section id="search-modules">
 <h3>Search Modules<a class="headerlink" href="#search-modules" title="Link to this heading">#</a></h3>
-<p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL’s capabilities API; each built-in module is exposed to the Osprey agent through its own ARIEL MCP tool (<code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code>, <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>). The framework ships with the following built-in search modules:</p>
+<p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL’s capabilities API; each built-in module is exposed to the OSPREY agent through its own ARIEL MCP tool (<code class="docutils literal notranslate"><span class="pre">keyword_search</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code>, <code class="docutils literal notranslate"><span class="pre">hybrid_search</span></code>). The framework ships with the following built-in search modules:</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
@@ -753,7 +753,7 @@ hybrid (qmd sidecar)</label><div class="sd-tab-content docutils">
 <span class="p">)</span>
 </pre></div>
 </div>
-<p>Once registered and enabled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">search_modules.my_search.enabled:</span> <span class="pre">true</span></code>), the module is routable by name — through <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">search</span> <span class="pre">--mode</span> <span class="pre">my_search</span></code> and through the web interface’s capabilities API — with no change to <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code>. Making it callable by the Osprey agent additionally requires a matching ARIEL MCP tool (contributions welcome). The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>, whose <code class="docutils literal notranslate"><span class="pre">search_mode</span></code> field is simply the registered module name:</p>
+<p>Once registered and enabled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">search_modules.my_search.enabled:</span> <span class="pre">true</span></code>), the module is routable by name — through <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">search</span> <span class="pre">--mode</span> <span class="pre">my_search</span></code> and through the web interface’s capabilities API — with no change to <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code>. Making it callable by the OSPREY agent additionally requires a matching ARIEL MCP tool (contributions welcome). The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>, whose <code class="docutils literal notranslate"><span class="pre">search_mode</span></code> field is simply the registered module name:</p>
 <p><code class="xref py py-class docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code> — a frozen dataclass whose key fields are <code class="docutils literal notranslate"><span class="pre">execute</span></code> (the async search function), <code class="docutils literal notranslate"><span class="pre">format_result</span></code> (formats results for agent consumption), and <code class="docutils literal notranslate"><span class="pre">args_schema</span></code> (a Pydantic model for input validation). See the class definition in the source for the full field list.</p>
 <p>Modules may also export <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code> to declare tunable parameters for the frontend capabilities API. Each <code class="xref py py-class docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> describes a single knob — its name, type, default, range, and UI grouping — so the web interface can render controls dynamically.</p>
 <p><strong>What a module returns.</strong> <code class="docutils literal notranslate"><span class="pre">execute</span></code> may return a plain list of entries, as it always could, or a <code class="docutils literal notranslate"><span class="pre">ModuleOutput(entries,</span> <span class="pre">diagnostics,</span> <span class="pre">expansion)</span></code> when it has something to report alongside them: <code class="docutils literal notranslate"><span class="pre">diagnostics</span></code> for the notices the caller should see (a truncated query, a skipped step), and <code class="docutils literal notranslate"><span class="pre">expansion</span></code> for the <a class="reference internal" href="#vocabulary-expansion"><span class="std std-ref">vocabulary groups</span></a> that actually reached the query it ran. A bare list stays valid and needs no change.</p>
@@ -905,7 +905,7 @@ argument on the <code class="docutils literal notranslate"><span class="pre">key
 MCP tools. Leave it unset and it follows <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.expand_by_default</span></code>;
 pass <code class="docutils literal notranslate"><span class="pre">false</span></code> and that one search runs on exactly the words you typed, with no
 expansions reported. It is the switch to reach for when you want to see what a
-query finds on its own, and the Osprey agent can use it the same way when a
+query finds on its own, and the OSPREY agent can use it the same way when a
 rewrite looks like it widened a search too far. With the vocabulary disabled the
 toggle is not advertised at all and the argument does nothing.</p>
 </section>
@@ -1035,7 +1035,7 @@ generic failure.</p></li>
 <li><p>Browsing entries, status and publishing keep working, and so does the settings
 editor — which is the point: you can set <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.enabled:</span> <span class="pre">false</span></code>
 or repoint <code class="docutils literal notranslate"><span class="pre">ariel.vocabulary.path</span></code> from the panel itself, then restart.</p></li>
-<li><p>The MCP server refuses to start, naming the same key, so the Osprey agent
+<li><p>The MCP server refuses to start, naming the same key, so the OSPREY agent
 never gets a half-working search.</p></li>
 </ul>
 <p>If the broken file is baked into a deployed image, the panel’s editor cannot
@@ -1096,7 +1096,7 @@ also be run with <code class="docutils literal notranslate"><span class="pre">re
 <code class="docutils literal notranslate"><span class="pre">default_search_mode</span></code> decides only which one answers when the caller names no
 mode.</p>
 <p>Need behavior beyond these search modules — multi-step reasoning, answer
-synthesis, custom prompting? That lives in the Osprey agent layer; see
+synthesis, custom prompting? That lives in the OSPREY agent layer; see
 <a class="reference internal" href="../../reference/contracts/ariel.html"><span class="doc">ARIEL Contracts</span></a> under “Extending the integration.”</p>
 </section>
 <section id="see-also">
