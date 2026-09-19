@@ -105,10 +105,15 @@ because the import direction between the two modules is one-way — the record
 module imports THIS one at module scope for the root and the grammar.
 
 **5. Who a narrowing is about.** This rule is not part of what the hook
-restates, for the reason the launch-pin paragraph above gives about the stamp:
-no hook process carries the tree bind or an owner — both belong to the
-containers that hold no chip of their own — and a process that carries neither
-cannot be narrowed by this rule. A chip is one person's, so a lookup needs a
+restates, and not because a hook could never see its inputs: a container that
+holds no chip of its own carries both the tree bind and the owner, and the
+agent it spawns inherits them, hooks included. It is a division of labour. A
+hook answers for the CONTAINER — the deployment ceiling it runs under, which
+is the one question it can settle without a tree read that has to fail closed —
+and the connector's reference monitor answers for the PERSON, delegating the
+record clause to this module. Two answers to one question would be two places
+to get it wrong, and the stricter of them is the one held closest to the write.
+A chip is one person's, so a lookup needs a
 name as well as a target. That name is the OWNER, and it is resolved by one
 ladder here — :func:`current_owner`, with :data:`NO_OWNER` for work that belongs
 to nobody — so that the write monitor and the queue never disagree about whose

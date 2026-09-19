@@ -26,6 +26,7 @@ from osprey.agent_runner.primitives import (
     mcp_servers_connected,
     mcp_snapshot_summary,
 )
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.dispatch_worker import failure_class, run_stats
 from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
 
@@ -522,6 +523,34 @@ async def run_dispatch(
     # session id — a dispatch run is not an interactive session.
     if run_id:
         sdk_env["OSPREY_DISPATCH_RUN_ID"] = run_id
+
+    # Hand the agent the agent-data root this deployment resolved, the same
+    # stamp an operator session puts on its own child. Everything below the
+    # spawn can otherwise only derive that directory — the controls server from
+    # config, the stdlib-only hooks from a repo root and a relative default —
+    # and a derivation is a guess on a deployment that moved
+    # ``agent_data.base_dir``. The stamp is the answer every one of those readers
+    # prefers, so the record the controls server writes and the record a hook
+    # reads are one file, and the write gate is not held closed for want of a
+    # record the first controls server has yet to publish.
+    #
+    # The SHARED root, never the session-scoped one: the control-context record
+    # spans sessions, and a dispatch run is not a session (which is also why
+    # this path leaves ``OSPREY_SESSION_ID`` alone). Assigned after the child
+    # environment is built, so the answer this deployment resolved outranks any
+    # value the worker itself was started with; a resolution that fails leaves
+    # the variable absent rather than empty, so the readers below derive the
+    # directory themselves instead of resolving against a path of no name.
+    try:
+        from osprey_connectors.workspace import resolve_shared_data_root
+
+        sdk_env[OSPREY_AGENT_DATA_ROOT] = str(resolve_shared_data_root())
+    except Exception:  # noqa: BLE001 — a dispatch must not fail on a config load
+        logger.warning(
+            "Could not resolve the agent-data root for the dispatch agent's environment; "
+            "readers below the spawn will derive it themselves",
+            exc_info=True,
+        )
 
     # Hand the run its owner, so the connector's owner ladder resolves that
     # person and every control-system write the agent makes is judged against

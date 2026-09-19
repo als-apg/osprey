@@ -408,6 +408,51 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
         posture_store.invalidate_cache()
 
 
+def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatch):
+    """Writer and both readers, on a config that was staged somewhere else.
+
+    A deployed service reads a config flattened onto the build host and mounted
+    into the container, so its ``project_root`` names a directory on the host and
+    nothing here. Both ladders drop that value and unwrap the config's own zone
+    instead, which is the repo the service runs in — the case the row above
+    cannot see, because the root it records is a directory that exists.
+
+    This is the shape the whole module is for: a disagreement here is invisible
+    at the seam, because a reader looking in a directory nobody writes answers
+    "no record", which is a legitimate answer meaning "nothing is narrowed".
+    """
+    # Arrange
+    from osprey_connectors.workspace import reset_config_cache
+
+    render = tmp_path / "build"
+    render.mkdir()
+    config = render / "config.yml"
+    config.write_text(
+        "project_root: /home/runner/work/osprey/osprey/stack\ncontrol_system:\n  type: mock\n"
+    )
+    monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config))
+    monkeypatch.setenv("CONFIG_FILE", str(config))
+    reset_config_cache()
+    posture_store.invalidate_cache()
+
+    # Act
+    hook_record = reader.record_path({})
+    hook_dir = reader.resolve_state_dir({})
+    canonical = control_context.record_path()
+    canonical_dir = posture_store.state_dir()
+
+    # Assert
+    try:
+        assert canonical is not None
+        assert os.path.realpath(hook_record) == os.path.realpath(str(canonical))
+        assert os.path.realpath(hook_dir) == os.path.realpath(str(canonical_dir))
+        assert os.path.realpath(hook_dir).startswith(os.path.realpath(str(tmp_path)))
+    finally:
+        reset_config_cache()
+        posture_store.invalidate_cache()
+
+
 def test_the_record_sits_beside_the_server_reports(tmp_path, monkeypatch):
     """One directory answers "control context for this deployment".
 

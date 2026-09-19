@@ -284,20 +284,31 @@ def get_repo_root(hook_input=None):
 
     Resolution order, mirroring the framework's:
 
-    1. ``project_root`` in the config :func:`_config_path` names. Authoritative,
-       and the only answer that is right inside a container, where the repo was
-       rendered at one path and runs at another (``/app/<name>``), so no walk on
-       the running filesystem could recover it.
+    1. ``project_root`` in the config :func:`_config_path` names, WHEN it names a
+       directory that exists here. The qualifier is the rule, not a safety net:
+       a deployed service reads a config STAGED on the host, whose
+       ``project_root`` is a host path naming nothing inside the container, and
+       anchoring on it would put every store this resolver anchors — the
+       control-context record, the audit ledger, the feedback store — outside
+       every mount, where the writer that shares those files never looks.
+       Qualified the same way, and for the same reason, as
+       ``osprey.utils.workspace.resolve_project_root``.
     2. The config's own directory — or its parent when that directory is the
        build zone. Same rule as ``workspace.repo_root_for_config``, and it comes
        *before* any walk because that is where ``resolve_project_root`` puts it:
        when a config file exists, the framework never looks at the filesystem
        around the cwd, and a hook that did would answer a different repo than
-       the app it shares state with.
+       the app it shares state with. This is the rung a container lands on: the
+       mount target names the render, so unwrapping it names the repo the
+       service actually runs in.
     3. The nearest ancestor holding ``profile.yml``, found the way every OSPREY
-       verb finds a repo. Reached only when the config named no root and does
-       not exist, where the framework has nothing left to consult either.
-    4. The project directory itself. A legacy flat layout has no zones to
+       verb finds a repo. Reached only when the config named no usable root and
+       does not exist, where the framework has nothing left to consult either.
+    4. The recorded ``project_root`` after all, unqualified. A build rendered
+       with ``--runtime-root`` records a path that exists only on the machine it
+       will run on, and with no config file to unwrap there is nothing better to
+       anchor on — the framework keeps the same value as its own late rung.
+    5. The project directory itself. A legacy flat layout has no zones to
        separate, so anchoring on it is the right answer.
 
     Returns:
@@ -308,8 +319,9 @@ def get_repo_root(hook_input=None):
     config_path = _config_path(hook_input)
 
     configured = _project_root_from_config(config_path)
-    if configured:
-        return str(Path(configured).expanduser())
+    recorded = Path(configured).expanduser() if configured else None
+    if recorded is not None and recorded.is_dir():
+        return str(recorded)
 
     if config_path.is_file():
         parent = config_path.parent
@@ -318,6 +330,9 @@ def get_repo_root(hook_input=None):
     for candidate in (base, *base.parents):
         if (candidate / PROFILE_MARKER).is_file():
             return str(candidate)
+
+    if recorded is not None:
+        return str(recorded)
 
     return str(base)
 
