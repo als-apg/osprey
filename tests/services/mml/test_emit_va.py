@@ -1250,6 +1250,89 @@ class TestBindingsReadJudgedRows:
             _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
 
 
+def _readout(**columns) -> dict:
+    """A readout block as a family's Monitor field states one."""
+    return dict(columns)
+
+
+class TestTheReadoutFollowsTheReading:
+    """A device's reading calibration is bound where there is a reading.
+
+    A facility that fits its magnets and correctors from the orbit stores
+    gains and rolls under the same four names as its beam position monitors,
+    so an export carries readout blocks on families that publish no reading at
+    all. What such a family's setpoint is worth in physics is its calibration;
+    there is no second reading for a correction to apply to, and the schema
+    refuses one, so the bind has to stop at the monitors.
+    """
+
+    def test_a_driven_family_stating_a_readout_binds_none(self, tmp_path):
+        # The whole of the monitors-only rule: this family's block carries the
+        # four numbers, and its bindings come back with none. Bound, the
+        # document would not even load -- the schema refuses a readout on a
+        # binding that drives a device.
+        block = _quad_block()
+        block["Monitor"]["readout"] = _readout(
+            gain=[1.02, 0.98], offset=[0.12, -0.05], roll=[0.001, 0.0], crunch=[0.002, 0.0]
+        )
+
+        _, document = _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
+
+        assert [binding.kind for binding in document.bindings] == ["strength", "strength"]
+        assert all(binding.readout is None for binding in document.bindings)
+
+    def test_a_reading_carries_the_numbers_its_own_block_states(self, tmp_path):
+        block = _bpm_block()
+        block["Monitor"]["readout"] = _readout(gain=[1.02, 0.98], roll=[0.001, -0.002])
+
+        _, document = self._monitors(tmp_path, block)
+
+        assert [(entry.readout.gain, entry.readout.roll) for entry in document.bindings] == [
+            (1.02, 0.001),
+            (0.98, -0.002),
+        ]
+        # Offset and crunch are stated by nobody, so they are stated here by
+        # nobody either -- not as the numbers that would correct by nothing.
+        assert all(entry.readout.stated == ("gain", "roll") for entry in document.bindings)
+
+    def test_a_device_the_facility_covers_nowhere_is_left_uncalibrated(self, tmp_path):
+        # The export's spelling for a device its own tables do not reach. It
+        # is absent for that device alone, and a device left with nothing
+        # stated carries no readout at all rather than a block of neutrals.
+        block = _bpm_block()
+        block["Monitor"]["readout"] = _readout(gain=[1.02, "NaN"], roll=[0.001, "NaN"])
+
+        _, document = self._monitors(tmp_path, block)
+
+        assert document.bindings[0].readout.stated == ("gain", "roll")
+        assert document.bindings[1].readout is None
+
+    def test_a_number_stated_once_for_the_family_reaches_every_device(self, tmp_path):
+        block = _bpm_block()
+        block["Monitor"]["readout"] = _readout(gain=[1.02, 0.98], crunch=-0.0015)
+
+        _, document = self._monitors(tmp_path, block)
+
+        assert [entry.readout.crunch for entry in document.bindings] == [-0.0015, -0.0015]
+
+    def test_a_readout_stating_other_devices_is_refused(self, tmp_path):
+        block = _bpm_block()
+        block["Monitor"]["readout"] = _readout(gain=[1.02, 0.98, 1.01])
+
+        with pytest.raises(ValueError, match="no longer line up"):
+            self._monitors(tmp_path, block)
+
+    def _monitors(self, tmp_path: Path, block: dict):
+        """Emit the monitor family alone, over the block passed."""
+        return _bindings(
+            tmp_path,
+            views=[_view("BPMx", _bpm_body())],
+            verdicts={(SYSTEM, "BPMx"): _monitor_verdict()},
+            judged_va={(SYSTEM, "BPMx"): block},
+            elements=_bpm_elements(),
+        )
+
+
 class TestBindingsOnTheCommittedExport:
     """The lane end to end over the only committed 2.0 export.
 

@@ -75,12 +75,19 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.main import cli
-from osprey.services.virtual_accelerator.bindings import load_bindings, setpoints
+from osprey.services.virtual_accelerator.bindings import (
+    READOUT_KEYS,
+    BindingsDocument,
+    load_bindings,
+    parse_bindings,
+    setpoints,
+)
 from osprey.services.virtual_accelerator.manifest.loaders import (
     load_machine_json_channels,
     load_machine_state_candidate_addresses,
 )
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+from osprey.services.virtual_accelerator.model.bindings import build_action_variables
 from osprey.simulation.machine import parse_machine
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 from tests.cli.test_mml_map import _fill
@@ -1182,6 +1189,69 @@ def _bindings(repo: Path):
     return load_bindings(repo / "data" / "simulation" / "va_bindings.json")
 
 
+def _without_readout(repo: Path) -> dict:
+    """The emitted bindings with every readout block taken back out."""
+    body = _json(repo, "data/simulation/va_bindings.json")
+    body["bindings"] = [
+        {key: value for key, value in binding.items() if key != "readout"}
+        for binding in body["bindings"]
+    ]
+    return body
+
+
+class _Solved:
+    """A solved orbit for the tree's monitors, keyed by element name.
+
+    Each monitor sits at a place of its own, and its two planes differ, so a
+    reading that came from the wrong element or the wrong axis is a different
+    number rather than the same one.
+    """
+
+    def __init__(self, document: BindingsDocument) -> None:
+        elements = sorted(
+            {binding.element for binding in document.bindings if binding.kind == "monitor"}
+        )
+        self.last_solution = {
+            name: (1.0e-4 * (position + 1), -2.0e-4 * (position + 1))
+            for position, name in enumerate(elements)
+        }
+
+
+def _served_readings(document: BindingsDocument, orbit: _Solved) -> dict[str, float]:
+    """What the IOC would publish for every monitor the document binds.
+
+    Built through the model layer's own factories, so this is the served
+    reading rather than an arithmetic stand-in for one.
+    """
+    factories = build_action_variables(document)
+    return {
+        binding.setpoint_address: factories[binding.setpoint_address](
+            {"address": binding.setpoint_address},
+            name=binding.setpoint_address,
+            read_only=True,
+            default_validation_config="none",
+            default_value=0.0,
+            value_range=None,
+            unit="mm",
+        )._get(orbit)
+        for binding in document.bindings
+        if binding.kind == "monitor"
+    }
+
+
+def _again(document: BindingsDocument, address: str, reading: float) -> float:
+    """The reading a consumer would publish having applied the readout twice.
+
+    ``real = gain * (raw - offset)`` is the facility's own algebra, offset
+    first; a number it states nothing for corrects by nothing.
+    """
+    binding = next(entry for entry in document.bindings if entry.setpoint_address == address)
+    readout = binding.readout
+    gain = 1.0 if readout is None or readout.gain is None else readout.gain
+    offset = 0.0 if readout is None or readout.offset is None else readout.offset
+    return gain * (reading - offset)
+
+
 class TestEveryCommittedTwoZeroTree:
     """The whole lane, on every 2.0 export the repo commits."""
 
@@ -1323,6 +1393,125 @@ class TestEachDocumentThroughItsOwnReader:
         named = [key for key in view if not key.startswith("_")]
         assert "QK:SEPTUM:1:CUR:RB" in named
         assert "QK:SEPTUM:1:CUR:RB" not in channels
+
+
+class TestTheMonitorReadoutReachesTheBindingsAndChangesNothing:
+    """The export's per-device reading calibration, carried and not applied.
+
+    The numbers are the facility's own -- what it already applied before it
+    published the reading -- and they are carried so that a readout-error
+    model has something to perturb around. Nothing serves from them today,
+    and their gain and offset are inside the conversions beside them, so a
+    served reading has to be the same byte whether they are there or not.
+    """
+
+    def _monitors(self, repo: Path) -> dict[str, list]:
+        """Every monitor binding of the tree, in document order, by family."""
+        found: dict[str, list] = {}
+        for binding in _bindings(repo).bindings:
+            if binding.kind == "monitor":
+                found.setdefault(binding.family, []).append(binding)
+        return found
+
+    def _exported(self, repo: Path) -> dict[str, dict]:
+        """Each family's exported readout block, by family."""
+        document = _json(repo, "data/mml/va.json")[SYNTHETIC_SYSTEM]["families"]
+        return {
+            family: body["Monitor"]["readout"]
+            for family, body in document.items()
+            if isinstance(body.get("Monitor"), dict) and "readout" in body["Monitor"]
+        }
+
+    def test_nothing_but_a_reading_carries_one(self, two_zero_repo: Path) -> None:
+        # The rule as it stands on every committed export, whose readouts are
+        # all on families that publish a reading. What pins the emitter's
+        # choice is a driven family that states one, and that case is built
+        # against ``emit_bindings`` in tests/services/mml/test_emit_va.py.
+        assert _emit().exit_code == 0
+
+        assert all(
+            binding.readout is None
+            for binding in _bindings(two_zero_repo).bindings
+            if binding.kind != "monitor"
+        )
+
+    def test_every_device_of_a_calibrated_family_carries_its_own_numbers(
+        self, va_repo: Path
+    ) -> None:
+        assert _emit().exit_code == 0
+
+        exported = self._exported(va_repo)
+        assert exported, "the export calibrates no reading"
+        monitors = self._monitors(va_repo)
+        for family, readout in exported.items():
+            bound = monitors[family]
+            for key, column in readout.items():
+                assert [getattr(binding.readout, key) for binding in bound] == column
+
+    def test_a_correction_the_export_never_states_is_absent_not_neutral(
+        self, va_repo: Path
+    ) -> None:
+        assert _emit().exit_code == 0
+
+        exported = self._exported(va_repo)
+        monitors = self._monitors(va_repo)
+        for family, readout in exported.items():
+            for binding in monitors[family]:
+                assert binding.readout.stated == tuple(
+                    key for key in READOUT_KEYS if key in readout
+                )
+        # The rule above is only worth stating because a family exercises it:
+        # one of them leaves a correction unstated, and it stays unstated.
+        assert any(set(readout) != set(READOUT_KEYS) for readout in exported.values())
+
+    def test_the_served_reading_is_the_same_with_the_readout_and_without_it(
+        self, va_repo: Path
+    ) -> None:
+        """The whole of what the carried numbers are allowed to do today.
+
+        Both documents are built by the production reader from the tree this
+        run emitted, and read at one solved orbit, so what is compared is the
+        reading the IOC would publish.
+        """
+        assert _emit().exit_code == 0
+
+        document = _bindings(va_repo)
+        stripped = parse_bindings(_without_readout(va_repo))
+        orbit = _Solved(_bindings(va_repo))
+        carried = _served_readings(document, orbit)
+        assert carried, "the tree binds no monitor"
+        assert carried == _served_readings(stripped, orbit)
+
+    def test_the_stripped_document_differs_in_nothing_but_the_readout(self, va_repo: Path) -> None:
+        # The comparison above is only an identity of readings; this says the
+        # readout is additive, so no other served fact moved with it.
+        assert _emit().exit_code == 0
+
+        body = _json(va_repo, "data/simulation/va_bindings.json")
+        stripped = _without_readout(va_repo)
+        assert body != stripped
+        for carried, bare in zip(body["bindings"], stripped["bindings"], strict=True):
+            assert {key: value for key, value in carried.items() if key != "readout"} == bare
+
+    def test_applying_the_carried_gain_and_offset_again_would_move_the_reading(
+        self, va_repo: Path
+    ) -> None:
+        """The guard that makes the identity above worth asserting.
+
+        A facility whose corrections all happened to change nothing would pass
+        it while a consumer double-counted them in silence.
+        """
+        assert _emit().exit_code == 0
+
+        document = _bindings(va_repo)
+        orbit = _Solved(document)
+        served = _served_readings(document, orbit)
+        moved = [
+            address
+            for address, reading in served.items()
+            if _again(document, address, reading) != pytest.approx(reading, rel=1e-9)
+        ]
+        assert moved, "no carried correction would change a reading if applied twice"
 
 
 class TestTheFacilitysOwnWriteBandsSurviveTheLane:

@@ -201,6 +201,17 @@ def _document(*bindings: dict, **overrides: Any) -> Any:
     return parse_bindings(body)
 
 
+class _Solved:
+    """The one thing reading a monitor asks of a simulator: the last orbit.
+
+    A solved orbit keyed by element name, each entry the transverse pair the
+    monitor sits in, in metres.
+    """
+
+    def __init__(self, orbit: dict[str, tuple[float, float]]) -> None:
+        self.last_solution = orbit
+
+
 def _channel(address: str, *, subfield: str = SETPOINT_SUBFIELD, **overrides: Any) -> dict:
     """One manifest channel, as the catalog hands it to a factory."""
     channel = {
@@ -330,6 +341,60 @@ class TestWhatEachKindBuilds:
         assert variable.energy_table == Table(grid=(0.0, 1.0, 2.0), values=(0.0, 1.5, 3.0))
         assert variable.nominal == 1.0
         assert variable.deck_energy_gev == 2.5
+
+
+class TestTheReadoutCalibrationChangesNoReading:
+    """A monitor's carried readout is data for an error model, and nothing else.
+
+    The document carries what the facility already applied to the reading it
+    publishes -- gain, offset, roll, crunch. The served path applies the
+    monitor's exported inverse and stops, so today those numbers move nothing;
+    the gain and the offset are inside that inverse, so a consumer applying
+    them again would count the same calibration twice.
+    """
+
+    #: One monitor's solved physics coordinate, in metres, and the readout the
+    #: facility states for it -- a gain and an offset that are visibly not the
+    #: numbers that change nothing, so applying them twice cannot pass.
+    PHYSICS_M = 0.00123
+    STATED = {"gain": 1.02, "offset": 0.12, "roll": 0.001, "crunch": 0.002}
+
+    def _monitor_variable(self, body: dict) -> MonitorVariable:
+        factories = build_action_variables(_document(body))
+        return _build(factories, BPM_Y, read_only=True, unit="mm", default_value=0.0)
+
+    def _reading(self, body: dict) -> float:
+        solved = _Solved({"bpm_sector9": (0.0, self.PHYSICS_M)})
+        return self._monitor_variable(body)._get(solved)
+
+    def test_the_reading_is_the_same_with_the_readout_and_without_it(self) -> None:
+        assert self._reading(_monitor(readout=self.STATED)) == self._reading(_monitor())
+
+    def test_the_reading_is_the_inverse_of_the_solved_orbit_and_nothing_else(self) -> None:
+        # Stated as the arithmetic rather than a literal, so the number this
+        # compares against moves with the fixture's inverse and not with a
+        # second application of anything.
+        assert self._reading(_monitor(readout=self.STATED)) == pytest.approx(
+            self.PHYSICS_M * 1.0e3, rel=1e-12
+        )
+
+    def test_applying_the_gain_and_offset_again_would_change_the_reading(self) -> None:
+        """The guard the identity above needs to mean something.
+
+        Without it, a readout of all-neutral numbers would pass the comparison
+        while a double-counting consumer went unnoticed.
+        """
+        served = self._reading(_monitor(readout=self.STATED))
+        twice = self.STATED["gain"] * (served - self.STATED["offset"])
+        assert twice != pytest.approx(served, rel=1e-9)
+
+    def test_the_served_monitor_holds_no_readout_to_apply(self) -> None:
+        """Not a dead seam: the variable the model builds never receives it.
+
+        A readout-error model belongs between the solved coordinate and the
+        inverse that turns it into a reading, and it reads the binding.
+        """
+        assert not hasattr(self._monitor_variable(_monitor(readout=self.STATED)), "readout")
 
 
 class TestTheFacilityFactsComeFromTheDocument:

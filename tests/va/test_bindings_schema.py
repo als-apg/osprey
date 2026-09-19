@@ -446,6 +446,56 @@ class TestReadbackRules:
         )
 
 
+class TestReadout:
+    """The one optional key: how a monitor's own reading is calibrated."""
+
+    def test_parses_the_four_numbers_a_reading_is_corrected_by(self):
+        body = _monitor(readout={"gain": 1.02, "offset": 0.12, "roll": 0.001, "crunch": 0.002})
+        readout = parse_bindings(_document([body])).bindings[0].readout
+        assert (readout.gain, readout.offset, readout.roll, readout.crunch) == (
+            1.02,
+            0.12,
+            0.001,
+            0.002,
+        )
+        assert readout.stated == ("gain", "offset", "roll", "crunch")
+
+    def test_a_number_the_facility_does_not_state_stays_absent(self):
+        # Absent is not zero. A consumer reading a missing offset as 0.0 and a
+        # missing gain as 1.0 gets the same reading either way; one reading it
+        # as a stated number would correct by something nobody measured.
+        readout = parse_bindings(_document([_monitor(readout={"gain": 0.99})])).bindings[0].readout
+        assert readout.stated == ("gain",)
+        assert (readout.offset, readout.roll, readout.crunch) == (None, None, None)
+
+    def test_a_binding_that_states_none_of_it_carries_none(self):
+        assert parse_bindings(_document([_monitor()])).bindings[0].readout is None
+
+    def test_refuses_a_readout_stating_nothing(self):
+        error = _refused(_document([_monitor(readout={})]))
+        assert error.key == "bindings[0].readout"
+        assert "leave the key out" in error.message
+
+    def test_refuses_a_readout_on_anything_but_a_reading(self):
+        # A driven family's exported gains calibrate its setpoint, which the
+        # calibration states; there is no published reading to correct.
+        error = _refused(_document([_strength(readout={"gain": 1.0})]))
+        assert error.key == "bindings[0].readout"
+        assert "publishes no reading" in error.message
+
+    def test_refuses_an_unknown_correction(self):
+        error = _refused(_document([_monitor(readout={"gain": 1.0, "tilt": 0.5})]))
+        assert error.key == "bindings[0].readout.tilt"
+
+    def test_refuses_a_correction_that_is_not_a_finite_number(self):
+        for value in ("1.02", None, float("nan")):
+            error = _refused(_document([_monitor(readout={"gain": value})]))
+            assert error.key == "bindings[0].readout.gain"
+
+    def test_refuses_a_readout_that_is_not_an_object(self):
+        assert _refused(_document([_monitor(readout=1.02)])).key == "bindings[0].readout"
+
+
 class TestCrossBindingRules:
     """One address, one writer; one element field, one family."""
 
@@ -522,6 +572,16 @@ class TestDump:
         assert body["monitor_inverse"] is None
         assert body["energy_table"] is None
         assert set(body) == set(_strength())
+
+    def test_writes_a_readout_only_where_one_is_stated_and_only_what_it_states(self):
+        stated = _monitor(readout={"gain": 1, "roll": 0.001})
+        body = json.loads(dump_bindings(parse_bindings(_document([stated, _strength()]))))
+        assert body["bindings"][0]["readout"] == {"gain": 1.0, "roll": 0.001}
+        assert "readout" not in body["bindings"][1]
+
+    def test_round_trips_a_readout_through_text(self):
+        doc = parse_bindings(_document([_monitor(readout={"gain": 1.02, "crunch": -0.002})]))
+        assert parse_bindings(json.loads(dump_bindings(doc))) == doc
 
     def test_writes_whole_numbers_as_floats(self):
         doc = parse_bindings(_document(energy_gev=3, bindings=[_strength(nominal=12)]))

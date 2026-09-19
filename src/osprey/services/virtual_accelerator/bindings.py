@@ -33,10 +33,14 @@ file the bindings were derived against -- and then one binding per address:
 * ``energy_scaling`` marks the bindings whose physics strength moves with the
   beam rigidity, and the ``energy`` binding's ``energy_table`` maps its
   hardware setpoint to beam energy.
+* ``readout`` carries the facility's own calibration of one monitor's reading
+  -- the numbers an error model perturbs around. It is the one optional key:
+  a binding that states none omits it, and so does a document emitted for a
+  facility that calibrates nothing.
 
-Structure and rules only: every key is required and explicit nulls stand for
-the slots a kind does not use, so a misspelt or missing key is refused rather
-than silently defaulted. Nothing here evaluates a calibration, loads a lattice
+Structure and rules only: every key but ``readout`` is required, and explicit
+nulls stand for the slots a kind does not use, so a misspelt or missing key is
+refused rather than silently defaulted. Nothing here evaluates a calibration, loads a lattice
 or touches a channel -- that belongs to the layers above, which import these
 dataclasses instead of respelling the document.
 
@@ -62,11 +66,13 @@ __all__ = [
     "ENERGY_SCALINGS",
     "PROVENANCE_KEY",
     "READBACK_RULES",
+    "READOUT_KEYS",
     "Binding",
     "BindingsDocument",
     "BindingsError",
     "Calibration",
     "Linear",
+    "Readout",
     "Slice",
     "Table",
     "dump_bindings",
@@ -132,6 +138,11 @@ _BINDING_KEYS = frozenset(
         "energy_table",
     }
 )
+_BINDING_OPTIONAL = frozenset({"readout"})
+
+#: What a monitor's readout may state, each one number for this device.
+READOUT_KEYS: tuple[str, ...] = ("gain", "offset", "roll", "crunch")
+
 _SLICE_KEYS = frozenset({"element", "weight"})
 _LINEAR_KEYS = frozenset({"kind", "gain", "offset"})
 _TABLE_KEYS = frozenset({"kind", "grid", "values"})
@@ -199,6 +210,56 @@ class Slice:
 
 
 @dataclass(frozen=True)
+class Readout:
+    """How one monitor's reading is calibrated, as the facility states it.
+
+    These are the numbers the control system already applies before it
+    publishes the reading, carried here so that something can perturb them:
+    the gain and the offset are inside :attr:`Binding.calibration` and
+    :attr:`Binding.monitor_inverse` too, which is exactly why the served path
+    must not apply them a second time, and the roll and the crunch -- the
+    rotation and the shear of the monitor pair -- are in neither curve and
+    are applied by nothing today.
+
+    **The seam.** A readout-error model belongs between the two halves of a
+    monitor read: the solved physics coordinate, and the hardware reading
+    :attr:`Binding.monitor_inverse` turns it into
+    (``MonitorVariable._get``). It perturbs these numbers and re-derives the
+    reading from the perturbed ones, so a monitor left unperturbed reproduces
+    the reading exactly. Two facts such a model has to honour: the algebra is
+    ``real = gain * (raw - offset)``, offset first; and where the served deck
+    carries a monitor's rotation on the element itself, one rotation covers
+    both planes and it is the horizontal family's, so applying each plane's
+    own roll and crunch turns the pair twice and turns the vertical one by a
+    number the control system never applies. Only a deck that carries no such
+    rotation leaves each plane its own.
+
+    Each number is this device's own and every one of them is optional: an
+    absent number is not a zero but a fact the facility does not state, which
+    a consumer reads as the value that changes nothing -- a gain of one, an
+    offset, roll and crunch of zero.
+
+    Attributes:
+        gain: Dimensionless scale on the raw reading.
+        offset: Subtracted from the raw reading, in the family's own hardware
+            units -- what its readback answers in, not the physics units of
+            the conversion beside it.
+        roll: Rotation of the monitor pair, in radians.
+        crunch: Shear of the monitor pair, dimensionless.
+    """
+
+    gain: float | None = None
+    offset: float | None = None
+    roll: float | None = None
+    crunch: float | None = None
+
+    @property
+    def stated(self) -> tuple[str, ...]:
+        """The keys this readout states, in :data:`READOUT_KEYS` order."""
+        return tuple(name for name in READOUT_KEYS if getattr(self, name) is not None)
+
+
+@dataclass(frozen=True)
 class Binding:
     """One address and what it does to the lattice.
 
@@ -220,6 +281,8 @@ class Binding:
         nominal: The device's nominal hardware value.
         energy_scaling: One of :data:`ENERGY_SCALINGS`.
         energy_table: Hardware setpoint to beam energy, for ``energy`` alone.
+        readout: How this monitor's reading is calibrated, for a ``monitor``
+            alone; ``None`` where the facility states none of it.
     """
 
     kind: str
@@ -237,6 +300,7 @@ class Binding:
     nominal: float | None
     energy_scaling: str
     energy_table: Table | None
+    readout: Readout | None = None
 
     @property
     def is_writable(self) -> bool:
@@ -415,7 +479,7 @@ def _words(values: tuple[str, ...] | frozenset[str]) -> str:
 
 def _binding(value: Any, path: str) -> Binding:
     body = _dict(value, path)
-    _keys(body, path, _BINDING_KEYS, _NONE)
+    _keys(body, path, _BINDING_KEYS, _BINDING_OPTIONAL)
     return Binding(
         kind=body["kind"],
         family=body["family"],
@@ -435,7 +499,23 @@ def _binding(value: Any, path: str) -> Binding:
         nominal=body["nominal"],
         energy_scaling=body["energy_scaling"],
         energy_table=_energy_table(body["energy_table"], f"{path}.energy_table"),
+        readout=_readout(body["readout"], f"{path}.readout") if "readout" in body else None,
     )
+
+
+def _readout(value: Any, path: str) -> Readout:
+    """Parse a stated readout; the key is left out where none is stated."""
+    body = _dict(value, path)
+    _keys(body, path, _NONE, frozenset(READOUT_KEYS))
+    stated = {name: body[name] for name in READOUT_KEYS if name in body}
+    for name, value_ in stated.items():
+        if value_ is None:
+            raise BindingsError(
+                f"{path}.{name}",
+                f"the reading's {name}: must be a number, and a key the facility "
+                "states nothing for is left out rather than written null",
+            )
+    return Readout(**stated)
 
 
 def _slice(value: Any, path: str) -> Slice:
@@ -570,6 +650,32 @@ def _check_binding(binding: Binding, path: str) -> None:
     _check_readback_address(binding, path, kind)
     _check_curves(binding, path, kind)
     _check_values(binding, path, kind)
+    _check_readout(binding, path, kind)
+
+
+def _check_readout(binding: Binding, path: str, kind: str) -> None:
+    """Check the readout calibration, which only a monitor reading carries."""
+    readout = binding.readout
+    if readout is None:
+        return
+    if not isinstance(readout, Readout):
+        raise BindingsError(f"{path}.readout", f"must be a readout, got {_type_name(readout)}")
+    if kind != "monitor":
+        raise BindingsError(
+            f"{path}.readout",
+            f"a {kind} binding drives a device and publishes no reading, so there is "
+            "nothing for a readout calibration to correct",
+        )
+    for name in READOUT_KEYS:
+        value = getattr(readout, name)
+        if value is not None:
+            _finite(value, f"{path}.readout.{name}", f"the reading's {name}")
+    if not readout.stated:
+        raise BindingsError(
+            f"{path}.readout",
+            "states none of "
+            f"{_words(READOUT_KEYS)}: leave the key out where the facility states nothing",
+        )
 
 
 def _check_readback_rule(binding: Binding, path: str, kind: str) -> None:
@@ -793,6 +899,15 @@ def _numbers(values: Any, path: str, what: str) -> tuple[float, ...]:
 
 
 def _binding_json(binding: Binding) -> dict[str, Any]:
+    body = _binding_body(binding)
+    if binding.readout is not None:
+        body["readout"] = {
+            name: float(getattr(binding.readout, name)) for name in binding.readout.stated
+        }
+    return body
+
+
+def _binding_body(binding: Binding) -> dict[str, Any]:
     return {
         "kind": binding.kind,
         "family": binding.family,

@@ -28,7 +28,9 @@ A third says what the model does when one of those channels is written:
 * ``data/simulation/va_bindings.json`` -- one binding per coupled address: the
   element it drives and the attribute a write lands in, the calibration it
   converts through, where and how its readback is served, and the device's
-  nominal. :func:`emit_bindings` renders it through the served schema's own
+  nominal -- and, for a monitor, the calibration the facility states for that
+  device's reading, carried for a later readout-error model and applied by
+  nothing. :func:`emit_bindings` renders it through the served schema's own
   ``dump_bindings``, so this lane can only write a document the service would
   load, and it names the digest of the lattice the same run wrote.
 
@@ -80,10 +82,12 @@ from osprey.services.mml.va.elements import ElementBinding
 from osprey.services.virtual_accelerator.bindings import (
     ENERGY_SCALINGS,
     PROVENANCE_KEY,
+    READOUT_KEYS,
     Binding,
     BindingsDocument,
     Calibration,
     Linear,
+    Readout,
     Slice,
     Table,
     dump_bindings,
@@ -601,7 +605,17 @@ def emit_bindings(
     ``same_as_setpoint`` when one address carries both, ``identity`` when the
     exported inverse returns the written value to within
     :data:`IDENTITY_TOLERANCE` over the calibration's own points, and
-    ``inverse`` otherwise. A calibration is never inverted to stand in for a
+    ``inverse`` otherwise.
+
+    A monitor binding also carries the facility's own calibration of that
+    device's reading, where the export states one, and nothing else does: it
+    is a reading that a readout-error model perturbs, and a driven family's
+    exported gains belong to its setpoint, which the calibration states
+    already. Nothing on the served path reads those numbers today, and
+    carrying them moves no reading -- their gain and offset are inside the
+    conversions beside them, so applying them here would count them twice.
+
+    A calibration is never inverted to stand in for a
     missing inverse -- the two directions are sampled data in their own right
     -- so a family serving a readback it has no inverse for is refused.
 
@@ -711,6 +725,11 @@ def _family_bindings(
         rule, readback_address, applied = _readback_rule(
             kind, address, served, calibration, inverse, nominal, where
         )
+        # Only a reading is calibrated on its way out of the control system,
+        # so only a monitor's readout is carried; a driven family's exported
+        # gains calibrate its setpoint, which the calibration already states.
+        reading = block.get("Monitor") if kind == "monitor" else None
+        readout = _readout_for_device(reading, device, devices, where)
         rows.append(
             Binding(
                 kind=kind,
@@ -728,6 +747,7 @@ def _family_bindings(
                 nominal=nominal,
                 energy_scaling=_energy_scaling(kind, block),
                 energy_table=None,
+                readout=readout,
             )
         )
     return rows
@@ -928,6 +948,31 @@ def _curve_for_device(
             _sampled_row(spec.get("values"), device, devices, f"{where} {key} values"),
         )
     return None
+
+
+def _readout_for_device(field_block: Any, device: int, devices: int, where: str) -> Readout | None:
+    """One device's readout calibration, as its own field block states it.
+
+    Each number is optional twice over: a key the facility never stated is
+    absent from the block, and a key stated for the family as a whole may
+    still be a non-finite entry for this device -- the export's spelling for
+    a device the facility's own tables do not cover. Both mean the same thing
+    here, and both are carried as "not stated" rather than as a number that
+    would read as no correction at all.
+
+    Returns:
+        The readout, or ``None`` where this device is left uncalibrated.
+    """
+    spec = field_block.get("readout") if isinstance(field_block, dict) else None
+    if not isinstance(spec, dict):
+        return None
+    stated = {
+        key: _number(_per_device_entry(spec[key], device, devices, f"{where} readout {key}"))
+        for key in READOUT_KEYS
+        if key in spec
+    }
+    found = {key: value for key, value in stated.items() if value is not None}
+    return Readout(**found) if found else None
 
 
 def _sampled_curve(grid: Any, values: Any) -> Table | None:

@@ -362,6 +362,12 @@ database, ontology and knowledge pages of the same run are already on the tree
 --- the corpus, which emit writes last, is not; fix or remove the entries it
 named and run emit again.
 
+For a beam position monitor the bindings also carry the calibration your
+control system states for that reading --- its gain, offset, roll and crunch,
+one set per device, and only the ones your facility states. Nothing in the
+simulation applies them: they are carried, not modelled, and a reading served
+today is the same number with them as without.
+
 An export still at 1.0 is not an error. Emit says ``VA lane skipped:
 data/mml/va.json is not in the tree; re-export with mml_export 2.0 to enable
 it``, and says ``carries no virtual accelerator for an imported system`` in
