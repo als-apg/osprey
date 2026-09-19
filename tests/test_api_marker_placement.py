@@ -38,7 +38,7 @@ _MARKER_RE = re.compile(r"mark\.(requires_\w+)")
 # Keyless / local resources — no credential, no gateway-auth failure mode, so
 # leaving them in the fast lane is safe. Everything else in the requires_*
 # family is treated as credentialed and must live under tests/e2e/.
-_KEYLESS_ALLOWLIST = frozenset({"requires_ollama", "requires_matlab"})
+_KEYLESS_ALLOWLIST = frozenset({"requires_ollama", "requires_matlab", "requires_als_profiles"})
 
 _TESTS_ROOT = Path(__file__).resolve().parent
 _E2E_ROOT = _TESTS_ROOT / "e2e"
