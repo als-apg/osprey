@@ -116,7 +116,7 @@ from osprey_connectors.control_context import RECORD_FILENAME, ControlContext, w
 from osprey_connectors.posture_store import POSTURE_SANDBOX
 from osprey_connectors.types import CONTROL_TARGETS, TARGET_VA
 from tests.e2e import _orm_stack, _queue_drive
-from tests.e2e._mcp_sse import sse_payloads, tool_result
+from tests.e2e._mcp_sse import any_answer_succeeded, sse_payloads, tool_result
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
 
@@ -1632,7 +1632,7 @@ def test_dispatch_owner_less_write_is_held_to_the_deployment_ceiling(
         "data/channel_limits.json marks writable and a value inside its range.\n"
         f"{joined[:_EVIDENCE_CAP]}\n{evidence}"
     )
-    assert any('"status": "success"' in answer for answer in answers), (
+    assert any_answer_succeeded(answers), (
         f"the owner-less write to {PROBE_CHANNEL} did not succeed. A cron-shaped fire "
         "belongs to nobody, so no recorded write state governs it and the deployment "
         "ceiling alone decides — which here permits the write. A refusal of ANY kind "

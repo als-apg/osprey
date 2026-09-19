@@ -59,3 +59,33 @@ def tool_result(payloads: list[dict]) -> dict:
     if isinstance(raw, dict):
         return raw
     return json.loads(raw)
+
+
+def answer_document(answer: str) -> dict | None:
+    """The JSON document a persisted tool answer carries, or ``None`` if it carries none.
+
+    A run record stores each tool answer as text, and that text is not always
+    the tool's own document: FastMCP may wrap it as ``{"result": "<document>"}``
+    with the document serialised as a string inside. Substring matching on the
+    stored text then fails on the wrapped form, because the inner quotes are
+    escaped — the same trap :func:`tool_result` describes, one layer further in.
+    So the wrapping is taken off, however many times it was put on, and the
+    caller asserts on keys rather than on spelling.
+
+    A refusal is prose, not JSON, and answers ``None``: the caller's clause
+    checks are what read those.
+    """
+    document: object = answer
+    while isinstance(document, str):
+        try:
+            document = json.loads(document)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(document, dict) and set(document) == {"result"}:
+            document = document["result"]
+    return document if isinstance(document, dict) else None
+
+
+def any_answer_succeeded(answers: list[str]) -> bool:
+    """Whether any persisted tool answer is the tool's own success envelope."""
+    return any((answer_document(answer) or {}).get("status") == "success" for answer in answers)
