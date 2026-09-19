@@ -15,6 +15,7 @@ import requests
 
 from tests import _container_support
 from tests._container_support import (
+    ContainerExitedError,
     docker_cli_unavailable_reason,
     start_or_skip,
     wait_until_ready,
@@ -396,6 +397,26 @@ def test_a_container_that_exited_fails_at_once_with_its_exit_code():
     assert "'exited'" in message
     assert "exit code: 137" in message
     assert probe.calls == 1
+
+
+def test_an_exited_container_is_its_own_failure_type():
+    """The one ending a caller can act on: only a fresh container can differ."""
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
+    container = FakeStartedContainer([b"crashing"], status="exited")
+
+    with pytest.raises(ContainerExitedError):
+        wait_until_ready(probe, "mongodb", timeout=30.0, interval=0.0, container=container)
+
+
+def test_a_running_container_that_never_answers_is_not_reported_as_exited():
+    """Rebuilding the same live container would change nothing, so the type says so."""
+    probe = CountingProbe(failures=None, error=ConnectionRefusedError("connection refused"))
+    container = FakeStartedContainer([b"the one and only line"])
+
+    with pytest.raises(AssertionError) as caught:
+        wait_until_ready(probe, "mongodb", timeout=0.05, interval=0.0, container=container)
+
+    assert not isinstance(caught.value, ContainerExitedError)
 
 
 def test_a_chatty_container_that_never_answers_still_hits_the_ceiling():
