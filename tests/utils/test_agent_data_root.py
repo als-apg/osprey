@@ -41,6 +41,19 @@ TEMPLATE_BASE_DIR = "./_agent_data"
 TEMPLATE_EXPORTS_DIR = "registry_exports"
 
 
+def _mkdir_loop_subdirs(root: Path) -> list[str]:
+    """Names under the agent-data root that some config key asked for.
+
+    The control-context tree is not one of them and is not evidence that the
+    ``file_paths`` loop invented a directory: it is provisioned on every build
+    because every container that reads it binds it read-only and so can create
+    none of it, and no config key declares it.
+    """
+    from osprey_connectors.posture_store import STATE_DIR_NAME
+
+    return sorted(entry.name for entry in root.iterdir() if entry.name != STATE_DIR_NAME)
+
+
 def _write_config(project: Path, body: str) -> Path:
     cfg = project / "config.yml"
     cfg.write_text(body, encoding="utf-8")
@@ -198,7 +211,7 @@ class TestComposeStructure:
             {"project_root": str(project), "agent_data": {"base_dir": TEMPLATE_BASE_DIR}}
         )
         assert (project / "_agent_data").is_dir()
-        assert list((project / "_agent_data").iterdir()) == []
+        assert _mkdir_loop_subdirs(project / "_agent_data") == []
 
     def test_root_follows_the_configured_base_dir(self, project: Path) -> None:
         _ensure_agent_data_structure(
@@ -213,6 +226,28 @@ class TestComposeStructure:
         )
         assert (project / "scratch-data" / "registry_exports").is_dir()
         assert not (project / "_legacy_data").exists()
+
+    def test_home_relative_root_is_expanded_not_taken_literally(
+        self, project: Path, tmp_path: Path, monkeypatch
+    ) -> None:
+        """``~/state`` is the home directory, here as everywhere else.
+
+        Joining the configured value under the project root instead would leave a
+        directory literally named ``~`` inside the repo, next to the real root
+        every runtime resolver goes on to use — so the mount point created at
+        build time would not be the one the containers read.
+        """
+        monkeypatch.setenv("HOME", str(tmp_path))
+        _ensure_agent_data_structure(
+            {
+                "project_root": str(project),
+                "agent_data": {"base_dir": "~/state"},
+                "file_paths": {"registry_exports_dir": TEMPLATE_EXPORTS_DIR},
+            }
+        )
+
+        assert (tmp_path / "state" / "registry_exports").is_dir()
+        assert not (project / "~").exists()
 
 
 class TestScenarioStateMountPoint:
@@ -243,7 +278,7 @@ class TestScenarioStateMountPoint:
             }
         )
 
-        assert list((project / "_agent_data").iterdir()) == []
+        assert _mkdir_loop_subdirs(project / "_agent_data") == []
 
     def test_follows_a_relocated_agent_data_root(self, project: Path) -> None:
         _ensure_agent_data_structure(

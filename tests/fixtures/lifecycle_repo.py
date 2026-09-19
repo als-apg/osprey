@@ -1293,6 +1293,13 @@ config:
 # ship need no control system, so a single `curl` after `osprey up` exercises
 # it. Delete this block to turn it off.
 dispatch:
+  # The host's network namespace, which the web tier above already runs in. A
+  # dispatched job runs the same agent a terminal does, so it reaches the
+  # control system and the plan queue at the same addresses — and those are
+  # this machine's own loopback, which inside a container on the compose
+  # network names the container instead. One knob moves the dispatcher and its
+  # workers together; see the networking how-to.
+  network: host
   triggers: triggers.yml            # a path in this repo, or a bundled name
   worker_count: 1
   workspace_mode: isolated

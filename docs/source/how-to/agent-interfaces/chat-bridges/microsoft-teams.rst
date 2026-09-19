@@ -96,6 +96,15 @@ allowed to do with a chat question — and the block is only meaningful next to 
        - TEAMS_SERVICEBUS_CONNECTION_STRING
        - TEAMS_SERVICEBUS_QUEUE
 
+.. note::
+
+   The bridge and the dispatch pair must sit on the same network. Workers go on
+   the host's network whenever the agent has to reach a control system or a
+   co-deployed bridge at a loopback address (:ref:`deployment-network-attachment`),
+   and this bridge then has to move with them: add
+   ``services.teams_bridge.network: host`` to your profile's ``config:`` block.
+   ``osprey build`` refuses a split pair and names the key to change.
+
 The bot's credentials and the queue it reads are **not** profile settings. Which
 tenant this deployment authenticates in and which queue it drains differ per
 deployment — and the client secret and the connection string are secrets that

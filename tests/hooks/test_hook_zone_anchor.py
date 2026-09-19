@@ -67,6 +67,18 @@ def _repo_root(hook_module, hook_input=None):
     return hook_module("osprey_hook_log").get_repo_root(hook_input)
 
 
+def _recorded_root(hook_module, config_path):
+    """What the config RECORDS, read by the scanner alone.
+
+    The scanner answers a question about text — which ``project_root`` value a
+    config file states — and the anchor then asks a question about this
+    filesystem, namely whether that value names a directory here. Parsing rows
+    address the scanner directly so that a spelling case never depends on a
+    path existing on the machine running the test.
+    """
+    return hook_module("osprey_hook_log")._project_root_from_config(Path(config_path))
+
+
 def _without_a_config(monkeypatch, tmp_path):
     """Point ``OSPREY_CONFIG`` at a path that does not exist.
 
@@ -89,7 +101,15 @@ def _clear_anchor_env(monkeypatch):
 
 
 class TestProjectRootFromConfig:
-    """Rule 1: whatever the config OSPREY_CONFIG names says, wins."""
+    """Rule 1: what the config OSPREY_CONFIG names says, when it says a directory.
+
+    The qualifier is what separates the two configs a process can be reading.
+    One is the render's own, written by the build that produced the tree around
+    it, and its ``project_root`` is the repo the hook is running in. The other
+    was staged on a host and mounted into a container, and its ``project_root``
+    is that host's path — a name for a directory on another machine, which
+    anchors nothing here.
+    """
 
     def test_config_project_root_beats_the_render_cwd(self, tmp_path, monkeypatch, hook_module):
         repo = tmp_path / "deployment"
@@ -102,15 +122,43 @@ class TestProjectRootFromConfig:
     def test_container_path_wins_over_the_building_hosts(self, tmp_path, monkeypatch, hook_module):
         """A container's config records ``/app/<name>``, not the build host's path.
 
-        This is the case no on-disk walk can answer: the image was rendered
-        elsewhere, so only the recorded key names the path the repo runs at.
+        The recorded key is the only thing that names the path the repo runs at
+        when the two differ, so it outranks the render the hook was launched in
+        — and it is a real directory in the container that reads it, which is
+        what the qualifier checks. The fixture builds that directory so the case
+        is the container's and not a host asserting a path it does not have.
         """
+        container_root = tmp_path / "app" / "demo"
+        container_root.mkdir(parents=True)
         repo = tmp_path / "built-here"
         repo.mkdir()
-        build = _three_zone_repo(repo, project_root_key="/app/demo")
+        build = _three_zone_repo(repo, project_root_key=str(container_root))
         monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
 
-        assert _repo_root(hook_module, {"cwd": str(build)}) == "/app/demo"
+        assert _repo_root(hook_module, {"cwd": str(build)}) == str(container_root)
+
+    def test_a_recorded_root_that_is_not_here_is_not_the_anchor(
+        self, tmp_path, monkeypatch, hook_module
+    ):
+        """A staged config's ``project_root`` names the HOST, so it anchors nothing.
+
+        A deployed service reads a config flattened onto the host and
+        bind-mounted into the container, and that file's ``project_root`` is a
+        host path naming nothing in here. Anchoring durable agent state on it
+        puts the state outside every mount — a directory no writer writes and no
+        reader reads, which every reader reports as "nothing is there". The
+        config's own zone answers instead, which is the container's real repo.
+        """
+        repo = tmp_path / "app" / "demo"
+        repo.mkdir(parents=True)
+        build = _three_zone_repo(repo)
+        (build / "config.yml").write_text(
+            "project_root: /home/runner/work/osprey/osprey/tests/e2e/_stacks/demo\n"
+            "hooks:\n  debug: false\n"
+        )
+        monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
+
+        assert _repo_root(hook_module, {"cwd": str(build)}) == str(repo)
 
     def test_default_config_location_is_the_render(self, tmp_path, hook_module):
         """With no ``OSPREY_CONFIG``, the config is ``<project_dir>/config.yml``."""
@@ -130,12 +178,17 @@ class TestProjectRootFromConfig:
         ],
         ids=["double-quoted", "single-quoted", "extra-space", "inline-comment"],
     )
-    def test_scalar_spellings(self, tmp_path, monkeypatch, hook_module, line):
+    def test_scalar_spellings(self, tmp_path, hook_module, line):
+        """Quoting, padding and a trailing comment all name the same value.
+
+        A spelling case belongs to the scanner: what the file says is a fact
+        about the text, and asserting it through the anchor would make it a fact
+        about the directories that happen to exist here as well.
+        """
         config = tmp_path / "config.yml"
         config.write_text(f"{line}\nhooks:\n  debug: false\n")
-        monkeypatch.setenv("OSPREY_CONFIG", str(config))
 
-        assert _repo_root(hook_module, {"cwd": str(tmp_path)}) == "/quoted/repo"
+        assert _recorded_root(hook_module, config) == "/quoted/repo"
 
     @pytest.mark.parametrize(
         "value",
@@ -171,18 +224,18 @@ class TestProjectRootFromConfig:
 
         assert _repo_root(hook_module, {"cwd": str(tmp_path)}) == str(Path("~").expanduser())
 
-    def test_last_occurrence_wins(self, tmp_path, monkeypatch, hook_module):
+    def test_last_occurrence_wins(self, tmp_path, hook_module):
         """Duplicate top-level keys resolve YAML's way: the last one is the value.
 
         A profile ``config:`` block can append a key the template already
         emitted, so a scanner that stopped at the first match would read the
-        value the config does not actually have.
+        value the config does not actually have. Asked of the scanner, which is
+        what has to pick between the two.
         """
         config = tmp_path / "config.yml"
         config.write_text("project_root: /first\nhooks:\n  debug: false\nproject_root: /second\n")
-        monkeypatch.setenv("OSPREY_CONFIG", str(config))
 
-        assert _repo_root(hook_module, {"cwd": str(tmp_path)}) == "/second"
+        assert _recorded_root(hook_module, config) == "/second"
 
     @pytest.mark.parametrize(
         "text",
@@ -325,11 +378,60 @@ class TestProfileMarkerWalkUp:
         assert _repo_root(hook_module) == str(repo)
 
 
-# -- 4. Legacy flat layouts stay put -------------------------------------------
+# -- 4. The recorded root, after all -------------------------------------------
+
+
+class TestRecordedRootIsTheLateFallback:
+    """Rule 4: with nothing on disk to derive from, the recorded value stands.
+
+    A build rendered with ``--runtime-root`` records the path the deployment
+    will run at, which is a path the machine doing the rendering does not have.
+    The qualifier above sends that value past rule 1, and the rungs between it
+    and here all read the filesystem — so when none of them answers, the
+    recorded root is better than the directory the hook happened to start in.
+    The framework keeps the same value as its own late rung, for the same
+    reason.
+    """
+
+    def test_a_recorded_root_outranks_the_cwd_when_nothing_is_on_disk(
+        self, tmp_path, monkeypatch, hook_module
+    ):
+        """The config states a root, no config file and no marker are there.
+
+        The scanner and the config path read one file, so this rung is reached
+        when that file stops being one between the read and the stat. It is
+        pinned by driving the scanner directly, because what the rung is for is
+        the ORDER: the recorded root is consulted after the on-disk rules and
+        before the fall-back to the launch directory, never instead of either.
+        """
+        module = hook_module("osprey_hook_log")
+        monkeypatch.setattr(module, "_project_root_from_config", lambda _path: "/runtime/root")
+        _without_a_config(monkeypatch, tmp_path)
+
+        assert module.get_repo_root({"cwd": str(tmp_path)}) == "/runtime/root"
+
+    def test_the_marker_walk_still_outranks_it(self, tmp_path, monkeypatch, hook_module):
+        """A repo found on disk beats a path recorded for another machine.
+
+        The walk answers with a directory that is here and holds the marker,
+        which is a stronger claim than a name; the recorded root is what is left
+        when nothing can be found at all.
+        """
+        module = hook_module("osprey_hook_log")
+        repo = tmp_path / "deployment"
+        repo.mkdir()
+        build = _three_zone_repo(repo)
+        monkeypatch.setattr(module, "_project_root_from_config", lambda _path: "/runtime/root")
+        _without_a_config(monkeypatch, tmp_path)
+
+        assert module.get_repo_root({"cwd": str(build)}) == str(repo)
+
+
+# -- 5. Legacy flat layouts stay put -------------------------------------------
 
 
 class TestLegacyFlatLayout:
-    """Rule 4: no marker, no key — a flat project anchors on itself."""
+    """Rule 5: no marker, no key — a flat project anchors on itself."""
 
     def test_flat_project_with_config_anchors_on_itself(self, tmp_path, hook_module):
         (tmp_path / "config.yml").write_text("hooks:\n  debug: false\n")
@@ -358,7 +460,37 @@ class TestLegacyFlatLayout:
         assert _repo_root(hook_module, {}) == str(tmp_path)
 
 
-# -- 5. The stdlib-only constraint ---------------------------------------------
+# -- 6. What the anchor carries with it ----------------------------------------
+
+
+class TestTheAuditLedgerFollowsTheAnchor:
+    """The hook audit ledger anchors on the same root, so it moves with it.
+
+    A deployment mounts one directory per identity for these records, computed
+    from the repo the service runs in. The ledger path is that same derivation
+    restated with the standard library, so an anchor that answered a path from
+    another machine would file every hook record outside the mount — where they
+    survive only as long as the container does.
+    """
+
+    def test_a_staged_config_does_not_move_the_ledger_out_of_the_repo(
+        self, tmp_path, monkeypatch, hook_module
+    ):
+        repo = tmp_path / "app" / "demo"
+        repo.mkdir(parents=True)
+        build = _three_zone_repo(repo)
+        (build / "config.yml").write_text(
+            "project_root: /home/runner/work/osprey/osprey/stack\nhooks:\n  debug: false\n"
+        )
+        monkeypatch.setenv("OSPREY_CONFIG", str(build / "config.yml"))
+        module = hook_module("osprey_hook_log")
+
+        ledger = module.audit_ledger_path("writes-check", {"cwd": str(build)}, identity="alice")
+
+        assert ledger == repo / module.AUDIT_DIR_RELPATH / "alice" / "hook_writes_check.jsonl"
+
+
+# -- 7. The stdlib-only constraint ---------------------------------------------
 
 
 def test_derivation_works_without_pyyaml(tmp_path):

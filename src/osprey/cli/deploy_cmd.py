@@ -326,7 +326,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
 
     "Every variable" is the auth secret and, for a provider that fronts a
     gateway shipping no default host, the endpoint beside it: two variables,
-    one deployment, one prompt. Seeding only the secret would hand the next
+    one prompt for the deployment. Seeding only the secret would hand the next
     step a chain the ``.env.users`` gate refuses over the endpoint — one
     question answered, one refusal earned, with the value that would have
     settled it exported in the same shell the seed just read. The endpoint's

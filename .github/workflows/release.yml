@@ -23,11 +23,11 @@ permissions:
 
 jobs:
   # Nothing else in this workflow runs a test, so without this job a tag can
-  # publish a tree whose agentic lanes never ran. Those eight lanes are gated
-  # on the `full-ci` label, and `all-checks-passed` counts a conditionally
-  # skipped lane as a pass — so an unlabeled release PR merges fully green
-  # having proved nothing about the agent paths. This is where that is caught,
-  # before the wheel is built.
+  # publish a tree whose agentic lanes never ran. Every lane `REQUIRED` below
+  # names is gated on the `full-ci` label, and `all-checks-passed` counts a
+  # conditionally skipped lane as a pass — so an unlabeled release PR merges
+  # fully green having proved nothing about the agent paths. This is where that
+  # is caught, before the wheel is built.
   verify-full-ci:
     name: Verify Full CI On The Tagged Tree
     runs-on: ubuntu-latest
@@ -63,6 +63,7 @@ jobs:
             "agentic-per-preset": "Tier 3 — Agentic flow",
             "e2e-tests": "E2E Tests",
             "dispatch-deploy-e2e": "Dispatch Deploy E2E",
+            "single-user-narrowing-e2e": "Single-User Narrowing E2E",
             "dispatch-overlay-e2e": "Dispatch Overlay E2E",
             "scan-agentic-e2e": "Scan Stack Agentic E2E",
             "nextcloud-talk-bridge-e2e": "Nextcloud Talk Bridge E2E",

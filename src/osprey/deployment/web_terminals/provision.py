@@ -30,7 +30,9 @@ from osprey.deployment.compose_generator import (
     _stage_dev_wheel_for_context,
     compose_base_cmd,
     compose_provider_env,
+    control_target_tree_dir,
     ensure_audit_dir,
+    ensure_control_target_dir,
     ensure_shared_corpus_dir,
     resolve_ariel_mirror_dir,
     resolve_facility_bundle_dir,
@@ -990,6 +992,90 @@ def build_auth_sidecar_image(
     _report_step(f"auth sidecar image {tag}")
 
 
+def _roster_identities(config: dict) -> list[str]:
+    """The roster names this web stack renders a terminal for.
+
+    The shared half of :func:`_audit_identities` and
+    :func:`_ensure_control_target_dirs`, which want two different sets over the
+    same roster: every terminal records audit AND owns a control-context
+    record, while the auth sidecar records audit and owns no control context.
+    One resolve behind both is what keeps the two from drifting into different
+    rosters — a directory provisioned for a user the render does not emit is an
+    empty directory nobody writes, and one missed is a bind source the
+    container runtime creates root-owned.
+
+    Resolved with ``strict=False`` for the reason
+    :func:`_audit_identities` states: an unresolvable persona reference renders
+    no service and so needs no directory, and the strict resolve that refuses
+    it — with an explanation this function has none of — runs later on the same
+    path.
+
+    :param config: The deployment configuration
+    :type config: dict
+    :return: Roster names, in roster order
+    :rtype: list[str]
+    """
+    web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
+    facility_prefix = (config.get("facility") or {}).get("prefix") or ""
+    registry_cfg = config.get("registry") or {}
+    return [
+        entry["name"]
+        for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+    ]
+
+
+def _ensure_control_target_dirs(config: dict, repo_root: Path | str) -> None:
+    """Provision the control-context tree and one directory per roster user.
+
+    The same act, and the same failure, as the audit loop beside this call: a
+    bind source the deploy does not create is created by the container runtime
+    instead — root-owned under a rootful daemon — after which the terminal's
+    dropped ``osprey`` process writes no record at all, every lane and the
+    dispatch worker read nothing where the chip should be, and the deployment
+    looks healthy while narrowing silently does not hold.
+
+    Both the path and the mode belong to
+    :func:`~osprey.deployment.compose_generator.ensure_control_target_dir`,
+    the seam the build path provisions through as well, and the only reader of
+    ``agent_data.base_dir`` on this side: the directory this deploy provisions
+    and the directory the compose overlay binds have to be the same string on
+    every host, and a second spelling here would agree with the first only
+    until one of them changed how a configured path is anchored. That seam also
+    owns the roster-name check, so a name that is not a username is refused
+    once, where the rule lives, rather than at each caller that joins it onto
+    the tree as a path segment.
+
+    What belongs to this function is the ROSTER: the auth sidecar records audit
+    and owns no control context, so a directory for it would be one nothing
+    ever writes, and only a web-terminal deploy knows which names render a
+    terminal at all.
+
+    Non-fatal by construction, like every other directory on this path: a
+    directory that cannot be provisioned — or a roster name the seam refuses —
+    warns and the deploy continues, because the single-user case works
+    regardless and the multi-user one fails visibly at the first owned write
+    rather than by refusing the whole deploy here.
+
+    :param config: The deployment configuration
+    :type config: dict
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    """
+    tree = control_target_tree_dir(config, repo_root)
+    ensure_control_target_dir(config, repo_root, relative_to=repo_root)
+    if not tree.is_dir() or tree.is_symlink():
+        # Gated on the root actually being a directory the deploy can provision
+        # into, the same gate the build path applies: an identity directory under
+        # a root that could not be made cannot be made either, and one warning
+        # per roster user buries the single line that names the cause -- which
+        # the root call above has already emitted. `is_dir()` alone follows
+        # links, so a root that is a planted entry has to be refused here too, or
+        # every roster user's directory lands inside whatever it leads to.
+        return
+    for identity in _roster_identities(config):
+        ensure_control_target_dir(config, repo_root, identity, relative_to=repo_root)
+
+
 def _audit_identities(config: dict) -> list[str]:
     """Every audit identity the web stack renders a bind mount for.
 
@@ -1012,12 +1098,7 @@ def _audit_identities(config: dict) -> list[str]:
     :rtype: list[str]
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
-    facility_prefix = (config.get("facility") or {}).get("prefix") or ""
-    registry_cfg = config.get("registry") or {}
-    identities = [
-        entry["name"]
-        for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
-    ]
+    identities = _roster_identities(config)
     if _auth_tls_context(web_terminals)["sidecar_active"]:
         identities.append(AUTH_SIDECAR_AUDIT_IDENTITY)
     return identities
@@ -1503,6 +1584,14 @@ def deploy_up_web_terminals(
     # explain it.
     for identity in _audit_identities(config):
         ensure_audit_dir(repo_root, identity, relative_to=repo_root)
+
+    # The control-context tree, and one directory in it per roster user: the
+    # other per-identity bind this stack is about to declare, provisioned here
+    # for the same reason and at the same point as the audit subdirectories
+    # above. The build path writes the tree's framework-owned contents (marker,
+    # worker and service identities); the roster is this path's to add, because
+    # only a web-terminal deploy has one.
+    _ensure_control_target_dirs(config, repo_root)
 
     write_web_terminal_artifacts(config, repo_root)
 

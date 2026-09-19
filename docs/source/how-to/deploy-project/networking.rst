@@ -46,6 +46,23 @@ reach each other at all. Writing ``network:`` on ``services.event_dispatcher``
 or ``services.dispatch_worker`` individually is rejected by ``osprey build``,
 which tells you to set ``dispatch.network`` instead.
 
+A dispatch worker is the usual reason to reach for the host namespace. The
+worker runs the same OSPREY agent a web terminal runs, so it reaches the
+control system and the plan queue at the addresses the deployment was written
+with — and on a deployment that runs those beside it, those addresses are this
+machine's own ``localhost``. Inside a container on the compose network that
+name means the container, so writes and queue calls are refused on connect
+while every health check still passes. Put the pair on the host network and
+the addresses mean what they say. The bundled ``control-assistant`` preset does
+exactly that, and any profile that keeps a control system or a co-deployed
+bridge at a loopback address should too.
+
+A worker kept on the compose network still reaches a plan queue this project
+deploys: OSPREY hands it the bridge's in-network address instead. The control
+system is the half with no such answer, because one connector block is read by
+every consumer at once — the host-networked terminals included — so there is no
+address that is right for the worker and for them at the same time.
+
 .. raw:: html
    :file: ../../_diagrams/network-attachment.html
 

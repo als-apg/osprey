@@ -53,6 +53,8 @@ from typing import Any
 
 from bluesky_queueserver_api.comm_base import RequestFailedError, RequestTimeoutError
 
+from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
+
 logger = logging.getLogger("osprey.services.bluesky_bridge.queue_backend")
 
 # Read by `bluesky_queueserver_api` itself when `REManagerAPI` is constructed
@@ -119,8 +121,6 @@ def _external_parameter_schemas() -> dict[str, dict[str, Any]]:
     return schemas
 
 
-QSERVER_PUBLIC_KEY_ENV = "QSERVER_ZMQ_PUBLIC_KEY"
-
 # The item-metadata key carrying OSPREY's own run id through queueserver and
 # into the RunEngine's start documents, which is how live rows and Tiled results
 # are matched back to the run the operator enqueued.
@@ -131,6 +131,13 @@ RUN_ID_META_KEY = "osprey_run_id"
 # only place a completed run's plan identity survives into Tiled, so this stamp
 # is what lets results be rendered as the plan the operator actually asked for.
 PLAN_META_KEY = "osprey_plan"
+
+# The item-metadata key carrying the owner who enqueued the item. The owner
+# reaches the worker as a reserved kwarg, which is stripped before anything
+# renders or replays the item's plan arguments; this stamp is the copy that
+# stays readable on the item itself, so a queue row and a history entry still
+# name their owner once the enqueuing process is gone.
+OWNER_META_KEY = "osprey_owner"
 
 # Manager states in which a plan is under way (or about to be). Enqueuing during
 # one of these is an armed operation — the item joins a queue that is already
@@ -411,6 +418,18 @@ class QueueRequestRejectedError(QueueBackendError):
     """The manager was reached and refused the request (bad state, unknown uid, ...)."""
 
     reason = "queue_request_rejected"
+
+
+class QueueItemInvalidError(QueueBackendError):
+    """The item itself is malformed, so the manager is never asked to hold it.
+
+    Distinct from :class:`QueueRequestRejectedError` because the two send the
+    caller to different places: a rejection is the manager's answer about the
+    queue's state, which a re-read explains, while this one is about the
+    request the caller composed, which only the caller can correct.
+    """
+
+    reason = "invalid_item"
 
 
 class EnvironmentUnavailableError(QueueBackendError):
@@ -800,6 +819,7 @@ class QueueBackend:
         item: Any,
         *,
         run_id: str | None = None,
+        owner: str | None = None,
         pos: Any = None,
         before_uid: str | None = None,
         after_uid: str | None = None,
@@ -810,11 +830,54 @@ class QueueBackend:
         name and kwargs — under :data:`PLAN_META_KEY`, so a finished run can be
         rendered as the plan it was without consulting the queue.
 
+        An owner rides the item twice, because the two carriers answer two
+        different questions. The reserved kwarg
+        (:data:`~osprey_connectors.posture_store.RESERVED_OWNER_KWARG`) is the
+        only channel that reaches the worker's plan wrapper, which binds it for
+        the duration of the run; :data:`OWNER_META_KEY` is the stamp that keeps
+        the item itself attributable on a queue row or in history, where no
+        plan is running to ask. The plan-identity copy is built WITHOUT the
+        reserved key: that copy is the one that travels into the run's start
+        document, where it is read back as the plan a run's results are
+        rendered as, and the owner is not one of the plan's arguments. The
+        item's own ``kwargs`` keep it — that is the copy the worker binds.
+
+        *owner* is the only source of that kwarg: the key is dropped from the
+        top level of the kwargs the item arrived with and re-added from this
+        argument alone. An item carrying the key already would otherwise bind
+        its run to a name the caller never stamped, and be judged against that
+        name's narrowing. Top level is where the drop belongs because that is
+        the only depth the wrapper binds from: the same key nested inside a
+        plan argument is one of that argument's own values and names nobody.
+
+        A plan whose ``kwargs`` is present but is not a mapping is refused, and
+        nothing is queued. The only other way to stamp an owner onto such an
+        item is to replace those arguments with the stamp alone, which queues a
+        plan nobody composed and attributes it to the person whose name
+        triggered the replacement. The refusal does not depend on the add
+        naming an owner: one malformed request, one answer, whichever door it
+        arrives at.
+
+        Two items take the metadata stamp alone, because neither has a kwargs
+        surface the owner may ride: an item enqueued onto a lane whose worker
+        is external, where the facility's RE Manager binds against the plan's
+        own signature and would refuse a parameter it has no name for, and an
+        item that is not a plan, where a kwargs mapping the manager does not
+        expect would turn an attribution into a refused enqueue.
+
         Args:
             item: A queueserver item — a plain dict, or a ``BItem``/``BPlan``.
             run_id: OSPREY's run id for this item. Threaded through the item's
                 metadata so the RunEngine's start document carries it and live
                 rows and Tiled results can be matched back to the enqueued run.
+            owner: Who enqueued the item, or ``None`` for an owner-less add.
+                A name reaches this service by one channel only, the
+                ``X-Osprey-Owner`` header
+                (:data:`osprey.utils.owner_header.OWNER_HEADER`) minted from
+                the credential the caller authenticated with; no request body
+                names an owner. The caller has already decided what counts as a
+                name — this stamps the value it was handed and judges nothing
+                but emptiness.
             pos: Queue position, per queueserver (``"front"``, ``"back"``, or an
                 index). Defaults to the manager's own default (back).
             before_uid: Insert ahead of this item.
@@ -825,13 +888,35 @@ class QueueBackend:
             server-assigned ``item_uid``.
         """
         payload = self._as_item_dict(item)
-        if run_id is not None:
+        arriving_kwargs = payload.get("kwargs")
+        is_plan = payload.get("item_type") == "plan"
+        if is_plan and arriving_kwargs is not None and not isinstance(arriving_kwargs, dict):
+            raise QueueItemInvalidError(
+                "Plan arguments must be a mapping of argument names to values."
+            )
+        # Filtered, not merely un-injected: the reserved key is reserved
+        # whoever put it there, so both the copy the worker binds and the copy
+        # the start document republishes are built from these plan arguments.
+        plan_kwargs = (
+            {key: value for key, value in arriving_kwargs.items() if key != RESERVED_OWNER_KWARG}
+            if isinstance(arriving_kwargs, dict)
+            else {}
+        )
+        stamps_kwarg = bool(owner) and is_plan and not self.external_worker
+        if isinstance(arriving_kwargs, dict) or stamps_kwarg:
+            payload["kwargs"] = (
+                {**plan_kwargs, RESERVED_OWNER_KWARG: owner} if stamps_kwarg else plan_kwargs
+            )
+        if run_id is not None or owner:
             meta = dict(payload.get("meta") or {})
-            meta[RUN_ID_META_KEY] = run_id
-            meta[PLAN_META_KEY] = {
-                "name": payload.get("name"),
-                "kwargs": dict(payload.get("kwargs") or {}),
-            }
+            if run_id is not None:
+                meta[RUN_ID_META_KEY] = run_id
+                meta[PLAN_META_KEY] = {
+                    "name": payload.get("name"),
+                    "kwargs": dict(plan_kwargs),
+                }
+            if owner:
+                meta[OWNER_META_KEY] = owner
             payload["meta"] = meta
 
         kwargs: dict[str, Any] = {"item": payload}
@@ -932,9 +1017,17 @@ class QueueBackend:
            refused because the plan has not begun yet; an immediate pause that
            already landed is not re-applied, because the loop exits the moment
            the state reads ``paused``.
-        4. ``re_abort`` — the plan's remaining points are discarded and the
+        4. ``queue_get`` — the running item, read so the caller can say WHICH
+           plan was stopped. It sits HERE and nowhere earlier: the Run Engine
+           is paused by now, so the hardware is already held and this read can
+           only delay the unwind, never the halt. Best-effort — a refusal or an
+           answer with nothing running yields ``None`` and the abort goes on
+           unnamed, because what is being stopped is never worth the stop. It
+           costs the abort nothing it did not already risk: a manager that
+           would not answer this read would not answer ``re_abort`` either.
+        5. ``re_abort`` — the plan's remaining points are discarded and the
            queue is left stopped.
-        5. One final ``status(reload=True)`` purely to report the state. A
+        6. One final ``status(reload=True)`` purely to report the state. A
            failure here is swallowed: the abort has already been accepted, and
            turning a reporting failure into a 503 would tell the operator the
            machine did not stop when it did.
@@ -947,10 +1040,15 @@ class QueueBackend:
 
         Returns:
             ``{"aborted": True, "abort_pending", "paused_first", "manager_state",
-            "msg"}``. ``abort_pending`` is True when the manager had not yet
-            settled out of an active state at the moment of the final read — the
-            abort is accepted and unwinding, not finished. ``msg`` is the
-            manager's own sentence, relayed rather than rewritten.
+            "msg", "stopped_item"}``. ``abort_pending`` is True when the manager
+            had not yet settled out of an active state at the moment of the
+            final read — the abort is accepted and unwinding, not finished.
+            ``msg`` is the manager's own sentence, relayed rather than
+            rewritten. ``stopped_item`` is the manager's own object for the
+            plan this abort stopped, or ``None`` when step 4 did not name one;
+            it still carries the plan's arguments and the reserved owner kwarg,
+            so it is for the caller's own use and never for a client — a route
+            that answers with it shapes it first.
 
         Raises:
             NothingRunningError: No plan was under way (409 at the route layer).
@@ -983,6 +1081,8 @@ class QueueBackend:
                     "nothing left to abort; the queue is idle."
                 )
 
+        stopped_item = await self._running_item_for_abort()
+
         result = await self._call("re_abort")
 
         try:
@@ -999,7 +1099,36 @@ class QueueBackend:
             "paused_first": paused_first,
             "manager_state": final_state,
             "msg": str(result.get("msg") or ""),
+            "stopped_item": stopped_item,
         }
+
+    async def _running_item_for_abort(self) -> dict[str, Any] | None:
+        """The paused plan, for naming it afterwards. Never raises.
+
+        Called between the pause and ``re_abort``, where the Run Engine is
+        already held: the cost of this read is paid by the unwind, not by the
+        stop. A manager that refuses, and an answer carrying no running item,
+        both give ``None``, so the abort that follows is never conditional on
+        the read having worked.
+
+        It waits as long as any other call in the composition does, bounded by
+        the client's own receive timeout, and is deliberately NOT wrapped in a
+        shorter cancellable wait. The client holds one request socket under a
+        lock and restores it after ITS OWN timeout, not after a cancellation:
+        abandoning a request early leaves that socket waiting for a reply
+        nobody will collect, and the next call — ``re_abort``, the discard
+        itself — fails on a socket the library must then rebuild. A shorter
+        bound would trade a slow halt for a failed one. Nothing is given up by
+        waiting, either: a manager that will not answer this read is a manager
+        that will not answer the discard.
+        """
+        try:
+            state = await self.items()
+        except QueueBackendError as exc:
+            logger.warning("could not read the plan being aborted, so it is unnamed: %s", exc)
+            return None
+        running_item = state.get("running_item")
+        return running_item if isinstance(running_item, dict) and running_item else None
 
     async def _pause_for_abort(self) -> str | None:
         """Drive the Run Engine to ``paused`` (or observe it go ``idle``).
@@ -1410,3 +1539,37 @@ class QueueBackend:
         if isinstance(item, dict):
             return dict(item)
         raise QueueRequestRejectedError(f"Not a queue item: {type(item).__name__}")
+
+
+def split_owner(item: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
+    """An item without its reserved owner kwarg, plus the owner it carried.
+
+    The owner reaches an item two ways. The reserved kwarg
+    (:data:`~osprey_connectors.posture_store.RESERVED_OWNER_KWARG`) is what the
+    plan wrapper binds, and it is not a plan argument: nothing may render it,
+    replay it, or hand it to a plan's signature. :data:`OWNER_META_KEY` is the
+    stamp on the item's own metadata. The kwarg wins when an item carries both,
+    because it is the value the worker will actually bind.
+
+    Queueserver's ``kwargs`` and ``meta`` are whatever the enqueuer put there,
+    so both reads tolerate any shape, and an owner that is not a non-empty
+    string is no owner at all. The returned item is a copy — its ``kwargs``
+    included — so a caller's item is never mutated, which is the same rule
+    :meth:`QueueBackend._as_item_dict` follows on the write side.
+    """
+    stripped = dict(item)
+    kwarg_owner: Any = None
+    kwargs = item.get("kwargs")
+    if isinstance(kwargs, dict):
+        kwarg_owner = kwargs.get(RESERVED_OWNER_KWARG)
+        stripped["kwargs"] = {
+            key: value for key, value in kwargs.items() if key != RESERVED_OWNER_KWARG
+        }
+    meta_owner: Any = None
+    meta = item.get("meta")
+    if isinstance(meta, dict):
+        meta_owner = meta.get(OWNER_META_KEY)
+    for candidate in (kwarg_owner, meta_owner):
+        if isinstance(candidate, str) and candidate:
+            return stripped, candidate
+    return stripped, None

@@ -46,6 +46,8 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context
+from osprey_connectors.identity import acting_identity
+from tests._control_context_fixtures import state_dir_under
 from tests.mcp_server._report_root import state_root as state_root  # noqa: F401
 
 TARGETS_META = {
@@ -112,7 +114,10 @@ class TestRequestFileContract:
 
     def test_path_is_named_for_the_requester(self, state_root):
         assert target_state.request_file_path(4321) == (
-            state_root / target_state.STATE_DIR_NAME / "switch_request_4321.json"
+            state_root
+            / target_state.STATE_DIR_NAME
+            / acting_identity()
+            / "switch_request_4321.json"
         )
 
     def test_path_defaults_to_this_process(self, state_root):
@@ -121,7 +126,7 @@ class TestRequestFileContract:
     def test_glob_matches_the_file_the_writer_produces(self, state_root):
         target_state.write_request({"request_id": "r1", "target": "live", "requested_by_pid": 4321})
 
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         assert [p.name for p in directory.glob(target_state.REQUEST_FILE_GLOB)] == [
             "switch_request_4321.json"
         ]
@@ -133,7 +138,7 @@ class TestRequestFileContract:
     def test_report_glob_never_matches_a_request_file(self, state_root):
         target_state.write_request({"request_id": "r1", "target": "live", "requested_by_pid": 4321})
 
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         assert list(directory.glob(target_state.REPORT_FILE_GLOB)) == []
 
 
@@ -169,11 +174,11 @@ class TestWriteRequest:
         datetime.fromisoformat(record["requested_at"])  # parseable, not just present
 
     def test_creates_the_state_directory(self, state_root):
-        assert not (state_root / target_state.STATE_DIR_NAME).exists()
+        assert not state_dir_under(state_root).exists()
 
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
 
-        assert (state_root / target_state.STATE_DIR_NAME).is_dir()
+        assert state_dir_under(state_root).is_dir()
 
     def test_a_second_request_replaces_the_first(self, state_root):
         target_state.write_request({"request_id": "one", "target": "va", "requested_by_pid": 4321})
@@ -203,7 +208,7 @@ class TestWriteRequest:
             target_state.write_request({"request_id": "r", "target": "va", "server_pid": 4321})
 
     def test_a_failed_write_leaves_no_temp_file(self, state_root, monkeypatch):
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True, exist_ok=True)
 
         def fail(*args, **kwargs):
@@ -264,7 +269,7 @@ class TestReadAndRemoveRequest:
         assert target_state.read_file(target_state.request_file_path(4321)) is None
 
     def test_corrupt_request_reads_as_none(self, state_root):
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "switch_request_4321.json").write_text("{not json", encoding="utf-8")
 
@@ -366,7 +371,7 @@ class TestRequestSweep:
         assert target_state.read_file(target_state.request_file_path(4321))["request_id"] == "r"
 
     def test_sweep_removes_a_request_whose_name_encodes_no_pid(self, state_root):
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True, exist_ok=True)
         junk = directory / "switch_request_nonsense.json"
         junk.write_text("{}", encoding="utf-8")
@@ -385,7 +390,7 @@ class TestRequestSweep:
         assert target_state.sweep_stale(server_pid=os.getpid()) == []
 
     def test_sweep_does_not_touch_execution_markers(self, state_root, monkeypatch):
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True, exist_ok=True)
         marker = directory / f"{target_state.INFLIGHT_FILE_PREFIX}4321_abc.json"
         marker.write_text(json.dumps({"pid": 4321}), encoding="utf-8")
@@ -421,15 +426,15 @@ class TestReportFileContract:
 
     def test_path_is_named_for_the_reporting_server(self, state_root):
         assert target_state.report_file_path(4321) == (
-            state_root / target_state.STATE_DIR_NAME / "server_4321.json"
+            state_root / target_state.STATE_DIR_NAME / acting_identity() / "server_4321.json"
         )
 
     def test_path_defaults_to_this_process(self, state_root):
         assert target_state.report_file_path().name == f"server_{os.getpid()}.json"
 
-    def test_the_writer_and_the_library_name_the_same_file(self, started):
+    def test_the_writer_and_the_library_name_the_same_file(self, state_root, started):
         assert target_state.report_file_path(started) == control_context.report_path_under(
-            target_state.state_dir().parent, started
+            state_root, started
         )
 
     def test_glob_matches_the_file_the_writer_produces(self, started):
@@ -511,11 +516,11 @@ class TestWriteServerRecord:
         assert (datetime.now(UTC) - datetime.fromisoformat(stamp)).total_seconds() < 60
 
     def test_creates_the_state_directory(self, state_root):
-        assert not (state_root / target_state.STATE_DIR_NAME).exists()
+        assert not state_dir_under(state_root).exists()
 
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
-        assert (state_root / target_state.STATE_DIR_NAME).is_dir()
+        assert state_dir_under(state_root).is_dir()
 
 
 class TestPublishSwitch:

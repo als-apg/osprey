@@ -233,6 +233,52 @@ def test_preset_control_assistant_ships_live_openobserve_telemetry(
     assert tel["openobserve"]["password"] == "${ZO_INGEST_SA_TOKEN}"
 
 
+def test_preset_control_assistant_dispatches_on_the_host_network(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """A dispatched job reaches the machine and the plan queue where a terminal does.
+
+    The preset addresses both at this host's loopback, and its web tier already
+    runs in the host's network namespace. A worker on the compose network would
+    read those addresses as its own container's, so its control-system writes
+    and its queue calls would both be refused on connect while the stack
+    reported healthy.
+    """
+    result = _materialize(runner, str(tmp_path), "smoke", "control-assistant")
+    assert result.exit_code == 0, result.output
+
+    project_dir = _project(tmp_path, "smoke")
+    compose = yaml.safe_load(
+        (project_dir / "services" / "dispatch_worker" / "docker-compose.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    worker = compose["services"]["dispatch-worker-1"]
+
+    assert worker["network_mode"] == "host"
+    assert "networks" not in worker
+    assert worker["environment"]["DISPATCH_WORKER_BIND"] == "127.0.0.1", (
+        "the worker's socket is a host socket here, so it binds loopback rather "
+        "than every interface"
+    )
+    # The queue's bridge publishes on this host, so the config block's address
+    # already reaches it. A compose DNS name here is refused by the build's own
+    # cross-boundary check.
+    assert "BLUESKY_BRIDGE_URL" not in worker["environment"]
+
+    # The dispatcher half moves with it — one knob, and the hop between them is
+    # rewritten off the compose service name.
+    triggers = yaml.safe_load((project_dir / "triggers.yml").read_text(encoding="utf-8"))
+    target = triggers["dispatcher"]["dispatch_target"]
+    assert target.startswith("http://localhost:"), (
+        f"the dispatcher still reaches its worker at {target!r}, a compose service "
+        "name that resolves to nothing from the host namespace"
+    )
+    assert target.endswith(f":{worker['environment']['DISPATCH_WORKER_PORT']}"), (
+        "the hop must name the port the worker was told to listen on"
+    )
+
+
 def test_unknown_preset_name(runner: CliRunner, tmp_path: Path) -> None:
     """C10: unknown preset is a usage error → exit 2 (per click convention)."""
     result = _materialize(runner, str(tmp_path), "smoke", "bogus")

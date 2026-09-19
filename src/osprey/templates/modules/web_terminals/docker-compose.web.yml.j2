@@ -957,6 +957,22 @@ services:
          the directory it can actually see. #}
       - OSPREY_AUDIT_IDENTITY={{ svc.audit_identity }}
       - OSPREY_AUDIT_DIR={{ svc.container_audit_dir }}
+      {#- WHERE this terminal writes its control-context record — the chip
+         every lane and the dispatch worker read to decide whether a write
+         this user owns is narrowed. Named explicitly rather than left to the
+         ladder's `<agent_data_root>/control_target/<identity>` fallback, for
+         the same entrypoint CONTRACT OSPREY_AUDIT_DIR above is named for: the
+         root phase joins the group of exactly the directories this file
+         names, and hands the state zone back to the container account while
+         pruning exactly those directories. A group-shared bind the entrypoint
+         is not told about loses that group on the first start and has it
+         taken back on every later `osprey up`, after which this user's
+         terminal can flip the chip but no lane can read what it wrote.
+
+         The CONTAINER path, never the host one — the entrypoint stats the
+         directory it can actually see. Unconditional, like the audit pair:
+         every terminal here can narrow, whatever `auth.method` says. #}
+      - {{ control_context_dir_env }}={{ svc.container_control_context_dir }}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
       {#- The bundle mount's target, named for the same entrypoint contract: the
          root phase is to iterate exactly the directories these two variables
@@ -1288,6 +1304,55 @@ services:
          what keeps the records the container writes purgeable on the host by
          the operator who deployed it. #}
       - {{ svc.audit_mount_source }}:{{ svc.container_audit_dir }}
+      {#- This user's control-context record directory, and ONLY this user's.
+
+         Both ends arrive finished from render.py — `control_context_mount_source`
+         and `container_control_context_dir`, derived there beside the audit
+         pair from the one `agent_data.base_dir` the deploy path provisions
+         under and the container resolves its own agent-data root from. No path
+         decision is made here, so the directory the bind covers and the
+         directory `OSPREY_CONTROL_CONTEXT_DIR` above names are the same string
+         twice, never two spellings free to drift.
+
+         A bind OVER the per-user agent-data volume mounted above, at a path
+         inside it: the deeper target wins, so everything else under
+         `container_agent_data_dir` — memory, sessions, artifacts — stays in
+         the named volume and only `control_target/<user>/` comes from the
+         host. That is the point of it. The record is the one piece of this
+         container's state another container has to read: the plan lanes and
+         the dispatch worker mount the whole `control_target/` tree read-only
+         and look up the owner's directory in it. Left inside the named
+         volume it would sit in the runtime's own storage, visible to nothing
+         else, and every owned write elsewhere would run as if this user had
+         narrowed nothing.
+
+         Read-WRITE: this terminal is the writer. The readers get the tree
+         `:ro`, one level up, so nothing outside the owning terminal can edit
+         the record that governs it.
+
+         A DIRECTORY, never a file. The whole state-dir family lives here —
+         the record, `server_<pid>.json`, switch requests, executor in-flight
+         markers, approval stamps, the transcript map — and they are created
+         and replaced over the container's life, so a bind of any one filename
+         would carry exactly one of them and strand the rest in the writable
+         layer. A bind whose source does not exist is created by the runtime
+         as a directory anyway, root-owned, which is the next paragraph.
+
+         Provisioned host-side before this mount is ever created, exactly as
+         the audit bind is: `deploy_up_web_terminals` makes
+         `var/agent_data/control_target/<user>/` at 2770 on the way up, and
+         the build writes the tree it sits in. Left to the container runtime a
+         rootful daemon creates the missing source owned by root, the dropped
+         `osprey` process inside can write nothing, and the chip fails closed
+         at the one moment an operator is reaching for it. The setgid group
+         that mode carries is what lets the lanes' read-only view of the same
+         tree read what this container wrote across uids.
+
+         Deliberately NOT in the `group_add` list below, for the audit bind's
+         reason: membership is granted inside the container by the entrypoint,
+         which stats the mounted directory itself, so no gid is read back for
+         it at render time. #}
+      - {{ svc.control_context_mount_source }}:{{ svc.container_control_context_dir }}
 {%- if facility_bundle_source and svc.container_bundle_dir %}
       {#- THE DEPLOYMENT BUNDLE SHADOWS THE PERSONA'S BAKED COPY. BY DESIGN.
 

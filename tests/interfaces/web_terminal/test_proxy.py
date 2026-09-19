@@ -11,6 +11,11 @@ registered at runtime.
 These tests pin every side of that boundary:
 
 * nothing that identifies the operator crosses the hop outbound, for any panel;
+* a request reaches a backend carrying the owner *this process* vouches for and
+  never the one the browser claimed — and that minted name is the name the
+  terminal's own gate gives the very same credential, in both deployment
+  shapes, because a backend filing work under one and a chip looked up under
+  the other would gate the wrong user's writes;
 * the operator secret is re-issued only toward a backend that is *both*
   config-declared *and* addressed at loopback — with every ambiguous case
   (unresolvable host, runtime registration, off-box address) resolving to no
@@ -48,7 +53,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.common_middleware import session_cookie_name
-from osprey.interfaces.web_auth import WebCredentials
+from osprey.interfaces.web_auth import BIND_HOST_ENV, WebCredentials
 from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
 from osprey.interfaces.web_terminal.routes.proxy import (
     _PANEL_STATE_MAP,
@@ -57,6 +62,8 @@ from osprey.interfaces.web_terminal.routes.proxy import (
     _backend_is_loopback,
     _is_stripped_header,
 )
+from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
+from osprey.utils.owner_header import OWNER_HEADER
 
 pytestmark = pytest.mark.no_auth_seam
 
@@ -84,6 +91,19 @@ FRAMEWORK_PANEL_ID, FRAMEWORK_STATE_ATTR = sorted(_PANEL_STATE_MAP.items())[0]
 
 #: The panels that must never be handed the operator secret.
 UNTRUSTED_PANELS = ("facility", "registered")
+
+#: The owner header's wire spelling — what :func:`_lower` leaves behind.
+#: Derived from the shared constant so a rename cannot leave the assertions
+#: below watching a header name nothing sends any more.
+OWNER_WIRE_NAME = OWNER_HEADER.lower()
+
+#: One named roster user's secret, distinct from the deployment-wide one: the
+#: gate names an account from the secret that matched, so the two readings of
+#: "operator" have to be told apart by which value was presented.
+ROSTER_SECRET = "roster-alice-b-secret-value"
+
+#: The account that secret belongs to, as the build renders the roster.
+ROSTER_ACCOUNT = "alice-b"
 
 
 def _build_app(workspace_dir, custom_panels, framework_url=None):
@@ -136,6 +156,45 @@ def _cookie_client(app) -> TestClient:
 
 
 @pytest.fixture
+def identity_markers(monkeypatch):
+    """Clear the process identity markers; each test sets only what it means.
+
+    Both sides of the owner question read them per call — the proxy through
+    ``acting_identity()``, the gate through ``web_auth._own_secret_operator``,
+    which is what lets one image serve a ``web-<user>`` container, a shared
+    sidecar and a single-user host. A marker inherited from the ambient
+    environment would silently decide which of those shapes a test exercises.
+    """
+    monkeypatch.delenv(BIND_HOST_ENV, raising=False)
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    monkeypatch.delenv(AUDIT_IDENTITY_ENV, raising=False)
+    return monkeypatch
+
+
+def _roster_credentials(app, account=ROSTER_ACCOUNT):
+    """Re-pin ``app``'s credentials with one named roster user beside the own secret.
+
+    The multi-user holder: nginx injects each user's own secret into their
+    ``web-<user>`` container, and the same secret is that user's roster entry,
+    which is what lets the gate answer with an account name rather than with
+    the coarser own-secret reading.
+    """
+    credentials = WebCredentials(
+        operator_secret=OPERATOR_SECRET,
+        panel_token="panel-token-value",
+        roster_secrets=(ROSTER_SECRET,),
+        roster_owners=(account,),
+    )
+    app.state.web_credentials = credentials
+    return credentials
+
+
+def _owners_of(captured):
+    """Every header key in ``captured`` that a backend reads as the owner."""
+    return [name for name in captured if name.lower() == OWNER_WIRE_NAME]
+
+
+@pytest.fixture
 def workspace_dir(tmp_path):
     ws = tmp_path / "_agent_data"
     ws.mkdir()
@@ -184,6 +243,40 @@ def _capture_request(app, response_factory=None):
 
     app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
     return captured
+
+
+@pytest.fixture
+def capture_over_a_real_client():
+    """Give the proxy a real ``httpx.AsyncClient`` and return what it encoded.
+
+    The transport is a stub, so nothing leaves the process, but the client in
+    front of it is the real one: it builds the request, which is where a header
+    value it cannot encode raises. Keys arrive lower-cased, as httpx normalises
+    them.
+
+    A fixture rather than a plain helper so the client it installs is closed
+    again, like everything else this module hands a test.
+    """
+    installed: list[httpx.AsyncClient] = []
+
+    def install(app) -> dict[str, str]:
+        captured: dict[str, str] = {}
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            captured.update(request.headers)
+            return httpx.Response(
+                200, json={"ok": True}, headers={"content-type": "application/json"}
+            )
+
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handle))
+        installed.append(client)
+        app.state.proxy_client = client
+        return captured
+
+    yield install
+
+    for client in installed:
+        asyncio.run(client.aclose())
 
 
 def _lower(headers):
@@ -391,6 +484,12 @@ class TestStripPredicate:
             "X-Osprey-Terminal-Secret",
             "X_Osprey_Terminal_Secret",
             "x_osprey_terminal_secret",
+            # Spelled out rather than derived: this is the wire name the gate,
+            # the MCP layer and the bridge each reach independently, and the
+            # strip is only closed if the proxy answers to that same text.
+            "x-osprey-owner",
+            "X-Osprey-Owner",
+            "X_Osprey_Owner",
         ],
     )
     def test_stripped(self, name):
@@ -484,6 +583,218 @@ class TestSecretInjection:
         assert resp.status_code == 200
         assert "x-osprey-terminal-secret" not in _lower(captured)
         assert any("without the operator secret" in r.message for r in caplog.records)
+
+
+class TestOwnerMint:
+    """Every hop carries the owner this process vouches for, or none at all.
+
+    ``X-Osprey-Owner`` is the name a backend files queued work under, and the
+    name whose per-target chip then gates that work's writes — so unlike the
+    secret it is not a credential being protected but an assertion being made.
+    The rows here pin the two halves that make it worth believing: a value the
+    browser sent never reaches a backend, and the value that does is minted
+    from this container's own identity.
+
+    Driven through :func:`_cookie_client` wherever the point is the mint alone:
+    a cookie authorises without naming anyone, so the gate in front stamps no
+    owner and the header observed upstream can only have come from this hop.
+    """
+
+    def test_declared_loopback_backend_is_told_who_is_driving(self, panels_app, identity_markers):
+        app, _client = panels_app
+        identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+        captured = _capture_request(app)
+
+        _cookie_client(app).get("/panel/trusted/api/status")
+
+        assert _lower(captured).get(OWNER_WIRE_NAME) == "alice"
+
+    def test_framework_sidecar_is_told_who_is_driving(self, panels_app, identity_markers):
+        """The shape this exists for: the Bluesky sidecar is a framework panel.
+
+        Its URL is published on ``app.state`` by the launcher that started it,
+        which is what makes it declared, and it listens on loopback — so it is
+        handed both a credential and the name of the human behind the request
+        it will queue a plan for.
+        """
+        app, _client = panels_app
+        identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+        captured = _capture_request(app)
+
+        _cookie_client(app).get(f"/panel/{FRAMEWORK_PANEL_ID}/queue/items")
+
+        assert _lower(captured).get(OWNER_WIRE_NAME) == "alice"
+
+    def test_inbound_owner_never_reaches_the_backend(self, panels_app, identity_markers):
+        """From alice's terminal, a browser claiming ``bob`` arrives as alice.
+
+        Exactly one owner header goes upstream, under the minted spelling. Two
+        would be as bad as the wrong one: a backend reading the first of a pair
+        would be back to reading the browser's claim, and which of the two a
+        framework reads is not a property this proxy should have to rely on.
+        """
+        app, client = panels_app
+        identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+        captured = _capture_request(app)
+
+        resp = client.get(
+            "/panel/trusted/api/status",
+            headers={**OPERATOR_HEADERS, "X-Osprey-Owner": "bob"},
+        )
+
+        assert resp.status_code == 200
+        assert _owners_of(captured) == [OWNER_HEADER]
+        assert _lower(captured)[OWNER_WIRE_NAME] == "alice"
+        assert "bob" not in " ".join(captured.values())
+
+    def test_underscore_spelled_owner_does_not_survive(self, panels_app, identity_markers):
+        """The WSGI spelling folds to the same header and must not ride along.
+
+        A backend behind a WSGI/CGI layer reads both spellings as the one
+        ``HTTP_X_OSPREY_OWNER`` key, so a claim sent with underscores would
+        reconstitute on the far side exactly as the dash spelling does.
+        """
+        app, _client = panels_app
+        identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+        captured = _capture_request(app)
+
+        _cookie_client(app).get(
+            "/panel/trusted/api/status",
+            headers={"X_Osprey_Owner": "bob"},
+        )
+
+        assert _owners_of(captured) == [OWNER_HEADER]
+        assert "bob" not in " ".join(captured.values())
+
+    @pytest.mark.parametrize("panel_id", UNTRUSTED_PANELS)
+    def test_a_backend_that_earns_no_credential_is_told_nothing(
+        self, panels_app, identity_markers, panel_id
+    ):
+        """Off-box and runtime-registered backends learn no account name.
+
+        Neither is owed it: a registered listener is a surface the agent's own
+        sandbox can create, and an off-box host is one nobody at this console
+        authenticated to. A claim sent inbound does not reach them either.
+        """
+        app, _client = panels_app
+        identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+        captured = _capture_request(app)
+
+        _cookie_client(app).get(
+            f"/panel/{panel_id}/api/status",
+            headers={"X-Osprey-Owner": "bob"},
+        )
+
+        assert _owners_of(captured) == []
+        assert "bob" not in " ".join(captured.values())
+
+    def test_a_name_the_guard_refuses_is_sent_as_no_owner_at_all(
+        self, panels_app, identity_markers, caplog
+    ):
+        """An unspellable account costs its owner attribution, never the request.
+
+        The value rides a client that encodes headers as ASCII and raises on
+        anything else, so a name outside the allowlist the reading end applies
+        would fail every proxied request for that user. It is dropped here
+        instead — with the guard's own one warning naming the shape — and the
+        work the backend files is owner-less, exactly as it is for a login that
+        named nobody.
+
+        The local account is the rung such a name can still arrive on. The
+        marker above it also spells the container's URL mount, and a mount
+        outside that charset is refused before the container starts
+        (``compute_url_prefix``), so a multi-user deployment never reaches this
+        path with a name it cannot spell — a single-user host, whose account
+        name nobody chose for this, does.
+        """
+        app, _client = panels_app
+        identity_markers.setattr("getpass.getuser", lambda: "renée")
+        captured = _capture_request(app)
+
+        with caplog.at_level(logging.WARNING):
+            resp = _cookie_client(app).get("/panel/trusted/api/status")
+
+        assert resp.status_code == 200
+        assert _owners_of(captured) == []
+        logged = [r.getMessage() for r in caplog.records]
+        assert any(OWNER_HEADER.lower() in message.lower() for message in logged)
+        assert not any("renée" in message for message in logged)
+
+    def test_sse_branch_mints_too(self, panels_app, identity_markers):
+        """The streaming branch sends the same built header set, so it must agree."""
+        app, _client = panels_app
+        identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+        captured = _capture_sse(app, _FakeStreamResponse())
+
+        resp = _cookie_client(app).get(
+            "/panel/trusted/events",
+            headers={"accept": "text/event-stream", "X-Osprey-Owner": "bob"},
+        )
+
+        assert resp.status_code == 200
+        assert _owners_of(captured) == [OWNER_HEADER]
+        assert _lower(captured)[OWNER_WIRE_NAME] == "alice"
+
+
+class TestOwnerDriftAgainstTheGate:
+    """The proxy mints the name the gate would give the same credential.
+
+    Two independent implementations answer "who is this": the proxy asks the
+    identity ladder, and the sidecar's own gate asks which secret matched. They
+    must agree, because they attribute the same work — the proxy names the
+    request that queues a plan while the gate names the request that reaches
+    the panel's own address, and a plan filed under one name while its chip is
+    looked up under the other is gated by the wrong user's posture. These rows
+    compare the two values rather than either against a literal, so a change to
+    one ladder that the other does not follow fails here.
+    """
+
+    def test_roster_user_matches(self, panels_app, identity_markers):
+        """The multi-user shape: alice's own container, alice's roster secret."""
+        app, client = panels_app
+        identity_markers.setenv(BIND_HOST_ENV, "0.0.0.0")
+        identity_markers.setenv(TERMINAL_USER_ENV, ROSTER_ACCOUNT)
+        credentials = _roster_credentials(app)
+        captured = _capture_request(app)
+
+        resp = client.get(
+            "/panel/trusted/api/status",
+            headers={TERMINAL_SECRET_HEADER: ROSTER_SECRET},
+        )
+
+        gate_value = credentials.identify_operator(ROSTER_SECRET)
+        assert resp.status_code == 200
+        assert gate_value == ROSTER_ACCOUNT
+        assert _lower(captured).get(OWNER_WIRE_NAME) == gate_value
+
+    def test_single_user_host_matches(self, panels_app, identity_markers):
+        """``osprey up``: one account runs the terminal and answers its own gate.
+
+        No bind host is the tell that nothing fronts this process, so the own
+        secret names the human at the console rather than nobody — and it has
+        to be the same human the proxy mints, which is the whole point of the
+        single-user row: here the two ladders reach the account by different
+        rungs and still have to land on one name.
+
+        The local account is pinned rather than read: unpinned, the row asserts
+        against whatever account happens to be running the suite, and a name
+        the header guard refuses would fail it for a reason it is not about.
+        """
+        app, client = panels_app
+        identity_markers.setattr("getpass.getuser", lambda: "console-account")
+        credentials = app.state.web_credentials
+        captured = _capture_request(app)
+
+        resp = client.get(
+            "/panel/trusted/api/status",
+            headers={TERMINAL_SECRET_HEADER: OPERATOR_SECRET},
+        )
+
+        gate_value = credentials.identify_operator(OPERATOR_SECRET)
+        assert resp.status_code == 200
+        # A name, not the authorised-but-unattributable sentinel.
+        assert isinstance(gate_value, str)
+        assert _lower(captured).get(OWNER_WIRE_NAME) == gate_value == acting_identity()
 
 
 class TestForgedSecretStopsAtTheGate:
@@ -1057,6 +1368,19 @@ class TestHeaderSpellingPin:
 
         assert TERMINAL_SECRET_HEADER.lower() in _STRIPPED_REQUEST_HEADERS
 
+    def test_the_owner_name_minted_here_is_the_one_the_gate_drops(self):
+        """One spelling for the header, wherever it is minted or refused.
+
+        The proxy mints it, the terminal's gate drops every inbound one, and
+        the bridge reads it — three modules whose agreement is what makes a
+        forged claim unusable rather than merely unlikely. They agree by
+        importing the same constant, and this says so out loud.
+        """
+        from osprey.interfaces.common_middleware import _OWNER_HEADER_WIRE
+
+        assert _OWNER_HEADER_WIRE.decode("latin-1") == OWNER_HEADER.lower()
+        assert _is_stripped_header(OWNER_HEADER) is True
+
 
 class _FakeUpstreamSocket:
     """A websocket upstream that stays open until the relay task is cancelled."""
@@ -1224,3 +1548,38 @@ class TestRedirectPrefixIdempotence:
     def test_prefix_aware_absolute_backend_location_is_rebasded_without_doubling(self):
         aware = self.BACKEND + self.PREFIX + "/day/2026-08-31"
         assert self._rewrite(aware) == self.PREFIX + "/day/2026-08-31"
+
+
+class TestTheHopSendsHeadersItsOwnClientCanEncode:
+    """Every value this hop assembles survives the client that carries it.
+
+    The rows above read headers off a stubbed ``request``, which encodes
+    nothing. httpx encodes header values as ASCII and raises on anything else,
+    so a value assembled from deployment configuration rather than from the
+    request — the mount prefix, the minted owner — could fail every panel
+    request while a stubbed row stayed green. This sends through a real client
+    over a stub transport, so the encode actually happens.
+
+    What keeps an unspellable mount away from this hop is that no such
+    container starts; that refusal is pinned where the prefix is computed, in
+    ``test_prefix_injection.py``'s ``TestAMountMustBeSpellable``.
+    """
+
+    def test_the_multi_user_mount_reaches_the_backend_as_the_panel_it_fronts(
+        self, panels_app, identity_markers, capture_over_a_real_client
+    ):
+        """The backend is told the path the browser reached the panel by.
+
+        The prefix names this container's own mount, so a backend building an
+        absolute URL from it sends the browser back through the front door
+        rather than to a path only the container can see.
+        """
+        app, _client = panels_app
+        identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+        captured = capture_over_a_real_client(app)
+
+        resp = _cookie_client(app).get("/panel/trusted/api/status")
+
+        assert resp.status_code == 200
+        assert captured["x-forwarded-prefix"] == "/u/alice/panel/trusted"
+        assert captured[OWNER_WIRE_NAME] == "alice"

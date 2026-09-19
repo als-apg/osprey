@@ -145,9 +145,11 @@ def build_operator_child_env(
     child and what
     :func:`osprey.interfaces.web_terminal.routes.websocket._build_extra_env`
     does for the PTY child. The token is the weak, panel-tier-only credential
-    (see :data:`osprey.interfaces.web_auth.PANEL_TIER_ROUTES`); without it the
-    MCP panel tools and the SessionStart/UserPromptSubmit/approval hooks the
-    agent spawns send no bearer at all and are answered 401, which is how the
+    (see :data:`osprey.interfaces.web_auth.PANEL_TIER_ROUTES`, which is panel
+    arrangement and activity plus the terminal proxy's hop to the event
+    dispatcher's MCP transport); without it the MCP panel tools, the
+    SessionStart/UserPromptSubmit/approval hooks the agent spawns and that
+    dispatch hop send no bearer at all and are answered 401, which is how the
     panel tier came to be dead on the default ``osprey web`` launch.
 
     The **operator secret** is emphatically not re-added, and nothing here

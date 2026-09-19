@@ -390,6 +390,34 @@ def _make_plan_function(spec: Any, devices: Mapping[str, Any]) -> Callable[..., 
     whether every address they touch answers, and refuse the run if any does
     not (``preflight.probe_before_motion``, shared with the session-plan
     wrapper so the two cannot refuse an operator differently).
+
+    **The whole body runs inside ``bind_owner``.** A queued item carries the
+    person it belongs to as ``RESERVED_OWNER_KWARG``, and that key is what lets
+    the write monitor gate this run against *their* narrowing rather than
+    against the worker account's. ``bind_owner`` pops it before
+    ``model_validate`` ever sees the kwargs — so a plan is never handed an
+    argument it does not declare — and holds it as context for the body.
+
+    The block has to span the generator, not just the call: a generator's body
+    is entered on the first ``next`` and re-entered at every message after it,
+    so ``return (yield from plan)`` inside the ``with`` is what keeps the owner
+    set across every yield, and closing the generator — which is what an
+    aborted run does — is what resets it. The context variable is set in
+    whichever context advances the generator, which for a run is the
+    RunEngine's own thread: everything the RunEngine schedules from there
+    (including the task a device's ``AsyncStatus`` wraps a write into) inherits
+    it, and the gate is decided on that async path, never after a thread or
+    executor hop that would start from a fresh context.
+
+    A refused write earns exactly one warning line, naming who the refusal was
+    decided for, and is then re-raised untouched: queueserver reports it as the
+    item's ``Plan failed: {ex}`` and the bridge publishes that as the run's
+    error, so the reference monitor's own wording is what reaches the operator.
+    The line is written by ``preflight.warn_if_write_refused``, shared with the
+    session-plan wrapper for the same reason the pre-flight is, and it is that
+    seam — not this handler — that knows a refusal out of a device's ``set()``
+    reaches a plan wrapped in the RunEngine's own failure rather than as
+    itself.
     """
     # Absolute, not relative — see the module docstring. Imported at wrapper
     # build time rather than inside the generator so a missing pre-flight is a
@@ -397,28 +425,42 @@ def _make_plan_function(spec: Any, devices: Mapping[str, Any]) -> Callable[..., 
     from osprey.services.bluesky_bridge.preflight import (
         available_devices_phrase,
         probe_before_motion,
+        warn_if_write_refused,
     )
+    from osprey_connectors.posture_store import bind_owner, current_owner
 
     def plan_function(**kwargs: Any) -> Iterator[Any]:
-        params = spec.schema.model_validate(kwargs)
-        declared = _declared_devices(spec.schema, params, devices)
-        yield from probe_before_motion(spec.name, declared)
-        try:
-            plan = spec.plan(declared, params)
-        except KeyError as exc:
-            missing = exc.args[0] if exc.args else "<unknown>"
-            if missing in devices:
+        with bind_owner(kwargs) as clean:
+            params = spec.schema.model_validate(clean)
+            declared = _declared_devices(spec.schema, params, devices)
+            yield from probe_before_motion(spec.name, declared)
+            try:
+                plan = spec.plan(declared, params)
+            except KeyError as exc:
+                missing = exc.args[0] if exc.args else "<unknown>"
+                if missing in devices:
+                    raise KeyError(
+                        f"plan {spec.name!r} referenced device {missing!r}, which its parameters "
+                        f"do not declare as a movable or readable channel — a plan resolves only "
+                        f"the channels it declares; available devices: "
+                        f"{available_devices_phrase(devices)}"
+                    ) from exc
                 raise KeyError(
-                    f"plan {spec.name!r} referenced device {missing!r}, which its parameters "
-                    f"do not declare as a movable or readable channel — a plan resolves only "
-                    f"the channels it declares; available devices: "
-                    f"{available_devices_phrase(devices)}"
+                    f"plan {spec.name!r} referenced device {missing!r}, which this worker "
+                    f"did not build; available devices: {available_devices_phrase(devices)}"
                 ) from exc
-            raise KeyError(
-                f"plan {spec.name!r} referenced device {missing!r}, which this worker "
-                f"did not build; available devices: {available_devices_phrase(devices)}"
-            ) from exc
-        return (yield from plan)
+            try:
+                return (yield from plan)
+            except Exception as exc:
+                # Everything, because a refusal wears two shapes and the seam
+                # that knows both is the one that decides whether this is one
+                # — catching by class here would mean naming the RunEngine's
+                # wrapper exception in both wrappers and catching the shape
+                # rather than the event. The owner is asked as the ladder
+                # answers it, which is the owner the verdict was decided for.
+                # Nothing is handled: whatever this is travels on untouched.
+                warn_if_write_refused(logger, spec.name, current_owner(), exc)
+                raise
 
     plan_function.__name__ = spec.name
     plan_function.__qualname__ = spec.name

@@ -37,7 +37,7 @@ Build & deploy
       :link: llm-providers/index
       :link-type: doc
 
-      Pick the provider that drives the Osprey agent and map the model tiers
+      Pick the provider that drives the OSPREY agent and map the model tiers
       each one serves, including open-weight and self-hosted models behind the
       translation proxy.
 
@@ -51,7 +51,7 @@ Operate
       :link: web-terminal/index
       :link-type: doc
 
-      The browser cockpit for the Osprey agent — launching and theming it,
+      The browser cockpit for the OSPREY agent — launching and theming it,
       adding your own side panels, reporting problems from inside it, and
       serving a whole team from one host.
 
@@ -102,7 +102,7 @@ Facility services
 
       Search over facility electronic logbooks with keyword and
       semantic retrieval modes, plus multi-step reasoning delegated to the
-      Osprey agent.
+      OSPREY agent.
 
    .. grid-item-card:: Bluesky Plans
       :link: bluesky/index

@@ -28,7 +28,9 @@ from claude_agent_sdk import (
     UserMessage,
 )
 
+from osprey.audit.posture import OSPREY_AGENT_DATA_ROOT
 from osprey.mcp_server.dispatch_worker import sdk_runner
+from osprey_connectors.posture_store import CONTROL_OWNER_ENV_VAR, NO_OWNER
 
 
 @pytest.fixture(autouse=True)
@@ -718,3 +720,102 @@ async def test_cli_mcp_startup_limit_matches_the_barrier(monkeypatch):
     )
     await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
     assert captured["env"]["MCP_TIMEOUT"] == "5000"
+
+
+# ---------------------------------------------------------------------------
+# Agent-data root and owner export
+# ---------------------------------------------------------------------------
+
+
+async def _env_of_run(monkeypatch, **kwargs) -> dict[str, str]:
+    """Run a dispatch through a stub stream and return the agent's environment."""
+    captured: dict = {}
+
+    async def fake_query(options, render_dir, prompt, **_kw):
+        captured["env"] = options.env
+        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "_stream_with_ready_mcp", fake_query)
+    await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue(), **kwargs)
+    return captured["env"]
+
+
+@pytest.mark.asyncio
+async def test_the_agent_data_root_is_stamped_for_the_agent(monkeypatch, tmp_path):
+    """The dispatched agent is handed the directory its control state lives in.
+
+    Everything below the spawn otherwise re-derives that directory for itself —
+    the controls server from config, the hooks from a repo root they resolve
+    with the standard library — and a worker reads a config staged on another
+    machine, which is one derivation too many for readers that must agree on a
+    single file. The stamp is the answer all of them prefer.
+    """
+    root = tmp_path / "var" / "agent_data"
+    monkeypatch.setattr(
+        "osprey_connectors.workspace.resolve_shared_data_root",
+        lambda: root,
+    )
+
+    env = await _env_of_run(monkeypatch)
+
+    assert env[OSPREY_AGENT_DATA_ROOT] == str(root)
+
+
+@pytest.mark.asyncio
+async def test_an_unresolvable_root_leaves_the_variable_absent(monkeypatch):
+    """A config that cannot be read costs the stamp, never the run.
+
+    Absent, the readers fall back to deriving the directory themselves, which is
+    what they do for every process nobody stamped. An empty value would be a
+    path of no name for them to resolve against.
+    """
+
+    def _raise():
+        raise RuntimeError("no config here")
+
+    monkeypatch.setattr("osprey_connectors.workspace.resolve_shared_data_root", _raise)
+
+    env = await _env_of_run(monkeypatch)
+
+    assert OSPREY_AGENT_DATA_ROOT not in env
+
+
+@pytest.mark.asyncio
+async def test_owner_is_exported_to_the_agent_environment(monkeypatch):
+    """A dispatch that carried an owner stamps OSPREY_CONTROL_OWNER for the run.
+
+    The stamp is rung 3 of the connector's owner ladder, so every control-system
+    write the agent makes is judged against that person's narrowing instead of
+    the deployment ceiling.
+    """
+    env = await _env_of_run(monkeypatch, owner="alice")
+
+    assert env[CONTROL_OWNER_ENV_VAR] == "alice"
+
+
+@pytest.mark.asyncio
+async def test_ownerless_dispatch_leaves_the_variable_unset(monkeypatch):
+    """No owner means the key is absent, not empty.
+
+    An empty stamp is a value the ladder would have to interpret; an absent one
+    falls through to the rung below it, which is what an owner-less run (a cron
+    fire) is entitled to.
+    """
+    env = await _env_of_run(monkeypatch)
+
+    assert CONTROL_OWNER_ENV_VAR not in env
+
+
+@pytest.mark.asyncio
+async def test_no_owner_sentinel_is_never_stamped(monkeypatch):
+    """NO_OWNER is refused by identity, so its printable form never reaches the env.
+
+    The sentinel exists to be printed in a warning line, and it prints as
+    ``<no owner>``; a truthiness guard would stamp the run with an account of
+    that name and look up a narrowing for it.
+    """
+    env = await _env_of_run(monkeypatch, owner=NO_OWNER)
+
+    assert CONTROL_OWNER_ENV_VAR not in env
+    assert str(NO_OWNER) not in env.values()

@@ -456,6 +456,39 @@ def _dispatch_max_turns_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _dispatch_host_network_deltas() -> tuple[Delta, ...]:
+    """The dispatch pair's network namespace, and the port rule that follows it.
+
+    A dispatched job runs the same agent a terminal runs and reaches the control
+    system and the plan queue at this machine's own loopback, so the pair runs in
+    the host's network namespace. One profile knob writes ``network`` into both
+    service blocks, and the host namespace is where workers need a port apiece,
+    so the build records the stride it derives them with. The fixtures were
+    frozen while the preset said nothing, and only the root document carries a
+    service block.
+
+    Only ``control-assistant`` deploys a dispatch pair; the other presets gain
+    nothing and are absent below.
+
+    Returns:
+        The three root-document deltas.
+    """
+    return (
+        Delta(
+            document="root", path="services.event_dispatcher.network", fixture=ABSENT, live="host"
+        ),
+        Delta(
+            document="root", path="services.dispatch_worker.network", fixture=ABSENT, live="host"
+        ),
+        Delta(
+            document="root",
+            path="services.dispatch_worker.worker_port_stride",
+            fixture=ABSENT,
+            live=1,
+        ),
+    )
+
+
 #: The documents a control-assistant cell renders: the root config plus one per
 #: persona in the preset's roster.
 _CONTROL_ASSISTANT_DOCUMENTS = (
@@ -531,6 +564,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _dispatch_max_turns_deltas()
+    + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
@@ -538,6 +572,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _dispatch_max_turns_deltas()
+    + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
@@ -545,6 +580,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _dispatch_max_turns_deltas()
+    + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
@@ -552,6 +588,7 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _retired_upstream_link_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _dispatch_max_turns_deltas()
+    + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas(),
 }

@@ -11,6 +11,15 @@ from __future__ import annotations
 
 from typing import Any
 
+#: The path FastMCP serves the dispatcher's streamable-HTTP transport on. Both
+#: ends of that wire read it from here: the dispatcher's compose environment
+#: hands it to FastMCP as ``FASTMCP_STREAMABLE_HTTP_PATH``, and the web
+#: terminal's panel proxy appends it to the dispatcher's base URL to reach the
+#: MCP endpoint. Kept in this package rather than beside either consumer
+#: because neither end owns it — a value only one side could change is a value
+#: that silently 404s the other.
+DISPATCHER_MCP_PATH = "/mcp"
+
 #: Public name -> the submodule of this package that defines it. Entries are
 #: resolved on first attribute access, never at import.
 _LAZY_EXPORTS: dict[str, str] = {
@@ -31,7 +40,12 @@ _LAZY_EXPORTS: dict[str, str] = {
     "proxy_worker_stream": ".worker_client",
 }
 
-__all__ = sorted(_LAZY_EXPORTS)
+#: Public names this package defines itself and so resolves at import. A string
+#: constant drags nothing in behind it, which is the whole reason the names
+#: above are deferred, so there is nothing here to defer.
+_EAGER_EXPORTS: tuple[str, ...] = ("DISPATCHER_MCP_PATH",)
+
+__all__ = sorted([*_LAZY_EXPORTS, *_EAGER_EXPORTS])
 
 
 def __getattr__(name: str) -> Any:

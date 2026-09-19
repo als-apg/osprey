@@ -670,6 +670,7 @@ EXPECTED_ERROR_CLASSES = {
     "session_plan_not_in_namespace": "Validation",
     "manager_not_idle": "Validation",
     "queue_request_rejected": "Validation",
+    "invalid_item": "Validation",
     # Data
     "not_found": "Data",
     "no_results": "Data",
@@ -702,6 +703,7 @@ EXPECTED_ERROR_CLASSES = {
     "unsupported_connector": "Safety",
     "not_supported": "Safety",
     "interrupted_item_in_queue": "Safety",
+    "queue_changed_since_approval": "Safety",
     # Internal
     "internal_error": "Internal",
     "platform_error": "Internal",

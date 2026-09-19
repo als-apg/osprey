@@ -28,11 +28,20 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from osprey.profiles.web_panels import BAR_ITEM_PANEL_GATES, UNIVERSAL_PANELS
+from osprey.profiles.web_panels import (
+    BAR_ITEM_PANEL_GATES,
+    UNIVERSAL_PANELS,
+    panel_id_refusal,
+)
 
 from .build_profile_reach import spelled_values
 
-__all__ = ["bar_items_selection_warnings", "panel_selection_errors", "panel_selection_overrides"]
+__all__ = [
+    "bar_items_selection_warnings",
+    "panel_id_errors",
+    "panel_selection_errors",
+    "panel_selection_overrides",
+]
 
 #: The two bars a ``web.bar_items`` block arranges, as ``BAR_HOSTS`` names them.
 _BAR_HOSTS: tuple[str, ...] = ("header", "status")
@@ -96,6 +105,33 @@ def panel_selection_errors(config: Any, selected_panels: Iterable[str]) -> list[
                     f"web.panels.{pid}.hidden: true."
                 )
     return errors
+
+
+def panel_id_errors(config: Any) -> list[str]:
+    """Refuse a ``web.panels.<id>`` the terminal could never serve.
+
+    An id is a URL path segment and a header value on every proxied hop, and
+    the terminal refuses to start on one outside that class — so a profile
+    carrying such an id builds a deployment that cannot run. The refusal is
+    worth having here as well as there, because a build is where the id is
+    still a line in a file the operator has open, and the verdict is the same
+    one: :func:`osprey.profiles.web_panels.panel_id_refusal`, not a second
+    charset that could drift from the one the proxy actually spells.
+
+    Every spelling of the mapping is read, so an id reaches this check however
+    its block was authored.
+
+    Args:
+        config: The profile's ``config:`` block, whatever shape it parsed as.
+
+    Returns:
+        One refusal per unservable id, id order.
+    """
+    return [
+        refusal
+        for pid in sorted(_spelled_panel_ids(config))
+        if (refusal := panel_id_refusal(pid)) is not None
+    ]
 
 
 def _spelled_panel_ids(config: Any) -> set[str]:

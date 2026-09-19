@@ -30,13 +30,22 @@ error-envelope mapping against the queue wire contract with no bridge process.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+import re
+import time
 from unittest.mock import patch
 
 import pytest
 import yaml
 
+from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
 from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
 from osprey.mcp_server.bluesky.tools import queue
+from osprey.utils.owner_header import OWNER_HEADER
+from osprey_connectors.identity import TERMINAL_USER_ENV
+from osprey_connectors.posture_store import CONTROL_CONTEXT_TREE_ENV_VAR, CONTROL_OWNER_ENV_VAR
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 _MOD = "osprey.mcp_server.bluesky.tools.queue"
@@ -98,6 +107,41 @@ def _start_fn():
 
 def _stop_fn():
     return get_tool_fn(queue.queue_stop)
+
+
+def _headers_without_owner(m) -> dict[str, str]:
+    """The headers one forwarded request carried, minus the owner stamp.
+
+    Every write to the bridge carries ``X-Osprey-Owner`` whenever the ladder can
+    name an owner, and under test the process account always can. The launch
+    token rows below are about the token and nothing else, so they compare the
+    rest of the header dict exactly: a stray third header still fails them,
+    while the owner half is pinned by the owner section at the end of the file.
+    """
+    headers = m.call_args.kwargs["headers"] or {}
+    return {name: value for name, value in headers.items() if name != OWNER_HEADER}
+
+
+def _owner_sent(m) -> str | None:
+    """The owner one forwarded request named, or ``None`` when it named nobody."""
+    return (m.call_args.kwargs["headers"] or {}).get(OWNER_HEADER)
+
+
+def _as_terminal_user(monkeypatch, user: str) -> None:
+    """Put the process in a terminal container: the roster account, no stamp over it."""
+    monkeypatch.delenv(CONTROL_OWNER_ENV_VAR, raising=False)
+    monkeypatch.delenv(CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
+    monkeypatch.setenv(TERMINAL_USER_ENV, user)
+
+
+def _as_owner_less_tree_container(monkeypatch, tmp_path) -> None:
+    """Put the process in a container holding the state tree and owning nothing.
+
+    The account such a container runs as names nobody whose chip anyone set, so
+    the ladder answers NO_OWNER rather than falling through to that account.
+    """
+    monkeypatch.delenv(CONTROL_OWNER_ENV_VAR, raising=False)
+    monkeypatch.setenv(CONTROL_CONTEXT_TREE_ENV_VAR, str(tmp_path / "control-context"))
 
 
 def _refusal(code: str, detail: str, **extras) -> dict:
@@ -246,7 +290,7 @@ async def test_queue_add_posts_the_pinned_revision_with_the_token_when_armed(tmp
 
     assert m.call_args.args[0] == "/queue/items"
     assert m.call_args.args[1] == {"draft_revision": 7}
-    assert m.call_args.kwargs["headers"] == {"X-Launch-Token": _TOKEN}
+    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
     assert extract_response_dict(result) == body
 
 
@@ -269,7 +313,7 @@ async def test_queue_add_withholds_the_token_when_writes_are_disabled(tmp_path, 
         with patch(f"{_MOD}.notify_agent_activity_async"):
             result = await _add_fn()(draft_revision=3)
 
-    assert m.call_args.kwargs["headers"] is None
+    assert _headers_without_owner(m) == {}
     assert extract_response_dict(result)["run_id"] == "r1"
 
 
@@ -280,7 +324,7 @@ async def test_queue_add_missing_config_fails_closed_and_withholds_the_token(tmp
         with patch(f"{_MOD}.notify_agent_activity_async"):
             await _add_fn()(draft_revision=3)
 
-    assert m.call_args.kwargs["headers"] is None
+    assert _headers_without_owner(m) == {}
 
 
 async def test_queue_add_without_a_configured_token_still_composes(tmp_path, monkeypatch):
@@ -291,7 +335,7 @@ async def test_queue_add_without_a_configured_token_still_composes(tmp_path, mon
             await _add_fn()(draft_revision=3)
 
     m.assert_called_once()
-    assert m.call_args.kwargs["headers"] is None
+    assert _headers_without_owner(m) == {}
 
 
 async def test_queue_add_armed_refusal_relays_code_manager_state_and_stranded_item(
@@ -344,7 +388,7 @@ async def test_queue_add_armed_refusal_names_the_kill_switch_when_writes_are_off
 
     # The other half of the compose-while-unarmed contract: the same tokenless
     # request that an idle queue accepts is what a draining queue refuses.
-    assert m.call_args.kwargs["headers"] is None
+    assert _headers_without_owner(m) == {}
     envelope = ctx["envelope"]
     assert envelope["details"]["code"] == "launch_token_required"
     assert envelope["details"]["manager_state"] == "executing_queue"
@@ -399,7 +443,7 @@ async def test_queue_add_still_composes_in_a_readonly_session(tmp_path, monkeypa
         with patch(f"{_MOD}.notify_agent_activity_async"):
             result = await _add_fn()(draft_revision=3)
 
-    assert m.call_args.kwargs["headers"] is None
+    assert _headers_without_owner(m) == {}
     assert extract_response_dict(result)["run_id"] == "r1"
 
 
@@ -623,7 +667,7 @@ async def test_queue_start_without_a_token_asks_the_bridge_and_relays_its_refusa
             await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"
-    assert m.call_args.kwargs["headers"] is None
+    assert _headers_without_owner(m) == {}
     assert ctx["envelope"]["details"]["code"] == "launch_token_required"
 
 
@@ -671,7 +715,7 @@ async def test_queue_start_armed_posts_with_the_token(tmp_path, monkeypatch):
             result = await _start_fn()()
 
     assert m.call_args.args[0] == "/queue/start"
-    assert m.call_args.kwargs["headers"] == {"X-Launch-Token": _TOKEN}
+    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
     assert extract_response_dict(result)["started"] is True
 
 
@@ -716,6 +760,202 @@ async def test_queue_start_environment_unavailable_is_relayed_as_retryable(tmp_p
 
 
 # =========================================================================
+# queue_start — quoting back the queue the approver was shown
+# =========================================================================
+#
+# The approval hook stamps the queue token it listed under the prompt; this
+# tool quotes it back as `expected_plan_queue_uid` so the bridge can refuse a
+# start whose queue moved in between. The helpers below write that file the way
+# the HOOK writes it — its own file-name derivation spelled out again here —
+# rather than through the tool's reader, so a drift between the two spellings
+# fails these tests instead of silently disabling the binding in production.
+
+_SESSION = "kernel:9f3c1a2b"
+
+_QUEUE_LOGGER = "osprey.mcp_server.bluesky.tools.queue"
+
+
+def _stamp_dir(tmp_path, monkeypatch):
+    """Point the tool's stamp reader at a directory this test owns."""
+    directory = tmp_path / "control_target"
+    directory.mkdir(exist_ok=True)
+    monkeypatch.setattr(queue.target_state, "state_dir", lambda: directory)
+    return directory
+
+
+def _stamp_name(session: str, lane: str) -> str:
+    """The file name the approval hook files a start stamp under.
+
+    Restated from ``osprey_approval.queue_start_approval_filename`` — a hashed
+    session slug and a lane with everything outside ``[A-Za-z0-9_.-]``
+    substituted away. The hook cannot be imported from this venv, so the
+    derivation is spelled twice on purpose and exercised against the tool's own
+    spelling here.
+    """
+    slug = hashlib.sha256(session.encode("utf-8")).hexdigest()[:16]
+    return f"queue_start_approval_{slug}_{re.sub(r'[^A-Za-z0-9_.-]', '-', lane)}.json"
+
+
+def _write_start_stamp(directory, session, lane, uid, *, age_s=0.0, payload_lane=None):
+    """Write one queue-start stamp as the hook would have left it.
+
+    ``payload_lane`` defaults to *lane* — the ordinary case, where the name and
+    the payload agree. Passing a different one stages the collision the payload
+    exists to catch: two lane ids whose names sanitise to the same file.
+    """
+    path = directory / _stamp_name(session, lane)
+    path.write_text(
+        json.dumps(
+            {
+                "lane": lane if payload_lane is None else payload_lane,
+                "plan_queue_uid": uid,
+                "ts": time.time() - age_s,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+async def test_queue_start_sends_the_uid_the_approval_prompt_stamped(tmp_path, monkeypatch):
+    """The token the human's prompt listed rides on the start that follows it."""
+    _armed(tmp_path, monkeypatch)
+    monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, _SESSION)
+    _write_start_stamp(_stamp_dir(tmp_path, monkeypatch), _SESSION, "bluesky", "q7")
+
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _start_fn()()
+
+    assert m.call_args.args[1] == {"expected_plan_queue_uid": "q7"}
+
+
+async def test_queue_start_ignores_an_expired_stamp(tmp_path, monkeypatch):
+    """An hour-old binding describes a queue nobody is looking at any more.
+
+    The start still goes — an unbound start is what every deployment did before
+    this existed — but it carries no token, so the bridge is never asked to
+    compare against a list whose approval has aged out.
+    """
+    _armed(tmp_path, monkeypatch)
+    monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, _SESSION)
+    _write_start_stamp(_stamp_dir(tmp_path, monkeypatch), _SESSION, "bluesky", "q7", age_s=7200.0)
+
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _start_fn()()
+
+    assert m.call_args.args[1] == {}
+
+
+async def test_a_stamp_naming_another_lane_is_not_quoted_and_warns_once(
+    tmp_path, monkeypatch, caplog
+):
+    """The payload's lane is the truth, and a mismatch is reported, not guessed.
+
+    Lane ids are substituted into the file name, so two configured lanes can
+    land on one file. The stamp says which lane it was actually rendered for;
+    when that is not the lane being started, quoting its token would bind this
+    start to another lane's queue. One warning, naming the file and both lanes,
+    is what tells an operator why a prompt-bound start went unbound.
+    """
+    _armed(tmp_path, monkeypatch)
+    monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, _SESSION)
+    path = _write_start_stamp(
+        _stamp_dir(tmp_path, monkeypatch), _SESSION, "bluesky", "q7", payload_lane="bluesky+va"
+    )
+
+    with caplog.at_level(logging.WARNING, logger=_QUEUE_LOGGER):
+        with patch(
+            f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})
+        ) as m:
+            with patch(f"{_MOD}.notify_agent_activity_async"):
+                await _start_fn()()
+
+    assert m.call_args.args[1] == {}
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert len(warnings) == 1
+    message = warnings[0].getMessage()
+    assert path.name in message
+    assert "bluesky+va" in message and "'bluesky'" in message
+
+
+async def test_a_session_less_start_sends_no_uid(tmp_path, monkeypatch):
+    """No audit session, no binding — and no quiet fallback to a shared file.
+
+    Every unattributed process on a checkout would file under one name, so a
+    token found there is as likely another window's queue as this one's. The
+    hook stamps nothing for such a render; the tool must quote nothing either,
+    even when some other process left a stamp behind.
+    """
+    _armed(tmp_path, monkeypatch)
+    monkeypatch.delenv(POSTURE_SESSION_ENV_VAR, raising=False)
+    directory = _stamp_dir(tmp_path, monkeypatch)
+    (directory / "queue_start_approval_anon_bluesky.json").write_text(
+        json.dumps({"lane": "bluesky", "plan_queue_uid": "q7", "ts": time.time()}),
+        encoding="utf-8",
+    )
+
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _start_fn()()
+
+    assert m.call_args.args[1] == {}
+
+
+async def test_a_null_or_missing_stamp_sends_no_uid(tmp_path, monkeypatch):
+    """Both spellings of "the prompt showed no queue" mean: send nothing.
+
+    The hook nulls the token on every render that listed no queue rather than
+    deleting the file, so the tool meets a ``None`` and an absent file alike and
+    has to read them the same way.
+    """
+    _armed(tmp_path, monkeypatch)
+    monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, _SESSION)
+    directory = _stamp_dir(tmp_path, monkeypatch)
+    _write_start_stamp(directory, _SESSION, "bluesky", None)
+
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _start_fn()()
+    assert m.call_args.args[1] == {}
+
+    (directory / _stamp_name(_SESSION, "bluesky")).unlink()
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True, "msg": ""})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _start_fn()()
+    assert m.call_args.args[1] == {}
+
+
+async def test_queue_start_relays_the_409_and_never_resends(tmp_path, monkeypatch):
+    """A moved queue is a refusal for a human to answer, not a retry.
+
+    The bridge's sentence and both uids are relayed verbatim, the remedy sends
+    the agent back to re-read the queue, and the start is posted exactly once —
+    a second attempt would re-arm a queue nobody approved.
+    """
+    _armed(tmp_path, monkeypatch)
+    monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, _SESSION)
+    _write_start_stamp(_stamp_dir(tmp_path, monkeypatch), _SESSION, "bluesky", "q7")
+    body = _refusal(
+        "queue_changed_since_approval",
+        "the queue has changed since it was approved: the start named queue 'q7', "
+        "but the manager now holds 'q9'",
+        plan_queue_uid="q9",
+        expected_plan_queue_uid="q7",
+    )
+
+    with patch(f"{_MOD}._http_post_json", return_value=(409, body)) as m:
+        with assert_raises_error(error_type="queue_changed_since_approval") as ctx:
+            await _start_fn()()
+
+    assert m.call_count == 1
+    assert ctx["envelope"]["details"]["plan_queue_uid"] == "q9"
+    assert ctx["envelope"]["details"]["expected_plan_queue_uid"] == "q7"
+    assert any("queue_list" in s for s in ctx["envelope"]["suggestions"])
+
+
+# =========================================================================
 # queue_stop — halting is free, un-halting is armed
 # =========================================================================
 
@@ -734,7 +974,7 @@ async def test_plain_queue_stop_works_with_writes_disabled_and_no_token(tmp_path
 
     assert m.call_args.args[0] == "/queue/stop"
     assert m.call_args.args[1] == {"cancel": False}
-    assert m.call_args.kwargs["headers"] is None
+    assert _headers_without_owner(m) == {}
     assert extract_response_dict(result)["stop_pending"] is True
 
 
@@ -785,7 +1025,7 @@ async def test_queue_stop_cancel_armed_posts_the_token_and_the_cancel_flag(tmp_p
         result = await _stop_fn()(cancel=True)
 
     assert m.call_args.args[1] == {"cancel": True}
-    assert m.call_args.kwargs["headers"] == {"X-Launch-Token": _TOKEN}
+    assert _headers_without_owner(m) == {"X-Launch-Token": _TOKEN}
     assert extract_response_dict(result)["stop_pending"] is False
 
 
@@ -903,5 +1143,129 @@ async def test_queue_remove_is_ungated_by_writes_and_token(tmp_path, monkeypatch
         result = await _remove_fn()("u1")
 
     assert extract_response_dict(result) == body
-    # No launch token header on a removal — there is nothing to arm.
-    assert "headers" not in m.call_args.kwargs
+    # No launch token header on a removal — there is nothing to arm. The owner
+    # stamp is not a credential and rides on regardless; it is pinned by the
+    # owner section at the end of the file.
+    assert _headers_without_owner(m) == {}
+
+
+# =========================================================================
+# the X-Osprey-Owner stamp — who queued this work
+# =========================================================================
+
+
+async def test_queue_add_names_the_terminal_user_as_the_owner(tmp_path, monkeypatch):
+    """An add from a terminal container is attributed to that terminal's account.
+
+    This is the whole point of the stamp: the bridge records the item against a
+    person, so a narrowing set from that person's chip governs the plan when it
+    runs. The assertion is on the exact header dict, which pins that the owner
+    rides ALONGSIDE the launch token rather than in place of it.
+    """
+    _as_terminal_user(monkeypatch, "rosterbob")
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _add_fn()(draft_revision=3)
+
+    assert m.call_args.kwargs["headers"] == {
+        "X-Launch-Token": _TOKEN,
+        OWNER_HEADER: "rosterbob",
+    }
+
+
+async def test_a_tree_container_with_no_stamped_owner_sends_no_owner_header(tmp_path, monkeypatch):
+    """Owner-less means the header is ABSENT, never present-and-empty.
+
+    A blank or sentinel-shaped value would be read back as a name by nothing and
+    warned about by the reader; the absent header is the ordinary owner-less
+    case, and the bridge records the item at the ceiling.
+    """
+    _as_owner_less_tree_container(monkeypatch, tmp_path)
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _add_fn()(draft_revision=3)
+
+    assert m.call_args.kwargs["headers"] == {"X-Launch-Token": _TOKEN}
+
+
+async def test_a_stamped_owner_beats_the_account_the_process_runs_as(tmp_path, monkeypatch):
+    """A dispatch job's exported owner is the owner, not the account running it.
+
+    The job runs as a service account nobody's chip belongs to; the stamp names
+    the person the work is for, so it must win over the identity ladder.
+    """
+    monkeypatch.setenv(TERMINAL_USER_ENV, "service-account")
+    monkeypatch.delenv(CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
+    monkeypatch.setenv(CONTROL_OWNER_ENV_VAR, "alice")
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"run_id": "r1"})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _add_fn()(draft_revision=3)
+
+    assert _owner_sent(m) == "alice"
+
+
+async def test_queue_start_carries_the_owner(tmp_path, monkeypatch):
+    """Starting a queue is attributed too: the run record names who released it."""
+    _as_terminal_user(monkeypatch, "rosterbob")
+    _armed(tmp_path, monkeypatch)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"started": True})) as m:
+        with patch(f"{_MOD}.notify_agent_activity_async"):
+            await _start_fn()()
+
+    assert m.call_args.args[0] == "/queue/start"
+    assert _owner_sent(m) == "rosterbob"
+
+
+async def test_an_ungated_stop_still_carries_the_owner(tmp_path, monkeypatch):
+    """The stamp is attribution, not a credential, so it rides an ungated request.
+
+    A plain halt carries no launch token at all — the header dict exists only
+    because of the owner — which pins that the stamp does not hitch a ride on
+    the token decision.
+    """
+    _as_terminal_user(monkeypatch, "rosterbob")
+    _configure(tmp_path, monkeypatch, writes=False, token=None)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"stop_pending": True})) as m:
+        await _stop_fn()()
+
+    assert m.call_args.kwargs["headers"] == {OWNER_HEADER: "rosterbob"}
+
+
+async def test_a_removal_names_who_withdrew_the_work(tmp_path, monkeypatch):
+    """Withdrawing queued work is a change to the queue like any other, so it
+    is attributed like any other. The removal carries no launch token — it arms
+    nothing — which pins that the stamp does not ride the gating decision."""
+    _as_terminal_user(monkeypatch, "rosterbob")
+    _configure(tmp_path, monkeypatch, writes=False, token=None)
+    with patch(f"{_MOD}._http_delete_json", return_value=(200, {"removed": True})) as m:
+        await _remove_fn()("u1")
+
+    assert m.call_args.kwargs["headers"] == {OWNER_HEADER: "rosterbob"}
+
+
+async def test_an_owner_less_removal_sends_no_headers_at_all(tmp_path, monkeypatch):
+    """The same absent-not-empty rule the other writes keep."""
+    _as_owner_less_tree_container(monkeypatch, tmp_path)
+    _configure(tmp_path, monkeypatch, writes=False, token=None)
+    with patch(f"{_MOD}._http_delete_json", return_value=(200, {"removed": True})) as m:
+        await _remove_fn()("u1")
+
+    assert m.call_args.kwargs["headers"] is None
+
+
+async def test_an_owner_less_stop_sends_no_headers_at_all(tmp_path, monkeypatch):
+    """Nothing to say means no header dict, not an empty one.
+
+    An empty mapping would survive the HTTP client harmlessly, but it would also
+    make "this request carries nothing" indistinguishable from "this request
+    carries something the client dropped".
+    """
+    _as_owner_less_tree_container(monkeypatch, tmp_path)
+    _configure(tmp_path, monkeypatch, writes=False, token=None)
+    with patch(f"{_MOD}._http_post_json", return_value=(200, {"stop_pending": True})) as m:
+        await _stop_fn()()
+
+    assert m.call_args.kwargs["headers"] is None

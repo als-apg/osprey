@@ -278,16 +278,27 @@ class TestNeverTheHostname:
         assert resolved != socket.gethostname()
 
     def test_source_names_no_hostname_api(self) -> None:
-        """Static check: no socket/platform/uname call can creep in as a rung."""
-        import osprey.utils.identity as module
+        """Static check: no socket/platform/uname call can creep in as a rung.
+
+        Reads the module that holds the ladder, not the re-export: a source
+        check pointed at the shim would have no rung to inspect and would pass
+        on an empty set whatever the ladder had grown.
+
+        Both call spellings are collected. ``socket.gethostname()`` reaches the
+        tree as an attribute call, but ``from socket import gethostname``
+        followed by a bare ``gethostname()`` reaches it as a plain name — a
+        guard that looked only at attribute calls would wave the shorter
+        spelling through, which is the one an editor reaching for a hostname is
+        at least as likely to write.
+        """
+        import osprey_connectors.identity as module
 
         source = Path(module.__file__).read_text(encoding="utf-8")
         code = "\n".join(line for line in source.splitlines() if not line.lstrip().startswith("#"))
         tree = ast.parse(code)
-        called = {
-            node.func.attr
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)]
+        called = {node.func.attr for node in calls if isinstance(node.func, ast.Attribute)} | {
+            node.func.id for node in calls if isinstance(node.func, ast.Name)
         }
 
         assert not called & {"gethostname", "getfqdn", "uname", "node"}
@@ -297,8 +308,12 @@ class TestLeafModule:
     """The property that lets interfaces, services and mcp_server all import this."""
 
     def test_source_imports_nothing_from_osprey(self) -> None:
-        """Static check: no ``import osprey...`` of any spelling in the source."""
-        import osprey.utils.identity as module
+        """Static check: no ``import osprey...`` of any spelling in the source.
+
+        Aimed at the ladder's own module, which is the one that is read where
+        ``osprey`` is not importable; the re-export is free to name it.
+        """
+        import osprey_connectors.identity as module
 
         tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
         imported: list[str] = []

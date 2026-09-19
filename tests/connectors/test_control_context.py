@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -24,8 +25,15 @@ from osprey_connectors.types import CONTROL_TARGETS
 
 @pytest.fixture
 def data_root(tmp_path, monkeypatch):
-    """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, cache cleared."""
+    """Stamp ``OSPREY_AGENT_DATA_ROOT`` at a scratch root, cache cleared.
+
+    The container bind is cleared with it: it is the rung ABOVE the stamp, so a
+    suite run inside a deployment that carries one would resolve every path in
+    this module to that deployment's directory and never look at the root the
+    test just laid down.
+    """
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     control_context.invalidate_cache()
     yield tmp_path
     control_context.invalidate_cache()
@@ -33,8 +41,9 @@ def data_root(tmp_path, monkeypatch):
 
 @pytest.fixture
 def rootless(monkeypatch):
-    """No stamp and no derivable root: the record has nowhere to live."""
+    """No stamp, no bind and no derivable root: the record has nowhere to live."""
     monkeypatch.delenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(posture_store.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.setattr(
         posture_store,
         "resolve_shared_data_root",
@@ -79,10 +88,23 @@ def _write_raw(root: Path, payload, *, encoding: str = "utf-8") -> Path:
 # --- path resolution -------------------------------------------------------
 
 
-def test_record_lives_beside_the_posture_store(data_root):
+def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
+    """One file per identity, under one directory, named the same by both readers.
+
+    The identity is pinned rather than taken from the account running pytest:
+    this is the one test that spells the hops literally, and a literal that
+    reads ``getpass.getuser()``'s answer states nothing about the layout.
+    """
+    from tests._control_context_fixtures import pin_identity
+
+    identity = pin_identity(monkeypatch)
+
     assert control_context.STATE_DIR_NAME == "control_target"
     assert control_context.RECORD_FILENAME == "control_context.json"
-    assert control_context.record_path() == data_root / "control_target" / "control_context.json"
+    assert (
+        control_context.record_path()
+        == data_root / "control_target" / identity / "control_context.json"
+    )
     assert control_context.record_path() == control_context.record_path_under(data_root)
     assert control_context.state_dir() == posture_store.state_dir()
 
@@ -112,6 +134,7 @@ def test_write_creates_the_state_directory(data_root):
     assert not (data_root / "control_target").exists()
     control_context.write_record(control_context.ControlContext(target="live", generation=0))
     assert control_context.record_path().is_file()
+    assert control_context.record_path().parent == control_context.state_dir()
 
 
 def test_write_payload_carries_exactly_the_record_contract(data_root):
@@ -137,7 +160,67 @@ def test_write_replaces_atomically_and_leaves_no_litter(data_root):
     before = first.stat().st_ino
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     assert first.stat().st_ino != before
-    assert [p.name for p in (data_root / "control_target").iterdir()] == ["control_context.json"]
+    assert [p.name for p in control_context.state_dir().iterdir()] == ["control_context.json"]
+
+
+def test_a_written_record_is_group_readable_and_not_owner_only(data_root):
+    """Mode 0640 exactly: the worker uid reads the record through the shared group."""
+    state = control_context.state_dir()
+    state.mkdir(parents=True)
+    os.chmod(state, 0o2770)
+
+    path = control_context.write_record(control_context.ControlContext(target="live", generation=0))
+
+    assert stat.S_IMODE(path.stat().st_mode) == 0o640
+
+
+def test_every_state_dir_file_is_written_group_readable_mode(data_root, tmp_path):
+    """Not just the record — reports and switch requests take the same mode."""
+    target = tmp_path / "state" / "server_4242.json"
+
+    control_context.write_json_atomic(target, {"schema": 1})
+
+    assert stat.S_IMODE(target.stat().st_mode) == 0o640
+
+
+def test_a_writer_created_state_dir_is_exactly_mode_2770(data_root):
+    """Setgid group-shared, and never left world-readable by the writer."""
+    control_context.write_record(control_context.ControlContext(target="live", generation=0))
+
+    directory = control_context.record_path().parent
+    assert stat.S_IMODE(directory.stat().st_mode) == 0o2770
+
+
+def test_every_level_the_writer_creates_is_exactly_mode_2770(data_root):
+    """The tree root as well, not only the directory the record lands in.
+
+    A writer that reaches a deployment's tree before the deploy path does
+    creates the root on the way to its own directory. A root left at the umask
+    lets ``other`` list every identity name under it, however tight the
+    directories below it are.
+    """
+    control_context.write_record(control_context.ControlContext(target="live", generation=0))
+
+    tree_root = control_context.record_path().parent.parent
+    assert tree_root != data_root, "the row needs a root the writer itself created"
+    assert stat.S_IMODE(tree_root.stat().st_mode) == 0o2770
+
+
+def test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with(data_root):
+    """Only a directory the writer creates gets a mode; deployment owns the rest.
+
+    The provisioned directory is this identity's own — the one the record lands
+    in. Provisioning the parent instead would leave the writer to create the
+    identity hop and set ITS mode, so the assertion would pass on a directory
+    nobody had provisioned.
+    """
+    state = control_context.state_dir()
+    state.mkdir(parents=True)
+    os.chmod(state, 0o2750)
+
+    control_context.write_record(control_context.ControlContext(target="live", generation=0))
+
+    assert stat.S_IMODE(state.stat().st_mode) == 0o2750
 
 
 def test_write_raises_when_the_record_has_nowhere_to_live(rootless):
@@ -500,11 +583,13 @@ def _write_report(root: Path, pid, payload=None) -> Path:
 
 
 def test_reports_live_beside_the_record(data_root):
+    """Every family of file in this directory moves together, identity hop included."""
+    expected = control_context.state_dir() / "server_4321.json"
     assert control_context.REPORT_FILE_PREFIX == "server_"
     assert control_context.REPORT_FILE_GLOB == "server_*.json"
-    expected = data_root / "control_target" / "server_4321.json"
     assert control_context.report_path(4321) == expected
     assert control_context.report_path_under(data_root, 4321) == expected
+    assert expected.parent == control_context.record_path().parent
 
 
 def test_report_path_is_none_without_a_root(rootless):
@@ -674,7 +759,7 @@ def test_the_kept_file_is_never_probed(data_root, monkeypatch):
 
 
 def test_a_filename_that_encodes_no_pid_is_swept(data_root):
-    directory = data_root / "control_target"
+    directory = control_context.state_dir()
     directory.mkdir(parents=True)
     junk = directory / "server_notapid.json"
     junk.write_text("{}", encoding="utf-8")
@@ -697,7 +782,8 @@ def test_salvage_sees_the_file_before_it_goes(data_root, monkeypatch):
 
 
 def test_a_missing_directory_sweeps_to_empty(data_root):
-    assert _sweep(data_root / "control_target") == []
+    assert not control_context.state_dir().exists()
+    assert _sweep(control_context.state_dir()) == []
 
 
 # --- convergence -----------------------------------------------------------

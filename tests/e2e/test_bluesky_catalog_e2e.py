@@ -132,7 +132,11 @@ OPENOBSERVE_PORT = 25081
 # The repo directory name IS the deployment name, and the bridge compose
 # template renders its locally-built image as ``<project>-bluesky-bridge:local``
 # -- so one constant feeds both the `osprey init` path and the image tag.
-PROJECT_NAME = "proj"
+#
+# The name itself is this module's alone. A compose project is addressed BY
+# NAME: two modules sharing one name adopt each other's containers, and a
+# teardown from either side removes the other module's running stack.
+PROJECT_NAME = "osprey-e2e-catalog"
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 DEPLOY_UP_TIMEOUT_SEC = 600
@@ -315,7 +319,7 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     plan_dir = tmp_path_factory.mktemp("plan_catalog_plans")
     (plan_dir / "facility_probe.py").write_text(_FACILITY_PLAN_SOURCE, encoding="utf-8")
     # The deployment repo. Its directory name IS the deployment name, so the
-    # image tag derived below (``proj-bluesky-bridge:local``) still holds.
+    # image tag derived below (``<project>-bluesky-bridge:local``) still holds.
     repo = base / PROJECT_NAME
 
     # Host hygiene only, stated as a flat dotted key under `config:` (the

@@ -93,6 +93,8 @@ from websockets.sync.client import connect as ws_connect
 from osprey.deployment.web_terminals.auth_credentials import terminal_secret_var
 from osprey.port_layout import PORT_BASE_CONFIG_KEY, default_port
 from osprey.utils.dotenv import parse_dotenv_file
+from osprey_connectors.control_context import RECORD_FILENAME
+from osprey_connectors.posture_store import STATE_DIR_NAME
 from tests.e2e._orm_stack import VA_CA_PORT
 from tests.e2e._volumes import remove_project_volumes
 from tests.e2e.profile_edits import set_pairs
@@ -252,14 +254,26 @@ def _agent_pid() -> int:
     return int(pids[0])
 
 
-def _control_context(agent_data_root: str) -> dict[str, Any] | None:
-    """The deployment's control-context record, or ``None`` if there is none yet.
+def _record_path(agent_data_root: str) -> str:
+    """Where this container's control-context record lives, inside the container.
 
-    One record per deployment, so there is nothing to match and nothing to
-    choose between: this is the file the kernel, the chip, the hooks and the
-    controls servers all read to learn which machine the deployment is on.
+    One record per roster user rather than one per deployment, and the bind is
+    what decides which: compose hands every service
+    ``OSPREY_CONTROL_CONTEXT_DIR`` naming this directory, and a process that
+    carries that bind resolves its state directory to it without consulting
+    the identity ladder at all. The ladder is why spelling the path out here
+    is faithful rather than a second answer -- it names the same directory the
+    bind does, because the render derives both from the roster user this
+    container belongs to. So this is the file the kernel, the chip, the hooks
+    and the controls servers all read to learn which machine the deployment is
+    on.
     """
-    listing = _exec("sh", "-c", f"cat {agent_data_root}/control_target/control_context.json")
+    return f"{agent_data_root}/{STATE_DIR_NAME}/{USER}/{RECORD_FILENAME}"
+
+
+def _control_context(agent_data_root: str) -> dict[str, Any] | None:
+    """The container's control-context record, or ``None`` if there is none yet."""
+    listing = _exec("sh", "-c", f"cat {_record_path(agent_data_root)}")
     if listing.returncode != 0:
         return None
     try:
@@ -788,9 +802,9 @@ def test_attaching_a_terminal_finds_the_deployments_target(terminal: Terminal) -
 
     assert terminal.agent_data_root
     # There is no per-session binding to read any more, and nothing to match on:
-    # one record describes the whole deployment, the web terminal owns it while
-    # it is running, and every surface below reads that one file. The wait is
-    # for the record to EXIST — the terminal claims it on startup — not for a
+    # one record describes this container's identity, the web terminal owns it
+    # while it is running, and every surface below reads that one file. The wait
+    # is for the record to EXIST — the terminal claims it on startup — not for a
     # particular process to have published anything about itself.
     deadline = time.monotonic() + CONTROL_TARGET_TIMEOUT_SEC
     record: dict[str, Any] | None = None
@@ -799,7 +813,8 @@ def test_attaching_a_terminal_finds_the_deployments_target(terminal: Terminal) -
         if record is None:
             time.sleep(2.0)
     assert record is not None, (
-        f"no control-context record appeared under {terminal.agent_data_root} within "
+        f"no control-context record appeared at "
+        f"{_record_path(terminal.agent_data_root)} within "
         f"{CONTROL_TARGET_TIMEOUT_SEC:.0f}s\n{_logs(_web_container())}"
     )
     owner = record.get("owner") or {}

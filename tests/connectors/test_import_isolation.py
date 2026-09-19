@@ -4,9 +4,9 @@ External consumers (a site's tuning-scripts backend, say) import only the
 control-system connectors and their support modules. That chain must not
 eagerly load the archiver stack (pandas) or any LLM/agent machinery.
 
-The control-context record is held to a stricter rule still: it is read
-inside connector-host children, executor sandboxes and notebook kernels, so
-it may not reach ``osprey`` at all.
+The control-context record and the acting-identity ladder are held to a
+stricter rule still: they are read inside connector-host children, executor
+sandboxes and notebook kernels, so they may not reach ``osprey`` at all.
 """
 
 import os
@@ -87,6 +87,34 @@ def test_control_context_imports_no_osprey_module():
         "bad = sorted(m for m in sys.modules if m == 'osprey' or m.startswith('osprey.'));"
         "assert not bad, f'the control-context record eagerly imported: {bad}';"
         "assert cc.RECORD_FILENAME == 'control_context.json';"
+        "print('CLEAN')"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, PYTHONPATH=SRC),
+    )
+    assert result.returncode == 0, result.stderr
+    assert "CLEAN" in result.stdout
+
+
+def test_identity_imports_no_osprey_module():
+    """The ladder must not pull in the framework it resolves an identity for.
+
+    Same shape and same reason as the control-context case: a sandbox child or
+    a notebook kernel resolves its own audit and control-state directory
+    through this ladder in an interpreter where ``osprey`` is absent. ``src``
+    is on the path here, so an accidental import would succeed quietly rather
+    than fail -- the assertion is on what landed in ``sys.modules``. The call
+    is made, not just the import, because a rung added inside the function
+    would escape an import-time check.
+    """
+    code = (
+        "import osprey_connectors.identity as identity, sys;"
+        "assert identity.acting_identity(), 'the ladder resolved nothing';"
+        "bad = sorted(m for m in sys.modules if m == 'osprey' or m.startswith('osprey.'));"
+        "assert not bad, f'the identity ladder eagerly imported: {bad}';"
         "print('CLEAN')"
     )
     result = subprocess.run(

@@ -543,7 +543,15 @@ def _probe_companion_ports() -> list[str]:
     )
     from osprey.utils.workspace import load_osprey_config
 
-    enabled_panels, _custom_panels, _default_panel = _load_panel_config()
+    try:
+        enabled_panels, _custom_panels, _default_panel = _load_panel_config()
+    except ValueError as exc:
+        # A panel id no request for that panel could be routed with is a config
+        # defect, not a port clash, and it gets the same treatment as a
+        # misplaced port key below: named here rather than tracebacked out of
+        # pre-flight. The lifespan refuses the same value, so there are no
+        # ports worth probing for this render.
+        return [str(exc)]
 
     # The render `_resolve_render()` settled on, read once and handed down:
     # both the base every index-0 slot is derived from and the roster flag the

@@ -33,6 +33,7 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -108,6 +109,23 @@ def _hook_header_tools(filename: str) -> set[str]:
     assert len(parts) >= 3, f"{filename} has no frontmatter block"
     meta = yaml.safe_load(parts[1])
     return {tool.strip() for tool in str(meta["tools"]).split(",") if tool.strip()}
+
+
+#: The hook script inside a wired command, whatever precedes or follows it.
+_HOOK_SCRIPT = re.compile(r"/\.claude/hooks/(?P<script>[A-Za-z0-9_.-]+\.py)")
+
+
+def _script_of(command: str) -> str:
+    """The hook script a wired command runs, however the command is spelled.
+
+    A command names an interpreter before the script path and may pass the
+    script arguments after it — the approval hook is handed its pre-flight
+    budget that way — so the script is read out of the path, never off either
+    end of the string.
+    """
+    match = _HOOK_SCRIPT.search(command)
+    assert match, f"no hook script in command: {command!r}"
+    return match.group("script")
 
 
 def _short_name(matcher: str) -> str:
@@ -273,14 +291,19 @@ def test_hook_headers_list_exactly_the_tools_the_registry_attaches() -> None:
     is also what lets a header carry a Bluesky tool name at all: a rename that
     updates the constant moves the registry's matcher, and this guard then
     names the header that still spells the old name.
+
+    A hook is identified by the script it runs, not by the ``HookEntry`` it was
+    wired from: one script can be wired through several entries (the approval
+    hook carries a wider pre-flight budget on the arming pair), and every one
+    of them attaches the same header to the tool it gates.
     """
     for key, entry in HOOK_PRESETS.items():
-        filename = entry.command.rsplit("/", 1)[-1].rstrip('"')
+        filename = _script_of(entry.command)
         attached = {
             _short_name(rule.matcher)
             for template in FRAMEWORK_SERVERS.values()
             for rule in template.hooks_pre
-            if entry in rule.hooks
+            if any(_script_of(hook.command) == filename for hook in rule.hooks)
         }
         declared = _hook_header_tools(filename)
         assert declared == attached, (
@@ -536,3 +559,181 @@ def test_health_carries_no_pretooluse_hook() -> None:
     data = _render_settings({"servers": {"health": {"enabled": True}}})
     pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
     assert not any(m.startswith("mcp__health__") for m in pre_matchers)
+
+
+# ---------------------------------------------------------------------------
+# Approval budget: the preview deadline and the harness timeout are one number
+# ---------------------------------------------------------------------------
+
+#: Every approval hook the framework wires, as (server, event, matcher, timeout).
+#:
+#: A snapshot rather than a derivation: the claim is that ONLY the Bluesky
+#: arming pair buys the wider pre-flight budget, and an expectation derived
+#: from the registry would move with the code it exists to pin. A new
+#: approval-gated tool adds a row here deliberately; a timeout that drifts
+#: onto another prompt fails here.
+_APPROVAL_RULE_TABLE: frozenset[tuple[str, str, str, int]] = frozenset(
+    {
+        ("controls", "pre", "mcp__controls__channel_write", 5),
+        ("controls", "pre", "mcp__controls__control_target_set", 5),
+        ("controls", "pre", "mcp__controls__channel_read", 5),
+        ("controls", "pre", "mcp__controls__archiver_read", 5),
+        ("phoebus", "pre", "mcp__phoebus__phoebus_drive", 5),
+        ("python", "pre", "mcp__python__execute", 5),
+        ("python", "pre", "mcp__python__execute_file", 5),
+        ("osprey_workspace", "pre", "mcp__osprey_workspace__setup_patch", 5),
+        ("osprey_workspace", "pre", "mcp__osprey_workspace__add_panel_to_rail", 5),
+        ("osprey_workspace", "pre", "mcp__osprey_workspace__remove_panel_from_rail", 5),
+        ("osprey_workspace", "pre", "mcp__osprey_workspace__register_panel", 5),
+        ("ariel", "pre", "mcp__ariel__entry_create", 5),
+        ("ariel", "pre", "mcp__ariel__entry_publish", 5),
+        ("osprey_facility_knowledge", "pre", "mcp__osprey_facility_knowledge__draft_concept", 5),
+        ("bluesky", "pre", "mcp__bluesky__queue_add", 30),
+        ("bluesky", "pre", "mcp__bluesky__queue_start", 30),
+        ("bluesky", "pre", "mcp__bluesky__queue_stop", 5),
+        ("bluesky", "pre", "mcp__bluesky__queue_remove", 5),
+        ("bluesky", "pre", "mcp__bluesky__stop_run", 5),
+        ("bluesky", "pre", "mcp__bluesky__write_plan", 5),
+        ("bluesky", "pre", "mcp__bluesky__validate_plan", 5),
+        ("event_dispatcher", "pre", "mcp__event_dispatcher__manual_fire", 5),
+    }
+)
+
+
+def _approval_hooks() -> list[tuple[str, str, str, int, str]]:
+    """Every wired approval hook as (server, event, matcher, timeout, command)."""
+    found: list[tuple[str, str, str, int, str]] = []
+    for name, definition in FRAMEWORK_SERVERS.items():
+        for event, rules in (("pre", definition.hooks_pre), ("post", definition.hooks_post)):
+            for rule in rules:
+                for hook in rule.hooks:
+                    if "osprey_approval.py" in hook.command:
+                        found.append((name, event, rule.matcher, hook.timeout, hook.command))
+    return found
+
+
+def test_approval_rule_table_is_pinned() -> None:
+    """The approval surface and its timeouts are exactly the pinned table.
+
+    The wider budget is a safety-relevant asymmetry: a hook the harness kills
+    mid-render answers without the preview the operator was promised, while a
+    prompt that keeps a long timeout for no preview widens the window in which
+    a hung hook stalls a tool call. Pinning the whole table — not only the two
+    wide rows — is what makes either drift fail here rather than in a control
+    room.
+    """
+    assert {(s, e, m, t) for s, e, m, t, _ in _approval_hooks()} == _APPROVAL_RULE_TABLE
+
+
+def test_approval_budget_flag_equals_its_timeout() -> None:
+    """Each approval entry passes the hook the number the harness kills it at.
+
+    The hook plans its pre-flight preview against ``--budget``; the harness
+    enforces ``timeout``. Two numbers free to disagree are a preview budget the
+    hook can never spend, so both come from one argument to ``_approval_entry``.
+    """
+    for server, _event, matcher, timeout, command in _approval_hooks():
+        assert f"--budget {timeout}" in command, (
+            f"{server}:{matcher} passes the approval hook a budget that does not "
+            f"match its {timeout}s timeout: {command!r}"
+        )
+
+
+def test_only_the_bluesky_arming_pair_carries_the_preflight_budget() -> None:
+    """``queue_add`` and ``queue_start`` get 30 s; every other prompt keeps 5 s.
+
+    Those two are the prompts that render a queue preview over the bridge
+    before an operator can answer — the arming pair, so the preview is what the
+    approval is FOR. Every other approval prompt answers from data the hook
+    already holds and needs no budget beyond the default.
+    """
+    wide = {matcher for _s, _e, matcher, timeout, _c in _approval_hooks() if timeout != 5}
+    assert wide == {bsky.matcher(tool) for tool in bsky.ARMING_TOOLS}
+
+    for _s, _e, matcher, timeout, command in _approval_hooks():
+        if matcher in wide:
+            assert timeout == 30, f"{matcher} pre-flight budget must be 30s"
+            assert "--budget 30" in command, f"{matcher} must hand the hook a 30s budget"
+
+
+# ---------------------------------------------------------------------------
+# Event dispatcher gate wiring: an approval prefix with no env block behind it
+# ---------------------------------------------------------------------------
+
+#: A render of a deployment that declares the EVENTS panel, which is what puts
+#: the dispatcher entry in the agent's ``.mcp.json`` at all.
+_DISPATCHER_CTX = {
+    "project_root": "/tmp/test-project",
+    "current_python_env": "/usr/bin/python3",
+    "event_dispatcher_wired": True,
+}
+
+
+def _render_hook_config(ctx: dict) -> dict:
+    """Render ``hook_config.json.j2`` against *ctx* and return the parsed contract.
+
+    The rendered file — not the registry it is rendered from — is what the
+    standalone hooks read at run time, so the assertions below go through it.
+    """
+    from osprey.cli.templates.manager import TemplateManager
+
+    ctx = dict(ctx)
+    ctx["servers"] = resolve_servers({}, ctx)
+    ctx.setdefault("control_system_write_tools", [])
+    tm = TemplateManager()
+    template = tm.jinja_env.get_template("claude_code/claude/hooks/hook_config.json.j2")
+    return json.loads(template.render(**ctx))
+
+
+def test_event_dispatcher_approval_prefix_derives_from_its_matcher_alone() -> None:
+    """The dispatcher's approval prefix survives an entry that renders no env.
+
+    Every other approval-gated server is a stdio launch whose ``.mcp.json``
+    block carries ``env``; this one is a URL entry, rendered as
+    ``{type, url, headers}`` and nothing else. The approval hook decides
+    whether a call is gated at all by matching it against
+    ``approval_prefixes``, and that list is built from ``hooks_pre`` matchers —
+    so the prefix has to arrive from the matcher, with no env block for
+    anything to be read out of.
+    """
+    config = _render_hook_config(_DISPATCHER_CTX)
+
+    assert "mcp__event_dispatcher__" in config["approval_prefixes"]
+
+    dispatcher = [
+        s for s in resolve_servers({}, _DISPATCHER_CTX) if s["name"] == "event_dispatcher"
+    ][0]
+    assert dispatcher["url"], (
+        "the dispatcher entry must stay a URL server — the claim this test pins "
+        "is that its approval prefix needs no env block"
+    )
+
+
+def test_manual_fire_is_approval_gated_and_never_kill_switched() -> None:
+    """Firing a job prompts, but the writes kill switch has no say over it.
+
+    ``manual_fire`` starts a job; it does not itself touch the control system.
+    The writes the job then makes are what meet the operator's chip, at the
+    tools that make them. Putting the firing call in ``write_tools`` would
+    instead leave a writes-off session unable to start even a read-only job,
+    and would claim a gate that is enforced a layer further in.
+    """
+    config = _render_hook_config(_DISPATCHER_CTX)
+
+    assert "manual_fire" not in config["write_tools"]
+    assert not any("event_dispatcher" in tool for tool in config["write_tools"])
+
+
+def test_event_dispatcher_absent_from_the_contract_without_the_events_panel() -> None:
+    """No EVENTS panel → no dispatcher prefix anywhere in the rendered contract.
+
+    The entry is conditioned on the panel declaration, because the panel is
+    what puts the proxy hop — and the panel token that authenticates to it —
+    in front of the agent. A deployment without it gets neither the server nor
+    its gate.
+    """
+    ctx = {k: v for k, v in _DISPATCHER_CTX.items() if k != "event_dispatcher_wired"}
+    config = _render_hook_config(ctx)
+
+    prefixes = config["server_prefixes"] + config["approval_prefixes"]
+    assert not any(p.startswith("mcp__event_dispatcher__") for p in prefixes)

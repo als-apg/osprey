@@ -23,8 +23,14 @@ approved, and nothing here is keyed by it.
 from __future__ import annotations
 
 import pytest
+import yaml
 
-from tests._control_context_fixtures import write_control_context, write_payload
+from tests._control_context_fixtures import (
+    pin_identity,
+    state_dir_under,
+    write_control_context,
+    write_payload,
+)
 
 #: The audit id a web-terminal session carries. It keys nothing; it is set in
 #: the tests that need a session to be identifiable at all.
@@ -59,8 +65,15 @@ def agent_data_root(repo_root):
 
 
 def record_path(repo_root):
-    """Where the record lands under *repo_root*, directory created."""
-    directory = agent_data_root(repo_root) / "control_target"
+    """Where the record lands under *repo_root*, directory created.
+
+    Through the shared helper rather than a join here. The hook runs as a
+    subprocess and resolves the identity hop for itself, so a record written
+    above that hop is one the hook never finds: the degradation tests below
+    would then be passing on "no record at all" — a different, legitimate
+    answer — instead of on the unreadable one they laid down.
+    """
+    directory = state_dir_under(agent_data_root(repo_root))
     directory.mkdir(parents=True, exist_ok=True)
     return directory / "control_context.json"
 
@@ -366,6 +379,42 @@ def test_a_record_alone_lifts_posture_unknown(tmp_path, hook_runner, make_config
 
     # Act / Assert
     assert channel_write(tmp_path, hook_runner, config) is None
+
+
+def test_a_deployed_services_staged_config_still_finds_the_record(
+    tmp_path, hook_runner, monkeypatch
+):
+    """The worker shape: a staged config, an identity of its own, and no stamp.
+
+    A container that runs the agent on somebody's behalf reads a config that was
+    flattened onto the build host and mounted over the image's, and its
+    ``project_root`` names a directory on that host. The record it must read is
+    the one its own controls server writes, under the identity the container
+    carries, in the repo the container actually runs in — so the anchor has to
+    answer that repo and not the name the file records.
+
+    The gate's job here is the deployment ceiling, and it ends at an allow: whose
+    narrowing an owned write is judged against is the connector's question, read
+    from the control-state tree the hook does not consult.
+    """
+    # Arrange
+    pin_identity(monkeypatch, "dispatch-worker-1")
+    render = tmp_path / "build"
+    render.mkdir()
+    config = render / "config.yml"
+    config.write_text(
+        yaml.dump(
+            {
+                "project_root": "/home/runner/work/osprey/osprey/stack",
+                "control_system": ARMED_BOTH,
+            }
+        )
+    )
+    write_record(tmp_path, "live")
+    monkeypatch.delenv("OSPREY_AGENT_DATA_ROOT", raising=False)
+
+    # Act / Assert
+    assert channel_write(render, hook_runner, config) is None
 
 
 def test_posture_unknown_outranks_an_unarmed_deployment(

@@ -17,8 +17,8 @@ Two things make this fixture more than ``run_app_server(app)``:
   ``catalog=None`` writes no catalog, which is the "this deployment has no
   catalog" 404 path.
 - **A stubbed bridge.** The panel boots by fetching ``/plans``,
-  ``/bridge/health``, ``/draft``, ``/queue``, ``/runs`` and the two SSE relays
-  through the sidecar's proxy routers, all of which read
+  ``/bridge/health``, ``/draft``, ``/queue``, ``/queue/removals``, ``/runs``
+  and the two SSE relays through the sidecar's proxy routers, all of which read
   ``request.app.state.client``/``bridge_url`` at request time. After the
   server has started (the real ``_lifespan`` has run), the fixture swaps in an
   ``httpx.MockTransport`` client — the ``test_app_integration.py`` seam — whose
@@ -163,6 +163,8 @@ def _stub_bridge(request: httpx.Request) -> httpx.Response:
             200,
             json={"status": {"available": True}, "items": [], "running_item": None},
         )
+    if path == "/queue/removals":
+        return httpx.Response(200, json=[])
     if path in ("/draft/events", "/queue/events"):
         return httpx.Response(200, headers={"content-type": "text/event-stream"}, content=b"")
     return httpx.Response(404, json={"detail": f"stub bridge has no {path}"})

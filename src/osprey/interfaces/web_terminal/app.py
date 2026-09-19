@@ -64,6 +64,7 @@ from osprey.profiles.web_panels import (
     BUILTIN_PANELS,
     SIDECAR_PANELS,
     UNIVERSAL_PANELS,
+    panel_id_refusal,
     panel_spec_enabled,
 )
 from osprey.registry.web import PANEL_ID_TO_REGISTRY_KEY, panel_url_state_attr
@@ -1147,6 +1148,12 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
         it is **not** validated here — the frontend treats an unknown id as
         a request to fall back to DEFAULT_PANEL_FALLBACK so a typo doesn't
         leave the user staring at a blank tabset.
+
+    Raises:
+        ValueError: When a declared panel id is one no request for that panel
+            could be routed or forwarded with (:func:`panel_id_refusal`). The
+            message names the config key, the id and the class, because the
+            operator who wrote the id is the only one who can change it.
     """
     try:
         from osprey.utils.workspace import load_osprey_config
@@ -1175,6 +1182,17 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
     custom = []
 
     for panel_id, spec in panels_config.items():
+        # Every declared id, whether its block is on or off. The id is one URL
+        # path segment and a header value on every hop the proxy makes for the
+        # panel, so an id outside that class answers 500 for every request that
+        # panel makes while the rest of the terminal serves normally: one
+        # refusal at boot names the block, and none of those 500s does.
+        # `enabled` is a flag an operator flips, so an id that cannot be served
+        # is refused before the flip rather than after it.
+        refusal = panel_id_refusal(str(panel_id))
+        if refusal is not None:
+            raise ValueError(refusal)
+
         # One predicate for builtin and custom blocks alike: the build writes
         # `enabled` onto every block from the profile's `web_panels` selection,
         # so a block this render carries for a tab it does not select is off.

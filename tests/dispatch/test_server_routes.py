@@ -27,6 +27,7 @@ from starlette.testclient import TestClient
 
 from osprey.dispatch import server
 from osprey.dispatch.sources.webhook import WebhookSource
+from tests.conftest import dispatcher_route_registry
 
 
 class _FakeEntryPoint:
@@ -45,11 +46,12 @@ def _reset_mcp_routes():
     """Reset the shared FastMCP singleton's routes around each test.
 
     Keeps only the module-level baseline routes (/health, /dispatch/...) so each
-    ``create_server()`` call starts from a clean slate.
+    ``create_server()`` call starts from a clean slate. The cases here call the
+    factory themselves, so the registry's builder goes unused and only its
+    restore matters.
     """
-    baseline = list(server.mcp._additional_http_routes)
-    yield
-    server.mcp._additional_http_routes = baseline
+    with dispatcher_route_registry():
+        yield
 
 
 @pytest.fixture

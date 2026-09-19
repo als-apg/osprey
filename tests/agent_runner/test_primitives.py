@@ -15,7 +15,9 @@ silently broke proxy-provider auth for the in_context backend.
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -474,3 +476,77 @@ class TestTheMcpReadinessBudgetIsNamedForWhatItGates:
         """The barrier's own default is what the reader answers for this host."""
         assert primitives.MCP_READY_TIMEOUT_S == primitives._mcp_ready_timeout_from_env(os.environ)
         assert primitives._MCP_READY_TIMEOUT_S == primitives.MCP_READY_TIMEOUT_S
+
+
+class _ScriptedMcpStatusClient:
+    """A stand-in for ``ClaudeSDKClient`` that answers ``get_mcp_status()`` with
+    a fixed snapshot and counts how often the barrier asked."""
+
+    def __init__(self, servers: list[dict[str, Any]]) -> None:
+        self._servers = servers
+        self.calls = 0
+
+    async def get_mcp_status(self) -> dict[str, Any]:
+        self.calls += 1
+        return {"mcpServers": self._servers}
+
+
+def _server(name: str, status: str) -> dict[str, Any]:
+    return {"name": name, "status": status, "tools": [], "error": None}
+
+
+class TestTheReadinessBarrierStopsOnEveryTerminalMcpStatus:
+    """A status the CLI will not revise without a reconnect ends the wait.
+
+    ``event_dispatcher`` is reachable only through a web terminal's panel proxy,
+    the one in-container holder of the dispatcher bearer. A render that carries
+    the entry but runs where the proxy is not — ``osprey chat``, a dispatch
+    worker — gets ``needs-auth`` (nothing supplies the bearer) or ``failed``
+    (nothing listening). Both are final, so such a run must reach its first turn
+    immediately instead of spending the whole readiness budget on a server that
+    was never going to register.
+    """
+
+    async def test_a_needs_auth_snapshot_returns_before_the_deadline(self) -> None:
+        """``needs-auth`` is the SDK's own literal for a server that answered but
+        would not admit us; no amount of waiting supplies the credential."""
+        client = _ScriptedMcpStatusClient([_server("event_dispatcher", "needs-auth")])
+
+        started = time.monotonic()
+        servers = await primitives.await_mcp_ready(
+            client, {"event_dispatcher"}, timeout_s=5.0, poll_s=0.01
+        )
+
+        assert time.monotonic() - started < 1.0
+        assert client.calls == 1
+        assert [s["status"] for s in servers] == ["needs-auth"]
+
+    async def test_a_failed_snapshot_returns_before_the_deadline(self) -> None:
+        """The other terminal status, pinned beside it so the pair cannot drift."""
+        client = _ScriptedMcpStatusClient([_server("event_dispatcher", "failed")])
+
+        started = time.monotonic()
+        servers = await primitives.await_mcp_ready(
+            client, {"event_dispatcher"}, timeout_s=5.0, poll_s=0.01
+        )
+
+        assert time.monotonic() - started < 1.0
+        assert client.calls == 1
+        assert [s["status"] for s in servers] == ["failed"]
+
+    async def test_a_pending_snapshot_still_waits(self) -> None:
+        """``pending`` is a server still starting: the barrier exists for it, so
+        it keeps polling to the deadline and then hands back what it last saw."""
+        client = _ScriptedMcpStatusClient([_server("event_dispatcher", "pending")])
+
+        started = time.monotonic()
+        servers = await primitives.await_mcp_ready(
+            client, {"event_dispatcher"}, timeout_s=0.05, poll_s=0.01
+        )
+
+        assert time.monotonic() - started >= 0.05
+        assert client.calls > 1
+        assert [s["status"] for s in servers] == ["pending"]
+
+    def test_the_terminal_statuses_are_the_three_final_ones(self) -> None:
+        assert primitives._MCP_TERMINAL_STATUSES == frozenset({"connected", "failed", "needs-auth"})

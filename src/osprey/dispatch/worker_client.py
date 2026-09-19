@@ -113,6 +113,7 @@ async def dispatch_to_worker(
     surface_tools: list[str] | None = None,
     input_files: list[dict[str, Any]] | None = None,
     max_turns: int | None = None,
+    owner: str | None = None,
 ) -> dict[str, Any]:
     """POST a prompt to a dispatch worker's /dispatch endpoint.
 
@@ -138,6 +139,10 @@ async def dispatch_to_worker(
         max_turns: Optional per-trigger ceiling on agentic turns. Omitted from the
             payload when ``None``, in which case the worker applies the deployment's
             own ``dispatch.max_turns``.
+        owner: The human the run is attributed to, and whose narrowing the run's
+            own writes are checked against. Omitted from the payload when unset,
+            which is what an owner-less fire (a cron tick, a webhook from a remote
+            system) sends — such a run is checked against no one's narrowing.
 
     Returns:
         Response JSON dict (typically contains ``run_id`` and ``status``).
@@ -163,6 +168,8 @@ async def dispatch_to_worker(
         payload["input_files"] = input_files
     if max_turns is not None:
         payload["max_turns"] = max_turns
+    if owner:
+        payload["owner"] = owner
 
     # A dispatch body carrying input_files can reach ~24 MB. httpx's single-float
     # timeout would apply that same short window to the write phase and abort the

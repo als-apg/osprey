@@ -50,6 +50,7 @@ from osprey_connectors.control_system.base import ChannelValue
 from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 from osprey_connectors.ipc.proxy import ConnectorHostProxy
 from osprey_connectors.types import VIRTUAL_ACCELERATOR
+from tests._control_context_fixtures import state_dir_under
 from tests.fixtures.control_context import context_for
 from tests.mcp_server._switch_harness import (
     CA_LIVE_TYPE,
@@ -1372,7 +1373,11 @@ class TestStartupSweep:
     ):
         orphan = self._orphan_host(state_root)
         dead_server = self._dead_pid()
-        stale = state_root / target_state.STATE_DIR_NAME
+        # The sweep lists ``target_state.state_dir()``, which carries the
+        # acting identity's own hop below ``control_target/``. A report one
+        # level up is one the sweep never reads, so the dead server's orphan
+        # is never collected and never killed.
+        stale = state_dir_under(state_root)
         stale.mkdir(parents=True, exist_ok=True)
         stale_file = stale / f"{target_state.REPORT_FILE_PREFIX}{dead_server}.json"
         stale_file.write_text(

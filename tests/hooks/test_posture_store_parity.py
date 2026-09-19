@@ -46,7 +46,12 @@ import pytest
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.types import session_posture
-from tests._control_context_fixtures import write_control_context, write_payload
+from tests._control_context_fixtures import (
+    pin_identity,
+    state_dir_under,
+    write_control_context,
+    write_payload,
+)
 
 # ---------------------------------------------------------------------------
 # the four axes
@@ -162,13 +167,20 @@ def stamped_root(tmp_path, monkeypatch):
     stamp inherited from the environment this suite runs in would make the
     canonical reader refuse where the hook permits, in cells that are otherwise
     about the record.
+
+    The container bind is cleared for a blunter reason: it outranks the stamp on
+    both sides, so a suite run inside a bound container would put every cell in
+    this table against that deployment's own record rather than the one the test
+    wrote. The directory itself comes from :func:`state_dir_under`, which is
+    where every resolver below lands, identity hop included.
     """
     root = tmp_path / "var" / "agent_data"
-    (root / reader.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
     monkeypatch.delenv(reader.EXECUTION_MODE_ENV_VAR, raising=False)
     monkeypatch.delenv(reader.POSTURE_SESSION_ENV_VAR, raising=False)
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
+    state_dir_under(root).mkdir(parents=True)
     posture_store.invalidate_cache()
     yield root
     posture_store.invalidate_cache()
@@ -337,8 +349,13 @@ def test_legacy_bare_sandbox_covers_the_whole_target_vocabulary():
 
 
 # ---------------------------------------------------------------------------
-# one path, three resolvers
+# one path, four resolvers
 # ---------------------------------------------------------------------------
+# The posture store, the control-context module, the controls server's own
+# ``target_state`` and the stdlib hook each resolve this directory for a caller
+# that cannot import the others. Four ladders is four chances to disagree, and
+# the disagreement is invisible: every reader answers "no record", which is a
+# legitimate answer meaning "nothing is narrowed".
 
 
 def test_the_stamped_record_path_is_one_path(tmp_path, monkeypatch):
@@ -391,6 +408,51 @@ def test_the_unstamped_record_path_is_one_path(tmp_path, monkeypatch):
         posture_store.invalidate_cache()
 
 
+def test_a_staged_configs_foreign_root_moves_neither_reader(tmp_path, monkeypatch):
+    """Writer and both readers, on a config that was staged somewhere else.
+
+    A deployed service reads a config flattened onto the build host and mounted
+    into the container, so its ``project_root`` names a directory on the host and
+    nothing here. Both ladders drop that value and unwrap the config's own zone
+    instead, which is the repo the service runs in — the case the row above
+    cannot see, because the root it records is a directory that exists.
+
+    This is the shape the whole module is for: a disagreement here is invisible
+    at the seam, because a reader looking in a directory nobody writes answers
+    "no record", which is a legitimate answer meaning "nothing is narrowed".
+    """
+    # Arrange
+    from osprey_connectors.workspace import reset_config_cache
+
+    render = tmp_path / "build"
+    render.mkdir()
+    config = render / "config.yml"
+    config.write_text(
+        "project_root: /home/runner/work/osprey/osprey/stack\ncontrol_system:\n  type: mock\n"
+    )
+    monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.setenv("OSPREY_CONFIG", str(config))
+    monkeypatch.setenv("CONFIG_FILE", str(config))
+    reset_config_cache()
+    posture_store.invalidate_cache()
+
+    # Act
+    hook_record = reader.record_path({})
+    hook_dir = reader.resolve_state_dir({})
+    canonical = control_context.record_path()
+    canonical_dir = posture_store.state_dir()
+
+    # Assert
+    try:
+        assert canonical is not None
+        assert os.path.realpath(hook_record) == os.path.realpath(str(canonical))
+        assert os.path.realpath(hook_dir) == os.path.realpath(str(canonical_dir))
+        assert os.path.realpath(hook_dir).startswith(os.path.realpath(str(tmp_path)))
+    finally:
+        reset_config_cache()
+        posture_store.invalidate_cache()
+
+
 def test_the_record_sits_beside_the_server_reports(tmp_path, monkeypatch):
     """One directory answers "control context for this deployment".
 
@@ -401,9 +463,11 @@ def test_the_record_sits_beside_the_server_reports(tmp_path, monkeypatch):
     """
     root = tmp_path / "var" / "agent_data"
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(root))
+    monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    identity = pin_identity(monkeypatch)
 
     assert os.path.dirname(reader.record_path({})) == reader.resolve_state_dir({})
-    assert reader.resolve_state_dir({}) == os.path.join(str(root), reader.STATE_DIR_NAME)
+    assert reader.resolve_state_dir({}) == os.path.join(str(root), reader.STATE_DIR_NAME, identity)
     assert reader.STATE_DIR_NAME == posture_store.STATE_DIR_NAME
     assert reader.RECORD_FILENAME == control_context.RECORD_FILENAME
     assert reader.REPORT_FILE_PREFIX == control_context.REPORT_FILE_PREFIX
@@ -412,6 +476,66 @@ def test_the_record_sits_beside_the_server_reports(tmp_path, monkeypatch):
     assert reader.POSTURE_SANDBOX == posture_store.POSTURE_SANDBOX
     assert reader.POSTURE_WRITES == posture_store.POSTURE_WRITES
     assert set(reader.VALID_POSTURES) == set(posture_store.VALID_POSTURES)
+
+
+def test_the_container_bind_is_the_whole_directory_on_all_four_resolvers(tmp_path, monkeypatch):
+    """One bind value, four resolvers, one directory — and no identity appended.
+
+    A multi-user container mounts one operator's state at a fixed path and binds
+    it; the bind has therefore already made the identity hop, and a resolver
+    that appended the acting identity to it would sit one directory below the
+    record its own web terminal writes. The stamp is set to a DIFFERENT root on
+    purpose: each assertion then fails if its resolver consulted the stamp
+    first, rather than merely agreeing with the others by accident.
+
+    ``target_state`` is imported inside the test: it is the controls server's
+    resolver rather than a hook-side one, and this is the only cell that needs it.
+    """
+    # Arrange
+    from osprey.mcp_server.control_system import target_state
+
+    bind = tmp_path / "bound-state"
+    monkeypatch.setenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, str(bind))
+    monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "not-this-root"))
+    pin_identity(monkeypatch)
+    posture_store.invalidate_cache()
+
+    # Act / Assert
+    assert posture_store.state_dir() == bind
+    assert control_context.state_dir() == bind
+    assert target_state.state_dir() == bind
+    assert reader.resolve_state_dir({}) == str(bind)
+    assert control_context.record_path() == bind / control_context.RECORD_FILENAME
+    assert reader.record_path({}) == str(bind / reader.RECORD_FILENAME)
+
+
+def test_the_stamped_path_and_the_explicit_root_path_are_one_path(tmp_path, monkeypatch):
+    """``record_path()`` and ``record_path_under(agent_data_root())`` coincide.
+
+    The two spellings serve different callers — one reads the environment, the
+    other is handed a root by a test fixture or by a writer preparing a
+    deployment — and both make the identity hop. They are pinned together
+    because every suite downstream writes through the second and asserts through
+    the first: if they parted, those suites would lay a record down in one
+    directory and read "nothing is narrowed" from another.
+
+    With no bind set, because the bind deliberately does NOT apply to the
+    explicit-root spelling: a caller passing a root has said which tree it means.
+    """
+    # Arrange
+    monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
+    pin_identity(monkeypatch)
+    posture_store.invalidate_cache()
+
+    # Act
+    root = posture_store.agent_data_root()
+
+    # Assert
+    assert root == tmp_path
+    assert control_context.record_path() == control_context.record_path_under(root)
+    assert control_context.state_dir() == state_dir_under(root)
+    assert reader.record_path({}) == str(control_context.record_path_under(root))
 
 
 def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
@@ -423,7 +547,7 @@ def test_the_retired_per_session_store_is_read_by_neither_side(stamped_root):
     the machine is open.
     """
     # Arrange — the retired file says sandbox for everything; the record does not
-    retired = stamped_root / reader.STATE_DIR_NAME / "session-postures.json"
+    retired = state_dir_under(stamped_root) / "session-postures.json"
     retired.write_text(json.dumps({"k": {"live": "sandbox", "va": "sandbox"}}), encoding="utf-8")
     write_record(stamped_root, {})
 
@@ -728,13 +852,15 @@ def test_an_undecodable_record_is_an_unnarrowed_record_on_both_sides(tmp_path, m
     """
     # Arrange
     root = tmp_path / "var" / "agent_data"
-    (root / reader.STATE_DIR_NAME).mkdir(parents=True)
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(root))
-    # Cleared for the reason ``stamped_root`` clears it: this test builds its own
-    # root rather than taking that fixture, and an inherited launch pin would
-    # make the canonical reader refuse a cell that is about the file's encoding.
+    # Cleared for the reason ``stamped_root`` clears them: this test builds its
+    # own root rather than taking that fixture, and an inherited launch pin would
+    # make the canonical reader refuse a cell that is about the file's encoding,
+    # while an inherited bind would point both readers at another deployment.
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.delenv(reader.EXECUTION_MODE_ENV_VAR, raising=False)
+    monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    state_dir_under(root).mkdir(parents=True)
     control_context.record_path_under(root).write_bytes(b"\xff\xfe{\x00schema\x00: 1}")
     posture_store.invalidate_cache()
 

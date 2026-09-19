@@ -33,6 +33,7 @@ import html
 import json
 import logging
 import os
+import re
 from collections.abc import Callable, Iterable, Mapping
 from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import parse_qs, parse_qsl, urlencode
@@ -44,6 +45,7 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from osprey.audit.envelope import DECISION_ALLOWED, DECISION_REFUSED, POSTURE_SOURCE_APP
 from osprey.interfaces.web_auth import Tier, WebCredentials, classify, get_web_credentials
+from osprey.utils.owner_header import OWNER_HEADER
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from osprey.audit.dedup import RecordedDecision
@@ -66,7 +68,9 @@ __all__ = [
     "MAX_BODY_PEEK_BYTES",
     "MAX_FORWARDED_VALUE_CHARS",
     "MAX_SESSION_COOKIE_CANDIDATES",
+    "MOUNT_SEGMENT_RE",
     "OPERATOR_SECRET_HEADER",
+    "OWNER_STATE_KEY",
     "REASON_MUTATION",
     "REASON_MUTATION_UNANSWERED",
     "REASON_ROUTE_REFUSED",
@@ -158,6 +162,29 @@ EXTERNAL_ORIGIN_ENV = "OSPREY_TERMINAL_EXTERNAL_ORIGIN"
 #: credential, and every layer that builds a browser-facing URL must derive the
 #: same prefix from it.
 TERMINAL_USER_ENV = "OSPREY_TERMINAL_USER"
+
+#: The names a mount segment may be spelled with.
+#:
+#: :func:`compute_url_prefix` splices the name into URL paths *and* into header
+#: values — ``x-forwarded-prefix`` on every proxied panel hop, the token
+#: exchange's ``Location`` — and escapes it for neither, so the name has to
+#: stand for itself in both: ASCII, and nothing a path would have to
+#: percent-encode. nginx admits the same characters in front of the same mount,
+#: so a name outside them has no front door to arrive through either.
+#:
+#: The first character must be alphanumeric, which is what keeps ``.`` and
+#: ``..`` from naming a mount. nginx's own class is applied to a URI it has
+#: already normalised; a mount name is normalised by nobody, and ``/u/..`` is a
+#: prefix that climbs out of the mount it claims to name wherever it is
+#: resolved. :func:`is_exempt_path` refuses a dot-segment on the same grounds.
+#:
+#: Not the same question as
+#: :data:`~osprey.deployment.web_terminals.personas.USERNAME_CHARSET_RE`, which
+#: is stricter and gates the roster at render time — that one asks which names a
+#: deployment can keep apart (one audit directory each, one nginx location
+#: each), this one asks which names this process can spell. A rendered
+#: deployment clears both; a hand-set variable is what this one is here for.
+MOUNT_SEGMENT_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 #: How many same-named session cookies the gate will weigh before giving up.
 #: A page on a neighbouring host under the same registrable domain can set a
@@ -488,13 +515,39 @@ def compute_url_prefix() -> str:
     user's own mount. The Web Terminal's routes and templates import both
     halves from here too, so there is one implementation rather than two.
 
+    A name outside :data:`MOUNT_SEGMENT_RE` is refused rather than spelled.
+    There is no mount it could name: nginx routes the container under the
+    literal name and admits only that class in front of it, so the front door
+    has no location to match, and the name reaches a header value on every
+    proxied panel hop — where a client that encodes headers as ASCII fails the
+    request outright. Refusing costs the container its start, which is where a
+    misconfigured name is cheapest to read: the alternative is a deployment that
+    boots, serves its own pages, and answers 500 for every panel.
+
     Returns:
         ``"/u/<user>"`` when :data:`TERMINAL_USER_ENV` is set and non-empty;
         otherwise ``""``, which makes every application of it a no-op and
         preserves single-origin/dev behaviour exactly.
+
+    Raises:
+        ValueError: If the variable holds a name outside
+            :data:`MOUNT_SEGMENT_RE`. The message names the variable, the value
+            and the class, because the operator who set it is the only one who
+            can change it.
     """
     user = os.environ.get(TERMINAL_USER_ENV, "").strip()
-    return f"/u/{user}" if user else ""
+    if not user:
+        return ""
+    if not MOUNT_SEGMENT_RE.fullmatch(user):
+        raise ValueError(
+            f"{TERMINAL_USER_ENV}={user!r} must match {MOUNT_SEGMENT_RE.pattern!r}: "
+            "the name is spliced unescaped into this container's URL mount and into "
+            "the forwarded-prefix header of every proxied panel request, and a "
+            "character outside that class routes to nothing at the front door and "
+            "fails the panel hop. Rename the account, or unset the variable to serve "
+            "at the root."
+        )
+    return f"/u/{user}"
 
 
 def apply_url_prefix(prefix: str, path: str) -> str:
@@ -1042,6 +1095,79 @@ async def _peek_body(receive: Receive) -> tuple[bytes | None, Receive]:
     return body, replay
 
 
+#: The ASGI wire spelling of the owner header — lower-cased, as a scope's
+#: header names are. Derived from the one place that header is named rather
+#: than retyped, so the minting site here cannot drift from the readers.
+_OWNER_HEADER_WIRE = OWNER_HEADER.lower().encode("latin-1")
+
+#: Where the gate records who an admitted connection belongs to. Read by an
+#: in-process route as ``request.state.osprey_owner`` (Starlette's ``state``
+#: property is backed by this same scope dict), so a relay that builds its own
+#: forwarded headers can mint the owner from the credential the gate matched
+#: instead of trusting anything inbound. Exported because that reader is the
+#: contract: a relay spelling the key for itself agrees with the gate only
+#: until one of them is renamed, after which every write it forwards is
+#: owner-less and nothing says so.
+OWNER_STATE_KEY = "osprey_owner"
+
+
+def _stamp_owner(scope: Scope, account: str | None) -> None:
+    """Record who this admitted connection belongs to — or that it names nobody.
+
+    Two edits to the scope, and the first is the one that carries the security
+    property:
+
+    * **every inbound ``X-Osprey-Owner`` is dropped, whatever ``account`` is.**
+      That header decides who a queued plan is filed under and whose chip
+      governs its writes, and the browser sending it sits inside a session the
+      agent can drive, so an inbound value is a claim and never evidence. The
+      gate is where the claim stops, unconditionally: at a shared sidecar's own
+      address a login names nobody, and dropping only on the naming paths would
+      leave exactly that door able to attribute a plan to a roster user.
+    * **the minted value is appended only when the credential named an
+      account.** A cookie, a ``?token=`` exchange, a panel token and the
+      deployment-wide secret presented at a sidecar all authorise without
+      naming a human; such a connection carries no owner header at all and
+      leaves :data:`OWNER_STATE_KEY` unset, which is how a reader downstream
+      tells "nobody" from a name it may trust. An empty ``account`` is not a
+      name and is treated as nobody.
+
+    ``latin-1`` for the same reason :func:`_scope_headers` decodes that way — it
+    is the ASGI wire encoding — and ``replace`` because encoding must not be
+    able to fail: an account name outside that range would otherwise turn a
+    valid credential into a 500. Mangled, the value fails
+    :func:`~osprey.utils.owner_header.owner_from_header` at the reader and the
+    work is recorded owner-less, which is the one failure this path may have.
+
+    The two halves of the stamp therefore disagree for an account outside
+    ``latin-1``: :data:`OWNER_STATE_KEY` holds the credential's account
+    verbatim while the header carries the ``replace``-mangled bytes, and two
+    such accounts collapse to the same header value. The end state is the same
+    either way — ``owner_from_header``'s allowlist refuses both the mangled
+    bytes and the raw non-ASCII name, so the work is owner-less — so a relay
+    minting its own forwarded header from the state key inherits a value it
+    cannot attribute rather than one it might attribute wrongly.
+
+    Called on ``http`` and ``websocket`` scopes alike — a terminal websocket
+    carries keystrokes into a shell, so it is as much a write path as a POST —
+    and on no other type, the gate having already passed those through.
+    """
+    state = scope.setdefault("state", {})
+    if account:
+        state[OWNER_STATE_KEY] = account
+    else:
+        state.pop(OWNER_STATE_KEY, None)
+
+    headers = [
+        (name, value)
+        for name, value in (scope.get("headers") or ())
+        if name.lower() != _OWNER_HEADER_WIRE
+    ]
+    if account:
+        headers.append((_OWNER_HEADER_WIRE, account.encode("latin-1", "replace")))
+    scope["headers"] = headers
+
+
 class WebAuthMiddleware:
     """Pure-ASGI gate refusing every unauthenticated request to an interface app.
 
@@ -1101,6 +1227,19 @@ class WebAuthMiddleware:
     to its cookie — deliberate: falling through would make the number of
     comparisons, and so the time, depend on how many credentials were wrong.
 
+    **Every admitted connection is stamped with its owner** by
+    :func:`_stamp_owner`, from the credential that matched and never from an
+    inbound header. Only the operator secret can name anyone, and only in a
+    shape where the process knows which human holds it; the cookie, the
+    ``?token=`` exchange and the panel token admit without naming, and the
+    stamp says so by leaving the connection owner-less. The inbound header is
+    dropped either way, the exempt paths included: they authenticate nobody, so
+    they name nobody, and they are stamped all the same — which is the
+    guarantee that holds however the exempt set is widened, since an exempt
+    route then reads nobody rather than a claim. That is what makes this gate,
+    with the terminal proxy, a trust boundary for attribution rather than a
+    relay of claims.
+
     Refusals are shaped per protocol: HTTP answers ``401``/``403`` with a JSON
     ``{"detail": ...}`` — or, when the caller's ``Accept`` asks for HTML (a
     browser *navigating*, rather than a script fetching), a small HTML page
@@ -1152,6 +1291,13 @@ class WebAuthMiddleware:
         # the very page whose job is to trade it for a cookie.
         query_token = _exchange_query_token(scope)
         if exempt and query_token is None:
+            # An exempt route authenticates nobody, so it names nobody — but the
+            # inbound claim still has to die here, because "which routes are
+            # exempt" and "which routes read an owner" are two lists nothing
+            # keeps in step. Stamping unconditionally means the gate drops the
+            # header on every path it passes, exempt or not, and widening the
+            # exempt set can never open an attribution hole.
+            _stamp_owner(scope, None)
             await self.app(scope, receive, send)
             return
 
@@ -1169,7 +1315,10 @@ class WebAuthMiddleware:
             if exempt:
                 # An exempt page needs no credential, so an unpopulatable holder
                 # must not take it down; the exchange simply does not happen and
-                # the page renders as it would have with no token at all.
+                # the page renders as it would have with no token at all. The
+                # stamp needs no credential either, so the inbound claim dies
+                # here too.
+                _stamp_owner(scope, None)
                 await self.app(scope, receive, send)
                 return
             logger.error(
@@ -1192,11 +1341,19 @@ class WebAuthMiddleware:
         # arbitrary route.
         if query_token is not None:
             if credentials.verify_operator(query_token):
+                # A login URL names nobody: it is the deployment's secret in an
+                # address bar, and the session it mints is anonymous for the
+                # whole of its life. Stamped all the same, so the inbound
+                # header is dropped on the one request that reaches a page.
+                _stamp_owner(scope, None)
                 await self._exchange(scope, send, credentials, headers)
             elif exempt:
                 # No credential is needed here anyway: decline the exchange and
                 # let the page render, rather than inventing a refusal for a
-                # route that is open by design.
+                # route that is open by design. A declined exchange names
+                # nobody, and the stamp drops the inbound claim as on every
+                # other passed-through path.
+                _stamp_owner(scope, None)
                 await self.app(scope, receive, send)
             else:
                 await self._refuse(scope, send, 401, _INVALID_DETAIL, headers)
@@ -1204,12 +1361,18 @@ class WebAuthMiddleware:
 
         secret = (headers.get(OPERATOR_SECRET_HEADER) or "").strip()
         if secret:
-            if not credentials.verify_operator(secret):
+            # The same one compare-all loop ``verify_operator`` wraps, asked for
+            # the answer it throws away: which operator this is. Three answers,
+            # and the last two must not be confused — a secret that authorises
+            # without naming a human admits the caller and attributes nothing.
+            identity = credentials.identify_operator(secret)
+            if identity is None:
                 await self._refuse(scope, send, 401, _INVALID_DETAIL, headers)
                 return
             if self._origin_refused(scope, headers, strict=False):
                 await self._refuse(scope, send, 403, _ORIGIN_DETAIL, headers)
                 return
+            _stamp_owner(scope, identity if isinstance(identity, str) else None)
             await self.app(scope, receive, send)
             return
 
@@ -1252,6 +1415,10 @@ class WebAuthMiddleware:
         if self._origin_refused(scope, headers, strict=True):
             await self._refuse(scope, send, 403, _ORIGIN_DETAIL, headers)
             return
+        # A session id names no account: nothing about the login that minted it
+        # was attributable, and inferring an owner from the browser's own header
+        # is exactly the claim this gate exists to drop.
+        _stamp_owner(scope, None)
         await self.app(scope, receive, send)
 
     async def _authenticate_panel(
@@ -1269,7 +1436,8 @@ class WebAuthMiddleware:
         left to the route table. A websocket carries a live channel — the
         terminal's sockets carry keystrokes into a shell — so the panel token,
         which exists for the narrow set of arrangement calls an in-process
-        companion makes, must never open one. Deciding this structurally means a
+        companion makes and for the terminal proxy's HTTP hop to the event
+        dispatcher's MCP transport, must never open one. Deciding this structurally means a
         future ``("GET", "/api/...")`` panel-tier route cannot accidentally
         become reachable over a websocket handshake that synthesises ``GET``.
         """
@@ -1296,6 +1464,9 @@ class WebAuthMiddleware:
         if classify(method, path, body_has_url) is not Tier.PANEL:
             await self._refuse(scope, send, 401, _TIER_DETAIL, headers)
             return
+        # The panel token is one shared value held by every in-process
+        # companion, so it identifies a component and never a person.
+        _stamp_owner(scope, None)
         await self.app(scope, receive, send)
 
     def _origin_refused(self, scope: Scope, headers: dict[str, str], *, strict: bool) -> bool:

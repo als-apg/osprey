@@ -107,7 +107,11 @@ OPENOBSERVE_PORT = 25082
 # both (via resolve_project_name, exactly as the template does) rather than
 # hardcode host-global names that break the moment the template is namespaced
 # per-project.
-PROJECT_NAME = "proj"
+#
+# The name itself is this module's alone. A compose project is addressed BY
+# NAME: two modules sharing one name adopt each other's containers, and a
+# teardown from either side removes the other module's running stack.
+PROJECT_NAME = "osprey-e2e-tiled"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 QUEUESERVER_CONTAINER = f"{PROJECT_NAME}-bluesky-queueserver"
 TILED_CONTAINER = f"{PROJECT_NAME}-bluesky-tiled"

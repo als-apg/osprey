@@ -131,7 +131,7 @@ Verify:
 Step 4: Set up your API key
 -----------------------------
 
-The Osprey agent needs an API key for the AI provider. Set it in your shell profile
+The OSPREY agent needs an API key for the AI provider. Set it in your shell profile
 now: an exported key is what a host-local run reads, and it is what seeds the first
 project you build. Its durable home comes later — see the note below.
 

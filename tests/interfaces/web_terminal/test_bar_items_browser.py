@@ -441,6 +441,8 @@ def test_an_item_dragged_to_the_other_bar_leaves_the_first(tmp_path, chromium_br
         page = _open(chromium_browser, base_url)
         _enter_edit_mode(page)
 
+        _settled(page, "header", ["logo", "clock", "space", "display"])
+        _settled(page, "status", ["docs"])
         status_box = page.locator(STATUS_HOST).bounding_box()
         assert status_box is not None
         # The far right of the footer: past every shell's midpoint, so the

@@ -47,6 +47,7 @@ services:
       - NO_PROXY=${NO_PROXY:-}
       - OSPREY_AUDIT_IDENTITY=alice
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/alice
+      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/alice
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
       - OSPREY_TERMINAL_WEB_PORT=10100
@@ -66,6 +67,7 @@ services:
       - alice-claude-config:/data/claude-config
       - alice-agent-data:/app/dls-assistant/var/agent_data
       - ./var/audit/alice:/app/dls-assistant/var/audit/alice
+      - ./var/agent_data/control_target/alice:/app/dls-assistant/var/agent_data/control_target/alice
     healthcheck:
       # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
       # layout's `web` slot at the deployment's own base (resolve_web_port in
@@ -100,6 +102,7 @@ services:
       - NO_PROXY=${NO_PROXY:-}
       - OSPREY_AUDIT_IDENTITY=bob
       - OSPREY_AUDIT_DIR=/app/dls-assistant/var/audit/bob
+      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/bob
       - OSPREY_TERMINAL_LANDING_URL=http://dls-deploy.dls.example.org:10000
       - OSPREY_TERMINAL_BIND_HOST=127.0.0.1
       - OSPREY_TERMINAL_WEB_PORT=10101
@@ -119,6 +122,7 @@ services:
       - bob-claude-config:/data/claude-config
       - bob-agent-data:/app/dls-assistant/var/agent_data
       - ./var/audit/bob:/app/dls-assistant/var/audit/bob
+      - ./var/agent_data/control_target/bob:/app/dls-assistant/var/agent_data/control_target/bob
     healthcheck:
       # A bare `osprey web` with no OSPREY_WEB_PORT override falls back to the
       # layout's `web` slot at the deployment's own base (resolve_web_port in

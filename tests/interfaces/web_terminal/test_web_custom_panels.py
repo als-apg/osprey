@@ -356,6 +356,108 @@ class TestLoadPanelConfig:
         assert custom == []
 
 
+class TestAPanelIdMustBeSpellable:
+    """A declared id no request for the panel could carry refuses the start.
+
+    The id is one URL path segment — the proxy's ``/panel/<id>``, a local
+    bundle's ``/panel-static/<id>/`` — and it is also spliced into the
+    ``x-forwarded-prefix`` value of every request the proxy forwards for that
+    panel, escaped for neither. An id outside that class reaches no route at
+    the front door and fails the hop on the way out, so the terminal serves
+    every other tab and answers 500 for each request that panel makes — one of
+    which names the id. Refusing at boot costs the container its start and
+    names the config key instead.
+
+    A dot-segment is refused for a second reason: ``.`` and ``..`` are spelled
+    from characters a path may carry and still name something other than the
+    panel wherever a path holding them is resolved.
+    """
+
+    #: Ids outside the class, one per way of leaving it.
+    REFUSED = [
+        "überblick",
+        "renée",
+        "beam viewer",
+        "beam/viewer",
+        "beam%20viewer",
+        "beam\nviewer",
+        ".",
+        "..",
+        "-beam",
+    ]
+
+    @staticmethod
+    def _load(panels):
+        with patch(
+            "osprey.utils.workspace.load_osprey_config",
+            return_value={"web": {"panels": panels}},
+        ):
+            return _load_panel_config()
+
+    @pytest.mark.parametrize("panel_id", REFUSED)
+    def test_an_id_the_proxy_could_not_spell_is_refused(self, panel_id):
+        with pytest.raises(ValueError):
+            self._load({panel_id: {"label": "X", "url": "http://localhost:9000"}})
+
+    def test_the_refusal_names_the_key_the_id_and_the_class(self):
+        """The operator who wrote the id is the only one who can change it.
+
+        A boot refusal that says only *some* panel id is wrong sends them
+        through every block in the file, which is the position the 500s already
+        left them in.
+        """
+        with pytest.raises(ValueError) as refusal:
+            self._load({"überblick": {"url": "http://localhost:9000"}})
+
+        message = str(refusal.value)
+        assert "web.panels.überblick" in message
+        assert repr("überblick") in message
+        assert "[A-Za-z0-9][A-Za-z0-9._-]*" in message
+
+    def test_a_block_switched_off_is_refused_too(self):
+        """``enabled`` is a flag an operator flips, not a reason to skip the id.
+
+        An unservable id behind ``enabled: false`` is a 500 waiting for the day
+        someone turns the panel on, and that day is the worst one to read about
+        it.
+        """
+        with pytest.raises(ValueError):
+            self._load({"überblick": {"enabled": False, "url": "http://localhost:9000"}})
+
+    @pytest.mark.parametrize("panel_id", ["my-grafana", "beam_viewer", "GRAFANA", "v1.2", "okf2"])
+    def test_an_ordinary_custom_id_is_served(self, panel_id):
+        _enabled, custom, _default = self._load({panel_id: {"url": "http://localhost:9000"}})
+        assert [cp["id"] for cp in custom] == [panel_id]
+
+    def test_every_builtin_id_is_served(self):
+        """The framework's own ids clear the class it holds a config id to.
+
+        A built-in named outside it would make every deployment that selects
+        that tab refuse to start, and the name is chosen in this repo rather
+        than by the operator who would have to read the refusal.
+        """
+        builtins = sorted(BUILTIN_PANELS | UNIVERSAL_PANELS)
+        enabled, custom, _default = self._load({pid: {"enabled": True} for pid in builtins})
+        assert enabled == set(builtins)
+        assert custom == []
+
+    def test_a_container_declaring_such_an_id_never_serves(self, workspace_dir):
+        """The refusal lands in startup, before a request can reach a panel."""
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value={"watch_dir": str(workspace_dir)},
+            ),
+            patch(
+                "osprey.utils.workspace.load_osprey_config",
+                return_value={"web": {"panels": {"überblick": {"url": "http://localhost:9000"}}}},
+            ),
+        ):
+            app = create_app(shell_command="echo")
+            with pytest.raises(ValueError, match="web.panels"), TestClient(app):
+                pass
+
+
 # ---- Unit tests for _load_panel_presets ----
 
 
@@ -972,6 +1074,45 @@ class TestPanelRegisterAPI:
 
         # Assert
         assert resp.status_code == 422
+
+    @pytest.mark.parametrize("panel_id", ["überblick", "..", "beam/viewer"])
+    def test_register_id_the_panel_could_not_be_reached_by_returns_422(
+        self, client_runtime_panels, panel_id
+    ):
+        """A registration arrives after the boot gate and reaches the same places.
+
+        The id lands in the proxy's ``/panel/<id>`` paths and in the
+        forwarded-prefix header of every hop made for this panel, escaped for
+        neither, so an id outside that class would register cleanly and then
+        fail every request the panel serves. The refusal names the id, since
+        the caller chose it.
+        """
+        # Act — no getaddrinfo patch: the id is judged before the URL is read.
+        resp = client_runtime_panels.post(
+            "/api/panels/register",
+            json={"id": panel_id, "label": "X", "url": "http://grafana.lan:3000"},
+        )
+
+        # Assert
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert repr(panel_id) in detail
+        assert "[A-Za-z0-9][A-Za-z0-9._-]*" in detail
+
+    def test_register_ordinary_id_still_registers(self, client_runtime_panels):
+        """The class admits the ids a registration actually uses."""
+        # Act
+        with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
+            resp = client_runtime_panels.post(
+                "/api/panels/register",
+                json={"id": "beam_viewer.2", "label": "BEAM", "url": "http://grafana.lan:3000"},
+            )
+
+        # Assert
+        assert resp.status_code == 200
+        assert [cp["id"] for cp in client_runtime_panels.app.state.custom_panels] == [
+            "beam_viewer.2"
+        ]
 
     def test_register_host_not_in_allowlist_returns_422(self, client_runtime_panels_allowlist):
         """A host not in runtime_panel_allowlist is rejected with 422 even with a LAN address."""
