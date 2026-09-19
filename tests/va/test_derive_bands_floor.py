@@ -119,3 +119,85 @@ class TestTheRunSaysWhatItDecidedAndWhy:
         families = list(NOMINALS)
         decisions = script.floor_decisions(NOMINALS, families + families, frozenset())
         assert [decision.family for decision in decisions] == sorted(families)
+
+
+class _StubBinding:
+    """One binding, carrying only what the floor report reads off it."""
+
+    def __init__(self, family: str, nominal: float) -> None:
+        self.family = family
+        self.nominal = nominal
+
+
+class _StubDocument:
+    def __init__(self, bindings: list[_StubBinding]) -> None:
+        self.bindings = bindings
+
+
+class _StubSweeper:
+    """A tree stated in nominals alone, which is all the floor rule reads.
+
+    The sweep itself is physics over a real ring and is exercised elsewhere;
+    what is under test here is whether a mode reports the decision it applied,
+    so the sweep is stubbed out and the nominals are the whole input.
+    """
+
+    def __init__(self, nominals: dict[str, list[float]]) -> None:
+        self._by_address = {
+            f"{family}:{ordinal}": _StubBinding(family, value)
+            for family, values in nominals.items()
+            for ordinal, value in enumerate(values, start=1)
+        }
+        self.document = _StubDocument(list(self._by_address.values()))
+
+    @property
+    def addresses(self) -> list[str]:
+        return list(self._by_address)
+
+    def binding(self, address: str):
+        return self._by_address[address]
+
+
+class TestEveryModeSaysIt:
+    """Each of the script's three modes applies the floor, so each prints it.
+
+    A mode that applied the floor without saying so would hand its reader a
+    band whose lower edge has two possible meanings and no way to tell them
+    apart -- and a comparison against committed bands is exactly where that
+    matters, because a floored edge agreeing with a committed one is a
+    different fact from two derived edges agreeing.
+    """
+
+    @pytest.fixture
+    def sweeper(self):
+        return _StubSweeper({"ONE_POLARITY": [271.856, 288.222], "BOTH_POLARITIES": [12.0, -12.0]})
+
+    @pytest.fixture
+    def no_sweep(self, script, monkeypatch):
+        """Stand in for the physics sweep; the modes are under test, not it."""
+        monkeypatch.setattr(script, "derive_bands", lambda *args, **kwargs: {})
+
+    @staticmethod
+    def _run(script, mode, sweeper, tmp_path):
+        floored = script.unipolar_families(script.nominals_by_family(sweeper.document))
+        if mode == "verify":
+            committed = tmp_path / "channel_limits.json"
+            committed.write_text("{}", encoding="utf-8")
+            return script._run_verify(
+                sweeper, sweeper.addresses, floored, committed, tol=script.DEFAULT_VERIFY_TOL
+            )
+        if mode == "check":
+            return script._run_check(sweeper, sweeper.addresses, floored)
+        return script._run_derive_all(sweeper, sweeper.addresses, floored, str(tmp_path / "out"))
+
+    @pytest.mark.parametrize("mode", ["derive", "check", "verify"])
+    def test_the_mode_prints_a_floor_decision_for_every_swept_family(
+        self, script, sweeper, no_sweep, tmp_path, capsys, mode
+    ):
+        assert self._run(script, mode, sweeper, tmp_path) == 0
+
+        reported = capsys.readouterr().err
+        assert "ONE_POLARITY" in reported
+        assert "floored at 0 A" in reported
+        assert "BOTH_POLARITIES" in reported
+        assert "not floored" in reported

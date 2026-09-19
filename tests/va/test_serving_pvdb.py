@@ -807,7 +807,9 @@ class TestPhysicsReadbacksReachPva:
 
         coupled = [c for c in channels if c["partition"] == PARTITION_PYAT_COUPLED]
         records = build_serving_pvdb(coupled)
-        bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels), rng_seed=11)
+        # No seeded faults, so the bridge needs no seed: the reading moves
+        # because the corrector moved it, with no noise mixed into the check.
+        bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels))
         # Bound before the driver exists, exactly as the runner binds it: the
         # first push is the boot state and has to land in the specs.
         bridge.bind(records.pyat_coupled)

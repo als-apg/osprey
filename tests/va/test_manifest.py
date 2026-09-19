@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+
 import pytest
 
 from osprey.build.build_tiers import VALID_CHANNEL_FINDER_MODES
@@ -94,6 +96,31 @@ class TestRingCounts:
 
     def test_total_channel_count(self, manifest):
         assert manifest["_metadata"]["total_channels"] == EXPECTED_TOTAL
+
+    def test_the_entries_carry_the_ring_tally_the_metadata_states(self, manifest):
+        """The summary is checked against the entries it summarises.
+
+        ``_metadata`` is written by the generator that writes the entries, so
+        a tally read back from it alone would agree with itself however the
+        entries came out. Counting the entries is the independent half.
+        """
+        tally = Counter(c["ring"] for c in manifest["channels"] if c["ring"])
+        assert dict(tally) == EXPECTED_RING_COUNTS
+
+    def test_the_ringless_entries_are_the_coupled_ones_and_the_two_tile(self, manifest):
+        """Every channel is either keyed on a ring token or on its binding.
+
+        A coupled channel is keyed on the binding that claims it, so it leaves
+        the identity keys -- the ring among them -- empty. The two groups
+        therefore have to partition the manifest exactly, with nothing counted
+        twice and nothing outside both.
+        """
+        ringless = {c["address"] for c in manifest["channels"] if not c["ring"]}
+        coupled = {
+            c["address"] for c in manifest["channels"] if c["partition"] == PARTITION_PYAT_COUPLED
+        }
+        assert ringless == coupled
+        assert sum(EXPECTED_RING_COUNTS.values()) + len(coupled) == EXPECTED_TOTAL
 
 
 class TestSetpointCount:

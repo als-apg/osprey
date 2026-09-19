@@ -102,9 +102,13 @@ finder are recommended on, seeded from those sources when you say so. A MATLAB M
 Layer export is the one source that carries all of them at once: the installer reads it
 in with ``osprey mml``, has you review what each device family means, and emits the
 channel database, the knowledge pages and the facility graph from that one review
-(:doc:`/how-to/use-channel-finder`). Each adopted
-feature enters the profile through the same fixed sequence, and every file that lands
-gets a row in a provenance ledger.
+(:doc:`/how-to/use-channel-finder`). An export that also carries its simulator model
+gives you a virtual accelerator besides: the same review says which families the model
+drives, and the deployment can serve your own channel names against your own ring
+before it is ever pointed at the machine
+(:doc:`/how-to/control-systems/use-virtual-accelerator`). Each adopted feature enters
+the profile through the same fixed sequence, and every file that lands gets a row in a
+provenance ledger.
 
 **CLOSE** checks the ledger against the file tree and blocks until every path names your
 facility, a skeleton, or a reason; then a second agent argues against the setup; then a

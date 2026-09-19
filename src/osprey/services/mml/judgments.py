@@ -65,7 +65,6 @@ schema, no I/O.
 from __future__ import annotations
 
 import copy
-import math
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from itertools import combinations
@@ -92,7 +91,13 @@ from osprey.services.mml.mapping.schema import (
     VAFamily,
     judgment_key,
 )
-from osprey.services.mml.va.verdicts import resolve_attype
+from osprey.services.mml.va.verdicts import (
+    FIELDS,
+    KICK_ATTRIBUTE,
+    carries,
+    index_rows,
+    resolve_attype,
+)
 
 __all__ = [
     "PendingJudgments",
@@ -166,13 +171,6 @@ _VA_CONVERSION_ROW_KEYS: tuple[str, ...] = ("gain", "offset", "grid", "values", 
 #: under it that hold one value per device.
 _VA_READOUT_KEY = "readout"
 _VA_READOUT_ROW_KEYS: tuple[str, ...] = ("gain", "offset", "roll", "crunch")
-
-#: The fields a ``va.json`` family states its facts under, in the order a
-#: family couples through them: what it sets before what it only reads.
-_VA_FIELDS: tuple[str, ...] = ("Setpoint", "Monitor")
-
-#: The element attribute a corrector answer writes, whichever plane it names.
-_VA_KICK_ATTRIBUTE = "KickAngle"
 
 #: Field metadata a moved row carries over whole, list or not.
 _VERBATIM_FIELD_KEYS: tuple[str, ...] = ("MemberOf", "Range", "Tolerance")
@@ -734,21 +732,10 @@ def _va_nominal(block: dict, raw: str) -> dict:
     body = families.get(raw) if isinstance(families, dict) else None
     if not isinstance(body, dict):
         return {}
-    name = next((key for key in _VA_FIELDS if key in body), None)
+    name = next((key for key in FIELDS if key in body), None)
     nominals = body.get("nominals")
     nominal = nominals.get(name) if isinstance(nominals, dict) and name is not None else None
     return nominal if isinstance(nominal, dict) else {}
-
-
-def _va_index(value: Any) -> int | None:
-    """Read one stated element index, which an export may spell as a word."""
-    if isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    return int(number) if math.isfinite(number) and number == int(number) else None
 
 
 def _va_positions(block: dict, raw: str) -> list[int]:
@@ -757,31 +744,14 @@ def _va_positions(block: dict, raw: str) -> list[int]:
     A slice an export writes as a not-a-number is a slice the device does not
     have, so it binds nothing and is left out.
     """
-    value = _va_nominal(block, raw).get("at_index")
-    rows = value if isinstance(value, (list, tuple)) else [value]
-    positions = []
-    for row in rows:
-        for item in row if isinstance(row, (list, tuple)) else [row]:
-            index = _va_index(item)
-            if index is not None:
-                positions.append(index)
-    return positions
+    rows = index_rows(_va_nominal(block, raw).get("at_index"))
+    return [position for row in rows for position in row]
 
 
 def _va_element_field(block: dict, raw: str) -> str | None:
     """The element field a family's stated type drives, if its type names one."""
     resolved = resolve_attype(_va_nominal(block, raw).get("at_type"))
     return None if resolved is None else resolved[1]
-
-
-def _va_carries(element: Any, attribute: str | None, index: int | None) -> bool:
-    """Whether an element already holds the attribute a write would reach for."""
-    if attribute is None:
-        return True
-    value = getattr(element, attribute, None)
-    if value is None:
-        return False
-    return index is None or len(value) >= index + 1
 
 
 def _va_element_findings(
@@ -808,7 +778,7 @@ def _va_element_findings(
             )
             return
         element = va.ring[position - 1]
-        if not _va_carries(element, attribute, index):
+        if not carries(element, attribute, index):
             name = getattr(element, "FamName", "")
             pass_method = getattr(element, "PassMethod", "")
             yield (key, f"element {name} ({pass_method}) of {where} takes no {spelled}", True)
@@ -861,7 +831,7 @@ def _va_answer_findings(raw: str, va: VAPending, answer: VAAnswer) -> Iterator[_
     if isinstance(answer, StrengthAnswer):
         yield from _va_element_findings(raw, va, answer.attribute, answer.index)
     elif isinstance(answer, KickAnswer):
-        yield from _va_element_findings(raw, va, _VA_KICK_ATTRIBUTE, answer.plane)
+        yield from _va_element_findings(raw, va, KICK_ATTRIBUTE, answer.plane)
     elif isinstance(answer, MonitorAnswer):
         yield from _va_element_findings(raw, va, None, None)
     elif isinstance(answer, OwnerAnswer):

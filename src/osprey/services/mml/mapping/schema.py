@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Literal, overload
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "SHARED_KIND",
     "UNBOUND_KIND",
     "UNIT_CLASSES",
+    "VA_ANSWER_WORDS",
     "VA_KINDS",
     "VA_SLOT_KINDS",
     "VA_VERDICTS",
@@ -552,11 +554,20 @@ _VA_SLOT_KEYS = frozenset({"kind", "question", "answer"})
 _VA_VERDICTS_SHOWN = "couple or latch"
 _VA_KINDS_SHOWN = "strength, kick, monitor, energy, rf or null"
 _VA_SLOT_KINDS_SHOWN = "attype, shared_field or escape_hatch"
-_ATTYPE_ANSWERS = (
-    "latch, strength:<PolynomB|PolynomA>[<i>], kick:<0|1>, energy, rf, monitor:<x|y> or null"
+#: The closed vocabulary each virtual-accelerator slot kind is answered from,
+#: as a refusal and the skeleton's comment both spell it. A null slot decides
+#: nothing, so it is no answer and stands outside the words themselves. Read
+#: only: the words a refusal quotes and the words offered to the reviewer are
+#: one object, and it is the vocabulary itself rather than one caller's copy.
+VA_ANSWER_WORDS: MappingProxyType[str, str] = MappingProxyType(
+    {
+        ATTYPE_KIND: (
+            "latch, strength:<PolynomB|PolynomA>[<i>], kick:<0|1>, energy, rf, monitor:<x|y>"
+        ),
+        SHARED_FIELD_KIND: "owner:<family>, latch",
+        ESCAPE_HATCH_KIND: "latch, ignore_hook",
+    }
 )
-_SHARED_FIELD_ANSWERS = "owner:<family>, latch or null"
-_ESCAPE_HATCH_ANSWERS = "latch, ignore_hook or null"
 _STRENGTH_ANSWER = re.compile(r"strength:(PolynomB|PolynomA)\[(\d+)\]")
 
 
@@ -767,7 +778,7 @@ def _attype_answer(value: Any, key: str) -> AttypeAnswer | None:
             return KickAnswer(plane=0 if value == "kick:0" else 1)
         if value in ("monitor:x", "monitor:y"):
             return MonitorAnswer(plane="x" if value == "monitor:x" else "y")
-    raise MappingError(key, f"must be {_ATTYPE_ANSWERS}, got {_shown(value)}")
+    raise MappingError(key, f"must be {VA_ANSWER_WORDS[ATTYPE_KIND]} or null, got {_shown(value)}")
 
 
 def _shared_field_answer(value: Any, key: str) -> SharedFieldAnswer | None:
@@ -779,7 +790,9 @@ def _shared_field_answer(value: Any, key: str) -> SharedFieldAnswer | None:
         owner, sep, family = value.partition(":")
         if owner == "owner" and sep and family:
             return OwnerAnswer(family=family)
-    raise MappingError(key, f"must be {_SHARED_FIELD_ANSWERS}, got {_shown(value)}")
+    raise MappingError(
+        key, f"must be {VA_ANSWER_WORDS[SHARED_FIELD_KIND]} or null, got {_shown(value)}"
+    )
 
 
 def _escape_hatch_answer(value: Any, key: str) -> EscapeHatchAnswer | None:
@@ -787,7 +800,9 @@ def _escape_hatch_answer(value: Any, key: str) -> EscapeHatchAnswer | None:
         return None
     if isinstance(value, str) and value in ("latch", "ignore_hook"):
         return value
-    raise MappingError(key, f"must be {_ESCAPE_HATCH_ANSWERS}, got {_shown(value)}")
+    raise MappingError(
+        key, f"must be {VA_ANSWER_WORDS[ESCAPE_HATCH_KIND]} or null, got {_shown(value)}"
+    )
 
 
 #: The typed parser of each slot kind's answer vocabulary. Every vocabulary is

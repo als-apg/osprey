@@ -34,7 +34,14 @@ from typing import Any, Literal
 
 from osprey.services.channel_finder.databases.middle_layer import CHANNEL_KEYS
 
-__all__ = ["FAMILY_ARRAYS", "FamilyView", "FieldView", "family_views", "system_bodies"]
+__all__ = [
+    "FAMILY_ARRAYS",
+    "FamilyView",
+    "FieldView",
+    "device_rows",
+    "family_views",
+    "system_bodies",
+]
 
 #: Per-device family arrays, read from the family level or its setup block.
 FAMILY_ARRAYS: tuple[str, ...] = (
@@ -84,8 +91,14 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
-def _device_rows(device_list: Any) -> list[list] | None:
-    """Return ``DeviceList`` as Nx2 rows, or ``None`` when it states no rows."""
+def device_rows(device_list: Any) -> list[list] | None:
+    """Return a stated device list as Nx2 rows, or ``None`` when it states none.
+
+    An export writes a device list in one of two shapes: a row per device, or
+    a bare pair of numbers for the single device that is the whole family.
+    Every reader of a stated device list reads both here, so the rows a family
+    is judged by and the rows its elements are addressed by are the same rows.
+    """
     if not isinstance(device_list, (list, tuple)) or not device_list:
         return None
     if all(isinstance(row, (list, tuple)) and len(row) == 2 for row in device_list):
@@ -189,7 +202,7 @@ class FamilyView:
             and any(key in value for key in CHANNEL_KEYS)
         }
 
-        self.device_rows: list[list] | None = _device_rows(self.arrays.get("DeviceList"))
+        self.device_rows: list[list] | None = device_rows(self.arrays.get("DeviceList"))
         self.n_devices_from_fallback: bool = self.device_rows is None
         if self.device_rows is not None:
             self.n_devices: int = len(self.device_rows)

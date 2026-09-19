@@ -5,9 +5,9 @@ namespace-union manifest into the served PV database. This package holds the
 two value sources that drive those PVs.
 
 :mod:`ioc.physics_bridge` handles partition (a) (pyat-coupled):
-`PhysicsBridge.on_setpoint` is the SR magnet setpoint handler the serving
-write path calls, and `PhysicsBridge.bind()` wires the pyat-coupled BPM
-channels to receive recomputed positions.
+`PhysicsBridge.on_setpoint` is the handler the serving write path calls for
+every setpoint a binding couples to the ring, and `PhysicsBridge.bind()`
+wires the pyat-coupled monitor channels to receive recomputed readings.
 
 :mod:`ioc.engine_source` handles partition (c) (static/noisy), pushing
 simulation-engine values onto their channels on a poll tick.

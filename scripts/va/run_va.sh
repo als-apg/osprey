@@ -249,7 +249,11 @@ CHANNELS_FILE_VALUE="channel_manifest.json"
 # it: the bindings file is what says a tree models the channels it names, and
 # the lattice beside it is what the model is built from. A tree carrying neither
 # serves `none` and the IOC boots without physics. An exported VA_LATTICE wins
-# over both, for a tree that keeps its lattice under another name.
+# over both, and its only two useful values are `none`, to serve a tree's
+# channels without a model, and the name the tree's own deck already carries.
+# It cannot select a differently named deck: the entrypoint refuses any name
+# but the one the bindings were derived against, because serving one ring
+# while modelling another is invisible on the wire.
 BINDINGS_FILE_VALUE="va_bindings.json"
 LATTICE_FILE_VALUE="lattice.json"
 if [[ -z "${VA_LATTICE_VALUE}" ]]; then
@@ -267,8 +271,12 @@ echo "--- Channel manifest: ${MOUNT_DIR}/${CHANNELS_FILE_VALUE} (VA_LATTICE=${VA
 # bindings under the served directory, the write bands its variables are built
 # from at the root -- so mounting the served directory alone carries no bands
 # and refuses a lattice-backed boot. VA_DATA_DIR is named from the directory's
-# own basename rather than assumed to be `simulation`, so a tree that keeps its
-# served files under another name still resolves.
+# own basename rather than assumed to be `simulation`, so the layout named on
+# the command line is passed through instead of one being assumed. That is not
+# licence to rename the served directory: the entrypoint resolves the model
+# through ManifestPaths(data_root=<the mounted root>), which anchors the
+# lattice at <root>/simulation, so a lattice-backed boot still requires the
+# basename to be `simulation`.
 MOUNT_ROOT="$(cd "${MOUNT_DIR}/.." && pwd)"
 CONTAINER_DATA_DIR="/data/$(basename "${MOUNT_DIR}")"
 

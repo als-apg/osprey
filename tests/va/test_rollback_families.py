@@ -16,8 +16,8 @@ took part in is rejected, is every piece of storage it reached back to the bit
 it started at -- the component it wrote, the neighbours it did not, and each
 slice of a write that was shared.
 
-The tree is the one a real ``osprey mml`` run writes (see
-``test_lattice.py``, which owns the chain that builds it): five binding kinds,
+The tree is the one a real ``osprey mml`` run writes (built by the shared
+helper in ``tests/va/_served_tree.py``): five binding kinds,
 a kick shared over two elements, and an energy knob that rescales the
 setpoints it has adopted, so the footprints here are an export's own rather
 than a fixture author's guess. Nothing below names a family: the kinds, the
@@ -37,7 +37,7 @@ from osprey.services.virtual_accelerator.lattice.solve import OrbitSolveError
 from osprey.services.virtual_accelerator.manifest import build_manifest
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
-from tests.va.test_lattice import emit_served_tree
+from tests.va._served_tree import emit_served_tree
 
 pytest.importorskip("linkml_runtime")
 

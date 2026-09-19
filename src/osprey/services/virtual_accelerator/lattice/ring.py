@@ -19,8 +19,8 @@ they still describe the same one:
    for it.
 2. **Every bound element name belongs to exactly one element.** lume-pyat
    addresses elements by ``FamName``, and a real lattice repeats names freely
-   -- the ALS deck names 124 elements ``BPM`` -- so a name shared by two
-   elements does not say which one a channel writes. A missing name is the
+   -- a deck that calls every beam monitor in the ring ``BPM`` is ordinary --
+   so a name shared by two elements does not say which one a channel writes. A missing name is the
    same refusal from the other side: the document describes an element this
    ring does not have.
 3. **Longitudinal motion is on for the cavity alone.** ``enable_6d`` is given

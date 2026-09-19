@@ -1676,13 +1676,12 @@ class TestNothingReachesTheTreeUntilEveryRefusalIsKnown:
     def test_a_band_refusal_keeps_the_va_off_the_tree_but_not_the_lanes_before_it(
         self, va_repo: Path
     ) -> None:
-        # Pinned as it stands, not as a rule. A band a facility states itself is
-        # the one refusal that cannot be known in the pre-flight -- it is
-        # learned after all five VA documents are rendered -- and by then the
-        # channel database, the ontology, the knowledge pages and the corpus of
-        # the same run are already on the tree. The VA lane itself writes
-        # nothing, which is what item 197 settled; the refusal's own wording
-        # ("nothing was written") is wider than that, and is a follow-up.
+        # A band a facility states itself is the one refusal that cannot be
+        # reached in the pre-flight: it is known only once all five VA
+        # documents are rendered, and by then the channel database, the
+        # ontology, the knowledge pages and the corpus of the same run are on
+        # the tree. So the VA lane withholds its own five files and says
+        # exactly that, and what the lanes before it wrote stays written.
         _plant_a_band_of_their_own(va_repo)
         before = _tree(va_repo)
 
@@ -1694,7 +1693,7 @@ class TestNothingReachesTheTreeUntilEveryRefusalIsKnown:
         written = set(_tree(va_repo)) - set(before)
         assert written, "the lanes before the VA lane wrote nothing at all"
         assert not written & set(VA_ARTIFACTS)
-        assert "nothing was written" in result.output
+        assert "no virtual-accelerator file was written" in result.output
 
     def test_a_second_refused_run_leaves_the_tree_the_first_one_left(self, va_repo: Path) -> None:
         _plant_a_band_of_their_own(va_repo)

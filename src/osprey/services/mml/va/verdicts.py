@@ -88,7 +88,12 @@ __all__ = [
     "ATTYPE_TABLE",
     "CORRECTOR_MEMBERSHIP",
     "ENERGY_TOLERANCE_GEV",
+    "FIELDS",
+    "KICK_ATTRIBUTE",
     "attype_slot_opens",
+    "carries",
+    "index_rows",
+    "is_cavity",
     "propose",
     "resolve_attype",
 ]
@@ -145,12 +150,12 @@ _ELEMENT_KINDS = ("strength", "kick", "monitor")
 _CAVITY = "RFCavity"
 
 #: The attribute a corrector writes, and the one a dipole-typed trim is held to.
-_KICK_ATTRIBUTE = "KickAngle"
+KICK_ATTRIBUTE = "KickAngle"
 
 #: The fields an export writes a family's facts under, in the order a family
 #: couples through them: a family that sets something is bound through what it
 #: sets, and one that only reads is bound through what it reads.
-_FIELDS = ("Setpoint", "Monitor")
+FIELDS = ("Setpoint", "Monitor")
 
 _EV_PER_GEV = 1e9
 
@@ -168,7 +173,7 @@ class _Proposal:
         self.name = name
         self.block = block
         self.view = view
-        self.field: str | None = next((key for key in _FIELDS if key in block), None)
+        self.field: str | None = next((key for key in FIELDS if key in block), None)
         nominal = block.get("nominals")
         self.nominal: dict = (
             nominal.get(self.field) or {}
@@ -250,7 +255,7 @@ def attype_slot_opens(token: Any, at_index: Any) -> bool:
     Returns:
         Whether the family opens an ``attype`` slot on its token alone.
     """
-    return resolve_attype(token) is None and bool(_index_rows(at_index))
+    return resolve_attype(token) is None and bool(index_rows(at_index))
 
 
 def propose(
@@ -348,7 +353,7 @@ def _corrector_rule(proposal: _Proposal, ring: Sequence[Any]) -> None:
     proposal.kind = "kick"
     if not _index_rule(proposal):
         return
-    if not _attribute_rule(proposal, ring, _KICK_ATTRIBUTE, None):
+    if not _attribute_rule(proposal, ring, KICK_ATTRIBUTE, None):
         return
     proposal.element_field = None
     proposal.open(
@@ -363,7 +368,7 @@ def _token_rule(proposal: _Proposal, ring: Sequence[Any], knob: str | None) -> N
     token = proposal.token
     resolved = resolve_attype(token)
     if resolved is None:
-        if not _index_rows(proposal.nominal.get("at_index")):
+        if not index_rows(proposal.nominal.get("at_index")):
             proposal.latch(_NO_ELEMENT)
             return
         proposal.open(
@@ -375,7 +380,7 @@ def _token_rule(proposal: _Proposal, ring: Sequence[Any], knob: str | None) -> N
 
     proposal.kind, proposal.element_field = resolved
     if proposal.kind == "rf":
-        if not any(_is_cavity(element) for element in ring):
+        if not any(is_cavity(element) for element in ring):
             proposal.latch("the deck holds no cavity")
         return
     if proposal.kind == "energy":
@@ -400,7 +405,7 @@ def _token_rule(proposal: _Proposal, ring: Sequence[Any], knob: str | None) -> N
 
 def _index_rule(proposal: _Proposal) -> bool:
     """Read the element indices a family binds. Rule (d)."""
-    proposal.rows = _index_rows(proposal.nominal.get("at_index"))
+    proposal.rows = index_rows(proposal.nominal.get("at_index"))
     if not proposal.rows:
         proposal.latch(_NO_ELEMENT)
         return False
@@ -409,7 +414,7 @@ def _index_rule(proposal: _Proposal) -> bool:
 
 def _units_rule(proposal: _Proposal) -> bool:
     """Check the physics units a family states against the units its kind implies."""
-    stated = {field: _physics_units(proposal.view, field) for field in _FIELDS}
+    stated = {field: _physics_units(proposal.view, field) for field in FIELDS}
     agreeing = [field for field, word in stated.items() if _is_unit_class(proposal.kind, word)]
     if agreeing:
         disagreeing = [field for field, word in stated.items() if word and field not in agreeing]
@@ -418,7 +423,7 @@ def _units_rule(proposal: _Proposal) -> bool:
             proposal.note = f"{field} states {stated[field]} where {agreeing[0]} states its units"
         return True
 
-    spoken = ", ".join(f"{field} states {stated[field] or 'nothing'}" for field in _FIELDS)
+    spoken = ", ".join(f"{field} states {stated[field] or 'nothing'}" for field in FIELDS)
     proposal.open(
         ATTYPE_KIND,
         f"{spoken}, and neither of them {proposal.kind} units; what does this family drive?",
@@ -439,7 +444,7 @@ def _attribute_rule(
             proposal.latch(f"ATIndex {position} is past the end of a ring of {len(ring)}")
             return False
         element = ring[position - 1]
-        if not _carries(element, attribute, index):
+        if not carries(element, attribute, index):
             name = getattr(element, "FamName", "")
             pass_method = getattr(element, "PassMethod", "")
             proposal.latch(f"element {name} ({pass_method}) takes no {attribute}")
@@ -523,7 +528,7 @@ def _is_bend_corrector(proposal: _Proposal) -> bool:
     )
 
 
-def _is_cavity(element: Any) -> bool:
+def is_cavity(element: Any) -> bool:
     """Whether a deck element is a cavity, under every spelling of its class."""
     return _CAVITY in (
         type(element).__name__,
@@ -532,8 +537,14 @@ def _is_cavity(element: Any) -> bool:
     )
 
 
-def _carries(element: Any, attribute: str, index: int | None) -> bool:
-    """Whether an element already holds the attribute a write would reach for."""
+def carries(element: Any, attribute: str | None, index: int | None) -> bool:
+    """Whether an element already holds the attribute a write would reach for.
+
+    An answer naming no attribute reaches for nothing, so every element holds
+    what it asks for.
+    """
+    if attribute is None:
+        return True
     value = getattr(element, attribute, None)
     if value is None:
         return False
@@ -588,7 +599,7 @@ def _deck_energy_gev(ring: Sequence[Any]) -> float | None:
     return None if value is None else value / _EV_PER_GEV
 
 
-def _index_rows(value: Any) -> list[list[int]]:
+def index_rows(value: Any) -> list[list[int]]:
     """Read stated element indices as one row of slices per device.
 
     A bare number is the one row it is, and a slice an export writes as a

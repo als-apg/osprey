@@ -170,12 +170,11 @@ DENIED: tuple[Denied, ...] = (
         sample="#   facility_name: ALS",
         # The bundled demo ring, whose own name this is: the simulation package
         # that states its spec and builds it, the channel-naming vocabulary its
-        # databases are written in, and the two served-model modules that state
+        # databases are written in, and the served-model module that states
         # what loading that deck means.
         allow=frozenset(
             {
                 "src/osprey/services/channel_finder/naming.py",
-                "src/osprey/services/virtual_accelerator/lattice/ring.py",
                 "src/osprey/services/virtual_accelerator/model/bindings.py",
                 "src/osprey/simulation/channel_schema.py",
                 "src/osprey/simulation/facility_spec.py",

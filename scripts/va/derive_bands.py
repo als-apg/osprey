@@ -102,14 +102,16 @@ bindings declare, emit ``{address: [min, max]}`` JSON to stdout (or
 edge-rule and unipolar-floor invariants, print the same JSON, exit 0. A fast
 smoke gate, not a substitute for a full run.
 
-Both print each swept family's floor decision to stderr, so what the run did
-about polarity is on the record beside the bands it emitted.
-
 ``--verify CHANNEL_LIMITS_JSON``: re-derive every device and compare against
 the ``min_value``/``max_value`` already committed in the given
 ``channel_limits.json``, within ``--tol`` relative tolerance. Nonzero exit on
 any mismatch or missing entry -- the regression gate against silent drift
 between this script and the committed file.
+
+Every mode prints each swept family's floor decision to stderr, so what the
+run did about polarity is on the record beside whatever else it reported. The
+floor is applied in all three, and a mode that applied it silently would leave
+the reader of a comparison guessing which edges it governed.
 
 Always run with the worktree's own interpreter: ``.venv/bin/python
 scripts/va/derive_bands.py ...``.
@@ -680,6 +682,7 @@ def _run_verify(
 ) -> int:
     committed = json.loads(committed_path.read_text())
     results = derive_bands(sweeper, addresses, floored_families, **sweep_kwargs)
+    _report_floor_decisions(sweeper, addresses, floored_families)
 
     missing: list[str] = []
     mismatches: list[tuple[str, object, object, float, float]] = []

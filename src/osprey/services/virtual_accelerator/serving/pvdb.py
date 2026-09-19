@@ -22,11 +22,11 @@ is feeding.
 Five properties of the served database are contracts, not preferences:
 
 * **The channel set is closed.** One PV per manifest channel, no more, no
-  fewer -- whatever the manifest holds. (In the bundled demo tree: the
-  pinned counts of 348 SR magnet setpoints / 348 paired readbacks / 144 BPM
-  readings / 2,908 channels total, which its clients, its channel-finder
-  databases and its safety limits file all agree on.) This module adds no
-  diagnostic or control PV of its own.
+  fewer -- whatever the manifest holds. The manifest is the one inventory a
+  tree has: its clients, its channel-finder databases and its safety limits
+  file are all counted against the same set, so a PV served beside it would
+  be a channel nothing else knows about. This module adds no diagnostic or
+  control PV of its own.
 * **Drive limits are not alarm limits.** ``drive_limits`` becomes
   ``lolim``/``hilim`` (the CA *control/display* band, what DRVL/DRVH mean
   to a client). The alarm-limit keys (``lolo``/``low``/``high``/``hihi``)

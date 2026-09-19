@@ -51,6 +51,8 @@ import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from osprey.services.mml.family import device_rows
+from osprey.services.mml.va.verdicts import is_cavity
 from osprey.services.virtual_accelerator.bindings import ATTRIBUTES_BY_KIND
 
 if TYPE_CHECKING:
@@ -70,10 +72,6 @@ __all__ = [
 #: strength makes is the polynomial it writes, so a normal multipole outranks
 #: the skew one wound on the same body; every other kind claims by its kind.
 OWNER_RANK: tuple[str, ...] = ("monitor", "PolynomB", "PolynomA", "KickAngle", "energy", "rf")
-
-#: The class name a cavity carries, under every spelling a deck gives it. The
-#: ``rf`` verdict couples on the same test, one module earlier.
-_CAVITY = "RFCavity"
 
 #: The attribute the cavity kind writes, as the bindings document spells it.
 _RF_ATTRIBUTE = next(iter(ATTRIBUTES_BY_KIND["rf"]))
@@ -298,7 +296,7 @@ def _stated_rows(
         cavities = tuple(
             (slot, position)
             for slot, position in enumerate(
-                (index for index, element in enumerate(ring) if _is_cavity(element)), start=1
+                (index for index, element in enumerate(ring) if is_cavity(element)), start=1
             )
         )
         return [(len(cavities), cavities)] if cavities else []
@@ -321,7 +319,7 @@ def _with_devices(
     stated: list[tuple[int, tuple[tuple[int, int], ...]]],
 ) -> tuple[_Row, ...]:
     """Pair each stated row with the device the export lists it under."""
-    devices = _device_rows(block.get("device_list"))
+    devices = device_rows(block.get("device_list"))
     if devices is None:
         raise ValueError(
             f"family {family} binds {len(stated)} element rows and lists no device to name them after"
@@ -448,31 +446,6 @@ def _position(family: str, value: Any, ring: Sequence[Any]) -> int:
     return position - 1
 
 
-def _is_cavity(element: Any) -> bool:
-    """Whether a deck element is a cavity, under every spelling of its class."""
-    return _CAVITY in (
-        type(element).__name__,
-        getattr(element, "Class", None),
-        getattr(element, "tag", None),
-    )
-
-
-def _device_rows(device_list: Any) -> list[list] | None:
-    """Return a stated device list as Nx2 rows, or ``None`` when it states none.
-
-    The same two shapes :class:`~osprey.services.mml.family.FamilyView` reads a
-    ``DeviceList`` in, read here off the export's own copy so that the rows and
-    the positions beside them come from one block.
-    """
-    if not isinstance(device_list, (list, tuple)) or not device_list:
-        return None
-    if all(isinstance(row, (list, tuple)) and len(row) == 2 for row in device_list):
-        return [list(row) for row in device_list]
-    if len(device_list) == 2 and all(_is_number(item) for item in device_list):
-        return [list(device_list)]
-    return None
-
-
 def _index_rows(value: Any) -> list[list]:
     """Read stated positions as one row per device, every slot kept.
 
@@ -514,7 +487,3 @@ def _number(value: Any) -> float | None:
         except ValueError:
             return None
     return None
-
-
-def _is_number(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)

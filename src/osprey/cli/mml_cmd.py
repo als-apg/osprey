@@ -2,6 +2,13 @@
 
 ``osprey mml import`` turns one or more MML exports into the canonical
 ``data/mml/ao.json``, ``ad.json`` and ``PROFILE.md`` of the deployment repo.
+A 2.0 export is handed over as its AO file alone, and the siblings beside it
+are discovered and filed in the same pass: ``va.json`` and ``response.json``
+keyed by system like the canonical pair, and the saved deck copied into
+``data/mml/lattice/<system>.mat``. A sibling the export does not carry is
+written as nothing at all rather than as an empty document, so a 1.0 export
+adds neither of the two; a deck named on the command line is filed either way,
+unchecked and with one line saying so when no sampled block fingerprints it.
 The location is fixed, not a flag: the later verbs read the same directory, so
 an output that could move would strand the chain. :func:`mml_data_dir` is the
 one place that names it.
@@ -465,6 +472,34 @@ def _write_mapping(path: Path, text: str) -> None:
         ) from exc
 
 
+def _va_document(out_dir: Path, ao: dict) -> tuple[dict, set[str]]:
+    """Read a tree's ``va.json`` and name the systems it and the AO agree on.
+
+    A tree with no such file carries no sampled block at all, which is what a
+    1.0 tree looks like; a file that will not parse is refused here rather
+    than read as an absent one, because the two mean opposite things.
+    """
+    import json
+
+    from osprey.services.mml.va.canonical import VA_FILENAME
+
+    va_path = out_dir / VA_FILENAME
+    if not va_path.is_file():
+        return {}, set()
+    try:
+        document = json.loads(va_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise click.ClickException(
+            f"Cannot read {va_path} ({exc}); run osprey mml import on the export again."
+        ) from exc
+    available = {
+        system
+        for system, block in document.items()
+        if isinstance(block, dict) and isinstance(ao.get(system), dict)
+    }
+    return document, available
+
+
 def _va_block(out_dir: Path, ao: dict, ad: dict) -> dict | None:
     """Build the ``virtual_accelerator`` block of this export, or report why not.
 
@@ -472,25 +507,9 @@ def _va_block(out_dir: Path, ao: dict, ad: dict) -> dict | None:
     ``va.json`` of one system and the deck that export was sampled over. When
     either is missing the caller writes no block, and one line says so.
     """
-    import json
-
     from osprey.services.mml.mapping.skeleton import va_block, va_system
-    from osprey.services.mml.va.canonical import VA_FILENAME
 
-    va_path = out_dir / VA_FILENAME
-    document: dict = {}
-    if va_path.is_file():
-        try:
-            document = json.loads(va_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            raise click.ClickException(
-                f"Cannot read {va_path} ({exc}); run osprey mml import on the export again."
-            ) from exc
-    available = {
-        system
-        for system, block in document.items()
-        if isinstance(block, dict) and isinstance(ao.get(system), dict)
-    }
+    document, available = _va_document(out_dir, ao)
     choice = va_system(ao, ad or None, available) if available else None
     source = choice or next(iter(sorted(available)), None)
     if source is None:
@@ -584,27 +603,10 @@ def _va_export(out_dir: Path, ao: dict, ad: dict, mapping: Mapping) -> VAExport 
     ring. A block whose deck was never imported is accepted by ``import`` and
     refused here, where tree completeness belongs.
     """
-    import json
-
     from osprey.services.mml.mapping.check import VAExport
     from osprey.services.mml.mapping.skeleton import va_system
-    from osprey.services.mml.va.canonical import VA_FILENAME
 
-    va_path = out_dir / VA_FILENAME
-    if not va_path.is_file():
-        return None
-    try:
-        document = json.loads(va_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:
-        raise click.ClickException(
-            f"Cannot read {va_path} ({exc}); run osprey mml import on the export again."
-        ) from exc
-
-    available = {
-        system
-        for system, block in document.items()
-        if isinstance(block, dict) and isinstance(ao.get(system), dict)
-    }
+    document, available = _va_document(out_dir, ao)
     if not available:
         return None
     decided = mapping.virtual_accelerator.system if mapping.virtual_accelerator else None
@@ -1010,7 +1012,7 @@ def _parse_mapping_file(path: Path):
     try:
         return parse_mapping(document)
     except MappingError as exc:
-        report(f"{exc.key}: {exc}")
+        report(str(exc))
         raise click.ClickException(f"{path} is not a valid mapping document.") from exc
 
 
@@ -1538,8 +1540,8 @@ def _emit_va(
             report(f"{band.address}: {band.refused}")
         raise click.ClickException(
             f"{_count(len(refused), 'band')} in {limits_path} that this command did not write "
-            "state a coupled setpoint differently; nothing was written, so fix the file or "
-            "remove those entries, then run osprey mml emit again."
+            "state a coupled setpoint differently; no virtual-accelerator file was written, so "
+            "fix the file or remove those entries, then run osprey mml emit again."
         )
 
     # The deck keeps its own writer: identical bytes leave the file, and its

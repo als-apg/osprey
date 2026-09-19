@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Container
+from types import MappingProxyType
 from typing import Any
 
 import yaml
@@ -55,12 +56,10 @@ from osprey.services.mml.family import FamilyView, family_views, system_bodies
 from osprey.services.mml.judgments import pending_judgments
 from osprey.services.mml.mapping.branches import is_pn_local
 from osprey.services.mml.mapping.schema import (
-    ATTYPE_KIND,
-    ESCAPE_HATCH_KIND,
     ROWS_BEYOND_KIND,
-    SHARED_FIELD_KIND,
     SHARED_KIND,
     UNBOUND_KIND,
+    VA_ANSWER_WORDS,
     VAFamily,
 )
 
@@ -91,15 +90,11 @@ _NOT_PN_LOCAL = re.compile(r"[^A-Za-z0-9_]+")
 STORAGE_RING = "StorageRing"
 
 #: What a reviewer may answer each virtual-accelerator slot kind with, as the
-#: comment beside the null slot spells it. The vocabularies themselves are
-#: closed by
-#: :func:`~osprey.services.mml.mapping.schema.parse_mapping`, which refuses a
-#: word outside them by name; these are the same words written for a reader.
-VA_ANSWERS: dict[str, str] = {
-    ATTYPE_KIND: "latch, strength:<PolynomB|PolynomA>[<i>], kick:<0|1>, energy, rf, monitor:<x|y>",
-    SHARED_FIELD_KIND: "owner:<family>, latch",
-    ESCAPE_HATCH_KIND: "latch, ignore_hook",
-}
+#: comment beside the null slot spells it: the closed vocabularies
+#: :func:`~osprey.services.mml.mapping.schema.parse_mapping` refuses a word
+#: outside of, so the comment a reviewer reads and the refusal they would meet
+#: name the same words.
+VA_ANSWERS: MappingProxyType[str, str] = VA_ANSWER_WORDS
 
 #: The keys a coupled family writes, in document order. A key the verdict
 #: leaves undecided is omitted rather than written null: the model needs every
