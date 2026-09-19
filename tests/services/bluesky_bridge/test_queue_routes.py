@@ -30,7 +30,13 @@ from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge import draft, history_removals, plan_loader, queue
+from osprey.services.bluesky_bridge import (
+    draft,
+    history_removals,
+    plan_loader,
+    queue,
+    queue_removals,
+)
 from osprey.services.bluesky_bridge import queue_backend as qb
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.plan_fields import (
@@ -133,12 +139,14 @@ def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     draft._clear()
     queue._clear()
     history_removals._clear()
+    queue_removals._clear()
     app_module.set_queue_backend(None)
     yield
     plan_loader.reset_facility_plans()
     draft._clear()
     queue._clear()
     history_removals._clear()
+    queue_removals._clear()
     app_module.set_queue_backend(None)
 
 
@@ -297,6 +305,31 @@ def test_enqueue_with_a_stale_revision_409s_without_touching_the_queue(
     assert detail["code"] == "stale_draft_revision"
     assert detail["revision"] == 1
     assert "item_add" not in manager.method_names()
+
+
+def test_an_item_the_backend_refuses_as_malformed_is_a_400_with_its_own_code(
+    client: TestClient, connector, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A malformed item is the caller's to correct, so it earns a 400 and a
+    code of its own rather than the 409 that tells a caller to re-read the
+    queue's state. The reservation is released: the revision was never
+    launched."""
+    connector("virtual_accelerator")
+    manager = FakeManager(status=status_doc())
+    _install(manager)
+    revision = _make_draft(client)
+
+    async def _refuse(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise qb.QueueItemInvalidError("Plan arguments must be a mapping of argument names.")
+
+    monkeypatch.setattr(QueueBackend, "add_item", _refuse)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "invalid_item"
+    assert "item_add" not in manager.method_names()
+    assert draft._launching == set()
 
 
 @pytest.mark.parametrize("state", sorted(qb.QUEUE_ACTIVE_MANAGER_STATES))
@@ -1605,7 +1638,9 @@ def test_clear_drops_every_pending_item_ungated(client: TestClient) -> None:
 
     assert resp.status_code == 200
     assert resp.json() == {"cleared": True, "msg": "cleared"}
-    assert manager.method_names() == ["queue_clear"]
+    # The read is the removal log's: the manager's reply to a clear names
+    # nothing it dropped, so the items are listed inside the lock first.
+    assert manager.method_names() == ["queue_get", "queue_clear"]
 
 
 def test_clear_relays_a_manager_refusal_as_409(client: TestClient) -> None:
@@ -1761,6 +1796,8 @@ def test_abort_with_nothing_running_is_a_409_nothing_running(client: TestClient)
 
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "nothing_running"
+    # Nothing is issued at all: not the pause, not the abort, and not the read
+    # that names what was stopped — there is nothing to name.
     assert manager.method_names() == ["status"]
 
 
@@ -2183,3 +2220,162 @@ def test_bridge_mutations_nudge_the_sse_poller(client: TestClient) -> None:
     assert client.delete("/queue/items/u1").status_code == 200
 
     assert queue._change_event.is_set()
+
+
+# ---------------------------------------------------------------------------
+# The owner on a relayed item
+# ---------------------------------------------------------------------------
+
+_OWNER = "alice-b"
+
+
+def _owned_item(uid: str = "u1") -> dict[str, Any]:
+    """A queued item as a lane this deployment deploys holds it.
+
+    The owner is the reserved kwarg, because those kwargs are the ``plan_kwargs``
+    the worker hands the plan wrapper — the only path by which a run learns whose
+    it is. The item carries it all the way to the worker; what the bridge relays
+    is what `queue._public_item` makes of it.
+    """
+    return {
+        "item_uid": uid,
+        "item_type": "plan",
+        "name": "grid_scan",
+        "kwargs": {**_GRID_SCAN_ARGS, qb.RESERVED_OWNER_KWARG: _OWNER},
+        "meta": {qb.RUN_ID_META_KEY: "run-1"},
+    }
+
+
+def test_public_item_lifts_the_owner_kwarg_and_never_relays_it() -> None:
+    public = queue._public_item(_owned_item())
+
+    assert public["owner"] == _OWNER
+    # The reserved key is not a plan argument: a client that replayed one would
+    # be claiming to be somebody.
+    assert public["kwargs"] == _GRID_SCAN_ARGS
+
+
+def test_public_item_lifts_the_owner_an_external_worker_lane_stamped_on_the_meta() -> None:
+    """A facility RE Manager validates every add against the plan's own
+    signature, so an external-worker lane carries no reserved kwarg to lift —
+    the owner is on the item's metadata, and the relayed shape is the same."""
+    item = {
+        "item_uid": "u1",
+        "name": "count",
+        "kwargs": {"num": 3},
+        "meta": {qb.RUN_ID_META_KEY: "run-1", qb.OWNER_META_KEY: _OWNER},
+    }
+
+    public = queue._public_item(item)
+
+    assert public["owner"] == _OWNER
+    assert public["kwargs"] == {"num": 3}
+
+
+def test_public_item_names_no_owner_for_a_plan_that_reached_the_queue_unnamed() -> None:
+    """The queue port is the facility's, so a plan can reach the manager from
+    outside OSPREY. Such an item is attributed to nobody, and gets no ``owner``
+    key to be attributed with."""
+    unowned = {"item_uid": "u9", "name": "count", "kwargs": {"num": 3}}
+
+    assert "owner" not in queue._public_item(unowned)
+    # Nothing to project: the manager's own object is what goes on the wire.
+    assert queue._public_item(unowned) is unowned
+
+
+def test_public_item_does_not_mutate_the_owned_item_it_was_given() -> None:
+    """The projection is for the wire. The item itself still has to reach the
+    worker carrying the kwarg the plan wrapper binds."""
+    item = _owned_item()
+
+    queue._public_item(item)
+
+    assert item["kwargs"][qb.RESERVED_OWNER_KWARG] == _OWNER
+
+
+def test_public_item_lifts_the_owner_on_a_history_entry() -> None:
+    """A finished item takes the same projection as a pending one, so a history
+    reader is told who ran the plan and is still never handed the reserved key."""
+    finished = {**_owned_item("u3"), "result": {"exit_status": "completed", "run_uids": ["r-1"]}}
+
+    public = queue._public_item(finished)
+
+    assert public["owner"] == _OWNER
+    assert public["kwargs"] == _GRID_SCAN_ARGS
+    assert public["result"]["exit_status"] == "completed"
+
+
+def test_get_queue_shows_the_owner_and_never_the_reserved_kwarg(client: TestClient) -> None:
+    _install(
+        FakeManager(
+            status=status_doc(items_in_queue=1, running_item_uid="u2"),
+            queue_get={
+                "success": True,
+                "items": [_owned_item("u1")],
+                "running_item": _owned_item("u2"),
+            },
+        )
+    )
+
+    resp = client.get("/queue")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    (relayed,) = body["items"]
+    assert relayed["owner"] == _OWNER
+    assert relayed["kwargs"] == _GRID_SCAN_ARGS
+    assert body["running_item"]["owner"] == _OWNER
+    assert qb.RESERVED_OWNER_KWARG not in resp.text
+
+
+async def test_an_sse_frame_shows_the_owner_and_never_the_reserved_kwarg() -> None:
+    manager = FakeManager(
+        status=status_doc(items_in_queue=1),
+        queue_get={"success": True, "items": [_owned_item("u1")], "running_item": {}},
+    )
+    app_module.set_queue_backend(QueueBackend(manager))
+    subscriber: asyncio.Queue[Any] = asyncio.Queue()
+    queue._subscribers.add(subscriber)
+
+    await queue._poll_once()
+
+    frame = subscriber.get_nowait()
+    (streamed,) = frame["items"]
+    assert streamed["owner"] == _OWNER
+    assert streamed["kwargs"] == _GRID_SCAN_ARGS
+    assert qb.RESERVED_OWNER_KWARG not in json.dumps(frame)
+
+
+def test_the_add_response_shows_the_owner_and_never_the_reserved_kwarg(
+    client: TestClient, connector
+) -> None:
+    connector("virtual_accelerator")
+    _install(
+        FakeManager(status=status_doc(), item_add={"success": True, "item": _owned_item("u1")})
+    )
+    revision = _make_draft(client)
+
+    resp = client.post("/queue/items", json={"draft_revision": revision})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["item"]["owner"] == _OWNER
+    assert qb.RESERVED_OWNER_KWARG not in resp.text
+
+
+def test_the_move_and_remove_responses_show_the_owner(client: TestClient) -> None:
+    """The two mutation echoes are the same relay: a panel that renders the
+    returned item renders it exactly as it renders a queue row."""
+    _install(
+        FakeManager(
+            item_move={"success": True, "item": _owned_item("u1")},
+            item_remove={"success": True, "item": _owned_item("u1")},
+        )
+    )
+
+    moved = client.post("/queue/items/u1/move", json={"before_uid": "u2"})
+    removed = client.delete("/queue/items/u1")
+
+    assert moved.json()["item"]["owner"] == _OWNER
+    assert removed.json()["item"]["owner"] == _OWNER
+    assert qb.RESERVED_OWNER_KWARG not in moved.text
+    assert qb.RESERVED_OWNER_KWARG not in removed.text

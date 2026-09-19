@@ -1556,7 +1556,9 @@ def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_an
 
 def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     """A persona's `extra_mounts` render as additional `volumes:` entries on every
-    user of that persona, after the two default (claude-config, agent-data) mounts."""
+    user of that persona, after the four framework mounts (claude-config,
+    agent-data, this user's audit subdirectory and its control-context record
+    directory)."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     web_terminals = config["modules"]["web_terminals"]
@@ -1583,28 +1585,34 @@ def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
     artifacts = render_web_terminals(config)
     compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
 
-    # Assert — bob (gui) carries the three default mounts plus the persona's two
+    # Assert — bob (gui) carries the four default mounts plus the persona's two
     bob_volumes = compose["services"]["web-bob"]["volumes"]
     assert bob_volumes == [
         "bob-claude-config:/data/claude-config",
         "bob-agent-data:/app/dls-gui/var/agent_data",
         "./var/audit/bob:/app/dls-gui/var/audit/bob",
+        "./var/agent_data/control_target/bob:/app/dls-gui/var/agent_data/control_target/bob",
         "/opt/site-data:/app/site-data:ro",
         "shared-cache:/app/cache",
     ]
     # alice (default persona, no extra_mounts) keeps exactly the framework's own
-    # three mounts — the persona's list adds to them, never reorders them.
+    # four mounts — the persona's list adds to them, never reorders them.
     assert compose["services"]["web-alice"]["volumes"] == [
         "alice-claude-config:/data/claude-config",
         "alice-agent-data:/app/dls-assistant/var/agent_data",
         "./var/audit/alice:/app/dls-assistant/var/audit/alice",
+        (
+            "./var/agent_data/control_target/alice"
+            ":/app/dls-assistant/var/agent_data/control_target/alice"
+        ),
     ]
 
 
 def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
-    """A no-personas config (the zero-migration default) emits exactly the three
-    framework per-user volume lines — claude-config, agent-data and this user's
-    own audit subdirectory — and the extra_mounts loop adds nothing."""
+    """A no-personas config (the zero-migration default) emits exactly the four
+    framework per-user volume lines — claude-config, agent-data, this user's own
+    audit subdirectory and its own control-context record directory — and the
+    extra_mounts loop adds nothing."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
 
@@ -1618,6 +1626,10 @@ def test_no_extra_mounts_leaves_only_the_default_volume_lines() -> None:
             f"{user}-claude-config:/data/claude-config",
             f"{user}-agent-data:/app/dls-assistant/var/agent_data",
             f"./var/audit/{user}:/app/dls-assistant/var/audit/{user}",
+            (
+                f"./var/agent_data/control_target/{user}"
+                f":/app/dls-assistant/var/agent_data/control_target/{user}"
+            ),
         ]
 
 

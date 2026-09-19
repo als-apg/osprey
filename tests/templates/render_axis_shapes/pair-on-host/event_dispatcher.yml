@@ -52,6 +52,14 @@ services:
       FASTMCP_TRANSPORT: http
       FASTMCP_HOST: 127.0.0.1
       FASTMCP_PORT: "10010"
+      # The same prefix also decides the path the MCP transport answers on.
+      # Stated rather than left to FastMCP's own default because the terminal's
+      # panel proxy reaches this server by appending a path of its own, and a
+      # default is a value one end can change without the other hearing about
+      # it. The Python spelling is osprey.dispatch.DISPATCHER_MCP_PATH; a render
+      # test asserts the two are the same string, so the proxy and the server
+      # cannot drift apart.
+      FASTMCP_STREAMABLE_HTTP_PATH: /mcp
       # No :-default — an unset token must stay EMPTY so the server fails closed
       # (HTTP 503) rather than booting with a guessable secret. `osprey up`
       # auto-generates strong random tokens into the project .env when unset.

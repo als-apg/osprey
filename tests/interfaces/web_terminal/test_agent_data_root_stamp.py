@@ -62,6 +62,7 @@ from osprey.mcp_server.control_system.connector_host_manager import ConnectorHos
 from osprey.mcp_server.control_system.server_context import MCPServerConfig
 from osprey.mcp_server.sandbox_env import scrub_sandbox_child_env
 from osprey_connectors import posture_store
+from osprey_connectors.identity import acting_identity
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -367,7 +368,9 @@ class TestStateDirPrefersTheStamp:
         monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, str(stamped))
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path / "config")
 
-        assert target_state.state_dir() == stamped / target_state.STATE_DIR_NAME
+        assert target_state.state_dir() == (
+            stamped / target_state.STATE_DIR_NAME / acting_identity()
+        )
 
     def test_the_server_report_lands_under_the_stamped_root(self, tmp_path, monkeypatch):
         """Not just the directory: what a reader globs for is under it too."""
@@ -377,7 +380,8 @@ class TestStateDirPrefersTheStamp:
 
         target_state.write_server_record(server_pid=4321)
 
-        written = list((stamped / target_state.STATE_DIR_NAME).glob(target_state.REPORT_FILE_GLOB))
+        directory = stamped / target_state.STATE_DIR_NAME / acting_identity()
+        written = list(directory.glob(target_state.REPORT_FILE_GLOB))
         assert [p.name for p in written] == ["server_4321.json"]
         assert target_state.read(4321)["server_pid"] == 4321
         assert not (tmp_path / "config").exists(), "the config derivation was consulted"
@@ -390,10 +394,9 @@ class TestStateDirPrefersTheStamp:
         monkeypatch.delenv(OSPREY_AGENT_DATA_ROOT, raising=False)
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
 
-        assert target_state.state_dir() == tmp_path / target_state.STATE_DIR_NAME
-        assert target_state.report_file_path(99) == (
-            tmp_path / target_state.STATE_DIR_NAME / "server_99.json"
-        )
+        identity_dir = tmp_path / target_state.STATE_DIR_NAME / acting_identity()
+        assert target_state.state_dir() == identity_dir
+        assert target_state.report_file_path(99) == identity_dir / "server_99.json"
 
     def test_an_empty_stamp_is_no_stamp(self, tmp_path, monkeypatch):
         """``env=""`` is how a shell spells "unset" by accident; an empty root
@@ -402,4 +405,6 @@ class TestStateDirPrefersTheStamp:
         monkeypatch.setenv(OSPREY_AGENT_DATA_ROOT, "")
         monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
 
-        assert target_state.state_dir() == tmp_path / target_state.STATE_DIR_NAME
+        assert target_state.state_dir() == (
+            tmp_path / target_state.STATE_DIR_NAME / acting_identity()
+        )

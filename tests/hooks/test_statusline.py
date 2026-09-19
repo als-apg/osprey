@@ -10,11 +10,13 @@ direct import for exact-value assertions the rendered line would obscure.
 
 from __future__ import annotations
 
+import io
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -51,6 +53,46 @@ def _run(payload, cwd=None):
         cwd=str(cwd) if cwd else None,
     )
     return result.returncode, _strip(result.stdout)
+
+
+#: The branch :func:`answering_git` reports.
+_STUB_BRANCH = "osprey-test-branch"
+
+
+@pytest.fixture
+def answering_git(monkeypatch):
+    """Make the statusline's ``git`` call answer with a branch, at once.
+
+    The statusline holds that call to a one-second budget so that no repository
+    can delay a prompt, and drops the branch when the budget runs out. A row
+    that shells out to a real git therefore asserts a wall-clock race alongside
+    the rendering, and loses that race on a machine running the suite in
+    parallel.
+
+    Answering in-process takes the budget, the ``PATH`` lookup and the state of
+    any real repository out of the row without softening what it asserts: the
+    stub records the argv it was handed, so the row pins the command the
+    statusline sends as well as what it renders from the answer.
+    """
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(list(argv))
+        return subprocess.CompletedProcess(argv, 0, stdout=f"{_STUB_BRANCH}\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    return calls
+
+
+def _render(payload) -> str:
+    """Run the statusline in-process over ``payload``; return its stripped line."""
+    stdout = io.StringIO()
+    with (
+        mock.patch.object(statusline.sys, "stdin", io.StringIO(json.dumps(payload))),
+        mock.patch.object(statusline.sys, "stdout", stdout),
+    ):
+        statusline.main()
+    return _strip(stdout.getvalue())
 
 
 # ---------------------------------------------------------------------------
@@ -114,44 +156,17 @@ def test_line_contains_model_context_and_versions(tmp_path):
     assert "(" not in out  # no git branch parens for a non-repo dir
 
 
-def test_branch_rendered_for_git_repo(tmp_path):
+def test_branch_rendered_for_git_repo(tmp_path, answering_git):
     """When current_dir is a git repo, the abbreviated branch appears in parens."""
-    init = subprocess.run(
-        ["git", "init", "-b", "osprey-test-branch", str(tmp_path)],
-        capture_output=True,
-        text=True,
+    out = _render(
+        {
+            "model": {"display_name": "Opus"},
+            "workspace": {"current_dir": str(tmp_path)},
+        }
     )
-    if init.returncode != 0:
-        pytest.skip("git unavailable or too old for `git init -b`")
-    # `rev-parse --abbrev-ref HEAD` (what the statusline runs) needs a commit to
-    # resolve — an unborn branch errors. Make an empty one with a local identity.
-    commit = subprocess.run(
-        [
-            "git",
-            "-c",
-            "user.email=test@example.com",
-            "-c",
-            "user.name=test",
-            "-C",
-            str(tmp_path),
-            "commit",
-            "--allow-empty",
-            "-m",
-            "init",
-        ],
-        capture_output=True,
-        text=True,
-    )
-    if commit.returncode != 0:
-        pytest.skip(f"git commit unavailable: {commit.stderr}")
 
-    payload = {
-        "model": {"display_name": "Opus"},
-        "workspace": {"current_dir": str(tmp_path)},
-    }
-    rc, out = _run(payload, cwd=tmp_path)
-    assert rc == 0
-    assert "(osprey-test-branch)" in out
+    assert f"({_STUB_BRANCH})" in out
+    assert answering_git == [["git", "-C", str(tmp_path), "rev-parse", "--abbrev-ref", "HEAD"]]
 
 
 def test_optional_segments_omitted_when_absent(tmp_path):

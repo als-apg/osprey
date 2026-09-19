@@ -1,15 +1,24 @@
 """Writers for the control-context record and the per-server reports, for tests.
 
 Every suite downstream of the control context needs the same two files on disk:
-``control_target/control_context.json`` and one or more
-``control_target/server_<pid>.json``. Spelling those payloads in each suite is
-how a schema change becomes fifteen separate green-to-red investigations — so
-they are spelled once, here, from the same dataclasses the production readers
-parse. A field that moves fails every suite at once, which is the point.
+``control_target/<identity>/control_context.json`` and one or more
+``control_target/<identity>/server_<pid>.json``. Spelling those payloads in each
+suite is how a schema change becomes fifteen separate green-to-red
+investigations — so they are spelled once, here, from the same dataclasses the
+production readers parse. A field that moves fails every suite at once, which is
+the point.
 
 The writers take an explicit agent-data *root* rather than reading the
 environment: a test that has not stamped ``OSPREY_AGENT_DATA_ROOT`` yet still
 has to be able to lay down the deployment it is about to point at.
+
+The ``<identity>`` hop is nobody's literal here either. Both writers reach it
+through :func:`~osprey_connectors.control_context.record_path_under`, the one
+place the hops are spelled, and a suite that needs the directory itself asks
+:func:`state_dir_under` for it rather than joining the name again — a fixture
+that created one directory while the reader under test resolved another is a
+narrowing that silently never applies, and the file being absent is the only
+symptom.
 
 Both writers drop the reader cache after they write. The cache is keyed on
 ``(mtime_ns, size, ino)``, and a test that rewrites a record twice inside one
@@ -27,6 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey_connectors import control_context
+from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
 
 #: The target a record carries when a test does not care which one it is.
 DEFAULT_TARGET = "live"
@@ -34,6 +44,62 @@ DEFAULT_TARGET = "live"
 #: The generation that goes with it. Deliberately not 0: a test that asserts a
 #: generation moved wants the before-value to be distinguishable from "unset".
 DEFAULT_GENERATION = 1
+
+#: The identity a suite pins when it has to spell the state directory it means.
+#: Deliberately not a plausible account name: a path that still carries the
+#: developer's login is then a rung nobody pinned, not a coincidence that also
+#: passes on the one machine it was written on.
+FIXTURE_IDENTITY = "test-operator"
+
+
+# -- paths ------------------------------------------------------------------
+
+
+def state_dir_under(root: Path) -> Path:
+    """The directory the record and the per-server reports land in, under *root*.
+
+    For suites that need the directory rather than a file in it — one to create
+    before a reader is aimed at it, one to list, one to hand a path seam. Taken
+    from :func:`~osprey_connectors.control_context.record_path_under` rather than
+    joined here, so the identity hop has exactly one spelling in the tests as
+    well as in the code: a suite that built this path itself would keep passing
+    after the layout moved, against a directory no reader resolves.
+
+    Args:
+        root: The agent-data root. Nothing is created.
+    """
+    return control_context.record_path_under(Path(root)).parent
+
+
+def pin_identity(monkeypatch: Any, identity: str = FIXTURE_IDENTITY) -> str:
+    """Pin the acting identity for one test, and return the name it now answers.
+
+    For the assertions that spell the directory literally. Without a pin the
+    segment is :func:`getpass.getuser`'s answer — the developer's login locally,
+    an agent account in CI, :data:`~osprey_connectors.identity.UNKNOWN_IDENTITY`
+    in a slim image with no passwd entry — so a literal path is three different
+    strings on three machines.
+
+    The lower rung is cleared as well as the upper one set: ``OSPREY_TERMINAL_USER``
+    wins over ``OSPREY_AUDIT_IDENTITY`` in the ladder, and a suite run from
+    inside a multi-user web terminal carries one.
+
+    NOT for a test whose subject runs as a subprocess. ``tests/hooks/conftest.py``
+    builds a curated environment from an allowlist that carries neither variable,
+    so a pinned parent and its hook child would resolve two different
+    directories, and the child would simply find no record. Those tests write
+    through the shared writers and assert no literal.
+
+    Args:
+        monkeypatch: The test's ``monkeypatch`` fixture; the pin is reverted with it.
+        identity: The name to pin. Defaults to :data:`FIXTURE_IDENTITY`.
+
+    Returns:
+        The identity now in force, for the caller to build its expected path from.
+    """
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    monkeypatch.setenv(AUDIT_IDENTITY_ENV, identity)
+    return identity
 
 
 class _Self:
@@ -74,8 +140,8 @@ def write_control_context(
     """Write a control-context record under *root* and return its path.
 
     Args:
-        root: The agent-data root. The ``control_target/`` directory below it
-            is created if it does not exist.
+        root: The agent-data root. The acting identity's directory below it —
+            :func:`state_dir_under` — is created if it does not exist.
         target: The control target the deployment is pointed at.
         generation: How many times that has moved.
         posture: Per-target narrowings, ``{target: "sandbox"}``. Empty when

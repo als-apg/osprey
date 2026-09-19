@@ -59,10 +59,10 @@ STORE_FILENAME = "session-transcripts.json"
 def store_path() -> Path | None:
     """Where the map lives, or ``None`` when it has no location.
 
-    Delegates to :func:`osprey_connectors.posture_store.state_dir` — the same
-    resolution the posture store uses (env ``OSPREY_AGENT_DATA_ROOT``, else the
-    config derivation), so the two files are co-sited by construction rather
-    than by two rules that agree today. That resolution can raise as well as
+    Delegates to :func:`osprey_connectors.posture_store.state_dir`, rule 1 of
+    that module's contract and the resolution the control-context record itself
+    uses, so the two files are co-sited by construction rather than by two
+    rules that agree today. That resolution can raise as well as
     answer ``None``; both mean the same thing here, a map that is memory-only.
     """
     try:

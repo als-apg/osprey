@@ -16,6 +16,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
 
@@ -23,6 +24,7 @@ import pytest
 
 from osprey.interfaces import common_middleware
 from osprey.interfaces.common_middleware import (
+    EXEMPT_PATHS,
     EXTERNAL_ORIGIN_ENV,
     MAX_BODY_PEEK_BYTES,
     MAX_SESSION_COOKIE_CANDIDATES,
@@ -36,7 +38,9 @@ from osprey.interfaces.common_middleware import (
     is_exempt_path,
     session_cookie_name,
 )
-from osprey.interfaces.web_auth import WebCredentials, reset_web_credentials
+from osprey.interfaces.web_auth import BIND_HOST_ENV, WebCredentials, reset_web_credentials
+from osprey.utils.identity import AUDIT_IDENTITY_ENV, acting_identity
+from osprey.utils.owner_header import OWNER_HEADER
 
 #: Read off the module rather than retyped, so a rename cannot leave the
 #: caplog assertions below silently watching a logger nothing writes to.
@@ -1581,3 +1585,327 @@ def test_a_restored_session_is_clamped_to_the_new_lifetime_after_restart(
     sent = drive(guard, http_scope(headers=cookie, app=app_stub))
     assert status_of(sent) == 401
     assert not expired.called
+
+
+# --------------------------------------------------------------------------- #
+# Owner stamping: who an admitted connection belongs to
+# --------------------------------------------------------------------------- #
+#
+# The gate is one of the two places the ``X-Osprey-Owner`` header is minted
+# (the terminal proxy is the other), and the only one that can mint it from a
+# credential. So the properties below are trust-boundary properties: what the
+# caller claimed never survives, and a name appears only where the credential
+# that matched named a human. Everything else — a cookie, a login URL, the
+# panel token, the deployment-wide secret at a shared sidecar — admits the
+# request and attributes nothing.
+
+#: The owner header's wire name as a scope carries it, derived from the shared
+#: spelling so a rename cannot leave these assertions watching nothing.
+OWNER_WIRE_NAME = OWNER_HEADER.lower().encode("latin-1")
+
+#: One named roster user's secret, distinct from the deployment-wide one so the
+#: two readings of "operator" cannot be confused in the assertions below.
+ROSTER_SECRET = "roster-op1-secret-value"
+
+
+@pytest.fixture
+def identity_markers(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
+    """Clear the process identity markers; each test sets only what it means.
+
+    ``web_auth._own_secret_operator`` reads them per request — that is what
+    lets one module serve a terminal container, a sidecar and a single-user
+    host — so a marker inherited from the ambient environment would silently
+    decide which of those shapes a test is exercising.
+    """
+    monkeypatch.delenv(BIND_HOST_ENV, raising=False)
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    monkeypatch.delenv(AUDIT_IDENTITY_ENV, raising=False)
+    return monkeypatch
+
+
+@pytest.fixture
+def roster_credentials() -> Iterator[WebCredentials]:
+    """A sidecar's holder: the deployment-wide secret and one named roster user."""
+    reset_web_credentials()
+    yield WebCredentials(
+        operator_secret=OPERATOR_SECRET,
+        panel_token=PANEL_TOKEN,
+        roster_secrets=(ROSTER_SECRET,),
+        roster_owners=("op1",),
+    )
+    reset_web_credentials()
+
+
+@pytest.fixture
+def roster_app_stub(roster_credentials: WebCredentials) -> Any:
+    return SimpleNamespace(state=SimpleNamespace(web_credentials=roster_credentials))
+
+
+def owners_of(scope: dict[str, Any]) -> list[str]:
+    """Every owner header on ``scope``, decoded, in wire order."""
+    return [
+        value.decode("latin-1")
+        for name, value in scope["headers"]
+        if name.lower() == OWNER_WIRE_NAME
+    ]
+
+
+def stamped_owner(scope: dict[str, Any]) -> str | None:
+    """What the gate recorded on ``scope``'s state, or ``None`` for nobody."""
+    return (scope.get("state") or {}).get("osprey_owner")
+
+
+def test_a_roster_secret_stamps_its_account_over_every_inbound_claim(
+    middleware, downstream, roster_app_stub, identity_markers
+):
+    """The sidecar case the feature exists for: op1's secret enqueues as op1.
+
+    The process is sidecar-shaped on purpose — a bind host and no user marker,
+    where the *own* secret names nobody — so the name can only have come from
+    the roster entry beside the secret that matched.
+    """
+    identity_markers.setenv(BIND_HOST_ENV, "0.0.0.0")
+    identity_markers.setenv(AUDIT_IDENTITY_ENV, "bluesky-web")
+    scope = http_scope(
+        raw_headers=[
+            (b"x-osprey-terminal-secret", ROSTER_SECRET.encode("latin-1")),
+            (b"X-Osprey-Owner", b"bob"),
+            (b"x-osprey-owner", b"carol"),
+        ],
+        app=roster_app_stub,
+    )
+
+    assert status_of(drive(middleware, scope)) == 200
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == ["op1"]
+    assert stamped_owner(admitted) == "op1"
+
+
+def test_the_own_secret_stamps_the_user_of_a_terminal_container(
+    middleware, downstream, app_stub, identity_markers
+):
+    """In a ``web-<user>`` container the own secret IS that user's secret."""
+    identity_markers.setenv(BIND_HOST_ENV, "0.0.0.0")
+    identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+    headers = {OPERATOR_SECRET_HEADER: OPERATOR_SECRET}
+
+    assert status_of(drive(middleware, http_scope(headers=headers, app=app_stub))) == 200
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == ["alice"]
+    assert stamped_owner(admitted) == "alice"
+
+
+def test_the_own_secret_at_a_shared_sidecar_stamps_nobody(
+    middleware, downstream, app_stub, identity_markers
+):
+    """A direct login at the panel's own address is an operator, not a person.
+
+    The audit identity there names the SERVICE, so borrowing it would file a
+    human's plan under ``bluesky-web``; and the inbound claim is dropped just
+    the same, which is what stops that door attributing a plan to a roster user.
+    """
+    identity_markers.setenv(BIND_HOST_ENV, "0.0.0.0")
+    identity_markers.setenv(AUDIT_IDENTITY_ENV, "bluesky-web")
+    headers = {OPERATOR_SECRET_HEADER: OPERATOR_SECRET, OWNER_HEADER: "bob"}
+
+    assert status_of(drive(middleware, http_scope(headers=headers, app=app_stub))) == 200
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == []
+    assert stamped_owner(admitted) is None
+
+
+def test_the_own_secret_on_a_single_user_host_stamps_the_process_account(
+    middleware, downstream, app_stub, identity_markers
+):
+    """No declared bind host means no reverse proxy and one human at the console."""
+    headers = {OPERATOR_SECRET_HEADER: OPERATOR_SECRET}
+
+    assert status_of(drive(middleware, http_scope(headers=headers, app=app_stub))) == 200
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == [acting_identity()]
+    assert stamped_owner(admitted) == acting_identity()
+
+
+def test_a_cookie_login_stamps_nobody_and_still_drops_the_claim(
+    middleware, downstream, app_stub, credentials, identity_markers
+):
+    """Nothing about the login that minted a session id was attributable."""
+    headers = {**session_cookie(credentials), OWNER_HEADER: "bob"}
+
+    assert status_of(drive(middleware, http_scope(headers=headers, app=app_stub))) == 200
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == []
+    assert stamped_owner(admitted) is None
+
+
+def test_the_panel_token_stamps_nobody_and_still_drops_the_claim(
+    middleware, downstream, app_stub, identity_markers
+):
+    """One shared value held by every companion identifies a component."""
+    headers = {**bearer(), OWNER_HEADER: "bob"}
+
+    sent = drive(middleware, http_scope("/api/panels", "GET", headers, app=app_stub))
+
+    assert status_of(sent) == 200
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == []
+    assert stamped_owner(admitted) is None
+
+
+def test_a_websocket_is_stamped_like_a_request(
+    middleware, downstream, roster_app_stub, identity_markers
+):
+    """A terminal socket carries keystrokes into a shell; it is a write path."""
+    identity_markers.setenv(BIND_HOST_ENV, "0.0.0.0")
+    identity_markers.setenv(AUDIT_IDENTITY_ENV, "bluesky-web")
+    scope = ws_scope(
+        headers={OPERATOR_SECRET_HEADER: ROSTER_SECRET, OWNER_HEADER: "bob"},
+        app=roster_app_stub,
+    )
+
+    drive(middleware, scope)
+
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == ["op1"]
+    assert stamped_owner(admitted) == "op1"
+
+
+def test_a_token_exchange_stamps_nobody(middleware, downstream, app_stub, identity_markers):
+    """A login URL is the deployment's secret in an address bar, not a name.
+
+    The gate answers the exchange itself, so what is pinned here is the scope
+    it answered on: the claim gone, and no owner recorded for the anonymous
+    session it is about to mint.
+    """
+    identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+    scope = http_scope(
+        "/",
+        "GET",
+        {OWNER_HEADER: "bob"},
+        app=app_stub,
+    )
+    scope["query_string"] = f"token={OPERATOR_SECRET}".encode()
+
+    assert status_of(drive(middleware, scope)) == 303
+    assert not downstream.called
+    assert owners_of(scope) == []
+    assert stamped_owner(scope) is None
+
+
+def test_a_wrong_header_secret_still_answers_exactly_invalid_credential(
+    middleware, downstream, roster_app_stub, identity_markers
+):
+    """Naming the operator must not have changed what a refusal says.
+
+    The gate now asks *which* operator presented the header rather than merely
+    whether one did, and the refusal that answer produces has to stay the one
+    it was — a detail string is what a client matches on.
+    """
+    headers = {OPERATOR_SECRET_HEADER: "wrong", OWNER_HEADER: "bob"}
+
+    sent = drive(middleware, http_scope(headers=headers, app=roster_app_stub))
+
+    assert status_of(sent) == 401
+    assert detail_of(sent) == "invalid credential"
+    assert not downstream.called
+
+
+def test_a_wrong_query_token_still_answers_exactly_invalid_credential(
+    middleware, downstream, roster_app_stub, identity_markers
+):
+    scope = http_scope("/", "GET", app=roster_app_stub)
+    scope["query_string"] = b"token=not-the-secret"
+
+    sent = drive(middleware, scope)
+
+    assert status_of(sent) == 401
+    assert detail_of(sent) == "invalid credential"
+    assert not downstream.called
+
+
+@pytest.mark.parametrize(
+    "path",
+    [*sorted(EXEMPT_PATHS), *STATIC_MOUNT_PREFIXES, "/static/js/app.js"],
+)
+def test_an_exempt_path_admits_owner_less_and_still_drops_the_claim(
+    middleware, downstream, app_stub, identity_markers, path
+):
+    """A route the gate does not authenticate names nobody — and relays nothing.
+
+    The process is terminal-shaped, where a credential *would* have named
+    alice, so the owner-less result can only come from the path being exempt.
+    Parametrised off the exempt set itself rather than a hand-listed path, so a
+    route added there inherits the assertion: the claim dies on every path the
+    gate passes, which is what stops "exempt" and "reads an owner" from
+    becoming the same route unnoticed.
+    """
+    identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+    scope = http_scope(path, headers={OWNER_HEADER: "bob"}, app=app_stub)
+
+    assert status_of(drive(middleware, scope)) == 200
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == []
+    assert stamped_owner(admitted) is None
+
+
+def test_an_exempt_websocket_admits_owner_less_and_still_drops_the_claim(
+    middleware, downstream, app_stub, identity_markers
+):
+    """The exempt guarantee holds for a socket, not only for a request.
+
+    The websocket arm reaches the pass-through through its own branch, so an
+    exempt path that drops the claim over HTTP says nothing about the socket:
+    a terminal socket carries keystrokes into a shell, and one admitted with a
+    browser's owner claim still attached would attribute them to whoever the
+    claim named.
+    """
+    identity_markers.setenv(TERMINAL_USER_ENV, "alice")
+    scope = ws_scope("/static/js/app.js", {OWNER_HEADER: "bob"}, app=app_stub)
+
+    drive(middleware, scope, incoming=[])
+
+    admitted = downstream.scopes[0]
+    assert owners_of(admitted) == []
+    assert stamped_owner(admitted) is None
+
+
+@pytest.mark.no_auth_seam
+def test_a_route_behind_a_real_stack_reads_the_owner_off_request_state(
+    roster_credentials, identity_markers
+):
+    """The downstream contract: ``request.state.osprey_owner``, or nothing.
+
+    This is what a relay building its own forwarded headers reads, so it is
+    worth pinning through a real Starlette stack rather than on the raw scope
+    alone: ``request.state`` is backed by ``scope["state"]``, and a gate that
+    wrote somewhere else would satisfy every scope assertion above and still
+    hand the relay nothing.
+    """
+    from starlette.applications import Starlette
+    from starlette.responses import PlainTextResponse
+    from starlette.routing import Route
+    from starlette.testclient import TestClient
+
+    identity_markers.setenv(BIND_HOST_ENV, "0.0.0.0")
+    identity_markers.setenv(AUDIT_IDENTITY_ENV, "bluesky-web")
+
+    async def whoami(request):
+        return PlainTextResponse(getattr(request.state, "osprey_owner", "nobody"))
+
+    app = Starlette(routes=[Route("/api/config", whoami)])
+    app.add_middleware(WebAuthMiddleware, cookie_name=COOKIE_NAME)
+    app.state.web_credentials = roster_credentials
+
+    with TestClient(app) as client:
+        client.cookies.clear()
+        named = client.get(
+            "/api/config",
+            headers={OPERATOR_SECRET_HEADER: ROSTER_SECRET, OWNER_HEADER: "bob"},
+        )
+        assert named.text == "op1"
+
+        unnamed = client.get(
+            "/api/config",
+            headers={OPERATOR_SECRET_HEADER: OPERATOR_SECRET, OWNER_HEADER: "bob"},
+        )
+        assert unnamed.text == "nobody"

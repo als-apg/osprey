@@ -11,7 +11,9 @@ credentials rather than each minting its own.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import json
 import threading
 import time
 from types import SimpleNamespace
@@ -28,9 +30,11 @@ from osprey.interfaces.web_auth import (
     OPERATOR_SECRET_ENV,
     PANEL_TOKEN_ENV,
     ROSTER_ACCEPT_ENV,
+    ROSTER_OWNERS_ENV,
     ROSTER_SECRET_ENV_PREFIX,
     SESSION_LIFETIME_ENV,
     SESSION_STORE_DIR_ENV,
+    UNNAMED_OPERATOR,
     SessionStore,
     WebCredentials,
     _digest,
@@ -38,6 +42,7 @@ from osprey.interfaces.web_auth import (
     mint_secret,
     reset_web_credentials,
 )
+from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
 
 #: Length of ``secrets.token_urlsafe(32)``, the minting recipe every absent
 #: credential falls back to. Still the length of the id ``create_session``
@@ -53,6 +58,11 @@ def _isolated_credentials(monkeypatch: pytest.MonkeyPatch):
     first test to run would decide the credentials for every test after it and
     the environment-driven paths below would never execute. ``delenv`` also
     hands teardown the job of restoring anything the module's ``pop`` removed.
+
+    The identity markers go with them: :meth:`WebCredentials.identify_operator`
+    reads them to decide whether the own secret can name a human, so a value
+    inherited from the environment the suite was launched in would decide that
+    for every test that does not set one itself.
     """
     for var in (
         OPERATOR_SECRET_ENV,
@@ -61,6 +71,10 @@ def _isolated_credentials(monkeypatch: pytest.MonkeyPatch):
         SESSION_LIFETIME_ENV,
         SESSION_STORE_DIR_ENV,
         WEB_PORT_ENV,
+        ROSTER_ACCEPT_ENV,
+        ROSTER_OWNERS_ENV,
+        TERMINAL_USER_ENV,
+        AUDIT_IDENTITY_ENV,
     ):
         monkeypatch.delenv(var, raising=False)
     reset_web_credentials()
@@ -561,6 +575,280 @@ def test_roster_secrets_without_the_accept_flag_are_popped_and_rejected(
 
 def test_single_user_shape_has_no_roster() -> None:
     assert get_web_credentials().roster_secrets == ()
+
+
+# ---------------------------------------------------------------------------
+# Identifying the operator behind an accepted secret
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def roster_credentials() -> WebCredentials:
+    """A sidecar's holder: two named roster secrets and one nobody claimed."""
+    return WebCredentials(
+        operator_secret="operator-value",
+        panel_token="panel-value",
+        roster_secrets=("alice-value", "bob-value", "orphan-value"),
+        roster_owners=("alice-b", "bob", ""),
+    )
+
+
+def test_identify_operator_names_the_roster_account(
+    roster_credentials: WebCredentials,
+) -> None:
+    """A roster secret names the account the deployment rendered beside it."""
+    assert roster_credentials.identify_operator("alice-value") == "alice-b"
+    assert roster_credentials.identify_operator("bob-value") == "bob"
+
+
+def test_identify_operator_leaves_an_unmapped_roster_secret_unnamed(
+    roster_credentials: WebCredentials,
+) -> None:
+    """A roster secret the owners map does not cover still authorises.
+
+    An account missing from the map is a rendering gap, not a forgery: the
+    secret was supplied by the same deployment as the rest, so refusing it
+    would lock a user out over a name. It matches and names nobody.
+    """
+    assert roster_credentials.identify_operator("orphan-value") is UNNAMED_OPERATOR
+    assert roster_credentials.verify_operator("orphan-value") is True
+
+
+def test_identify_operator_refuses_anything_that_is_not_an_operator_secret(
+    roster_credentials: WebCredentials,
+) -> None:
+    """Only a match names anyone; everything else is ``None``, not a sentinel."""
+    assert roster_credentials.identify_operator("panel-value") is None
+    assert roster_credentials.identify_operator("alice-valu") is None
+    assert roster_credentials.identify_operator(None) is None
+    assert roster_credentials.identify_operator("") is None
+
+
+def test_own_secret_names_the_container_user(
+    credentials: WebCredentials, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In a ``web-<user>`` container the own secret IS that user's secret.
+
+    nginx injects the per-user value there, so the process holding it knows
+    exactly which human is behind it.
+    """
+    monkeypatch.setenv(BIND_HOST_ENV, "0.0.0.0")
+    monkeypatch.setenv(TERMINAL_USER_ENV, "alice-b")
+
+    assert credentials.identify_operator("operator-value") == "alice-b"
+
+
+def test_own_secret_names_nobody_in_a_shared_sidecar(
+    credentials: WebCredentials, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The bluesky-web sidecar's own secret is the deployment-wide one.
+
+    Anyone reaching the panel's own address with it is an operator, but not a
+    knowable one — and the sidecar's audit identity names the service, never
+    the human, so it must not be borrowed as an owner.
+    """
+    monkeypatch.setenv(BIND_HOST_ENV, "0.0.0.0")
+    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "bluesky-web")
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+
+    assert credentials.identify_operator("operator-value") is UNNAMED_OPERATOR
+    assert credentials.verify_operator("operator-value") is True
+
+
+def test_own_secret_names_nobody_when_the_user_marker_is_unusable(
+    credentials: WebCredentials, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A marker the identity ladder rejects must not fall through to the service.
+
+    The gate's test for "this process can name a human" and the ladder that
+    produces the name have to agree on what counts as one. Where they disagree,
+    a marker carrying a path separator would take the container branch and be
+    answered from the rung below it — filing a human's work under the sidecar's
+    own audit identity, which is the single outcome the sentinel exists to
+    prevent.
+    """
+    monkeypatch.setenv(BIND_HOST_ENV, "0.0.0.0")
+    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "bluesky-web")
+    monkeypatch.setenv(TERMINAL_USER_ENV, "../evil")
+
+    assert credentials.identify_operator("operator-value") is UNNAMED_OPERATOR
+    assert credentials.verify_operator("operator-value") is True
+
+
+def test_own_secret_names_the_process_account_on_the_single_user_host(
+    credentials: WebCredentials, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No declared bind host means no reverse proxy and one human at the console."""
+    monkeypatch.delenv(BIND_HOST_ENV, raising=False)
+    monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+    monkeypatch.delenv(AUDIT_IDENTITY_ENV, raising=False)
+
+    assert credentials.identify_operator("operator-value") == acting_identity()
+
+    # And it is the shared ladder that answers, not a second reading of its own.
+    monkeypatch.setenv(AUDIT_IDENTITY_ENV, "host-account")
+    assert credentials.identify_operator("operator-value") == "host-account"
+
+
+def test_own_secret_and_roster_secret_agree_on_the_same_user(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The two paths to one account must produce the same string.
+
+    A terminal container names its user from :data:`TERMINAL_USER_ENV`; the
+    sidecar names the same user from the roster map. A drift between them would
+    file one person's plans under two owners.
+    """
+    monkeypatch.setenv(BIND_HOST_ENV, "0.0.0.0")
+    monkeypatch.setenv(TERMINAL_USER_ENV, "alice-b")
+    terminal = WebCredentials(operator_secret="alice-value", panel_token="panel-value")
+    sidecar = WebCredentials(
+        operator_secret="deployment-value",
+        panel_token="panel-value",
+        roster_secrets=("alice-value",),
+        roster_owners=("alice-b",),
+    )
+
+    assert terminal.identify_operator("alice-value") == sidecar.identify_operator("alice-value")
+
+
+def test_identify_operator_compares_every_secret_once(
+    roster_credentials: WebCredentials, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One compare-all loop: a match costs the same comparisons as a miss.
+
+    Returning as soon as something matched would make the answer's timing say
+    WHICH secret it was — the roster's order is the deployment's user list, so
+    that leaks who is on it.
+    """
+    compared: list[str] = []
+    original = web_auth._same_secret
+
+    def _counting(candidate: str | None, expected: str) -> bool:
+        compared.append(expected)
+        return original(candidate, expected)
+
+    monkeypatch.setattr(web_auth, "_same_secret", _counting)
+
+    every_secret = ["operator-value", "alice-value", "bob-value", "orphan-value"]
+    assert roster_credentials.identify_operator("alice-value") == "alice-b"
+    assert compared == every_secret
+
+    compared.clear()
+    assert roster_credentials.identify_operator("nothing") is None
+    assert compared == every_secret
+
+
+def test_roster_owners_are_paired_by_variable_not_by_position(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The owners map is keyed by the roster variable's suffix, deliberately.
+
+    A blank roster variable — compose interpolating ``${VAR:-}`` for a user who
+    has not been provisioned — drops out of the accepted secrets. Pairing names
+    to secrets by position would then shift every later account by one and hand
+    one user's plans to the next, so the map is consulted by name.
+    """
+    import os
+
+    monkeypatch.setenv(OPERATOR_SECRET_ENV, "supplied-operator-secret")
+    monkeypatch.setenv(ROSTER_ACCEPT_ENV, "1")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}ALICE_B", "alice-value")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}BOB", "")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}CAROL", "carol-value")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}DAVE", "dave-value")
+    monkeypatch.setenv(ROSTER_OWNERS_ENV, "ALICE_B=alice-b,BOB=bob,CAROL=carol")
+
+    credentials = get_web_credentials()
+
+    assert credentials.roster_secrets == ("alice-value", "carol-value", "dave-value")
+    assert credentials.identify_operator("alice-value") == "alice-b"
+    assert credentials.identify_operator("carol-value") == "carol"
+    assert credentials.identify_operator("dave-value") is UNNAMED_OPERATOR
+    # A name list is not a credential: it stays where a child can read it.
+    assert os.environ[ROSTER_OWNERS_ENV]
+
+
+def test_roster_owners_without_the_accept_flag_name_nobody(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The host's own ``osprey web`` sees the deploy ``.env``'s owners map too."""
+    monkeypatch.setenv(OPERATOR_SECRET_ENV, "supplied-operator-secret")
+    monkeypatch.delenv(ROSTER_ACCEPT_ENV, raising=False)
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}ALICE_B", "alice-value")
+    monkeypatch.setenv(ROSTER_OWNERS_ENV, "ALICE_B=alice-b")
+
+    credentials = get_web_credentials()
+
+    assert credentials.roster_owners == ()
+    assert credentials.identify_operator("alice-value") is None
+
+
+@pytest.mark.parametrize(
+    "rendered",
+    ["", "ALICE_B", "=alice-b", "ALICE_B=", "ALICE_B=al ice/b", ",,", "ALICE,BOB=alice,bob"],
+)
+def test_unparseable_roster_owner_entries_leave_the_secret_unnamed(
+    monkeypatch: pytest.MonkeyPatch, rendered: str
+) -> None:
+    """A malformed value costs names, never an operator's access.
+
+    The account is stamped into an HTTP header downstream, so a value that is
+    not a single printable ASCII word is dropped rather than carried.
+    """
+    monkeypatch.setenv(OPERATOR_SECRET_ENV, "supplied-operator-secret")
+    monkeypatch.setenv(ROSTER_ACCEPT_ENV, "1")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}ALICE_B", "alice-value")
+    monkeypatch.setenv(ROSTER_OWNERS_ENV, rendered)
+
+    credentials = get_web_credentials()
+
+    assert credentials.identify_operator("alice-value") is UNNAMED_OPERATOR
+
+
+def test_a_malformed_entry_never_names_a_DIFFERENT_roster_variable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dropping a name is the designed failure; naming the wrong account is not.
+
+    The map is split on ``,`` before it is split on ``=``, so an entry whose
+    halves carry a comma breaks into fragments — and a fragment such as
+    ``BOB=alice`` is a well-formed pair keyed on a variable that belongs to
+    somebody else. Nothing downstream could tell that name from a true one, so
+    a value with any unreadable entry names nobody: Bob keeps his access under
+    no name rather than under Alice's.
+    """
+    monkeypatch.setenv(OPERATOR_SECRET_ENV, "supplied-operator-secret")
+    monkeypatch.setenv(ROSTER_ACCEPT_ENV, "1")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}ALICE_B", "alice-value")
+    monkeypatch.setenv(f"{ROSTER_SECRET_ENV_PREFIX}BOB", "bob-value")
+    monkeypatch.setenv(ROSTER_OWNERS_ENV, "ALICE,BOB=alice,bob")
+
+    credentials = get_web_credentials()
+
+    assert credentials.identify_operator("bob-value") is UNNAMED_OPERATOR
+    assert credentials.identify_operator("alice-value") is UNNAMED_OPERATOR
+
+
+def test_verify_operator_is_identify_operator(roster_credentials: WebCredentials) -> None:
+    """One implementation behind both gate branches, so they cannot disagree."""
+    for candidate in ("operator-value", "alice-value", "orphan-value", "panel-value", None, ""):
+        expected = roster_credentials.identify_operator(candidate) is not None
+        assert roster_credentials.verify_operator(candidate) is expected
+
+
+def test_unnamed_operator_is_truthy_and_equals_no_username() -> None:
+    """The sentinel has to be distinguishable from a refusal AND from a name.
+
+    Callers tell an admission from a refusal at an ``if`` and then stamp the
+    answer as an owner. A falsy sentinel would turn every nameless admission
+    into a refusal; one comparing equal to a string would let it be stamped as
+    a real account.
+    """
+    assert bool(UNNAMED_OPERATOR) is True
+    assert UNNAMED_OPERATOR is not None
+    assert UNNAMED_OPERATOR != "alice-b"
+    assert UNNAMED_OPERATOR != ""
 
 
 def test_non_ascii_candidate_is_refused_not_raised(credentials: WebCredentials) -> None:
@@ -1233,6 +1521,12 @@ _EXPECTED_PANEL_ROUTES = {
     ("POST", "/api/agent-activity"),
     ("POST", "/api/agent-turn"),
     ("POST", "/api/focus"),
+    # The proxy hop to the event dispatcher's MCP transport — the one entry
+    # that is not panel arrangement. Its own properties are pinned below;
+    # listing it here keeps this set an exhaustive statement of the tier.
+    ("GET", "/panel/events/mcp"),
+    ("POST", "/panel/events/mcp"),
+    ("DELETE", "/panel/events/mcp"),
 }
 
 #: Routes that must stay operator-only. Each is a real route in the tree (see
@@ -1416,6 +1710,200 @@ def test_tier_members_are_distinct_and_named() -> None:
     """The middleware branches on these two members; nothing else exists."""
     assert {member.name for member in web_auth.Tier} == {"PANEL", "OPERATOR"}
     assert web_auth.Tier.PANEL is not web_auth.Tier.OPERATOR
+
+
+#: The proxy hop to the event dispatcher's MCP transport — the one panel-tier
+#: path that is not panel arrangement.
+_DISPATCHER_MCP_PATH = "/panel/events/mcp"
+
+
+@pytest.mark.parametrize("method", ["GET", "POST", "DELETE"])
+def test_dispatcher_mcp_route_is_panel_tier(method: str) -> None:
+    """The three streamable-HTTP methods reach the dispatcher on the panel token.
+
+    A POST carries a call, a GET opens the event stream, a DELETE ends the
+    transport's session — all three are one conversation, so granting fewer
+    than three would leave the agent able to start work it cannot read back or
+    close. The grant is narrow in the other direction instead: the request
+    reaches a proxy that holds the dispatcher's own bearer and never hands it
+    on, and the job it fires is attributed to the session's user and bounded by
+    that user's chip.
+    """
+    assert web_auth.classify(method, _DISPATCHER_MCP_PATH, False) is web_auth.Tier.PANEL
+    assert (method, _DISPATCHER_MCP_PATH) in web_auth.PANEL_TIER_ROUTES
+
+
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "HEAD", "OPTIONS", "TRACE"])
+def test_other_methods_on_the_dispatcher_route_are_operator_only(method: str) -> None:
+    """The table keys on the method here as everywhere else.
+
+    Nothing in the transport speaks these verbs, so a request that does is not
+    the agent's MCP client; it is something else pointed at the one path the
+    weak credential opens, and it gets the strong credential's answer.
+    """
+    assert web_auth.classify(method, _DISPATCHER_MCP_PATH, False) is web_auth.Tier.OPERATOR
+    assert web_auth.classify(method, _DISPATCHER_MCP_PATH, True) is web_auth.Tier.OPERATOR
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/panel/events/mcp/",
+        "/panel/events/mcp?x=1",
+        "/PANEL/EVENTS/MCP",
+        "/panel/events/mcp/extra",
+        "/u/alice/panel/events/mcp",
+        "/panel/events/mc",
+        "/panel/events",
+    ],
+)
+def test_near_miss_dispatcher_paths_fail_closed(path: str) -> None:
+    """Only the exact path is panel-tier; every neighbouring spelling is not.
+
+    The path sits under ``/panel/``, where the terminal proxy forwards operator
+    traffic to every registered panel, so a prefix match here would not cost a
+    single route — it would hand the panel token the whole proxy.
+
+    The ``?x=1`` row is not query-string handling: an ASGI ``scope["path"]``
+    never carries a query string, so the gate cannot be handed that spelling.
+    It pins the fail-closed answer for a path that arrives only if something
+    upstream starts folding the query into the path.
+    """
+    for method in ("GET", "POST", "DELETE"):
+        assert web_auth.classify(method, path, False) is web_auth.Tier.OPERATOR, (
+            f"{method} {path} must be operator-only"
+        )
+
+
+def test_a_websocket_to_the_dispatcher_route_is_refused() -> None:
+    """The panel token opens no websocket, not even on a panel-tier path.
+
+    The gate refuses every websocket presenting this credential before it
+    consults the table at all, so the refusal does not depend on which method a
+    handshake synthesises — and the table would refuse that method anyway,
+    which is asserted here too so that neither line alone is load-bearing.
+    """
+    credentials = WebCredentials(operator_secret=mint_secret(), panel_token=mint_secret())
+    reached: list[dict] = []
+
+    async def downstream(scope, receive, send) -> None:
+        reached.append(scope)
+
+    middleware = common_middleware.WebAuthMiddleware(downstream, cookie_name="osprey_session")
+    scope = {
+        "type": "websocket",
+        "asgi": {"version": "3.0"},
+        "path": _DISPATCHER_MCP_PATH,
+        "raw_path": _DISPATCHER_MCP_PATH.encode("utf-8"),
+        "query_string": b"",
+        "scheme": "ws",
+        "headers": [(b"authorization", f"Bearer {credentials.panel_token}".encode("latin-1"))],
+        "client": ("127.0.0.1", 54321),
+        "server": ("127.0.0.1", 8080),
+        "app": SimpleNamespace(state=SimpleNamespace(web_credentials=credentials)),
+        # What uvicorn advertises, so the refusal is a real 401 the client can
+        # read rather than a bare close.
+        "extensions": {"websocket.http.response": {}},
+    }
+    sent: list[dict] = []
+
+    async def receive() -> dict:
+        return {"type": "websocket.connect"}
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+
+    asyncio.run(middleware(scope, receive, send))
+
+    assert not reached, "a websocket must never reach the app on the panel token"
+    assert [
+        message["status"] for message in sent if message["type"].endswith("response.start")
+    ] == [401]
+    assert (
+        web_auth.classify(common_middleware.WEBSOCKET_METHOD, _DISPATCHER_MCP_PATH, False)
+        is web_auth.Tier.OPERATOR
+    )
+
+
+def _drive_dispatcher_hop(method: str) -> tuple[list[dict], list[dict]]:
+    """Drive one panel-token HTTP request at the dispatcher path through the gate.
+
+    Returns the scopes the downstream app was reached with and the messages the
+    middleware sent, so a caller can assert on either side of the decision. The
+    request carries no ``Origin``: the panel token's origin check is the
+    non-strict one, which admits a caller that sends none, and an in-process
+    companion is that caller.
+    """
+    credentials = WebCredentials(operator_secret=mint_secret(), panel_token=mint_secret())
+    reached: list[dict] = []
+    sent: list[dict] = []
+
+    async def downstream(scope, receive, send) -> None:
+        reached.append(scope)
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
+    middleware = common_middleware.WebAuthMiddleware(downstream, cookie_name="osprey_session")
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "method": method,
+        "path": _DISPATCHER_MCP_PATH,
+        "raw_path": _DISPATCHER_MCP_PATH.encode("utf-8"),
+        "query_string": b"",
+        "scheme": "http",
+        "headers": [(b"authorization", f"Bearer {credentials.panel_token}".encode("latin-1"))],
+        "client": ("127.0.0.1", 54321),
+        "server": ("127.0.0.1", 8080),
+        "app": SimpleNamespace(state=SimpleNamespace(web_credentials=credentials)),
+    }
+
+    async def receive() -> dict:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+
+    asyncio.run(middleware(scope, receive, send))
+    return reached, sent
+
+
+def _statuses(sent: list[dict]) -> list[int]:
+    """The HTTP statuses the middleware wrote while answering one request."""
+    return [message["status"] for message in sent if message["type"] == "http.response.start"]
+
+
+def test_a_panel_token_post_to_the_dispatcher_route_reaches_the_app() -> None:
+    """The admit is driven through the middleware, not only the route table.
+
+    :func:`classify` is a pure lookup; what decides a request is the gate ahead
+    of it — the credential ladder, the origin check and the body peek all run
+    first. A public-path prefix, an exemption rule or a tightening of the origin
+    check on ``/panel/`` would leave every table test green while this hop was
+    refused, and a refused hop is an agent that cannot fire a job at all.
+    """
+    reached, sent = _drive_dispatcher_hop("POST")
+
+    assert [scope["path"] for scope in reached] == [_DISPATCHER_MCP_PATH]
+    assert _statuses(sent) == [200]
+
+
+def test_a_panel_token_put_to_the_dispatcher_route_is_refused_by_the_gate() -> None:
+    """The method refusal is the gate's answer, not just the table's.
+
+    The other direction of the same property: the table keys on the method, and
+    the request that does not match it must be stopped before the app — with the
+    tier detail, which says the route wants operator credentials rather than that
+    the token was wrong.
+    """
+    reached, sent = _drive_dispatcher_hop("PUT")
+
+    assert not reached, "a PUT must never reach the app on the panel token"
+    assert _statuses(sent) == [401]
+    body = b"".join(
+        message.get("body", b"") for message in sent if message["type"] == "http.response.body"
+    )
+    assert json.loads(body)["detail"] == "this route requires operator credentials"
 
 
 # ---------------------------------------------------------------------------

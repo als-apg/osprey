@@ -14,6 +14,8 @@ case:
 
 from __future__ import annotations
 
+import copy
+import errno
 import json
 import logging
 import os
@@ -38,9 +40,11 @@ from osprey.deployment.compose_generator import (
     resolve_user_volume_names,
 )
 from osprey.deployment.errors import DeploymentPreconditionError
+from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.port_layout import CA_DEFAULT_PORT, default_port, layout_ports, resolve_port_base
 from osprey.utils.workspace import DEFAULT_AGENT_DATA_BASE_DIR, RENDERED_CONFIG_RELPATH
 from tests._graph_index import build_index_from_ttl
+from tests.deployment.web_terminals.test_golden_render import EXAMPLE_CONFIG
 
 
 def _bundle_data_root(bundle: str = "control_assistant") -> Path:
@@ -349,6 +353,26 @@ def test_dispatcher_build_context_is_project_dir_relative() -> None:
     subdir. So a context naming the render has to spell the build zone.
     """
     assert "context: ./build/services/event_dispatcher" in _render_dispatcher_template()
+
+
+def test_dispatcher_serves_mcp_on_the_path_the_proxy_appends() -> None:
+    """The compose environment and ``DISPATCHER_MCP_PATH`` name one path.
+
+    FastMCP serves its streamable-HTTP transport wherever
+    ``FASTMCP_STREAMABLE_HTTP_PATH`` says, while the terminal's panel proxy
+    reaches the dispatcher by appending ``osprey.dispatch.DISPATCHER_MCP_PATH``
+    to its base URL. The two are written in different languages — a Jinja
+    template and a Python constant — so nothing but this assertion stops them
+    drifting apart, and a drift is a 404 on every agent-fired job rather than a
+    failure either end can report.
+    """
+    from osprey.dispatch import DISPATCHER_MCP_PATH
+
+    environment = yaml.safe_load(_render_dispatcher_template())["services"]["event-dispatcher"][
+        "environment"
+    ]
+
+    assert environment["FASTMCP_STREAMABLE_HTTP_PATH"] == DISPATCHER_MCP_PATH
 
 
 def test_worker_does_not_build_shared_image() -> None:
@@ -799,6 +823,173 @@ def test_va_state_mount_accepts_an_absolute_agent_data_root() -> None:
     rendered = _render_va_template({"agent_data": {"base_dir": "/srv/osprey-state"}})
 
     assert "- /srv/osprey-state/simulation:/state/simulation:ro" in rendered
+
+
+# ---------------------------------------------------------------------------
+# The read-only control-context tree
+# ---------------------------------------------------------------------------
+# A terminal user who points their session at another machine writes a record
+# saying so. The containers that EXECUTE owned writes — the Bluesky queueserver
+# and the dispatch worker — have to see that record, so the host's whole
+# `control_target/` tree is bound into them read-only at a path named by
+# OSPREY_CONTROL_CONTEXT_TREE. Both halves are derived once here, for the same
+# reason the limits mount and the VA state mount above are: the directory a
+# terminal writes into and the directory a reader is mounted at must be one
+# string, and a template that joined `agent_data.base_dir` itself would be a
+# second spelling free to drift from the writer's.
+
+
+def _tree_keys(config: dict[str, Any] | None = None) -> tuple[str, str]:
+    """The (source, target) pair the injection hands every compose template."""
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    ctx = _inject_project_metadata(
+        {"project_root": "/r/p", "system": {"timezone": "UTC"}, **(config or {})}
+    )
+    return ctx["osprey_control_tree_mount_source"], ctx["osprey_container_control_tree_dir"]
+
+
+def test_control_tree_source_defaults_to_the_agent_data_root() -> None:
+    source, _ = _tree_keys()
+
+    assert source == f"./{DEFAULT_AGENT_DATA_BASE_DIR}/control_target"
+
+
+def test_control_tree_source_follows_a_relocated_agent_data_root() -> None:
+    """A project that moved its agent-data root moved the tree with it: the
+    writer resolves its record under that root, so a mount left on the default
+    would bind a directory nobody writes."""
+    source, _ = _tree_keys({"agent_data": {"base_dir": "./scratch-data"}})
+
+    assert source == "./scratch-data/control_target"
+
+
+def test_control_tree_source_accepts_an_absolute_agent_data_root() -> None:
+    """An absolute root is already anchored — a `./` prefix would break it."""
+    source, _ = _tree_keys({"agent_data": {"base_dir": "/srv/osprey-state"}})
+
+    assert source == "/srv/osprey-state/control_target"
+
+
+def test_control_tree_directory_name_comes_from_the_writer() -> None:
+    """Restating the directory name here would be a second spelling of the one
+    constant the record writer resolves its own path through."""
+    from osprey_connectors.posture_store import STATE_DIR_NAME
+
+    source, _ = _tree_keys()
+
+    assert source.rsplit("/", 1)[-1] == STATE_DIR_NAME
+
+
+def test_control_tree_target_is_outside_every_container_state_zone() -> None:
+    """`entrypoint.sh`'s `hand_back_state_zone` chowns `var/` to the container
+    account on every start, and a chown across a read-only bind fails with
+    EROFS and logs a warning every time. Keeping the target out of the state
+    zone settles that by the path itself rather than by a prune entry, so it
+    also holds for an image whose entrypoint predates the prune list."""
+    _, target = _tree_keys()
+
+    assert target.startswith("/")
+    assert not target.startswith("/app"), "a project's state zone lives under /app/<project>/var"
+    assert "/var/" not in f"{target}/"
+
+
+#: The service templates whose containers execute owned writes, and the config
+#: that arms writes for each. Membership rule: a template belongs here when its
+#: container builds a connector and moves channels — the Bluesky queueserver
+#: (the per-put reference monitor moved into it with the RunEngine) and the
+#: dispatch worker (the whole agent, whose runs write as the job's owner). The
+#: bridge, the panel sidecar and the recorder execute nothing and read no tree.
+_CONNECTOR_SERVICE_TEMPLATES = [
+    pytest.param(
+        "services/bluesky/docker-compose.yml.j2",
+        {
+            "services": {"bluesky": {"port": 10080}},
+            "control_system": {"writes_enabled": True},
+            "deployed_services": ["bluesky"],
+            "deployment": {},
+        },
+        id="bluesky-queueserver",
+    ),
+    pytest.param(
+        "services/dispatch_worker/docker-compose.yml.j2",
+        {
+            "services": {"dispatch_worker": {"worker_count": 2}},
+            "control_system": {"writes_enabled": True},
+            "deployed_services": [],
+        },
+        id="dispatch-worker",
+    ),
+]
+
+
+@pytest.mark.parametrize(("rel_path", "config"), _CONNECTOR_SERVICE_TEMPLATES)
+def test_every_writes_enabled_template_carries_the_control_tree(
+    rel_path: str, config: dict[str, Any]
+) -> None:
+    """The bind and the variable that arms it are one decision, everywhere.
+
+    A bind with no variable is a directory nothing reads, so the container
+    judges owned writes on the target's ceiling alone and a narrowing goes
+    unseen. A variable with no bind names a path that does not exist inside the
+    container, which fails the entrypoint's read probe on every start. Pinned
+    as a set equality per template so neither half can be added alone.
+    """
+    source, target = _tree_keys(config)
+    doc = yaml.safe_load(_render_template_through_injection(rel_path, config))
+
+    named = {
+        key
+        for key, svc in doc["services"].items()
+        if "OSPREY_CONTROL_CONTEXT_TREE" in (svc.get("environment") or {})
+    }
+    bound = {
+        key
+        for key, svc in doc["services"].items()
+        if f"{source}:{target}:ro" in (svc.get("volumes") or [])
+    }
+
+    assert named, f"{rel_path} renders no container that reads the control tree"
+    assert named == bound
+    for key in named:
+        assert doc["services"][key]["environment"]["OSPREY_CONTROL_CONTEXT_TREE"] == target
+
+
+@pytest.mark.parametrize(("rel_path", "config"), _CONNECTOR_SERVICE_TEMPLATES)
+def test_the_control_tree_is_never_mounted_writable(rel_path: str, config: dict[str, Any]) -> None:
+    """The records are the terminals' to write. A container that could edit the
+    tree could rewrite the narrowing that judges its own writes."""
+    _, target = _tree_keys(config)
+    doc = yaml.safe_load(_render_template_through_injection(rel_path, config))
+
+    for svc in doc["services"].values():
+        for volume in svc.get("volumes") or []:
+            if target in volume:
+                assert volume.endswith(f":{target}:ro")
+
+
+def test_every_dispatch_worker_reads_the_same_whole_tree() -> None:
+    """The opposite shape to this worker's audit bind, for the opposite reason.
+
+    Audit isolation IS the mount — a worker holds a bind to its own identity's
+    subdirectory and can read no other. The tree is what a worker reads about
+    OTHER people: the owner of a dispatch job arrives with the request, so a
+    mount narrowed to one identity would answer for nobody, and every worker
+    needs the same whole tree.
+    """
+    config = {"services": {"dispatch_worker": {"worker_count": 2}}}
+    source, target = _tree_keys(config)
+    doc = yaml.safe_load(
+        _render_template_through_injection("services/dispatch_worker/docker-compose.yml.j2", config)
+    )
+
+    for i in (1, 2):
+        volumes = doc["services"][f"dispatch-worker-{i}"]["volumes"]
+        assert f"{source}:{target}:ro" in volumes
+        audit = [v for v in volumes if "/var/audit" in v]
+        assert audit and all(f"dispatch-worker-{i}" in v for v in audit), (
+            "the audit bind stays per-identity; only the tree is mounted whole"
+        )
 
 
 @pytest.mark.parametrize(
@@ -6541,6 +6732,24 @@ _CONFIG_DIGEST_BLOCK = (
     '      osprey.config.digest: "${OSPREY_CONFIG_DIGEST:-}"\n'
 )
 
+#: The MCP transport path and the comment carrying its reasoning, as the
+#: committed side does not render them yet while this addition is uncommitted.
+#: Named for the same reason as :data:`_CONFIG_DIGEST_BLOCK`, and carries the
+#: whole block for the same reason: the comment is part of the delta, and
+#: stripping the variable alone would fail on the comment instead. That this
+#: line renders at all, with the value both ends of the wire read, is pinned by
+#: :func:`test_dispatcher_serves_mcp_on_the_path_the_proxy_appends`.
+_MCP_TRANSPORT_PATH_BLOCK = (
+    "      # The same prefix also decides the path the MCP transport answers on.\n"
+    "      # Stated rather than left to FastMCP's own default because the terminal's\n"
+    "      # panel proxy reaches this server by appending a path of its own, and a\n"
+    "      # default is a value one end can change without the other hearing about\n"
+    "      # it. The Python spelling is osprey.dispatch.DISPATCHER_MCP_PATH; a render\n"
+    "      # test asserts the two are the same string, so the proxy and the server\n"
+    "      # cannot drift apart.\n"
+    "      FASTMCP_STREAMABLE_HTTP_PATH: /mcp\n"
+)
+
 
 def _head_dispatcher_render() -> str:
     """Render the dispatcher template as of ``HEAD`` in the same Environment.
@@ -6598,6 +6807,7 @@ def test_dispatcher_default_render_matches_the_committed_one_but_for_the_digest_
             text.replace(_DIGEST_LABEL_LINE, "", 1)
             .replace(_DEPLOYED_AT_LABEL_LINE, "", 1)
             .replace(_CONFIG_DIGEST_BLOCK, "", 1)
+            .replace(_MCP_TRANSPORT_PATH_BLOCK, "", 1)
         )
 
     rendered = _render_dispatcher_template()
@@ -6895,13 +7105,16 @@ def test_inject_project_metadata_passes_config_dir_keys_through(tmp_path: Path) 
 # staying in step at both entry-point shapes - a deploy reading a config from
 # `build/`, and a build rendering from a staging tree that becomes it.
 #
-# Refusals ride on the union over the targets a session here can select
-# (`any_target_writes_enabled`), because that is what gates the mount: the
-# template mounts the file per Bluesky lane, off each lane's own target posture,
-# so a deployment-wide `writes_enabled: false` with an armed
-# `connector.<type>.writes_enabled` still mounts it. A deployment with no armed
-# target never opens the file, so an unset or not-yet-staged path there is a
-# posture and not a fault.
+# A limits database is optional. Refusals ride on one target both arming
+# writes and having `limits_checking.enabled` on
+# (`any_armed_target_checks_limits`), because that pairing is what opens the
+# file: a target that checks no limits builds no validator and reads no
+# database. The write half is a union over the targets a session here can
+# select rather than the flat key, since the template mounts the file per
+# Bluesky lane off each lane's own target posture -- so a deployment-wide
+# `writes_enabled: false` with an armed `connector.<type>.writes_enabled` still
+# mounts it. Where nothing opens the file, an unset or not-yet-staged path is a
+# posture and not a fault, and no mount is recorded at all.
 # ---------------------------------------------------------------------------
 
 LIMITS_KEY = "control_system.limits_checking.database_path"
@@ -7040,13 +7253,13 @@ def test_limits_mount_never_rewrites_an_absolute_path(
     assert config["limits_mount"] == {"source": str(absolute), "target": str(absolute)}
 
 
-def test_limits_mount_refuses_a_writable_deployment_with_no_configured_path(
+def test_limits_mount_refuses_a_checking_writable_deployment_with_no_configured_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Writes on, no path: refuse the render rather than deploy unguarded.
+    """Writes on, checking on, no path: refuse rather than deploy unguarded.
 
-    The alternative is a stack that comes up writable with nothing to check
-    writes against, which the bridge's own startup guard would then refuse an
+    The alternative is a stack that comes up writable and checking writes
+    against nothing, which the bridge's own startup guard would then refuse an
     hour later from inside a container log.
     """
     config_path = _write_config(
@@ -7065,7 +7278,7 @@ def test_limits_mount_refuses_a_writable_deployment_with_no_configured_path(
     assert LIMITS_KEY in excinfo.value.remedy, "the remedy must name the key to set"
 
 
-def test_limits_mount_refuses_a_writable_deployment_whose_file_is_absent(
+def test_limits_mount_refuses_a_checking_writable_deployment_whose_file_is_absent(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A configured-but-unstaged path is caught at render, naming the path.
@@ -7141,11 +7354,13 @@ def test_limits_mount_refuses_a_per_target_writable_deployment_whose_file_is_abs
 def test_limits_mount_refuses_a_per_target_writable_deployment_with_no_configured_path(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Armed per target, no path: refused, not rendered as an empty bind.
+    """Armed per target and checking limits, no path: refused.
 
-    Without the refusal the key is absent from the render context and the
-    template's per-lane mount spells a bind with neither source nor target -
-    a compose file that does not parse, produced from a config that does.
+    Without the refusal this lane comes up with limits checking on and no
+    database behind it: the connector's empty-DB failsafe then blocks every
+    write, which reads as a lane that is silently broken rather than as the
+    config error it is. The template itself renders no volume for a context
+    without the key, so nothing downstream would report it.
     """
     config_path = _write_config(
         tmp_path,
@@ -7207,32 +7422,37 @@ def test_limits_mount_refuses_a_writable_deployment_with_a_non_string_path(
 
 
 @pytest.mark.parametrize(
-    ("database_path", "expect_key"),
+    ("database_path", "staged", "expect_key"),
     [
-        (None, False),
-        (DEFAULT_LIMITS_RELPATH, True),
+        (None, False, False),
+        (DEFAULT_LIMITS_RELPATH, False, False),
+        (DEFAULT_LIMITS_RELPATH, True, True),
     ],
-    ids=["unset", "configured-but-unstaged"],
+    ids=["unset", "configured-but-unstaged", "configured-and-staged"],
 )
 def test_limits_mount_never_refuses_a_read_only_deployment(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     database_path: object,
+    staged: bool,
     expect_key: bool,
 ) -> None:
-    """Writes off: no refusal either way, whatever the key says.
+    """Writes off: no refusal in any of the three shapes.
 
     A read-only deployment never opens the limits database, and the template's
     mount is gated on the same switch - so neither an unset key nor an unstaged
-    file is a fault here. The strings are still recorded when the key names a
-    path, because they are the right answer for that path whenever it IS
-    staged; only "no path at all" leaves nothing to record.
+    file is a fault here. The strings are recorded once the file is on the
+    host, because they are the right answer for that path whenever a lane is
+    later armed; a path with no file behind it records nothing, so no render
+    can bind a source the container runtime would create as a directory.
     """
     config_path = _write_config(
         tmp_path,
         deployed_services=[],
         control_system=_limits_config(database_path, writes_enabled=False),
     )
+    if staged:
+        _stage_limits_file(tmp_path)
 
     monkeypatch.chdir(tmp_path)
     config, _ = prepare_compose_files(str(config_path))
@@ -7240,6 +7460,131 @@ def test_limits_mount_never_refuses_a_read_only_deployment(
     assert ("limits_mount" in config) is expect_key
     if expect_key:
         assert config["limits_mount"]["source"] == f"./{DEFAULT_LIMITS_RELPATH}"
+
+
+def _unchecked_limits_config(database_path: object) -> dict:
+    """Armed deployment-wide with limits checking explicitly off."""
+    return {
+        "writes_enabled": True,
+        "limits_checking": {
+            "enabled": False,
+            "allow_unlisted_channels": False,
+            "database_path": database_path,
+        },
+    }
+
+
+def test_limits_mount_lets_an_armed_deployment_that_checks_no_limits_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Checking off is a posture, so an armed deployment needs no database.
+
+    Limits checking is opt-in per target and the connector's per-write check is
+    the enforcement point: a target with `enabled: false` builds no validator
+    and opens no file. Demanding a database of it would make one mandatory for
+    every deployment that arms writes, which is not what the runtime asks for.
+    """
+    config_path = _write_config(
+        tmp_path,
+        deployed_services=[],
+        control_system=_unchecked_limits_config(None),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    config, _ = prepare_compose_files(str(config_path))
+
+    assert "limits_mount" not in config, "there is no database, so there is nothing to mount"
+
+
+def test_limits_mount_absent_for_an_unchecked_armed_deployment_whose_file_is_absent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A path nothing will open, pointing at nothing, mounts nothing.
+
+    The configured string is honoured only once the file is there. Handing the
+    template a bind source that does not exist would have the container runtime
+    create it as an empty directory beside the operator's config - a stray
+    directory standing in for a database this deployment never reads.
+    """
+    config_path = _write_config(
+        tmp_path,
+        deployed_services=[],
+        control_system=_unchecked_limits_config(DEFAULT_LIMITS_RELPATH),
+    )
+
+    monkeypatch.chdir(tmp_path)
+    config, _ = prepare_compose_files(str(config_path))
+
+    assert "limits_mount" not in config
+    assert not (tmp_path / DEFAULT_LIMITS_RELPATH).exists(), (
+        "the render must not create the bind source it declined to mount"
+    )
+
+
+def test_limits_mount_refuses_when_only_the_armed_target_checks_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both leaves are read off the SAME target, not folded across targets.
+
+    Here the armed VA checks limits while the read-only live block does not.
+    An answer folded over every target would see one armed target and one
+    checking target and could report a pairing that no single machine has; the
+    lane that opens the database is the VA, so the absent file is fatal.
+    """
+    control_system = {
+        "type": "virtual_accelerator",
+        "writes_enabled": False,
+        "connector": {
+            "virtual_accelerator": {
+                "writes_enabled": True,
+                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            },
+            "epics": {
+                "writes_enabled": False,
+                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+            },
+        },
+        "limits_checking": {"database_path": DEFAULT_LIMITS_RELPATH},
+    }
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(DeploymentPreconditionError, match=re.escape(LIMITS_KEY)) as excinfo:
+        prepare_compose_files(str(config_path))
+
+    assert str(tmp_path / DEFAULT_LIMITS_RELPATH) in excinfo.value.reason
+
+
+def test_limits_mount_lets_an_armed_unchecked_target_build_beside_a_checking_read_only_one(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mirror image: the target that checks limits is the one nobody arms.
+
+    A fold that asked "is anything armed" and "is anything checking" separately
+    would refuse this build over a read-only machine's posture. Nothing here
+    opens the database, so its absence is not a fault.
+    """
+    control_system = {
+        "type": "virtual_accelerator",
+        "writes_enabled": False,
+        "connector": {
+            "virtual_accelerator": {
+                "writes_enabled": True,
+                "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
+            },
+            "epics": {
+                "writes_enabled": False,
+                "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
+            },
+        },
+        "limits_checking": {"database_path": DEFAULT_LIMITS_RELPATH},
+    }
+    config_path = _write_config(tmp_path, deployed_services=[], control_system=control_system)
+
+    monkeypatch.chdir(tmp_path)
+    config, _ = prepare_compose_files(str(config_path))
+
+    assert "limits_mount" not in config
 
 
 def test_limits_mount_absent_when_no_control_system_block_exists(
@@ -8806,424 +9151,38 @@ class TestImagePinVersion:
 
 
 # ---------------------------------------------------------------------------
-# The per-lane limits gate (``_refuse_lane_writes_without_limits``)
+# A derived device set behind an armed lane
 #
-# A derived device set is OSPREY's own list of what the queueserver worker may
-# move, so the build that chose that list refuses to hand it to a lane that
-# arms writes with limits checking off for its target. Per LANE-TARGET
-# throughout: a deployment can arm its simulator and leave its live machine
-# read-only, and a deployment-wide fold would let the one vouch for the other.
+# OSPREY requires no channel-limits database. Limits checking is opt-in per
+# target, and the connector's per-write check is the enforcement point -- so a
+# build that derives the worker's device set from the facility's own roster
+# renders whatever posture the config states, armed or not.
 # ---------------------------------------------------------------------------
 
 
-def _gate(config: dict) -> None:
-    from osprey.deployment.compose_generator import _refuse_lane_writes_without_limits
-
-    _refuse_lane_writes_without_limits(config)
-
-
-def _arm_writes(config: dict, *, limits_enabled: bool | None) -> dict:
-    """Arm the deployment-wide write posture, with ``limits_checking`` as given.
-
-    The single-lane shape: no per-connector block, so the baseline target reads
-    the deployment-wide keys — which is what a facility that has never had a
-    second machine has always had.
-    """
-    control_system = config["control_system"]
-    control_system["writes_enabled"] = True
-    limits: dict = {"database_path": "data/channel_limits.json"}
-    if limits_enabled is not None:
-        limits["enabled"] = limits_enabled
-        limits["allow_unlisted_channels"] = False
-    control_system["limits_checking"] = limits
-    return config
-
-
-def test_the_gate_refuses_an_armed_lane_whose_target_checks_no_limits(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The refusal names the lane and the key that has to be set.
-
-    An operator handed this line has to be able to act on it without going
-    looking: which lane came up armed, and the config key whose value made it
-    unsafe -- not "the build", and not a key some other block overrides.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _arm_writes(_graph_devices_config(tmp_path), limits_enabled=False)
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(config)
-
-    message = str(excinfo.value)
-    assert "control_system.limits_checking.enabled" in message, (
-        f"the refusal must name the leaf's own key, got: {message}"
-    )
-    assert "'bluesky'" in message, f"the refusal must name the lane, got: {message}"
-    assert "'va'" in message, f"the refusal must name the target the lane serves: {message}"
-
-
-def test_the_gate_refuses_a_lane_whose_target_states_no_limits_posture_at_all(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """Silence is not permission: an unstated ``enabled`` refuses like a false one.
-
-    ``None`` is a deployment that never configured limits checking, which the
-    validator reads as no validator at all -- the same unbounded worker a
-    ``false`` gives, so the gate cannot treat the two differently.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _arm_writes(_graph_devices_config(tmp_path), limits_enabled=None)
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(config)
-
-    assert "limits_checking.enabled" in str(excinfo.value)
-
-
-def test_the_gate_lets_the_shipped_demo_posture_build(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The preset every demo deploys keeps building.
-
-    ``allow_unlisted_channels: true`` beside ``enabled: true`` is what the
-    control-assistant preset ships for its simulator: a deliberate facility
-    choice about channels the limits database does not list, and NOT the leaf
-    this gate reads. A gate that folded it in would refuse the one deployment
-    shape everybody starts from.
-
-    The posture is READ OUT of the preset rather than restated here, because
-    the value of this test is drift protection on that file: a preset edit that
-    turned the simulator's ``enabled`` off has to fail here rather than ship a
-    demo the gate refuses at build time.
-    """
-    from osprey.cli.build_profile_presets import _presets_dir
-
-    preset = yaml.safe_load((_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8"))[
-        "config"
-    ]
-    prefix = "control_system.connector.virtual_accelerator.limits_checking"
-    assert preset[f"{prefix}.enabled"] is True, (
-        "the demo's simulator must ship with limits checking on -- if this preset "
-        "changed deliberately, the gate now refuses the shipped demo"
-    )
-
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(tmp_path)
-    config["control_system"]["writes_enabled"] = True
-    config["control_system"]["limits_checking"] = {
-        "database_path": "data/channel_limits.json",
-        "enabled": preset[f"{prefix}.enabled"],
-        "allow_unlisted_channels": preset[f"{prefix}.allow_unlisted_channels"],
-    }
-
-    _gate(config)
-
-
-def test_the_gate_lets_the_shipped_stand_in_posture_build(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The stand-in the preset deploys keeps building, on the posture it inherits.
-
-    The control-assistant preset makes the stand-in its baseline
-    (``control_system.type: live_standin``), arms the deployment-wide limits
-    pair, and writes NO ``connector.live_standin.limits_checking`` block of
-    its own: the preset's comment promises that the hardware-shaped stand-in
-    inherits the strict pair the real machine gets. The sibling test above
-    pins the simulator's per-type block; this one pins the inheritance. Both
-    halves are READ OUT of the preset, so a preset edit that handed the
-    stand-in a block of its own, or turned the global pair off, fails here
-    rather than shipping a demo the gate refuses at build time.
-
-    The lane is bound to ``standin`` the way the real single-lane build is:
-    the injector writes ``services.bluesky.target`` for the stand-in baseline
-    because it runs two soft IOCs. Writes are armed on the deployment-wide
-    key, since no shipped preset writes the stand-in's own ``writes_enabled``
-    leaf and the gate reads no limits for a lane whose target is unarmed.
-    """
-    from osprey.cli.build_profile_presets import _presets_dir
-
-    preset = yaml.safe_load((_presets_dir() / "control-assistant.yml").read_text(encoding="utf-8"))[
-        "config"
-    ]
-    assert preset["control_system.type"] == "live_standin", (
-        "this test pins the stand-in baseline the preset ships; if the baseline moved "
-        "deliberately, pin the new one"
-    )
-    assert preset["control_system.limits_checking.enabled"] is True, (
-        "the deployment-wide pair is the stand-in's posture -- if this preset changed "
-        "deliberately, the gate now refuses the shipped demo"
-    )
-    standin_prefix = "control_system.connector.live_standin.limits_checking."
-    assert [key for key in preset if key.startswith(standin_prefix)] == [], (
-        "the preset promises the stand-in INHERITS the deployment-wide pair; a block of "
-        "its own replaces that pair rather than merging with it"
-    )
-
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(tmp_path, control_system_type="live_standin")
-    config["services"]["bluesky"]["target"] = "standin"
-    config["control_system"]["writes_enabled"] = True
-    config["control_system"]["limits_checking"] = {
-        "database_path": "data/channel_limits.json",
-        "enabled": preset["control_system.limits_checking.enabled"],
-        "allow_unlisted_channels": preset["control_system.limits_checking.allow_unlisted_channels"],
-    }
-
-    _gate(config)
-
-
-def test_the_gate_lets_a_read_only_lane_derive_without_limits(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """Writes off is the other half of the condition, and it builds.
-
-    A browse-only lane holds no settable it may move, so a derived device set
-    behind an unconfigured ``limits_checking`` is not the unbounded worker this
-    gate exists for. Dropping the write-posture leaf and refusing on the
-    derivation alone would take every read-only deployment offline over a
-    validator none of them needs.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(tmp_path)
-    assert _plan(config).derives is True, "the gate is only about a DERIVED device set"
-    assert config["control_system"]["writes_enabled"] is False, "the lane must be browse-only"
-    assert "limits_checking" not in config["control_system"], "and state no limits posture"
-
-    _gate(config)
-
-
-def test_the_gate_reads_the_baseline_target_for_a_lane_that_names_none(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """A single-lane render writes no ``target``, and still gets gated.
-
-    The build injector writes a lane target only where the lane is a sibling
-    (or a stand-in baseline), so the common deployment has a lane block with no
-    target key at all. Falling back to anything but the deployment's own
-    baseline would gate a machine this lane does not serve -- here the VA block
-    is the one that decides, and it is the one that must answer.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(tmp_path)
-    assert "target" not in config["services"]["bluesky"], "the fixture must spell no target"
-    config["control_system"]["connector"] = {
-        "virtual_accelerator": {
-            "writes_enabled": True,
-            "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
-        }
-    }
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(config)
-
-    assert "control_system.connector.virtual_accelerator.limits_checking.enabled" in str(
-        excinfo.value
-    )
-
-
-def test_the_gate_reads_the_baseline_target_for_a_non_string_target() -> None:
-    """A target that is not a non-empty string is a lane that declares none.
-
-    The worker applies exactly that test to the same key
-    (``_declared_lane_target``), and a hand-edited config is where the two
-    readers meet: anything looser here would gate the lane on the deployment
-    baseline resolved from a target the worker never sees, while the worker
-    comes up on the baseline's own block. The gate has to fall back where the
-    runtime falls back.
-    """
-    from osprey.deployment.compose_generator import _lane_target
-    from osprey_connectors.types import baseline_target
-
-    control_system = {"type": "virtual_accelerator"}
-
-    assert _lane_target({"target": 123}, control_system) == baseline_target(control_system)
-    assert _lane_target({"target": ""}, control_system) == baseline_target(control_system)
-    assert _lane_target({"target": "live"}, control_system) == "live"
-
-
-def test_the_gate_does_not_apply_to_a_mock_deployment(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """A mock control system derives nothing, so an armed one still builds.
-
-    Nothing a mock lane writes reaches a machine, and the build stages no
-    derived device set for it at all -- so the condition this gate reads is
-    never met there. Pinned because the mock is the shape every contributor
-    develops against, and a gate that folded it in would refuse the one
-    deployment that cannot be unsafe.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _arm_writes(
-        _graph_devices_config(tmp_path, control_system_type="mock"), limits_enabled=False
-    )
-    assert _plan(config).derives is False, "a mock deployment derives no device set"
-
-    _gate(config)
-
-
-def test_the_gate_names_the_stand_ins_own_block_for_a_stand_in_lane(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The stand-in is a third machine, and it answers from its own block.
-
-    ``standin`` resolves to the ``live_standin`` connector rather than to the
-    VA's or the live machine's, so a lane bound to it must be gated on
-    ``control_system.connector.live_standin`` -- naming either of the other two
-    would hand an operator a key that does not govern the lane that refused.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _graph_devices_config(
-        tmp_path, lanes=("bluesky_standin",), deployed_services=("bluesky_standin",)
-    )
-    config["services"]["bluesky_standin"]["target"] = "standin"
-    config["control_system"]["connector"] = {
-        "live_standin": {
-            "writes_enabled": True,
-            "limits_checking": {"enabled": False, "allow_unlisted_channels": False},
-        }
-    }
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(config)
-
-    message = str(excinfo.value)
-    assert "control_system.connector.live_standin.limits_checking.enabled" in message, (
-        f"the stand-in's own block is the one that governs this lane, got: {message}"
-    )
-    assert "'standin'" in message, f"the refusal must name the target the lane serves: {message}"
-
-
-def test_the_gate_does_not_apply_to_an_authored_device_set(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """An authored file is the operator's own list, armed lane or not.
-
-    The gate exists because a DERIVED set is OSPREY's choice of what the worker
-    may move. A file the operator wrote is theirs, and refusing it would be the
-    build second-guessing a device list it did not choose -- so the same config
-    that refuses above builds here.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
-    config = _arm_writes(_graph_devices_config(tmp_path), limits_enabled=False)
-
-    _gate(config)
-
-
-def test_the_gate_does_not_apply_when_nothing_is_derived(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """No roster, no derived device set, nothing for this gate to be about.
-
-    A facility that never described its channels leaves the worker honestly
-    browse-only; refusing that build would turn an absence into an error on
-    exactly the deployments that have no settables to bound.
-    """
-    config = _arm_writes(_devices_config(tmp_path), limits_enabled=False)
-
-    _gate(config)
-
-
-def _two_lane_config(tmp_path: Path, *, live_limits_enabled: bool) -> dict:
-    """A VA-baseline deployment with a second lane on the live machine.
-
-    The VA target is armed AND checks limits; the live target is armed and
-    checks limits only as asked. That is the shape a deployment-wide fold gets
-    wrong: ``any()`` over the two targets sees the VA's ``enabled: true`` and
-    reports a deployment that checks limits.
-    """
-    config = _graph_devices_config(
-        tmp_path,
-        lanes=("bluesky", "bluesky_live"),
-        deployed_services=("bluesky", "bluesky_live"),
-    )
-    config["services"]["bluesky_live"]["target"] = "live"
-    config["control_system"]["connector"] = {
-        "virtual_accelerator": {
-            "writes_enabled": True,
-            "limits_checking": {"enabled": True, "allow_unlisted_channels": False},
-        },
-        "epics": {
-            "writes_enabled": True,
-            "limits_checking": {
-                "enabled": live_limits_enabled,
-                "allow_unlisted_channels": False,
-            },
-        },
-    }
-    return config
-
-
-def test_the_gate_names_the_live_lane_when_only_the_simulator_checks_limits(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """The any()-fold mask, refused: an enabled VA does not vouch for the live lane.
-
-    ``most_restrictive_limits_posture`` folds every reachable target into one
-    answer, and its ``enabled`` is true when ANY target has it on -- so a
-    deployment whose simulator checks limits and whose live machine does not
-    reads as checked. Per lane-target, the live lane is the one that refuses,
-    and the refusal has to name IT rather than the deployment.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        _gate(_two_lane_config(tmp_path, live_limits_enabled=False))
-
-    message = str(excinfo.value)
-    assert "'bluesky_live'" in message, f"the LIVE lane is the failing one, got: {message}"
-    assert "'bluesky'" not in message.replace("'bluesky_live'", ""), (
-        f"the VA lane checks limits and must not be named as failing: {message}"
-    )
-    assert "control_system.connector.epics.limits_checking.enabled" in message, (
-        f"the key named must be the live target's own, got: {message}"
-    )
-
-
-def test_the_gate_passes_a_two_lane_deployment_where_both_targets_check_limits(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """Both lanes armed and both checking limits is a build, not a refusal."""
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-
-    _gate(_two_lane_config(tmp_path, live_limits_enabled=True))
-
-
-def test_the_gate_ignores_a_lane_block_that_is_not_deployed(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
-    """A lane left out of ``deployed_services`` runs no container to be unsafe.
-
-    The build writes a block per lane it injected, and an operator can drop one
-    from ``deployed_services`` without rebuilding. Refusing on the block alone
-    would gate a bridge nobody starts.
-    """
-    _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    config = _two_lane_config(tmp_path, live_limits_enabled=False)
-    config["deployed_services"] = ["bluesky"]
-
-    _gate(config)
-
-
-def test_prepare_compose_files_refuses_before_it_writes_any_build_context(
+def test_an_armed_lane_that_checks_no_limits_builds_with_a_derived_device_set(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cold_roster_cache: None
 ) -> None:
-    """The gate runs in the render entry point, ahead of the service loop.
+    """The render that derives the device set does not second-guess the posture.
 
-    A refusal that arrived mid-loop would leave a half-written build zone
-    behind -- some service contexts rendered against a posture the build has
-    just decided it will not ship. Asserting on the absence of the output tree
-    is what pins the ordering rather than only the wording.
+    A derived set is OSPREY's list of what the queueserver worker MAY move, not
+    a write that has happened: a derived device goes through the same connector
+    as any other channel write and meets the same optional, per-target limits
+    check there. A build that refused this config would make limits checking
+    mandatory for every facility that lets OSPREY derive its devices, which is
+    the opposite of the opt-in the connector implements.
     """
     repo = tmp_path / "repo"
     (repo / "services" / "bluesky").mkdir(parents=True)
     (repo / "services" / "bluesky" / "docker-compose.yml.j2").write_text(
         _DEVICES_GATE_TEMPLATE, encoding="utf-8"
     )
+    # A render that is not refused goes on to the root compose file, which the
+    # packaged templates supply at deploy time; a stand-in is enough here.
+    (repo / "services" / "docker-compose.yml.j2").write_text(
+        "networks:\n  osprey-network:\n", encoding="utf-8"
+    )
     _corpus(repo / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
-    # Staged so the earlier mount precondition (`resolve_limits_mount`) is
-    # satisfied: what this test is about is the lane gate behind it.
-    (repo / "data" / "channel_limits.json").write_text("{}", encoding="utf-8")
     config_path = repo / "config.yml"
     yaml_writer = YAML()
     with open(config_path, "w") as fh:
@@ -9246,7 +9205,6 @@ def test_prepare_compose_files_refuses_before_it_writes_any_build_context(
                     "limits_checking": {
                         "enabled": False,
                         "allow_unlisted_channels": False,
-                        "database_path": "data/channel_limits.json",
                     },
                 },
             },
@@ -9254,12 +9212,12 @@ def test_prepare_compose_files_refuses_before_it_writes_any_build_context(
         )
     monkeypatch.chdir(repo)
 
-    with pytest.raises(DeploymentPreconditionError) as excinfo:
-        prepare_compose_files(str(config_path))
+    config, compose_files = prepare_compose_files(str(config_path))
 
-    assert "'bluesky'" in str(excinfo.value)
-    assert not (repo / "build").exists(), (
-        "the refusal must land before any build context is written"
+    assert _plan(config).derives is True, "the render under test must DERIVE the device set"
+    assert compose_files, "the armed, unchecked lane must render its compose files"
+    assert "limits_mount" not in config, (
+        "no limits database is configured, so nothing is mounted for one"
     )
 
 
@@ -9368,3 +9326,890 @@ class TestStageSiteImageArgsForContext:
         assert args == {"OSPREY_SITE_CA": SITE_CA_CONTEXT_FILENAME}
         assert [path.name for path in context.iterdir()] == ["Dockerfile"]
         assert "/nope/ca.pem" in caplog.text
+
+
+class TestEnsureGroupSharedDirExact:
+    """``exact=True`` sets the mode; the default only ever adds bits.
+
+    Two directory kinds go through one helper and want opposite rules on a
+    directory that already exists. A corpus bundle carries operator intent —
+    0700 means 0700 — so the default ORs the sharing bits on and leaves the
+    rest. The framework-owned control-target tree root carries none: nothing
+    provisioned it before, so every upgraded deployment has it at whatever
+    ``mkdir`` left under the operator's umask, and OR alone would leave 0755
+    at 2775, with ``other`` able to list the identity names.
+    """
+
+    @staticmethod
+    def _mode(path: Path) -> int:
+        import stat as stat_module
+
+        return stat_module.S_IMODE(path.stat().st_mode)
+
+    @staticmethod
+    def _ensure(path: Path, **kwargs: Any) -> int | None:
+        from osprey.deployment.compose_generator import _ensure_group_shared_dir
+
+        return _ensure_group_shared_dir(
+            path,
+            relative_to=None,
+            label="Test dir",
+            noun="test directory",
+            consequence="Nothing, this is a test.",
+            **kwargs,
+        )
+
+    def test_an_existing_0755_dir_is_narrowed_to_exactly_2770(self, tmp_path: Path) -> None:
+        """The pre-upgrade control-tree root loses its ``other`` bits.
+
+        This is the case the keyword exists for: a directory a previous
+        release left world-listable is not merely widened with setgid, it is
+        set to exactly the mode sharing needs.
+        """
+        target = tmp_path / "control_target"
+        target.mkdir(mode=0o755)
+        os.chmod(target, 0o755)
+
+        self._ensure(target, exact=True)
+
+        assert self._mode(target) == 0o2770
+
+    def test_an_existing_dir_keeps_its_own_bits_by_default(self, tmp_path: Path) -> None:
+        """Default behaviour is unchanged: bits are added, never removed.
+
+        Pinned so a later reader cannot flip the default to ``exact`` and
+        silently widen — or narrow — a corpus bundle an operator set by hand.
+        """
+        target = tmp_path / "bundle"
+        target.mkdir(mode=0o755)
+        os.chmod(target, 0o755)
+
+        self._ensure(target)
+
+        assert self._mode(target) == 0o2775
+
+    @pytest.mark.parametrize("kwargs", [{}, {"exact": True}], ids=["default", "exact"])
+    def test_a_directory_this_call_creates_lands_at_2770_either_way(
+        self, tmp_path: Path, kwargs: dict[str, Any]
+    ) -> None:
+        """A missing directory has no operator intent to preserve.
+
+        Both rules agree there, which is what makes ``exact`` a narrowing of
+        the existing-directory branch only rather than a second mode policy.
+        """
+        target = tmp_path / "fresh" / "nested"
+
+        self._ensure(target, **kwargs)
+
+        assert target.is_dir()
+        assert self._mode(target) == 0o2770
+
+
+# ---------------------------------------------------------------------------
+# The control-context tree, as the build path provisions it
+# ---------------------------------------------------------------------------
+# `_ensure_agent_data_structure` runs on every build. It is the only path that
+# creates the tree root, its marker and the directory of every identity the
+# render assigns — the readers bind the tree READ-ONLY and can create nothing,
+# and a bind source the deploy leaves out is created empty by the container
+# runtime, root-owned under a rootful daemon. The three assertions worth pinning
+# are therefore the mode (exactly 2770, cross-uid read and no `other` triad), the
+# marker (present and group-readable, so a provisioned tree is never mistaken for
+# an unprovisioned one) and the identity set (every render identity plus the
+# account running the build).
+
+
+def _control_tree_build(tmp_path: Path, **config: Any) -> Path:
+    """Run the build-path provisioner in *tmp_path*; return the tree root."""
+    from osprey.deployment.compose_generator import (
+        _ensure_agent_data_structure,
+        control_target_tree_dir,
+    )
+
+    full = {"project_root": str(tmp_path), "deployed_services": [], **config}
+    _ensure_agent_data_structure(full)
+    return control_target_tree_dir(full, tmp_path)
+
+
+def _mode_of(path: Path) -> int:
+    import stat as stat_module
+
+    return stat_module.S_IMODE(path.stat().st_mode)
+
+
+class TestBuildPathProvisionsTheControlTree:
+    """The root, the marker and one directory per identity, all at 2770."""
+
+    def test_a_fresh_build_creates_the_control_target_root_at_exactly_2770(
+        self, tmp_path: Path
+    ) -> None:
+        """setgid so a record takes the directory's group whichever uid wrote
+        it — the dispatch worker drops to 1000 while the host account is its
+        own uid — and no ``other`` triad, because listing the tree names every
+        identity in the deployment."""
+        tree = _control_tree_build(tmp_path)
+
+        assert tree == tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "control_target"
+        assert _mode_of(tree) == 0o2770
+
+    def test_a_pre_upgrade_0755_control_target_root_is_narrowed_to_exactly_2770(
+        self, tmp_path: Path
+    ) -> None:
+        """The upgrade case, and the reason the root goes through ``exact=True``.
+
+        A root here may already exist at whatever mode an umasked
+        ``mkdir(parents=True)`` left — 0755 among them. Adding the sharing bits
+        alone would settle at 2775 and leave ``other`` able to list — and read
+        through — every identity under it.
+        """
+        root = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "control_target"
+        root.mkdir(parents=True)
+        os.chmod(root, 0o755)
+
+        _control_tree_build(tmp_path)
+
+        assert _mode_of(root) == 0o2770
+
+    def test_a_fresh_build_writes_the_group_readable_marker(self, tmp_path: Path) -> None:
+        """A read-only bind whose host source is missing is created empty by the
+        container runtime, and an empty tree reads exactly like a tree in which
+        nobody has narrowed anything — so without the marker the chip fails OPEN
+        on the one deployment that never provisioned it. 0640 because the readers
+        are containers running as another uid in the directory's group: a 0600
+        marker would have every one of them report a tree that is in fact there.
+        """
+        from osprey.deployment.compose_generator import (
+            CONTROL_TREE_MARKER_MODE,
+            CONTROL_TREE_MARKER_NAME,
+        )
+
+        tree = _control_tree_build(tmp_path)
+        marker = tree / CONTROL_TREE_MARKER_NAME
+
+        assert marker.is_file()
+        assert _mode_of(marker) == CONTROL_TREE_MARKER_MODE == 0o640
+        assert marker.read_text().strip(), "an empty marker explains nothing to an operator"
+
+    def test_a_marker_left_at_a_narrower_mode_is_corrected(self, tmp_path: Path) -> None:
+        """The mode is set on the descriptor rather than passed to ``os.open``,
+        which the umask masks. A build under umask 077 that skipped an existing
+        marker would leave every reader refusing on a tree that is provisioned.
+        """
+        from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
+
+        tree = _control_tree_build(tmp_path)
+        marker = tree / CONTROL_TREE_MARKER_NAME
+        os.chmod(marker, 0o600)
+
+        _control_tree_build(tmp_path)
+
+        assert _mode_of(marker) == 0o640
+
+    def test_every_rendered_identity_gets_a_control_target_dir_at_exactly_2770(
+        self, tmp_path: Path
+    ) -> None:
+        """One directory per identity the render assigns, exactly the set the
+        audit zone provisions beside it: a worker or service told to call itself
+        something reads its own record under that name, and a missing directory
+        is the same auto-created root-owned bind source as a missing audit dir.
+        """
+        tree = _control_tree_build(
+            tmp_path,
+            services={"dispatch_worker": {"worker_count": 2}},
+            deployed_services=["dispatch_worker", "bluesky_web"],
+        )
+
+        for identity in ("dispatch-worker-1", "dispatch-worker-2", "bluesky-web"):
+            target = tree / identity
+            assert target.is_dir(), identity
+            assert _mode_of(target) == 0o2770, identity
+
+    def test_an_undeployed_service_gets_no_control_target_dir(self, tmp_path: Path) -> None:
+        """A stack that does not run the worker provisions nothing for it."""
+        tree = _control_tree_build(tmp_path, services={"dispatch_worker": {"worker_count": 2}})
+
+        assert not (tree / "dispatch-worker-1").exists()
+        assert not (tree / "bluesky-web").exists()
+
+    def test_the_build_account_gets_its_own_control_target_dir(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The single-user row. No roster names the account running the build,
+        and it is nonetheless the one whose chip every lane and the dispatch
+        worker read — so its directory has to exist here, carrying the setgid
+        group the worker's entrypoint joins. Left to the record writer, it would
+        be created later under the deploying account's umask instead.
+        """
+        from osprey_connectors.identity import TERMINAL_USER_ENV
+
+        monkeypatch.setenv(TERMINAL_USER_ENV, "build-acct")
+
+        tree = _control_tree_build(tmp_path)
+        target = tree / "build-acct"
+
+        assert target.is_dir()
+        assert _mode_of(target) == 0o2770
+        assert target.stat().st_gid == tree.stat().st_gid
+
+    def test_the_control_target_account_is_read_through_the_shared_ladder(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Whose directory this is comes from the one ladder every surface
+        resolves its identity through, not from a second reading of the
+        environment here — the record the build provisions for has to be the
+        record that account's own process writes.
+        """
+        from osprey.utils.identity import acting_identity
+        from osprey_connectors.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV
+
+        monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
+        monkeypatch.setenv(AUDIT_IDENTITY_ENV, "rung-two")
+
+        tree = _control_tree_build(tmp_path)
+
+        assert acting_identity() == "rung-two"
+        assert (tree / "rung-two").is_dir()
+
+    def test_a_build_account_the_control_target_charset_refuses_names_a_remedy(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The build account is the one rung no roster and no lint governs.
+
+        The shared ladder accepts any name that does not break path semantics,
+        so an account the ladder accepts and the tree's own seam refuses — an
+        uppercase login among them — reaches the build with nothing behind it
+        that could explain itself. The warning has to name the remedy, because
+        the consequence is silent: the record that account writes lands in a
+        directory created under its own umask, which a reader in another
+        container may be unable to read.
+        """
+        from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
+        from osprey.utils.identity import acting_identity
+        from osprey_connectors.identity import TERMINAL_USER_ENV
+
+        monkeypatch.setenv(TERMINAL_USER_ENV, "BuildAcct")
+        assert acting_identity() == "BuildAcct", "the ladder accepts what the seam refuses"
+
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            tree = _control_tree_build(tmp_path)
+
+        assert not (tree / "BuildAcct").exists()
+        # The build still completes: the tree and everything else in it is there.
+        assert _mode_of(tree) == 0o2770
+        assert (tree / CONTROL_TREE_MARKER_NAME).is_file()
+        assert "BuildAcct" in caplog.text
+        assert "OSPREY_AUDIT_IDENTITY" in caplog.text
+        assert "must match" not in caplog.text, "the generic seam wording names no remedy"
+
+    def test_a_symlink_planted_at_the_control_tree_marker_is_not_written_through(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """2770 makes the tree root writable by a group the deploying account
+        shares with other parties, so a symlink under the marker's name is
+        something any of them can plant. Followed, it would have the build
+        truncate whatever the deploying account can reach.
+        """
+        from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
+
+        tree = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "control_target"
+        tree.mkdir(parents=True)
+        elsewhere = tmp_path / "operator-file"
+        elsewhere.write_text("not the build's to truncate")
+        (tree / CONTROL_TREE_MARKER_NAME).symlink_to(elsewhere)
+
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            _control_tree_build(tmp_path)
+
+        assert elsewhere.read_text() == "not the build's to truncate"
+        assert "control-context tree marker" in caplog.text
+
+    def test_a_symlink_planted_at_a_control_target_identity_name_is_not_chmodded_through(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The identity rung of the same exposure as the marker, and the worse
+        half of it: provisioning resolves the directory by path, so a followed
+        link would leave 2770 — setgid, group-writable — on a directory outside
+        the tree that the deploying account happens to be able to chmod, handing
+        the tree's shared group write access to it for good.
+        """
+        from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
+
+        tree = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR / "control_target"
+        tree.mkdir(parents=True)
+        victim = tmp_path / "operator-dir"
+        victim.mkdir(mode=0o700)
+        os.chmod(victim, 0o700)
+        planted = tree / "dispatch-worker-1"
+        planted.symlink_to(victim)
+
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            _control_tree_build(
+                tmp_path,
+                services={"dispatch_worker": {"worker_count": 1}},
+                deployed_services=["dispatch_worker"],
+            )
+
+        assert _mode_of(victim) == 0o700
+        assert planted.is_symlink(), "the planted entry is reported, not replaced"
+        assert list(victim.iterdir()) == []
+        # The build still completes: the tree and its marker are provisioned.
+        assert _mode_of(tree) == 0o2770
+        assert (tree / CONTROL_TREE_MARKER_NAME).is_file()
+        assert "symlink" in caplog.text
+        assert str(planted) in caplog.text
+
+    def test_a_symlink_planted_at_the_control_target_root_is_not_provisioned_through(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The root rung. ``is_dir()`` follows links, so a refused root has to
+        stop the marker and the identity directories too — written through the
+        link, they would land inside the destination and mode it 2770.
+        """
+        from osprey.deployment.compose_generator import CONTROL_TREE_MARKER_NAME
+
+        victim = tmp_path / "operator-dir"
+        victim.mkdir(mode=0o700)
+        os.chmod(victim, 0o700)
+        agent_data = tmp_path / DEFAULT_AGENT_DATA_BASE_DIR
+        agent_data.mkdir(parents=True)
+        (agent_data / "control_target").symlink_to(victim)
+
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            _control_tree_build(tmp_path)
+
+        assert _mode_of(victim) == 0o700
+        assert list(victim.iterdir()) == []
+        assert not (victim / CONTROL_TREE_MARKER_NAME).exists()
+        assert "symlink" in caplog.text
+        assert str(agent_data / "control_target") in caplog.text
+
+
+class TestBuildPathAnchorsTheAgentDataRoot:
+    """The agent-data root is anchored, not joined under the repo."""
+
+    def test_a_home_relative_agent_data_root_creates_no_tilde_dir_in_the_repo(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``agent_data.base_dir: ~/state`` is a configured path like any other.
+
+        Joining it under the repo root would have the build create a literal
+        ``~`` directory there while every runtime resolver — and the control
+        tree's own seam — expands it to ``$HOME``: the deploy would provision
+        one tree and the containers would bind another.
+        """
+        from osprey.deployment.compose_generator import _ensure_agent_data_structure
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        repo = tmp_path / "repo"
+        repo.mkdir()
+
+        _ensure_agent_data_structure(
+            {
+                "project_root": str(repo),
+                "deployed_services": [],
+                "agent_data": {"base_dir": "~/x"},
+            }
+        )
+
+        assert not (repo / "~").exists(), "a literal '~' directory beside the real root"
+        assert (home / "x").is_dir()
+
+
+class TestControlTargetPathSeam:
+    """The three public helpers ``provision.py`` imports for the up path.
+
+    The build path and the web-stack up path provision the same tree, so the
+    path is derived in one place and both callers go through it. What these pin
+    is that the seam holds for a configured root of every shape: a relative root
+    anchored at the repo, an absolute one left alone, and a home-relative one
+    expanded once — not once here and again in the caller, which would leave a
+    literal ``~`` directory beside the real tree.
+    """
+
+    def test_an_identity_dir_hangs_directly_under_the_control_target_tree(
+        self, tmp_path: Path
+    ) -> None:
+        from osprey.deployment.compose_generator import (
+            control_target_identity_dir,
+            control_target_tree_dir,
+        )
+
+        config: dict[str, Any] = {"project_root": str(tmp_path)}
+
+        assert (
+            control_target_identity_dir(config, tmp_path, "alice")
+            == control_target_tree_dir(config, tmp_path) / "alice"
+        )
+
+    def test_the_control_target_dir_name_comes_from_the_record_writer(self, tmp_path: Path) -> None:
+        """Restating it here would be a second spelling of the one constant the
+        writer resolves its own path through, free to drift from it."""
+        from osprey.deployment.compose_generator import control_target_tree_dir
+        from osprey_connectors.posture_store import STATE_DIR_NAME
+
+        assert control_target_tree_dir({}, tmp_path).name == STATE_DIR_NAME
+
+    def test_an_absolute_agent_data_root_anchors_the_control_target_tree(
+        self, tmp_path: Path
+    ) -> None:
+        from osprey.deployment.compose_generator import control_target_tree_dir
+
+        root = tmp_path / "srv" / "osprey-state"
+        config = {"agent_data": {"base_dir": str(root)}}
+
+        assert control_target_tree_dir(config, tmp_path / "repo") == root / "control_target"
+
+    def test_a_home_relative_control_target_tree_is_expanded_exactly_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """``~/state`` is a configured path like any other. Anchoring it at the
+        repo instead would provision a literal ``~`` directory beside the real
+        tree — and the reader, which expands it, would find nothing where the
+        chip should be.
+        """
+        from osprey.deployment.compose_generator import control_target_tree_dir
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+
+        tree = control_target_tree_dir({"agent_data": {"base_dir": "~/state"}}, tmp_path / "repo")
+
+        assert tree == home / "state" / "control_target"
+        assert "~" not in str(tree)
+
+    def test_a_control_target_identity_that_is_not_a_path_segment_is_refused(
+        self, tmp_path: Path
+    ) -> None:
+        """The identity names a subdirectory, so validating at the seam is what
+        makes an escape unreachable however the caller obtained the name."""
+        from osprey.deployment.compose_generator import control_target_identity_dir
+
+        with pytest.raises(ValueError, match="control-context identity"):
+            control_target_identity_dir({}, tmp_path, "../escape")
+
+    def test_provisioning_a_refused_control_target_identity_creates_nothing(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A deploy is never refused by this helper — the render's own roster
+        gates are what reject a bad name, with a message that can explain it.
+        What matters here is that nothing outside the tree is created on the way.
+        """
+        from osprey.deployment.compose_generator import ensure_control_target_dir
+
+        config = {"project_root": str(tmp_path)}
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            assert ensure_control_target_dir(config, tmp_path, "../escape") is None
+
+        assert "Skipping control-context directory provisioning" in caplog.text
+        assert not (tmp_path / "escape").exists()
+
+    def test_the_control_target_root_and_identity_dir_are_provisioned_at_2770(
+        self, tmp_path: Path
+    ) -> None:
+        """The up path's own call shape: the root once, then one identity at a
+        time, each landing at exactly the mode the cross-uid read needs."""
+        from osprey.deployment.compose_generator import (
+            control_target_identity_dir,
+            control_target_tree_dir,
+            ensure_control_target_dir,
+        )
+
+        config = {"project_root": str(tmp_path)}
+        assert ensure_control_target_dir(config, tmp_path, relative_to=tmp_path) is not None
+        assert (
+            ensure_control_target_dir(config, tmp_path, "alice", relative_to=tmp_path) is not None
+        )
+
+        assert _mode_of(control_target_tree_dir(config, tmp_path)) == 0o2770
+        assert _mode_of(control_target_identity_dir(config, tmp_path, "alice")) == 0o2770
+
+    def test_a_control_target_identity_under_a_symlinked_tree_root_is_refused(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Containment of a planted ROOT belongs at this seam, not in a caller.
+
+        The identity NAME is not a link in this shape, so the guard on the name
+        says nothing, and a ``mkdir`` resolves the root link on the way down —
+        leaving a setgid, group-writable directory inside a destination outside
+        the tree, carrying no marker, so every reader refuses while the deploy
+        reports success. Both provisioning paths reach the tree through this
+        function, so refusing here covers them both.
+        """
+        from osprey.deployment.compose_generator import (
+            control_target_tree_dir,
+            ensure_control_target_dir,
+        )
+
+        config: dict[str, Any] = {"project_root": str(tmp_path)}
+        victim = tmp_path / "operator-dir"
+        victim.mkdir(mode=0o700)
+        os.chmod(victim, 0o700)
+        tree = control_target_tree_dir(config, tmp_path)
+        tree.parent.mkdir(parents=True, exist_ok=True)
+        tree.symlink_to(victim)
+
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            assert ensure_control_target_dir(config, tmp_path, "alice") is None
+
+        assert _mode_of(victim) == 0o700
+        assert list(victim.iterdir()) == []
+        assert str(tree) in caplog.text
+
+    def test_a_control_target_identity_under_a_missing_tree_is_refused(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A tree that is not there stops the rung, and says so once.
+
+        This is what keeps a root rung that could not be provisioned from turning
+        into one warning per roster user, burying the single line that names the
+        cause — and what keeps a directory from being created at a path no reader
+        resolves the tree to.
+        """
+        from osprey.deployment.compose_generator import (
+            control_target_tree_dir,
+            ensure_control_target_dir,
+        )
+
+        config: dict[str, Any] = {"project_root": str(tmp_path)}
+        tree = control_target_tree_dir(config, tmp_path)
+
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            assert ensure_control_target_dir(config, tmp_path, "alice") is None
+
+        assert not tree.exists()
+        assert str(tree) in caplog.text
+
+    def test_a_control_target_tree_swapped_to_a_symlink_after_the_guard_is_refused(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The tree is a name too, and ``O_NOFOLLOW`` binds only the last one.
+
+        An identity directory named as ``<tree>/<identity>`` resolves the tree
+        afresh in every call that spells it, so a swap of the TREE entry between
+        two of them lands the mode inside the destination however the leaf is
+        opened. Holding the tree on its own descriptor and creating and opening
+        relative to it is what removes that: the descriptor keeps naming the
+        directory that was checked. Here the swap is performed inside the create,
+        which is the widest window the sequence has.
+        """
+        from osprey.deployment.compose_generator import (
+            control_target_tree_dir,
+            ensure_control_target_dir,
+        )
+
+        config: dict[str, Any] = {"project_root": str(tmp_path)}
+        assert ensure_control_target_dir(config, tmp_path) is not None
+        tree = control_target_tree_dir(config, tmp_path)
+        victim = tmp_path / "operator-dir"
+        victim.mkdir(mode=0o700)
+        os.chmod(victim, 0o700)
+        (victim / "alice").mkdir(mode=0o700)
+        os.chmod(victim / "alice", 0o700)
+
+        def swap_the_tree_and_report_the_name_taken(*args: Any, **kwargs: Any) -> None:
+            tree.rmdir()
+            tree.symlink_to(victim)
+            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(tree / "alice"))
+
+        monkeypatch.setattr(os, "mkdir", swap_the_tree_and_report_the_name_taken)
+
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            assert ensure_control_target_dir(config, tmp_path, "alice") is None
+
+        assert _mode_of(victim) == 0o700
+        assert _mode_of(victim / "alice") == 0o700
+        assert str(tree / "alice") in caplog.text
+
+    def test_a_control_target_identity_swapped_to_a_symlink_after_the_guard_is_refused(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The name is checked and then acted on, so the check alone is a race.
+
+        An entry under the tree root is one any member of the shared group can
+        rename, and the root carries no sticky bit — so a party that presents a
+        real directory while the name is examined and swaps a link in before the
+        mode is applied would otherwise land 2770 on the destination. The mode
+        goes on a descriptor opened ``O_NOFOLLOW``, which decides and acts in one
+        syscall: the swap fails the open instead. Here the examination is made to
+        report what the attacker presented, which is what the race buys.
+        """
+        from osprey.deployment.compose_generator import (
+            control_target_tree_dir,
+            ensure_control_target_dir,
+        )
+
+        config: dict[str, Any] = {"project_root": str(tmp_path)}
+        assert ensure_control_target_dir(config, tmp_path) is not None
+        victim = tmp_path / "operator-dir"
+        victim.mkdir(mode=0o700)
+        os.chmod(victim, 0o700)
+        planted = control_target_tree_dir(config, tmp_path) / "alice"
+        planted.symlink_to(victim)
+        unpatched_is_symlink = Path.is_symlink
+        monkeypatch.setattr(
+            Path,
+            "is_symlink",
+            lambda self: False if self == planted else unpatched_is_symlink(self),
+        )
+
+        with caplog.at_level(logging.WARNING, logger="deployment.compose"):
+            assert ensure_control_target_dir(config, tmp_path, "alice") is None
+
+        assert _mode_of(victim) == 0o700
+        assert list(victim.iterdir()) == []
+        assert os.path.islink(planted), "the planted entry is reported, not replaced"
+        assert str(planted) in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# The per-user control-context bind, as the web-terminal overlay renders it
+# ---------------------------------------------------------------------------
+
+#: The record tree on the HOST, relative to the deployment repo root — which is
+#: what a relative compose bind source resolves against. The deploy path
+#: provisions this same directory, and a subdirectory per roster user, at 2770.
+#: Spelled here rather than read back out of the rendered file: a test that took
+#: the source from the template it is checking would agree with whatever path
+#: that template happened to emit.
+_CONTROL_TREE_SOURCE = "./var/agent_data/control_target"
+
+
+def _web_terminal_services(config: dict[str, Any]) -> dict[str, Any]:
+    """The rendered ``web-<user>`` services of the multi-user overlay."""
+    compose = yaml.safe_load(render_web_terminals(config)["docker-compose.web.yml"])
+    return {
+        name: service for name, service in compose["services"].items() if name.startswith("web-")
+    }
+
+
+def _persona_backed_roster() -> dict[str, Any]:
+    """The reference roster with each user behind a persona of its own.
+
+    Two personas built from two different projects read their agent-data root at
+    two different in-container paths, which is the case a hardcoded mount target
+    gets wrong for one of them.
+    """
+    config = copy.deepcopy(EXAMPLE_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["personas"] = {
+        "operator": {"project": "dls-operator", "project_path": "../dls-operator"},
+        "physicist": {"project": "dls-physicist", "project_path": "../dls-physicist"},
+    }
+    web_terminals["users"] = [
+        {"name": "alice", "index": 0, "persona": "operator"},
+        {"name": "bob", "index": 1, "persona": "physicist"},
+    ]
+    return config
+
+
+class TestTerminalControlContextBind:
+    """Where a web terminal writes its control-context record, and who else sees it.
+
+    The record a terminal writes when its chip narrows writes to one machine is
+    the one piece of that container's state something else has to read: the plan
+    lanes and the dispatch worker mount the whole ``control_target/`` tree
+    read-only and look up the owner's directory in it. So it cannot stay in the
+    per-user agent-data volume with the rest of that user's state, where it would
+    sit in the container runtime's own storage with nothing else able to reach
+    it. It is bound from the host, per user, and the container is told where.
+
+    Every assertion here is about the agreement between those two halves. A bind
+    whose target is not the directory ``OSPREY_CONTROL_CONTEXT_DIR`` names is a
+    terminal that writes its record into its own writable layer and reports
+    success: the chip flips, nothing outside the container sees it, and every
+    owned write in the deployment goes on as if nothing were narrowed. That
+    failure is silent at mount time, in the logs and in the UI, which is why it
+    is pinned here rather than left to the golden file, where it would read as
+    one more line among three hundred.
+    """
+
+    @staticmethod
+    def _control_mounts(service: dict[str, Any]) -> list[str]:
+        """This service's mounts of the record tree, in render order."""
+        return [volume for volume in service.get("volumes", []) if "control_target" in volume]
+
+    @staticmethod
+    def _agent_data_dir(service: dict[str, Any], user: str) -> str:
+        """Where this service's agent-data volume mounts, read back from the render.
+
+        Read back rather than spelled, because the whole point of the bind's
+        target is that it follows that directory — the one the process inside
+        actually resolves its agent-data root to. A literal here would pin the
+        reference config's path and pass for a persona that reads its root
+        somewhere else entirely.
+        """
+        mounts = [
+            volume.split(":")[1]
+            for volume in service["volumes"]
+            if volume.startswith(f"{user}-agent-data:")
+        ]
+        assert len(mounts) == 1, mounts
+        return mounts[0]
+
+    def test_terminal_bind_names_only_this_users_own_record_directory(self) -> None:
+        """One mount per terminal, and it is that user's subdirectory.
+
+        Per user for the same reason the audit bind is per identity: the
+        isolation is the MOUNT, not a permission. Alice's container is handed
+        ``var/agent_data/control_target/alice`` and nothing else under the tree,
+        so bob's record is not merely unreadable to it — it is not in its
+        filesystem to read, or to overwrite with a narrowing bob never made.
+        """
+        services = _web_terminal_services(EXAMPLE_CONFIG)
+        assert len(services) > 1, "the reference roster must carry more than one user"
+
+        for name, service in services.items():
+            user = name.removeprefix("web-")
+            agent_data = self._agent_data_dir(service, user)
+            expected = f"{_CONTROL_TREE_SOURCE}/{user}:{agent_data}/control_target/{user}"
+
+            assert self._control_mounts(service) == [expected], name
+
+    def test_control_context_dir_env_names_the_terminal_bind_target(self) -> None:
+        """The container is told exactly the directory the bind backs.
+
+        The env var is the agent's side of the same fact — the ladder's
+        ``OSPREY_CONTROL_CONTEXT_DIR`` rung, and the name the entrypoint joins a
+        group for and keeps out of its state-zone chown. If the two ever named
+        different directories nothing would fail loudly: the terminal would write
+        its record into an unbacked directory and every reader would find none.
+        """
+        for name, service in _web_terminal_services(EXAMPLE_CONFIG).items():
+            target = self._control_mounts(service)[0].split(":")[1]
+
+            declared = [
+                value
+                for value in service["environment"]
+                if value.startswith("OSPREY_CONTROL_CONTEXT_DIR=")
+            ]
+
+            assert declared == [f"OSPREY_CONTROL_CONTEXT_DIR={target}"], (name, declared)
+
+    def test_control_context_dir_follows_each_personas_own_agent_data_root(self) -> None:
+        """Two personas, two in-container roots, two targets — derived, not fixed.
+
+        A persona-backed roster separates a derived target from a hardcoded one:
+        each container resolves its agent-data root under its OWN project
+        directory, so one literal path would mount the record directory where
+        only one of the two writes.
+        """
+        targets = {
+            name: self._control_mounts(service)[0].split(":")[1]
+            for name, service in _web_terminal_services(_persona_backed_roster()).items()
+        }
+
+        assert targets == {
+            "web-alice": "/app/dls-operator/var/agent_data/control_target/alice",
+            "web-bob": "/app/dls-physicist/var/agent_data/control_target/bob",
+        }
+
+    def test_terminal_bind_source_follows_a_relocated_agent_data_base_dir(self) -> None:
+        """Move ``agent_data.base_dir`` and BOTH ends of the bind move with it.
+
+        The deploy path provisions the tree under that key — the build writes
+        ``<base_dir>/control_target/`` and the web-stack up writes each user's
+        directory in it — so a source pinned to the stock ``var/agent_data``
+        would name a host directory the deploy never creates. The container
+        runtime then creates it root-owned, the dropped account inside cannot
+        write, and a project that changed nothing about control finds its chip
+        failing closed.
+        """
+        config = copy.deepcopy(EXAMPLE_CONFIG)
+        config["agent_data"] = {"base_dir": "state/agent"}
+
+        for name, service in _web_terminal_services(config).items():
+            user = name.removeprefix("web-")
+            source, target = self._control_mounts(service)[0].split(":")
+
+            assert source == f"./state/agent/control_target/{user}"
+            assert target.endswith(f"/state/agent/control_target/{user}")
+            assert "var/agent_data" not in source
+            assert "var/agent_data" not in target
+
+    def test_terminal_bind_does_not_re_anchor_an_absolute_agent_data_base_dir(self) -> None:
+        """An absolute ``base_dir`` names the same path on the host and inside.
+
+        It is not anchored under the project directory on either side, so the
+        two ends of the bind coincide. Pinned because the obvious way to
+        recover the host path — strip the container project directory off the
+        container one — has nothing to strip here, and a derivation that
+        stripped blindly would emit a relative source built from the tail of an
+        absolute path.
+        """
+        config = copy.deepcopy(EXAMPLE_CONFIG)
+        config["agent_data"] = {"base_dir": "/srv/osprey/agent_data"}
+
+        for name, service in _web_terminal_services(config).items():
+            user = name.removeprefix("web-")
+            expected = f"/srv/osprey/agent_data/control_target/{user}"
+
+            assert self._control_mounts(service) == [f"{expected}:{expected}"], name
+
+    def test_terminal_bind_is_read_write(self) -> None:
+        """The terminal is the WRITER of its own record.
+
+        The readers — the plan lanes and the dispatch worker — take the tree one
+        level up and read-only. A ``:ro`` here would leave the chip unable to
+        record anything at all.
+        """
+        for name, service in _web_terminal_services(EXAMPLE_CONFIG).items():
+            mount = self._control_mounts(service)[0]
+
+            assert mount.count(":") == 1, (name, mount)
+
+    def test_terminal_bind_names_directories_and_never_a_file(self) -> None:
+        """Both ends name the state DIRECTORY, not a file inside it.
+
+        The whole state-dir family lives there — the record, ``server_<pid>``
+        files, switch requests, executor in-flight markers, approval stamps, the
+        transcript map — and they are created and replaced over the container's
+        life. A bind of any one filename would carry exactly that file and strand
+        the rest in the writable layer; and a file source that does not exist yet
+        is created by the container runtime as a DIRECTORY anyway, which puts a
+        directory where the writer expects to open a file.
+        """
+        for name, service in _web_terminal_services(EXAMPLE_CONFIG).items():
+            user = name.removeprefix("web-")
+
+            for end in self._control_mounts(service)[0].split(":"):
+                leaf = end.rsplit("/", 1)[-1]
+
+                assert leaf == user, (name, end)
+                assert "." not in leaf, (name, end)
+
+    def test_terminal_bind_leaves_the_rest_of_the_agent_data_volume_alone(self) -> None:
+        """The bind nests INSIDE the named volume; it does not replace it.
+
+        Memory, sessions and artifacts stay in ``<user>-agent-data`` — only
+        ``control_target/<user>/`` comes from the host, because only the record
+        has a reader outside this container. Pinned because widening the bind to
+        the agent-data root, or dropping the named volume for it, would move
+        every user's whole working state onto the host in a single edit.
+        """
+        for name, service in _web_terminal_services(EXAMPLE_CONFIG).items():
+            user = name.removeprefix("web-")
+            agent_data = self._agent_data_dir(service, user)
+
+            target = self._control_mounts(service)[0].split(":")[1]
+
+            assert target == f"{agent_data}/control_target/{user}"
+
+    def test_no_terminal_binds_the_whole_control_target_tree(self) -> None:
+        """No terminal is handed the tree root — that view belongs to the readers.
+
+        A terminal bound at ``control_target/`` could read, rewrite or delete
+        every other user's record, which is the chip's integrity rather than a
+        privacy nicety: the record is what decides whether another user's queued
+        plan may write to the machine at all.
+        """
+        sources = {
+            name: self._control_mounts(service)[0].split(":")[0]
+            for name, service in _web_terminal_services(EXAMPLE_CONFIG).items()
+        }
+
+        assert len(set(sources.values())) == len(sources), sources
+        for name, source in sources.items():
+            assert source.rstrip("/") != _CONTROL_TREE_SOURCE, (name, source)

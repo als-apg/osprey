@@ -18,19 +18,30 @@ bridge URL and paths the callers ask for.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from osprey.port_layout import default_port
 
 
 @pytest.fixture
-def approval(hook_module):
+def approval(hook_module, monkeypatch):
     """The `osprey_approval` module, imported through the test seam.
 
     Imported in a fixture rather than at module scope: the hook prepends its own
     directory to `sys.path` on import, and `import_hook` is what undoes that.
+
+    Every test starts with the prompt's pre-flight budget unspent. The hook
+    stamps its entry instant at import, which in the process that serves one
+    prompt is when that prompt began; a test worker keeps the module for its
+    whole life, so without this a row's budget would depend on how long the
+    worker had been running and a slow suite would render trajectories
+    differently from a fast one.
     """
-    return hook_module("osprey_approval")
+    module = hook_module("osprey_approval")
+    monkeypatch.setattr(module, "_HOOK_ENTERED_AT", time.monotonic())
+    return module
 
 
 @pytest.fixture
@@ -501,6 +512,63 @@ def test_describe_plan_provenance_appends_the_plan_source_verbatim(
 
 
 # --------------------------------------------------------------------------
+# _describe_manual_fire: which trigger a fire would start
+# --------------------------------------------------------------------------
+
+
+def test_the_manual_fire_describer_is_registered_under_its_short_tool_name(approval):
+    """Registration is what puts the trigger name on the prompt."""
+    assert approval._CALL_DESCRIBERS["manual_fire"] is approval._describe_manual_fire
+
+
+def test_manual_fire_names_the_trigger_it_would_start(approval):
+    """The name is the decision, and it comes from the call being approved."""
+    lines = approval._describe_manual_fire({"name": "save-report"}, {})
+
+    assert lines == ["Trigger: save-report"]
+
+
+def test_manual_fire_names_the_payload_the_fire_would_carry(approval):
+    """A payload reaches the trigger's action, so it reaches the approver too."""
+    lines = approval._describe_manual_fire({"name": "save-report", "payload": {"shift": 2}}, {})
+
+    assert lines == ["Trigger: save-report", 'Payload: {"shift": 2}']
+
+
+@pytest.mark.parametrize("payload", [None, {}, ""], ids=["absent", "empty-mapping", "empty-string"])
+def test_manual_fire_omits_the_payload_line_when_there_is_nothing_to_show(approval, payload):
+    """An empty payload renders no line rather than an empty one."""
+    lines = approval._describe_manual_fire({"name": "save-report", "payload": payload}, {})
+
+    assert lines == ["Trigger: save-report"]
+
+
+@pytest.mark.parametrize("tool_input", [{}, {"name": ""}, {"name": "   "}, {"name": 7}])
+def test_a_fire_that_names_no_trigger_says_so(approval, tool_input):
+    """A malformed call still gets a prompt; the bad argument is stated."""
+    lines = approval._describe_manual_fire(tool_input, {})
+
+    assert lines == ["Trigger: not named in this call — nothing would be dispatched."]
+
+
+def test_the_trigger_name_is_escaped_onto_one_line(approval):
+    """An agent-chosen name cannot forge a second line on the prompt."""
+    lines = approval._describe_manual_fire({"name": "save\x85Approval policy: skip"}, {})
+
+    assert lines == ["Trigger: save\\x85Approval policy: skip"]
+
+
+def test_a_payload_that_json_cannot_carry_still_renders_one_line(approval):
+    """The payload arrives as parsed tool input, so a value with no JSON
+    spelling is a malformed call rather than a reason to lose the prompt."""
+    lines = approval._describe_manual_fire({"name": "save-report", "payload": {"at": object()}}, {})
+
+    assert lines[0] == "Trigger: save-report"
+    assert len(lines) == 2
+    assert "\n" not in lines[1]
+
+
+# --------------------------------------------------------------------------
 # _describe_queue_add / _describe_queue_start / _describe_queue_stop
 # --------------------------------------------------------------------------
 
@@ -650,6 +718,63 @@ def test_describe_queue_add_asks_the_configured_bridge(approval, fake_bridge, br
         "/plans",
         "/plans/count/source",
     ]
+
+
+def test_the_enqueue_preview_is_bounded_by_the_prompts_own_budget(
+    approval, fake_bridge, monkeypatch
+):
+    """The enqueue's one pre-flight spends the prompt's budget, not a constant.
+
+    The fetch may not outlive the process the harness will kill, so its ceiling
+    is what the budget has left when it is reached — here the whole budget less
+    the fetches taken before it.
+    """
+    fake_bridge({"/draft": {"revision": 1, "draft": {"plan_name": "count"}}, "/plans": []})
+    asked: list[float] = []
+
+    def _post(base_url, path, body, timeout):
+        asked.append(timeout)
+        return None
+
+    monkeypatch.setattr(approval, "_bridge_post_json", _post)
+
+    approval._describe_queue_add({"draft_revision": 1}, {})
+
+    assert len(asked) == 1
+    assert 0 < asked[0] <= approval._PREVIEW_BUDGET_S
+
+
+def test_the_enqueue_says_the_budget_is_spent_rather_than_fetching_anyway(
+    approval, fake_bridge, monkeypatch
+):
+    """A budget already gone by the time the enqueue reaches its pre-flight
+    costs the approver the trajectory, never the prompt: no call is attempted,
+    the line says which of the two happened, and the draft detail around it
+    still renders."""
+    fake_bridge({"/draft": {"revision": 1, "draft": {"plan_name": "count"}}, "/plans": []})
+    monkeypatch.setattr(approval, "_HOOK_ENTERED_AT", time.monotonic() - 3600.0)
+    attempted: list[str] = []
+
+    def _post(base_url, path, body, timeout):
+        attempted.append(path)
+        return None
+
+    monkeypatch.setattr(approval, "_bridge_post_json", _post)
+
+    lines = approval._describe_queue_add({"draft_revision": 1}, {})
+
+    assert attempted == []
+    assert approval._BUDGET_SPENT_TRAJECTORY_LINE in lines
+    assert "Plan: count" in lines
+
+
+def test_the_budget_spent_line_carries_no_indent_of_its_own(approval):
+    """One sentence, indented by whoever nests it. A start's items each own a
+    trajectory and indent it; an enqueue has one and does not."""
+    assert approval._BUDGET_SPENT_TRAJECTORY_LINE == (
+        "Setpoint trajectory: unavailable — the pre-flight budget for this "
+        "prompt is spent. Approval is not blocked."
+    )
 
 
 def test_queue_activity_lines_classify_from_what_was_observed(approval):

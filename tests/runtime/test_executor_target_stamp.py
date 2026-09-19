@@ -32,6 +32,7 @@ import pytest
 from osprey.mcp_server.python_executor import executor as host_executor
 from osprey.runtime import ControlTargetChangedError
 from osprey_connectors import control_context, posture_store
+from tests._control_context_fixtures import state_dir_under
 
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
@@ -48,7 +49,7 @@ def state_root(tmp_path, monkeypatch):
     of there being one record per deployment rather than one file per process.
     """
     root = tmp_path / "var" / "agent_data"
-    (root / control_context.STATE_DIR_NAME).mkdir(parents=True)
+    state_dir_under(root).mkdir(parents=True)
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
@@ -136,8 +137,14 @@ def clear_stamp(monkeypatch):
 
 
 def markers_in(root: Path) -> list[dict[str, Any]]:
-    """Every in-flight execution marker under *root*, read straight off disk."""
-    directory = root / control_context.STATE_DIR_NAME
+    """Every in-flight execution marker under *root*, read straight off disk.
+
+    The markers land in the acting identity's own directory below
+    ``control_target/``, beside the record — the same hop the writers resolve,
+    so this reads them where they are rather than one level up, where a glob
+    matches nothing and the assertion reads as "no run happened".
+    """
+    directory = state_dir_under(root)
     return [
         json.loads(path.read_text(encoding="utf-8"))
         for path in sorted(directory.glob(f"{host_executor.INFLIGHT_FILE_PREFIX}*.json"))

@@ -10,7 +10,9 @@ its own answer:
 
 * the **operator secret**, which authorises everything an operator can do;
 * the **panel token**, a deliberately weaker credential for the narrow set of
-  panel-arrangement calls in-process companions legitimately make;
+  panel-arrangement calls in-process companions legitimately make, and for the
+  one entry in that tier which is not arrangement at all — the terminal proxy's
+  hop to the event dispatcher's MCP transport (:data:`PANEL_TIER_ROUTES`);
 * a **browser-session map**, ``{digest of a session id: expiry}``, holding the
   sessions handed out when a browser exchanges a one-time URL token for a
   cookie — served from memory, and kept across a restart by
@@ -77,6 +79,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from osprey.utils.identity import TERMINAL_USER_ENV, _usable, acting_identity
+
 logger = logging.getLogger(__name__)
 
 __all__ = [
@@ -84,12 +88,15 @@ __all__ = [
     "DEFAULT_SESSION_LIFETIME",
     "OPERATOR_SECRET_ENV",
     "ROSTER_ACCEPT_ENV",
+    "ROSTER_OWNERS_ENV",
     "ROSTER_SECRET_ENV_PREFIX",
     "PANEL_REGISTER_ROUTE",
     "PANEL_TIER_ROUTES",
     "PANEL_TOKEN_ENV",
     "SESSION_LIFETIME_ENV",
     "SESSION_STORE_DIR_ENV",
+    "UNNAMED_OPERATOR",
+    "OperatorIdentity",
     "SessionStore",
     "Tier",
     "WebCredentials",
@@ -128,6 +135,28 @@ ROSTER_SECRET_ENV_PREFIX = f"{OPERATOR_SECRET_ENV}_"
 #: treats them as operators. Without it the host's own terminal, loading the
 #: same ``.env``, would let any roster user in as its operator.
 ROSTER_ACCEPT_ENV = "OSPREY_TERMINAL_ACCEPT_ROSTER_SECRETS"
+
+#: Which account each roster secret belongs to, rendered beside the roster
+#: grant as ``OSPREY_TERMINAL_ROSTER_OWNERS="ALICE_B=alice-b,BOB=bob"`` — one
+#: ``<suffix>=<account>`` entry per roster variable, where the suffix is what
+#: follows :data:`ROSTER_SECRET_ENV_PREFIX` in that variable's name. Read,
+#: never popped, for the reason :data:`SESSION_LIFETIME_ENV` is: a list of
+#: account names is not a credential, and a child inheriting it learns nothing
+#: the deployment's user list does not already say.
+#:
+#: Consulted BY NAME rather than by position, because a roster variable that
+#: compose interpolated blank drops out of the accepted secrets: pairing names
+#: to secrets in order would then shift every later account by one and file one
+#: user's work under the next user's name. A secret the map does not cover
+#: still authorises — it simply names nobody.
+ROSTER_OWNERS_ENV = "OSPREY_TERMINAL_ROSTER_OWNERS"
+
+# What an account rendered into ROSTER_OWNERS_ENV may not contain or be. The
+# value becomes a directory component under the control-target tree and a
+# header value on its way to the queue, so it has to be one word that means the
+# same thing to both — see _roster_owners_from_env.
+_ACCOUNT_SEPARATORS: tuple[str, ...] = ("/", "\\", " ")
+_RESERVED_ACCOUNTS: tuple[str, ...] = (".", "..")
 
 #: The panel token's environment carrier.
 PANEL_TOKEN_ENV = "OSPREY_PANEL_TOKEN"
@@ -180,6 +209,38 @@ SESSION_STORE_DIR_ENV = "OSPREY_TERMINAL_SESSION_STORE_DIR"
 #: the decoy exists to prevent. Nothing has to *be* a preimage of it; only its
 #: shape matters.
 _SESSION_DECOY = "0" * 64
+
+
+class _UnnamedOperator:
+    """The type of :data:`UNNAMED_OPERATOR` — see that value.
+
+    A class of its own rather than ``None`` or ``""`` because the answer it
+    stands for is not "no operator": every caller has to be able to tell a
+    refusal from an admission that names nobody, and a falsy sentinel is the
+    shape that lets the two be confused at an ``if``.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        """Name the sentinel in a log line or a traceback, never a blank."""
+        return "<unnamed operator>"
+
+
+#: What :meth:`WebCredentials.identify_operator` answers for a credential that
+#: authorises but names no human: the deployment-wide operator secret presented
+#: at a shared sidecar's own address, or a roster secret the owners map does not
+#: cover. Such a caller is an operator — it is holding a secret the deployment
+#: issued — and the surfaces admit it exactly as before; what it is not is
+#: attributable, so nothing downstream may stamp an owner for it.
+UNNAMED_OPERATOR = _UnnamedOperator()
+
+#: Who an accepted credential belongs to: an account name, or
+#: :data:`UNNAMED_OPERATOR` where the credential authorises but names nobody.
+#: Public because :meth:`WebCredentials.identify_operator` returns it — a
+#: caller elsewhere that annotates the answer would otherwise have to import
+#: the sentinel's private class to say what it holds.
+OperatorIdentity = str | _UnnamedOperator
 
 
 def mint_secret() -> str:
@@ -443,6 +504,15 @@ class WebCredentials:
     #: variables (the host's ``osprey web`` loading the deploy ``.env``).
     roster_secrets: tuple[str, ...] = ()
 
+    #: Who each entry of :attr:`roster_secrets` belongs to, positionally — the
+    #: account :data:`ROSTER_OWNERS_ENV` named for that secret's variable, or
+    #: ``""`` where the map named none. Paired once, at population, where the
+    #: variable names are still in hand; every reader afterwards sees a settled
+    #: pairing rather than re-deriving one. Shorter than
+    #: :attr:`roster_secrets` — or empty, as in a process with no roster —
+    #: simply leaves the remaining secrets unnamed.
+    roster_owners: tuple[str, ...] = ()
+
     #: How long a session this holder mints stays valid, in seconds — what
     #: :meth:`create_session` uses when it is not told otherwise, and what the
     #: exchange cookie's ``Max-Age`` carries, so a browser's copy of the session
@@ -507,24 +577,73 @@ class WebCredentials:
         """
         return f"WebCredentials(sessions={len(self.sessions)})"
 
+    def identify_operator(self, candidate: str | None) -> OperatorIdentity | None:
+        """Which operator ``candidate`` is, or ``None`` when it is no operator.
+
+        The gate's one credential comparison. Three answers, and the caller has
+        to keep them apart:
+
+        * an account name — a roster secret whose owner the deployment rendered
+          (see :data:`ROSTER_OWNERS_ENV`), or this process's own secret in a
+          shape where it can name the human behind it;
+        * :data:`UNNAMED_OPERATOR` — authorised, attributable to nobody;
+        * ``None`` — not an operator secret at all.
+
+        Every accepted secret is compared, never just until the first match,
+        and the answer is selected rather than returned early: the roster's
+        order is the deployment's user list, so a loop that stopped at the
+        match would let its timing say which user just logged in, and one that
+        stopped at the FIRST match would also cost a miss more than a hit.
+        """
+        identified: OperatorIdentity | None = None
+        for secret, account in self._operator_secrets():
+            identified = account if _same_secret(candidate, secret) else identified
+        return identified
+
+    def _operator_secrets(self) -> list[tuple[str, OperatorIdentity]]:
+        """Every secret that authorises as an operator, paired with who it names.
+
+        The own secret comes first so that a roster entry sharing its value —
+        the per-user secret nginx injects into a ``web-<user>`` container is
+        also that user's roster secret in the sidecar — is the one that names
+        the account, rather than the coarser own-secret reading.
+        """
+        owners = self.roster_owners
+        paired: list[tuple[str, OperatorIdentity]] = [
+            (self.operator_secret, _own_secret_operator())
+        ]
+        for index, secret in enumerate(self.roster_secrets):
+            account = owners[index] if index < len(owners) else ""
+            paired.append((secret, account or UNNAMED_OPERATOR))
+        return paired
+
     def verify_operator(self, candidate: str | None) -> bool:
         """Whether ``candidate`` is the operator secret — or one of the roster's
         — each compared in constant time.
 
-        Every accepted secret is compared, never just until the first match,
-        so the answer's timing does not say which one matched.
+        A wrapper over :meth:`identify_operator` so that the gate's two
+        branches — the one that only has to admit a caller and the one that
+        also has to name it — cannot drift into accepting different things.
         """
-        matched = _same_secret(candidate, self.operator_secret)
-        for secret in self.roster_secrets:
-            matched = _same_secret(candidate, secret) or matched
-        return matched
+        return self.identify_operator(candidate) is not None
 
     def verify_panel(self, candidate: str | None) -> bool:
         """Whether ``candidate`` is the panel token, compared in constant time.
 
-        A true answer authorises only the panel-arrangement tier, never an
-        operator action; the route table decides which tier a request needs and
-        this method never widens it.
+        A true answer authorises only the panel tier, never an operator action;
+        the route table decides which tier a request needs and this method never
+        widens it.
+
+        That tier is panel arrangement with one exception:
+        ``GET|POST|DELETE /panel/events/mcp``, the proxy hop to the event
+        dispatcher's MCP transport, so that the agent in a session can fire a
+        dispatch job under that session's own chip. Holding this token is
+        therefore enough to fire a job — but not enough to decide what the job
+        does or whose authority it runs under. The dispatcher's own bearer
+        never leaves the proxy; attribution rests on the owner header minted on
+        that hop — the terminal proxy's ``/panel/events/mcp`` handler — rather
+        than on anything the caller sends; and the job runs under the worker's
+        denylist with the firing user's chip gating every write it attempts.
         """
         return _same_secret(candidate, self.panel_token)
 
@@ -700,6 +819,38 @@ def _same_secret(candidate: str | None, expected: str) -> bool:
     return secrets.compare_digest(candidate.encode("utf-8"), expected.encode("utf-8"))
 
 
+def _own_secret_operator() -> OperatorIdentity:
+    """Who this process's OWN operator secret names, if it names anyone.
+
+    Read per call rather than settled at population, for the reason
+    :func:`osprey.utils.identity.acting_identity` is: the markers are set per
+    process by compose and by the entrypoint, and this module is populated by
+    whichever request arrives first.
+
+    Two shapes can name a human. A ``web-<user>`` container's gate holds the
+    per-user secret nginx injects, and :data:`TERMINAL_USER_ENV` says whose it
+    is. A single-user host — ``osprey web``, ``osprey chat`` — declares no bind
+    host, which is this module's tell that nobody put a reverse proxy in front
+    of it: there is one account at the console and it is the process's own.
+
+    Everything else is the shared sidecar reached directly with the
+    deployment-wide secret. Its :data:`~osprey.utils.identity.AUDIT_IDENTITY_ENV`
+    names the SERVICE, so falling through to ``acting_identity()`` there would
+    file a human's work under ``bluesky-web``; it names nobody instead.
+
+    The container test asks :func:`~osprey.utils.identity._usable` rather than
+    whether the marker is merely non-blank, because the answer comes from the
+    ladder that applies that same rule: a marker the ladder rejects would
+    otherwise take this branch and be answered from the rung below it, which in
+    a sidecar is the service's own name.
+    """
+    if _usable(os.environ.get(TERMINAL_USER_ENV)):
+        return acting_identity()
+    if os.environ.get(BIND_HOST_ENV):
+        return UNNAMED_OPERATOR
+    return acting_identity()
+
+
 _POPULATION_LOCK = threading.Lock()
 _CREDENTIALS: WebCredentials | None = None
 
@@ -726,7 +877,13 @@ def _populate() -> WebCredentials:
     # Popped unconditionally (they must not reach any child process); kept
     # only where the compose environment said so — see ROSTER_ACCEPT_ENV.
     harvested = _pop_roster_secrets()
-    roster_secrets = harvested if _roster_accepted() else ()
+    # The owners map is read, not popped — a list of names is not a credential,
+    # so a child may inherit it. Paired here against ``harvested`` because this
+    # is where the variable suffixes it keys accounts by are still in hand.
+    owners = _roster_owners_from_env()
+    accepted = _roster_accepted()
+    roster_secrets = tuple(secret for _, secret in harvested) if accepted else ()
+    roster_owners = tuple(owners.get(suffix, "") for suffix, _ in harvested) if accepted else ()
 
     if not operator_secret:
         if os.environ.get(BIND_HOST_ENV):
@@ -749,6 +906,7 @@ def _populate() -> WebCredentials:
         operator_secret=operator_secret,
         panel_token=supplied_panel_token or mint_secret(),
         roster_secrets=roster_secrets,
+        roster_owners=roster_owners,
         session_ttl_seconds=ttl_seconds,
         sessions=_restore_sessions(store, ttl_seconds),
         store=store,
@@ -876,17 +1034,90 @@ def _roster_accepted() -> bool:
     return os.environ.pop(ROSTER_ACCEPT_ENV, "").strip() == "1"
 
 
-def _pop_roster_secrets() -> tuple[str, ...]:
+def _pop_roster_secrets() -> tuple[tuple[str, str], ...]:
     """Take every ``OSPREY_TERMINAL_SECRET_<USER>`` out of the environment.
 
     Popped for the reason the operator secret is: a value left in
     ``os.environ`` is inherited by every child this process spawns. Blank
     values (an unset variable compose interpolated as ``${VAR:-}``) count as
     absent. Sorted by name so the tuple is deterministic.
+
+    Returns each secret beside the ``<USER>`` suffix of the variable that
+    carried it, which is the key :data:`ROSTER_OWNERS_ENV` names accounts by —
+    the suffix is known only here, so pairing anywhere else would mean
+    re-reading variables this call has already removed.
     """
     names = sorted(name for name in os.environ if name.startswith(ROSTER_SECRET_ENV_PREFIX))
-    values = (os.environ.pop(name, "").strip() for name in names)
-    return tuple(value for value in values if value)
+    harvested = (
+        (name[len(ROSTER_SECRET_ENV_PREFIX) :], os.environ.pop(name, "")) for name in names
+    )
+    return tuple((suffix, value.strip()) for suffix, value in harvested if value.strip())
+
+
+def _roster_owners_from_env() -> dict[str, str]:
+    """Parse :data:`ROSTER_OWNERS_ENV` into ``{roster variable suffix: account}``.
+
+    Malformed input costs names, never an operator's access: the secrets a name
+    is missing for are simply unnamed. The one outcome that is never acceptable
+    is naming the WRONG account, and that is what makes an unreadable entry
+    cost the WHOLE map rather than its own name. The value is split on ``,``
+    before it is split on ``=``, so a separator inside either half breaks one
+    entry into fragments — and a fragment can be a well-formed pair keyed on a
+    variable belonging to somebody else (``ALICE,BOB=alice,bob`` yields
+    ``BOB=alice``). Nothing downstream could tell that name from a true one, and
+    nothing here can tell which surviving fragments came from which entry, so a
+    value carrying any unreadable entry names nobody at all. Both halves are
+    checked for that reason: a suffix against the shape a roster variable can
+    have (see :func:`_usable_suffix`), an account against the shape
+    :mod:`osprey.utils.identity` holds an identity to — the account becomes a
+    directory name under the control-target tree — with non-ASCII and
+    non-printable values excluded on top, because an owner also travels as an
+    HTTP header value.
+    """
+    owners: dict[str, str] = {}
+    for entry in os.environ.get(ROSTER_OWNERS_ENV, "").split(","):
+        if not entry.strip():
+            continue
+        suffix, separator, account = entry.partition("=")
+        suffix = suffix.strip()
+        account = account.strip()
+        if not separator or not _usable_suffix(suffix) or not _usable_account(account):
+            # Said out loud because the cost is every name in the map, and the
+            # symptom — panel actions recorded under nobody — looks exactly like
+            # a deployment that never rendered a roster at all. The variable
+            # holds account names, not secrets, so naming it leaks nothing.
+            logger.warning(
+                "%s carries an entry that cannot be read, so no roster secret will be "
+                "attributed to an account. Every entry must be <VARIABLE SUFFIX>=<account>.",
+                ROSTER_OWNERS_ENV,
+            )
+            return {}
+        owners[suffix] = account
+    return owners
+
+
+def _usable_suffix(suffix: str) -> bool:
+    """Whether *suffix* is a key a roster variable could actually have.
+
+    Every key the map can legitimately carry was produced by
+    :func:`~osprey.deployment.web_terminals.personas.env_var_suffix`, whose
+    output is ASCII letters, digits and ``_`` and nothing else. Holding keys to
+    that is how :func:`_roster_owners_from_env` recognises an entry it cannot
+    read — a key it could never have been handed is a value that was mangled
+    somewhere, and the names in it are not trustworthy.
+    """
+    if not suffix or not suffix.isascii():
+        return False
+    return all(character.isalnum() or character == "_" for character in suffix)
+
+
+def _usable_account(account: str) -> bool:
+    """Whether *account* can serve as an owner name; see :func:`_roster_owners_from_env`."""
+    if not account or account in _RESERVED_ACCOUNTS:
+        return False
+    if not account.isascii() or not account.isprintable():
+        return False
+    return not any(character in account for character in _ACCOUNT_SEPARATORS)
 
 
 def get_web_credentials(app: Any = None) -> WebCredentials:
@@ -1124,7 +1355,10 @@ class Tier(Enum):
     without touching this module leaves it protected rather than exposed.
     """
 
-    #: The narrow, low-privilege tier: panel arrangement and activity reporting.
+    #: The narrow, low-privilege tier: panel arrangement and activity
+    #: reporting, plus the terminal proxy's hop to the event dispatcher's MCP
+    #: transport — the one member of :data:`PANEL_TIER_ROUTES` that fires work
+    #: rather than moving a panel.
     #: Reachable with the panel token *or* with any operator credential.
     PANEL = "panel"
 
@@ -1136,7 +1370,8 @@ class Tier(Enum):
 #: The exact ``(method, path)`` pairs an in-process companion may drive with the
 #: panel token alone.
 #:
-#: Every entry is a real route in this tree: the first seven live in
+#: Every entry is a real route in this tree: the seven arrangement and activity
+#: routes live in
 #: :mod:`osprey.interfaces.web_terminal.routes.panels`,
 #: :mod:`osprey.interfaces.web_terminal.routes.agent_activity` and
 #: :mod:`osprey.interfaces.web_terminal.routes.agent_turn`, and
@@ -1146,10 +1381,33 @@ class Tier(Enum):
 #: panel-tier everywhere — on an app that has no such route the request clears
 #: the gate and is then answered with a 404 by routing, which grants nothing.
 #:
+#: ``/panel/events/mcp`` is the one entry that is not panel arrangement, and the
+#: one place this tier grants something an operator would recognise as an
+#: action: it is the terminal proxy's hop to the event dispatcher's MCP
+#: transport, panel-tier so that the agent in a session can fire a dispatch job
+#: under that session's own chip. The grant is narrow in every other direction.
+#: The dispatcher's own bearer is stripped from every agent child environment,
+#: and within the web-terminal container the one process that holds it is the
+#: panel proxy, which never passes it back out — so this path is the only way
+#: an agent in a session reaches the transport. Attribution comes from the
+#: owner header minted on that same hop, by the terminal proxy serving
+#: ``/panel/events/mcp``, rather than from anything the caller sends: this
+#: entry grants the firing, and that mint is what makes the fired job run as
+#: the human whose session fired it. What the job may then do is bounded
+#: elsewhere — the worker's denylist (no shell, no browser, no web) and the
+#: firing user's chip, which gates every control-system write it attempts.
+#: Three methods because a streamable-HTTP
+#: transport is one conversation in three verbs: ``POST``
+#: carries a call, ``GET`` opens the event stream, ``DELETE`` ends the session.
+#: Anything else on that path, a websocket included, is not that client.
+#:
 #: What is deliberately *absent* matters as much as what is present:
 #: ``GET /api/panel-focus`` (a real route) and ``POST /api/panel-layout`` (which
 #: writes the persisted layout) are operator-only, as is every config, scaffold,
-#: memory, chat, feedback, file, session and proxy route, and both websockets.
+#: memory, chat, feedback, file, session and proxy route — every other path
+#: under ``/panel/`` included — and both websockets. No websocket is panel-tier
+#: whatever this table holds: the gate refuses every one of them on this
+#: credential structurally, before the lookup.
 PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
     {
         ("GET", "/api/panels"),
@@ -1160,6 +1418,9 @@ PANEL_TIER_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("POST", "/api/agent-activity"),
         ("POST", "/api/agent-turn"),
         ("POST", "/api/focus"),
+        ("GET", "/panel/events/mcp"),
+        ("POST", "/panel/events/mcp"),
+        ("DELETE", "/panel/events/mcp"),
     }
 )
 

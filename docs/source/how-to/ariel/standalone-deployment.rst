@@ -3,7 +3,7 @@ Standalone Deployment
 =====================
 
 The ``ariel-standalone`` preset packages ARIEL together with a **sandboxed
-Osprey agent** scoped to ARIEL's MCP surface. There is no
+OSPREY agent** scoped to ARIEL's MCP surface. There is no
 control-system runtime, no shell, no filesystem writes, no Python executor.
 Skills and plugins extend what the agent can *reason about* over your
 logbook corpus; they cannot extend what it can *touch* on your host.
@@ -22,7 +22,7 @@ on their corpus before committing to the full deployment.
    alone; :ref:`how-to-multi-user` covers the persona.
 
 .. image:: /_static/resources/ariel_standalone.png
-   :alt: ARIEL-standalone bundle: PostgreSQL+pgvector, the ARIEL service, and a sandboxed Osprey agent reaching ARIEL only through the MCP boundary
+   :alt: ARIEL-standalone bundle: PostgreSQL+pgvector, the ARIEL service, and a sandboxed OSPREY agent reaching ARIEL only through the MCP boundary
    :align: center
    :width: 100%
 
@@ -69,7 +69,7 @@ on their corpus before committing to the full deployment.
 
          Create a new project from the ``ariel-standalone`` preset. This
          skeleton ships with Postgres+pgvector services, the ARIEL config,
-         and the sandboxed Osprey agent persona — no channel finder, no
+         and the sandboxed OSPREY agent persona — no channel finder, no
          archiver, no Python executor:
 
          .. code-block:: bash
@@ -115,7 +115,7 @@ on their corpus before committing to the full deployment.
                :selected:
 
                Launch the web terminal. It hosts the ARIEL search panel
-               *and* an Osprey agent chat surface scoped to the ARIEL MCP
+               *and* an OSPREY agent chat surface scoped to the ARIEL MCP
                tools and the ``logbook-deep-research`` skill.
 
                .. code-block:: bash

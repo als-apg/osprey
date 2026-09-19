@@ -43,8 +43,9 @@ from fastapi.testclient import TestClient
 from osprey.interfaces.web_terminal import control_context_owner
 from osprey.interfaces.web_terminal.app import create_app
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.identity import acting_identity
 from osprey_connectors.types import CONTROL_TARGETS
-from tests._control_context_fixtures import write_control_context
+from tests._control_context_fixtures import state_dir_under, write_control_context
 
 SANDBOX = posture_store.POSTURE_SANDBOX
 
@@ -115,7 +116,7 @@ def agent_data_root(tmp_path, monkeypatch):
     so the other half would read the repository's own ``var/agent_data``.
     """
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True)
+    state_dir_under(root).mkdir(parents=True)
     monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     posture_store.invalidate_cache()
@@ -355,7 +356,9 @@ class TestTheRecordHasOneLocation:
             post_posture(client)
 
         record = control_context.record_path_under(started)
-        assert record == started / posture_store.STATE_DIR_NAME / "control_context.json"
+        assert record == (
+            started / posture_store.STATE_DIR_NAME / acting_identity() / "control_context.json"
+        )
         assert record.exists()
         assert not (record.parent / RETIRED_STORE_NAME).exists()
 
@@ -368,7 +371,7 @@ class TestTheRecordHasOneLocation:
         would honour narrowings no surface can show or clear.
         """
         write_control_context(agent_data_root, target="live", generation=1)
-        retired = agent_data_root / posture_store.STATE_DIR_NAME / RETIRED_STORE_NAME
+        retired = state_dir_under(agent_data_root) / RETIRED_STORE_NAME
         retired.write_text(json.dumps({SESSION_A: {"standin": "sandbox"}}), encoding="utf-8")
 
         assert recorded_posture() == {}
@@ -408,7 +411,7 @@ class TestNoRecordLocation:
         assert posture_store.recorded_posture() == {}
 
         root = tmp_path / "recovered"
-        (root / posture_store.STATE_DIR_NAME).mkdir(parents=True)
+        state_dir_under(root).mkdir(parents=True)
         write_control_context(root, posture={"standin": SANDBOX})
         monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(root))
 

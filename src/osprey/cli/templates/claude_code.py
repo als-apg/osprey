@@ -345,6 +345,7 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         project_dir: Root of the project being rendered; declared hooks are
             resolved against the files it ships.
     """
+    from osprey.deployment.web_terminals.personas import config_needs_dispatcher_token
     from osprey.mcp_server.http import phoebus_bridge_default
     from osprey.utils.workspace import agent_data_base_dir
 
@@ -391,6 +392,15 @@ def config_derived_context(config: dict, project_dir: Path) -> dict[str, Any]:
         # left out of the render entirely rather than shipped as a tool that
         # can only fail.
         "graphdb_configured": _graphdb_configured(config),
+        # Gate for the `event_dispatcher` MCP server, read the same way
+        # `graphdb_configured` is (a plain truthiness test, merged before
+        # resolve_servers runs). The predicate is deliberately the one that
+        # grants the dispatcher bearer itself — the per-persona credential in
+        # the web-terminals render and the single-user host both call it — so a
+        # persona cannot end up holding the entry without the credential behind
+        # it, or the credential with no entry to spend it on. The panel
+        # declaration IS that entitlement; there is no separate key.
+        "event_dispatcher_wired": config_needs_dispatcher_token(config),
         # Render-time fallback for the phoebus server's PHOEBUS_BRIDGE_URL env
         # entry, derived from the same phoebus.host/phoebus.port the backend is
         # deployed on. One spelling with the runtime resolution (the shared
@@ -1058,12 +1068,6 @@ def auto_register_user_owned(project_dir: Path, canonical_name: str):
     if not config_path.exists():
         return
     config_add_to_list(config_path, ["scaffold", "user_owned"], canonical_name)
-
-
-def output_path_to_canonical(output_path: str, registry: BuildArtifactCatalog) -> str | None:
-    """Reverse-lookup: map an output file path to its canonical artifact name."""
-    art = registry.get_by_output(output_path)
-    return art.canonical_name if art else None
 
 
 def _build_framework_hook_rules(
@@ -1921,15 +1925,29 @@ def _lint_write_tools_are_gated(ctx: dict, fw_pre_rules: list[dict]) -> None:
         covering = [(m, src) for m, src in matchers if _matcher_covers(m, tool)]
         if covering:
             if all(src == _MATCHER_PROFILE for _, src in covering):
+                # The shell's reach is wider than the filesystem, so a facility
+                # weighing its own Bash gate has to weigh the dispatcher wire
+                # too: OSPREY_PANEL_TOKEN is in the agent's process env, which
+                # is all it takes to fire a job from a shell command.
+                shell_note = (
+                    " The shell also reaches the dispatcher wire: the panel "
+                    "token sits in the agent's process env, so a shell command "
+                    "can POST to /panel/events/mcp and fire a job without the "
+                    "approval prompt — the job still runs as the real user "
+                    "under their chip."
+                    if tool == "Bash"
+                    else ""
+                )
                 logger.warning(
                     "%s is not in permissions.deny and is gated only by a "
                     "PreToolUse matcher this profile declares itself (%s). The "
                     "build checks that the rule exists, not that the hook "
                     "refuses anything — a hook that exits without a "
                     "permissionDecision allows the call. Verify that hook denies "
-                    "what it is there to deny.",
+                    "what it is there to deny.%s",
                     tool,
                     ", ".join(repr(m) for m, _ in covering),
+                    shell_note,
                 )
             continue
         floor_note = (

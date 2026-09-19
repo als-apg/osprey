@@ -6,8 +6,9 @@ blocks a persona *inherits* through ``config:`` for a panel it excluded, and
 the blocks an injector writes into a deploying render for a tab only its
 personas select. ``panel_selection_overrides`` is that projection;
 ``panel_selection_errors`` refuses an authored ``enabled`` that contradicts
-the selection; ``panel_spec_enabled`` is the one predicate every reader of a
-block shares.
+the selection; ``panel_id_errors`` refuses an id no request for that panel
+could be routed with; ``panel_spec_enabled`` is the one predicate every reader
+of a block shares.
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import pytest
 
 from osprey.cli.build_profile_panels import (
     bar_items_selection_warnings,
+    panel_id_errors,
     panel_selection_errors,
     panel_selection_overrides,
 )
@@ -157,6 +159,57 @@ def test_an_agreeing_or_absent_enabled_is_allowed() -> None:
 
 def test_universal_panels_are_never_a_contradiction() -> None:
     assert panel_selection_errors({"web.panels.artifacts.enabled": True}, []) == []
+
+
+# ---------------------------------------------------------------------------
+# panel_id_errors — an id the served terminal could never route
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("panel_id", ["überblick", "beam viewer", "beam/viewer", "-x"])
+def test_an_id_the_terminal_cannot_serve_is_refused(panel_id) -> None:
+    """The terminal refuses to start on such an id, so the build refuses first.
+
+    A profile that renders one builds a deployment whose every request for that
+    panel fails, and a build is where the id is still a line in a file the
+    operator has open.
+    """
+    (error,) = panel_id_errors({f"web.panels.{panel_id}.url": "http://localhost:9000"})
+    assert repr(panel_id) in error
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param({"web.panels.überblick.url": "http://x:1"}, id="dotted"),
+        pytest.param({"web.panels.überblick": {"url": "http://x:1"}}, id="prefix_over_mapping"),
+        pytest.param({"web": {"panels": {"überblick": {"url": "http://x:1"}}}}, id="nested"),
+        pytest.param({"web": {"panels.überblick.url": "http://x:1"}}, id="mixed"),
+    ],
+)
+def test_every_spelling_of_the_block_reaches_the_check(spelling) -> None:
+    (error,) = panel_id_errors(spelling)
+    assert "überblick" in error
+
+
+def test_a_dot_segment_block_is_refused_as_the_empty_id_it_reads_as() -> None:
+    """A dot-segment cannot survive a dotted key, and is refused either way.
+
+    ``web.panels..url`` is the same key path as a panel named ``.``, and the
+    key walk splits on the dots, so the id it recovers is empty rather than a
+    dot. Both are ids no request could be routed with, so the reading that
+    reaches the check is refused on its own account; the terminal, which reads
+    the mapping key itself, names the dot.
+    """
+    (error,) = panel_id_errors({"web.panels..url": "http://x:1"})
+    assert "[A-Za-z0-9][A-Za-z0-9._-]*" in error
+
+
+def test_an_ordinary_id_passes() -> None:
+    assert panel_id_errors({"web.panels.my-grafana.url": "http://x:1"}) == []
+    assert panel_id_errors({"web.panels.okf.enabled": True}) == []
+    assert panel_id_errors({}) == []
+    assert panel_id_errors(None) == []
 
 
 # ---------------------------------------------------------------------------

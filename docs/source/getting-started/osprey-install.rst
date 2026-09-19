@@ -4,7 +4,7 @@ Install and Set Up
 
 The ``/osprey:install`` skill is OSPREY's installer, run as a conversation with a
 coding agent you bring — Claude Code in the commands below. That agent is not the
-Osprey agent: the installer builds the deployment the Osprey agent later runs
+OSPREY agent: the installer builds the deployment the OSPREY agent later runs
 from. It installs OSPREY if it is missing, starts from what you already
 have, agrees each step with you, and ends on a deployment repository for your
 accelerator, beamline, or detector that validates and builds. You can stop and

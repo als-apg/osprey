@@ -460,3 +460,93 @@ def test_an_unusable_max_turns_is_refused_when_the_file_is_loaded(tmp_path, bad_
     path = write_yaml(tmp_path, yaml_content)
     with pytest.raises(ValueError, match="max_turns"):
         load_triggers(path)
+
+
+# ---------------------------------------------------------------------------
+# A trigger may not name the dispatcher's own tools
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "tool",
+    [
+        "mcp__event_dispatcher__manual_fire",
+        "mcp__event_dispatcher__list_triggers",
+        "mcp__event_dispatcher__",
+    ],
+)
+def test_a_trigger_naming_a_dispatcher_tool_is_refused_at_load(tmp_path, tool):
+    """A dispatch job may not fire dispatch jobs, so it holds no dispatcher tool.
+
+    The refusal names the trigger and the tool so the author can find both in
+    the file in front of them.
+    """
+    yaml_content = f"""\
+        dispatcher:
+          dispatch_target: http://localhost:8010/dispatch
+
+        triggers:
+          - name: recursive-trigger
+            source: webhook
+            action:
+              prompt: "Handle event"
+              allowed_tools:
+                - get_pv
+                - {tool}
+    """
+    path = write_yaml(tmp_path, yaml_content)
+
+    with pytest.raises(ValueError) as excinfo:
+        load_triggers(path)
+
+    message = str(excinfo.value)
+    assert "recursive-trigger" in message
+    assert tool in message
+
+
+def test_a_trigger_naming_a_dispatcher_tool_as_a_bare_string_is_refused(tmp_path):
+    """``allowed_tools`` written as one scalar is still read as a tool name."""
+    yaml_content = """\
+        dispatcher:
+          dispatch_target: http://localhost:8010/dispatch
+
+        triggers:
+          - name: scalar-trigger
+            source: webhook
+            action:
+              prompt: "Handle event"
+              allowed_tools: mcp__event_dispatcher__manual_fire
+    """
+    path = write_yaml(tmp_path, yaml_content)
+
+    with pytest.raises(ValueError) as excinfo:
+        load_triggers(path)
+
+    message = str(excinfo.value)
+    assert "scalar-trigger" in message
+    assert "mcp__event_dispatcher__manual_fire" in message
+
+
+def test_a_tool_that_merely_mentions_the_dispatcher_elsewhere_is_allowed(tmp_path):
+    """Only the server prefix is refused, not any name containing it."""
+    yaml_content = """\
+        dispatcher:
+          dispatch_target: http://localhost:8010/dispatch
+
+        triggers:
+          - name: fine-trigger
+            source: webhook
+            action:
+              prompt: "Handle event"
+              allowed_tools:
+                - mcp__controls__event_dispatcher_status
+                - get_pv
+    """
+    path = write_yaml(tmp_path, yaml_content)
+
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].action["allowed_tools"] == [
+        "mcp__controls__event_dispatcher_status",
+        "get_pv",
+    ]

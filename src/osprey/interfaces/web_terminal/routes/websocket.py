@@ -76,8 +76,10 @@ _UUID_RE = re.compile(r"^[a-f0-9-]{36}$")
 # The posture is the operator's per-target sandbox toggle: narrow one control
 # target to ``sandbox`` and leave the others alone. It is deliberately *not* a
 # config edit — config is a build-time input that reaches the agent only
-# through a re-render — and it is deployment-wide, because so is the control
-# target it narrows: one deployment, one control context, one posture.
+# through a re-render. The record it is a field of is filed one per identity,
+# so a narrowing is the operator's own rather than the deployment's: one
+# person's chip decides that person's writes and leaves every other
+# operator's alone.
 #
 # It lives in the ``posture`` field of the control-context record. Its grammar
 # is :mod:`osprey_connectors.posture_store`'s, which is what every reader in
@@ -536,7 +538,10 @@ def _build_extra_env(
     after the strip, which is what makes this the seam for a deliberate
     re-introduction. Only the panel token is re-introduced: it authorises the
     narrow panel tier (:data:`~osprey.interfaces.web_auth.PANEL_TIER_ROUTES`)
-    and nothing else. The operator secret is never put back.
+    — panel arrangement and activity, plus the proxy hop to the event
+    dispatcher's MCP transport, which is what lets the agent in a session fire
+    a dispatch job under that session's own chip — and nothing else. The
+    operator secret is never put back.
     """
     extra_env: dict[str, str] = {}
     # The PTY terminal IS the expert web surface — every session spawned here

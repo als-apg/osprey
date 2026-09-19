@@ -753,7 +753,14 @@ _MCP_READY_POLL_S = 0.3
 
 # ``get_mcp_status()`` statuses that will not change without a reconnect. The
 # barrier stops waiting once every expected server reports one of these.
-_MCP_TERMINAL_STATUSES = frozenset({"connected", "failed"})
+# ``needs-auth`` is the SDK's own literal for a server that answered but would
+# not admit this run: the credential it wants is not one the barrier can supply
+# by waiting. A URL server whose credential is held elsewhere — the terminal's
+# panel proxy holds the dispatcher bearer, so a render carrying the
+# ``event_dispatcher`` entry outside a web-terminal session has none — reports
+# it at startup, and the run must reach its first turn rather than spend the
+# whole readiness budget on a server that was never going to register.
+_MCP_TERMINAL_STATUSES = frozenset({"connected", "failed", "needs-auth"})
 
 
 def expected_mcp_servers(project_dir: Path) -> set[str]:
@@ -774,13 +781,14 @@ async def await_mcp_ready(
     poll_s: float = _MCP_READY_POLL_S,
 ) -> list[Any]:
     """Poll ``get_mcp_status()`` until every server in *expected* is terminal —
-    ``connected`` or ``failed`` — or *timeout_s* elapses, then return the final
-    snapshot.
+    ``connected``, ``failed`` or ``needs-auth`` — or *timeout_s* elapses, then
+    return the final snapshot.
 
     A ``failed`` server is one the CLI has given up on (spawn error, or its own
-    startup limit — ``MCP_TIMEOUT`` — expired); it will not connect later, so
-    waiting for it only delays the run. It stays in the snapshot with its
-    ``error`` so the caller can name it.
+    startup limit — ``MCP_TIMEOUT`` — expired); a ``needs-auth`` one answered
+    but refused the credential this run presented. Neither will connect later,
+    so waiting for it only delays the run. Both stay in the snapshot with their
+    ``error`` so the caller can name them.
 
     Resilient to ``get_mcp_status()`` raising early in startup (before the stream
     is live). Never raises: on timeout it returns the last snapshot seen so the

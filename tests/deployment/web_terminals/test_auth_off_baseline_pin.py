@@ -18,7 +18,7 @@ describes ``none``; its render is pinned by ``test_nginx_auth_surface.py``.
 
 So: a facility whose ``modules.web_terminals`` declares ``auth.method: token``
 (or no ``auth:`` block at all) and no ``authorization:`` block must render
-byte-for-byte what it rendered before this feature, with exactly four
+byte-for-byte what it rendered before this feature, with exactly five
 exceptions:
 
   1. **the audit emitters and mounts** — ``OSPREY_AUDIT_IDENTITY``,
@@ -57,6 +57,18 @@ exceptions:
      path), so nothing about navigation changes either. Under ``password``, the
      posture whose cards this baseline does not cover, no card carries the
      marks; ``test_landing_token_badge.py`` pins that split.
+  5. **the control-context emitter and bind** — ``OSPREY_CONTROL_CONTEXT_DIR``
+     and the per-identity ``./var/agent_data/control_target/<identity>`` bind on
+     every per-user container. These are the writer half of the narrowing
+     record: the terminal writes where its own operator has pointed themselves,
+     and the services that judge that operator's writes read the same tree
+     read-only. Like the audit pair above they are unconditional, and for the
+     same reason — a deployment with no login wall still has an operator who can
+     narrow themselves to one machine, and a record that appeared only once
+     someone opted into logins would be missing exactly where nobody is
+     watching. Neither line names an account, a role or a claim: the identity
+     they address is the roster name this render already spells in
+     ``OSPREY_AUDIT_IDENTITY``.
 
 Everything else — every volume, header, ``location`` block, comment and blank
 line, and every port *site* (see the mask below) — must be untouched, with one
@@ -425,6 +437,21 @@ _ALLOWED_COMPOSE_LINES = Counter(
         "      - HTTP_PROXY=${HTTP_PROXY:-}": 2,
         "      - HTTPS_PROXY=${HTTPS_PROXY:-}": 2,
         "      - NO_PROXY=${NO_PROXY:-}": 2,
+        # The control-context tree — the FIFTH exception to SC6, on the same
+        # argument as the audit pair at the top of this list. Each per-user
+        # container is told where to file the narrowing record for the operator
+        # on the other end, and gets that one directory bound read-write; the
+        # services that judge those writes mount the tree read-only. It is
+        # unconditional because narrowing is: an operator can point their
+        # terminal at another machine whether or not the deployment asked for
+        # logins, and a record written only under `password` would be absent
+        # exactly where nothing else is watching either. The identity in the
+        # path is the roster name, the same one OSPREY_AUDIT_IDENTITY above
+        # already spells, so no account, role or claim reaches this render.
+        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/alice": 1,
+        "      - OSPREY_CONTROL_CONTEXT_DIR=/app/dls-assistant/var/agent_data/control_target/bob": 1,
+        "      - ./var/agent_data/control_target/alice:/app/dls-assistant/var/agent_data/control_target/alice": 1,
+        "      - ./var/agent_data/control_target/bob:/app/dls-assistant/var/agent_data/control_target/bob": 1,
     }
 )
 
@@ -642,6 +669,8 @@ def test_the_frozen_baseline_really_predates_the_feature() -> None:
     # docstring), so the bare `/var/audit/` substring is not the test.
     assert "/app/dls-assistant/var/audit/alice" not in compose
     assert "/app/dls-assistant/var/audit/bob" not in compose
+    assert "OSPREY_CONTROL_CONTEXT_DIR" not in compose
+    assert "/var/agent_data/control_target/alice" not in compose
     for line in _REPLACED_COMPOSE_LINES:
         assert line in compose, (
             f"the frozen baseline lacks the interim bind it is said to carry: {line!r}"

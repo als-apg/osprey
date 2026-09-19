@@ -1,7 +1,7 @@
 Web Terminal
 ============
 
-The OSPREY Web Terminal is a browser-based cockpit for the Osprey agent: a real
+The OSPREY Web Terminal is a browser-based cockpit for the OSPREY agent: a real
 terminal on the left, your live workspace on the right, and themed side panels
 for your control-system tools. Launch it from any project directory:
 

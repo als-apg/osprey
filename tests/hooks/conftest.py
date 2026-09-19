@@ -9,6 +9,12 @@ themselves read are forwarded, so a hook run cannot pick up ``OSPREY_CONFIG``,
 ``CONFIG_FILE`` or similar state leaked into the process environment by a test
 that ran earlier in the same worker.
 
+They also run against a throwaway deployment repo rather than this checkout —
+see :func:`_hook_project_dir`. A hook resolves its own root with the standard
+library in its own process, so the seams in ``tests/conftest.py`` cannot reach
+it, and a run left to the last rung of that ladder files real records into
+``<repo>/var/audit``.
+
 Unit tests that need a hook's *helpers* rather than its end-to-end behaviour
 import the module in-process through :func:`import_hook`, which contains the
 first of the two side effects that come with doing so: the ``sys.path`` entry
@@ -81,6 +87,17 @@ _HOOK_VARS = (
     # id and an agent-data root no test asked for.
     "OSPREY_POSTURE_SESSION",
     "OSPREY_AGENT_DATA_ROOT",
+    # The acting identity, which names the directory below the agent-data root
+    # that the record, the reports and the approval stamps share. Forwarded so
+    # a test can pin ONE identity for both halves of a subprocess run: without
+    # it the parent resolves the identity from its own account and the child
+    # from the curated environment, and in an image whose uid has no passwd
+    # entry those are two different names — so the child writes into, or reads,
+    # a directory the parent never looks at, and an absent file is the only
+    # symptom. ``OSPREY_TERMINAL_USER`` is deliberately absent: it is the rung
+    # ABOVE this one, so forwarding it would let a suite run from inside a
+    # multi-user web terminal outrank the pin the test asked for.
+    "OSPREY_AUDIT_IDENTITY",
     "OSPREY_WEB_PORT",
     "OSPREY_WEB_UX",
     "BLUESKY_BRIDGE_URL",
@@ -248,21 +265,68 @@ def _isolated_home(hook_home, monkeypatch):
 def _no_session_posture(session_posture_leak_guard):
     """Run every hook test outside a session posture unless it asks for one.
 
-    All three anchors are blanked suite-wide by
-    ``tests/conftest.py::session_posture_leak_guard``, and this fixture depends
-    on it rather than restating them. It matters more here than anywhere else:
-    all three are forwarded to hook subprocesses through ``_HOOK_VARS``, so a
-    developer running the suite from inside a narrowed web-terminal session
+    Five variables are blanked suite-wide by
+    ``tests/conftest.py::session_posture_leak_guard`` — the three session
+    anchors and the two control-context binds — and this fixture depends on it
+    rather than restating them. It matters more here than anywhere else: the
+    three anchors are forwarded to hook subprocesses through ``_HOOK_VARS``, so
+    a developer running the suite from inside a narrowed web-terminal session
     would otherwise put every hook under a posture — deployment-wide or
     per-target — that no test asked for.
 
-    Tests that want any of the three set it with ``monkeypatch.setenv`` in the
-    test body, which runs after both fixtures.
+    Tests that want one of them set it with ``monkeypatch.setenv`` in the test
+    body, which runs after both fixtures.
     """
     yield
 
 
-def _curated_env(config_path=None, hook_config_path=None):
+@pytest.fixture
+def _throwaway_repo(tmp_path_factory):
+    """A deployment repo a hook run can resolve to that is not this checkout.
+
+    Outside the test's own ``tmp_path`` on purpose: several suites assert the
+    exact contents of a directory they build there, and a repo created inside it
+    would be one more entry in that listing.
+    """
+    return tmp_path_factory.mktemp("hook-repo")
+
+
+@pytest.fixture(autouse=True)
+def _hook_root_never_the_checkout(_throwaway_repo, monkeypatch):
+    """Anchor every hook run on a throwaway repo rather than this checkout.
+
+    ``CLAUDE_PROJECT_DIR`` is the top rung of ``osprey_hook_log.get_project_dir``,
+    not of ``get_repo_root``: the repo root asks ``_config_path`` first, taking
+    ``project_root`` out of that config and then the config's own directory, and
+    only walks for ``profile.yml`` and falls back to the project dir when no
+    config file is there. The stamp therefore decides the answer whenever
+    ``OSPREY_CONFIG`` names nothing — and when a runner is given a
+    ``config_path``, :func:`_curated_env` sets ``OSPREY_CONFIG`` and that config
+    decides instead, which is the case the ladder exists for. The variable is
+    read from the environment at call time, so one stamp covers both ways a hook
+    runs here: imported in-process through :func:`import_hook`, and spawned as a
+    subprocess by :func:`hook_runner`, which forwards it on the ``_HOOK_VARS``
+    allowlist.
+
+    Stamped, not cleared — the opposite of :func:`_no_session_posture`, and for
+    the opposite reason. Clearing a variable does not stop a hook writing; it
+    aims the write at the last rung of that ladder, which is the process working
+    directory, which is this checkout. A hook that records there files real
+    audit lines into ``<repo>/var/audit`` that an operator cannot tell from
+    records of things that really happened, and
+    ``tests/conftest.py::no_audit_ledger_in_the_repo`` fails the session over
+    it. The seams in ``tests/conftest.py`` cannot reach this: the hook resolves
+    its root with the standard library alone, in its own process.
+
+    A test that pins the variable itself outranks this, because a test body runs
+    after every autouse fixture. That is how the modules asserting the ladder
+    name their own repo, and how the two asserting its UNSET rungs blank it
+    again.
+    """
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(_throwaway_repo))
+
+
+def _curated_env(config_path=None, hook_config_path=None, cwd=None, stamped_root=None):
     """Build the subprocess environment from the allowlists above."""
     env = {name: os.environ[name] for name in _SYSTEM_VARS + _HOOK_VARS if name in os.environ}
     if config_path:
@@ -271,6 +335,14 @@ def _curated_env(config_path=None, hook_config_path=None):
         env["CONFIG_FILE"] = str(config_path)
     if hook_config_path is not None:
         env["OSPREY_HOOK_CONFIG"] = str(hook_config_path)
+    if cwd is not None and env.get("CLAUDE_PROJECT_DIR") == str(stamped_root):
+        # Three-tier precedence for the project dir, narrowest first: a value
+        # the TEST set (so it differs from the stamp) always wins, because
+        # ``CLAUDE_PROJECT_DIR`` outranking a different working directory is
+        # itself under test; failing that, a run that names its own working
+        # directory answers from there; failing both, the throwaway repo
+        # :func:`_hook_root_never_the_checkout` stamped.
+        env["CLAUDE_PROJECT_DIR"] = str(cwd)
     return env
 
 
@@ -281,8 +353,30 @@ def _write_hook_config(tmp_path, hook_config):
     return path
 
 
+def _hook_project_dir(throwaway_repo, cwd=None):
+    """The project directory a hook subprocess resolves its repo root from.
+
+    A hook anchors its durable state — the audit ledger above all — on the root
+    ``osprey_hook_log.get_repo_root`` answers. With no config in play that root
+    is the project dir, which is ``CLAUDE_PROJECT_DIR`` if set and otherwise the
+    payload's own ``cwd`` field, and which is the process working directory when
+    neither says anything. That resolver is stdlib-only and runs in another
+    process, so neither the audit seam nor the project-root divert in
+    ``tests/conftest.py`` can redirect it: left to the last rung it answers the
+    checkout the suite is running in, and the hook files real records there.
+    Pinning the leading rungs at a throwaway repo is what keeps a hook run out
+    of the checkout, and it exercises the real resolver rather than replacing it.
+
+    A test that names its own working directory keeps it — that directory is
+    the repo it meant — and every other run gets the throwaway one.
+    """
+    project_dir = Path(cwd) if cwd else Path(throwaway_repo)
+    project_dir.mkdir(parents=True, exist_ok=True)
+    return project_dir
+
+
 @pytest.fixture
-def hook_runner(tmp_path):
+def hook_runner(tmp_path, _throwaway_repo):
     """Factory to run hook scripts as subprocesses.
 
     Mirrors the real Claude Code hook execution: stdin receives JSON with
@@ -300,6 +394,7 @@ def hook_runner(tmp_path):
         hook_config=None,
     ):
         hook_script = HOOKS_DIR / hook_name
+        project_dir = _hook_project_dir(_throwaway_repo, cwd)
         payload = {
             "tool_name": tool_name,
             "tool_input": tool_input,
@@ -308,12 +403,13 @@ def hook_runner(tmp_path):
             payload["tool_response"] = tool_response
         if hook_input_extra:
             payload.update(hook_input_extra)
+        payload.setdefault("cwd", str(project_dir))
         stdin_data = json.dumps(payload)
 
         hook_config_path = None
         if hook_config is not None:
             hook_config_path = _write_hook_config(tmp_path, hook_config)
-        env = _curated_env(config_path, hook_config_path)
+        env = _curated_env(config_path, hook_config_path, cwd, _throwaway_repo)
 
         result = subprocess.run(
             [sys.executable, str(hook_script)],
@@ -345,7 +441,7 @@ def hook_runner(tmp_path):
 
 
 @pytest.fixture
-def hook_runner_raw(tmp_path):
+def hook_runner_raw(tmp_path, _throwaway_repo):
     """Factory to run hook scripts without asserting returncode.
 
     Same as hook_runner but returns a (returncode, stdout, stderr) tuple
@@ -364,7 +460,10 @@ def hook_runner_raw(tmp_path):
         hook_config=None,
     ):
         hook_script = HOOKS_DIR / hook_name
+        project_dir = _hook_project_dir(_throwaway_repo, cwd)
         if stdin_override is not None:
+            # A payload the hook cannot parse carries no root, so the
+            # environment rung pinned below is the only one left.
             stdin_data = stdin_override
         else:
             payload = {
@@ -375,12 +474,13 @@ def hook_runner_raw(tmp_path):
                 payload["tool_response"] = tool_response
             if hook_input_extra:
                 payload.update(hook_input_extra)
+            payload.setdefault("cwd", str(project_dir))
             stdin_data = json.dumps(payload)
 
         hook_config_path = None
         if hook_config is not None:
             hook_config_path = _write_hook_config(tmp_path, hook_config)
-        env = _curated_env(config_path, hook_config_path)
+        env = _curated_env(config_path, hook_config_path, cwd, _throwaway_repo)
 
         result = subprocess.run(
             [sys.executable, str(hook_script)],

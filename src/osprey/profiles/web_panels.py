@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
 UNIVERSAL_PANELS: set[str] = {"artifacts"}
@@ -111,6 +112,44 @@ BAR_ITEM_PANEL_GATES: dict[str, str] = {
 # Frontend fallback when a profile/config doesn't pin a default tab.
 # The web terminal opens this tab first on cold load.
 DEFAULT_PANEL_FALLBACK: str = "artifacts"
+
+
+def panel_id_refusal(panel_id: str) -> str | None:
+    """Say why *panel_id* cannot name a panel, or ``None`` when it can.
+
+    A panel id is one URL path segment — ``/panel/<id>`` through the reverse
+    proxy, ``/panel-static/<id>/`` for a local bundle — and the proxy also
+    splices it into the ``x-forwarded-prefix`` value of every request it
+    forwards for that panel, escaping it for neither. The id therefore has to
+    stand for itself in a path and in a header alike: ASCII, and nothing a path
+    would have to percent-encode. That is the question a container's URL mount
+    asks, so the answer is that mount's class
+    (:data:`~osprey.interfaces.common_middleware.MOUNT_SEGMENT_RE`) rather than
+    a second one — and its leading-alphanumeric rule is what keeps ``.`` and
+    ``..`` from naming a panel, since ``/panel/..`` climbs out of the panel it
+    claims to name wherever something resolves it.
+
+    One implementation for two readers: the terminal refuses to start on a
+    declared id it cannot serve, and the build lint
+    (:func:`osprey.cli.build_profile_panels.panel_id_errors`) refuses the same
+    id in a profile, long before a container is built from it.
+
+    Args:
+        panel_id: The id declared under ``web.panels``.
+
+    Returns:
+        One message naming the config key, the id and the class it has to
+        match, or ``None`` for an id the terminal can serve.
+    """
+    if MOUNT_SEGMENT_RE.fullmatch(panel_id):
+        return None
+    return (
+        f"web.panels.{panel_id}: a panel id must match {MOUNT_SEGMENT_RE.pattern!r}, "
+        f"and {panel_id!r} does not. The id is spliced unescaped into the panel's own "
+        "URL path and into the forwarded-prefix header of every request the proxy "
+        "carries for it, so a character outside that class reaches no route and fails "
+        "the hop that would serve the panel. Rename the panel."
+    )
 
 
 def panel_spec_enabled(spec: object) -> bool:

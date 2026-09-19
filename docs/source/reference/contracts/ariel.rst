@@ -7,7 +7,7 @@ ARIEL Contracts
 ARIEL is integrated into Osprey as a dedicated MCP server
 (``osprey.mcp_server.ariel``) that exposes the logbook search service to the
 agent layer through a set of specialized tools. When a user asks a question
-like "What happened with the RF cavity last week?", the Osprey agent selects
+like "What happened with the RF cavity last week?", the OSPREY agent selects
 the appropriate ARIEL MCP tool based on the query type, which invokes the
 ``ARIELSearchService`` and returns structured results that the agent uses to
 produce a cited answer. This page is the reference for the contracts that
@@ -21,7 +21,7 @@ Integration Architecture
 .. raw:: html
    :file: ../../_diagrams/ariel-integration.html
 
-The flow begins when the Osprey agent determines that a user query involves
+The flow begins when the OSPREY agent determines that a user query involves
 historical logbook data. It selects from ARIEL's specialized MCP tools based
 on the query type --- for example, ``keyword_search`` for exact-match lookups,
 ``semantic_search`` for conceptual queries, or ``browse`` for exploring recent
@@ -34,7 +34,7 @@ ARIEL MCP Tools
 ===============
 
 ARIEL exposes the following tools through its dedicated MCP server. The
-Osprey agent selects the appropriate tool based on the user's query.
+OSPREY agent selects the appropriate tool based on the user's query.
 
 .. list-table::
    :header-rows: 1

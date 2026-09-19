@@ -38,7 +38,7 @@ from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.routes import websocket as websocket_routes
 from osprey.mcp_server.control_system import target_state
 from osprey_connectors import control_context, posture_store
-from tests._control_context_fixtures import owner, write_control_context
+from tests._control_context_fixtures import owner, state_dir_under, write_control_context
 
 SESSION_A = "aaaaaaaa-1111-2222-3333-444444444444"
 SESSION_B = "bbbbbbbb-1111-2222-3333-444444444444"
@@ -133,7 +133,7 @@ def agent_data_root(tmp_path, monkeypatch):
     ``var/agent_data``.
     """
     root = tmp_path / "agent_data"
-    (root / posture_store.STATE_DIR_NAME).mkdir(parents=True)
+    state_dir_under(root).mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(root))
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
     posture_store.invalidate_cache()
@@ -243,8 +243,13 @@ def read_record():
 
 
 def write_inflight_marker(root: Path, *, pid, target="standin"):
-    """Plant one execution marker, as the python executor writes it."""
-    directory = root / posture_store.STATE_DIR_NAME
+    """Plant one execution marker, as the python executor writes it.
+
+    The executor writes into ``target_state.state_dir()``, which carries the
+    acting identity's own hop below ``control_target/``. A marker one level up
+    is a marker the gate's glob never sees.
+    """
+    directory = state_dir_under(root)
     directory.mkdir(parents=True, exist_ok=True)
     path = (
         directory / f"{target_state.INFLIGHT_FILE_PREFIX}{pid}{target_state.INFLIGHT_FILE_SUFFIX}"

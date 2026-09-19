@@ -7,14 +7,23 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastmcp import FastMCP
+from fastmcp.server.dependencies import get_http_headers
 
 from osprey.dispatch.pool import DispatchPool, QueueFullError
 from osprey.dispatch.registry import TriggerRegistry
 from osprey.dispatch.trigger_config import TriggerConfig
+from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
-# The dispatcher's fire callback: (trigger, payload) -> dispatch_id, or None if
-# the trigger is disabled. Raises QueueFullError when the pool is saturated.
-FireCallback = Callable[[TriggerConfig, dict[str, Any]], Awaitable[str | None]]
+# The dispatcher's fire callback: (trigger, payload, owner) -> dispatch_id, or
+# None if the trigger is disabled. ``owner`` names the human the fire is
+# attributed to, and is None when the fire carries no attribution. Raises
+# QueueFullError when the pool is saturated.
+#
+# ``osprey.dispatch.sources.base.FireCallback`` is the same callback spelled
+# with two arguments, deliberately: a trigger source fires on nobody's behalf,
+# so it has no owner to name. The server's concrete callback defaults the owner
+# and therefore satisfies both spellings.
+FireCallback = Callable[[TriggerConfig, dict[str, Any], str | None], Awaitable[str | None]]
 
 
 def register_tools(
@@ -89,6 +98,9 @@ def register_tools(
         Useful for testing triggers without waiting for the real event source
         (webhook, cron, etc.) to fire.
 
+        The fire is attributed to whoever the ``X-Osprey-Owner`` request header
+        names; there is no way to fire on another human's behalf.
+
         Args:
             name: Trigger name to fire.
             payload: Optional payload dict passed to the trigger action.
@@ -113,13 +125,23 @@ def register_tools(
 
         event_payload: dict[str, Any] = {"manual": True, **payload}
 
+        # The owner is whoever the request says it is, never whoever the caller
+        # says it is: an argument would let an agent holding this tool credit
+        # its fire to any human. ``get_http_headers`` lower-cases every name and
+        # returns an empty mapping when no HTTP request is in scope, so a
+        # direct in-process call is simply owner-less. A value that names nobody
+        # costs the fire its owner, never the dispatch: the run goes ahead
+        # owner-less, so its writes are checked against no one's narrowing and
+        # the attribution is lost with it — see ``owner_from_header``.
+        owner = owner_from_header(get_http_headers().get(OWNER_HEADER.lower()))
+
         # Route through the real dispatch path so a manual fire honors the
         # disabled short-circuit and the per-trigger allowlist, exactly like a
         # webhook/cron fire. fire_callback returns None when the trigger is
         # disabled (and records "ignored: disabled" itself) and raises
         # QueueFullError when the pool is saturated.
         try:
-            dispatch_id = await fire_callback(trigger_cfg, event_payload)
+            dispatch_id = await fire_callback(trigger_cfg, event_payload, owner)
         except QueueFullError as exc:
             return json.dumps({"error": str(exc)})
 

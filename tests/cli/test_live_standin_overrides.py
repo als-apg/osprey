@@ -433,10 +433,10 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         assert limits["enabled"] is True
         assert limits["allow_unlisted_channels"] is False
 
-    def test_live_standin_overrides_derive_no_limits_posture(
-        self, runner, lifecycle_repo, caplog
+    def test_live_standin_overrides_build_with_an_unstated_limits_posture(
+        self, runner, lifecycle_repo
     ) -> None:
-        """Take the pair out of the profile and nothing puts it back.
+        """Take the pair out of the profile and nothing puts it back — nor is it required.
 
         The other half of the claim above, and the one that actually separates
         "authored" from "derived". While the stand-in was ``live`` the build
@@ -445,11 +445,12 @@ class TestTheRenderedDeploymentDialsTheStandIn:
         now — and there is no template default underneath to fall back to
         either, because a deployment's declarative config is its own.
 
-        So the render does not quietly come up permissive: the stand-in arms
-        writes, limits checking is unstated, and the build refuses rather than
-        building a lane whose devices would take whatever value a plan asks for
-        with no channel-limits database consulted. How strictly a deployment
-        runs is a fact about the deployment, and a build will not invent it.
+        Limits checking is opt-in per target, and the connector's per-write
+        check is the enforcement point: a target whose posture is unstated
+        builds no validator and opens no channel-limits database. So the stand-
+        in's armed target builds fine with the pair absent — how strictly a
+        deployment runs is a fact about the deployment, and a build neither
+        invents it nor demands it.
         """
         _set_live_standin(lifecycle_repo, STANDIN_PORT)
         _remove_config_entries(
@@ -458,17 +459,14 @@ class TestTheRenderedDeploymentDialsTheStandIn:
             "control_system.limits_checking.allow_unlisted_channels",
         )
 
-        import logging
+        result = _build(runner, lifecycle_repo)
+        assert result.exit_code == 0, result.output
 
-        with caplog.at_level(logging.ERROR):
-            result = _build(runner, lifecycle_repo)
-        assert result.exit_code != 0, result.output
-        # The refusal reaches the operator through the logger; the Rich handler
-        # wraps rendered lines, so the records carry the message whole.
-        assert "control_system.limits_checking.enabled" in caplog.text
-        assert not (lifecycle_repo / "build" / "config.yml").exists(), (
-            "a refused build must leave no rendered config behind"
-        )
+        limits = yaml.safe_load((lifecycle_repo / "build" / "config.yml").read_text())[
+            "control_system"
+        ]["limits_checking"]
+        assert "enabled" not in limits, "an unstated posture must not be filled in by the build"
+        assert "allow_unlisted_channels" not in limits
 
     def test_live_standin_overrides_leave_the_sandbox_gateways_portless(
         self, runner, lifecycle_repo

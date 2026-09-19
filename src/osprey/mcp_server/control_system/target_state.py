@@ -13,7 +13,7 @@ Path contract
 -------------
 The file lives at::
 
-    <repo_root>/<agent_data_base_dir>/control_target/server_<server_pid>.json
+    <repo_root>/<agent_data_base_dir>/control_target/<identity>/server_<server_pid>.json
 
 resolved here through :func:`osprey_connectors.workspace.resolve_shared_data_root`
 — that is ``project_root`` (the deployment repo holding ``profile.yml``) joined
@@ -22,7 +22,10 @@ root, deliberately, not :func:`~osprey_connectors.workspace.resolve_agent_data_r
 the session-scoped root appends ``sessions/<OSPREY_SESSION_ID>``, which a reader
 outside the server's environment cannot reproduce.
 
-The root is overridden by :data:`~osprey.audit.posture.OSPREY_AGENT_DATA_ROOT`
+The whole directory is overridden by
+:data:`~osprey_connectors.posture_store.CONTROL_CONTEXT_DIR_ENV_VAR` when a
+container carries the bind, and the root alone by
+:data:`~osprey.audit.posture.OSPREY_AGENT_DATA_ROOT`
 when the environment carries it. The web terminal's spawn sites stamp the root
 they resolved into every session child, paired with the session key, precisely
 so that this writer and the readers below do not each derive the directory
@@ -42,6 +45,11 @@ fixed and greppable:
   not look; the hook then finds no state and falls back to the deployment
   baseline, which is the documented fail-closed outcome rather than a wrong one;
 * fixed subdirectory: :data:`STATE_DIR_NAME` (``control_target``);
+* one directory inside it per identity, named by the ladder
+  :mod:`osprey_connectors.identity` owns — which the hook restates too, for
+  the same reason it restates everything else here. A hook that resolved a
+  different identity would read another operator's narrowing, or none where
+  one applies;
 * one file per server process, named :data:`REPORT_FILE_PREFIX` + PID +
   :data:`REPORT_FILE_SUFFIX`, discovered by the glob :data:`REPORT_FILE_GLOB`.
 
@@ -165,6 +173,7 @@ from typing import Any
 
 from osprey.audit.posture import posture_session
 from osprey_connectors import control_context, posture_store
+from osprey_connectors.identity import acting_identity
 from osprey_connectors.workspace import resolve_shared_data_root
 
 logger = logging.getLogger("osprey.mcp_server.control_system.target_state")
@@ -180,11 +189,12 @@ TARGET_VA = "va"
 TARGET_STANDIN = "standin"
 TARGET_NAMES: tuple[str, ...] = (TARGET_LIVE, TARGET_VA, TARGET_STANDIN)
 
-#: Fixed subdirectory of the agent-data root. Part of the path contract above,
-#: and taken from :mod:`osprey_connectors.control_context` for the same reason
-#: the report names below are: the record and these reports share one
-#: directory, and two spellings of it would make it two. Only the
-#: stdlib-only hooks, which can import neither, restate the literal.
+#: Fixed subdirectory of the agent-data root, holding one directory per
+#: identity. Part of the path contract above, and taken from
+#: :mod:`osprey_connectors.control_context` for the same reason the report
+#: names below are: the record and these reports share one directory, and two
+#: spellings of it would make it two. Only the stdlib-only hooks, which can
+#: import neither, restate the literal.
 STATE_DIR_NAME = control_context.STATE_DIR_NAME
 
 #: One report file per server process. The PID in the name is what makes a
@@ -285,9 +295,22 @@ __all__ = [
 
 
 def state_dir() -> Path:
-    """Directory holding every server's report file. Not created by reading.
+    """This identity's directory, holding its servers' reports. Not created by reading.
 
-    :data:`~osprey.audit.posture.OSPREY_AGENT_DATA_ROOT` wins when it is set.
+    :data:`~osprey_connectors.posture_store.CONTROL_CONTEXT_DIR_ENV_VAR` wins
+    over everything: it is the directory a container has bound for its own
+    state, already per-identity, so neither hop below is appended to it. It is
+    read through :func:`~osprey_connectors.posture_store.bound_state_dir` for
+    the same reason the stamp is read through the store below — one variable,
+    one normalisation, or the report and the record land in different places.
+
+    Failing that, :data:`~osprey.audit.posture.OSPREY_AGENT_DATA_ROOT` wins for
+    the root and :func:`~osprey_connectors.identity.acting_identity` names the
+    directory inside it. The identity is the writer's own, resolved from the
+    environment on every call: every family of file here belongs to one
+    operator's control state, and a server that reported into a directory
+    another identity owns would be a second opinion about a machine nobody
+    asked it about.
     A session child is stamped with the root its spawning server resolved, and
     that stamp is the whole point: writer and readers derive this directory
     three different ways (config here, config again in the store reader, a
@@ -311,9 +334,12 @@ def state_dir() -> Path:
     where the store reader answers ``None``, and the web terminal's switch
     route turns that raise into its ``store_unavailable`` 503.
     """
+    bound = posture_store.bound_state_dir()
+    if bound is not None:
+        return bound
     stamped = posture_store.stamped_agent_data_root()
     root = stamped if stamped is not None else resolve_shared_data_root()
-    return root / STATE_DIR_NAME
+    return root / STATE_DIR_NAME / acting_identity()
 
 
 def report_file_path(server_pid: int | None = None) -> Path:

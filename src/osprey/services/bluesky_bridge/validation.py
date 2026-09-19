@@ -71,16 +71,21 @@ def _assert_limits_readable_if_writable() -> None:
     connector's reference monitor and the MCP queue surface also read, so the
     bridge and the tool addressing it cannot disagree about whether this lane
     can write. It adds a third term to the two above: the operator's
-    per-target narrowing from the header chip, which can only narrow. In
-    practice a bridge CONTAINER cannot see it — the narrowing lives in the
-    control-context record under the host's agent-data root, outside every
-    container's filesystem — so the term is inert there and this guard behaves
-    exactly as it always has; it bites only where the bridge runs on the host
-    beside that record, and it bites in the fail-open direction, which is the
-    same direction "writes disabled" already takes. Note that this is a STARTUP
-    guard reading a record that moves at run time: a narrowing lifted after
-    start is not
-    re-checked here. That is deliberate and costs nothing, because the gate
+    per-target narrowing from the header chip, which can only narrow. A
+    narrowing belongs to one person, so that term asks whose work the write is,
+    and startup is nobody's: no item has been dequeued and nothing has bound an
+    owner, so :func:`osprey_connectors.posture_store.current_owner` falls to
+    its last rung. In a lane container — handed the read-only tree of every
+    identity's record and holding no chip of its own — that rung is
+    :data:`~osprey_connectors.posture_store.NO_OWNER`, which the deployment
+    ceiling alone governs, so the term is inert here and this guard is the two
+    config keys above. Where the bridge runs on the host beside its own record
+    the rung is the process account, whose chip does reach this check, and in
+    the fail-open direction — the same direction "writes disabled" already
+    takes. Either way the term earns its keep per WRITE rather than at startup,
+    once the plan wrapper has bound the owner the item was enqueued under. Note
+    also that this is a STARTUP guard reading a record that moves at run time:
+    a narrowing lifted after start is not re-checked here. That is deliberate and costs nothing, because the gate
     that stands between a plan and hardware is the per-write one, not this.
 
     Limits checking is resolved the same way, and for the same reason: a

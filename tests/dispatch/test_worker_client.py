@@ -182,6 +182,65 @@ async def test_bearer_token_sent_in_headers():
     assert captured_headers.get("authorization") == "Bearer my-secret-token"
 
 
+def _payload_capturing_transport(captured: dict) -> httpx.MockTransport:
+    """MockTransport that records the request's decoded JSON body, then answers 200."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.update(json.loads(request.content))
+        return httpx.Response(
+            status_code=200,
+            content=json.dumps({"run_id": "x", "status": "ok"}).encode(),
+            headers={"content-type": "application/json"},
+            request=request,
+        )
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_owner_rides_the_dispatch_payload():
+    """A named owner reaches the worker, which is how the run inherits a narrowing.
+
+    The worker resolves the run's owner from this field alone; a dispatch that
+    drops it produces a run checked against nobody's narrowing.
+    """
+    captured: dict = {}
+
+    with _patched_client(_payload_capturing_transport(captured)):
+        await dispatch_to_worker(
+            url="http://worker:9190",
+            prompt="test",
+            allowed_tools=[],
+            token="tok",
+            owner="alice",
+        )
+
+    assert captured["owner"] == "alice"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner", [None, ""])
+async def test_owner_less_dispatch_omits_the_key(owner):
+    """No owner means no key at all, not an empty one.
+
+    A cron tick and a webhook from a remote system fire on nobody's behalf, and
+    their request must stay byte-identical to what a caller predating the field
+    sends — an empty string would read as a named owner downstream.
+    """
+    captured: dict = {}
+
+    with _patched_client(_payload_capturing_transport(captured)):
+        await dispatch_to_worker(
+            url="http://worker:9190",
+            prompt="test",
+            allowed_tools=[],
+            token="tok",
+            owner=owner,
+        )
+
+    assert "owner" not in captured
+
+
 @pytest.mark.asyncio
 async def test_non_401_http_error_raises_typed_worker_error_without_body():
     """A 5xx from the worker → WorkerUnavailableError carrying only the status, not the body.

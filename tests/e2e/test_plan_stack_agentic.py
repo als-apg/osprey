@@ -83,11 +83,12 @@ responder and an unanswered prompt is a hard denial. So they prove the flow
 WORKS while saying nothing about how many human actions it took, which is the
 one property this feature changed.
 
-:func:`test_starting_a_queued_scan_costs_one_operator_approval` reads the
+:func:`test_starting_a_queued_scan_costs_one_approval_per_plan_version` reads the
 deployed queue's posture off the bridge, re-arms the shipped approval hook
 for that posture's arming call alone, answers the prompt from the test, and
-asserts the transcript: one prompt, for the arming step, allowed
-once — followed by a plan that really ran. It also probes the deployed bridge
+asserts the transcript: one arming prompt per plan version the run queued,
+each allowed, none of them twice, and none of those versions queued without
+one — followed by a plan that really ran. It also probes the deployed bridge
 for the route that used to carry the second action. That probe is the only
 place in the suite where the MCP server's expectations meet the bridge's real
 routing table; everywhere else the HTTP client is mocked, so a server posting
@@ -197,7 +198,7 @@ QUEUE_REMOVE = bluesky_tool_names.matcher(bluesky_tool_names.QUEUE_REMOVE)
 
 #: Every tool that moves the queue itself — add, start, stop. The approval
 #: transcript is read over exactly this set (see
-#: :func:`assert_one_arming_approval`): these are the operations an operator
+#: :func:`assert_one_approval_per_plan_version`): these are the operations an operator
 #: consents to on the way to hardware motion, and the whole claim under test is
 #: how many of those consents starting a queued plan costs. Plan AUTHORING
 #: (``write_plan``/``validate_plan``) is ask-gated too but is a different
@@ -1237,15 +1238,16 @@ def assert_restart_reprompted(events: list[HookEvent], traces: list[ToolTrace]) 
 
     An abort must not leave a pre-approved start behind: running the plan
     again is a new consent, prompted and answered in THIS session. Unlike
-    :func:`assert_one_arming_approval` this does not pin the prompt count to
-    exactly one, and the difference is the guard: ``interrupted_item_in_queue``
+    :func:`assert_one_approval_per_plan_version` this does not hold the prompt
+    count to one per plan version, and the difference is the guard:
+    ``interrupted_item_in_queue``
     exists to refuse a premature start, so an agent that tried the start
     first, was refused by the bridge, removed the item and started again has
     asked twice for one consent-worthy action — refusal recovery, which this
     module never punishes. What must hold instead: the gate fired at least
     once, every arming prompt was answered allow (this test's operator wants
     the restart), no OTHER queue-control tool prompted (same configuration
-    caveat as :func:`assert_one_arming_approval` — add and remove are
+    caveat as :func:`assert_one_approval_per_plan_version` — add and remove are
     hook-disarmed on this deployment), and exactly one start SUCCEEDED.
     """
     prompts = [e for e in events if e.tool_name == QUEUE_START]
@@ -1503,8 +1505,8 @@ def _add(
         '{"code": "stale_revision"}'
         if is_error
         else (
-            f'{{"run_id": "{run_id}", "revision": 1, "item": {{"item_uid": "item-1"}}, '
-            f'"armed": {json.dumps(armed)}}}'
+            f'{{"run_id": "{run_id}", "revision": {revision}, '
+            f'"item": {{"item_uid": "item-1"}}, "armed": {json.dumps(armed)}}}'
         )
     )
     return ToolTrace(
@@ -2636,8 +2638,17 @@ def test_rearm_floor_rejects_every_dishonest_navigation() -> None:
             assert_rearmed_after_interruption(SDKWorkflowResult(tool_traces=traces), _STRANDED_UID)
 
 
-def _arming_prompt(tool: str = QUEUE_START, decision: str = "allow") -> HookEvent:
-    return HookEvent(tool_name=tool, tool_input={}, decision=decision)
+def _arming_prompt(
+    tool: str = QUEUE_START, decision: str = "allow", revision: int | None = None
+) -> HookEvent:
+    """One approval prompt, as the permission callback records it.
+
+    ``revision`` is what a ``queue_add`` prompt carries and a ``queue_start``
+    prompt does not: the add's required argument is the plan version the
+    operator was answering about, while a start names no plan at all.
+    """
+    tool_input = {} if revision is None else {"draft_revision": revision}
+    return HookEvent(tool_name=tool, tool_input=tool_input, decision=decision)
 
 
 @pytest.mark.harness_benchmark
@@ -2663,6 +2674,82 @@ def test_restart_approval_assertion_rejects_free_denied_and_double_starts() -> N
         assert_restart_reprompted([_arming_prompt(decision="deny")], [_remove(), _add(), _start()])
     with pytest.raises(AssertionError, match="successful queue_start"):
         assert_restart_reprompted([_arming_prompt()], [_remove(), _add(), _start(), _start()])
+
+
+@pytest.mark.harness_benchmark
+def test_per_version_approval_accepts_one_answer_for_each_version() -> None:
+    """One version answered once is the ordinary run; a revised plan is a second
+    version and earns its own answer. Both postures, because the arming call and
+    the way its prompt names a plan differ between them. On a stopped queue one
+    start arms the whole pending queue, so two versions composed before it are
+    two plans covered by the one answer that listed them."""
+    assert_one_approval_per_plan_version(
+        [_arming_prompt(tool=QUEUE_ADD, revision=1)],
+        [_add(revision=1, armed=True)],
+        QUEUE_ADD,
+    )
+    assert_one_approval_per_plan_version(
+        [_arming_prompt(tool=QUEUE_ADD, revision=1), _arming_prompt(tool=QUEUE_ADD, revision=2)],
+        [_add(revision=1, armed=True), _add(revision=2, armed=True)],
+        QUEUE_ADD,
+    )
+    assert_one_approval_per_plan_version(
+        [_arming_prompt()], [_add(revision=1), _start()], QUEUE_START
+    )
+    assert_one_approval_per_plan_version(
+        [_arming_prompt(), _arming_prompt()],
+        [_add(revision=1), _start(), _add(revision=2), _start()],
+        QUEUE_START,
+    )
+    assert_one_approval_per_plan_version(
+        [_arming_prompt()], [_add(revision=1), _add(revision=2), _start()], QUEUE_START
+    )
+
+
+@pytest.mark.harness_benchmark
+def test_per_version_approval_rejects_a_second_answer_and_an_unapproved_version() -> None:
+    """Both directions of the rule, and the two ways a transcript can make it
+    unreadable. Asking twice about one version is the two-action flow — whether
+    the second ask is a plain repeat or a retry after the bridge refused the
+    first arming call, which moved nothing and left the version pending. Queuing
+    a version the operator was never asked about is hardware moving on nobody's
+    answer. A denial fails its own clause, and a run that armed nothing at all
+    is counted rather than passed."""
+    with pytest.raises(AssertionError, match="approved more than once"):
+        assert_one_approval_per_plan_version(
+            [
+                _arming_prompt(tool=QUEUE_ADD, revision=1),
+                _arming_prompt(tool=QUEUE_ADD, revision=1),
+            ],
+            [_add(revision=1, armed=True)],
+            QUEUE_ADD,
+        )
+    with pytest.raises(AssertionError, match="approved more than once"):
+        assert_one_approval_per_plan_version(
+            [_arming_prompt(), _arming_prompt()],
+            [_add(revision=1), _start(is_error=True), _start()],
+            QUEUE_START,
+        )
+    with pytest.raises(AssertionError, match="no operator approval"):
+        assert_one_approval_per_plan_version(
+            [_arming_prompt(tool=QUEUE_ADD, revision=1)],
+            [_add(revision=1, armed=True), _add(revision=2, armed=True)],
+            QUEUE_ADD,
+        )
+    with pytest.raises(AssertionError, match="no operator approval"):
+        assert_one_approval_per_plan_version(
+            [_arming_prompt()], [_add(revision=1), _start(), _add(revision=2)], QUEUE_START
+        )
+    with pytest.raises(AssertionError, match="answered"):
+        assert_one_approval_per_plan_version(
+            [_arming_prompt(tool=QUEUE_ADD, revision=1, decision="deny")],
+            [_add(revision=1, armed=True)],
+            QUEUE_ADD,
+        )
+    with pytest.raises(AssertionError, match="no plan version on the queue"):
+        assert_one_approval_per_plan_version([_arming_prompt()], [_start()], QUEUE_START)
+    with pytest.raises(AssertionError, match="start approval"):
+        assert_one_approval_per_plan_version([], [_add(revision=1), _start()], QUEUE_START)
 
 
 # ---------------------------------------------------------------------------
@@ -3795,50 +3882,194 @@ def approval_hook_armed_for(repo: Path, tool: str) -> Iterator[None]:
         config_path.write_text(original, encoding="utf-8")
 
 
-def assert_one_arming_approval(events: list[HookEvent], arming_tool: str) -> None:
-    """Assert the operator was asked to arm the queue exactly once, and agreed.
+def _trace_version(trace: ToolTrace) -> Any:
+    """The plan version one ``queue_add`` trace pinned.
 
-    ``arming_tool`` is the call that sends the plan toward the machine on the
+    A plan VERSION is a draft revision. ``POST /queue/items`` takes the plan
+    name and its arguments from the server-side snapshot AT that revision and
+    never from the request body, so the revision is what identifies "this exact
+    plan, as the operator saw it" — and it is what an approval is an approval
+    OF. An edit mints a new revision, which is a new version and a new consent;
+    the spent one is refused ``draft_revision_already_launched`` and so never
+    reaches hardware twice off one answer.
+
+    Read off the add's own argument, which the tool requires, and off the
+    bridge's answer as the fallback — the body echoes the revision it pinned,
+    so a transcript whose input is unreadable still names the version.
+    """
+    revision = trace.input.get("draft_revision")
+    if revision is None:
+        body = _add_body(trace)
+        revision = body.get("revision") if body is not None else None
+    return revision
+
+
+def _armed_plan_versions(traces: list[ToolTrace]) -> list[Any]:
+    """Every plan version this run put on the queue, in call order.
+
+    A refused add queued nothing and left its revision usable, so it names no
+    version here.
+    """
+    return [
+        _trace_version(trace) for trace in traces if trace.name == QUEUE_ADD and not trace.is_error
+    ]
+
+
+def _approvals_by_plan_version(
+    events: list[HookEvent], traces: list[ToolTrace], arming_tool: str
+) -> dict[Any, int]:
+    """How many arming prompts each queued plan version was approved through.
+
+    The arming call names its version differently in the two postures, so the
+    key is derived differently, and the difference is real rather than a detail:
+
+    * ``queue_add`` arms on an armed queue, and its own required
+      ``draft_revision`` argument IS the version — the prompt an operator
+      answered named the plan.
+    * ``queue_start`` arms a stopped queue and names no plan at all: a start
+      drains what is PENDING, so its prompt is an answer about every version
+      waiting in the queue at that moment. That is an honest answer about a
+      known list rather than a blanket one, because the queue a start is bound
+      to is the queue the approval listed (``expected_plan_queue_uid``). A
+      start that the bridge then refused drained nothing, so its versions are
+      still pending when the next start asks about them again — and asking
+      twice about one version is what this count is here to catch.
+
+    Only versions that actually reached the queue are counted. A prompt spent
+    on an add the bridge refused bought nothing and left the revision usable,
+    so it names no queued version and has no entry here.
+    """
+    counts: dict[Any, int] = dict.fromkeys(_armed_plan_versions(traces), 0)
+
+    if arming_tool == QUEUE_ADD:
+        for event in events:
+            if event.tool_name != QUEUE_ADD:
+                continue
+            revision = event.tool_input.get("draft_revision")
+            if revision in counts:
+                counts[revision] += 1
+        return counts
+
+    pending: list[Any] = []
+    for trace in traces:
+        if trace.name == QUEUE_ADD and not trace.is_error:
+            pending.append(_trace_version(trace))
+        elif trace.name == QUEUE_START:
+            for version in pending:
+                counts[version] += 1
+            if not trace.is_error:
+                pending = []
+    return counts
+
+
+def assert_one_approval_per_plan_version(
+    events: list[HookEvent], traces: list[ToolTrace], arming_tool: str
+) -> None:
+    """Assert every plan version cost exactly one operator approval, and it was granted.
+
+    ``arming_tool`` is the call that sends a plan toward the machine on the
     posture the test found the queue in — ``queue_start`` on a stopped queue,
     ``queue_add`` on an armed one. That call is the moment hardware moves, and
-    it is the ONE action this flow costs an operator. Two prompts would mean
-    the first did not take — which is what the removed mechanism did: a start
-    that could not arm used to come back having filed a request for someone
-    to confirm elsewhere, leaving the agent to ask again for an action it had
-    already been granted.
+    it costs an operator one answer PER PLAN VERSION. An agent that revises its
+    plan is asking about a different plan, so it asks again and is counted
+    again; an agent that asks twice about one version is asking for something
+    it was already granted — which is what the removed mechanism did: a start
+    that could not arm used to come back having filed a request for someone to
+    confirm elsewhere, leaving the agent to ask again.
 
-    The second clause reads every queue-control tool, not just the arming
-    one, so a new consent appearing anywhere on the way to motion — a second
-    start, a stop, a confirmation-shaped step — fails here rather than passing
-    as "still one". Note what it does NOT prove on a stopped queue:
-    ``queue_add`` is ask-gated in the shipped posture too, and its prompt is
-    absent from that transcript only because this deployment pins
-    ``approval.tools.queue_add: skip`` (see ``_EXTRA_CONFIG``). Composing a
-    plan and arming the queue are separate consents by design; the count this
-    feature moved is the arming one.
+    Both directions are failures, and both are here. A version approved twice
+    is the two-action flow coming back — including the shape where the bridge
+    refused the first arming call and the agent asked again for a version it
+    had already been granted. A version that reached the queue with no approval
+    at all is hardware moving on nobody's answer, which is the worse of the two
+    and the reason a bare count of prompts is not enough: a transcript with one
+    prompt and a version queued after it satisfies "exactly one approval"
+    precisely as the correct run does.
+
+    The closing clause reads every queue-control tool, not just the arming one,
+    so a consent appearing anywhere else on the way to motion — a stop, a
+    confirmation-shaped step — fails here rather than passing as "still one per
+    version". Note what it does NOT prove on a stopped queue: ``queue_add`` is
+    ask-gated in the shipped posture too, and its prompt is absent from that
+    transcript only because this deployment pins
+    ``approval.tools.queue_add: skip`` (see ``_EXTRA_CONFIG``). Composing a plan
+    and arming the queue are separate consents by design; the count this feature
+    moved is the arming one.
     """
+    assert arming_tool in (QUEUE_ADD, QUEUE_START), (
+        f"{arming_tool!r} is not a call that arms a queue, so there is no plan "
+        f"version for its prompts to be counted against (expected one of "
+        f"{sorted((QUEUE_ADD, QUEUE_START))})"
+    )
+
+    versions = _armed_plan_versions(traces)
+    assert versions, (
+        "the run put no plan version on the queue, so counting approvals would "
+        "count nothing. A successful queue_add is what this assertion is about.\n"
+        f"  all tools called, in order: {[t.name for t in traces]}"
+    )
+    assert None not in versions, (
+        "a successful queue_add named no draft revision, so the version it "
+        "queued cannot be told from any other and the per-version count is "
+        f"meaningless: {[t.input for t in traces if t.name == QUEUE_ADD and not t.is_error]}"
+    )
+    assert len(set(versions)) == len(versions), (
+        f"the run queued revision(s) more than once: {versions}. A revision is "
+        "consumable exactly once (the bridge refuses a replay with "
+        "draft_revision_already_launched), so two successful adds of one "
+        "revision means the transcript is not what it claims to be"
+    )
+
     arming = [e for e in events if e.tool_name == arming_tool]
-    assert len(arming) == 1, (
-        f"arming the queue took {len(arming)} approval prompt(s), not one. "
-        f"Sending a queued plan toward the machine is one operator action: approve "
-        f"{arming_tool}, and the queue drains. Zero prompts means the gate never "
-        f"fired at all (the approval hook still has a policy for {arming_tool}, so "
-        "this test counted nothing); two or more mean the arming call did not take.\n"
+    if arming_tool == QUEUE_START:
+        # A start names no plan, so its prompt is credited to the versions
+        # pending when the CALL was made. That reads the calls for the prompts,
+        # which holds only while each call cost exactly one.
+        starts = [trace for trace in traces if trace.name == QUEUE_START]
+        assert len(arming) == len(starts), (
+            f"the run made {len(starts)} start call(s) but stopped for "
+            f"{len(arming)} start approval(s), so no prompt can be matched to "
+            "the queue it armed. Arming a stopped queue is gated, so either the "
+            "gate did not fire on every start or a prompt answered something "
+            "that never reached the bridge.\n"
+            f"  every approval prompt, in order: "
+            f"{[(e.tool_name, e.decision) for e in events] or '(none)'}\n"
+            f"  all tools called, in order: {[t.name for t in traces]}"
+        )
+
+    counts = _approvals_by_plan_version(events, traces, arming_tool)
+    unapproved = sorted(version for version, count in counts.items() if count == 0)
+    assert not unapproved, (
+        f"plan version(s) {unapproved} reached the queue with no operator "
+        "approval — the plan went toward the machine on nobody's answer. Every "
+        f"version costs exactly one {arming_tool} approval.\n"
+        f"  approvals per version: {counts}\n"
         f"  every approval prompt, in order: "
         f"{[(e.tool_name, e.decision) for e in events] or '(none)'}"
     )
-    assert arming[0].decision == "allow", (
-        f"the arming prompt was answered {arming[0].decision!r} — this test's "
-        "operator approves it, so a denial means the policy matched a tool it "
-        f"should not have (input: {arming[0].tool_input})"
+    reapproved = sorted(version for version, count in counts.items() if count > 1)
+    assert not reapproved, (
+        f"plan version(s) {reapproved} were approved more than once. Sending ONE "
+        f"version toward the machine is one operator action: approve {arming_tool}, "
+        "and the queue drains. A second prompt for a version already granted is "
+        "the arming call not taking.\n"
+        f"  approvals per version: {counts}\n"
+        f"  every approval prompt, in order: "
+        f"{[(e.tool_name, e.decision) for e in events] or '(none)'}"
+    )
+
+    denied = [e for e in arming if e.decision != "allow"]
+    assert not denied, (
+        f"{len(denied)} arming prompt(s) were answered {[e.decision for e in denied]!r} "
+        "— this test's operator approves them, so a denial means the policy "
+        f"matched a tool it should not have (inputs: {[e.tool_input for e in denied]})"
     )
 
     queue_prompts = [e.tool_name for e in events if e.tool_name in QUEUE_CONTROL]
-    assert queue_prompts == [arming_tool], (
-        f"the run stopped for a human {len(queue_prompts)} time(s) on the way "
-        f"to hardware motion: {queue_prompts}. Exactly one — the arming step — "
-        "is the flow this feature leaves. A second consent anywhere in staging, "
-        "queueing or starting is the two-action flow coming back"
+    assert queue_prompts == [arming_tool] * len(arming), (
+        f"the run stopped for a human on {queue_prompts}. The arming step is the "
+        "only consent this flow leaves, one per plan version. A consent anywhere "
+        "else in staging, queueing or starting is the two-action flow coming back"
     )
 
 
@@ -3910,12 +4141,18 @@ def assert_no_start_request_was_filed(traces: list[ToolTrace]) -> None:
 @pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available")
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
 @pytest.mark.asyncio
-async def test_starting_a_queued_scan_costs_one_operator_approval(
+async def test_starting_a_queued_scan_costs_one_approval_per_plan_version(
     deployed_scan_stack: DeployedScanStack, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Asked for a measurement, the agent must reach the hardware through
-    exactly ONE operator approval — the one that arms the queue — and the plan
-    must then actually run.
+    """Asked for a measurement, the agent must reach the hardware through ONE
+    operator approval per plan version — the one that arms the queue — and the
+    plan must then actually run.
+
+    Per version rather than per run, because a revision is the unit an operator
+    answers about: an agent that edits its plan is asking about a different
+    plan and asks again, while an agent that asks twice about one revision is
+    asking for something it was already granted. A version that reached the
+    queue with no approval at all fails the same assertion from the other side.
 
     Both halves are load-bearing. A run that asked once and then quietly did
     nothing would satisfy a count on its own, so the count is paired with the
@@ -3966,7 +4203,7 @@ async def test_starting_a_queued_scan_costs_one_operator_approval(
     # The plan itself first: a transcript assertion over a run that never
     # staged anything would be counting prompts that were never going to fire.
     assert_a_scan_executed(result)
-    assert_one_arming_approval(result.hook_events, arming_tool)
+    assert_one_approval_per_plan_version(result.hook_events, result.tool_traces, arming_tool)
     assert_no_start_request_was_filed(result.tool_traces)
 
     # ...and the queue really drained. The floor reads the agent's own trace;

@@ -40,6 +40,11 @@ from collections.abc import Mapping
 #: ``cli.templates.scaffolding``, every service compose template), so a set that
 #: held one and not the other would be an oversight rather than a policy. Each
 #: is a credential that would let agent code act as the server that launched it.
+#:
+#: ``OSPREY_AUDIT_IDENTITY`` must never be added here or to the suffixes below.
+#: It is not a credential: it is how a child resolves the directory its own
+#: records are filed under (see ``osprey_connectors.identity``), and stripping
+#: it makes that child answer under a name no reader looks for rather than fail.
 SENSITIVE_ENV_EXACT: tuple[str, ...] = (
     "OSPREY_TERMINAL_SECRET",
     "OSPREY_PANEL_TOKEN",

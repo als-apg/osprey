@@ -15,6 +15,7 @@ import json
 
 import pytest
 
+from osprey_connectors.control_context import record_path_under
 from tests.e2e.sdk_helpers import agent_data_dir, run_sdk_query_with_hooks
 
 pytestmark = pytest.mark.harness_benchmark
@@ -195,18 +196,27 @@ async def test_python_write_denied_when_writes_disabled(safety_project_writes_of
 def _record_target(repo) -> str | None:
     """The control target *repo*'s control-context record names, or ``None``.
 
-    One record per deployment, at
-    ``var/agent_data/control_target/control_context.json``, and it is what the
-    hooks resolve the target from. Read here after the session so the test can
-    prove the hooks had a real target to answer for, rather than the
-    fail-closed fallback they use when no record exists.
+    One record per acting identity, at
+    ``var/agent_data/control_target/<identity>/control_context.json``, and it
+    is what the hooks resolve the target from. Read here after the session so
+    the test can prove the hooks had a real target to answer for, rather than
+    the fail-closed fallback they use when no record exists.
+
+    The path comes from :func:`~osprey_connectors.control_context.record_path_under`
+    rather than being composed here, so this test reads the file the hooks
+    read even if the hops change. The controls MCP server is what writes it,
+    at startup; no hook writes it at all. That works because this lane deploys
+    no containers: the test process, the SDK and every hook it spawns share one
+    environment, so they all land on the same rung of the identity ladder —
+    the account the suite runs as. A literal login here would be wrong on any
+    other machine.
 
     The controls servers' own reports (``server_<pid>.json`` beside it) are not
     read: their ``applied_target`` says which target a server has launched a
     connector for, which stays ``None`` on a session whose only write was
     denied.
     """
-    record = agent_data_dir(repo) / "control_target" / "control_context.json"
+    record = record_path_under(agent_data_dir(repo))
     if not record.exists():
         return None
     return json.loads(record.read_text(encoding="utf-8")).get("target")

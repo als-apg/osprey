@@ -18,12 +18,19 @@ it, and that its value now names the render.
 
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
 
 import pytest
 
 from osprey.mcp_env import load_dotenv_from_project
-from osprey.registry.mcp import FRAMEWORK_SERVERS, RENDERED_CONFIG_ENV_VALUE, resolve_servers
+from osprey.registry.mcp import (
+    FRAMEWORK_SERVERS,
+    RENDERED_CONFIG_ENV_VALUE,
+    ServerDefinition,
+    resolve_servers,
+)
 from osprey.utils.workspace import RENDERED_CONFIG_RELPATH
 
 REPO = "/tmp/test-repo"
@@ -157,3 +164,139 @@ class TestDotenvDiscovery:
         import os
 
         assert os.environ["OSPREY_TEST_DOTENV_KEY"] == "from-cwd"
+
+
+# ---------------------------------------------------------------------------
+# Rendered .mcp.json headers — the URL-server half of the same contract
+# ---------------------------------------------------------------------------
+
+
+def _render_mcp_json(claude_code_config: dict, **ctx_overrides) -> dict:
+    """Render ``claude_code/mcp.json.j2`` and parse it back."""
+    from osprey.cli.templates.manager import TemplateManager
+
+    ctx = _base_ctx(**ctx_overrides)
+    ctx["servers"] = resolve_servers(claude_code_config, ctx)
+    template = TemplateManager().jinja_env.get_template("claude_code/mcp.json.j2")
+    return json.loads(template.render(**ctx))
+
+
+class TestUrlServerHeaders:
+    """A URL server carries ``headers``; a stdio server carries ``env``.
+
+    The two are exclusive in the rendered file, which is why they are pinned
+    beside each other: an entry that grew both would be telling Claude Code to
+    authenticate a remote server with a subprocess environment it never gets.
+    """
+
+    def test_framework_url_server_renders_headers_and_no_env(self, monkeypatch) -> None:
+        """A framework URL entry renders ``{type, url, headers}`` and nothing else."""
+        monkeypatch.setitem(
+            FRAMEWORK_SERVERS,
+            "test_url_framework",
+            ServerDefinition(
+                name="test_url_framework",
+                module="",
+                url="http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp",
+                transport="http",
+                headers={"Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}"},
+            ),
+        )
+
+        entry = _render_mcp_json({})["mcpServers"]["test_url_framework"]
+
+        assert entry == {
+            "type": "http",
+            "url": "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp",
+            "headers": {"Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}"},
+        }
+        assert "env" not in entry
+
+    def test_owner_header_is_stripped_from_a_custom_spec(self, caplog) -> None:
+        """The owner header names the acting human — a spec may never mint one."""
+        config = {
+            "servers": {
+                "remote-api": {
+                    "url": "http://remote:8001/mcp",
+                    "headers": {"X-OSPREY-OWNER": "bob", "X-Trace": "keep-me"},
+                }
+            }
+        }
+
+        with caplog.at_level(logging.WARNING, logger="osprey.registry.mcp"):
+            resolved = {s["name"]: s for s in resolve_servers(config, _base_ctx())}
+
+        assert resolved["remote-api"]["headers"] == {"X-Trace": "keep-me"}
+        owner_warnings = [r for r in caplog.records if "X-OSPREY-OWNER" in r.getMessage()]
+        assert len(owner_warnings) == 1
+        assert "remote-api" in owner_warnings[0].getMessage()
+        # The stripped value is never echoed: a header value is a credential
+        # far more often than an env value is.
+        assert "bob" not in owner_warnings[0].getMessage()
+
+    def test_custom_spec_keeps_its_own_authorization_header(self, caplog) -> None:
+        """A custom server authenticates to a service the framework knows nothing of."""
+        config = {
+            "servers": {
+                "remote-api": {
+                    "url": "http://remote:8001/mcp",
+                    "headers": {"Authorization": "Bearer facility-token"},
+                }
+            }
+        }
+
+        with caplog.at_level(logging.WARNING, logger="osprey.registry.mcp"):
+            entry = _render_mcp_json(config)["mcpServers"]["remote-api"]
+
+        assert entry["headers"] == {"Authorization": "Bearer facility-token"}
+        assert [r for r in caplog.records if "remote-api" in r.getMessage()] == []
+
+    def test_headers_resolve_render_time_placeholders_only(self) -> None:
+        """``{key}`` is substituted here; ``${VAR:-}`` is left for the CLI."""
+        config = {
+            "servers": {
+                "remote-api": {
+                    "url": "http://remote:8001/mcp",
+                    "headers": {
+                        "X-Root": "{project_root}/build",
+                        "Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}",
+                    },
+                }
+            }
+        }
+
+        headers = _render_mcp_json(config)["mcpServers"]["remote-api"]["headers"]
+
+        assert headers["X-Root"] == f"{REPO}/build"
+        assert headers["Authorization"] == "Bearer ${OSPREY_PANEL_TOKEN:-}"
+
+    def test_a_command_server_declaring_headers_is_warned_and_renders_none(self, caplog) -> None:
+        """Headers are a URL-transport concept — a stdio entry has nowhere to put them."""
+        config = {
+            "servers": {
+                "local-thing": {
+                    "command": "/usr/bin/thing",
+                    "headers": {"Authorization": "Bearer nope"},
+                }
+            }
+        }
+
+        with caplog.at_level(logging.WARNING, logger="osprey.registry.mcp"):
+            entry = _render_mcp_json(config)["mcpServers"]["local-thing"]
+
+        assert "headers" not in entry
+        assert any("local-thing" in r.getMessage() for r in caplog.records)
+
+    def test_malformed_headers_are_ignored_with_a_warning(self, caplog) -> None:
+        """A list where a mapping belongs fails closed on the one spec, not the render."""
+        config = {
+            "servers": {
+                "remote-api": {"url": "http://remote:8001/mcp", "headers": ["Authorization"]},
+            }
+        }
+
+        with caplog.at_level(logging.WARNING, logger="osprey.registry.mcp"):
+            entry = _render_mcp_json(config)["mcpServers"]["remote-api"]
+
+        assert entry == {"type": "http", "url": "http://remote:8001/mcp"}
+        assert any("remote-api" in r.getMessage() for r in caplog.records)

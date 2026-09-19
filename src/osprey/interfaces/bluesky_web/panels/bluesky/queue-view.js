@@ -50,6 +50,7 @@ import {
   describeQueueStatus,
   finishedRunId,
   historyChanged,
+  historyClearConfirmNote,
   historyClearControl,
   historyEmptyState,
   historyRecords,
@@ -61,6 +62,7 @@ import {
   queueEmptyState,
   reduceQueueFrame,
   refusalTone,
+  removalRecords,
   stopButtonClass,
   stopButtonLabel,
   stripControls,
@@ -146,6 +148,7 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
    *   queue: ReturnType<typeof createInitialQueueState>,
    *   history: ReturnType<typeof historyRecords>,
    *   historyLoaded: boolean,
+   *   removals: ReturnType<typeof removalRecords>,
    *   selected: string|null,
    * }} */
   const state = {
@@ -154,6 +157,9 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
     // Whether a `GET /runs` fetch has EVER succeeded. Until one has, the panel
     // has not read history and must not claim there is none.
     historyLoaded: false,
+    // Queue work somebody withdrew. No "loaded" flag beside it: an empty list
+    // and an unread one say the same thing here, which is nothing at all.
+    removals: [],
     selected: null,
   };
 
@@ -532,8 +538,9 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
     historyEmpty.hidden = empty.hidden;
 
     // Clear: a usability gate (dead with nothing listed) and two-step, like
-    // the queue's. It drops the manager's whole history; run data is kept.
-    const clear = historyClearControl(state.history, state.historyLoaded);
+    // the queue's. It empties both halves of this card — the manager's whole
+    // history and the bridge's record of withdrawn work; run data is kept.
+    const clear = historyClearControl(state.history, state.removals, state.historyLoaded);
     if (clear.disabled) historyClearConfirmArmed = false;
     historyClearBtn.disabled = clear.disabled;
     historyClearBtn.textContent = historyClearConfirmArmed ? CONFIRM_CLEAR_LABEL : CLEAR_LABEL;
@@ -542,7 +549,7 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
     setNote(
       historyClearNote,
       historyClearConfirmArmed
-        ? `Click again to remove ${state.history.length === 1 ? 'the completed run' : `all ${state.history.length} completed runs`} from the list.`
+        ? historyClearConfirmNote(state.history.length, state.removals.length)
         : null
     );
 
@@ -570,6 +577,43 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
       );
       historyList.appendChild(row);
     });
+
+    state.removals.forEach((record) => historyList.appendChild(removalRow(record)));
+  }
+
+  /**
+   * One withdrawn queue row: when it happened, and what somebody did.
+   *
+   * Deliberately not a run: no status badge, no action buttons, no run id, so
+   * there is nothing to select and nothing to open in Results. It is the
+   * history list's quiet half, and it reads as one.
+   *
+   * The withdrawals sit BELOW the completed runs rather than interleaved with
+   * them. A run record carries no time — `GET /runs` orders by relevance, not
+   * by clock — so there is no key the two halves could be merged on, and each
+   * half stays in its own newest-first order under a heading that is the same
+   * question: what already happened.
+   *
+   * @param {{time: string, text: string}} record
+   * @returns {HTMLLIElement}
+   */
+  function removalRow(record) {
+    const row = document.createElement('li');
+    row.className = 'queue-row removal';
+
+    const time = document.createElement('span');
+    time.className = 'queue-time';
+    time.textContent = record.time;
+
+    const label = document.createElement('span');
+    label.className = 'queue-label';
+    const text = document.createElement('span');
+    text.className = 'queue-name';
+    text.textContent = record.text;
+    label.append(text);
+
+    row.append(time, label);
+    return row;
   }
 
   /**
@@ -596,7 +640,26 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
     return true;
   }
 
+  /**
+   * Re-read the withdrawals listed under the completed runs.
+   *
+   * Its own fetch, and its own failure: the bridge serves this log without
+   * touching the manager, so it answers when `GET /runs` cannot, and a failure
+   * on either side must not blank the other. A failed read leaves the last
+   * list up — the records are append-only, so what was shown is still true.
+   */
+  async function refreshRemovals() {
+    try {
+      const response = await fetch(api('/queue/removals'));
+      if (!response.ok) return;
+      state.removals = removalRecords(await response.json());
+    } catch {
+      // Transient: keep what was last read rather than emptying the list.
+    }
+  }
+
   async function refreshHistory() {
+    await refreshRemovals();
     try {
       const response = await fetch(api('/runs'));
       if (!response.ok) {
@@ -702,10 +765,27 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
 
   startBtn.addEventListener('click', () => {
     if (startBtn.disabled) return;
+    // Bind the start to the queue that is on screen. The uid is read HERE, at
+    // the click, so it is always the last frame's — the stream is the panel's
+    // only reader of the queue, and a queue that moved has already delivered
+    // the frame carrying its new uid.
+    //
+    // The bridge compares this uid under its arming lock and refuses
+    // `queue_changed_since_approval` when the list moved between the glance
+    // and the click. That refusal arrives like every other: `queueWrite` puts
+    // the bridge's own sentence in the notice slot, re-renders nothing, and
+    // never retries — the panel waits, the stream brings the queue that is
+    // actually there, and the operator's next click binds to that one.
+    //
+    // A summary with no uid (a manager the bridge could not read) sends no
+    // expectation at all, which the bridge takes as "start what is there":
+    // the panel must not invent a token it never saw.
+    const uid = state.queue.status?.plan_queue_uid;
+    const body = typeof uid === 'string' && uid !== '' ? { expected_plan_queue_uid: uid } : {};
     void queueWrite(
       'POST',
       '/queue/start',
-      {},
+      body,
       'Queue started — it runs what is queued, and whatever is added.',
       writeOutcomeTone(true)
     );

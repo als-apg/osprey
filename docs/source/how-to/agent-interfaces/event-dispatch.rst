@@ -4,7 +4,7 @@
 Event Dispatch
 ==============
 
-How to turn external events (webhooks, cron ticks) into headless Osprey agent runs.
+How to turn external events (webhooks, cron ticks) into headless OSPREY agent runs.
 
 .. dropdown:: What You'll Learn
    :color: primary
@@ -12,6 +12,7 @@ How to turn external events (webhooks, cron ticks) into headless Osprey agent ru
 
    - What the event dispatcher and dispatch worker do
    - How to bring the pipeline up and fire your first trigger
+   - How to fire a trigger from a web-terminal session, and who the job runs as
    - How to author your own triggers in ``triggers.yml``
    - How the two bearer tokens guard inbound and internal traffic
 
@@ -212,6 +213,79 @@ an explicit ``web.panels.events.url`` always wins — pin it on the **hosting**
 profile when the web terminals cannot reach the dispatcher on ``localhost``;
 every persona follows it, and a persona that pins a different one is refused.
 
+.. _event-dispatch-from-a-session:
+
+Firing a Trigger from a Session
+===============================
+
+A deployment that declares the EVENTS panel also hands the agent in each web
+terminal a small ``event_dispatcher`` MCP server, so a job can be started from
+the session an operator is already working in. Three of its tools read and
+answer straight away — ``list_triggers``, ``trigger_status`` and
+``trigger_history``. The fourth, ``manual_fire``, starts a job and asks first.
+
+Ask for it in plain language — *"fire the save-report trigger"* — and an
+approval prompt appears. It names the trigger the fire would start, and the
+payload where the call carries one, so the name to check is on the prompt
+rather than in the agent's message above it.
+
+The job runs as you
+-------------------
+
+Approve, and the run is attributed to your account: the terminal's proxy stamps
+your name onto the call, and the worker starts the agent under it. Every
+control-system write that job makes then meets your :ref:`control-target chip
+<web-terminal-session-posture>` — narrow yourself to read-only and the job you
+fired refuses its first write, with the refusal you would have seen in the
+terminal. The name comes from the session the call left, never from a tool
+argument or a header the agent can set, so there is no way to fire on someone
+else's behalf.
+
+A job that cron or an inbound webhook started carries no name, and neither does
+one whose account name the dispatcher cannot read — a name that is not a plain
+account spelling is refused, and the only trace is a warning in the dispatcher's
+own log. No chip narrows a job with no name: it runs with whatever writes the
+deployment gives it.
+
+Where the tools work
+--------------------
+
+The entry is rendered wherever the profile declares the EVENTS panel — which
+includes a bare ``osprey chat`` session and the dispatch worker's own runs.
+Neither of those has a terminal serving the panel route, so the server cannot
+connect and reports itself ``failed`` or ``needs-auth`` while the session
+starts. That is inert: the session comes up as usual, without the dispatcher
+tools. **The dispatcher tools are reachable from a web-terminal session only.**
+
+A job also cannot fire jobs. A trigger whose ``allowed_tools`` names any
+``mcp__event_dispatcher__`` tool is refused when the triggers file loads, with
+an error naming both the trigger and the tool, and the worker's server-side
+denylist blocks ``manual_fire`` whatever a dispatch request asks for.
+
+How the call is authorized
+--------------------------
+
+The agent never holds ``EVENT_DISPATCHER_TOKEN`` — it is stripped from every
+agent child environment. The MCP entry points at the terminal's own panel proxy
+instead, and presents the panel token the agent already carries. The proxy is
+the one place in the container holding the dispatcher's bearer: it drops
+whatever the caller sent, injects the bearer, and adds your account name. It
+does that only for the events backend the configuration declares, and only when
+that backend answers on loopback — an EVENTS panel pointed at a dashboard
+elsewhere receives neither the bearer nor your name.
+
+A shell reaches the same route
+------------------------------
+
+The panel token sits in the agent process's environment, so a persona whose
+profile lifts the ``Bash`` deny — a build failure unless that profile also
+declares its own ``PreToolUse`` gate covering the shell — can post to the proxy
+route from a shell command and fire a job with no approval prompt. What that
+skips is the prompt, not the rest: such a job still carries your name from the
+proxy, still meets your chip at every write, and still runs under the worker's
+denylist. Code running in a sandbox holds neither the panel token nor the
+terminal's port, so it cannot make this call.
+
 Authoring Triggers
 ==================
 
@@ -304,8 +378,9 @@ the **profile's** ``.env`` and derived from there into the project's, so a
 rebuild comes up on the same token. To pick your own values, set them in the
 profile's ``.env`` and rebuild:
 
-- ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints.
-  Send it as ``Authorization: Bearer <token>``.
+- ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints,
+  and the MCP transport at ``/mcp`` that ``manual_fire`` arrives on. Send it as
+  ``Authorization: Bearer <token>``.
 - ``DISPATCH_WORKER_TOKEN`` — guards the **dispatcher → worker** calls.
 
 Anything that drives the pipeline from outside holds both. A :doc:`chat bridge
@@ -317,8 +392,14 @@ them stalls partway through every question.
 .. dropdown:: How the tokens work
    :icon: shield-lock
 
-   The dispatcher **fails closed** (HTTP 503) if ``EVENT_DISPATCHER_TOKEN`` is
-   unset — it never accepts an empty token. The dashboard *read* endpoints (run
+   The dispatcher **fails closed** if ``EVENT_DISPATCHER_TOKEN`` is unset — it
+   never accepts an empty token. The webhook and dashboard routes answer HTTP
+   503 while it is unset, which is how an unconfigured dispatcher announces
+   itself, and 401 for anything else, a missing header included. The MCP
+   transport at
+   ``/mcp`` answers 401 in both cases: a bearer check there has one way to
+   refuse, so it cannot draw the distinction the routes draw. The dashboard
+   *read* endpoints (run
    feed, trigger list, state, SSE stream) are gated by the same token: the
    in-terminal EVENTS tab injects it server-side so the browser never holds it,
    while the standalone dashboard receives it via a one-time URL-fragment

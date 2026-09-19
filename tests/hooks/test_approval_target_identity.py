@@ -12,9 +12,9 @@ The identity comes from two files the deployment's own processes write, never
 from the rendered config.yml this hook also holds: config states what the
 deployment STARTS as, and after a run-time switch that would be a confident,
 stale, wrong safety claim. The control-context record
-(`control_target/control_context.json`) says WHICH target the deployment is on;
-the live controls servers' reports (`control_target/server_<pid>.json`) say what
-that target IS. `read_target_view` folds them into one read, which is what keeps
+(`control_target/<identity>/control_context.json`) says WHICH target the
+deployment is on; the live controls servers' reports
+(`control_target/<identity>/server_<pid>.json`) say what that target IS. `read_target_view` folds them into one read, which is what keeps
 the "where you are" line and the "where you would be" line from straddling a
 switch.
 
@@ -39,6 +39,8 @@ import os
 import pytest
 
 from tests._control_context_fixtures import (
+    pin_identity,
+    state_dir_under,
     write_control_context,
     write_payload,
     write_server_report,
@@ -104,12 +106,22 @@ def deployment(tmp_path, reader, monkeypatch):
     """An empty agent-data root the reader is pointed at.
 
     Returns the ROOT, which is what the shared writers take; the directory the
-    two files land in is ``<root>/control_target``, and the reader is aimed at
-    it through its one path seam.
+    two files land in is this identity's under ``<root>/control_target``, and
+    the reader is aimed at that same directory through its one path seam. Both
+    halves come from :func:`state_dir_under` rather than from a join here: a
+    seam pointed one directory above the writers would leave every test in this
+    module reading the baseline, which is a real answer and would look like a
+    rendering bug rather than a fixture one.
+
+    The identity is pinned so the directory does not depend on the account
+    running pytest. These tests drive the reader IN PROCESS; the end-to-end
+    tests below run the hook as a subprocess, which resolves its own identity
+    from a curated environment, and take neither this fixture nor the pin.
     """
-    (tmp_path / "control_target").mkdir()
+    pin_identity(monkeypatch)
+    state_dir_under(tmp_path).mkdir(parents=True)
     monkeypatch.setattr(
-        reader, "resolve_state_dir", lambda hook_input=None: str(tmp_path / "control_target")
+        reader, "resolve_state_dir", lambda hook_input=None: str(state_dir_under(tmp_path))
     )
     return tmp_path
 
@@ -353,7 +365,7 @@ def test_a_record_with_no_live_server_renders_the_baseline_line(
 
 def test_corrupt_state_renders_the_baseline_line(approval, reader, deployment, alive_everything):
     """A truncated or corrupt record resolves to the baseline, not to silence."""
-    record = deployment / "control_target" / "control_context.json"
+    record = state_dir_under(deployment) / reader.RECORD_FILENAME
     record.write_text("{not json", encoding="utf-8")
 
     assert reader.read_target()["reason"] == reader.REASON_UNREADABLE
@@ -371,7 +383,7 @@ def test_a_record_outside_the_target_vocabulary_renders_the_baseline_line(
     "the simulator" and "the machine" to make on its behalf.
     """
     write_payload(
-        deployment / "control_target" / "control_context.json",
+        state_dir_under(deployment) / reader.RECORD_FILENAME,
         {"schema": 1, "target": "staging", "generation": GENERATION},
     )
 

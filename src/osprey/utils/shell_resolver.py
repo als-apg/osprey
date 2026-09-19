@@ -28,7 +28,9 @@ def _user_bin_candidates() -> list[Path]:
     random-uid cluster policy — makes ``Path.home()`` raise, and doing that at
     import turned a shorter PATH into an ImportError in every module that
     imports this one at module scope. The same degrade-not-raise posture
-    :func:`osprey.utils.identity.resolve_identity` takes.
+    :func:`osprey.utils.identity.acting_identity` takes, which answers
+    :data:`osprey.utils.identity.UNKNOWN_IDENTITY` rather than raising for an
+    account the passwd database cannot name.
 
     Returns:
         The home-relative directories followed by the system ones, or only the

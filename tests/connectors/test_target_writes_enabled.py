@@ -113,7 +113,7 @@ def test_a_dotted_type_is_armed_by_a_mapping_the_profile_applies_verbatim():
 def test_a_refusal_carries_the_remedy_the_profile_can_express():
     """The blocked-write message is where an operator meets the remedy."""
     result = connector_base._writes_disabled_result(
-        "SR:CH", 1.0, CUSTOM_TYPE, None, store_permits=True
+        "SR:CH", 1.0, CUSTOM_TYPE, None, store_verdict=posture_store.StoreVerdict.PERMITTED
     )
 
     assert result.outcome is WriteOutcome.REFUSED
@@ -1169,8 +1169,9 @@ class TestTheMonitorAndTheStoreRuleAgree:
     ``ceiling ∧ not readonly ∧ store``, but the connector cannot call it for the
     ceiling: its deployment half is keyed on the connector TYPE, which is not
     the ceiling that function derives for a caller holding only a target. The
-    store clause is therefore restated in ``base._posture_store_permits``, and
-    this table is what keeps the restatement honest.
+    store clause is therefore restated in ``base._posture_store_verdict`` —
+    with ``base._posture_store_permits`` its bool spelling, as the store pairs
+    the same two — and this table is what keeps the restatement honest.
     """
 
     @pytest.mark.asyncio
@@ -1201,6 +1202,13 @@ class TestTheMonitorAndTheStoreRuleAgree:
 
         # Assert
         assert (result.outcome is WriteOutcome.CONFIRMED) is canonical
+        # And the restatement's two spellings answer the store's two: the
+        # verdict the monitor decides on, and the bool a caller that needs no
+        # reason asks for.
+        assert connector_base._posture_store_verdict(target).verdict is (
+            posture_store.store_verdict(target)
+        )
+        assert connector_base._posture_store_permits(target) is posture_store.store_permits(target)
 
 
 class TestTheFactoryBuiltConnector:
@@ -1273,13 +1281,13 @@ class TestOneStoreReadPerWrite:
     @staticmethod
     def _counted(monkeypatch) -> list[str | None]:
         calls: list[str | None] = []
-        real = posture_store.store_permits
+        real = posture_store.store_verdict_detail
 
-        def _counting(target):
+        def _counting(target, owner=None):
             calls.append(target)
-            return real(target)
+            return real(target, owner)
 
-        monkeypatch.setattr(posture_store, "store_permits", _counting)
+        monkeypatch.setattr(posture_store, "store_verdict_detail", _counting)
         return calls
 
     @pytest.mark.asyncio
@@ -1337,6 +1345,270 @@ class TestOneStoreReadPerWrite:
         # Assert
         assert result.outcome is WriteOutcome.REFUSED
         assert calls == []
+
+    def test_a_direct_caller_reads_the_store_once_for_both_halves_of_the_answer(
+        self, deployment, store, monkeypatch
+    ):
+        """Nobody handed an answer down, so the refusal asks for itself — once.
+
+        It needs two things from the store: the verdict it forks the wording on
+        and the sentence that verdict's wording quotes. Taken as two reads, a
+        record that changed between them would be quoted against the wrong
+        verdict, which is the same drift the memo exists to prevent.
+        """
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
+        calls = self._counted(monkeypatch)
+
+        # Act
+        refusal = connector_base._writes_disabled_result("S:CORR:1:SP", 0.5, EPICS, TARGET_STANDIN)
+
+        # Assert
+        assert refusal.outcome is WriteOutcome.REFUSED
+        assert calls == [TARGET_STANDIN]
+
+
+class TestTheMemoCarriesAVerdictNotABool:
+    """What the monitor hands the refusal is the reason, not whether it refused.
+
+    Three things can come back from the store clause and only one of them is a
+    grant; a bool collapses the other two into each other, and the operator is
+    then told a chip refused a write that no chip was consulted about. So the
+    memo holds a :class:`~osprey_connectors.posture_store.StoreVerdict`, the
+    refusal compares it against ``PERMITTED`` by name, and the sentence for the
+    one verdict whose remedy this process cannot compose rides beside it.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_narrowing_memoises_the_verdict_and_no_sentence(self, deployment, store):
+        """An operator's decision is fully worded from the verdict and the target."""
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        result = await connector.write_channel("S:CORR:1:SP", 0.5)
+
+        # Assert
+        assert result.outcome is WriteOutcome.REFUSED
+        assert connector._last_store_verdict is posture_store.StoreVerdict.NARROWING
+        assert connector._last_store_reason is None
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_narrowing_memoises_the_sentence_for_it(
+        self, deployment, store, monkeypatch
+    ):
+        """A tree bound to no usable path is nobody's decision, and says so.
+
+        The refusal stays ``WRITES_DISABLED`` — the closed vocabulary is what
+        every caller of ``raise_for_write_result`` already handles — and the
+        remedy travels in the memo the refusal reads, not in a new field.
+        """
+        # Arrange
+        deployment(ARMED_SECTION)
+        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "control_target")
+        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        result = await connector.write_channel("S:CORR:1:SP", 0.5)
+
+        # Assert
+        assert result.outcome is WriteOutcome.REFUSED
+        assert result.refusal_reason == "WRITES_DISABLED"
+        assert connector._last_store_verdict is (
+            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+        )
+        assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in connector._last_store_reason
+
+    @pytest.mark.asyncio
+    async def test_a_permitted_write_leaves_the_memo_permitted(self, deployment, store):
+        """The memo is what the evaluation saw, including when it saw a grant."""
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.write({})
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        result = await connector.write_channel("S:CORR:1:SP", 0.5)
+
+        # Assert
+        assert result.outcome is WriteOutcome.CONFIRMED
+        assert connector._last_store_verdict is posture_store.StoreVerdict.PERMITTED
+        assert connector._last_store_reason is None
+
+    def test_a_refusal_reads_the_verdict_by_name_never_by_truthiness(self, deployment, store):
+        """Every verdict is a non-empty string, so a bool test grants them all.
+
+        This is the regression the by-name comparison exists for: a safety
+        verdict that reaches a ``bool`` call site answers "yes" for the two
+        answers that refuse.
+        """
+        # Arrange
+        deployment(ARMED_SECTION)
+        assert bool(posture_store.StoreVerdict.NARROWING) is True
+
+        # Act
+        refusal = connector_base._writes_disabled_result(
+            "S:CORR:1:SP",
+            0.5,
+            EPICS,
+            TARGET_STANDIN,
+            store_verdict=posture_store.StoreVerdict.NARROWING,
+        )
+
+        # Assert
+        assert "control-target chip in the header" in refusal.error_message
+
+    def test_an_unavailable_verdict_refuses_under_the_one_word_the_vocabulary_has(
+        self, deployment, store
+    ):
+        """A third answer does not become a third ``refusal_reason``."""
+        # Arrange
+        deployment(ARMED_SECTION)
+
+        # Act
+        refusal = connector_base._writes_disabled_result(
+            "S:CORR:1:SP",
+            0.5,
+            EPICS,
+            TARGET_STANDIN,
+            store_verdict=posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE,
+        )
+
+        # Assert
+        assert refusal.outcome is WriteOutcome.REFUSED
+        assert refusal.refusal_reason == "WRITES_DISABLED"
+
+
+class TestEveryStoreClauseEndsInItsVerdict:
+    """The prose an operator reads and the verdict a consumer branches on agree.
+
+    ``error_message`` is the only carrier that reaches the person who ran the
+    write: ``raise_for_write_result`` makes it the exception text, the
+    queueserver worker reports that as the plan's failure and the run record
+    publishes it. A refusal whose prose describes one cause while the verdict
+    behind it names another leaves the two halves of one answer contradicting
+    each other, so every store clause closes on the verdict that produced it.
+
+    The launch fork is worded before the store clause is reached and keeps its
+    own two messages, which name the RUN rather than the store. What the rows
+    below pin for those is the pairing: the pin that could name a target is
+    somebody's narrowing, the pin that could name none is nobody's decision.
+    """
+
+    @pytest.mark.asyncio
+    async def test_a_live_narrowing_closes_on_its_verdict(self, deployment, store):
+        """The chip is still the remedy, and the word beside it is the verdict."""
+        # Arrange
+        deployment(ARMED_SECTION)
+        store.narrow(standin=posture_store.POSTURE_SANDBOX)
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        result = await connector.write_channel("S:CORR:1:SP", 0.5)
+
+        # Assert
+        assert result.refusal_reason == "WRITES_DISABLED"
+        assert "control-target chip in the header" in result.error_message
+        assert result.error_message.rstrip(".").endswith(posture_store.StoreVerdict.NARROWING.value)
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_store_carries_the_readers_remedy_and_its_verdict(
+        self, deployment, store, monkeypatch
+    ):
+        """A bind that names no path: the refusal quotes the path and the fix.
+
+        This is the sentence no other process can compose — the reader that
+        failed is the only code that knows which path it was — so a refusal
+        that dropped it would leave an operator a cause and no remedy.
+        """
+        # Arrange
+        deployment(ARMED_SECTION)
+        monkeypatch.setenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, "control_target")
+        monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "alice")
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act
+        result = await connector.write_channel("S:CORR:1:SP", 0.5)
+
+        # Assert
+        assert result.refusal_reason == "WRITES_DISABLED"
+        assert connector._last_store_reason in result.error_message
+        assert posture_store.CONTROL_CONTEXT_TREE_ENV_VAR in result.error_message
+        assert result.error_message.rstrip(".").endswith(
+            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
+        )
+        # The remedy for a decision nobody made must not be a chip to go and flip.
+        assert "Turn writes back on" not in result.error_message
+
+    def test_an_unavailable_verdict_with_no_sentence_still_closes_on_its_verdict(
+        self, deployment, store
+    ):
+        """A direct caller may hand down a verdict and no sentence.
+
+        The wording then has a cause and no path to name, and the one thing it
+        must not do is fall back to blaming a chip.
+        """
+        # Arrange
+        deployment(ARMED_SECTION)
+
+        # Act
+        refusal = connector_base._writes_disabled_result(
+            "S:CORR:1:SP",
+            0.5,
+            EPICS,
+            TARGET_STANDIN,
+            store_verdict=posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE,
+        )
+
+        # Assert
+        assert refusal.error_message.rstrip(".").endswith(
+            posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE.value
+        )
+        assert "Turn writes back on" not in refusal.error_message
+
+    @pytest.mark.asyncio
+    async def test_the_all_targets_pin_is_the_unavailable_arm_beside_the_named_pin(
+        self, deployment, store, monkeypatch
+    ):
+        """Read the two rows together: same fork, two stamps, two verdicts.
+
+        The launch fork words these and the store answers them, in different
+        code — so this is the one place where a wording and a verdict for the
+        same run have to be checked against each other.
+        """
+        # Arrange — nothing narrowed live; only the launch stamp differs.
+        deployment(ARMED_SECTION)
+        store.write({})
+        connector = _built(EPICS, TARGET_STANDIN)
+
+        # Act — the pin that could name a target
+        monkeypatch.setenv(
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(TARGET_STANDIN, posture_store.POSTURE_SANDBOX),
+        )
+        named = await connector.write_channel("S:CORR:1:SP", 0.5)
+        named_verdict = connector._last_store_verdict
+
+        # Act — the pin that could name none
+        monkeypatch.setenv(
+            posture_store.LAUNCH_POSTURE_ENV_VAR,
+            posture_store.launch_posture_stamp(None, posture_store.POSTURE_SANDBOX),
+        )
+        all_targets = await connector.write_channel("S:CORR:1:SP", 0.5)
+        all_targets_verdict = connector._last_store_verdict
+
+        # Assert — somebody's narrowing
+        assert named_verdict is posture_store.StoreVerdict.NARROWING
+        assert f"launched while writes were off for '{TARGET_STANDIN}'" in named.error_message
+
+        # Assert — nobody's decision
+        assert all_targets_verdict is posture_store.StoreVerdict.CONTROL_CONTEXT_UNAVAILABLE
+        assert "most restrictive write state" in all_targets.error_message
+        assert "chip" not in all_targets.error_message
 
 
 class TestALaunchPinnedRunSaysSoInsteadOfBlamingTheChip:

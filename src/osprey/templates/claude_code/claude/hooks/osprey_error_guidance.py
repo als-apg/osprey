@@ -128,6 +128,8 @@ ERROR_CLASS_MAP = {
     "session_plan_not_in_namespace": "Validation",
     "manager_not_idle": "Validation",
     "queue_request_rejected": "Validation",
+    # The item as composed cannot be queued at all: its arguments are the fix.
+    "invalid_item": "Validation",
     # ---- Data: a lookup that missed. Report what was asked for and that
     # nothing was found; suggest refining.
     "not_found": "Data",
@@ -173,6 +175,10 @@ ERROR_CLASS_MAP = {
     # An interrupted plan is back at the head of the queue; a human decides
     # whether to remove it (approval-gated), never the agent by retrying.
     "interrupted_item_in_queue": "Safety",
+    # The queue moved between the approval prompt and the start call; the
+    # approved list no longer matches what would run. Never retry quoting
+    # the same uid — re-read the queue and get a fresh approval.
+    "queue_changed_since_approval": "Safety",
     # ---- Internal: an OSPREY-side fault an operator has to fix — missing
     # config, missing dependency, a bridge or gallery that answered with an
     # error of its own. Report verbatim; name the service from the envelope.

@@ -1,5 +1,5 @@
 {
-  "total": 395,
+  "total": 394,
   "errors": [
     {
       "path": "packages/osprey-connectors/src/osprey_connectors/archiver/doocs_archiver_connector.py",
@@ -401,12 +401,6 @@
       "path": "src/osprey/deployment/web_terminals/provision.py",
       "code": "no-any-return",
       "message": "Returning Any from function declared to return \"list[str]\"",
-      "count": 1
-    },
-    {
-      "path": "src/osprey/deployment/web_terminals/render.py",
-      "code": "no-any-return",
-      "message": "Returning Any from function declared to return \"str\"",
       "count": 1
     },
     {

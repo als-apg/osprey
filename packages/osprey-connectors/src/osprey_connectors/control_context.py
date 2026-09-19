@@ -1,10 +1,11 @@
-"""The control-context record — one file per deployment instance.
+"""The control-context record — one file per identity.
 
 Which machine a deployment is pointed at, how many times that has moved, and
-what the operator has narrowed are properties of the DEPLOYMENT, not of any
-process tree inside it. They live in a single JSON file,
-:data:`RECORD_FILENAME` inside :data:`STATE_DIR_NAME` under the agent-data
-root, and this module is where it is written and read.
+what one operator has narrowed are properties of the deployment as that
+operator holds it, not of any process tree inside it. They live in a single
+JSON file, :data:`RECORD_FILENAME` inside the acting identity's directory
+under :data:`STATE_DIR_NAME` (:func:`state_dir`), and this module is where it
+is written and read.
 
 The file has exactly one writer at a time — its **owner**: the web terminal
 when one is running, otherwise a controls MCP server. Everything else is a
@@ -106,6 +107,7 @@ from pathlib import Path
 from typing import Any
 
 from osprey_connectors import posture_store
+from osprey_connectors.identity import acting_identity
 from osprey_connectors.types import CONTROL_TARGETS
 
 logger = logging.getLogger("osprey_connectors.control_context")
@@ -166,9 +168,10 @@ SCHEMA_VERSION = 1
 #: this literal.
 RECORD_FILENAME = "control_context.json"
 
-#: The directory the record shares with the posture store, the per-server
-#: reports and the request files. Taken from the store rather than re-spelled
-#: so one directory cannot be two directories.
+#: The tree of per-identity directories the record shares with the posture
+#: store, the per-server reports and the request files — one directory per
+#: identity, each holding every one of those families. Taken from the store
+#: rather than re-spelled so one directory cannot be two directories.
 STATE_DIR_NAME = posture_store.STATE_DIR_NAME
 
 #: The two kinds of process that can own the record. A web terminal outranks a
@@ -289,8 +292,9 @@ class ControlContext:
 def state_dir() -> Path | None:
     """The directory the record lives in, or ``None`` when unresolvable.
 
-    Rule 1 of the module contract, delegated whole to the posture store so
-    that the two files in this directory cannot resolve their root two ways.
+    Rule 1 of the module contract — the acting identity's directory, or the
+    bind a container carries — delegated whole to the posture store so that
+    the files in this directory cannot resolve their directory two ways.
     """
     return posture_store.state_dir()
 
@@ -298,11 +302,20 @@ def state_dir() -> Path | None:
 def record_path_under(root: Path) -> Path:
     """The record's path under an explicit agent-data *root*.
 
-    The one place the two path hops are spelled, for callers that hold a root
-    rather than an environment — test fixtures, and any writer preparing a
-    deployment before it is stamped.
+    The one place the three path hops are spelled, for a caller that holds a
+    root rather than an environment and means the file of the identity it is
+    itself acting as — a test fixture, and any same-process writer.
+
+    The identity hop is :func:`~osprey_connectors.identity.acting_identity`,
+    the same rung :func:`state_dir` ends on, so a caller that holds the root
+    this process is stamped with names the file this process reads. A writer
+    preparing ANOTHER identity's directory is not that caller and gets the
+    wrong path here; it names the identity instead, through
+    :func:`osprey.deployment.compose_generator.control_target_identity_dir`.
+    The container bind deliberately does not apply: a caller passing a root has
+    said which tree it means, and that is a statement about the host layout.
     """
-    return root / STATE_DIR_NAME / RECORD_FILENAME
+    return root / STATE_DIR_NAME / acting_identity() / RECORD_FILENAME
 
 
 def record_path() -> Path | None:
@@ -499,14 +512,43 @@ def write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     never coordinate with the writer, so a reader must never be able to see
     half of one.
 
+    The mode is load-bearing, not a preference: those readers run under other
+    uids — a dispatch worker at uid 1000 reading what the host account wrote —
+    and reach the file through the setgid group of the state directory, so the
+    file is set to 0640 on the descriptor itself. ``os.fchmod`` is not masked
+    by the umask the way ``mkstemp``'s own 0600 or an ``os.open`` mode request
+    is: under umask 077 a record only the owner can read makes every owned
+    lane write refuse ``control_context_unavailable``, while CI at umask 022
+    stays green and never sees it. Every directory this writer creates — the
+    levels above the leaf as much as the leaf — is set to exactly 0o2770 rather
+    than merely widened, because a directory left at the umask 0755 would let
+    ``other`` list the identity names.
+
     Raises:
         OSError: The write itself failed.
     """
     directory = path.parent
-    directory.mkdir(parents=True, exist_ok=True)
+    # ``mkdir(parents=True)`` reports the leaf and says nothing about the levels
+    # it creates on the way, so they are named before the call: the tree root is
+    # one of them whenever this writer is the first to reach a deployment's tree,
+    # and a root left at the umask defeats the mode set below it.
+    created = []
+    probe = directory
+    while probe != probe.parent and not probe.exists():
+        created.append(probe)
+        probe = probe.parent
+    try:
+        directory.mkdir(parents=True)
+    except FileExistsError:
+        # Another writer got there first, so none of these levels are this
+        # writer's to set a mode on.
+        created = []
+    for level in created:
+        os.chmod(level, 0o2770)
     fd, tmp = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            os.fchmod(fd, 0o640)
             json.dump(payload, handle, indent=2)
         os.replace(tmp, path)
     except BaseException:
@@ -868,8 +910,18 @@ def parse_report(raw: Any) -> ServerReport | None:
 
 
 def report_path_under(root: Path, server_pid: object) -> Path:
-    """The report path of *server_pid* under an explicit agent-data *root*."""
-    return root / STATE_DIR_NAME / f"{REPORT_FILE_PREFIX}{server_pid}{REPORT_FILE_SUFFIX}"
+    """The report path of *server_pid* under an explicit agent-data *root*.
+
+    Through the same three hops as :func:`record_path_under`, identity
+    included: every family of file in this directory moves together, so a
+    caller that finds the record under a root finds the reports beside it.
+    """
+    return (
+        root
+        / STATE_DIR_NAME
+        / acting_identity()
+        / f"{REPORT_FILE_PREFIX}{server_pid}{REPORT_FILE_SUFFIX}"
+    )
 
 
 def report_path(server_pid: object) -> Path | None:
