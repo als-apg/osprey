@@ -29,19 +29,25 @@ required keys and no others:
 ```yaml
 concepts:
   - canonical: beam position monitor   # the words logbook prose uses
-    kind: acronym                      # acronym | shorthand
+    kind: acronym                      # acronym | shorthand | synonym
     forms: [bpm, bpms]                 # what operators type instead
 
   - canonical: troubleshoot
     kind: shorthand
     forms: [ts, t/s]
+
+  - canonical: beam loss               # one event, three phrasings
+    kind: synonym
+    forms: [lost beam, beam dump]
 ```
 
 - **`canonical`** — write it exactly as it appears in entry text. It is what a
   matched form is rewritten into, so if your entries say "beam position
   monitor", that is the canonical. Canonicals must be unique.
 - **`kind`** — `acronym` for a genuine initialism, `shorthand` for a clipped or
-  slang spelling of an ordinary word. It selects a direction gate (below).
+  slang spelling of an ordinary word, `synonym` for a different phrasing of the
+  same thing. The first two select a direction gate (below); `synonym` is
+  ungated and always bidirectional.
 - **`forms`** — one or more spellings operators type. A form may not repeat its
   own canonical.
 
@@ -63,7 +69,7 @@ Nothing else is stripped, and no stemming happens here — PostgreSQL's stemmer
 runs afterwards, on the text this produces. Multi-word forms are matched as
 phrases, longest first.
 
-## The two direction gates
+## The three kinds and the two direction gates
 
 Matching a form and adding its canonical is **always on**: type `bpm` and the
 search also finds "beam position monitor". The reverse direction — spelling the
@@ -74,13 +80,39 @@ two switches in `config.yml`:
 |---------|-----------|---------|
 | `ariel.vocabulary.canonical_to_acronym` | `kind: acronym` concepts | `true` |
 | `ariel.vocabulary.canonical_to_shorthand` | `kind: shorthand` concepts | `false` |
+| *(none — always on)* | `kind: synonym` concepts | — |
 
-The defaults are deliberately asymmetric. An acronym means one thing, so a
+The two defaults are deliberately asymmetric. An acronym means one thing, so a
 search for "beam position monitor" should also reach the entries that wrote
 "BPM" — free recall. An ordinary word is not so lucky: expanding "calibration"
 into `cal` pulls in every entry that happened to abbreviate something else that
 way, and costs more precision than it buys back in recall. Turn it on only if
 your logbook is written in shorthand and searched in prose.
+
+### `synonym`: one thing said several ways
+
+`kind: synonym` is not gated by either switch, and it is the one kind where
+every member reaches **every other member**. The canonical reaches every form,
+each form reaches the canonical, and each form also reaches its sibling forms:
+
+```yaml
+  - canonical: beam loss
+    kind: synonym
+    forms: [lost beam, beam dump]
+```
+
+A search for `beam dump` finds entries that wrote "beam loss" *and* entries
+that wrote "lost beam", and so does a search for either of the other two. This
+holds whatever `canonical_to_acronym` and `canonical_to_shorthand` are set to —
+those two switches say nothing about synonym concepts.
+
+Use it for different **phrasings** of one thing. Do not use it when one
+spelling is simply the other written short: a clipped or slang word is
+`shorthand`, an initialism is `acronym`. Those two are one thing written two
+ways, which is why their gates are asymmetric and off-by-default in the noisy
+direction; a synonym is one thing *said* two ways, with no short side and
+nothing to gate. Put the phrasing your prose uses most often in `canonical`,
+since that is what a matched form is rewritten into.
 
 ## Forms that mean two things
 

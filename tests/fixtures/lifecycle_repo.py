@@ -703,6 +703,8 @@ config:
   # acronym, noise for an ordinary word ("calibration" → "cal").
   ariel.vocabulary.canonical_to_acronym: true
   ariel.vocabulary.canonical_to_shorthand: false
+  # `kind: synonym` concepts ignore both switches: every member reaches every
+  # other member --- phrasings of one event have no noisy direction to gate.
   # No `ariel.vocabulary.expand_modes`: unset, every enabled search module
   # expands. Set `[keyword, semantic]` to drop `hybrid` alone if the reranked
   # ordering degrades under expansion.

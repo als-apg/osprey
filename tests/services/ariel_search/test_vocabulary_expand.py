@@ -1,5 +1,6 @@
 """Tests for deterministic query expansion against a facility vocabulary."""
 
+import itertools
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,22 @@ concepts:
     forms:
       - ts
 """
+
+SYNONYM_VOCABULARY = """
+concepts:
+  - canonical: beam loss
+    kind: synonym
+    forms:
+      - lost beam
+      - beam dump
+"""
+
+#: The three members of `SYNONYM_VOCABULARY`, each with the other two.
+SYNONYM_MEMBERS = [
+    ("beam loss", ("lost beam", "beam dump")),
+    ("lost beam", ("beam loss", "beam dump")),
+    ("beam dump", ("beam loss", "lost beam")),
+]
 
 
 def build_vocabulary(concepts: list[Concept]) -> Vocabulary:
@@ -94,6 +111,12 @@ def control_assistant(tmp_path: Path) -> Vocabulary:
 def ambiguous(tmp_path: Path) -> Vocabulary:
     """A vocabulary binding `ts` to two concepts."""
     return load(tmp_path, AMBIGUOUS_VOCABULARY)
+
+
+@pytest.fixture
+def synonyms(tmp_path: Path) -> Vocabulary:
+    """A three-member `synonym` concept: one canonical and two forms."""
+    return load(tmp_path, SYNONYM_VOCABULARY)
 
 
 def expand(text: str, vocabulary: Vocabulary, **gates: bool) -> QueryExpansion:
@@ -416,3 +439,82 @@ class TestTextAgnostic:
         expansion = expand("/ ts /", control_assistant)
 
         assert pairs(expansion) == [("ts", ("troubleshoot",))]
+
+
+class TestSynonymConcepts:
+    """`synonym` is bidirectional and ungated: every member reaches the others."""
+
+    @pytest.mark.parametrize(("member", "expected"), SYNONYM_MEMBERS)
+    def test_each_member_reaches_the_other_two(
+        self, synonyms: Vocabulary, member: str, expected: tuple[str, ...]
+    ) -> None:
+        expansion = expand(member, synonyms)
+
+        assert pairs(expansion) == [(member, expected)]
+
+    @pytest.mark.parametrize(
+        ("to_acronym", "to_shorthand"), itertools.product([True, False], repeat=2)
+    )
+    @pytest.mark.parametrize(("member", "expected"), SYNONYM_MEMBERS)
+    def test_no_gate_combination_affects_synonym(
+        self,
+        synonyms: Vocabulary,
+        member: str,
+        expected: tuple[str, ...],
+        to_acronym: bool,
+        to_shorthand: bool,
+    ) -> None:
+        expansion = expand(
+            member,
+            synonyms,
+            canonical_to_acronym=to_acronym,
+            canonical_to_shorthand=to_shorthand,
+        )
+
+        assert pairs(expansion) == [(member, expected)]
+
+    def test_canonical_flattens_to_every_form_with_gates_off(self, synonyms: Vocabulary) -> None:
+        expansion = expand(
+            "beam loss",
+            synonyms,
+            canonical_to_acronym=False,
+            canonical_to_shorthand=False,
+        )
+
+        assert expansion.flattened_text == "beam loss lost beam beam dump"
+
+    def test_form_query_yields_the_canonical_first(self, synonyms: Vocabulary) -> None:
+        expansion = expand("lost beam today", synonyms)
+
+        assert pairs(expansion) == [("lost beam", ("beam loss", "beam dump"))]
+        assert expansion.flattened_text == "lost beam today beam loss beam dump"
+
+    def test_shorthand_form_query_still_yields_only_its_canonical(
+        self, control_assistant: Vocabulary
+    ) -> None:
+        # `troubleshoot` also has the sibling form `t/s`; sibling forms are a
+        # synonym-only direction and must not leak to the other kinds.
+        expansion = expand("ts", control_assistant, canonical_to_shorthand=True)
+
+        assert pairs(expansion) == [("ts", ("troubleshoot",))]
+
+    def test_acronym_form_query_still_yields_only_its_canonical(self) -> None:
+        vocabulary = build_vocabulary(
+            [Concept(canonical="orbit response matrix", kind="acronym", forms=("orm", "or matrix"))]
+        )
+
+        expansion = expand("orm", vocabulary, canonical_to_acronym=True)
+
+        assert pairs(expansion) == [("orm", ("orbit response matrix",))]
+
+    def test_form_bound_to_two_kinds_lists_canonicals_before_siblings(self) -> None:
+        vocabulary = build_vocabulary(
+            [
+                Concept(canonical="orbit response matrix", kind="acronym", forms=("orm",)),
+                Concept(canonical="beam loss", kind="synonym", forms=("orm", "lost beam")),
+            ]
+        )
+
+        expansion = expand("orm", vocabulary)
+
+        assert pairs(expansion) == [("orm", ("orbit response matrix", "beam loss", "lost beam"))]

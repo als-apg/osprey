@@ -277,12 +277,16 @@ required keys and no others:
 
    concepts:
      - canonical: beam position monitor   # the words logbook prose uses
-       kind: acronym                      # acronym | shorthand
+       kind: acronym                      # acronym | shorthand | synonym
        forms: [bpm, bpms]                 # what operators type instead
 
      - canonical: troubleshoot
        kind: shorthand
        forms: [ts, t/s]
+
+     - canonical: beam loss               # one event, three phrasings
+       kind: synonym
+       forms: [lost beam, beam dump]
 
 ``canonical``
    Write it exactly as it appears in entry text. It is what a matched form is
@@ -290,7 +294,9 @@ required keys and no others:
 
 ``kind``
    ``acronym`` for a genuine initialism, ``shorthand`` for a clipped or slang
-   spelling of an ordinary word. It selects a direction gate (below).
+   spelling of an ordinary word, ``synonym`` for a different phrasing of the
+   same thing. The first two select a direction gate (below); ``synonym`` is
+   ungated and always bidirectional.
 
 ``forms``
    One or more spellings operators type. A form may not repeat its own
@@ -328,11 +334,30 @@ short form --- is what ``kind`` gates:
    * - ``ariel.vocabulary.canonical_to_shorthand``
      - ``kind: shorthand`` concepts
      - ``false``
+   * - *(none --- always on)*
+     - ``kind: synonym`` concepts
+     - ---
 
-The defaults are deliberately asymmetric. An initialism means one thing, so a
-search for "beam position monitor" should also reach the entries that wrote
+The two defaults are deliberately asymmetric. An initialism means one thing, so
+a search for "beam position monitor" should also reach the entries that wrote
 "BPM". An ordinary word is not so lucky: expanding "calibration" into ``cal``
 pulls in every entry that abbreviated something else that way.
+
+**The third kind: synonym.** ``kind: synonym`` is not gated by either switch,
+and it is the one kind where every member reaches *every other member* --- the
+canonical reaches every form, each form reaches the canonical, and each form
+also reaches its sibling forms. Given the ``beam loss`` concept above, a search
+for ``beam dump`` finds entries that wrote "beam loss" and entries that wrote
+"lost beam", and so does a search for either of the other two, whatever
+``canonical_to_acronym`` and ``canonical_to_shorthand`` are set to.
+
+Use it for different **phrasings** of one thing. Do not use it when one
+spelling is simply the other written short: a clipped or slang word is
+``shorthand``, an initialism is ``acronym``. Those two are one thing written two
+ways, which is why their gates are asymmetric; a synonym is one thing *said* two
+ways, with no short side and nothing to gate. Put the phrasing your prose uses
+most often in ``canonical``, since that is what a matched form is rewritten
+into.
 
 **Forms that mean two things.** Binding one form to two concepts is legal, and a
 query containing it expands to *both* canonicals rather than picking a winner.

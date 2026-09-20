@@ -5,7 +5,9 @@ from pathlib import Path
 import pytest
 
 from osprey.services.ariel_search.vocabulary import (
+    CONCEPT_KINDS,
     Concept,
+    ConceptKind,
     Vocabulary,
     load_vocabulary,
     normalize,
@@ -161,6 +163,62 @@ concepts:
         assert warnings == []
         assert vocab is not None
         assert vocab.concepts[0].forms == ("t/s",)
+
+    @pytest.mark.parametrize("kind", CONCEPT_KINDS)
+    def test_every_declared_kind_loads(self, tmp_path: Path, kind: ConceptKind) -> None:
+        """Every kind in CONCEPT_KINDS loads cleanly, gates on or off.
+
+        Pins the whole pipeline to the declared tuple: a kind added to
+        ``CONCEPT_KINDS`` without teaching the loader about it fails here
+        instead of at the first vocabulary file that uses it.
+        """
+        text = f"""
+concepts:
+  - canonical: beam loss
+    kind: {kind}
+    forms:
+      - lost beam
+"""
+        path = write_vocabulary(tmp_path, text)
+        for canonical_to_acronym in (True, False):
+            for canonical_to_shorthand in (True, False):
+                vocab, errors, warnings = load_vocabulary(
+                    path,
+                    canonical_to_acronym=canonical_to_acronym,
+                    canonical_to_shorthand=canonical_to_shorthand,
+                )
+
+                assert errors == []
+                assert warnings == []
+                assert vocab is not None
+                assert vocab.concepts[0] == Concept(
+                    canonical="beam loss", kind=kind, forms=("lost beam",)
+                )
+
+    def test_all_three_kinds_in_one_file(self, tmp_path: Path) -> None:
+        """A file mixing every kind loads with no errors and no warnings."""
+        text = """
+concepts:
+  - canonical: troubleshoot
+    kind: shorthand
+    forms:
+      - t/s
+  - canonical: beam position monitor
+    kind: acronym
+    forms:
+      - bpm
+  - canonical: beam loss
+    kind: synonym
+    forms:
+      - lost beam
+      - beam dump
+"""
+        vocab, errors, warnings = load_vocabulary(write_vocabulary(tmp_path, text))
+
+        assert errors == []
+        assert warnings == []
+        assert vocab is not None
+        assert {concept.kind for concept in vocab.concepts} == set(CONCEPT_KINDS)
 
 
 class TestAmbiguousForm:
@@ -354,6 +412,33 @@ concepts:
         assert errors == []
         assert warnings == []
 
+    @pytest.mark.parametrize("canonical_to_acronym", [True, False])
+    @pytest.mark.parametrize("canonical_to_shorthand", [True, False])
+    def test_synonym_form_warns_under_both_settings(
+        self, tmp_path: Path, canonical_to_acronym: bool, canonical_to_shorthand: bool
+    ) -> None:
+        """A synonym form always reaches the tsquery, so it is always checked."""
+        text = """
+concepts:
+  - canonical: beam loss
+    kind: synonym
+    forms:
+      - the
+"""
+        path = write_vocabulary(tmp_path, text)
+
+        vocab, errors, warnings = load_vocabulary(
+            path,
+            canonical_to_acronym=canonical_to_acronym,
+            canonical_to_shorthand=canonical_to_shorthand,
+        )
+
+        assert errors == []
+        assert vocab is not None
+        assert len(warnings) == 1
+        assert 'form "the" of concept "beam loss"' in warnings[0]
+        assert "stopword" in warnings[0]
+
 
 class TestFileLevelErrors:
     """Errors about the file itself rather than its content."""
@@ -479,7 +564,7 @@ concepts:
             ("    canonical: troubleshoot\n    forms: [t/s]\n", "missing required key 'kind'"),
             (
                 "    canonical: troubleshoot\n    kind: verb\n    forms: [t/s]\n",
-                "unknown kind 'verb' (expected one of: acronym, shorthand)",
+                "unknown kind 'verb' (expected one of: acronym, shorthand, synonym)",
             ),
             ("    canonical: troubleshoot\n    kind: shorthand\n", "missing required key 'forms'"),
             (

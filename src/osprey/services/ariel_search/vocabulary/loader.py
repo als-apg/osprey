@@ -248,9 +248,16 @@ def _stopword_warnings(
     Scope: every canonical always (a matched form always expands to it), plus
     the forms whose direction gate is on — a form that is only ever matched
     against the query text never reaches the tsquery and so cannot be dropped
-    by it.
+    by it. A ``synonym`` form always reaches the tsquery, since every member of
+    a synonym concept expands to every other one regardless of the gates, so it
+    is always checked.
     """
-    enabled_by_kind = {"acronym": canonical_to_acronym, "shorthand": canonical_to_shorthand}
+    enabled_by_kind = {
+        "acronym": canonical_to_acronym,
+        "shorthand": canonical_to_shorthand,
+        "synonym": True,
+    }
+    assert set(enabled_by_kind) == set(CONCEPT_KINDS)
     warnings: list[str] = []
     for concept in concepts:
         if _is_all_stopwords(concept.canonical):

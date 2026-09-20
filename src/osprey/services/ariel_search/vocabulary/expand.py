@@ -29,8 +29,10 @@ Matching rules (all pinned by tests):
 
 from __future__ import annotations
 
+from typing import assert_never
+
 from osprey.services.ariel_search.search.base import ExpansionGroup, QueryExpansion
-from osprey.services.ariel_search.vocabulary.model import Vocabulary, normalize
+from osprey.services.ariel_search.vocabulary.model import ConceptKind, Vocabulary, normalize
 
 __all__ = ["ExpansionGroup", "QueryExpansion", "expand_query"]
 
@@ -51,7 +53,12 @@ def expand_query(
       canonicals of every concept binding it, in file order.
     * **canonical to forms** is on only when the gate for the concept's kind is
       on: ``acronym`` concepts follow ``canonical_to_acronym``, ``shorthand``
-      concepts follow ``canonical_to_shorthand``.
+      concepts follow ``canonical_to_shorthand``. A ``synonym`` concept is
+      ungated — its canonical always expands into its forms.
+    * **form to sibling forms** fires for ``synonym`` concepts only, and is
+      likewise ungated. Together with the two directions above this makes a
+      ``synonym`` concept bidirectional: every member (canonical or form)
+      reaches every other member.
 
     A span that is both a form of one concept and the canonical of another
     contributes alternatives from both directions. A span never appears in its
@@ -65,9 +72,9 @@ def expand_query(
             parsed in any way — see the module docstring.
         vocabulary: The loaded vocabulary to match against.
         canonical_to_acronym: Enable canonical-to-form expansion for ``acronym``
-            concepts.
+            concepts. Does not affect ``synonym`` concepts.
         canonical_to_shorthand: Enable canonical-to-form expansion for
-            ``shorthand`` concepts.
+            ``shorthand`` concepts. Does not affect ``synonym`` concepts.
 
     Returns:
         A :class:`~osprey.services.ariel_search.search.base.QueryExpansion`.
@@ -122,7 +129,8 @@ def _alternatives_for(
         span: A normalized n-gram from the query.
         vocabulary: The vocabulary to look the span up in.
         canonical_to_acronym: Gate for ``acronym`` concepts.
-        canonical_to_shorthand: Gate for ``shorthand`` concepts.
+        canonical_to_shorthand: Gate for ``shorthand`` concepts. Neither gate
+            applies to ``synonym`` concepts, which are always bidirectional.
 
     Returns:
         ``None`` when the span matches nothing (the scan should try a narrower
@@ -136,6 +144,11 @@ def _alternatives_for(
     if bound:
         matched = True
         alternatives.extend(concept.canonical for concept in bound)
+        # A synonym concept's members are interchangeable, so a matched form
+        # also reaches its siblings. The span itself is dropped by `_dedupe`.
+        for bound_concept in bound:
+            if bound_concept.kind == "synonym":
+                alternatives.extend(bound_concept.forms)
 
     concept = vocabulary.concept_for_canonical(span)
     if concept is not None and _direction_enabled(
@@ -152,24 +165,32 @@ def _alternatives_for(
 
 
 def _direction_enabled(
-    kind: str,
+    kind: ConceptKind,
     *,
     canonical_to_acronym: bool,
     canonical_to_shorthand: bool,
 ) -> bool:
     """Return whether canonical-to-form expansion is enabled for ``kind``.
 
+    ``synonym`` is ungated: every member of a synonym concept reaches every
+    other member, so its canonical always expands into its forms whatever the
+    two gates say.
+
     Args:
-        kind: The concept kind, ``"acronym"`` or ``"shorthand"``.
+        kind: The concept kind, ``"acronym"``, ``"shorthand"`` or ``"synonym"``.
         canonical_to_acronym: Gate for ``acronym`` concepts.
         canonical_to_shorthand: Gate for ``shorthand`` concepts.
 
     Returns:
         ``True`` when a canonical of that kind may expand into its forms.
     """
+    if kind == "synonym":
+        return True
     if kind == "acronym":
         return canonical_to_acronym
-    return canonical_to_shorthand
+    if kind == "shorthand":
+        return canonical_to_shorthand
+    assert_never(kind)
 
 
 def _dedupe(values: list[str], *, exclude: set[str]) -> list[str]:
