@@ -790,12 +790,16 @@ meant to be edited down to what your control room actually says.</p>
 required keys and no others:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">concepts</span><span class="p">:</span>
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">canonical</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">beam position monitor</span><span class="w">   </span><span class="c1"># the words logbook prose uses</span>
-<span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">acronym</span><span class="w">                      </span><span class="c1"># acronym | shorthand</span>
+<span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">acronym</span><span class="w">                      </span><span class="c1"># acronym | shorthand | synonym</span>
 <span class="w">    </span><span class="nt">forms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">bpm</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">bpms</span><span class="p p-Indicator">]</span><span class="w">                 </span><span class="c1"># what operators type instead</span>
 
 <span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">canonical</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">troubleshoot</span>
 <span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">shorthand</span>
 <span class="w">    </span><span class="nt">forms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ts</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">t/s</span><span class="p p-Indicator">]</span>
+
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">canonical</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">beam loss</span><span class="w">               </span><span class="c1"># one event, three phrasings</span>
+<span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">synonym</span>
+<span class="w">    </span><span class="nt">forms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">lost beam</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">beam dump</span><span class="p p-Indicator">]</span>
 </pre></div>
 </div>
 <dl class="simple">
@@ -803,7 +807,9 @@ required keys and no others:</p>
 rewritten into. Canonicals must be unique.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">kind</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">acronym</span></code> for a genuine initialism, <code class="docutils literal notranslate"><span class="pre">shorthand</span></code> for a clipped or slang
-spelling of an ordinary word. It selects a direction gate (below).</p>
+spelling of an ordinary word, <code class="docutils literal notranslate"><span class="pre">synonym</span></code> for a different phrasing of the
+same thing. The first two select a direction gate (below); <code class="docutils literal notranslate"><span class="pre">synonym</span></code> is
+ungated and always bidirectional.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">forms</span></code></dt><dd><p>One or more spellings operators type. A form may not repeat its own
 canonical.</p>
@@ -846,13 +852,31 @@ short form — is what <code class="docutils literal notranslate"><span class="p
 <td><p><code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">shorthand</span></code> concepts</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">false</span></code></p></td>
 </tr>
+<tr class="row-even"><td><p><em>(none — always on)</em></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">synonym</span></code> concepts</p></td>
+<td><p>—</p></td>
+</tr>
 </tbody>
 </table>
 </div>
-<p>The defaults are deliberately asymmetric. An initialism means one thing, so a
-search for “beam position monitor” should also reach the entries that wrote
+<p>The two defaults are deliberately asymmetric. An initialism means one thing, so
+a search for “beam position monitor” should also reach the entries that wrote
 “BPM”. An ordinary word is not so lucky: expanding “calibration” into <code class="docutils literal notranslate"><span class="pre">cal</span></code>
 pulls in every entry that abbreviated something else that way.</p>
+<p><strong>The third kind: synonym.</strong> <code class="docutils literal notranslate"><span class="pre">kind:</span> <span class="pre">synonym</span></code> is not gated by either switch,
+and it is the one kind where every member reaches <em>every other member</em> — the
+canonical reaches every form, each form reaches the canonical, and each form
+also reaches its sibling forms. Given the <code class="docutils literal notranslate"><span class="pre">beam</span> <span class="pre">loss</span></code> concept above, a search
+for <code class="docutils literal notranslate"><span class="pre">beam</span> <span class="pre">dump</span></code> finds entries that wrote “beam loss” and entries that wrote
+“lost beam”, and so does a search for either of the other two, whatever
+<code class="docutils literal notranslate"><span class="pre">canonical_to_acronym</span></code> and <code class="docutils literal notranslate"><span class="pre">canonical_to_shorthand</span></code> are set to.</p>
+<p>Use it for different <strong>phrasings</strong> of one thing. Do not use it when one
+spelling is simply the other written short: a clipped or slang word is
+<code class="docutils literal notranslate"><span class="pre">shorthand</span></code>, an initialism is <code class="docutils literal notranslate"><span class="pre">acronym</span></code>. Those two are one thing written two
+ways, which is why their gates are asymmetric; a synonym is one thing <em>said</em> two
+ways, with no short side and nothing to gate. Put the phrasing your prose uses
+most often in <code class="docutils literal notranslate"><span class="pre">canonical</span></code>, since that is what a matched form is rewritten
+into.</p>
 <p><strong>Forms that mean two things.</strong> Binding one form to two concepts is legal, and a
 query containing it expands to <em>both</em> canonicals rather than picking a winner.
 <code class="docutils literal notranslate"><span class="pre">vocab-check</span></code> warns about it and lists every canonical the form reaches, so
