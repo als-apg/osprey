@@ -15,8 +15,15 @@ Public surface of the model and loader half of this package:
     pieces of the result.
 
 ``Concept(canonical: str, kind: ConceptKind, forms: tuple[str, ...])``
-    A frozen dataclass. ``kind`` is ``"acronym"`` or ``"shorthand"``. Every
-    string on it is already normalized.
+    A frozen dataclass. ``kind`` is ``"acronym"``, ``"shorthand"`` or
+    ``"synonym"``. The first two pick which direction gate
+    (``canonical_to_acronym`` / ``canonical_to_shorthand``) lets a canonical
+    expand into this concept's forms; form-to-canonical is always on.
+    ``"synonym"`` is ungated and bidirectional: every member reaches every
+    other member, canonical and forms alike, whatever the gates say. Use it for
+    different phrasings of one thing ("beam loss" / "lost beam" / "beam dump"),
+    never for a clipped word (that is ``"shorthand"``) or an initialism (that
+    is ``"acronym"``). Every string on it is already normalized.
 
 ``Vocabulary``
     A frozen dataclass holding ``concepts: tuple[Concept, ...]`` (file order),

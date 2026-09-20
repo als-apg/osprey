@@ -26,7 +26,7 @@
 #   One top-level key, `concepts`, holding a non-empty list. Each entry is:
 #
 #     - canonical: beam position monitor   # the words logbook prose uses
-#       kind: acronym                      # acronym | shorthand
+#       kind: acronym                      # acronym | shorthand | synonym
 #       forms: [bpm, bpms]                 # what operators type instead
 #
 #   `canonical` must be written exactly as it appears in entry text — it is
@@ -34,7 +34,7 @@
 #   monitor", that is the canonical. Every canonical must be unique, and no
 #   form may repeat its own canonical. Unknown keys are refused, not ignored.
 #
-# THE TWO KINDS, AND WHAT THEY GATE
+# THE THREE KINDS, AND WHAT THEY GATE
 #   Matching a form and adding its canonical is ALWAYS on: type `bpm`, and the
 #   search also finds "beam position monitor". The reverse direction — spelling
 #   the canonical out and also searching the shorthand — is gated per kind by
@@ -42,12 +42,32 @@
 #
 #     kind: acronym    <- ariel.vocabulary.canonical_to_acronym   (default true)
 #     kind: shorthand  <- ariel.vocabulary.canonical_to_shorthand (default false)
+#     kind: synonym    <- neither switch; always on, in every direction
 #
 #   The defaults are deliberately asymmetric. An acronym is unambiguous, so a
 #   search for "beam position monitor" should also reach the entries that wrote
 #   "BPM". An ordinary word is not: expanding "calibration" into "cal" drags in
 #   far more noise than recall. Use `acronym` for a genuine initialism and
 #   `shorthand` for a clipped or slang spelling of an everyday word.
+#
+#   `synonym` is the third kind and it is not gated at all. Every member of a
+#   synonym concept reaches every other member, in both directions, whatever
+#   the two switches above are set to — the canonical reaches every form, each
+#   form reaches the canonical, and each form reaches its sibling forms. Use it
+#   for different PHRASINGS of one thing, where neither spelling is short for
+#   the other. "Beam loss", "lost beam" and "beam dump" are three ways of
+#   saying the same event, so a search for any one of them should find the
+#   entries that wrote any of the others:
+#
+#     - canonical: beam loss                 # the phrasing prose uses most
+#       kind: synonym                        # bidirectional, ungated
+#       forms: [lost beam, beam dump]        # the other phrasings, all equal
+#
+#   Do NOT reach for `synonym` when one spelling is simply the other written
+#   short: a clipped word is `shorthand` and an initialism is `acronym`. Those
+#   two are one thing written two ways, and their asymmetric gates exist for
+#   exactly that reason; a synonym is one thing SAID two ways, with no short
+#   side and nothing to gate.
 #
 # HOW TEXT IS NORMALIZED
 #   This file and the query are put through the same rule: lowercase, `-`

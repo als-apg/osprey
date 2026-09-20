@@ -270,6 +270,8 @@ config:
   # acronym, noise for an ordinary word ("calibration" → "cal").
   ariel.vocabulary.canonical_to_acronym: true
   ariel.vocabulary.canonical_to_shorthand: false
+  # `kind: synonym` concepts ignore both switches: every member reaches every
+  # other member --- phrasings of one event have no noisy direction to gate.
   # Search modules. Knobs MUST sit under `settings`: the loader keeps only
   # `enabled`, `provider`, `model` and `settings` and drops any other key
   # silently.
