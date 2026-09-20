@@ -81,7 +81,8 @@ Benchmark it yourself
 ---------------------
 
 The numbers are reproducible. OSPREY ships the benchmark toolchain under
-``scripts/benchmark/`` (see its ``README.md``): it runs the model-driving part of
+``scripts/benchmark/`` (see its `README
+<https://github.com/als-apg/osprey/blob/main/scripts/benchmark/README.md>`_): it runs the model-driving part of
 ``tests/e2e/`` — the tests that actually exercise the model under test — across a
 matrix of models and renders a per-test pass-rate dashboard. The
 whole run is declared in one file, ``scripts/benchmark/matrix.yaml`` — each row
@@ -203,4 +204,6 @@ hard-codes a number, so it stays accurate as the suite grows.
 .. seealso::
 
    - :doc:`configure-providers` — providers, the translation proxy, model selection.
-   - ``scripts/benchmark/README.md`` — the full benchmark contract.
+   - `scripts/benchmark/README.md
+     <https://github.com/als-apg/osprey/blob/main/scripts/benchmark/README.md>`_
+     — the full benchmark contract.
