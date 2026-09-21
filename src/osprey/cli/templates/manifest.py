@@ -449,7 +449,7 @@ def calculate_file_checksums(project_dir: Path) -> dict[str, str]:
 def build_user_owned_manifest(
     template_root: Path,
     jinja_env,
-    project_dir: Path,
+    project_dir: Path,  # noqa: ARG001 - manifest-builder signature; the user-owned hashes come from the template root
     context: dict[str, Any],
 ) -> dict[str, Any]:
     """Build user_owned section for the manifest.

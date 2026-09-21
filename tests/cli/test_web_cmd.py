@@ -672,7 +672,7 @@ def _preflight_at(root: Path):
     once instead of at every Probe-1 call site, which cares about neither.
     """
     build = root / "build"
-    return _preflight({}, root, build, build / "config.yml", "127.0.0.1", WEB_PORT)
+    return _preflight(root, build, build / "config.yml")
 
 
 class TestPreflightCompanionPortCollision:
