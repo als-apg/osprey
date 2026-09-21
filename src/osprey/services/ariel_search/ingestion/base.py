@@ -194,8 +194,8 @@ class FacilityAdapter(ABC):
 
     async def count_entries(
         self,
-        since: datetime | None = None,
-        until: datetime | None = None,
+        since: datetime | None = None,  # noqa: ARG002 - facility adapter contract; an adapter that counts a window reads the bounds
+        until: datetime | None = None,  # noqa: ARG002 - facility adapter contract; an adapter that counts a window reads the bounds
     ) -> int | None:
         """Count entries available in the source system.
 

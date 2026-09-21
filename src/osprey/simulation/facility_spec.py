@@ -76,7 +76,12 @@ class FacilitySpec:
         """Return the declared family names, in declaration order."""
         return tuple(fam.name for fam in self.families)
 
-    def device_name(self, sup: str, fam: str, ident: int | str) -> str:
+    def device_name(
+        self,
+        sup: str,  # noqa: ARG002 - facility device-naming signature; superperiod-scoped schemes render the section into the identifier
+        fam: str,
+        ident: int | str,
+    ) -> str:
         """Render a device name for family ``fam``, flat stack-native scheme.
 
         ``sup`` is accepted for API stability (superperiod-scoped callers

@@ -33,8 +33,9 @@ class SdkBackend(Backend):
         self.max_turns = max_turns
         self.max_budget_usd = max_budget_usd
 
-    async def run_query(self, prompt: str, pipeline_mode: str) -> WorkflowOutput:
-        # pipeline_mode is unused — SDK selects the MCP server via .mcp.json.
+    async def run_query(self, prompt: str, _pipeline_mode: str) -> WorkflowOutput:
+        # The SDK selects the MCP server through .mcp.json, so the pipeline
+        # mode reaches the query by the project's own config, not by argument.
         result = await run_sdk_query(
             self.project_dir,
             prompt,
