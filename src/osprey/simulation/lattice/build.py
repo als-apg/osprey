@@ -361,11 +361,15 @@ def _monitor_binding(
     The monitor's channels are in metres and the model's closed orbit is in
     metres, so both curves are the identity -- stated as data like any
     facility's, rather than left out as a conversion that happens to be free.
+
+    The nominal is the reading the seed states, which is what a facility export
+    carries for a monitor: the position the device sat at when the machine was
+    read. It starts the channel off and the model drives it from there.
     """
     address = _POSITION_ADDRESS.format(
         system=DEMO_SYSTEM, family=family.name, device=f"{device:02d}", axis=axis.upper()
     )
-    _require_seed(machine_channels, address, name)
+    nominal = _require_seed(machine_channels, address, name)
     return Binding(
         kind="monitor",
         family=family.name,
@@ -379,7 +383,7 @@ def _monitor_binding(
         owner=family.name,
         calibration=Linear(gain=1.0, offset=0.0),
         monitor_inverse=Linear(gain=1.0, offset=0.0),
-        nominal=None,
+        nominal=nominal,
         energy_scaling="none",
         energy_table=None,
     )
@@ -388,7 +392,15 @@ def _monitor_binding(
 def _driven_binding(
     family: Family, device: int, name: str, element: at.elements.Element, machine_channels: dict
 ) -> Binding:
-    """One magnet or corrector: its setpoint, its echoed readback, its curve."""
+    """One magnet or corrector: its setpoint, its echoed readback, its curve.
+
+    A magnet driven by a supply current holds its integrated field, not its
+    normalised strength, so the strength a given current is worth moves with
+    the beam rigidity -- the same word every facility export states for these
+    families. The demo ring has no energy knob, so the factor is one today and
+    the served numbers do not move; what changes is that the document says
+    what it means rather than leaving it to be assumed.
+    """
     setpoint = _current_address(family, device, "SP")
     readback = _current_address(family, device, "RB")
     nominal = _require_seed(machine_channels, setpoint, name)
@@ -408,7 +420,7 @@ def _driven_binding(
         calibration=calibration,
         monitor_inverse=None,
         nominal=nominal,
-        energy_scaling="none",
+        energy_scaling="brho" if kind == "strength" else "none",
         energy_table=None,
     )
 

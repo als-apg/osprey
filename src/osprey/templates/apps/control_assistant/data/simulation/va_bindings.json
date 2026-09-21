@@ -19,7 +19,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -49,7 +49,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -79,7 +79,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -109,7 +109,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -139,7 +139,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -169,7 +169,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -199,7 +199,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -229,7 +229,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -259,7 +259,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -289,7 +289,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -319,7 +319,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -349,7 +349,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -379,7 +379,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -409,7 +409,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -439,7 +439,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -469,7 +469,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -499,7 +499,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -529,7 +529,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -559,7 +559,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -589,7 +589,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -619,7 +619,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -649,7 +649,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -679,7 +679,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -709,7 +709,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -739,7 +739,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -769,7 +769,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -799,7 +799,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -829,7 +829,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -859,7 +859,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -889,7 +889,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -919,7 +919,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -949,7 +949,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -979,7 +979,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1009,7 +1009,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1039,7 +1039,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1069,7 +1069,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1099,7 +1099,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1129,7 +1129,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1159,7 +1159,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1189,7 +1189,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1219,7 +1219,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1249,7 +1249,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1279,7 +1279,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1309,7 +1309,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1339,7 +1339,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1369,7 +1369,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1399,7 +1399,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1429,7 +1429,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1459,7 +1459,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1489,7 +1489,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1519,7 +1519,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1549,7 +1549,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1579,7 +1579,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1609,7 +1609,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1639,7 +1639,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1669,7 +1669,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1699,7 +1699,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1729,7 +1729,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1759,7 +1759,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1789,7 +1789,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1819,7 +1819,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1849,7 +1849,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1879,7 +1879,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1909,7 +1909,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1939,7 +1939,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1969,7 +1969,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -1999,7 +1999,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2029,7 +2029,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2059,7 +2059,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2089,7 +2089,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2119,7 +2119,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2149,7 +2149,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2179,7 +2179,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2209,7 +2209,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2239,7 +2239,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2269,7 +2269,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2299,7 +2299,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2329,7 +2329,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2359,7 +2359,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2389,7 +2389,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2419,7 +2419,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2449,7 +2449,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2479,7 +2479,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2509,7 +2509,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2539,7 +2539,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2569,7 +2569,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2599,7 +2599,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2629,7 +2629,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2659,7 +2659,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2689,7 +2689,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2719,7 +2719,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2749,7 +2749,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2779,7 +2779,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2809,7 +2809,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2839,7 +2839,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2869,7 +2869,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2899,7 +2899,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2929,7 +2929,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2959,7 +2959,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -2989,7 +2989,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3019,7 +3019,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3049,7 +3049,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3079,7 +3079,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3109,7 +3109,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3139,7 +3139,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3169,7 +3169,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3199,7 +3199,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3229,7 +3229,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3259,7 +3259,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3289,7 +3289,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3319,7 +3319,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3349,7 +3349,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3379,7 +3379,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3409,7 +3409,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3439,7 +3439,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3469,7 +3469,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3499,7 +3499,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3529,7 +3529,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3559,7 +3559,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3589,7 +3589,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3619,7 +3619,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3649,7 +3649,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3679,7 +3679,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3709,7 +3709,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3739,7 +3739,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3769,7 +3769,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3799,7 +3799,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3829,7 +3829,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3859,7 +3859,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3889,7 +3889,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3919,7 +3919,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3949,7 +3949,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -3979,7 +3979,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4009,7 +4009,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4039,7 +4039,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4069,7 +4069,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4099,7 +4099,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4129,7 +4129,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4159,7 +4159,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4189,7 +4189,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4219,7 +4219,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4249,7 +4249,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4279,7 +4279,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4309,7 +4309,7 @@
         "kind": "linear",
         "offset": 0.0
       },
-      "nominal": null,
+      "nominal": 0.0,
       "owner": "BPM",
       "readback": "inverse",
       "readback_address": null,
@@ -4329,7 +4329,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE01",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4355,7 +4355,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE02",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4381,7 +4381,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE03",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4407,7 +4407,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE04",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4433,7 +4433,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE05",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4459,7 +4459,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE06",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4485,7 +4485,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE07",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4511,7 +4511,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE08",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4537,7 +4537,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE09",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4563,7 +4563,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE10",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4589,7 +4589,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE11",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4615,7 +4615,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE12",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4641,7 +4641,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE13",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4667,7 +4667,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE14",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4693,7 +4693,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE15",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4719,7 +4719,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE16",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4745,7 +4745,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE17",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4771,7 +4771,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE18",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4797,7 +4797,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE19",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4823,7 +4823,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE20",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4849,7 +4849,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE21",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4875,7 +4875,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE22",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4901,7 +4901,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE23",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4927,7 +4927,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE24",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4953,7 +4953,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE25",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -4979,7 +4979,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE26",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5005,7 +5005,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE27",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5031,7 +5031,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE28",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5057,7 +5057,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE29",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5083,7 +5083,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE30",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5109,7 +5109,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE31",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5135,7 +5135,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE32",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5161,7 +5161,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE33",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5187,7 +5187,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE34",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5213,7 +5213,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE35",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -5239,7 +5239,7 @@
         "offset": -0.20173952192708694
       },
       "element": "DIPOLE36",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "DIPOLE",
       "index": 0,
@@ -7137,7 +7137,7 @@
         "offset": 0.0
       },
       "element": "QD01",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7163,7 +7163,7 @@
         "offset": 0.0
       },
       "element": "QD02",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7189,7 +7189,7 @@
         "offset": 0.0
       },
       "element": "QD03",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7215,7 +7215,7 @@
         "offset": 0.0
       },
       "element": "QD04",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7241,7 +7241,7 @@
         "offset": 0.0
       },
       "element": "QD05",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7267,7 +7267,7 @@
         "offset": 0.0
       },
       "element": "QD06",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7293,7 +7293,7 @@
         "offset": 0.0
       },
       "element": "QD07",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7319,7 +7319,7 @@
         "offset": 0.0
       },
       "element": "QD08",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7345,7 +7345,7 @@
         "offset": 0.0
       },
       "element": "QD09",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7371,7 +7371,7 @@
         "offset": 0.0
       },
       "element": "QD10",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7397,7 +7397,7 @@
         "offset": 0.0
       },
       "element": "QD11",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7423,7 +7423,7 @@
         "offset": 0.0
       },
       "element": "QD12",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7449,7 +7449,7 @@
         "offset": 0.0
       },
       "element": "QD13",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7475,7 +7475,7 @@
         "offset": 0.0
       },
       "element": "QD14",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7501,7 +7501,7 @@
         "offset": 0.0
       },
       "element": "QD15",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7527,7 +7527,7 @@
         "offset": 0.0
       },
       "element": "QD16",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7553,7 +7553,7 @@
         "offset": 0.0
       },
       "element": "QD17",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7579,7 +7579,7 @@
         "offset": 0.0
       },
       "element": "QD18",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7605,7 +7605,7 @@
         "offset": 0.0
       },
       "element": "QD19",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7631,7 +7631,7 @@
         "offset": 0.0
       },
       "element": "QD20",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7657,7 +7657,7 @@
         "offset": 0.0
       },
       "element": "QD21",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7683,7 +7683,7 @@
         "offset": 0.0
       },
       "element": "QD22",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7709,7 +7709,7 @@
         "offset": 0.0
       },
       "element": "QD23",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7735,7 +7735,7 @@
         "offset": 0.0
       },
       "element": "QD24",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QD",
       "index": 1,
@@ -7761,7 +7761,7 @@
         "offset": 0.0
       },
       "element": "QF01",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -7787,7 +7787,7 @@
         "offset": 0.0
       },
       "element": "QF02",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -7813,7 +7813,7 @@
         "offset": 0.0
       },
       "element": "QF03",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -7839,7 +7839,7 @@
         "offset": 0.0
       },
       "element": "QF04",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -7865,7 +7865,7 @@
         "offset": 0.0
       },
       "element": "QF05",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -7891,7 +7891,7 @@
         "offset": 0.0
       },
       "element": "QF06",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -7917,7 +7917,7 @@
         "offset": 0.0
       },
       "element": "QF07",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -7943,7 +7943,7 @@
         "offset": 0.0
       },
       "element": "QF08",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -7969,7 +7969,7 @@
         "offset": 0.0
       },
       "element": "QF09",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -7995,7 +7995,7 @@
         "offset": 0.0
       },
       "element": "QF10",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8021,7 +8021,7 @@
         "offset": 0.0
       },
       "element": "QF11",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8047,7 +8047,7 @@
         "offset": 0.0
       },
       "element": "QF12",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8073,7 +8073,7 @@
         "offset": 0.0
       },
       "element": "QF13",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8099,7 +8099,7 @@
         "offset": 0.0
       },
       "element": "QF14",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8125,7 +8125,7 @@
         "offset": 0.0
       },
       "element": "QF15",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8151,7 +8151,7 @@
         "offset": 0.0
       },
       "element": "QF16",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8177,7 +8177,7 @@
         "offset": 0.0
       },
       "element": "QF17",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8203,7 +8203,7 @@
         "offset": 0.0
       },
       "element": "QF18",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8229,7 +8229,7 @@
         "offset": 0.0
       },
       "element": "QF19",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8255,7 +8255,7 @@
         "offset": 0.0
       },
       "element": "QF20",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8281,7 +8281,7 @@
         "offset": 0.0
       },
       "element": "QF21",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8307,7 +8307,7 @@
         "offset": 0.0
       },
       "element": "QF22",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8333,7 +8333,7 @@
         "offset": 0.0
       },
       "element": "QF23",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8359,7 +8359,7 @@
         "offset": 0.0
       },
       "element": "QF24",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QF",
       "index": 1,
@@ -8385,7 +8385,7 @@
         "offset": 0.0
       },
       "element": "QFA01",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8411,7 +8411,7 @@
         "offset": 0.0
       },
       "element": "QFA02",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8437,7 +8437,7 @@
         "offset": 0.0
       },
       "element": "QFA03",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8463,7 +8463,7 @@
         "offset": 0.0
       },
       "element": "QFA04",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8489,7 +8489,7 @@
         "offset": 0.0
       },
       "element": "QFA05",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8515,7 +8515,7 @@
         "offset": 0.0
       },
       "element": "QFA06",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8541,7 +8541,7 @@
         "offset": 0.0
       },
       "element": "QFA07",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8567,7 +8567,7 @@
         "offset": 0.0
       },
       "element": "QFA08",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8593,7 +8593,7 @@
         "offset": 0.0
       },
       "element": "QFA09",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8619,7 +8619,7 @@
         "offset": 0.0
       },
       "element": "QFA10",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8645,7 +8645,7 @@
         "offset": 0.0
       },
       "element": "QFA11",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8671,7 +8671,7 @@
         "offset": 0.0
       },
       "element": "QFA12",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8697,7 +8697,7 @@
         "offset": 0.0
       },
       "element": "QFA13",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8723,7 +8723,7 @@
         "offset": 0.0
       },
       "element": "QFA14",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8749,7 +8749,7 @@
         "offset": 0.0
       },
       "element": "QFA15",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8775,7 +8775,7 @@
         "offset": 0.0
       },
       "element": "QFA16",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8801,7 +8801,7 @@
         "offset": 0.0
       },
       "element": "QFA17",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8827,7 +8827,7 @@
         "offset": 0.0
       },
       "element": "QFA18",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8853,7 +8853,7 @@
         "offset": 0.0
       },
       "element": "QFA19",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8879,7 +8879,7 @@
         "offset": 0.0
       },
       "element": "QFA20",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8905,7 +8905,7 @@
         "offset": 0.0
       },
       "element": "QFA21",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8931,7 +8931,7 @@
         "offset": 0.0
       },
       "element": "QFA22",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8957,7 +8957,7 @@
         "offset": 0.0
       },
       "element": "QFA23",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -8983,7 +8983,7 @@
         "offset": 0.0
       },
       "element": "QFA24",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "QFA",
       "index": 1,
@@ -9009,7 +9009,7 @@
         "offset": 0.0
       },
       "element": "SD01",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9035,7 +9035,7 @@
         "offset": 0.0
       },
       "element": "SD02",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9061,7 +9061,7 @@
         "offset": 0.0
       },
       "element": "SD03",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9087,7 +9087,7 @@
         "offset": 0.0
       },
       "element": "SD04",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9113,7 +9113,7 @@
         "offset": 0.0
       },
       "element": "SD05",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9139,7 +9139,7 @@
         "offset": 0.0
       },
       "element": "SD06",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9165,7 +9165,7 @@
         "offset": 0.0
       },
       "element": "SD07",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9191,7 +9191,7 @@
         "offset": 0.0
       },
       "element": "SD08",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9217,7 +9217,7 @@
         "offset": 0.0
       },
       "element": "SD09",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9243,7 +9243,7 @@
         "offset": 0.0
       },
       "element": "SD10",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9269,7 +9269,7 @@
         "offset": 0.0
       },
       "element": "SD11",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9295,7 +9295,7 @@
         "offset": 0.0
       },
       "element": "SD12",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9321,7 +9321,7 @@
         "offset": 0.0
       },
       "element": "SD13",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9347,7 +9347,7 @@
         "offset": 0.0
       },
       "element": "SD14",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9373,7 +9373,7 @@
         "offset": 0.0
       },
       "element": "SD15",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9399,7 +9399,7 @@
         "offset": 0.0
       },
       "element": "SD16",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9425,7 +9425,7 @@
         "offset": 0.0
       },
       "element": "SD17",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9451,7 +9451,7 @@
         "offset": 0.0
       },
       "element": "SD18",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9477,7 +9477,7 @@
         "offset": 0.0
       },
       "element": "SD19",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9503,7 +9503,7 @@
         "offset": 0.0
       },
       "element": "SD20",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9529,7 +9529,7 @@
         "offset": 0.0
       },
       "element": "SD21",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9555,7 +9555,7 @@
         "offset": 0.0
       },
       "element": "SD22",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9581,7 +9581,7 @@
         "offset": 0.0
       },
       "element": "SD23",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9607,7 +9607,7 @@
         "offset": 0.0
       },
       "element": "SD24",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SD",
       "index": 2,
@@ -9633,7 +9633,7 @@
         "offset": 0.0
       },
       "element": "SF01",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9659,7 +9659,7 @@
         "offset": 0.0
       },
       "element": "SF02",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9685,7 +9685,7 @@
         "offset": 0.0
       },
       "element": "SF03",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9711,7 +9711,7 @@
         "offset": 0.0
       },
       "element": "SF04",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9737,7 +9737,7 @@
         "offset": 0.0
       },
       "element": "SF05",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9763,7 +9763,7 @@
         "offset": 0.0
       },
       "element": "SF06",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9789,7 +9789,7 @@
         "offset": 0.0
       },
       "element": "SF07",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9815,7 +9815,7 @@
         "offset": 0.0
       },
       "element": "SF08",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9841,7 +9841,7 @@
         "offset": 0.0
       },
       "element": "SF09",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9867,7 +9867,7 @@
         "offset": 0.0
       },
       "element": "SF10",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9893,7 +9893,7 @@
         "offset": 0.0
       },
       "element": "SF11",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9919,7 +9919,7 @@
         "offset": 0.0
       },
       "element": "SF12",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9945,7 +9945,7 @@
         "offset": 0.0
       },
       "element": "SF13",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9971,7 +9971,7 @@
         "offset": 0.0
       },
       "element": "SF14",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -9997,7 +9997,7 @@
         "offset": 0.0
       },
       "element": "SF15",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10023,7 +10023,7 @@
         "offset": 0.0
       },
       "element": "SF16",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10049,7 +10049,7 @@
         "offset": 0.0
       },
       "element": "SF17",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10075,7 +10075,7 @@
         "offset": 0.0
       },
       "element": "SF18",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10101,7 +10101,7 @@
         "offset": 0.0
       },
       "element": "SF19",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10127,7 +10127,7 @@
         "offset": 0.0
       },
       "element": "SF20",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10153,7 +10153,7 @@
         "offset": 0.0
       },
       "element": "SF21",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10179,7 +10179,7 @@
         "offset": 0.0
       },
       "element": "SF22",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10205,7 +10205,7 @@
         "offset": 0.0
       },
       "element": "SF23",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10231,7 +10231,7 @@
         "offset": 0.0
       },
       "element": "SF24",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SF",
       "index": 2,
@@ -10257,7 +10257,7 @@
         "offset": 0.0
       },
       "element": "SHD01",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10283,7 +10283,7 @@
         "offset": 0.0
       },
       "element": "SHD02",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10309,7 +10309,7 @@
         "offset": 0.0
       },
       "element": "SHD03",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10335,7 +10335,7 @@
         "offset": 0.0
       },
       "element": "SHD04",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10361,7 +10361,7 @@
         "offset": 0.0
       },
       "element": "SHD05",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10387,7 +10387,7 @@
         "offset": 0.0
       },
       "element": "SHD06",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10413,7 +10413,7 @@
         "offset": 0.0
       },
       "element": "SHD07",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10439,7 +10439,7 @@
         "offset": 0.0
       },
       "element": "SHD08",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10465,7 +10465,7 @@
         "offset": 0.0
       },
       "element": "SHD09",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10491,7 +10491,7 @@
         "offset": 0.0
       },
       "element": "SHD10",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10517,7 +10517,7 @@
         "offset": 0.0
       },
       "element": "SHD11",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10543,7 +10543,7 @@
         "offset": 0.0
       },
       "element": "SHD12",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10569,7 +10569,7 @@
         "offset": 0.0
       },
       "element": "SHD13",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10595,7 +10595,7 @@
         "offset": 0.0
       },
       "element": "SHD14",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10621,7 +10621,7 @@
         "offset": 0.0
       },
       "element": "SHD15",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10647,7 +10647,7 @@
         "offset": 0.0
       },
       "element": "SHD16",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10673,7 +10673,7 @@
         "offset": 0.0
       },
       "element": "SHD17",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10699,7 +10699,7 @@
         "offset": 0.0
       },
       "element": "SHD18",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10725,7 +10725,7 @@
         "offset": 0.0
       },
       "element": "SHD19",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10751,7 +10751,7 @@
         "offset": 0.0
       },
       "element": "SHD20",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10777,7 +10777,7 @@
         "offset": 0.0
       },
       "element": "SHD21",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10803,7 +10803,7 @@
         "offset": 0.0
       },
       "element": "SHD22",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10829,7 +10829,7 @@
         "offset": 0.0
       },
       "element": "SHD23",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10855,7 +10855,7 @@
         "offset": 0.0
       },
       "element": "SHD24",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHD",
       "index": 2,
@@ -10881,7 +10881,7 @@
         "offset": 0.0
       },
       "element": "SHF01",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -10907,7 +10907,7 @@
         "offset": 0.0
       },
       "element": "SHF02",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -10933,7 +10933,7 @@
         "offset": 0.0
       },
       "element": "SHF03",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -10959,7 +10959,7 @@
         "offset": 0.0
       },
       "element": "SHF04",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -10985,7 +10985,7 @@
         "offset": 0.0
       },
       "element": "SHF05",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11011,7 +11011,7 @@
         "offset": 0.0
       },
       "element": "SHF06",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11037,7 +11037,7 @@
         "offset": 0.0
       },
       "element": "SHF07",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11063,7 +11063,7 @@
         "offset": 0.0
       },
       "element": "SHF08",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11089,7 +11089,7 @@
         "offset": 0.0
       },
       "element": "SHF09",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11115,7 +11115,7 @@
         "offset": 0.0
       },
       "element": "SHF10",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11141,7 +11141,7 @@
         "offset": 0.0
       },
       "element": "SHF11",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11167,7 +11167,7 @@
         "offset": 0.0
       },
       "element": "SHF12",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11193,7 +11193,7 @@
         "offset": 0.0
       },
       "element": "SHF13",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11219,7 +11219,7 @@
         "offset": 0.0
       },
       "element": "SHF14",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11245,7 +11245,7 @@
         "offset": 0.0
       },
       "element": "SHF15",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11271,7 +11271,7 @@
         "offset": 0.0
       },
       "element": "SHF16",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11297,7 +11297,7 @@
         "offset": 0.0
       },
       "element": "SHF17",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11323,7 +11323,7 @@
         "offset": 0.0
       },
       "element": "SHF18",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11349,7 +11349,7 @@
         "offset": 0.0
       },
       "element": "SHF19",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11375,7 +11375,7 @@
         "offset": 0.0
       },
       "element": "SHF20",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11401,7 +11401,7 @@
         "offset": 0.0
       },
       "element": "SHF21",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11427,7 +11427,7 @@
         "offset": 0.0
       },
       "element": "SHF22",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11453,7 +11453,7 @@
         "offset": 0.0
       },
       "element": "SHF23",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,
@@ -11479,7 +11479,7 @@
         "offset": 0.0
       },
       "element": "SHF24",
-      "energy_scaling": "none",
+      "energy_scaling": "brho",
       "energy_table": null,
       "family": "SHF",
       "index": 2,

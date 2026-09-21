@@ -278,7 +278,14 @@ class TestTheCalibrationsAreTheRingsPhysics:
             assert binding.calibration.gain == pytest.approx(1.0 / demo_build.AMPS_PER_RADIAN_KICK)
             assert binding.calibration.offset == 0.0
 
-    def test_a_monitor_reads_its_axis_through_an_inverse(self, by_setpoint):
+    def test_a_monitor_reads_its_axis_through_an_inverse(self, by_setpoint, machine_channels):
+        """And starts at the reading the seed states, as an export's monitor does.
+
+        A facility export carries a monitor's nominal: the position the device
+        sat at when the machine was read. It starts the channel off and the
+        model drives it from there, so the generator states it rather than
+        leaving the one binding kind that reads the beam without a value.
+        """
         for device in range(1, ALS_U_AR.family("BPM").count + 1):
             for axis in ("x", "y"):
                 address = f"SR:DIAG:BPM:{device:02d}:POSITION:{axis.upper()}"
@@ -288,7 +295,7 @@ class TestTheCalibrationsAreTheRingsPhysics:
                 assert binding.readback == "inverse"
                 assert binding.readback_address is None
                 assert binding.monitor_inverse is not None
-                assert binding.nominal is None
+                assert binding.nominal == pytest.approx(machine_channels[address]["value"])
 
     def test_a_written_binding_echoes_its_setpoint_on_a_readback(self, by_setpoint):
         for address, binding in by_setpoint.items():
@@ -306,9 +313,35 @@ class TestTheCalibrationsAreTheRingsPhysics:
             assert binding.slices[0].element == binding.element
             assert binding.owner == binding.family
 
-    def test_nothing_rescales_with_rigidity(self, by_setpoint):
-        """The demo tree binds no energy knob, so no physics value ever moves."""
-        assert {binding.energy_scaling for binding in by_setpoint.values()} == {"none"}
+    def test_a_strength_says_it_moves_with_rigidity_and_a_kick_does_not(self, by_setpoint):
+        """A magnet holds its integrated field, so the strength it is worth moves.
+
+        The word is what a facility export states for these families, and the
+        served model reads it to decide which fields an energy move rescales.
+        A corrector's calibration is already an angle per ampere, and a monitor
+        reads a position, so neither carries the word.
+        """
+        by_kind: dict[str, set[str]] = {}
+        for binding in by_setpoint.values():
+            by_kind.setdefault(binding.kind, set()).add(binding.energy_scaling)
+
+        assert by_kind.pop("strength") == {"brho"}
+        assert by_kind, "the demo binds nothing but strengths"
+        assert set().union(*by_kind.values()) == {"none"}
+
+    def test_no_served_strength_moves_while_the_energy_does_not(self, by_setpoint, document):
+        """Saying `brho` changes no served number on a ring with no energy knob.
+
+        The rigidity factor is the ratio of two rigidities and is exactly one
+        at the energy the calibrations were sampled at. The demo binds no
+        energy knob, so nothing can take the ring off that energy and every
+        strength is served at the value it was served at before the word was
+        stated.
+        """
+        from osprey.services.virtual_accelerator.lattice.calibration import energy_factor
+
+        assert not [binding for binding in by_setpoint.values() if binding.kind == "energy"]
+        assert float(energy_factor(document.energy_gev, document.energy_gev)) == 1.0
 
 
 class TestTheGeneratorRefusesWhatItCannotState:
