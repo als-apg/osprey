@@ -682,7 +682,6 @@ ignore-variadic-names = true
 # Unused arguments in the test tree: swept per directory, and an entry leaves
 # with the directory's sweep. A root-level file needs its exact path, because
 # a `*` in these globs spans `/`.
-"tests/deployment/*" = ["ARG001", "ARG002"]
 "tests/mcp_server/*" = ["ARG001", "ARG002"]
 "tests/interfaces/*" = ["ARG001", "ARG002"]
 "tests/cli/*" = ["ARG001", "ARG002"]
