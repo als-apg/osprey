@@ -163,8 +163,6 @@ if hasattr(data, 'shape'):
 
 def collect_and_register_artifacts(
     exec_result,
-    title: str,
-    description: str,
     tool_source: str,
     category: str = "",
     code: str = "",

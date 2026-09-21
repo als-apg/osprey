@@ -117,7 +117,7 @@ def make_pretooluse_hook(
     denied_tuple = tuple(denied_tools)
 
     async def pretooluse_hook(
-        input_data: dict[str, Any], tool_use_id: str | None, context: Any
+        input_data: dict[str, Any], _tool_use_id: str | None, _context: Any
     ) -> dict[str, Any]:
         try:
             tool_name = str(input_data.get("tool_name") or "")
@@ -192,7 +192,7 @@ def make_backstop(
         *(surface for surface in agent_surfaces.values() if surface is not None)
     )
 
-    async def can_use_tool(tool_name, tool_input, context):  # type: ignore[no-untyped-def]
+    async def can_use_tool(tool_name, _tool_input, context):  # type: ignore[no-untyped-def]
         if matches_denylist(tool_name, denied_tuple):
             return PermissionResultDeny(
                 message=f"Tool {tool_name!r} is blocked by the dispatch server denylist",

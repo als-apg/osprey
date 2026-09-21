@@ -556,7 +556,6 @@ def _persist_oversized_reading(
     value,
     summary: dict,
     *,
-    artifact_reason: str,
     color_mode: str | None = None,
 ) -> dict:
     """Persist an oversized read value and return the handle fields for its entry.
@@ -575,8 +574,6 @@ def _persist_oversized_reading(
             element count, numeric stats, artifact_reason) - the same dict the
             returned fields are merged into, and the basis of the artifact's own
             summary.
-        artifact_reason: One of :data:`ARTIFACT_REASON_PER_VALUE` /
-            :data:`ARTIFACT_REASON_AGGREGATE`.
         color_mode: ``colorMode`` the control system reported for the frame, when
             it reported one. Decides how a 3-D frame is laid out; ignored
             otherwise.
@@ -748,7 +745,6 @@ async def channel_read(
                             addr,
                             value,
                             summary_fields,
-                            artifact_reason=artifact_reason,
                             color_mode=_color_mode(cv),
                         )
                     )

@@ -237,7 +237,7 @@ def _resolve_project_root() -> Path:
 
 def resolve_protected_roots(
     project_root: Path | None = None,
-    config: Mapping[str, Any] | None = None,
+    config: Mapping[str, Any] | None = None,  # noqa: ARG001 - shares the root-resolver signature; protected roots come from the project root
 ) -> tuple[Path, ...]:
     """Resolve the paths executed code may not write into, in any mode.
 
@@ -1065,7 +1065,7 @@ def _collect_figures(execution_folder: Path) -> list[Path]:
 async def execute_code(
     code: str,
     execution_mode: str,
-    description: str,
+    description: str,  # noqa: ARG001 - mirrors the execute tools' parameter; the description is recorded by the tool layer
 ) -> ExecutionResult:
     """Execute Python code in a host subprocess.
 

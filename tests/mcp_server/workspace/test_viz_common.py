@@ -358,8 +358,6 @@ class TestCollectAndRegisterArtifacts:
 
         ids = collect_and_register_artifacts(
             self._exec_result(ghost, real),
-            title="t",
-            description="d",
             tool_source="create_static_plot",
             data_source="abcdefabcdef",
         )
@@ -382,7 +380,7 @@ class TestCollectAndRegisterArtifacts:
         result.artifacts[0]["category"] = "lattice_analysis"
 
         ids = collect_and_register_artifacts(
-            result, title="t", description="d", tool_source="create_static_plot", category="plot"
+            result, tool_source="create_static_plot", category="plot"
         )
 
         entry = art_store.get_entry(ids[0])
@@ -397,8 +395,6 @@ class TestCollectAndRegisterArtifacts:
 
         ids = collect_and_register_artifacts(
             self._exec_result(png),
-            title="t",
-            description="d",
             tool_source="create_static_plot",
             category="plot",
         )

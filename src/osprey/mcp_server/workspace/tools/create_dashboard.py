@@ -42,7 +42,7 @@ from bokeh.resources import INLINE
 async def create_dashboard(
     code: str,
     title: str,
-    description: str = "",
+    description: str = "",  # noqa: ARG001 - MCP tool schema parameter; each artifact carries the description its save_artifact call names
 ) -> str:
     """Create an interactive Bokeh dashboard as a standalone HTML artifact.
 
@@ -110,8 +110,6 @@ async def create_dashboard(
     # Collect artifacts with category and embedded metadata
     artifact_ids = collect_and_register_artifacts(
         exec_result,
-        title,
-        description,
         tool_source="create_dashboard",
         category="dashboard",
         code=code,

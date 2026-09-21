@@ -82,7 +82,7 @@ def _wrap_in_html(title: str, body_html: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def passthrough(source: Path, output_dir: Path) -> Path:
+async def passthrough(source: Path, _output_dir: Path) -> Path:
     """Return the source path unchanged (images, PDFs, binaries)."""
     return source
 

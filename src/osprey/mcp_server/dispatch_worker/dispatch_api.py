@@ -243,7 +243,7 @@ def _inject_provider_env_once() -> None:
 
 
 @asynccontextmanager
-async def _lifespan(app: FastAPI):
+async def _lifespan(_app: FastAPI):
     """Startup/shutdown lifecycle — provider env injection and run recovery.
 
     ``.claude/`` and ``data/`` (MCP config, safety hooks, skills) are already in

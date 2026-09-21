@@ -151,7 +151,7 @@ async def stop_session_control() -> None:
 
 
 @asynccontextmanager
-async def _lifespan(server: FastMCP) -> AsyncIterator[dict[str, Any]]:
+async def _lifespan(_server: FastMCP) -> AsyncIterator[dict[str, Any]]:
     """Own the things that need a running event loop.
 
     The connector-host child is deliberately NOT started here: a deployment
