@@ -34,6 +34,7 @@ from osprey.services.mml.emit.va import (
     emit_lattice,
     emit_machine,
     emit_state_channels,
+    lane_findings,
 )
 from osprey.services.mml.family import FamilyView
 from osprey.services.mml.judgments import judged_family_views, judged_va_block
@@ -49,7 +50,8 @@ from osprey.services.mml.mapping.schema import (
     VirtualAccelerator,
 )
 from osprey.services.mml.va.elements import ElementBinding, ElementSlice
-from osprey.services.virtual_accelerator.bindings import load_bindings
+from osprey.services.virtual_accelerator.bindings import Table, load_bindings
+from osprey.services.virtual_accelerator.lattice.calibration import to_hardware, to_physics
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 from osprey_connectors.simulation.machine import parse_machine
 
@@ -148,10 +150,12 @@ def _coupled() -> VAFamily:
     return VAFamily(verdict="couple", kind="strength", element_field="PolynomB[1]")
 
 
-def _machine(tmp_path: Path, *, views, judged_va, verdicts=None, mapping=None):
+def _machine(tmp_path: Path, *, views, judged_va, verdicts=None, mapping=None, elements=None):
     """Emit machine.json and return (document, seeds, text)."""
     mapping = mapping or _mapping([_family("QF", fields={"Setpoint": "Quadrupole current"})])
-    text, seeds = emit_machine(verdicts or {}, views, judged_va, mapping, _ctx(tmp_path))
+    text, seeds = emit_machine(
+        verdicts or {}, views, judged_va, mapping, _ctx(tmp_path), elements or {}
+    )
     return json.loads(text), seeds, text
 
 
@@ -277,7 +281,13 @@ class TestMachineRefusals:
         with pytest.raises(ValueError, match="device"):
             _machine(tmp_path, views=[_view("QF", _quad_body())], judged_va={(SYSTEM, "QF"): block})
 
-    def test_machine_json_refuses_a_second_value_on_one_address(self, tmp_path):
+    def test_machine_json_starts_a_series_supply_where_its_magnets_average(self, tmp_path):
+        """One address against two devices is one supply feeding both.
+
+        The bindings anchor the string's shares at that mean, so seeding
+        either magnet's own value would boot the model at a current the
+        shares were not chosen for.
+        """
         body = _quad_body()
         body["Setpoint"]["ChannelNames"] = ["SR:QF:BOTH:SP"]
         document, seeds, _ = _machine(
@@ -285,9 +295,26 @@ class TestMachineRefusals:
             views=[_view("QF", body)],
             judged_va={(SYSTEM, "QF"): _nominals("Setpoint", [1.5, 2.5])},
         )
-        assert document["channels"]["SR:QF:BOTH:SP"]["value"] == 1.5
-        assert [seed.refused for seed in seeds][0] is None
-        assert "already seeded with 1.5" in seeds[1].refused
+        assert document["channels"]["SR:QF:BOTH:SP"]["value"] == 2.0
+        assert [seed.refused for seed in seeds] == [None]
+
+    def test_machine_json_refuses_a_second_family_on_one_address(self, tmp_path):
+        """Two families on one channel is a collision, not a supply."""
+        body = _quad_body()
+        body["Setpoint"]["ChannelNames"] = ["SR:SHARED:SP"]
+        other = _quad_body()
+        other["Setpoint"]["ChannelNames"] = ["SR:SHARED:SP"]
+        document, seeds, _ = _machine(
+            tmp_path,
+            views=[_view("QF", body), _view("QD", other)],
+            judged_va={
+                (SYSTEM, "QF"): _nominals("Setpoint", [1.5, 1.5]),
+                (SYSTEM, "QD"): _nominals("Setpoint", [9.5, 9.5]),
+            },
+            mapping=_mapping([_family("QF"), _family("QD")]),
+        )
+        assert document["channels"]["SR:SHARED:SP"]["value"] == 1.5
+        assert "already seeded with 1.5" in [seed.refused for seed in seeds if seed.refused][0]
 
     def test_machine_json_skips_a_family_with_no_virtual_accelerator_block(self, tmp_path):
         document, seeds, _ = _machine(tmp_path, views=[_view("QF", _quad_body())], judged_va={})
@@ -304,6 +331,7 @@ class TestMachineDocumentShape:
             {(SYSTEM, "QF"): _nominals("Setpoint", [1.5, 2.5])},
             _mapping([_family("QF", fields={"Setpoint": None})]),
             ctx,
+            {},
         )
         document = json.loads(text)
         assert next(iter(document)) == PROVENANCE_KEY
@@ -519,7 +547,7 @@ class TestMachineOnTheCommittedExport:
         ]
         judged_va = {(SYSTEM, raw): block for raw, block in _synthetic("va")["families"].items()}
         text, seeds = emit_machine(
-            {(SYSTEM, "QF"): _coupled()}, views, judged_va, _mapping([]), _ctx(tmp_path)
+            {(SYSTEM, "QF"): _coupled()}, views, judged_va, _mapping([]), _ctx(tmp_path), {}
         )
         return json.loads(text), seeds, text
 
@@ -974,7 +1002,7 @@ def _bindings(
     ctx: EmitContext | None = None,
 ):
     """Emit va_bindings.json over the quadrupole case, or whatever is passed."""
-    text = emit_bindings(
+    text, _found = emit_bindings(
         {(SYSTEM, "QF"): _coupled()} if verdicts is None else verdicts,
         [_view("QF", _quad_body())] if views is None else views,
         _quad_elements() if elements is None else elements,
@@ -1004,7 +1032,7 @@ def _bindings_from_export(tmp_path: Path, directory: Path, stem: str, system: st
         if not raw.startswith("_") and isinstance(body, dict)
     }
     verdicts = propose(va, ring, views)
-    text = emit_bindings(
+    text, _found = emit_bindings(
         {(system, name): verdict for name, verdict in verdicts.items()},
         list(views.values()),
         dict(address_elements(va, ring, verdicts).bindings),
@@ -1249,6 +1277,377 @@ class TestBindingsReadJudgedRows:
         with pytest.raises(ValueError, match="no hardware nominal"):
             _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
 
+    def test_bindings_refuse_a_family_one_device_short_of_a_nominal(self, tmp_path):
+        block = _quad_block()
+        block["nominals"]["Setpoint"]["values"] = [1.5, "NaN"]
+        with pytest.raises(ValueError, match="no hardware nominal for 1 of its 2 devices"):
+            _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
+
+
+def _sampled(grid, values, devices: int = 2) -> dict:
+    """A sampled conversion stating the same row for every device."""
+    return {
+        "kind": "table",
+        "grid": [list(grid) for _ in range(devices)],
+        "values": [list(values) for _ in range(devices)],
+    }
+
+
+#: The straight line the cases below convert hardware through: a tenth of the
+#: current, and an offset small enough to keep the round trip off the identity
+#: so the served readback is the exported inverse rather than the written value.
+_TENTH = ([0.1, 0.1], [0.02, 0.02])
+
+
+def _physics(hardware: float) -> float:
+    """What :data:`_TENTH` makes of one hardware value."""
+    return 0.1 * hardware + 0.02
+
+
+def _inverse_block(grid, values, *, nominals=(20.0, 20.0)) -> dict:
+    """A quadrupole whose physics-to-hardware conversion is the given table.
+
+    The conversions out of hardware are the same straight line for every
+    device, so the device sits at a physics point :func:`_physics` states and
+    the table below is a real inverse: its grid is physics and its values are
+    the current the facility's own function answers there.
+    """
+    block = _quad_block()
+    block["nominals"]["Setpoint"]["values"] = list(nominals)
+    block["Setpoint"]["calibration"] = _linear(*_TENTH)
+    block["Monitor"] = {
+        "calibration": _linear(*_TENTH),
+        "monitor_inverse": _sampled(grid, values),
+    }
+    return block
+
+
+def _trims(tmp_path: Path, block: dict, **kwargs):
+    """What the bindings emitter cut back over one quadrupole block."""
+    return _findings(tmp_path, block, **kwargs).trims
+
+
+def _findings(tmp_path: Path, block: dict, *, views=None, **kwargs):
+    """What the bindings emitter decided over one quadrupole block."""
+    return lane_findings(
+        {(SYSTEM, "QF"): _coupled()},
+        views or [_view("QF", _quad_body())],
+        _quad_elements(),
+        {(SYSTEM, "QF"): block},
+        system=SYSTEM,
+        **kwargs,
+    )
+
+
+class TestAConversionThatTurnsBack:
+    """A sampled conversion keeps the stretch that holds the operating point.
+
+    A facility samples its own function over a band wide enough to hold the
+    device's nominal, and the function may turn over out at the edge of that
+    band. The served reader interpolates on the grid, so it can only be handed
+    a grid that runs one way -- and what the machine runs in is the stretch
+    around the nominal, which does.
+    """
+
+    def test_a_grid_turning_over_above_the_nominal_keeps_the_rising_stretch(self, tmp_path):
+        """The plain case: the current climbs past the turn and away."""
+        block = _inverse_block([0.0, 1.0, _physics(20.0), 3.0, 2.5], [0.0, 10.0, 20.0, 30.0, 40.0])
+        _, document = _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
+        assert document.bindings[0].monitor_inverse.grid == (0.0, 1.0, _physics(20.0), 3.0)
+        assert document.bindings[0].monitor_inverse.values == (0.0, 10.0, 20.0, 30.0)
+
+    def test_the_branch_past_the_turn_is_not_kept_for_spanning_the_same_grid(self, tmp_path):
+        """Both branches cover the operating point; only one answers its current.
+
+        A conversion that turns over travels back across the physics it has
+        already covered, so the long branch beyond the turn spans the device's
+        operating point too -- and converts it to a current the device is
+        nowhere near. Reading the grid alone keeps that branch, and the served
+        readback then answers tens of amps beside the truth.
+        """
+        block = _inverse_block(
+            [0.0, 1.0, _physics(20.0), 3.0, 1.0, -1.0], [0.0, 10.0, 20.0, 30.0, 40.0, 50.0]
+        )
+        trim = _trims(tmp_path, block)[0]
+        assert trim.kept == (0.0, 3.0)
+        _, document = _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
+        served = document.bindings[0].monitor_inverse
+        assert served.values == (0.0, 10.0, 20.0, 30.0)
+        assert to_hardware(served, (_physics(20.0),))[0] == pytest.approx(20.0)
+
+    def test_a_grid_turning_over_below_the_nominal_keeps_the_stretch_above_it(self, tmp_path):
+        block = _inverse_block(
+            [1.0, -1.0, 0.0, 1.0, _physics(20.0), 3.0],
+            [-50.0, -40.0, 0.0, 10.0, 20.0, 30.0],
+        )
+        _, document = _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
+        assert document.bindings[0].monitor_inverse.grid == (
+            -1.0,
+            0.0,
+            1.0,
+            _physics(20.0),
+            3.0,
+        )
+
+    def test_a_nominal_at_the_turning_point_keeps_the_longer_stretch(self, tmp_path):
+        """The point sits on both stretches and both answer it, so length settles it."""
+        block = _inverse_block(
+            [0.0, 1.0, 2.0, 3.0, 2.0, 1.0],
+            [0.0, 10.0, 20.0, 30.0, 40.0, 50.0],
+            nominals=(29.8, 29.8),
+        )
+        assert _physics(29.8) == pytest.approx(3.0)
+        _, document = _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
+        assert document.bindings[0].monitor_inverse.grid == (0.0, 1.0, 2.0, 3.0)
+
+    def test_a_grid_that_runs_one_way_is_passed_through_whole(self, tmp_path):
+        block = _inverse_block([0.0, 1.0, _physics(20.0), 3.0], [0.0, 10.0, 20.0, 30.0])
+        _, document = _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
+        assert document.bindings[0].monitor_inverse.grid == (0.0, 1.0, _physics(20.0), 3.0)
+        assert _trims(tmp_path, block) == ()
+
+    def test_a_calibration_that_turns_back_keeps_its_stretch_too(self, tmp_path):
+        block = _quad_block()
+        block["nominals"]["Setpoint"]["values"] = [2.0, 2.0]
+        block["Setpoint"]["calibration"] = _sampled(
+            [0.0, 1.0, 2.0, 3.0, 2.5], [0.0, 0.1, 0.2, 0.3, 0.25]
+        )
+        _, document = _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
+        assert document.bindings[0].calibration.grid == (0.0, 1.0, 2.0, 3.0)
+        assert [trim.curve for trim in _trims(tmp_path, block)] == ["calibration"] * 2
+
+    def test_a_grid_that_stands_still_throughout_is_refused_by_name(self, tmp_path):
+        block = _inverse_block([1.0, 1.0, 1.0], [1.0, 2.0, 3.0])
+        with pytest.raises(ValueError, match=r"QF device 1: its monitor_inverse"):
+            _bindings(tmp_path, judged_va={(SYSTEM, "QF"): block})
+
+    def test_a_monitor_keeps_the_stretch_around_zero(self, tmp_path):
+        block = _bpm_block()
+        block["Monitor"]["calibration"] = _linear([1.0, 1.0], [0.0, 0.0])
+        block["Monitor"]["monitor_inverse"] = _sampled(
+            [-1.0, 0.0, 1.0, 0.5], [-10.0, 0.0, 10.0, 5.0]
+        )
+        _, document = _bindings(
+            tmp_path,
+            views=[_view("BPMx", _bpm_body())],
+            judged_va={(SYSTEM, "BPMx"): block},
+            verdicts={(SYSTEM, "BPMx"): _monitor_verdict()},
+            elements=_bpm_elements(),
+        )
+        assert document.bindings[0].monitor_inverse.grid == (-1.0, 0.0, 1.0)
+
+    def test_each_trim_names_the_address_the_span_and_what_was_dropped(self, tmp_path):
+        block = _inverse_block([0.0, 1.0, _physics(20.0), 3.0, 2.5], [0.0, 10.0, 20.0, 30.0, 40.0])
+        trims = _trims(tmp_path, block)
+        assert [trim.address for trim in trims] == ["SR:QF:1:SP", "SR:QF:2:SP"]
+        assert {trim.curve for trim in trims} == {"monitor_inverse"}
+        assert [trim.kept for trim in trims] == [(0.0, 3.0), (0.0, 3.0)]
+        assert [trim.working for trim in trims] == [_physics(20.0)] * 2
+        assert [trim.dropped for trim in trims] == [1, 1]
+
+
+def _series_body(address: str = "SR:QF:BOTH:SP") -> dict:
+    """A quadrupole whose two devices are fed by one supply.
+
+    The supply carries its own readback, so the cases below turn on the
+    slices and the conversion rather than on which curve serves the reading.
+    """
+    body = _quad_body()
+    body["Setpoint"]["ChannelNames"] = [address, address]
+    body.pop("Monitor")
+    return body
+
+
+def _series_block(nominals=(10.0, 12.0), gain=(0.1, 0.1)) -> dict:
+    """A quadrupole string: a straight-line conversion per magnet, no inverse.
+
+    The setpoint carries the readback, so the string is decided on its
+    conversion alone and the slices are what the case is about.
+    """
+    block = _quad_block(monitor=False)
+    block["nominals"]["Setpoint"]["values"] = list(nominals)
+    block["Setpoint"]["calibration"] = _linear(list(gain), [0.0, 0.0])
+    return block
+
+
+def _three_on_one_supply() -> dict:
+    """Three devices on one supply, the third of which the deck knows nothing of."""
+    body = _series_body()
+    body["DeviceList"] = [[1, 1], [1, 2], [1, 3]]
+    body["Setpoint"]["ChannelNames"] = ["SR:QF:BOTH:SP"] * 3
+    return body
+
+
+def _three_on_one_block() -> dict:
+    """The export block for that supply: a nominal each, an element for two."""
+    block = _series_block(nominals=(10.0, 12.0, 100.0), gain=(0.1, 0.1, 0.1))
+    block["device_list"] = [[1, 1], [1, 2], [1, 3]]
+    block["nominals"]["Setpoint"]["at_index"] = [1, 2, 3]
+    block["Setpoint"]["calibration"]["offset"] = [0.0, 0.0, 0.0]
+    return block
+
+
+def _series_bindings(tmp_path: Path, block: dict, body: dict | None = None):
+    """Emit one series-fed quadrupole family and read the document back."""
+    return _bindings(
+        tmp_path,
+        views=[_view("QF", body or _series_body())],
+        judged_va={(SYSTEM, "QF"): block},
+    )
+
+
+class TestASupplyFeedingSeveralMagnets:
+    """One supply, one knob, one slice per magnet it feeds.
+
+    A string is not a collision: the magnets are wired in series, so the
+    control system has one current for all of them. The knob starts where
+    their currents average out and each magnet holds the fixed factor that
+    puts it exactly at its own deck strength there.
+    """
+
+    def test_a_string_of_identical_magnets_is_one_binding_weighing_one_each(self, tmp_path):
+        _, document = _series_bindings(tmp_path, _series_block(nominals=(10.0, 10.0)))
+        assert len(document.bindings) == 1
+        binding = document.bindings[0]
+        assert binding.setpoint_address == "SR:QF:BOTH:SP"
+        assert [slice_.element for slice_ in binding.slices] == ["QF_1_1", "QF_1_2"]
+        assert [slice_.weight for slice_ in binding.slices] == [1.0, 1.0]
+        assert binding.nominal == 10.0
+
+    def test_a_string_starts_where_its_magnets_average_out(self, tmp_path):
+        _, document = _series_bindings(tmp_path, _series_block(nominals=(10.0, 12.0)))
+        assert document.bindings[0].nominal == 11.0
+
+    def test_each_magnet_holds_its_own_deck_strength_at_the_starting_current(self, tmp_path):
+        """The whole point of the factors: the served machine boots as the deck."""
+        _, document = _series_bindings(tmp_path, _series_block(nominals=(10.0, 12.0)))
+        binding = document.bindings[0]
+        knob = float(to_physics(binding.calibration, (binding.nominal,))[0])
+        held = [knob * slice_.weight for slice_ in binding.slices]
+        assert held == pytest.approx([0.1 * 10.0, 0.1 * 12.0])
+
+    def test_the_factor_is_dimensionless_so_an_energy_move_leaves_it_alone(self, tmp_path):
+        """Both ends of the ratio are physics at the deck energy, so it cancels."""
+        _, document = _series_bindings(tmp_path, _series_block(nominals=(10.0, 12.0)))
+        weights = [slice_.weight for slice_ in document.bindings[0].slices]
+        assert weights == pytest.approx([10.0 / 11.0, 12.0 / 11.0])
+
+    def test_a_split_magnet_in_a_string_multiplies_the_two_shares_once(self, tmp_path):
+        """A kick divided over its pieces, and the magnet's own factor besides."""
+        block = _series_block(nominals=(10.0, 12.0))
+        block["nominals"]["Setpoint"]["at_type"] = "HCM"
+        elements = {
+            "QF": (
+                _element("QF", "kick", (1, 1), "KickAngle", 0, "QF_1_1a", "QF_1_1b"),
+                _element("QF", "kick", (1, 2), "KickAngle", 0, "QF_1_2"),
+            )
+        }
+        _, document = _bindings(
+            tmp_path,
+            views=[_view("QF", _series_body())],
+            judged_va={(SYSTEM, "QF"): block},
+            verdicts={
+                (SYSTEM, "QF"): VAFamily(
+                    verdict="couple", kind="kick", element_field="KickAngle[0]"
+                )
+            },
+            elements=elements,
+        )
+        weights = [slice_.weight for slice_ in document.bindings[0].slices]
+        assert weights == pytest.approx([0.5 * 10.0 / 11.0, 0.5 * 10.0 / 11.0, 12.0 / 11.0])
+
+    def test_a_string_sitting_at_zero_moves_every_magnet_one_for_one(self, tmp_path):
+        """A knob whose conversion answers nothing has no ratio to divide by."""
+        _, document = _series_bindings(tmp_path, _series_block(nominals=(0.0, 0.0)))
+        assert [slice_.weight for slice_ in document.bindings[0].slices] == [1.0, 1.0]
+
+    def test_a_magnet_held_at_nothing_by_a_live_knob_is_refused_by_name(self, tmp_path):
+        block = _series_block(nominals=(10.0, 0.0))
+        with pytest.raises(ValueError, match=r"QF on SR:QF:BOTH:SP: this supply feeds a magnet"):
+            _series_bindings(tmp_path, block)
+
+    def test_a_supply_given_an_owner_binds_that_one_magnet_alone(self, tmp_path):
+        """A reviewer may hand the shared channel to one device instead.
+
+        The judged grain then states the address against that device only, so
+        the same walk yields a string of one and the binding is an ordinary
+        unshared one.
+        """
+        body = _series_body()
+        body["Setpoint"]["ChannelNames"] = ["SR:QF:BOTH:SP", ""]
+        _, document = _bindings(
+            tmp_path,
+            views=[_view("QF", body)],
+            judged_va={(SYSTEM, "QF"): _series_block(nominals=(10.0, 12.0))},
+        )
+        assert len(document.bindings) == 1
+        binding = document.bindings[0]
+        assert [slice_.element for slice_ in binding.slices] == ["QF_1_1"]
+        assert binding.slices[0].weight == 1.0
+        assert binding.nominal == 10.0
+
+    def test_an_unshared_family_is_written_exactly_as_before(self, tmp_path):
+        """Two supplies, two bindings, unit weights: nothing about them moved."""
+        _, document = _bindings(tmp_path)
+        assert [binding.setpoint_address for binding in document.bindings] == [
+            "SR:QF:1:SP",
+            "SR:QF:2:SP",
+        ]
+        assert [slice_.weight for binding in document.bindings for slice_ in binding.slices] == [
+            1.0,
+            1.0,
+        ]
+
+    def test_a_device_the_model_carries_nothing_of_is_outside_both_means(self, tmp_path):
+        """The channel is seeded at the current the string's factors anchor at.
+
+        A third device states the supply's address and the export gives it no
+        lattice element, so the model carries nothing of it and it asks the
+        model for nothing. Averaging it into the seed alone would start the
+        channel at a current the factors were not chosen for, and every magnet
+        of the string would boot off the deck.
+        """
+        views = [_view("QF", _three_on_one_supply())]
+        judged_va = {(SYSTEM, "QF"): _three_on_one_block()}
+        document, _seeds, _ = _machine(
+            tmp_path,
+            views=views,
+            judged_va=judged_va,
+            verdicts={(SYSTEM, "QF"): _coupled()},
+            mapping=_mapping([_family("QF")]),
+            elements=_quad_elements(),
+        )
+        _text, bindings = _bindings(tmp_path, views=views, judged_va=judged_va)
+        binding = bindings.bindings[0]
+
+        assert document["channels"]["SR:QF:BOTH:SP"]["value"] == 11.0
+        assert binding.nominal == 11.0
+        knob = float(to_physics(binding.calibration, (binding.nominal,))[0])
+        held = [knob * slice_.weight for slice_ in binding.slices]
+        assert held == pytest.approx([0.1 * 10.0, 0.1 * 12.0])
+
+    def test_the_run_names_how_many_devices_the_model_left_out(self, tmp_path):
+        supplies = _findings(
+            tmp_path,
+            _three_on_one_block(),
+            views=[_view("QF", _three_on_one_supply())],
+        ).supplies
+        assert [(supply.magnets, supply.unmodelled) for supply in supplies] == [(2, 1)]
+
+    def test_the_run_reports_the_string_its_start_and_its_spread(self, tmp_path):
+        supplies = _findings(
+            tmp_path,
+            _series_block(nominals=(10.0, 12.0)),
+            views=[_view("QF", _series_body())],
+        ).supplies
+        assert len(supplies) == 1
+        supply = supplies[0]
+        assert (supply.family, supply.address, supply.magnets) == ("QF", "SR:QF:BOTH:SP", 2)
+        assert (supply.start, supply.spread) == (11.0, 2.0)
+
+    def test_a_supply_feeding_one_magnet_is_not_reported_as_a_string(self, tmp_path):
+        assert _findings(tmp_path, _quad_block()).supplies == ()
+
 
 def _readout(**columns) -> dict:
     """A readout block as a family's Monitor field states one."""
@@ -1435,6 +1834,139 @@ class TestBindingsOnTheCommittedExport:
         assert bound <= exported_names
 
 
+#: The one committed real family whose own conversion turns back inside the
+#: band it was sampled over: four dipole trims, sampled from zero to their
+#: stated 200 A, whose current-to-strength function wobbles in sign close to
+#: zero and then falls away steadily.
+_TURNING_FAMILY = ("spear3", "CD")
+
+
+def test_a_real_conversion_that_turns_back_keeps_the_stretch_holding_its_nominal():
+    """The facility's own numbers, not a table written to make a point.
+
+    Nothing in the committed mapping drives this family -- its deck elements
+    take no kick, so the rules latch it -- and the conversion is the export's
+    all the same, which is what this holds the trim to. Each device keeps a
+    stretch that starts at zero current and reaches past its own nominal, so
+    the served readback answers the band the trim actually runs in.
+    """
+    tree, family = _TURNING_FAMILY
+    directory = SYNTHETIC.parent / tree
+    exports = sorted(directory.glob("*.va.json"))
+    if not exports:
+        pytest.skip(f"{tree} holds no 2.0 export; re-export it with mml_export 2.0")
+    stem = exports[0].name[: -len(".va.json")]
+    system = stem.split(".")[1]
+    ao = json.loads((directory / f"{stem}.ao.json").read_text())
+    va = json.loads((directory / f"{stem}.va.json").read_text())
+    block = va["families"][family]
+    body = ao.get("ao", ao)[family]
+    nominals = block["nominals"]["Setpoint"]["values"]
+
+    from osprey.services.mml.normalize import normalize_family
+
+    view = FamilyView(system, family, normalize_family(body))
+    elements = {
+        family: tuple(
+            ElementBinding(
+                family=family,
+                kind="kick",
+                device=tuple(row),
+                attribute="KickAngle",
+                index=0,
+                slices=(
+                    ElementSlice(
+                        element=f"{family}_{row[0]}_{row[1]}", position=0, slot=1, owner=family
+                    ),
+                ),
+            )
+            for row in block["device_list"]
+        )
+    }
+    trims = lane_findings(
+        {(system, family): VAFamily(verdict="couple", kind="kick", nominal_source="Setpoint")},
+        [view],
+        elements,
+        {(system, family): block},
+        system=system,
+    ).trims
+
+    assert trims, "the committed export no longer carries a conversion that turns back"
+    by_address = {trim.address: trim for trim in trims}
+    for address, trim in by_address.items():
+        device = view.fields["Setpoint"].raw_slots("ChannelNames").index(address)
+        served = _kept_table(block, device, trim)
+        assert min(served.values) <= nominals[device] <= max(served.values), (
+            f"{address} kept a stretch its own nominal is outside"
+        )
+        assert len(served.grid) >= 2, f"{address} kept fewer than two points"
+
+
+def _kept_table(block: dict, device: int, trim) -> Table:
+    """The conversion as the trim left it, read back off the export it came from."""
+    inverse = block["Monitor"]["monitor_inverse"]
+    grid = inverse["grid"][device]
+    values = inverse["values"][device]
+    first = grid.index(trim.kept[0])
+    last = len(grid) - 1 - grid[::-1].index(trim.kept[1])
+    return Table(
+        grid=tuple(grid[first : last + 1]),
+        values=tuple(values[first : last + 1]),
+    )
+
+
+#: Strings the committed real exports carry, as ``(tree, family, magnets)``:
+#: a quadrupole supply feeding four magnets that ask for one current, a
+#: sextupole supply feeding twenty-eight, and one whose six magnets each ask
+#: for their own. The bend supply feeds the whole ring and is not among them:
+#: it carries the energy knob, which binds one address and no element at all.
+_REAL_STRINGS = (("spear3", "QD", 4), ("spear3", "SD", 28), ("nsls2", "SM2", 6))
+
+
+def _export_carrying(directory: Path, family: str) -> str | None:
+    """The stem of the committed 2.0 export whose block names ``family``."""
+    for path in sorted(directory.glob("*.va.json")):
+        document = json.loads(path.read_text())
+        if family in (document.get("families") or {}):
+            return path.name[: -len(".va.json")]
+    return None
+
+
+@pytest.mark.parametrize(("tree", "family", "magnets"), _REAL_STRINGS)
+def test_a_real_series_supply_is_one_binding_holding_every_magnet(tmp_path, tree, family, magnets):
+    """The facility's own strings, bound as the ruling says and no other way.
+
+    Each keeps one binding for the supply, a slice per magnet it feeds, a
+    start at the mean of the currents those magnets ask for, and a factor
+    that puts every one of them at its own exported strength there.
+    """
+    directory = SYNTHETIC.parent / tree
+    stem = _export_carrying(directory, family)
+    if stem is None:
+        pytest.skip(f"{tree} holds no 2.0 export carrying {family}")
+    system = stem.split(".")[1]
+    document, _ = _bindings_from_export(tmp_path, directory, stem, system)
+    bound = [binding for binding in document.bindings if binding.family == family]
+    if not bound:
+        pytest.skip(f"{tree} no longer couples {family}, so it binds no supply of it")
+    strings = [binding for binding in bound if len(binding.slices) >= magnets]
+    assert strings, f"{family} no longer carries a supply feeding {magnets} magnets"
+
+    va = json.loads((directory / f"{stem}.va.json").read_text())
+    block = va["families"][family]
+    ao = json.loads((directory / f"{stem}.ao.json").read_text())
+    names = ao.get("ao", ao)[family]["Setpoint"]["ChannelNames"]
+    nominals = block["nominals"]["Setpoint"]["values"]
+    for binding in strings:
+        members = [index for index, name in enumerate(names) if name == binding.setpoint_address]
+        asked = [nominals[index] for index in members]
+        assert binding.nominal == pytest.approx(sum(asked) / len(asked))
+        knob = float(to_physics(binding.calibration, (binding.nominal,))[0])
+        held = [knob * slice_.weight for slice_ in binding.slices]
+        assert len(held) >= len(members)
+        assert min(held) != 0.0
+
+
 @pytest.mark.parametrize(
     ("tree", "family", "readback"),
     [("nsls2", "SQ", "identity"), ("spear3", "RF", "same_as_setpoint")],
@@ -1442,19 +1974,15 @@ class TestBindingsOnTheCommittedExport:
 def test_bindings_on_a_real_export_collapse_as_the_facility_sampled_it(
     tmp_path, tree, family, readback
 ):
-    """The two committed real trees, once either carries a 2.0 export.
+    """The two committed real trees, each read through the export that has the family.
 
-    They hold 1.0 files today, so the lane discovers there is nothing to run
-    against and skips itself; the day a ``va.json`` lands beside them it runs
-    without being edited.
+    A tree may commit an export per sub-machine, so the one to run is the one
+    whose block names the family rather than whichever sorts first.
     """
     directory = SYNTHETIC.parent / tree
-    exports = sorted(directory.glob("*.va.json"))
-    if not exports:
-        pytest.skip(
-            f"{tree} holds no 2.0 export; re-export it with mml_export 2.0 to run this lane"
-        )
-    stem = exports[0].name[: -len(".va.json")]
+    stem = _export_carrying(directory, family)
+    if stem is None:
+        pytest.skip(f"{tree} holds no 2.0 export carrying {family}")
     document, _ = _bindings_from_export(tmp_path, directory, stem, stem.split(".")[1])
     assert {binding.readback for binding in document.bindings if binding.family == family} == {
         readback
@@ -1551,7 +2079,7 @@ def _limits_from_export(
             ctx,
             system=system,
             energy_gev=va["lattice"]["energy_gev"],
-        )
+        )[0]
     )
     addresses = set()
     for view in views.values():
@@ -1760,3 +2288,104 @@ def test_channel_limits_on_a_real_export_load_through_the_write_safety_validator
     limits, bands, _text = _limits_from_export(tmp_path, directory, stem, stem.split(".")[1])
     assert bands
     assert all(limits[band.address].writable for band in bands if band.refused is None)
+
+
+# --- the cavity a cavity-less deck is served ---------------------------------
+#
+# A facility whose Middle Layer holds the radio frequency exports a deck with
+# no cavity in it. The lane builds one before it addresses anything, so every
+# document below comes out through the ordinary path: the deck is saved with
+# the cavity in it, the family binds it like any other element, and the served
+# ring solves through the bucket.
+
+
+def _built_cavity_tree():
+    """The synthetic export with its cavity taken off the deck and rebuilt."""
+    from osprey.services.mml.normalize import normalize_family
+    from osprey.services.mml.va.elements import address_elements
+    from osprey.services.mml.va.verdicts import cavity_to_build, propose
+
+    ring = _deck()
+    del ring[-1]
+    block = _synthetic("va")
+    block["families"]["RF"]["nominals"]["Setpoint"]["at_index"] = []
+    views = {
+        raw: _view(raw, normalize_family(body))
+        for raw, body in _synthetic("ao").items()
+        if not raw.startswith("_") and isinstance(body, dict)
+    }
+    ad = {"HarmonicNumber": 40}
+    built = cavity_to_build(block, ring, ad, voltage=3.0e6)
+    verdicts = propose(block, ring, views, ad)
+    return block, views, verdicts, address_elements(block, ring, verdicts, cavity=built)
+
+
+class TestTheBuiltCavityReachesTheServedTree:
+    """What the lane writes for a deck it had to build a cavity into."""
+
+    def test_the_saved_deck_carries_the_cavity_it_built(self, tmp_path):
+        import at
+
+        _block, _views, _verdicts, addressing = _built_cavity_tree()
+
+        path, _, _ = _emit_lattice(tmp_path, addressing.ring)
+
+        loaded = at.load_lattice(path)
+        cavities = [element for element in loaded if isinstance(element, at.RFCavity)]
+        assert len(cavities) == 1
+        assert cavities[0].Frequency == addressing.cavity.frequency_hz
+        assert cavities[0].HarmNumber == addressing.cavity.harmonic
+        assert cavities[0].Voltage == addressing.cavity.voltage
+
+    def test_the_served_ring_solves_six_dimensionally(self, tmp_path):
+        from osprey.services.virtual_accelerator.bindings import dump_bindings
+        from osprey.services.virtual_accelerator.lattice import build_ring
+        from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+
+        _block, _views, _verdicts, addressing = _built_cavity_tree()
+        ctx = _ctx(tmp_path)
+        data_root = tmp_path / "data"
+        emit_lattice(addressing.ring, data_root / "simulation" / "lattice.json", ctx)
+        document = _bindings_for(addressing, ctx.lattice_sha256)
+        (data_root / "simulation" / "va_bindings.json").write_text(
+            dump_bindings(document), encoding="utf-8"
+        )
+
+        ring = build_ring(ManifestPaths(data_root=data_root))
+
+        assert ring.is_6d
+        assert len(ring.find_orbit6()[0]) == 6
+
+    def test_the_binding_and_the_seed_come_out_through_the_ordinary_path(self, tmp_path):
+        from osprey.services.virtual_accelerator.bindings import load_bindings
+
+        block, views, verdicts, addressing = _built_cavity_tree()
+        judged_va = {(SYSTEM, raw): body for raw, body in block["families"].items()}
+        keyed = {(SYSTEM, raw): verdict for raw, verdict in verdicts.items()}
+        text, _findings = emit_bindings(
+            keyed,
+            list(views.values()),
+            dict(addressing.bindings),
+            judged_va,
+            _bindings_ctx(tmp_path),
+            system=SYSTEM,
+            energy_gev=2.0,
+        )
+        machine, _seeds = emit_machine(
+            keyed,
+            list(views.values()),
+            judged_va,
+            _mapping([]),
+            _ctx(tmp_path),
+            dict(addressing.bindings),
+        )
+
+        path = tmp_path / "va_bindings.json"
+        path.write_text(text, encoding="utf-8")
+        rf = [entry for entry in load_bindings(path).bindings if entry.family == "RF"]
+        assert len(rf) == 1
+        assert rf[0].kind == "rf"
+        assert rf[0].attribute == "Frequency"
+        assert rf[0].element == addressing.ring[-1].FamName
+        assert rf[0].nominal == 516.883548276
+        assert json.loads(machine)["channels"]["QK:RF:1:CUR:SP"]["value"] == 516.883548276

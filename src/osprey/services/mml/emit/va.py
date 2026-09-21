@@ -53,7 +53,15 @@ Rules the two emitters share:
   channels are hardware -- as is a non-finite one, and so is a second value
   landing on an address another device already seeded differently. All three
   are returned as :class:`NominalSeed` rows carrying the refusal, for the
-  report to list; the first value on an address stands.
+  report to list; the first value on an address stands. A family the model
+  would *drive* from such a nominal is refused outright, by the rule
+  :func:`~osprey.services.mml.va.verdicts.missing_nominal` that latched it at
+  ``map --init`` and reported it at ``map --check``.
+* A sampled conversion whose grid turns back on itself keeps the stretch that
+  holds the device's operating point, because that is the part of the band
+  the machine runs in and a served reader can only interpolate on a grid that
+  runs one way. Every cut is returned as a :class:`CalibrationTrim`, which
+  :func:`lane_findings` hands to the two reports a person reads.
 * Addresses are sorted and every value is written verbatim, so a re-emit of an
   unchanged export produces byte-identical text.
 
@@ -69,6 +77,7 @@ import contextlib
 import io
 import json
 import math
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,6 +88,7 @@ from osprey.services.mml.emit.context import LATTICE_ARTIFACT, EmitContext
 from osprey.services.mml.family import FamilyView, FieldView
 from osprey.services.mml.mapping.schema import Mapping, VAFamily
 from osprey.services.mml.va.elements import ElementBinding
+from osprey.services.mml.va.verdicts import PHYSICS_UNITS, missing_nominal
 from osprey.services.virtual_accelerator.bindings import (
     ENERGY_SCALINGS,
     PROVENANCE_KEY,
@@ -99,21 +109,21 @@ __all__ = [
     "PHYSICS_UNITS",
     "PROVENANCE_KEY",
     "SEED_ONLY_KEY",
+    "CalibrationTrim",
     "ChannelBand",
+    "LaneFindings",
     "NominalSeed",
+    "SeriesSupply",
     "emit_bindings",
     "emit_channel_limits",
     "emit_lattice",
     "emit_machine",
     "emit_state_channels",
+    "lane_findings",
 ]
 
 #: The channel key marking a value the model does not maintain.
 SEED_ONLY_KEY = "nominal_seed_only"
-
-#: The units word an export uses for a nominal it could not read in hardware
-#: units; such a nominal seeds nothing.
-PHYSICS_UNITS = "physics"
 
 #: What the machine-state document says about itself, above its entries.
 _STATE_COMMENT = (
@@ -159,12 +169,103 @@ class NominalSeed:
     refused: str | None = None
 
 
+@dataclass(frozen=True)
+class CalibrationTrim:
+    """One sampled conversion kept back to the stretch that reads one way.
+
+    A table is read by interpolating on its grid, so a grid that turns back on
+    itself answers two things at once and the served reader refuses it. A
+    facility samples a conversion over a band wide enough to hold the device's
+    operating point, and its own polynomial may well turn over out at the edge
+    of that band; what is single-valued around the operating point still is.
+    So that stretch is kept and the rest of the points are dropped -- and said
+    out loud here, because a conversion narrowed in silence is a conversion
+    nobody checked.
+
+    Attributes:
+        family: The family the device belongs to.
+        address: The address the binding is keyed by.
+        curve: Which conversion was cut: ``calibration`` or
+            ``monitor_inverse``.
+        working: The operating point, on the grid's own axis -- the device's
+            hardware nominal for a conversion out of hardware, and what the
+            calibration answers there for the one that comes back.
+        kept: The first and last grid point of the stretch that was kept.
+        dropped: How many sampled points fell outside it.
+    """
+
+    family: str
+    address: str
+    curve: str
+    working: float
+    kept: tuple[float, float]
+    dropped: int
+
+
+@dataclass(frozen=True)
+class SeriesSupply:
+    """One supply feeding several magnets, and how far apart they sit.
+
+    A string is one knob: the magnets are wired in series, so the control
+    system has one current for all of them and the model has one binding with
+    a slice per magnet. The magnets are not identical, though, and the current
+    the deck wants is slightly different for each. The knob starts at the mean
+    of those currents and every magnet carries a fixed factor that puts it
+    exactly at its own deck strength there, so the served machine boots as the
+    deck stands and the spread only shows once the knob is moved.
+
+    That spread is what this carries: the wider it is, the further the string
+    drifts from the deck away from the starting current, and nothing else on
+    the served tree says so.
+
+    A device on the supply that the export gives no lattice element for is not
+    modelled: it asks the model for nothing, so it is outside the mean and
+    outside the slices, and only its count is carried.
+
+    Attributes:
+        family: The family the magnets belong to.
+        address: The supply's address, which the binding is keyed by.
+        magnets: How many modelled magnets the supply feeds.
+        start: The current the knob starts at, the mean of what those magnets
+            ask for.
+        spread: The widest gap between the currents they ask for.
+        unmodelled: How many further devices state the address with no
+            lattice element of their own.
+    """
+
+    family: str
+    address: str
+    magnets: int
+    start: float
+    spread: float
+    unmodelled: int = 0
+
+    @property
+    def relative(self) -> float:
+        """The spread as a share of the starting current, ``nan`` at zero."""
+        return self.spread / abs(self.start) if self.start else math.nan
+
+
+@dataclass(frozen=True)
+class LaneFindings:
+    """What the bindings emitter decided that a person has to be told.
+
+    Attributes:
+        trims: Every conversion cut back to the stretch holding its device.
+        supplies: Every supply feeding more than one magnet.
+    """
+
+    trims: tuple[CalibrationTrim, ...] = ()
+    supplies: tuple[SeriesSupply, ...] = ()
+
+
 def emit_machine(
     verdicts: dict[tuple[str, str], VAFamily],
     views: Iterable[FamilyView],
     judged_va: dict[tuple[str, str], dict],
     mapping: Mapping,
     ctx: EmitContext,
+    element_bindings: dict[str, tuple[ElementBinding, ...]],
 ) -> tuple[str, tuple[NominalSeed, ...]]:
     """Build ``machine.json``: one seed per nominal the export states.
 
@@ -183,6 +284,10 @@ def emit_machine(
         mapping: The parsed mapping, read for the prose each channel is
             described with.
         ctx: The provenance of this emit run.
+        element_bindings: What each family's devices drive, keyed by raw
+            family, as :func:`emit_bindings` reads them. A supply is seeded at
+            the mean of what its modelled devices ask for -- the same devices,
+            and so the same mean, the binding anchors its slice factors at.
 
     Returns:
         The document text, and one :class:`NominalSeed` per nominal read --
@@ -206,13 +311,16 @@ def emit_machine(
         _require_devices(view, block)
         verdict = verdicts.get((view.system, view.raw_name))
         seed_only = verdict is None or verdict.verdict != "couple"
+        elements = _element_binding_by_device(view, element_bindings.get(view.raw_name, ()))
         for field_name in sorted(nominals):
             nominal = nominals[field_name]
             field_view = view.fields.get(field_name)
             if not isinstance(nominal, dict) or field_view is None:
                 continue
             seeds.extend(
-                _field_seeds(view, field_view, field_name, nominal, seed_only, mapping, channels)
+                _field_seeds(
+                    view, field_view, field_name, nominal, seed_only, mapping, channels, elements
+                )
             )
 
     document: dict[str, Any] = {PROVENANCE_KEY: ctx.provenance_string}
@@ -274,6 +382,7 @@ def _field_seeds(
     seed_only: bool,
     mapping: Mapping,
     channels: dict[str, dict[str, Any]],
+    elements: dict[int, ElementBinding],
 ) -> list[NominalSeed]:
     """Seed one field's channels from its nominal, returning what it stated."""
     at_type = _word(nominal.get("at_type"))
@@ -301,6 +410,22 @@ def _field_seeds(
     hw_units = _word(field_view.body.get("HWUnits"))
     description = _channel_description(view, field_name, mapping)
     seeds: list[NominalSeed] = []
+    # A supply feeding several magnets in series states one address against
+    # every one of them, so the channel is seeded once: at the mean of what
+    # they ask for, which is the current the bindings anchor the string's
+    # factors at. Seeding the first magnet's own value instead would start the
+    # model at a current the factors were not chosen for, and every magnet of
+    # the string would boot a little off the deck.
+    #
+    # The mean is taken over the devices the model actually carries -- those
+    # the export gives a lattice element for, which are the string's slices.
+    # A device that states the address and has no element asks the model for
+    # nothing, so it stays out of the mean here exactly as it stays out of the
+    # binding's, and the two numbers are one. Where no device of the address
+    # is modelled at all the channel is only started, not driven, and every
+    # value stated for it counts.
+    asked: dict[str, list[tuple[int, float]]] = {}
+    modelled: dict[str, list[tuple[int, float]]] = {}
     for index, raw_value in enumerate(values):
         addresses = _addresses(field_view, index)
         value = _number(raw_value)
@@ -309,28 +434,35 @@ def _field_seeds(
         if value is None:
             seeds.append(row(addresses[0], index + 1, None, f"non-finite nominal {raw_value!r}"))
             continue
-        for address in addresses:
-            seeded = channels.get(address)
-            if seeded is not None and seeded["value"] != value:
-                seeds.append(
-                    row(
-                        address,
-                        index + 1,
-                        None,
-                        f"address already seeded with {seeded['value']!r}; "
-                        "two devices state one channel",
-                    )
+        for position, address in enumerate(addresses):
+            asked.setdefault(address, []).append((index, value))
+            if position == 0 and elements.get(index) is not None:
+                modelled.setdefault(address, []).append((index, value))
+    for address, rows in asked.items():
+        stated = modelled.get(address) or rows
+        device = stated[0][0] + 1
+        value = sum(number for _index, number in stated) / len(stated)
+        seeded = channels.get(address)
+        if seeded is not None and seeded["value"] != value:
+            seeds.append(
+                row(
+                    address,
+                    device,
+                    None,
+                    f"address already seeded with {seeded['value']!r}; "
+                    "two families state one channel",
                 )
-                continue
-            entry: dict[str, Any] = {"value": value}
-            if hw_units:
-                entry["units"] = hw_units
-            if description:
-                entry["description"] = description
-            if seed_only:
-                entry[SEED_ONLY_KEY] = True
-            channels.setdefault(address, entry)
-            seeds.append(row(address, index + 1, value, None))
+            )
+            continue
+        entry: dict[str, Any] = {"value": value}
+        if hw_units:
+            entry["units"] = hw_units
+        if description:
+            entry["description"] = description
+        if seed_only:
+            entry[SEED_ONLY_KEY] = True
+        channels.setdefault(address, entry)
+        seeds.append(row(address, device, value, None))
     return seeds
 
 
@@ -591,7 +723,7 @@ def emit_bindings(
     *,
     system: str,
     energy_gev: float,
-) -> str:
+) -> tuple[str, LaneFindings]:
     """Build ``va_bindings.json``: what each coupled address does to the deck.
 
     One binding per device of every coupled family: the element it drives and
@@ -619,6 +751,11 @@ def emit_bindings(
     missing inverse -- the two directions are sampled data in their own right
     -- so a family serving a readback it has no inverse for is refused.
 
+    A sampled conversion is cut back to the stretch that holds the device's
+    operating point wherever its grid turns back on itself; every such cut,
+    and every supply that turns out to feed a string, comes back beside the
+    document, so one walk of the families answers both.
+
     Args:
         verdicts: What the virtual accelerator does with each family, keyed by
             ``(raw system, raw family)`` as :func:`emit_machine` reads them. A
@@ -638,7 +775,8 @@ def emit_bindings(
             lattice block states it.
 
     Returns:
-        The document text, exactly as :func:`load_bindings` reads it back.
+        The document text, exactly as :func:`load_bindings` reads it back, and
+        what the walk decided beside it, as :func:`lane_findings` returns it.
 
     Raises:
         ValueError: The lattice has not been written yet, a family's rows no
@@ -654,8 +792,65 @@ def emit_bindings(
             f"against and this run has written none: emit {LATTICE_ARTIFACT} "
             "before the bindings"
         )
+    bindings, findings = _coupled_rows(verdicts, views, element_bindings, judged_va, system)
+    document = BindingsDocument(
+        system=system,
+        energy_gev=float(energy_gev),
+        lattice_sha256=digest,
+        bindings=tuple(bindings),
+        provenance=ctx.provenance_string,
+    )
+    return dump_bindings(document), findings
+
+
+def lane_findings(
+    verdicts: dict[tuple[str, str], VAFamily],
+    views: Iterable[FamilyView],
+    element_bindings: dict[str, tuple[ElementBinding, ...]],
+    judged_va: dict[tuple[str, str], dict],
+    *,
+    system: str,
+) -> LaneFindings:
+    """Return what :func:`emit_bindings` decided beyond the document itself.
+
+    The bindings document carries the trimmed curve and the string's slices
+    and nothing about either decision, because a served reader has no use for
+    the points that are gone or for how far apart a string's magnets sit. A
+    reviewer does, so this walks the families again for a run holding a
+    document it did not just write -- ``osprey mml verify``, reading the
+    emitted tree back. A run that writes the document takes the same findings
+    from :func:`emit_bindings` and walks once.
+
+    Args:
+        verdicts: As :func:`emit_bindings` reads them.
+        views: As :func:`emit_bindings` reads them.
+        element_bindings: As :func:`emit_bindings` reads them.
+        judged_va: As :func:`emit_bindings` reads them.
+        system: The raw system token the bindings describe.
+
+    Returns:
+        The trims and the series supplies, in binding order.
+
+    Raises:
+        ValueError: Whatever :func:`emit_bindings` would refuse the export
+            for; the two walk the same families.
+    """
+    _rows, findings = _coupled_rows(verdicts, views, element_bindings, judged_va, system)
+    return findings
+
+
+def _coupled_rows(
+    verdicts: dict[tuple[str, str], VAFamily],
+    views: Iterable[FamilyView],
+    element_bindings: dict[str, tuple[ElementBinding, ...]],
+    judged_va: dict[tuple[str, str], dict],
+    system: str,
+) -> tuple[list[Binding], LaneFindings]:
+    """Bind every coupled family of one system, and say what it decided."""
     grain = {view.raw_name: view for view in views if view.system == system}
     bindings: list[Binding] = []
+    trims: list[CalibrationTrim] = []
+    supplies: list[SeriesSupply] = []
     for family in sorted(name for held, name in verdicts if held == system):
         verdict = verdicts[(system, family)]
         view = grain.get(family)
@@ -665,18 +860,13 @@ def emit_bindings(
         if not isinstance(block, dict):
             continue
         _require_devices(view, block)
-        bindings.extend(
-            _family_bindings(family, verdict, view, block, element_bindings.get(family, ()))
+        rows, found = _family_bindings(
+            family, verdict, view, block, element_bindings.get(family, ())
         )
-
-    document = BindingsDocument(
-        system=system,
-        energy_gev=float(energy_gev),
-        lattice_sha256=digest,
-        bindings=tuple(bindings),
-        provenance=ctx.provenance_string,
-    )
-    return dump_bindings(document)
+        bindings.extend(rows)
+        trims.extend(found.trims)
+        supplies.extend(found.supplies)
+    return bindings, LaneFindings(trims=tuple(trims), supplies=tuple(supplies))
 
 
 def _family_bindings(
@@ -685,11 +875,16 @@ def _family_bindings(
     view: FamilyView,
     block: dict,
     entries: tuple[ElementBinding, ...],
-) -> list[Binding]:
-    """Bind one coupled family: one entry per device that drives an element."""
+) -> tuple[list[Binding], LaneFindings]:
+    """Bind one coupled family: one entry per supply that drives an element.
+
+    A supply the export names against several devices feeds those magnets in
+    series, so they are one knob and one binding, with a slice each. Every
+    other family is the same walk with a string of one.
+    """
     kind = str(verdict.kind)
     if kind == "energy":
-        return [_energy_binding(family, verdict, view, block)]
+        return [_energy_binding(family, verdict, view, block)], LaneFindings()
 
     written = "Monitor" if kind == "monitor" else "Setpoint"
     field_view = view.fields.get(written)
@@ -700,57 +895,154 @@ def _family_bindings(
         )
     source = verdict.nominal_source or written
     devices = view.n_devices
+    gap = missing_nominal(block, source, kind, devices)
+    if gap is not None:
+        raise ValueError(
+            f"{view.system}.{family}: couples as {kind} and the export {gap}; "
+            "a driven device starts the model somewhere"
+        )
     elements = _element_binding_by_device(view, entries)
-    rows: list[Binding] = []
+    strings: dict[str, list[int]] = {}
+    # A device the export gives no lattice element for is on the supply and
+    # not in the model: it is counted so the run can say so, and left out of
+    # everything the string is made of.
+    unmodelled: Counter[str] = Counter()
     for device in range(devices):
-        element = elements.get(device)
         address = _first_address(field_view, device)
-        if element is None or address is None:
+        if address is None:
             continue
-        where = f"{view.system}.{family} device {device + 1}"
-        calibration = _curve_for_device(block.get(written), "calibration", device, devices, where)
-        if calibration is None:
-            raise ValueError(
-                f"{where}: couples as {kind} and its {written} block states no "
-                "calibration; nothing says what the written value is worth in physics"
-            )
-        inverse = _curve_for_device(block.get("Monitor"), "monitor_inverse", device, devices, where)
-        nominal = _nominal_for(block, source, device, devices, where)
-        if nominal is None and kind != "monitor":
-            raise ValueError(
-                f"{where}: couples as {kind} and states no hardware nominal for "
-                f"{address}; a driven device starts the model somewhere"
-            )
-        served = _first_address(view.fields.get("Monitor"), device)
-        rule, readback_address, applied = _readback_rule(
-            kind, address, served, calibration, inverse, nominal, where
+        if elements.get(device) is not None:
+            strings.setdefault(address, []).append(device)
+        else:
+            unmodelled[address] += 1
+
+    rows: list[Binding] = []
+    trims: list[CalibrationTrim] = []
+    supplies: list[SeriesSupply] = []
+    for address, members in strings.items():
+        row, found = _supply_binding(
+            family,
+            kind,
+            written,
+            source,
+            view,
+            block,
+            elements,
+            address,
+            members,
+            unmodelled[address],
         )
-        # Only a reading is calibrated on its way out of the control system,
-        # so only a monitor's readout is carried; a driven family's exported
-        # gains calibrate its setpoint, which the calibration already states.
-        reading = block.get("Monitor") if kind == "monitor" else None
-        readout = _readout_for_device(reading, device, devices, where)
-        rows.append(
-            Binding(
-                kind=kind,
-                family=family,
-                setpoint_address=address,
-                readback_address=readback_address,
-                readback=rule,
-                element=element.element,
-                attribute=element.attribute,
-                index=element.index,
-                slices=_binding_slices(kind, element),
-                owner=element.owner,
-                calibration=calibration,
-                monitor_inverse=applied,
-                nominal=nominal,
-                energy_scaling=_energy_scaling(kind, block),
-                energy_table=None,
-                readout=readout,
-            )
+        rows.append(row)
+        trims.extend(found.trims)
+        supplies.extend(found.supplies)
+    return rows, LaneFindings(trims=tuple(trims), supplies=tuple(supplies))
+
+
+def _supply_binding(
+    family: str,
+    kind: str,
+    written: str,
+    source: str,
+    view: FamilyView,
+    block: dict,
+    elements: dict[int, ElementBinding],
+    address: str,
+    members: list[int],
+    unmodelled: int,
+) -> tuple[Binding, LaneFindings]:
+    """Bind one supply, whether it feeds one magnet or a string of them.
+
+    The knob starts at the mean of the currents its magnets ask for and
+    converts through the first magnet's curve, and every magnet carries the
+    factor that puts it exactly at its own deck strength there. A supply
+    feeding one magnet is that arithmetic with one member: the mean is its
+    nominal, the factor is one, and every byte of the binding is what an
+    unshared supply always wrote.
+
+    The members are the devices the export gives a lattice element for.
+    ``unmodelled`` counts the rest of the supply's devices, which the model
+    carries nothing of; they are named in the run's output and enter no
+    number here, so ``machine.json`` seeds the address at this same mean.
+    """
+    devices = view.n_devices
+    reference = members[0]
+    where = f"{view.system}.{family} device {reference + 1}"
+    nominals = [
+        _nominal_for(block, source, device, devices, f"{view.system}.{family} device {device + 1}")
+        for device in members
+    ]
+    stated = [value for value in nominals if value is not None]
+    # The knob starts where the string's magnets average out; with one magnet
+    # that is its own nominal, exactly, and nothing about the binding moves.
+    start = sum(stated) / len(stated) if stated else None
+
+    calibration = _curve_for_device(block.get(written), "calibration", reference, devices, where)
+    if calibration is None:
+        raise ValueError(
+            f"{where}: couples as {kind} and its {written} block states no "
+            "calibration; nothing says what the written value is worth in physics"
         )
-    return rows
+    inverse = _curve_for_device(block.get("Monitor"), "monitor_inverse", reference, devices, where)
+    # Where the knob sits. The conversion out of hardware is gridded on the
+    # hardware the nominal is stated in, so the starting current places it
+    # there on its own; what that is worth in physics is read off that
+    # conversion once it converts one way, and places it on the one that comes
+    # back, whose grid is physics and whose values are hardware.
+    hardware = start if start is not None else 0.0
+    trims: list[CalibrationTrim] = []
+    calibration, kept, dropped = _one_way(calibration, where, "calibration", hardware=hardware)
+    if kept is not None:
+        trims.append(CalibrationTrim(family, address, "calibration", hardware, kept, dropped))
+    physics = float(to_physics(calibration, (hardware,))[0])
+    inverse, kept, dropped = _one_way(
+        inverse, where, "monitor_inverse", hardware=hardware, hardware_on_values=True
+    )
+    if kept is not None:
+        trims.append(CalibrationTrim(family, address, "monitor_inverse", physics, kept, dropped))
+
+    slices = _string_slices(
+        family, kind, written, source, view, block, elements, address, members, physics
+    )
+    served = _first_address(view.fields.get("Monitor"), reference)
+    rule, readback_address, applied = _readback_rule(
+        kind, address, served, calibration, inverse, start, where
+    )
+    # Only a reading is calibrated on its way out of the control system, so
+    # only a monitor's readout is carried; a driven family's exported gains
+    # calibrate its setpoint, which the calibration already states.
+    reading = block.get("Monitor") if kind == "monitor" else None
+    readout = _readout_for_device(reading, reference, devices, where)
+    element = elements[reference]
+    supplies = (
+        (
+            SeriesSupply(
+                family, address, len(members), hardware, max(stated) - min(stated), unmodelled
+            ),
+        )
+        if (len(members) > 1 or unmodelled) and stated
+        else ()
+    )
+    return (
+        Binding(
+            kind=kind,
+            family=family,
+            setpoint_address=address,
+            readback_address=readback_address,
+            readback=rule,
+            element=element.element,
+            attribute=element.attribute,
+            index=element.index,
+            slices=slices,
+            owner=element.owner,
+            calibration=calibration,
+            monitor_inverse=applied,
+            nominal=start,
+            energy_scaling=_energy_scaling(kind, block),
+            energy_table=None,
+            readout=readout,
+        ),
+        LaneFindings(trims=tuple(trims), supplies=supplies),
+    )
 
 
 def _energy_binding(family: str, verdict: VAFamily, view: FamilyView, block: dict) -> Binding:
@@ -856,6 +1148,75 @@ def _round_trip_grid(calibration: Calibration, nominal: float | None) -> tuple[f
     if isinstance(calibration, Table):
         return calibration.grid
     return (0.0, float(nominal) if nominal else 1.0)
+
+
+def _string_slices(
+    family: str,
+    kind: str,
+    written: str,
+    source: str,
+    view: FamilyView,
+    block: dict,
+    elements: dict[int, ElementBinding],
+    address: str,
+    members: list[int],
+    start_physics: float,
+) -> tuple[Slice, ...]:
+    """Every element one supply writes, each with the share it carries there.
+
+    Two shares multiply into one weight and neither is applied twice. The
+    **split share** divides a value over the pieces one magnet is modelled as,
+    which is what :func:`_binding_slices` decides per magnet. The **string
+    factor** is what one magnet of a series holds against the knob: the
+    physics its own conversion puts it at, over the physics the knob's own
+    conversion answers at the starting current. Both are ratios of like
+    quantities, so the product is dimensionless and an energy move rescales
+    every slice of the string by the one factor a split magnet's pieces
+    already move by.
+
+    Raises:
+        ValueError: A magnet of a string sits at no strength while the knob
+            sits at some. There is no factor that puts a magnet at zero and
+            still moves it with the knob, and a slice weighing nothing is a
+            slice that moves nothing, so the string is refused by name.
+    """
+    devices = view.n_devices
+    rows: list[Slice] = []
+    for device in members:
+        element = elements[device]
+        shares = _binding_slices(kind, element)
+        factor = 1.0
+        if len(members) > 1:
+            where = f"{view.system}.{family} device {device + 1}"
+            own = _curve_for_device(block.get(written), "calibration", device, devices, where)
+            nominal = _nominal_for(block, source, device, devices, where)
+            strength = (
+                float(to_physics(own, (nominal,))[0])
+                if own is not None and nominal is not None
+                else 0.0
+            )
+            factor = _string_factor(family, address, strength, start_physics)
+        rows.extend(Slice(element=piece.element, weight=piece.weight * factor) for piece in shares)
+    return tuple(rows)
+
+
+def _string_factor(family: str, address: str, strength: float, start_physics: float) -> float:
+    """What one magnet of a string holds against the knob at the start current.
+
+    A knob whose own conversion answers nothing at the starting current has
+    no ratio to divide by, and its magnets are all sitting at nothing too, so
+    each of them moves one for one with it.
+    """
+    if not math.isfinite(start_physics) or start_physics == 0.0:
+        return 1.0
+    factor = strength / start_physics
+    if not math.isfinite(factor) or factor == 0.0:
+        raise ValueError(
+            f"{family} on {address}: this supply feeds a magnet the export puts at "
+            f"{strength:.6g} while the supply itself sits at {start_physics:.6g}; a magnet "
+            "held at nothing by a knob that is not cannot be a fixed share of it"
+        )
+    return factor
 
 
 def _binding_slices(kind: str, element: ElementBinding) -> tuple[Slice, ...]:
@@ -994,6 +1355,119 @@ def _sampled_curve(grid: Any, values: Any) -> Table | None:
     if len(pairs) < 2:
         return None
     return Table(grid=tuple(point for point, _ in pairs), values=tuple(value for _, value in pairs))
+
+
+def _one_way(
+    curve: Calibration | None,
+    where: str,
+    what: str,
+    *,
+    hardware: float,
+    hardware_on_values: bool = False,
+) -> tuple[Any, tuple[float, float] | None, int]:
+    """Keep the stretch of a sampled conversion the device itself sits on.
+
+    The served reader interpolates on a curve's grid and continues along its
+    end segments beyond it, so the grid has to run strictly one way for the
+    curve to answer one value. A sampled conversion that turns back does still
+    answer one value over each stretch between its turning points, and the
+    stretch that matters is the one the machine runs in.
+
+    **Which stretch that is, is settled by a sampled point and not by a
+    span.** Where a curve turns back it travels the same values twice, so both
+    branches span the device's operating point and the branch past the turn
+    answers a hardware value the device is nowhere near. What separates them
+    is where the device sits among the points themselves: the sampled point
+    closest to its hardware value belongs to one branch, and that is the
+    branch the machine runs on. Reading positions rather than distances also
+    keeps the choice exact, so a curve that turns back at the device's own
+    point falls through to the tie-break instead of to rounding.
+
+    The longest stretch holding that point wins. Where the point belongs to
+    none of them -- a grid that stands still around it -- the nearest stretch
+    is kept, because a curve is read beyond its ends by continuation.
+
+    Args:
+        curve: The conversion as the export states it; a straight line and an
+            absent conversion are returned untouched.
+        where: The system, family and device, for a refusal to name.
+        what: The conversion's name in the export, for the same.
+        hardware: The device's nominal, in the hardware units one of the two
+            axes is stated in.
+        hardware_on_values: Whether that axis is the values rather than the
+            grid, which is what a conversion back to hardware states.
+
+    Returns:
+        The conversion to serve, the first and last grid point of the stretch
+        where one was cut away (``None`` where the whole curve was kept), and
+        how many points were dropped.
+
+    Raises:
+        ValueError: No two neighbouring grid points of the table differ, so no
+            stretch of it reads one way and there is nothing to keep.
+    """
+    if not isinstance(curve, Table):
+        return curve, None, 0
+    stretches = _stretches(curve.grid)
+    if not stretches:
+        raise ValueError(
+            f"{where}: its {what} repeats one sampled point across the whole grid, "
+            "so no stretch of it converts one way; re-export the conversion over a "
+            "range the facility's own function is single-valued on"
+        )
+    sits = _nearest(curve.values if hardware_on_values else curve.grid, hardware)
+    start, end = min(stretches, key=lambda run: (_apart(run, sits), run[0] - run[1]))
+    if (start, end) == (0, len(curve.grid) - 1):
+        return curve, None, 0
+    kept = Table(grid=curve.grid[start : end + 1], values=curve.values[start : end + 1])
+    return kept, (kept.grid[0], kept.grid[-1]), len(curve.grid) - len(kept.grid)
+
+
+def _stretches(grid: tuple[float, ...]) -> list[tuple[int, int]]:
+    """Every maximal run of a grid that rises or falls throughout, as index pairs.
+
+    Two runs meeting at a turning point share it, because the point belongs to
+    the stretch on either side of it. A pair of neighbours that repeat a value
+    belongs to neither: a curve that stands still there converts nothing.
+    """
+    runs: list[tuple[int, int]] = []
+    start = 0
+    rising: bool | None = None
+    for position in range(1, len(grid)):
+        step = grid[position] - grid[position - 1]
+        if step == 0.0:
+            if position - 1 > start:
+                runs.append((start, position - 1))
+            start, rising = position, None
+            continue
+        if rising is None:
+            rising = step > 0.0
+            continue
+        if (step > 0.0) != rising:
+            runs.append((start, position - 1))
+            start, rising = position - 1, step > 0.0
+    if len(grid) - 1 > start:
+        runs.append((start, len(grid) - 1))
+    return runs
+
+
+def _nearest(axis: tuple[float, ...], point: float) -> int:
+    """The position of the sampled point closest to ``point`` on one axis.
+
+    Two points equally close answer the earlier of them, so the choice is the
+    same on every run over the same export.
+    """
+    return min(range(len(axis)), key=lambda position: abs(axis[position] - point))
+
+
+def _apart(run: tuple[int, int], position: int) -> int:
+    """How many sampled points lie between one stretch and a position.
+
+    Zero for a position the stretch holds, its own endpoints included: a
+    turning point belongs to the stretch on either side of it.
+    """
+    start, end = run
+    return max(start - position, position - end, 0)
 
 
 def _energy_points(block: dict, key: str) -> Any:
@@ -1287,6 +1761,11 @@ def _range_pair(view: FamilyView | None, address: str) -> tuple[float | None, fl
     per-device table states one row each, and the row is the device's own. An
     infinite bound is no bound at all and is left unwritten, which is what the
     write-safety database means by an absent ``min_value``/``max_value``.
+
+    A supply feeding several magnets in series answers the band every one of
+    them can take, which is the intersection of theirs: the knob moves them
+    together, so a current past the narrowest magnet's bound is a current that
+    magnet was never cleared for, whatever the others allow.
     """
     if view is None:
         return None, None
@@ -1296,32 +1775,44 @@ def _range_pair(view: FamilyView | None, address: str) -> tuple[float | None, fl
     declared = field_view.body.get(_RANGE_KEY)
     if not isinstance(declared, (list, tuple)) or not declared:
         return None, None
-    pair: Any = declared
+    pairs: list[Any] = [declared]
     if any(isinstance(row, (list, tuple)) for row in declared):
-        index = _device_index(field_view, address)
-        if index is None:
-            return None, None
-        pair = _per_device_entry(
-            list(declared),
-            index,
-            view.n_devices,
-            f"{view.system}.{view.raw_name} {_LIMITS_FIELD} {_RANGE_KEY}",
-        )
-    if not isinstance(pair, (list, tuple)) or len(pair) != 2:
-        return None, None
-    low, high = _number(pair[0]), _number(pair[1])
-    if low is not None and high is not None and low > high:
-        low, high = high, low
-    return low, high
+        pairs = [
+            _per_device_entry(
+                list(declared),
+                index,
+                view.n_devices,
+                f"{view.system}.{view.raw_name} {_LIMITS_FIELD} {_RANGE_KEY}",
+            )
+            for index in _device_indices(field_view, address)
+        ]
+    lows: list[float] = []
+    highs: list[float] = []
+    for pair in pairs:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            continue
+        low, high = _number(pair[0]), _number(pair[1])
+        if low is not None and high is not None and low > high:
+            low, high = high, low
+        if low is not None:
+            lows.append(low)
+        if high is not None:
+            highs.append(high)
+    return (max(lows) if lows else None), (min(highs) if highs else None)
 
 
-def _device_index(field_view: FieldView, address: str) -> int | None:
-    """The 0-based device position an address sits at, across the field's keys."""
+def _device_indices(field_view: FieldView, address: str) -> list[int]:
+    """Every 0-based device position an address sits at, across the field's keys.
+
+    More than one where a supply feeds a string of magnets, which is what
+    makes the band an intersection rather than one device's own.
+    """
+    found: list[int] = []
     for key in field_view.keys:
         for index, slot in enumerate(field_view.slots(key)):
-            if _address(slot) == address:
-                return index
-    return None
+            if _address(slot) == address and index not in found:
+                found.append(index)
+    return found
 
 
 def _band_entry(ctx: EmitContext, low: float | None, high: float | None) -> dict[str, Any]:

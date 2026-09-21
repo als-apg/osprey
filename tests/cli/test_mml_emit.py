@@ -144,8 +144,11 @@ def nsls2_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     root.mkdir()
     (root / "profile.yml").write_text("name: scratch\n", encoding="utf-8")
     monkeypatch.chdir(root)
-    for path in sorted((FIXTURES / "nsls2").glob("*.json")):
-        shutil.copy(path, root / path.name)
+    # Everything but the mapping: the decks travel with the export, because
+    # the 2.0 siblings are checked against the ring they were sampled over.
+    for path in sorted((FIXTURES / "nsls2").iterdir()):
+        if path.is_file() and path.name != "mapping.yaml":
+            shutil.copy(path, root / path.name)
     result = CliRunner().invoke(
         cli,
         ["mml", "import", "nsls2.ltb.ao.json", "nsls2.storagering.ao.json"],
@@ -683,10 +686,8 @@ def _two_zero_tree(root: Path, fixture: Path, monkeypatch: pytest.MonkeyPatch) -
 
 #: The fixture trees a 2.0 export commits, discovered rather than listed: the
 #: virtual accelerator of an export lives in its ``*.va.json`` sibling, so a
-#: directory that carries one is a tree this lane can run whole. Today that is
-#: ``synthetic`` alone -- ``spear3`` and ``nsls2`` are 1.0 exports until a 2.0
-#: re-export is committed -- and a tree committed later joins every case below
-#: without a name being typed here.
+#: directory that carries one is a tree this lane can run whole. A tree
+#: committed later joins every case below without a name being typed here.
 TWO_ZERO_TREES = tuple(
     sorted(
         directory.name
@@ -708,6 +709,89 @@ def two_zero_repo(
 ) -> Path:
     """One repo per committed 2.0 fixture tree, imported and mapped."""
     return _two_zero_tree(tmp_path / request.param, FIXTURES / request.param, monkeypatch)
+
+
+def _mark_the_deck(repo: Path, *names: str) -> None:
+    """Put a monitor-type element of each name on this tree's imported deck.
+
+    Where a facility's deck marks its girders, ours has drifts, and nothing
+    the export states reaches one -- so the elements land there and every
+    stated position stays where the export states it.
+    """
+    import at
+
+    from osprey.services.mml.loaders.mat import load_lattice
+
+    deck = repo / "data" / "mml" / "lattice" / f"{SYNTHETIC_SYSTEM}.mat"
+    ring = load_lattice(deck)
+    free = [index for index, element in enumerate(ring) if isinstance(element, at.Drift)]
+    assert len(free) >= len(names), "the deck holds too few unbound elements"
+    for index, name in zip(free, names, strict=False):
+        ring[index] = at.Monitor(name)
+    at.save_mat(ring, str(deck), mat_key="THERING")
+
+
+def _take_the_cavity_off_the_deck(repo: Path) -> None:
+    """Leave this tree's deck without a cavity, as a real facility exports one.
+
+    The Middle Layer holds the radio frequency at such a facility, so the deck
+    it saves has no cavity in it and the mapping is decided again against the
+    deck it now is. The cavity is the last element, so no position the export
+    states moves.
+    """
+    import at
+
+    from osprey.services.mml.loaders.mat import load_lattice
+
+    deck = repo / "data" / "mml" / "lattice" / f"{SYNTHETIC_SYSTEM}.mat"
+    ring = load_lattice(deck)
+    assert isinstance(ring[-1], at.RFCavity), "the synthetic deck no longer ends in its cavity"
+    del ring[-1]
+    at.save_mat(ring, str(deck), mat_key="THERING")
+    again = CliRunner().invoke(cli, ["mml", "map", "--init", "--force"], catch_exceptions=False)
+    assert again.exit_code == 0, again.output
+    _write_mapping(repo, _fill(_document(repo)))
+
+
+def _built_cavity(repo: Path) -> dict:
+    """The one cavity the emitted deck carries, as the saved document states it."""
+    document = json.loads(
+        (repo / "data" / "simulation" / "lattice.json").read_text(encoding="utf-8")
+    )
+    cavities = [
+        element
+        for element in document["elements"]
+        if "RFCavity" in (element.get("__class__"), element.get("Class"))
+    ]
+    assert len(cavities) == 1, f"the served deck carries {len(cavities)} cavities"
+    return cavities[0]
+
+
+def _leave_the_deck_no_monitor(repo: Path) -> None:
+    """Latch the monitor families and give every monitor on the deck one name.
+
+    What a facility hands over when its export could sample no beam-position
+    family at all: nothing reads the monitors, they share a name, and the
+    marker conversion takes the last one on the deck.
+    """
+    import at
+
+    from osprey.services.mml.loaders.mat import load_lattice
+
+    document = _document(repo)
+    for name in ("BPMx", "BPMy"):
+        document["virtual_accelerator"]["families"][name] = {
+            "verdict": "latch",
+            "reason": "getpvmodel answered for no device of it",
+        }
+    _write_mapping(repo, document)
+
+    deck = repo / "data" / "mml" / "lattice" / f"{SYNTHETIC_SYSTEM}.mat"
+    ring = load_lattice(deck)
+    for element in ring:
+        if isinstance(element, at.Monitor):
+            element.FamName = "BPM"
+    at.save_mat(ring, str(deck), mat_key="THERING")
 
 
 def _va_files(repo: Path) -> dict[str, bytes]:
@@ -832,6 +916,151 @@ class TestVirtualAcceleratorLane:
         assert bindings["lattice_sha256"] == hashlib.sha256(deck).hexdigest()
         assert bindings["system"] == SYNTHETIC_SYSTEM
         assert bindings["bindings"], "the export couples families and none was bound"
+
+    def test_the_run_says_how_much_of_the_machine_the_model_drives(self, va_repo: Path) -> None:
+        """One line for the question a reviewer asks of any install: how much of it?"""
+        result = _emit()
+
+        assert result.exit_code == 0, result.output
+        block = _document(va_repo)["virtual_accelerator"]["families"]
+        driven = sum(1 for family in block.values() if family["verdict"] == "couple")
+        assert f"{driven} families driven, {len(block) - driven} standing still." in result.output
+
+    def test_the_run_names_a_conversion_it_cut_back_and_the_span_it_kept(
+        self, va_repo: Path
+    ) -> None:
+        """A conversion narrowed in silence is a conversion nobody checked.
+
+        The exported table is bent back on itself here, which is what a
+        facility's own polynomial does out at the edge of a sampled band.
+        """
+        path = va_repo / "data" / "mml" / "va.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        family = document[SYNTHETIC_SYSTEM]["families"]["QF"]
+        devices = len(family["device_list"])
+        family["Monitor"]["monitor_inverse"] = {
+            "kind": "table",
+            "grid": [[-1000.0, 0.0, 1000.0, 500.0]] * devices,
+            "values": [[-1.0, 0.0, 1.0, 0.5]] * devices,
+        }
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+        result = _emit()
+
+        assert result.exit_code == 0, result.output
+        assert (
+            f"QF monitor_inverse: {devices} device tables kept the stretch around the "
+            "nominal, between -1000 and 1000." in result.output
+        )
+
+    def test_the_run_names_the_repeated_monitors_it_served_as_markers(self, va_repo: Path) -> None:
+        """A facility marks girder ends with the monitor type and one name.
+
+        Nothing reads them, the model refuses a deck that names two monitors
+        alike, and the served deck carries them as markers -- which a reviewer
+        reads here rather than by diffing two decks.
+        """
+        _mark_the_deck(va_repo, "GE", "GS", "GE", "GS", "GS")
+
+        result = _emit()
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "5 monitor-type elements no family reads share a name; "
+            "served as plain markers: GE (2), GS (3)." in result.output
+        )
+
+    def test_the_run_names_the_cavity_it_built_for_a_deck_that_carries_none(
+        self, va_repo: Path
+    ) -> None:
+        """A deck with no cavity solves at fixed energy until one is built.
+
+        The frequency the cavity is built at is the deck's own and the one the
+        export states is the real ring's, so the line states both: they are
+        the same number to the figures the facility quotes it to, and the
+        difference is what would put the served beam off momentum.
+        """
+        _take_the_cavity_off_the_deck(va_repo)
+
+        result = _emit()
+
+        assert result.exit_code == 0, result.output
+        built = _built_cavity(va_repo)
+        assert built["HarmNumber"] == 40
+        assert built["Voltage"] == 3.0e6
+        assert (
+            "RF: the deck holds no cavity, so the served ring carries one on harmonic 40 "
+            f"at 3e+06 V, built at the deck's own {built['Frequency']:.9g} Hz where the "
+            "export states 516883548 Hz; the served model solves 6D." in result.output
+        )
+
+    def test_a_deck_that_carries_its_own_cavity_is_served_no_built_one(self, va_repo: Path) -> None:
+        result = _emit()
+
+        assert result.exit_code == 0, result.output
+        assert "the deck holds no cavity" not in result.output
+
+    def test_latching_the_family_serves_no_cavity_and_asks_for_no_voltage(
+        self, va_repo: Path
+    ) -> None:
+        """The reviewer's other way out: stand the family still and answer nothing.
+
+        A latched family drives nothing, so there is no cavity to state a
+        voltage for -- and the check has to agree with the run about that,
+        or the only way past the question would be to delete it.
+        """
+        _take_the_cavity_off_the_deck(va_repo)
+        document = _document(va_repo)
+        family = document["virtual_accelerator"]["families"]["RF"]
+        family["values"]["voltage"]["answer"] = None
+        family["verdict"] = "latch"
+        family["reason"] = "the reviewer serves this ring no cavity"
+        _write_mapping(va_repo, document)
+
+        checked = _check()
+        result = _emit()
+
+        assert checked.exit_code == 0, checked.output
+        assert result.exit_code == 0, result.output
+        assert "the deck holds no cavity" not in result.output
+        served = json.loads(
+            (va_repo / "data" / "simulation" / "lattice.json").read_text(encoding="utf-8")
+        )
+        assert not [
+            element
+            for element in served["elements"]
+            if "RFCavity" in (element.get("__class__"), element.get("Class"))
+        ]
+
+    def test_the_run_says_when_the_served_system_reads_no_position_at_all(
+        self, va_repo: Path
+    ) -> None:
+        """A model with no monitor left measures no orbit and answers no response.
+
+        The count of converted elements does not say it: a reviewer would have
+        to know how many monitors the deck held to read that off.
+        """
+        _leave_the_deck_no_monitor(va_repo)
+
+        result = _emit()
+
+        assert result.exit_code == 0, result.output
+        assert (
+            "4 monitor-type elements no family reads share a name; "
+            "served as plain markers: BPM (4)." in result.output
+        )
+        assert f"{SYNTHETIC_SYSTEM} is served reading no beam position anywhere." in result.output
+
+    def test_the_run_says_nothing_of_the_kind_while_one_monitor_is_left(
+        self, va_repo: Path
+    ) -> None:
+        _mark_the_deck(va_repo, "GE", "GE")
+
+        result = _emit()
+
+        assert result.exit_code == 0, result.output
+        assert "served as plain markers: GE (2)." in result.output
+        assert "reads no beam position" not in result.output
 
     def test_a_rerun_leaves_every_va_artifact_byte_identical(self, va_repo: Path) -> None:
         assert _emit().exit_code == 0

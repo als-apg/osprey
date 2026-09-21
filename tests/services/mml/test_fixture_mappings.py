@@ -50,12 +50,27 @@ IMPORTS: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
         (
             "nsls2.storagering.ao.json",
             "nsls2.storagering.ad.json",
+            "nsls2.storagering.va.json",
+            "nsls2.storagering.response.json",
+            "nsls2.storagering.lattice.mat",
             "nsls2.ltb.ao.json",
             "nsls2.ltb.ad.json",
+            "nsls2.ltb.va.json",
+            "nsls2.ltb.response.json",
+            "nsls2.ltb.lattice.mat",
         ),
         (),
     ),
-    "spear3": (("spear3.storagering.ao.json", "spear3.storagering.ad.json"), ()),
+    "spear3": (
+        (
+            "spear3.storagering.ao.json",
+            "spear3.storagering.ad.json",
+            "spear3.storagering.va.json",
+            "spear3.storagering.response.json",
+            "spear3.storagering.lattice.mat",
+        ),
+        (),
+    ),
     "synthetic": (
         (
             "quokka.sr.ao.json",
@@ -132,18 +147,19 @@ def test_a_two_zero_mapping_answers_every_virtual_accelerator_slot(name: str) ->
 
     ``map --check`` refuses a null answer, so this says nothing the check does
     not -- except which fixture owes the answer, and that the block is there to
-    answer at all, which is what the chain tests run unattended on.
+    answer at all, which is what the chain tests run unattended on. A tree
+    whose export leaves nothing open carries an empty set of slots, which is
+    an answered block too.
     """
     document = yaml.safe_load((FIXTURES / name / "mapping.yaml").read_text(encoding="utf-8"))
 
     block = document.get("virtual_accelerator")
     assert block is not None, f"{name} exports a virtual accelerator its mapping says nothing about"
-    open_slots = {
-        family: body["slot"] for family, body in block["families"].items() if "slot" in body
-    }
-    assert open_slots, f"{name} has no slot to answer; the export stopped asking"
-    for family, slot in open_slots.items():
-        assert slot["answer"] is not None, f"{name}: {family}.{slot['kind']} is unanswered"
+    assert block["families"], f"{name} decides about no family of its export"
+    for family, body in block["families"].items():
+        slot = body.get("slot")
+        if slot is not None:
+            assert slot["answer"] is not None, f"{name}: {family}.{slot['kind']} is unanswered"
 
 
 def _unanswered_slots(document: dict) -> int:

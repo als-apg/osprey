@@ -61,6 +61,7 @@ __all__ = [
     "VAAnswer",
     "VAFamily",
     "VASlot",
+    "VAValue",
     "VirtualAccelerator",
     "judgment_key",
     "parse_mapping",
@@ -338,6 +339,22 @@ class VASlot:
 
 
 @dataclass(frozen=True)
+class VAValue:
+    """One number a family needs that the export does not state.
+
+    A slot asks which of a closed set of things a family is; this asks for a
+    quantity, so the answer is a number and the vocabulary is its ``units``.
+    ``question`` is written out because the card asks it as it stands, and
+    ``answer`` is the reviewer's number; ``None`` is a pending answer, which
+    ``map --check`` refuses.
+    """
+
+    question: str
+    units: str
+    answer: float | None
+
+
+@dataclass(frozen=True)
 class VAFamily:
     """What the virtual accelerator does with one family.
 
@@ -346,7 +363,8 @@ class VAFamily:
     that converts hardware to physics, and where its nominal came from. A
     ``latch`` verdict carries a ``reason`` instead and binds nothing. Either
     may carry a ``slot``, which is the question that decides the family once
-    it is answered.
+    it is answered, and any number of ``values``, which are the quantities the
+    model needs of it and the export does not state.
     """
 
     verdict: str
@@ -356,6 +374,7 @@ class VAFamily:
     nominal_source: str | None = None
     reason: str | None = None
     slot: VASlot | None = None
+    values: dict[str, VAValue] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -548,9 +567,10 @@ _ROW_ANSWERS = "drop, device, a field: entry or null"
 _VA_KEYS = frozenset({"system", "families"})
 _VA_FAMILY_REQUIRED = frozenset({"verdict"})
 _VA_FAMILY_OPTIONAL = frozenset(
-    {"kind", "element_field", "calibration", "nominal_source", "reason", "slot"}
+    {"kind", "element_field", "calibration", "nominal_source", "reason", "slot", "values"}
 )
 _VA_SLOT_KEYS = frozenset({"kind", "question", "answer"})
+_VA_VALUE_KEYS = frozenset({"question", "units", "answer"})
 _VA_VERDICTS_SHOWN = "couple or latch"
 _VA_KINDS_SHOWN = "strength, kick, monitor, energy, rf or null"
 _VA_SLOT_KINDS_SHOWN = "attype, shared_field or escape_hatch"
@@ -829,6 +849,30 @@ def _va_slot(value: Any, path: str) -> VASlot | None:
     )
 
 
+def _va_values(value: Any, path: str) -> dict[str, VAValue]:
+    """Parse the quantities a family is asked for, keyed by what each one is."""
+    if value is None:
+        return {}
+    values: dict[str, VAValue] = {}
+    for name, body, entry in _entries(value, path):
+        _keys(body, entry, _VA_VALUE_KEYS, _NONE)
+        values[name] = VAValue(
+            question=_str(body, "question", entry, nullable=False),
+            units=_str(body, "units", entry, nullable=False),
+            answer=_va_number(body["answer"], f"{entry}.answer"),
+        )
+    return values
+
+
+def _va_number(value: Any, key: str) -> float | None:
+    """One answered quantity. Whether the number is a usable one is checked."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value)
+    raise MappingError(key, f"must be a number or null, got {_shown(value)}")
+
+
 def _va_family(body: dict, path: str) -> VAFamily:
     _keys(body, path, _VA_FAMILY_REQUIRED, _VA_FAMILY_OPTIONAL)
     verdict = body["verdict"]
@@ -847,6 +891,7 @@ def _va_family(body: dict, path: str) -> VAFamily:
         nominal_source=_str(body, "nominal_source", path, nullable=True),
         reason=_str(body, "reason", path, nullable=True),
         slot=_va_slot(body.get("slot"), f"{path}.slot"),
+        values=_va_values(body.get("values"), f"{path}.values"),
     )
 
 

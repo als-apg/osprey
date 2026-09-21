@@ -708,12 +708,15 @@ class VAPending:
             held to.
         ring: The deck, every element kept and in saved order. Element indices
             are one-based into it, as the Middle Layer states them.
+        ad: That system's accelerator data, which states the ring facts the
+            export block does not repeat; ``None`` where none was imported.
     """
 
     system: str
     proposed: dict[str, VAFamily]
     block: dict
     ring: Sequence[Any] = ()
+    ad: dict | None = None
 
 
 def _va_key(raw: str, *parts: str) -> str:

@@ -671,9 +671,12 @@ class TestTheChainRuns:
     def test_a_one_zero_export_says_the_va_lane_is_skipped_and_writes_none_of_it(
         self, chain: Chain
     ) -> None:
-        # Every committed fixture is a 1.0 export: it carries no virtual
-        # accelerator, so each pass adds the one line that says so and not one
-        # of the five files a served machine boots from.
+        # A 1.0 export carries no virtual accelerator, so each pass adds the
+        # one line that says so and not one of the five files a served machine
+        # boots from. A fixture that commits a 2.0 export runs the whole lane
+        # instead, in :class:`TestTheVirtualAcceleratorChain`.
+        if chain.name in TWO_ZERO_TREES:
+            pytest.skip(f"{chain.name} commits a 2.0 export; it has a VA lane to run")
         assert not (chain.root / "data" / "mml" / "va.json").is_file()
 
         for index, record in enumerate(chain.passes):

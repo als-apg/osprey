@@ -8,6 +8,7 @@ exactly one place, then asserts the problem names that place's key path.
 from __future__ import annotations
 
 import copy
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -18,6 +19,7 @@ from osprey.services.mml.mapping import ATTYPE_KIND, VAFamily, VASlot, parse_map
 from osprey.services.mml.mapping import check as check_module
 from osprey.services.mml.mapping.branches import ROOT_CLASS
 from osprey.services.mml.mapping.check import CheckResult, Problem, VAExport, check_mapping
+from osprey.services.mml.mapping.schema import VAValue
 from tests.templates.mml_export_contract import VA_NOMINAL_KEYS
 
 
@@ -1011,3 +1013,179 @@ class TestVirtualAcceleratorBlock:
     def test_va_facts_reach_the_answer_rules(self):
         """Handing over no facts leaves the answers unjudged; the null slots still read."""
         assert _check(_va_document(answer="strength:PolynomB[2]")).problems == []
+
+
+def _va_coupled_document(answer: str = "kick:0") -> dict:
+    """The passing document with ``HCM`` coupled, as a reviewer overruling the rules."""
+    doc = _va_document(answer=answer)
+    family = doc["virtual_accelerator"]["families"]["HCM"]
+    family.pop("reason")
+    family.update(
+        verdict="couple", kind="kick", element_field="KickAngle[0]", nominal_source="Setpoint"
+    )
+    return doc
+
+
+def _va_export_without_a_nominal() -> VAExport:
+    """The same export, with the facility's own conversion answering nothing."""
+    export = _va_export()
+    block = copy.deepcopy(export.pending.block)
+    block["families"]["HCM"]["nominals"]["Setpoint"]["values"] = ["NaN"]
+    return VAExport(system=export.system, pending=replace(export.pending, block=block))
+
+
+class TestVirtualAcceleratorNominals:
+    """A family the mapping couples has to start the model somewhere.
+
+    The reviewer may overrule the rule that latched a family, and the emitter
+    refuses the whole machine over it, so the check says the same thing first.
+    """
+
+    def test_va_a_coupled_family_with_a_nominal_passes(self):
+        assert _check(_va_coupled_document(), va=_va_export()).problems == []
+
+    def test_va_a_coupled_family_with_no_hardware_nominal_is_reported(self):
+        result = _check(_va_coupled_document(), va=_va_export_without_a_nominal())
+        assert _keys(result) == ["virtual_accelerator.families.HCM.verdict"]
+        assert result.problems[0].message == (
+            "couples as kick and the export states no hardware nominal for its only "
+            "device; a driven device starts the model somewhere"
+        )
+
+    def test_va_a_latched_family_with_no_hardware_nominal_is_not_reported(self):
+        assert _check(_va_document(), va=_va_export_without_a_nominal()).problems == []
+
+
+#: The quantity the rules ask ``HCM`` for in the fixtures below, and its answer
+#: as the document would carry it.
+_VA_QUESTION = "What does this cavity run at?"
+
+
+def _va_coupled_proposal(**values: VAValue) -> VAFamily:
+    """``HCM`` as the rules would couple it, asking for ``values`` and no more."""
+    return VAFamily(
+        verdict="couple",
+        kind="kick",
+        element_field="KickAngle[0]",
+        nominal_source="Setpoint",
+        values=dict(values),
+    )
+
+
+def _va_export_proposing(family: VAFamily) -> VAExport:
+    """The 2.0 export with the rules reaching ``family`` for ``HCM``.
+
+    The questions belong to the proposed verdict, which is where the check
+    reads them from: the document is the answer to them, never the source.
+    """
+    export = _va_export()
+    return VAExport(system=export.system, pending=replace(export.pending, proposed={"HCM": family}))
+
+
+def _va_value_document(answer: float | None = 3.0e6, *, asked: bool = True) -> dict:
+    """The passing document with ``HCM`` coupled, asked for a quantity or not."""
+    doc = _document()
+    family: dict = {
+        "verdict": "couple",
+        "kind": "kick",
+        "element_field": "KickAngle[0]",
+        "nominal_source": "Setpoint",
+    }
+    if asked:
+        family["values"] = {
+            "voltage": {"question": _VA_QUESTION, "units": "volts", "answer": answer}
+        }
+    doc["virtual_accelerator"] = {"system": "SR", "families": {"HCM": family}}
+    return doc
+
+
+class TestVirtualAcceleratorValues:
+    """A quantity the export does not state is the reviewer's to answer.
+
+    Nothing else states it, so there is nothing to fall back on: the emit lane
+    would refuse, and the check says so first. Which quantities are asked for
+    is the rules' to say, so a document cannot make a question go away by
+    dropping it or answer one the rules never asked, and a family the document
+    stands still is asked nothing.
+    """
+
+    @staticmethod
+    def _asked() -> VAExport:
+        return _va_export_proposing(
+            _va_coupled_proposal(voltage=VAValue(question=_VA_QUESTION, units="volts", answer=None))
+        )
+
+    def test_va_an_answered_quantity_passes(self):
+        assert _check(_va_value_document(), va=self._asked()).problems == []
+
+    def test_va_an_unanswered_quantity_is_refused(self):
+        result = _check(_va_value_document(answer=None), va=self._asked())
+        assert _keys(result) == ["virtual_accelerator.families.HCM.values.voltage.answer"]
+        assert result.problems[0].message == "must not be null"
+
+    @pytest.mark.parametrize("answer", [0.0, -1.0, float("nan"), float("inf")])
+    def test_va_a_quantity_that_could_not_be_one_is_refused(self, answer: float):
+        result = _check(_va_value_document(answer=answer), va=self._asked())
+        assert _keys(result) == ["virtual_accelerator.families.HCM.values.voltage.answer"]
+        assert result.problems[0].message == "must be a positive number of volts"
+
+    def test_va_a_deleted_question_is_refused_as_unanswered(self):
+        """Deleting the block is not answering it, and emit would need the number.
+
+        It is not the same refusal as a null: there is no answer to be null,
+        so the line names the question the document dropped rather than a key
+        the file does not carry.
+        """
+        result = _check(_va_value_document(asked=False), va=self._asked())
+        assert _keys(result) == ["virtual_accelerator.families.HCM.values.voltage"]
+        assert result.problems[0].message == "is not answered"
+
+    def test_va_a_misspelt_quantity_is_refused_by_name(self):
+        """A reviewer who renames the key answers nothing and is told which key.
+
+        Read the other way round the document would be silently short one
+        answer and carrying one nobody asked for, which is the reading that
+        sent the last one of these to the emit lane to be found.
+        """
+        doc = _va_value_document()
+        values = doc["virtual_accelerator"]["families"]["HCM"]["values"]
+        values["voltages"] = values.pop("voltage")
+
+        result = _check(doc, va=self._asked())
+
+        assert _keys(result) == [
+            "virtual_accelerator.families.HCM.values.voltage",
+            "virtual_accelerator.families.HCM.values.voltages",
+        ]
+        assert result.problems[0].message == "is not answered"
+        assert result.problems[1].message == "answers no open question of HCM in SR"
+
+    def test_va_a_latched_family_is_asked_for_nothing(self):
+        """Standing the family still is the other way out, and it needs no number."""
+        doc = _va_value_document(answer=None)
+        doc["virtual_accelerator"]["families"]["HCM"] = {
+            "verdict": "latch",
+            "reason": "the reviewer serves this family nothing",
+        }
+        assert _check(doc, va=self._asked()).problems == []
+
+    def test_va_a_quantity_the_rules_do_not_ask_for_is_refused_by_name(self):
+        """The rules ask ``HCM`` for nothing here, so its answer answers nothing."""
+        export = _va_export_proposing(_va_coupled_proposal())
+
+        result = _check(_va_value_document(), va=export)
+
+        assert _keys(result) == ["virtual_accelerator.families.HCM.values.voltage"]
+        assert result.problems[0].message == "answers no open question of HCM in SR"
+
+    def test_va_a_latched_family_keeps_the_block_the_rules_wrote_for_it(self):
+        """Latching is the way out, so the block it leaves behind is not an error."""
+        doc = _va_value_document(answer=None)
+        family = doc["virtual_accelerator"]["families"]["HCM"]
+        family["verdict"] = "latch"
+        family["reason"] = "the reviewer serves this family nothing"
+        assert _check(doc, va=_va_export_proposing(_va_coupled_proposal())).problems == []
+
+    def test_va_a_quantity_needs_the_export_that_asks_it(self):
+        """Without a 2.0 tree no rule asked anything, and the document answers none."""
+        assert _check(_va_value_document(answer=None)).problems == []

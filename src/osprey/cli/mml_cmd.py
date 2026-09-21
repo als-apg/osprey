@@ -53,12 +53,18 @@ from .output import report, warn
 from .repo_resolver import find_repo_root, repo_option
 
 if TYPE_CHECKING:  # the services stay out of the runtime import graph
-    from osprey.services.mml.emit.va import ChannelBand, NominalSeed
+    from osprey.services.mml.emit.va import (
+        CalibrationTrim,
+        ChannelBand,
+        LaneFindings,
+        NominalSeed,
+    )
     from osprey.services.mml.family import FamilyView
     from osprey.services.mml.judgments import VAPending
     from osprey.services.mml.mapping.check import VAExport
-    from osprey.services.mml.mapping.schema import Mapping, VAFamily
-    from osprey.services.mml.va.elements import ElementBinding
+    from osprey.services.mml.mapping.schema import Mapping, VAFamily, VirtualAccelerator
+    from osprey.services.mml.va.elements import ElementBinding, ServedMarker
+    from osprey.services.mml.va.verdicts import BuiltCavity
     from osprey.services.mml.va.verify import VerifyReport
 
 #: File name of the import profile written beside the canonical documents.
@@ -250,7 +256,15 @@ def import_cmd(inputs: tuple[Path, ...], systems: tuple[str, ...], repo: Path | 
     # A deck and the export sampled over it travel as separate files, and the
     # export's four facts about its ring are the only thing that pairs them: a
     # deck of another ring would bind every calibration to the wrong element.
+    # The deck is read once per system here, and what the profile says about the
+    # ring is read off the same load rather than off the export's word for it.
+    ring_facts: dict[str, dict] = {}
     for system, source in sorted(lattices.items()):
+        from osprey.services.mml.loaders.mat import load_lattice
+        from osprey.services.mml.va.verdicts import is_cavity
+
+        ring = load_lattice(source)
+        ring_facts[system] = {"cavities": sum(1 for element in ring if is_cavity(element))}
         block = documents[VA_FILENAME].get(system)
         stated = block.get("lattice") if isinstance(block, dict) else None
         if stated is None:
@@ -262,9 +276,7 @@ def import_cmd(inputs: tuple[Path, ...], systems: tuple[str, ...], repo: Path | 
                 f"({reason}), so the lattice {source} is filed unchecked."
             )
             continue
-        from osprey.services.mml.loaders.mat import load_lattice
-
-        mismatch = check_fingerprint(stated, lattice_fingerprint(load_lattice(source)))
+        mismatch = check_fingerprint(stated, lattice_fingerprint(ring))
         if mismatch is not None:
             raise click.UsageError(
                 f"The lattice {source} is not the ring system {system!r} was exported "
@@ -334,7 +346,16 @@ def import_cmd(inputs: tuple[Path, ...], systems: tuple[str, ...], repo: Path | 
             "make the directory writable and import again."
         ) from exc
 
-    census = take_census(ao, ad)
+    # The profile's virtual-accelerator section is rendered from the export
+    # this import just carried, so a 2.0 import reads as one. A 1.0 import
+    # passes empty documents and the section says the tree holds no 2.0 export.
+    census = take_census(
+        ao,
+        ad,
+        va=documents[VA_FILENAME],
+        response=documents[RESPONSE_FILENAME],
+        ring_facts=ring_facts,
+    )
     votes = vote_directions(ao)
     profile_path = out_dir / PROFILE_FILENAME
     try:
@@ -500,6 +521,12 @@ def _va_document(out_dir: Path, ao: dict) -> tuple[dict, set[str]]:
     return document, available
 
 
+def _ad_block(ad: dict, system: str) -> dict:
+    """One system's accelerator data, empty where the export carried none."""
+    block = ad.get(system) if isinstance(ad, dict) else None
+    return block if isinstance(block, dict) else {}
+
+
 def _va_block(out_dir: Path, ao: dict, ad: dict) -> dict | None:
     """Build the ``virtual_accelerator`` block of this export, or report why not.
 
@@ -527,7 +554,8 @@ def _va_block(out_dir: Path, ao: dict, ad: dict) -> dict | None:
     from osprey.services.mml.va.verdicts import propose
 
     views = {view.raw_name: view for view in family_views(source, ao[source])}
-    return va_block(propose(document[source], load_lattice(deck), views), choice)
+    proposed = propose(document[source], load_lattice(deck), views, _ad_block(ad, source))
+    return va_block(proposed, choice)
 
 
 def _append_va_block(path: Path, block: dict | None, *, force_va: bool) -> None:
@@ -625,13 +653,15 @@ def _va_export(out_dir: Path, ao: dict, ad: dict, mapping: Mapping) -> VAExport 
 
     ring = load_lattice(deck)
     views = {view.raw_name: view for view in family_views(system, ao[system])}
+    ad_block = _ad_block(ad, system)
     return VAExport(
         system=system,
         pending=VAPending(
             system=system,
-            proposed=propose(document[system], ring, views),
+            proposed=propose(document[system], ring, views, ad_block),
             block=document[system],
             ring=ring,
+            ad=ad_block,
         ),
     )
 
@@ -728,6 +758,12 @@ class _VALane:
             keyed the same way.
         element_bindings: What each family's devices drive, keyed by raw family.
         energy_gev: The beam energy the deck was built at.
+        markers: The repeated monitor names no family reads, which the served
+            deck carries as plain markers.
+        monitors: How many monitor-type elements the served deck is left with
+            once those conversions are done.
+        cavity: The cavity built into the served deck, or ``None`` where the
+            deck brought its own or needs none.
     """
 
     system: str
@@ -737,6 +773,9 @@ class _VALane:
     judged_va: dict[tuple[str, str], dict]
     element_bindings: dict[str, tuple[ElementBinding, ...]]
     energy_gev: float
+    markers: tuple[ServedMarker, ...] = ()
+    monitors: int = 0
+    cavity: BuiltCavity | None = None
 
 
 #: Value ``--duckdb`` takes when given without a path.
@@ -1204,8 +1243,9 @@ def _va_lane(ao: dict, mapping, pending: VAPending) -> _VALane:
     families = block.get("families")
     exported = families if isinstance(families, dict) else {}
     views = tuple(judged_family_views(system, ao[system], mapping))
+    cavity = _cavity_to_serve(system, block, pending, document)
     try:
-        addressing = address_elements(block, pending.ring, document.families)
+        addressing = address_elements(block, pending.ring, document.families, cavity=cavity)
     except ValueError as exc:
         raise click.ClickException(
             f"The virtual accelerator does not fit the deck ({exc}); "
@@ -1238,7 +1278,42 @@ def _va_lane(ao: dict, mapping, pending: VAPending) -> _VALane:
         },
         element_bindings=dict(addressing.bindings),
         energy_gev=float(energy),
+        markers=addressing.markers,
+        monitors=addressing.monitors,
+        cavity=addressing.cavity,
     )
+
+
+def _cavity_to_serve(
+    system: str, block: dict, pending: VAPending, document: VirtualAccelerator
+) -> BuiltCavity | None:
+    """The cavity this run builds into the served deck, with its voltage.
+
+    The rule decides the cavity and the reviewer decides its voltage, so both
+    are read here: a family the reviewer left standing still is served no
+    cavity, and one the reviewer coupled is served none until the voltage is
+    answered.
+
+    Raises:
+        click.ClickException: A cavity is to be built and its voltage is
+            unanswered, which is what ``map --check`` reports.
+    """
+    from dataclasses import replace as _replace
+
+    from osprey.services.mml.va.verdicts import CAVITY_VOLTAGE, cavity_to_build
+
+    cavity = cavity_to_build(block, pending.ring, pending.ad)
+    decided = document.families.get(cavity.family) if cavity is not None else None
+    if cavity is None or decided is None or decided.verdict != "couple":
+        return None
+    answered = decided.values.get(CAVITY_VOLTAGE)
+    if answered is None or answered.answer is None:
+        raise click.ClickException(
+            f"The {system} deck holds no cavity and {cavity.family} is served one, "
+            f"whose {CAVITY_VOLTAGE} this mapping does not answer; "
+            "run osprey mml map --check and fix what it reports."
+        )
+    return _replace(cavity, voltage=answered.answer)
 
 
 def _unstamped_va(root: Path) -> str | None:
@@ -1346,7 +1421,7 @@ def _served_machine_channels(data: Path, lane: _VALane | None, mapping, ctx) -> 
 
         try:
             machine_text, _seeds = emit_machine(
-                lane.verdicts, lane.views, lane.judged_va, mapping, ctx
+                lane.verdicts, lane.views, lane.judged_va, mapping, ctx, lane.element_bindings
             )
         except ValueError:
             # The lane renders this same document, and says what does not fit
@@ -1499,7 +1574,7 @@ def _emit_va(
         raise _disagrees(exc) from exc
 
     try:
-        bindings_text = emit_bindings(
+        bindings_text, findings = emit_bindings(
             lane.verdicts,
             lane.views,
             lane.element_bindings,
@@ -1508,7 +1583,9 @@ def _emit_va(
             system=lane.system,
             energy_gev=lane.energy_gev,
         )
-        machine_text, seeds = emit_machine(lane.verdicts, lane.views, lane.judged_va, mapping, ctx)
+        machine_text, seeds = emit_machine(
+            lane.verdicts, lane.views, lane.judged_va, mapping, ctx, lane.element_bindings
+        )
         state_text = emit_state_channels(lane.views, mapping, ctx)
     except ValueError as exc:
         raise _disagrees(exc) from exc
@@ -1561,7 +1638,67 @@ def _emit_va(
     for path, text in written:
         _write_text(path, text)
         report(f"Wrote {path}.")
+    for line in _va_lane_lines(lane, findings):
+        report(line)
     return seeds, bands
+
+
+def _va_lane_lines(lane: _VALane, findings: LaneFindings) -> list[str]:
+    """What the run says about the model it just wrote, beyond the file names.
+
+    The facts a reviewer would otherwise have to read the documents for: how
+    much of the machine the model drives, every conversion cut back to the
+    stretch holding its device's operating point, every supply that turns out
+    to feed a string of magnets, the cavity a deck that carries none is served
+    with, and every repeated monitor name the served deck carries as a marker
+    instead -- and, where that conversion takes the last one, that the served
+    system reads no beam position at all. Spans and spreads are stated per
+    family; ``VA-REPORT.md`` carries the address-by-address detail.
+    """
+    driven = sum(1 for verdict in lane.verdicts.values() if verdict.verdict == "couple")
+    lines = [
+        f"{_count(driven, 'family', 'families')} driven, "
+        f"{len(lane.verdicts) - driven} standing still."
+    ]
+    grouped: dict[tuple[str, str], list[CalibrationTrim]] = {}
+    for trim in findings.trims:
+        grouped.setdefault((trim.family, trim.curve), []).append(trim)
+    for (family, curve), cut in grouped.items():
+        low = min(min(trim.kept) for trim in cut)
+        high = max(max(trim.kept) for trim in cut)
+        lines.append(
+            f"{family} {curve}: {_count(len(cut), 'device table')} kept the stretch "
+            f"around the nominal, between {low:.6g} and {high:.6g}."
+        )
+    for supply in findings.supplies:
+        outside = (
+            f" {_count(supply.unmodelled, 'further device')} on it "
+            "state no lattice element and are not modelled."
+            if supply.unmodelled
+            else ""
+        )
+        lines.append(
+            f"{supply.family} {supply.address}: one supply feeding "
+            f"{_count(supply.magnets, 'magnet')}, starting at {supply.start:.6g} "
+            f"with a spread of {supply.spread:.6g}.{outside}"
+        )
+    if lane.cavity is not None:
+        cavity = lane.cavity
+        lines.append(
+            f"{cavity.family}: the deck holds no cavity, so the served ring carries one "
+            f"on harmonic {cavity.harmonic} at {cavity.voltage:.6g} V, built at the deck's "
+            f"own {cavity.frequency_hz:.9g} Hz where the export states "
+            f"{cavity.nominal_hz:.9g} Hz; the served model solves 6D."
+        )
+    if lane.markers:
+        named = ", ".join(f"{marker.name} ({marker.elements})" for marker in lane.markers)
+        lines.append(
+            f"{_count(sum(marker.elements for marker in lane.markers), 'monitor-type element')} "
+            f"no family reads share a name; served as plain markers: {named}."
+        )
+        if not lane.monitors:
+            lines.append(f"{lane.system} is served reading no beam position anywhere.")
+    return lines
 
 
 def _channel_addresses(db: dict) -> list[str]:
@@ -1716,12 +1853,21 @@ _VA_SERVED = (
 @mml.command("verify")
 @repo_option
 def verify_cmd(repo: Path | None) -> None:
-    """Check the emitted virtual accelerator against the exported response matrix."""
+    """Check the emitted virtual accelerator against the exported response matrix.
+
+    Writes data/mml/VA-REPORT.md either way, and exits non-zero when not one
+    entry of the matrix could be compared: a deployment asked for evidence is
+    told it has none rather than sent on to osprey build.
+    """
     import json
 
     from osprey.services.mml.canonical import AO_FILENAME
     from osprey.services.mml.emit.context import build_context
-    from osprey.services.mml.emit.va import emit_channel_limits, emit_machine
+    from osprey.services.mml.emit.va import (
+        emit_channel_limits,
+        emit_machine,
+        lane_findings,
+    )
     from osprey.services.mml.va.verify import (
         REPORT_FILENAME,
         VerifyError,
@@ -1753,9 +1899,18 @@ def verify_cmd(repo: Path | None) -> None:
     try:
         bindings = load_bindings(data / _VA_BINDINGS)
         existing = json.loads(limits_path.read_text(encoding="utf-8"))
-        _text, seeds = emit_machine(lane.verdicts, lane.views, lane.judged_va, mapping, ctx)
+        _text, seeds = emit_machine(
+            lane.verdicts, lane.views, lane.judged_va, mapping, ctx, lane.element_bindings
+        )
         _limits, bands = emit_channel_limits(
             existing, bindings.bindings, (), ctx, views=lane.views, system=lane.system
+        )
+        findings = lane_findings(
+            lane.verdicts,
+            lane.views,
+            lane.element_bindings,
+            lane.judged_va,
+            system=lane.system,
         )
     except (BindingsError, ValueError) as exc:
         raise click.ClickException(
@@ -1775,6 +1930,11 @@ def verify_cmd(repo: Path | None) -> None:
             judged_va=lane.judged_va,
             seeds=seeds,
             bands=bands,
+            trims=findings.trims,
+            supplies=findings.supplies,
+            markers=lane.markers,
+            monitors=lane.monitors,
+            cavity=lane.cavity,
         )
     except (VerifyError, BindingsError, OrbitSolveError, ValueError) as exc:
         raise click.ClickException(f"The virtual accelerator cannot be verified ({exc}).") from exc
@@ -1784,8 +1944,28 @@ def verify_cmd(repo: Path | None) -> None:
     _write_text(report_path, render_report(result, provenance=ctx.provenance_string))
     for line in _verify_lines(result):
         report(line)
+    if not result.compared:
+        raise click.ClickException(_nothing_compared(result, report_path))
     report(f"Wrote {report_path}.")
     report("Read it, then run osprey build to copy the tree into the deployment.")
+
+
+def _nothing_compared(result: VerifyReport, report_path: Path) -> str:
+    """Why a run that held nothing against the file fails, in one line.
+
+    The report is written either way -- it is what says which rows were left
+    out -- and the reason the most rows were dropped for is what a reviewer
+    acts on, so the line names it and how many rows it covers.
+    """
+    counted: dict[str, int] = {}
+    for block in result.blocks:
+        for row in block.dropped:
+            counted[row.reason] = counted.get(row.reason, 0) + 1
+    wrote = f"Wrote {report_path}, and not one entry of the exported matrix was compared"
+    if not counted:
+        return f"{wrote}: the export states no row this tree could be held against."
+    reason, count = max(counted.items(), key=lambda item: item[1])
+    return f"{wrote}: {reason} ({count} rows)."
 
 
 def _verified_export(out_dir: Path, mapping, export: VAExport | None) -> VAPending:

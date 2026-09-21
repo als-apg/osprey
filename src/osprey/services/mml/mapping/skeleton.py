@@ -352,8 +352,9 @@ def va_block(verdicts: dict[str, VAFamily], system_choice: str | None) -> dict:
     Returns:
         The block as plain dicts, in the order it should be written: the
         system, then every family sorted by name. A family writes its verdict
-        and only the keys that verdict decides, and an open slot writes its
-        kind, its question and a null answer.
+        and only the keys that verdict decides, an open slot writes its kind,
+        its question and a null answer, and each quantity the family is asked
+        for writes its question, its units and a null answer.
     """
     families: dict[str, dict] = {}
     for name in sorted(verdicts):
@@ -369,6 +370,15 @@ def va_block(verdicts: dict[str, VAFamily], system_choice: str | None) -> dict:
                 "question": verdict.slot.question,
                 "answer": None,
             }
+        if verdict.values:
+            entry["values"] = {
+                value_name: {
+                    "question": value.question,
+                    "units": value.units,
+                    "answer": value.answer,
+                }
+                for value_name, value in verdict.values.items()
+            }
         families[name] = entry
     return {"system": system_choice, "families": families}
 
@@ -380,12 +390,14 @@ def count_va_slots(block: dict) -> int:
         block: A block, e.g. from :func:`va_block`.
 
     Returns:
-        One for an undecided system, plus one per family a rule left a slot
-        on -- the number of null slots ``map --check`` refuses.
+        One for an undecided system, one per family a rule left a slot on and
+        one per quantity a family is asked for -- the number of null slots
+        ``map --check`` refuses.
     """
     families = block.get("families", {})
     open_slots = sum(1 for entry in families.values() if entry.get("slot") is not None)
-    return open_slots + (1 if block.get("system") is None else 0)
+    open_values = sum(len(entry.get("values", {})) for entry in families.values())
+    return open_slots + open_values + (1 if block.get("system") is None else 0)
 
 
 def dump_va_block(block: dict) -> str:
@@ -393,7 +405,8 @@ def dump_va_block(block: dict) -> str:
 
     Every open slot is followed by a comment naming what it may be answered
     with, so the vocabulary reads beside the question rather than in the
-    documentation. Comments are the only thing here that
+    documentation; an open quantity names its units the same way. Comments are
+    the only thing here that
     :func:`~osprey.services.mml.mapping.schema.parse_mapping` never sees.
 
     Args:
@@ -404,17 +417,19 @@ def dump_va_block(block: dict) -> str:
         ending in a newline.
     """
     lines: list[str] = []
-    kind: str | None = None
+    answers: str | None = None
     for line in dump_yaml({"virtual_accelerator": block}).splitlines():
         stated = line.strip()
         if stated.startswith("kind: "):
-            spelled = stated.removeprefix("kind: ")
-            kind = spelled if spelled in VA_ANSWERS else None
+            kind = stated.removeprefix("kind: ")
+            answers = VA_ANSWERS.get(kind)
+        elif stated.startswith("units: "):
+            answers = f"a positive number of {stated.removeprefix('units: ')}"
         lines.append(line)
-        if kind is not None and stated == "answer: null":
+        if answers is not None and stated == "answer: null":
             indent = line[: len(line) - len(line.lstrip())]
-            lines.append(f"{indent}# answers: {VA_ANSWERS[kind]}")
-            kind = None
+            lines.append(f"{indent}# answers: {answers}")
+            answers = None
     return "".join(f"{line}\n" for line in lines)
 
 

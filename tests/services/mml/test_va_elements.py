@@ -35,11 +35,13 @@ from osprey.services.mml.family import family_views
 from osprey.services.mml.loaders.mat import load_lattice
 from osprey.services.mml.mapping.schema import VAFamily
 from osprey.services.mml.va.elements import (
+    CARRIED_FIELDS,
     OWNER_RANK,
     Addressing,
+    ServedMarker,
     address_elements,
 )
-from osprey.services.mml.va.verdicts import propose, resolve_attype
+from osprey.services.mml.va.verdicts import BuiltCavity, cavity_to_build, propose, resolve_attype
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures" / "mml"
 SYNTHETIC = FIXTURES / "synthetic"
@@ -358,6 +360,135 @@ class TestTheMarkersItConverts:
         assert "Monitor" not in classes
 
 
+class TestTheMonitorsItServesAsMarkers:
+    """A monitor nothing reads, under a name the deck repeats, reads nothing.
+
+    A facility marks the structure of its ring -- girder ends, straights --
+    with the monitor type and one name for all of them, and the model refuses
+    a deck that names two monitors alike because a reading is addressed by the
+    name it is read from. Those elements carry no reading to address, so the
+    served deck carries them as markers of the same name.
+    """
+
+    def _deck(self, deck, *names: str) -> tuple[Any, dict[int, str]]:
+        """The synthetic deck with a monitor of each name where nothing is bound.
+
+        The drifts are what no family of this export reaches, so putting the
+        elements there leaves every stated position where the export states
+        it.
+        """
+        ring = copy.deepcopy(deck)
+        free = [index for index, element in enumerate(ring) if isinstance(element, at.Drift)]
+        assert len(free) >= len(names), "the deck holds too few unbound elements"
+        placed = dict(zip(free, names, strict=False))
+        for index, name in placed.items():
+            ring[index] = at.Monitor(name)
+        return ring, placed
+
+    def test_a_repeated_name_no_family_reads_becomes_a_plain_marker(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        ring, placed = self._deck(deck, "GE", "GE")
+
+        addressed = address_elements(export, ring, verdicts)
+
+        for index in placed:
+            served = addressed.ring[index]
+            assert isinstance(served, at.Marker)
+            assert (served.FamName, served.Length) == ("GE", 0.0)
+
+    def test_every_other_element_of_the_deck_keeps_its_class(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        ring, placed = self._deck(deck, "GE", "GE")
+
+        addressed = address_elements(export, ring, verdicts)
+
+        untouched = [index for index in range(len(ring)) if index not in placed]
+        assert [type(addressed.ring[index]).__name__ for index in untouched] == [
+            type(ring[index]).__name__ for index in untouched
+        ]
+
+    def test_a_unique_name_no_family_reads_stays_a_monitor(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        """One name addresses one reading, whether or not anything reads it."""
+        ring, placed = self._deck(deck, "MK4G1C30A")
+
+        addressed = address_elements(export, ring, verdicts)
+
+        served = addressed.ring[next(iter(placed))]
+        assert isinstance(served, at.Monitor)
+        assert served.FamName == "MK4G1C30A"
+        assert addressed.markers == ()
+
+    def test_a_monitor_a_family_reads_is_never_converted(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        """The deck's name for it is gone by then: it is named for its device."""
+        ring, placed = self._deck(deck, "BPM1", "BPM1")
+
+        addressed = address_elements(export, ring, verdicts)
+
+        read = addressed.ring[3]
+        assert isinstance(read, at.Monitor)
+        assert read.FamName == "BPMx_1_1"
+        assert [type(addressed.ring[index]).__name__ for index in placed] == ["Marker", "Marker"]
+        assert addressed.markers == (ServedMarker(name="BPM1", elements=2),)
+
+    def test_it_names_every_converted_name_with_its_count(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        ring, _ = self._deck(deck, "GS", "GE", "GS", "GE", "GS")
+
+        addressed = address_elements(export, ring, verdicts)
+
+        assert addressed.markers == (
+            ServedMarker(name="GE", elements=2),
+            ServedMarker(name="GS", elements=3),
+        )
+
+    def test_the_served_ring_is_exactly_as_long_as_the_deck(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        """A marker occupies nothing, so the conversion may only take nothing."""
+        ring, _ = self._deck(deck, "GS", "GE", "GS", "GE", "GS")
+
+        addressed = address_elements(export, ring, verdicts)
+
+        assert sum(element.Length for element in addressed.ring) == sum(
+            element.Length for element in ring
+        )
+
+    def test_a_repeated_monitor_carrying_a_length_is_refused_by_name(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        """Serving it as a marker would take half a metre out of the ring."""
+        ring, placed = self._deck(deck, "GE", "GE")
+        index = max(placed)
+        ring[index] = at.Monitor("GE", Length=0.5)
+
+        with pytest.raises(ValueError, match=r"2 monitor-type elements named 'GE'.*0.5 m long"):
+            address_elements(export, ring, verdicts)
+
+    def test_a_repeated_monitor_that_acts_on_the_beam_is_refused_by_name(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        """A marker passes the beam through untouched, and so must its twin."""
+        ring, placed = self._deck(deck, "GE", "GE")
+        ring[max(placed)].PassMethod = "DriftPass"
+
+        with pytest.raises(ValueError, match=r"named 'GE'.*passes the beam as 'DriftPass'"):
+            address_elements(export, ring, verdicts)
+
+    def test_a_repeated_name_that_is_no_monitor_is_left_alone(
+        self, addressed: Addressing, deck
+    ) -> None:
+        """The deck calls a dozen drifts ``DR`` and nothing addresses any of them."""
+        assert addressed.markers == ()
+        assert sum(1 for element in deck if element.FamName == "DR") > 1
+
+
 class TestWhatItRefuses:
     """The exports it will not address, each named by what is wrong with it."""
 
@@ -545,3 +676,235 @@ class TestTheFirstFacility:
         read = [addressed.ring[int(position) - 1] for position in rows["BPMx"]]
         assert all(isinstance(element, at.Monitor) for element in read)
         assert len({element.FamName for element in read}) == 117
+
+
+#: How many buckets the synthetic ring is given, and the volts a reviewer
+#: answered with. The ring is 23.2 m round, so 40 of them is about 517 MHz.
+BUILT_HARMONIC = 40
+BUILT_VOLTAGE = 3.0e6
+
+
+def _without_a_cavity(deck) -> Any:
+    """The synthetic deck with its cavity taken out, as a facility exports one.
+
+    A facility whose Middle Layer holds the radio frequency never saves the
+    cavity, so the deck arrives one element short and the ring solves at fixed
+    energy until the emit lane builds one.
+    """
+    ring = copy.deepcopy(deck)
+    del ring[-1]
+    assert not [element for element in ring if isinstance(element, at.RFCavity)]
+    return ring
+
+
+class TestTheCavityItBuilds:
+    """A deck that carries no cavity is served one built from the export."""
+
+    @pytest.fixture
+    def cavity_less(self, export: dict, deck, objects: dict):
+        """The cavity-less deck, the verdicts over it, and the cavity to build."""
+        ring = _without_a_cavity(deck)
+        export["families"]["RF"]["nominals"]["Setpoint"]["at_index"] = []
+        views = {view.raw_name: view for view in family_views(SYSTEM, objects)}
+        ad = {"HarmonicNumber": BUILT_HARMONIC}
+        built = cavity_to_build(export, ring, ad, voltage=BUILT_VOLTAGE)
+        return ring, propose(export, ring, views, ad), built
+
+    def test_the_built_cavity_is_the_last_element_and_occupies_no_space(
+        self, export: dict, cavity_less
+    ) -> None:
+        ring, verdicts, built = cavity_less
+
+        addressed = address_elements(export, ring, verdicts, cavity=built)
+
+        cavity = addressed.ring[-1]
+        assert isinstance(cavity, at.RFCavity)
+        assert len(addressed.ring) == len(ring) + 1
+        assert (cavity.Length, cavity.PassMethod) == (0.0, "RFCavityPass")
+
+    def test_it_carries_the_harmonic_the_voltage_and_the_deck_energy(
+        self, export: dict, cavity_less
+    ) -> None:
+        ring, verdicts, built = cavity_less
+
+        cavity = address_elements(export, ring, verdicts, cavity=built).ring[-1]
+
+        assert cavity.HarmNumber == BUILT_HARMONIC
+        assert cavity.Voltage == BUILT_VOLTAGE
+        assert cavity.Energy == ring.energy
+
+    def test_it_is_built_on_the_harmonic_rather_than_at_the_stated_frequency(
+        self, export: dict, cavity_less
+    ) -> None:
+        """The stated frequency is the real ring's, to the figures it is quoted to.
+
+        Reading it onto a deck of a slightly different circumference starts
+        the beam off momentum, which is the error a cavity is built to remove.
+        """
+        ring, verdicts, built = cavity_less
+
+        addressed = address_elements(export, ring, verdicts, cavity=built)
+
+        cavity = addressed.ring[-1]
+        assert cavity.Frequency == pytest.approx(
+            BUILT_HARMONIC * addressed.ring.revolution_frequency
+        )
+        assert addressed.cavity.frequency_hz == cavity.Frequency
+        assert addressed.cavity.nominal_hz == pytest.approx(built.nominal_hz)
+
+    def test_the_served_ring_solves_six_dimensionally(self, export: dict, cavity_less) -> None:
+        """The deck as it arrives cannot close an orbit through a bucket at all."""
+        ring, verdicts, built = cavity_less
+        with pytest.raises(at.AtError):
+            copy.deepcopy(ring).find_orbit6()
+
+        addressed = address_elements(export, ring, verdicts, cavity=built)
+
+        assert addressed.ring.is_6d
+        orbit, _ = addressed.ring.find_orbit6()
+        assert len(orbit) == 6
+
+    def test_the_family_binds_it_as_it_binds_a_cavity_the_deck_carried(
+        self, export: dict, cavity_less
+    ) -> None:
+        ring, verdicts, built = cavity_less
+
+        addressed = address_elements(export, ring, verdicts, cavity=built)
+
+        bound = addressed.bindings["RF"]
+        assert len(bound) == 1
+        assert bound[0].attribute == "Frequency"
+        assert bound[0].slices[0].position == len(addressed.ring) - 1
+        assert addressed.ring[-1].FamName == bound[0].element
+
+    def test_the_deck_it_was_given_is_left_as_it_was(self, export: dict, cavity_less) -> None:
+        ring, verdicts, built = cavity_less
+        before = len(ring)
+
+        address_elements(export, ring, verdicts, cavity=built)
+
+        assert len(ring) == before
+        assert not [element for element in ring if isinstance(element, at.RFCavity)]
+
+    def test_every_stated_position_still_points_where_it_did(
+        self, export: dict, cavity_less
+    ) -> None:
+        """The cavity goes on the end, so no index the export states moves."""
+        ring, verdicts, built = cavity_less
+
+        addressed = address_elements(export, ring, verdicts, cavity=built)
+
+        for family, bound in addressed.bindings.items():
+            if family == "RF":
+                continue
+            for device in bound:
+                for piece in device.slices:
+                    assert piece.position < len(ring)
+
+    def test_a_cavity_with_no_answered_voltage_is_refused(self, export: dict, cavity_less) -> None:
+        ring, verdicts, _ = cavity_less
+        unanswered = BuiltCavity(family="RF", nominal_hz=5.0e8, harmonic=BUILT_HARMONIC)
+
+        with pytest.raises(ValueError, match="no voltage"):
+            address_elements(export, ring, verdicts, cavity=unanswered)
+
+    def test_a_deck_saved_as_one_period_of_a_ring_is_refused_a_cavity(
+        self, export: dict, cavity_less
+    ) -> None:
+        """A period is not a ring, and the facts the cavity is built from are the ring's.
+
+        pyAT reads a cavity's harmonic number as the count per period and
+        multiplies it by the lattice periodicity, so the whole-ring harmonic
+        the accelerator data states, built into one period of four, is a
+        cavity at four times the right frequency. The element positions the
+        export indexes are the whole ring's too, so the deck is refused by
+        name rather than served a cavity nobody could read.
+        """
+        ring, verdicts, built = cavity_less
+        periodic = copy.deepcopy(ring)
+        periodic.periodicity = 4
+
+        with pytest.raises(ValueError, match="saved as 4 periods of the ring"):
+            address_elements(export, periodic, verdicts, cavity=built)
+
+    def test_a_deck_saved_as_the_whole_ring_is_served_one(self, export: dict, cavity_less) -> None:
+        ring, verdicts, built = cavity_less
+
+        assert ring.periodicity == 1
+        assert isinstance(
+            address_elements(export, ring, verdicts, cavity=built).ring[-1], at.RFCavity
+        )
+
+    def test_a_deck_given_no_cavity_is_addressed_as_before(
+        self, export: dict, deck, verdicts: dict, addressed: Addressing
+    ) -> None:
+        again = address_elements(export, deck, verdicts, cavity=None)
+
+        assert again.cavity is None
+        assert len(again.ring) == len(addressed.ring)
+
+
+#: An aperture and a transformation a deck may put on a zero-length element.
+#: Neither is implied by the marker class or the monitor class, and both say
+#: where the element stands rather than what it reads.
+APERTURES = [1.0e-3, 2.0e-3]
+DISPLACEMENT = [1.0e-4, 0.0, 2.0e-4, 0.0, 0.0, 0.0]
+
+
+class TestWhatAConvertedElementKeeps:
+    """A conversion between the marker class and the monitor class moves the class.
+
+    An aperture is where the beam is lost and a transformation is where the
+    element stands. Both belong to the position, which the conversion does not
+    touch, so an element that loses them on the way through has been moved to
+    make a name work.
+    """
+
+    def _placed(self, deck, element, at_index: int):
+        """The synthetic deck with one element put where nothing is bound."""
+        ring = copy.deepcopy(deck)
+        ring[at_index] = element
+        return ring
+
+    def test_a_monitor_served_as_a_marker_keeps_its_apertures(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        free = [index for index, element in enumerate(deck) if isinstance(element, at.Drift)][:2]
+        ring = copy.deepcopy(deck)
+        for index in free:
+            ring[index] = at.Monitor("GE", EApertures=APERTURES, T1=DISPLACEMENT)
+
+        addressed = address_elements(export, ring, verdicts)
+
+        for index in free:
+            served = addressed.ring[index]
+            assert isinstance(served, at.Marker)
+            assert list(served.EApertures) == APERTURES
+            assert list(served.T1) == DISPLACEMENT
+
+    def test_a_marker_read_as_a_monitor_keeps_its_apertures(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        ring = self._placed(deck, at.Marker("BPM1", EApertures=APERTURES, T1=DISPLACEMENT), 3)
+
+        addressed = address_elements(export, ring, verdicts)
+
+        served = addressed.ring[3]
+        assert isinstance(served, at.Monitor)
+        assert list(served.EApertures) == APERTURES
+        assert list(served.T1) == DISPLACEMENT
+
+    def test_a_field_the_deck_never_stated_stays_unstated(
+        self, export: dict, deck, verdicts: dict
+    ) -> None:
+        """A class carries these only where the deck did; an absent one is absent."""
+        free = [index for index, element in enumerate(deck) if isinstance(element, at.Drift)][:2]
+        ring = copy.deepcopy(deck)
+        for index in free:
+            ring[index] = at.Monitor("GE")
+
+        addressed = address_elements(export, ring, verdicts)
+
+        served = addressed.ring[free[0]]
+        assert isinstance(served, at.Marker)
+        assert not [field for field in CARRIED_FIELDS if hasattr(served, field)]

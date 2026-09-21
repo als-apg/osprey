@@ -210,20 +210,28 @@ def emit_export_tree(name: str, directory: Path, stem: str, root: Path) -> Tree:
     paths.machine_json.parent.mkdir(parents=True, exist_ok=True)
     keyed = {(system, raw): verdict for raw, verdict in verdicts.items()}
     judged_va = {(system, raw): block for raw, block in va["families"].items()}
+    # What each family's devices drive. The bindings anchor their slice
+    # factors on it and the seeds start a supply at the mean of the same
+    # devices, so both lanes are handed the one mapping.
+    element_bindings = dict(address_elements(va, ring, verdicts).bindings)
     emit_lattice(ring, paths.lattice_json, ctx, write=False)
-    paths.va_bindings.write_text(
-        emit_bindings(
-            keyed,
-            list(views.values()),
-            dict(address_elements(va, ring, verdicts).bindings),
-            judged_va,
-            ctx,
-            system=system,
-            energy_gev=va["lattice"]["energy_gev"],
-        )
+    bindings_text, _findings = emit_bindings(
+        keyed,
+        list(views.values()),
+        element_bindings,
+        judged_va,
+        ctx,
+        system=system,
+        energy_gev=va["lattice"]["energy_gev"],
     )
+    paths.va_bindings.write_text(bindings_text)
     machine_text, _seeds = emit_machine(
-        keyed, list(views.values()), judged_va, _export_mapping(name, system, views), ctx
+        keyed,
+        list(views.values()),
+        judged_va,
+        _export_mapping(name, system, views),
+        ctx,
+        element_bindings,
     )
     paths.machine_json.write_text(machine_text)
 

@@ -31,8 +31,10 @@ from osprey.services.mml.mapping.schema import VA_KINDS, VA_SLOT_KINDS
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
 
-#: The one committed 2.0 export: its ``ao.json`` pulls in the ``ad``, ``va``
-#: and ``response`` siblings and the deck it was sampled over.
+#: The 2.0 export these lanes build on: its ``ao.json`` pulls in the ``ad``,
+#: ``va`` and ``response`` siblings and the deck it was sampled over. It is
+#: the one whose families are enumerated below; the real 2.0 fixtures
+#: (``spear3``, ``nsls2``) are driven by the chain lanes.
 SYNTHETIC = FIXTURES / "synthetic" / "quokka.sr.ao.json"
 
 #: The system ``synthetic`` imports as, and what its block must decide about.
@@ -48,6 +50,12 @@ SYNTHETIC_OPEN_SLOTS = {"IDGAP": "escape_hatch", "SEPTUM": "attype"}
 #: silently leaving a slot null.
 VA_SLOT_ANSWERS = {"attype": "latch", "shared_field": "latch", "escape_hatch": "latch"}
 
+#: What :func:`_fill` answers each open quantity with, keyed by what the
+#: quantity is. A cavity built from an export that states no voltage is run at
+#: a few megavolts, which is what a storage ring of this size runs at; the
+#: orbit does not depend on it.
+VA_VALUE_ANSWERS = {"voltage": 3.0e6}
+
 #: Every committed 1.0 fixture: the export files, relative to :data:`FIXTURES`,
 #: the extra ``mml import`` arguments, and the system its "no 2.0 export" line
 #: names. Each of these directories also holds a reviewed ``mapping.yaml``.
@@ -56,13 +64,7 @@ ONE_ZERO_IMPORTS: dict[str, tuple[tuple[str, ...], tuple[str, ...], str]] = {
     "dialect": (("dialect/export.json",), (), "BOOST, RING"),
     "dualkey": (("dualkey/export.json",), ("--system", "STOR"), "STOR"),
     "mat": (("mat/quokka_booster.mat",), (), "BOOSTER"),
-    "nsls2": (
-        ("nsls2/nsls2.storagering.ao.json", "nsls2/nsls2.ltb.ao.json"),
-        (),
-        "StorageRing",
-    ),
     "paired": (("paired/quokka.ring.ao.json",), (), "RING"),
-    "spear3": (("spear3/spear3.storagering.ao.json",), (), "StorageRing"),
     "tango": (("tango/export.json",), ("--system", "RING"), "RING"),
     "wrapped": (("wrapped/export.json",), ("--system", "INJ"), "INJ"),
 }
@@ -132,8 +134,9 @@ def _write(repo: Path, document: dict) -> None:
 def _fill(document: dict) -> dict:
     """Fill every unfilled slot of a skeleton so it passes the check.
 
-    The virtual-accelerator block is answered too, by slot kind, so a 2.0
-    skeleton reaches the same place a 1.0 one does. Imported by
+    The virtual-accelerator block is answered too -- each slot by its kind and
+    each open quantity by what it is -- so a 2.0 skeleton reaches the same
+    place a 1.0 one does. Imported by
     ``test_mml_map_check.py`` and ``test_mml_emit.py``, whose lanes start from a
     document whose every other slot is already settled.
     """
@@ -172,6 +175,9 @@ def _fill(document: dict) -> dict:
             slot = family.get("slot")
             if slot is not None and slot.get("answer") is None:
                 slot["answer"] = VA_SLOT_ANSWERS[slot["kind"]]
+            for name, value in family.get("values", {}).items():
+                if value.get("answer") is None:
+                    value["answer"] = VA_VALUE_ANSWERS[name]
     return document
 
 

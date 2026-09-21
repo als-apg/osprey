@@ -234,6 +234,176 @@ class TestEveryFixtureImports:
         assert not _out(repo).exists()
 
 
+#: The committed 2.0 fixture trees, discovered rather than listed: the virtual
+#: accelerator of an export lives in its ``*.va.json`` sibling, so a directory
+#: carrying one imports the whole 2.0 set. A tree committed later joins the
+#: cases below without a name being typed here.
+TWO_ZERO_FIXTURES = tuple(
+    sorted(
+        directory.name
+        for directory in FIXTURES.iterdir()
+        if directory.is_dir() and any(directory.glob("*.va.json"))
+    )
+)
+
+#: The systems each 2.0 fixture files a virtual accelerator under. Listed, not
+#: discovered: which sub-machine an export belongs to is the fact under test.
+TWO_ZERO_SYSTEMS: dict[str, list[str]] = {
+    "nsls2": ["LTB", "StorageRing"],
+    "spear3": ["StorageRing"],
+    "synthetic": ["SR"],
+}
+
+
+def _two_zero_inputs(fixture: str) -> list[str]:
+    """The ``ao.json`` files of a 2.0 fixture; its siblings pair themselves."""
+    return [str(path) for path in sorted((FIXTURES / fixture).glob("*.ao.json"))]
+
+
+def _va_sections(profile: str, systems: list[str]) -> dict[str, str]:
+    """Each system's ``Virtual accelerator`` section, keyed by system.
+
+    The sections are read in document order and matched to the systems in the
+    order the profile heads them, so the pairing is the profile's own.
+    """
+    lines = profile.splitlines()
+    starts = [index for index, line in enumerate(lines) if line == "### Virtual accelerator"]
+    assert len(starts) == len(systems), f"{len(starts)} sections for {len(systems)} systems"
+    order = [line.split("`")[1] for line in lines if line.startswith("## System `")]
+    assert sorted(order) == sorted(systems), order
+    found: dict[str, str] = {}
+    for system, start in zip(order, starts, strict=True):
+        end = next(
+            (index for index in range(start + 1, len(lines)) if lines[index].startswith("## ")),
+            len(lines),
+        )
+        found[system] = "\n".join(lines[start + 1 : end])
+    return found
+
+
+class TestATwoZeroImport:
+    """A 2.0 export files its virtual accelerator per system, byte-stably.
+
+    The siblings are never named on the command line: ``mml import`` pairs the
+    ``va``, ``response`` and ``lattice`` files beside each ``ao.json`` it is
+    handed, which is how a facility runs it.
+    """
+
+    def test_every_two_zero_fixture_is_listed(self) -> None:
+        assert TWO_ZERO_FIXTURES, "no fixture export carries a *.va.json sibling"
+        assert set(TWO_ZERO_FIXTURES) <= set(TWO_ZERO_SYSTEMS), sorted(
+            set(TWO_ZERO_FIXTURES) - set(TWO_ZERO_SYSTEMS)
+        )
+
+    @pytest.mark.parametrize("fixture", TWO_ZERO_FIXTURES)
+    def test_the_siblings_land_under_their_own_systems(self, repo: Path, fixture: str) -> None:
+        result = _invoke("import", *_two_zero_inputs(fixture))
+
+        assert result.exit_code == 0, result.output
+        out = _out(repo)
+        systems = TWO_ZERO_SYSTEMS[fixture]
+        assert sorted(_read_json(out / "va.json")) == systems
+        assert sorted(_read_json(out / "response.json")) == systems
+        assert sorted(path.stem for path in (out / "lattice").glob("*.mat")) == systems
+
+    @pytest.mark.parametrize("fixture", TWO_ZERO_FIXTURES)
+    def test_a_second_import_of_the_same_export_is_byte_stable(
+        self, repo: Path, fixture: str
+    ) -> None:
+        inputs = _two_zero_inputs(fixture)
+        assert _invoke("import", *inputs).exit_code == 0
+        out = _out(repo)
+        before = {path.name: path.read_bytes() for path in sorted(out.rglob("*")) if path.is_file()}
+
+        result = _invoke("import", *inputs)
+
+        assert result.exit_code == 0, result.output
+        after = {path.name: path.read_bytes() for path in sorted(out.rglob("*")) if path.is_file()}
+        assert after == before
+
+    def test_the_two_system_export_carries_both_blocks(self, repo: Path) -> None:
+        """NSLS-II imports as two sub-machines, the transfer line among them."""
+        result = _invoke("import", *_two_zero_inputs("nsls2"))
+
+        assert result.exit_code == 0, result.output
+        va = _read_json(_out(repo) / "va.json")
+        assert _read_json(_out(repo) / "ao.json")["_import_order"] == ["LTB", "StorageRing"]
+        assert va["LTB"]["_export"]["submachine"] == "LTB"
+        assert va["StorageRing"]["_export"]["submachine"] == "StorageRing"
+        assert va["LTB"]["families"] and va["StorageRing"]["families"]
+
+    def test_a_deck_of_another_ring_is_refused_by_the_field_it_disagrees_on(
+        self, repo: Path
+    ) -> None:
+        """The first fact of the fingerprint the two rings differ on is named."""
+        for path in sorted((FIXTURES / "spear3").iterdir()):
+            if path.is_file() and path.name != "mapping.yaml":
+                shutil.copy(path, repo / path.name)
+        shutil.copy(
+            FIXTURES / "nsls2" / "nsls2.storagering.lattice.mat",
+            repo / "spear3.storagering.lattice.mat",
+        )
+
+        result = _invoke("import", "spear3.storagering.ao.json")
+
+        assert result.exit_code == 2, result.output
+        assert "Traceback" not in result.output
+        assert "spear3.storagering.lattice.mat" in result.output
+        assert "elements" in result.output
+        assert "import the lattice the export was sampled from" in result.output
+        assert not _out(repo).exists()
+
+    @pytest.mark.parametrize("fixture", TWO_ZERO_FIXTURES)
+    def test_the_profile_reads_the_machine_it_just_imported(self, repo: Path, fixture: str) -> None:
+        """Every system's ``Virtual accelerator`` section renders from the export.
+
+        The census is handed the ``va.json`` and ``response.json`` this import
+        wrote and the cavity count read off the deck it filed, so a 2.0 import
+        reads as one rather than as a tree that holds no export.
+        """
+        from osprey.services.mml.profile import VA_HEADINGS
+
+        result = _invoke("import", *_two_zero_inputs(fixture))
+
+        assert result.exit_code == 0, result.output
+        profile = (_out(repo) / "PROFILE.md").read_text(encoding="utf-8")
+        sections = _va_sections(profile, TWO_ZERO_SYSTEMS[fixture])
+        for system, body in sections.items():
+            assert "no 2.0 export" not in body, system
+            for heading in VA_HEADINGS:
+                assert f"#### {heading}" in body, f"{system} states no {heading!r}"
+
+    def test_a_one_zero_import_says_the_tree_holds_no_machine(self, repo: Path) -> None:
+        """A 1.0 import renders the heading and the one line that says so."""
+        result = _invoke("import", *_inputs(FIXTURE_IMPORTS["paired"][0]))
+
+        assert result.exit_code == 0, result.output
+        profile = (_out(repo) / "PROFILE.md").read_text(encoding="utf-8")
+        (body,) = _va_sections(profile, ["RING"]).values()
+        assert body.strip() == "no 2.0 export"
+
+    def test_the_two_system_profile_states_each_deck_on_its_own_system(self, repo: Path) -> None:
+        """The two sub-machines are not one another: different deck, different ring."""
+        assert _invoke("import", *_two_zero_inputs("nsls2")).exit_code == 0
+
+        sections = _va_sections(
+            (_out(repo) / "PROFILE.md").read_text(encoding="utf-8"), ["LTB", "StorageRing"]
+        )
+
+        assert "| Elements | 121 |" in sections["LTB"]
+        assert "| Elements | 3510 |" in sections["StorageRing"]
+        assert "| Energy (GeV) | 0.2 |" in sections["LTB"]
+        assert "| Energy (GeV) | 3 |" in sections["StorageRing"]
+
+    def test_a_one_zero_import_is_what_it_always_was(self, repo: Path) -> None:
+        """A 1.0 export files no sibling, and says nothing about a machine."""
+        result = _invoke("import", *_inputs(FIXTURE_IMPORTS["paired"][0]))
+
+        assert result.exit_code == 0, result.output
+        out = _out(repo)
+        assert sorted(path.name for path in out.iterdir()) == ["PROFILE.md", "ad.json", "ao.json"]
+
+
 class TestRefusals:
     def test_v73_mat_file_is_refused_with_the_save_v7_sentence(self, repo: Path) -> None:
         header = b"MATLAB 7.3 MAT-file, Platform: GLNXA64".ljust(116, b" ")

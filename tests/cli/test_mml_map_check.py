@@ -11,9 +11,10 @@ The ``virtual_accelerator:`` block is checked on the one committed 2.0 export,
 ``synthetic``, which has no reviewed mapping of its own: those cases start from
 the skeleton ``map --init`` writes with every other slot answered, so a problem
 count is a statement about the block alone. They cover what the parser refuses
-by name, what the ring refuses, and the three ways the tree and the block can
+by name, what the ring refuses, the three ways the tree and the block can
 disagree -- no block, a block naming another system, and a deck that was never
-imported.
+imported -- and, over the same deck with its cavity taken off, the two ways a
+document can miss an open ``values:`` question.
 
 The ``judgments:`` block is checked on the real two-system NSLS-II export,
 whose committed mapping answers thirteen slots. Those cases pin more than a
@@ -183,7 +184,9 @@ def _import_short_ltb_bend(root: Path, work: Path) -> dict:
     """
     exports = work / "exports"
     exports.mkdir()
-    for source in sorted((FIXTURES / "nsls2").glob("nsls2.*.json")):
+    # The decks travel with the export: a 2.0 sibling is checked against the
+    # ring it was sampled over, so leaving them behind refuses the whole check.
+    for source in sorted((FIXTURES / "nsls2").glob("nsls2.*")):
         shutil.copy(source, exports / source.name)
     short = exports / "nsls2.ltb.ao.json"
     export = json.loads(short.read_text(encoding="utf-8"))
@@ -580,6 +583,34 @@ def va_base(repo: Path) -> dict:
     return _fill(document)
 
 
+@pytest.fixture
+def va_no_cavity(repo: Path) -> dict:
+    """The same skeleton over a deck with no cavity, so the block asks a quantity.
+
+    A facility whose Middle Layer holds the radio frequency saves no cavity,
+    and the block the rules then write carries the one open ``values:``
+    question there is -- the voltage of the cavity emit builds for it. The
+    cavity is the deck's last element, so no position the export states moves.
+    """
+    import at
+
+    from osprey.services.mml.loaders.mat import load_lattice
+
+    result = CliRunner().invoke(cli, ["mml", "import", str(SYNTHETIC)], catch_exceptions=False)
+    assert result.exit_code == 0, result.output
+    deck = repo / "data" / "mml" / "lattice" / f"{SYNTHETIC_SYSTEM}.mat"
+    ring = load_lattice(deck)
+    assert isinstance(ring[-1], at.RFCavity), "the synthetic deck no longer ends in its cavity"
+    del ring[-1]
+    at.save_mat(ring, str(deck), mat_key="THERING")
+    init = CliRunner().invoke(cli, ["mml", "map", "--init"], catch_exceptions=False)
+    assert init.exit_code == 0, init.output
+    document = yaml.safe_load((repo / "data" / "mml" / "mapping.yaml").read_text(encoding="utf-8"))
+    document = _fill(document)
+    assert document["virtual_accelerator"]["families"]["RF"]["values"]["voltage"]["answer"]
+    return document
+
+
 class TestVirtualAccelerator:
     """The ``virtual_accelerator`` block, end to end on the 2.0 tree."""
 
@@ -689,6 +720,47 @@ class TestVirtualAccelerator:
         )
         assert _problem_count(result.output) == 1, result.output
         assert not _problem_lines(result.output, SEPTUM_ANSWER), result.output
+
+    def test_the_answered_quantity_passes(self, repo: Path, va_no_cavity: dict) -> None:
+        result = _check(repo, va_no_cavity)
+
+        assert result.exit_code == 0, result.output
+        assert "passes the check" in result.output
+
+    def test_a_dropped_quantity_is_named_as_unanswered(
+        self, repo: Path, va_no_cavity: dict
+    ) -> None:
+        # Deleting the question is not answering it: emit needs the number,
+        # so the check has to be the command that asks for it.
+        document = mutate(va_no_cavity, "virtual_accelerator.families.RF.values.voltage", DELETE)
+
+        result = _check(repo, document)
+
+        _assert_rejected(
+            result, "virtual_accelerator.families.RF.values.voltage", "is not answered"
+        )
+        assert _problem_count(result.output) == 1, result.output
+
+    def test_a_misspelt_quantity_is_named_on_both_counts(
+        self, repo: Path, va_no_cavity: dict
+    ) -> None:
+        # Renaming the key leaves the real question unanswered and adds one
+        # the rules never asked, and a reviewer needs to be told both.
+        document = copy.deepcopy(va_no_cavity)
+        values = document["virtual_accelerator"]["families"]["RF"]["values"]
+        values["voltages"] = values.pop("voltage")
+
+        result = _check(repo, document)
+
+        _assert_rejected(
+            result, "virtual_accelerator.families.RF.values.voltage", "is not answered"
+        )
+        _assert_rejected(
+            result,
+            "virtual_accelerator.families.RF.values.voltages",
+            f"answers no open question of RF in {SYNTHETIC_SYSTEM}",
+        )
+        assert _problem_count(result.output) == 2, result.output
 
 
 class TestNoDerived:

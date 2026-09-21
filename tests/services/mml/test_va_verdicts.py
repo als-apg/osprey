@@ -30,9 +30,12 @@ from osprey.services.mml.family import family_views
 from osprey.services.mml.loaders.mat import load_lattice
 from osprey.services.mml.va.verdicts import (
     ATTYPE_TABLE,
+    CAVITY_VOLTAGE,
     CORRECTOR_MEMBERSHIP,
     ENERGY_TOLERANCE_GEV,
+    HARMONIC_KEY,
     attype_slot_opens,
+    cavity_to_build,
     propose,
     resolve_attype,
 )
@@ -207,16 +210,24 @@ class TestTheSyntheticExport:
         assert verdict.slot.kind == "attype"
         assert "Septum" in verdict.slot.question
 
-    @pytest.mark.parametrize("family", ["DCCT", "TUNE", "Version"])
     def test_a_family_with_no_lattice_element_latches_on_one_shared_reason(
-        self, verdicts: dict, family: str
+        self, verdicts: dict
     ) -> None:
-        verdict = verdicts[family]
+        verdict = verdicts["DCCT"]
         assert (verdict.verdict, verdict.reason, verdict.slot) == (
             "latch",
             "no lattice element",
             None,
         )
+
+    @pytest.mark.parametrize("family", ["TUNE", "Version"])
+    def test_a_family_the_export_refused_latches_on_the_exports_own_words(
+        self, verdicts: dict, export: dict, family: str
+    ) -> None:
+        verdict = verdicts[family]
+        assert (verdict.verdict, verdict.slot) == ("latch", None)
+        assert verdict.reason == export["families"][family]["refused"]
+        assert verdict.reason != "no lattice element"
 
     def test_the_export_leaves_exactly_two_questions_open(self, verdicts: dict) -> None:
         open_slots = {
@@ -408,12 +419,27 @@ class TestTheTypeTable:
         self, export: dict, deck, objects: dict
     ) -> None:
         export["families"]["SEPTUM"]["nominals"]["Monitor"]["at_index"] = []
+        export["families"]["SEPTUM"].pop("refused")
         verdict = propose(export, deck, _views(objects))["SEPTUM"]
         assert (verdict.verdict, verdict.reason, verdict.slot) == (
             "latch",
             "no lattice element",
             None,
         )
+
+    def test_an_export_that_refused_the_family_says_so_instead(
+        self, export: dict, deck, objects: dict
+    ) -> None:
+        """The reason a family binds nothing is the one the export gives.
+
+        The export states what it could not sample, so reporting that the
+        family names no lattice element would have the mapping contradict the
+        export it was written from.
+        """
+        export["families"]["SEPTUM"]["nominals"]["Monitor"]["at_index"] = []
+        verdict = propose(export, deck, _views(objects))["SEPTUM"]
+        assert (verdict.verdict, verdict.slot) == ("latch", None)
+        assert verdict.reason == export["families"]["SEPTUM"]["refused"]
 
 
 class TestTheElementRules:
@@ -513,6 +539,62 @@ class TestTheElementRules:
         assert propose(export, deck, _views(objects))["RF"].verdict == "couple"
 
 
+class TestTheNominalRule:
+    """A family is driven only where every one of its devices can start somewhere."""
+
+    def test_a_family_whose_conversion_answers_nothing_stands_still(
+        self, export: dict, deck, objects: dict
+    ) -> None:
+        nominal = export["families"]["QF"]["nominals"]["Setpoint"]
+        nominal["values"] = ["NaN"] * len(nominal["values"])
+        verdict = propose(export, deck, _views(objects))["QF"]
+        assert verdict.verdict == "latch"
+        assert verdict.reason == (
+            f"the export states no hardware nominal for any of its {len(nominal['values'])} devices"
+        )
+        assert verdict.slot is None
+
+    def test_one_device_short_of_a_nominal_stands_the_whole_family_still(
+        self, export: dict, deck, objects: dict
+    ) -> None:
+        nominal = export["families"]["QF"]["nominals"]["Setpoint"]
+        assert len(nominal["values"]) > 1
+        nominal["values"] = ["NaN", *nominal["values"][1:]]
+        verdict = propose(export, deck, _views(objects))["QF"]
+        assert verdict.verdict == "latch"
+        assert verdict.reason == (
+            f"the export states no hardware nominal for 1 of its {len(nominal['values'])} devices"
+        )
+
+    def test_a_nominal_in_physics_units_stands_a_driven_family_still(
+        self, export: dict, deck, objects: dict
+    ) -> None:
+        export["families"]["QF"]["nominals"]["Setpoint"]["units"] = "Physics"
+        verdict = propose(export, deck, _views(objects))["QF"]
+        assert verdict.verdict == "latch"
+        assert verdict.reason == (
+            "the export states no hardware nominal: its nominal is in physics units "
+            "and a channel is hardware"
+        )
+
+    def test_a_monitor_couples_although_it_has_no_hardware_nominal(
+        self, export: dict, deck, objects: dict
+    ) -> None:
+        nominal = export["families"]["BPMx"]["nominals"]["Monitor"]
+        nominal["values"] = ["NaN"] * len(nominal["values"])
+        assert propose(export, deck, _views(objects))["BPMx"].verdict == "couple"
+
+    def test_an_open_question_is_asked_before_the_nominal_is_read(
+        self, export: dict, deck, objects: dict
+    ) -> None:
+        objects["QF"]["Setpoint"]["AT"] = {"ATParameterGroup": "PolynomB"}
+        nominal = export["families"]["QF"]["nominals"]["Setpoint"]
+        nominal["values"] = ["NaN"] * len(nominal["values"])
+        verdict = propose(export, deck, _views(objects))["QF"]
+        assert verdict.slot is not None
+        assert verdict.slot.kind == "escape_hatch"
+
+
 class TestTheDeckIsTheAuthority:
     """Every fact about the ring is read from the deck, not from the export."""
 
@@ -554,14 +636,32 @@ def _stated_type(family: dict) -> tuple[Any, Any]:
     return block.get("ATType"), block.get("ATIndex")
 
 
+def _real_ad(facility: str) -> dict:
+    """The committed accelerator data of one facility's storage ring."""
+    path = FIXTURES / facility / f"{REAL_EXPORTS[facility]}.ad.json"
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
 def _two_zero_tree(facility: str) -> tuple[dict, Path] | None:
-    """A committed 2.0 export of one facility, once its re-export lands."""
-    for document in sorted((FIXTURES / facility).rglob("*.va.json")):
-        deck = document.with_name(document.name[: -len(".va.json")] + ".lattice.mat")
-        objects = document.with_name(document.name[: -len(".va.json")] + ".ao.json")
-        if deck.exists() and objects.exists():
-            return json.loads(document.read_text(encoding="utf-8")), deck
-    return None
+    """The 2.0 export of the sub-machine :data:`REAL_EXPORTS` names.
+
+    The stem is named rather than discovered: a facility committing a transfer
+    line beside its ring commits two, and the accelerator objects these rules
+    are proposed against are the ring's.
+    """
+    stem = FIXTURES / facility / REAL_EXPORTS[facility]
+    document = stem.with_name(stem.name + ".va.json")
+    deck = stem.with_name(stem.name + ".lattice.mat")
+    objects = stem.with_name(stem.name + ".ao.json")
+    if not (document.exists() and deck.exists() and objects.exists()):
+        return None
+    return json.loads(document.read_text(encoding="utf-8")), deck
+
+
+def _real_block(facility: str) -> dict:
+    """The virtual-accelerator block of a facility's 2.0 export."""
+    document = _two_zero_tree(facility)[0]
+    return document if "families" in document else next(iter(document.values()))
 
 
 def _real_verdicts(facility: str) -> dict:
@@ -574,7 +674,7 @@ def _real_verdicts(facility: str) -> dict:
         )
     document, deck = found
     block = document if "families" in document else next(iter(document.values()))
-    return propose(block, load_lattice(deck), _views(_real_export(facility)))
+    return propose(block, load_lattice(deck), _views(_real_export(facility)), _real_ad(facility))
 
 
 class TestTheFirstFacility:
@@ -639,12 +739,30 @@ class TestTheFirstFacility:
             if verdict.slot is not None
         }
         assert asking == {
-            "HCMCurrReference": "attype",
-            "VCMCurrReference": "attype",
             "KickerAmp": "attype",
             "KickerDelay": "attype",
             "Septum": "attype",
         }
+
+    def test_a_family_whose_indices_answer_for_no_device_is_not_asked_about(self) -> None:
+        """An unknown type is a question only where the family binds elements.
+
+        Both current references state a lattice index for every corrector on
+        their supply and one device of their own, so their indices answer for
+        no device of the family and the deck decides them before the type
+        table gets a question out. The export itself could sample neither, and
+        its words are the reason each is latched on.
+        """
+        verdicts = _real_verdicts(self.FACILITY)
+        families = _two_zero_tree(self.FACILITY)[0]["families"]
+
+        for family in ("HCMCurrReference", "VCMCurrReference"):
+            assert verdicts[family].slot is None
+            assert verdicts[family].verdict == "latch"
+            assert verdicts[family].reason == families[family]["refused"]
+            assert verdicts[family].reason == (
+                "Index exceeds the number of array elements. Index must not exceed 1."
+            )
         for family in ("BDM", "CD"):
             assert verdicts[family].verdict == "latch"
             assert "takes no KickAngle" in verdicts[family].reason
@@ -685,7 +803,104 @@ class TestTheSecondFacility:
         assert not [name for name, verdict in verdicts.items() if verdict.slot is not None]
         assert verdicts["BEND"].verdict == "latch"
         assert verdicts["BEND"].reason == "bend2gev is constant at this facility"
+        # This deck carries no cavity, and the export says enough to build
+        # one, so the family drives the cavity the served ring is given.
+        assert verdicts["RF"].verdict == "couple"
         assert verdicts["RF"].kind == "rf"
         skew = verdicts["SQ"]
         assert (skew.verdict, skew.element_field) == ("couple", "PolynomA[1]")
         assert "rad" in skew.reason
+
+
+class TestTheCavityItBuilds:
+    """A deck that holds no cavity is served one the export describes.
+
+    A facility whose Middle Layer holds the radio frequency exports a deck
+    with no cavity in it, and a ring without one solves at fixed energy --
+    which puts the beam in the wrong place wherever there is dispersion. The
+    second facility is such a ring: it states its frequency on a family typed
+    as a cavity and its harmonic number in the accelerator data, which between
+    them are a cavity.
+    """
+
+    FACILITY = "nsls2"
+
+    def test_the_second_facility_states_what_a_cavity_is_made_of(self) -> None:
+        block = _real_block(self.FACILITY)
+        deck = load_lattice(FIXTURES / self.FACILITY / f"{REAL_EXPORTS[self.FACILITY]}.lattice.mat")
+        built = cavity_to_build(block, deck, _real_ad(self.FACILITY))
+
+        assert built is not None
+        assert built.family == "RF"
+        assert built.harmonic == 1320
+        assert built.nominal_hz == pytest.approx(499.68e6)
+        assert built.voltage is None
+
+    def test_the_family_drives_it_and_is_asked_what_it_runs_at(self) -> None:
+        verdict = _real_verdicts(self.FACILITY)["RF"]
+
+        assert (verdict.verdict, verdict.kind) == ("couple", "rf")
+        assert list(verdict.values) == [CAVITY_VOLTAGE]
+        value = verdict.values[CAVITY_VOLTAGE]
+        assert (value.units, value.answer) == ("volts", None)
+        assert value.question
+
+    def test_a_deck_that_holds_a_cavity_is_served_no_second_one(
+        self, export: dict, deck, objects: dict
+    ) -> None:
+        built = cavity_to_build(export, deck, {HARMONIC_KEY: 12})
+
+        assert built is None
+        assert not propose(export, deck, _views(objects), {HARMONIC_KEY: 12})["RF"].values
+
+    def test_a_deck_with_no_cavity_and_no_frequency_stands_still(
+        self, export: dict, objects: dict
+    ) -> None:
+        del export["families"]["RF"]["nominals"]["Setpoint"]["values"]
+        empty = _Deck([_element()])
+
+        assert cavity_to_build(export, empty, {HARMONIC_KEY: 12}) is None
+        verdict = propose(export, empty, _views(objects), {HARMONIC_KEY: 12})["RF"]
+        assert (verdict.verdict, verdict.reason) == ("latch", "the deck holds no cavity")
+
+    def test_a_ring_that_states_no_harmonic_number_stands_still(
+        self, export: dict, objects: dict
+    ) -> None:
+        empty = _Deck([_element()])
+
+        assert cavity_to_build(export, empty, {}) is None
+        verdict = propose(export, empty, _views(objects), None)["RF"]
+        assert (verdict.verdict, verdict.reason) == ("latch", "the deck holds no cavity")
+
+    def test_the_nominal_is_read_through_the_family_own_conversion(
+        self, export: dict, objects: dict
+    ) -> None:
+        """The channel is hardware, so the megahertz on it are hertz here."""
+        export["families"]["RF"]["nominals"]["Setpoint"]["values"] = 500.0
+        export["families"]["RF"]["Setpoint"]["calibration"] = {
+            "kind": "linear",
+            "gain": 1e6,
+            "offset": 0,
+        }
+
+        built = cavity_to_build(export, _Deck([_element()]), {HARMONIC_KEY: 12})
+
+        assert built is not None
+        assert built.nominal_hz == pytest.approx(500e6)
+
+    def test_only_the_first_family_that_states_a_frequency_is_served_one(
+        self, export: dict, objects: dict
+    ) -> None:
+        """A ring is served one cavity, so a second claim on it stands still."""
+        export["families"]["RF2"] = copy.deepcopy(export["families"]["RF"])
+        empty = _Deck([_element()])
+
+        built = cavity_to_build(export, empty, {HARMONIC_KEY: 12})
+
+        assert built is not None and built.family == "RF"
+        verdicts = propose(export, empty, _views(objects), {HARMONIC_KEY: 12})
+        assert verdicts["RF"].verdict == "couple"
+        assert (verdicts["RF2"].verdict, verdicts["RF2"].reason) == (
+            "latch",
+            "the deck holds no cavity",
+        )

@@ -16,7 +16,18 @@ field, a whitespace-only slot, and the spelling of a non-finite number.
 The Accelerator Data is compared structurally: both documents carry the same
 keys, strings and integers are equal, and floats agree to within a relative
 tolerance of 1e-9 (absolute 1e-12), because a value that passes through a
-lattice simulator is not bit-reproducible across releases.
+lattice simulator is not bit-reproducible across releases. The virtual
+accelerator and the orbit response are compared the same way.
+
+Two facts of a 2.0 export are held tighter than that tolerance:
+
+* the deck the export was sampled over is compared element by element against
+  the committed ``lattice.mat`` --- same count, same order, same names,
+  classes and pass methods, with the numbers that describe an element's optics
+  inside 1e-9;
+* the energies a dipole ramp was sampled at are compared exactly. They are a
+  conversion table read at stated currents, not a tracking result, so a digit
+  that moves there is a different table and not a release difference.
 
 Two keys are excluded everywhere, because they differ between any two runs by
 design:
@@ -45,19 +56,22 @@ the export of a sub-machine is produced once and shared by every case below.
 
 from __future__ import annotations
 
+import json
 import math
 import os
 import re
 import shutil
 import subprocess
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from osprey.services.mml.loaders import LoadedInput
 from osprey.services.mml.loaders.json_any import load_json
+from osprey.services.mml.loaders.mat import load_lattice
 from osprey.services.mml.normalize import normalize_family
 from osprey.services.mml.systems import resolve_system
 
@@ -79,6 +93,20 @@ VOLATILE_EXPORT_KEYS = frozenset({"matlab", "timestamp"})
 
 FLOAT_REL_TOL = 1e-9
 FLOAT_ABS_TOL = 1e-12
+
+#: Every file the exporter writes for one sub-machine, by suffix. The first two
+#: are a 1.0 export; the rest are what 2.0 added.
+EXPORT_SUFFIXES = (".ao.json", ".ad.json", ".va.json", ".response.json", ".lattice.mat")
+
+#: The element attributes two decks must agree on. ``FamName``, ``Class`` and
+#: ``PassMethod`` are identities and compared as written; the rest describe the
+#: optics and are compared inside :data:`DECK_TOLERANCE`.
+DECK_IDENTITIES = ("FamName", "Class", "PassMethod")
+DECK_NUMBERS = ("Length", "PolynomB", "PolynomA", "KickAngle")
+
+#: How far apart two decks' optics may be. A deck is saved by MATLAB and read
+#: back by pyAT, so the last digit is a transcription, not a measurement.
+DECK_TOLERANCE = 1e-9
 
 pytestmark = [
     pytest.mark.requires_matlab,
@@ -156,20 +184,26 @@ def case(request: pytest.FixtureRequest) -> Case:
     return request.param
 
 
-@pytest.fixture
-def committed(case: Case) -> Path:
-    """The committed AO file for this sub-machine, with its AD sibling beside it."""
+def _committed_file(case: Case, suffix: str) -> Path:
+    """The committed file of this sub-machine, skipping when it is not there."""
     directory = FIXTURES / case.fixture
     if not directory.is_dir():
         pytest.skip(
             f"{directory.relative_to(REPO_ROOT)} is not committed — "
             f"the {case.fixture} export fixture is missing"
         )
+    path = directory / f"{case.stem}{suffix}"
+    if not path.is_file():
+        pytest.skip(f"{path.relative_to(REPO_ROOT)} is not committed")
+    return path
+
+
+@pytest.fixture
+def committed(case: Case) -> Path:
+    """The committed AO file for this sub-machine, with its AD sibling beside it."""
     for suffix in (".ao.json", ".ad.json"):
-        path = directory / f"{case.stem}{suffix}"
-        if not path.is_file():
-            pytest.skip(f"{path.relative_to(REPO_ROOT)} is not committed")
-    return directory / f"{case.stem}.ao.json"
+        _committed_file(case, suffix)
+    return _committed_file(case, ".ao.json")
 
 
 @pytest.fixture(scope="module")
@@ -247,7 +281,7 @@ def _run_export(case: Case, workdir: Path, mml: Path, at_dir: Path) -> Path:
     assert completed.returncode == 0, report
     # matlab -batch reports some failures on stdout and still exits 0, so the
     # files themselves are the proof that the export ran.
-    for suffix in (".ao.json", ".ad.json"):
+    for suffix in EXPORT_SUFFIXES:
         assert (outdir / f"{case.stem}{suffix}").is_file(), report
     return outdir / f"{case.stem}.ao.json"
 
@@ -378,6 +412,117 @@ def test_the_export_block_names_the_machine_and_sub_machine(
     assert actual.export["machine"] == case.machine
     assert actual.export["submachine"] == case.submachine
     assert resolve_system(actual, None) == case.submachine
+
+
+def _sibling(ao: Path, suffix: str) -> dict:
+    """One JSON sibling of an export, read beside its ``ao.json``."""
+    path = ao.with_name(ao.name[: -len(".ao.json")] + suffix)
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _without_export(document: dict) -> dict:
+    """A document whose ``_export`` block keeps only what the machine decides."""
+    block = document.get("_export")
+    rest = {key: value for key, value in document.items() if key != "_export"}
+    if isinstance(block, dict):
+        rest["_export"] = {k: v for k, v in block.items() if k not in VOLATILE_EXPORT_KEYS}
+    return rest
+
+
+def _sampled_energies(va: dict) -> dict[str, object]:
+    """Every energy the export states, by path: the ring's and each ramp's."""
+    found: dict[str, object] = {"lattice.energy_gev": va.get("lattice", {}).get("energy_gev")}
+    for family, body in sorted(va.get("families", {}).items()):
+        table = body.get("energy_table")
+        if not isinstance(table, dict):
+            continue
+        for key in ("grid", "values", "I_nom", "energy_at_nominal", "finite_span"):
+            found[f"families.{family}.energy_table.{key}"] = table.get(key)
+    return found
+
+
+def _deck_facts(ring: Iterable[object]) -> list[dict[str, object]]:
+    """Each element of a deck as the facts two exports must agree on.
+
+    The class is the pyAT type the element was read back as, which is what a
+    tracking pass is chosen by; an element's own ``Class`` string is a MATLAB
+    label the reader may or may not carry.
+    """
+    facts: list[dict[str, object]] = []
+    for element in ring:
+        entry: dict[str, object] = {"Class": type(element).__name__}
+        for name in DECK_IDENTITIES:
+            if name != "Class":
+                entry[name] = getattr(element, name, None)
+        for name in DECK_NUMBERS:
+            value = getattr(element, name, None)
+            entry[name] = None if value is None else np.atleast_1d(value).astype(float).tolist()
+        facts.append(entry)
+    return facts
+
+
+def test_the_exported_virtual_accelerator_matches_the_committed_export(
+    case: Case, export: Callable[[Case], Path]
+) -> None:
+    """The machine block, to the tolerance this module's docstring names."""
+    expected = json.loads(_committed_file(case, ".va.json").read_text(encoding="utf-8"))
+
+    actual = _sibling(export(case), ".va.json")
+
+    assert _differences(_without_export(actual), _without_export(expected)) == []
+
+
+def test_the_exported_response_matches_the_committed_export(
+    case: Case, export: Callable[[Case], Path]
+) -> None:
+    """The orbit-response file, including which file it was read from."""
+    expected = json.loads(_committed_file(case, ".response.json").read_text(encoding="utf-8"))
+
+    actual = _sibling(export(case), ".response.json")
+
+    assert _differences(_without_export(actual), _without_export(expected)) == []
+
+
+def test_the_sampled_energies_are_exact(case: Case, export: Callable[[Case], Path]) -> None:
+    """A conversion table read at stated currents moves in no digit."""
+    expected = _sampled_energies(
+        json.loads(_committed_file(case, ".va.json").read_text(encoding="utf-8"))
+    )
+
+    actual = _sampled_energies(_sibling(export(case), ".va.json"))
+
+    assert actual == expected
+
+
+def test_the_exported_deck_is_the_committed_deck(
+    case: Case, export: Callable[[Case], Path]
+) -> None:
+    """Element for element, in order, the fresh deck is the committed one."""
+    committed_deck = _committed_file(case, ".lattice.mat")
+    fresh = export(case)
+    expected = _deck_facts(load_lattice(committed_deck))
+
+    actual = _deck_facts(
+        load_lattice(fresh.with_name(fresh.name[: -len(".ao.json")] + ".lattice.mat"))
+    )
+
+    assert len(actual) == len(expected)
+    for index, (left, right) in enumerate(zip(actual, expected, strict=True)):
+        where = f"element {index} ({right['FamName']})"
+        for name in DECK_IDENTITIES:
+            assert left[name] == right[name], where
+        for name in DECK_NUMBERS:
+            if right[name] is None:
+                assert left[name] is None, f"{where}.{name}"
+                continue
+            assert left[name] is not None, f"{where}.{name}"
+            assert len(left[name]) == len(right[name]), f"{where}.{name}"  # type: ignore[arg-type]
+            for position, (got, want) in enumerate(
+                zip(left[name], right[name], strict=True)  # type: ignore[arg-type]
+            ):
+                assert math.isclose(got, want, rel_tol=DECK_TOLERANCE, abs_tol=DECK_TOLERANCE), (
+                    f"{where}.{name}[{position}]: expected {want!r}, got {got!r}"
+                )
 
 
 def test_an_unbounded_range_round_trips_as_the_inf_strings(

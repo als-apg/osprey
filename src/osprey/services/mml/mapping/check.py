@@ -17,8 +17,13 @@ Rules:
   no signal the family binds below its devices.
 * Where the tree carries a 2.0 virtual-accelerator export the mapping holds a
   ``virtual_accelerator`` block for the system that export is of, the deck that
-  export was sampled over is imported, and every answer of the block is one the
-  deck's elements can carry. A tree without such an export asks none of this.
+  export was sampled over is imported, every answer of the block is one the
+  deck's elements can carry, and every family the block couples states a
+  hardware nominal for each of its devices to start the model from. A tree
+  without such an export asks none of this.
+* Every quantity a virtual-accelerator family is asked for is answered with a
+  positive number. It is asked for because nothing else states it, so an
+  unanswered one stops the emit lane exactly as an unanswered slot does.
 * The facility token is PN_LOCAL; a ``rename`` is PN_LOCAL.
 * ``systems:`` and ``families:`` name exactly the systems and families of
   ``ao.json``.
@@ -48,6 +53,7 @@ pure and depends on the standard library and the ``mml`` package.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, replace
 
@@ -58,6 +64,7 @@ from osprey.services.mml.judgments import (
     VAPending,
     all_pending_judgments,
     judged_family_views,
+    judged_va_block,
     unanswered_slots,
     validate_answers,
 )
@@ -70,8 +77,10 @@ from osprey.services.mml.mapping.schema import (
     Mapping,
     OwnerMap,
     SharedAnswer,
+    VirtualAccelerator,
     judgment_key,
 )
+from osprey.services.mml.va.verdicts import missing_nominal
 
 __all__ = ["CheckResult", "Problem", "VAExport", "check_mapping"]
 
@@ -342,6 +351,57 @@ def _judgments(ctx: _Context) -> Iterator[Problem]:
     yield from ctx.judgment_problems
 
 
+def _va_values(ctx: _Context) -> Iterator[Problem]:
+    """Refuse a quantity a family was asked for and nobody answered.
+
+    Which quantities a family is asked for is the rule's to say, not the
+    document's: the questions are the proposed verdict's own, as
+    :func:`_va_nominals` re-asks ``missing_nominal``, so a reviewer who
+    deletes the question rather than answering it is refused here instead of
+    by the command that needed the number. They are asked only while the
+    mapping still couples the family, because a family standing still is
+    served nothing to need them for -- which is the rule the emitter reads
+    too.
+
+    A quantity is asked for because no part of the export states it, so there
+    is nothing to fall back on. Each one is refused in its own words: a
+    question the document dropped is not answered, a question it kept and left
+    null must not be null, and a number that could not be what it stands for
+    -- not finite, or not positive -- is refused beside them, because the
+    model would be built on it.
+
+    The traffic runs both ways, as it does for a slot: an entry the rules
+    never asked for answers no open question, so a misspelt name is named
+    rather than read as an answered question or passed over in silence. That
+    is asked of a coupled family alone, because a family the reviewer stands
+    still keeps the block the rules wrote for it and is served nothing to need
+    any of it for.
+    """
+    document = ctx.mapping.virtual_accelerator
+    pending = _va_facts(ctx.mapping, ctx.va)
+    if document is None or pending is None:
+        return
+    for raw, proposed in pending.proposed.items():
+        decided = document.families.get(raw)
+        if decided is None or decided.verdict != "couple":
+            continue
+        for name, asked in proposed.values.items():
+            key = f"virtual_accelerator.families.{raw}.values.{name}"
+            answered = decided.values.get(name)
+            if answered is None:
+                yield Problem(key, "is not answered")
+            elif answered.answer is None:
+                yield Problem(f"{key}.answer", "must not be null")
+            elif not math.isfinite(answered.answer) or answered.answer <= 0:
+                yield Problem(f"{key}.answer", f"must be a positive number of {asked.units}")
+        for name in decided.values:
+            if name not in proposed.values:
+                yield Problem(
+                    f"virtual_accelerator.families.{raw}.values.{name}",
+                    f"answers no open question of {raw} in {pending.system}",
+                )
+
+
 def _virtual_accelerator(ctx: _Context) -> Iterator[Problem]:
     va = ctx.va
     if va is None:
@@ -367,6 +427,46 @@ def _virtual_accelerator(ctx: _Context) -> Iterator[Problem]:
             f"(data/mml/lattice/{va.system}.mat), so no answer of the block can "
             "be checked; import the deck beside the export",
         )
+        return
+    yield from _va_nominals(ctx, va.pending, document)
+
+
+def _va_nominals(
+    ctx: _Context, pending: VAPending, document: VirtualAccelerator
+) -> Iterator[Problem]:
+    """Report every coupled family the emitter could not start the model from.
+
+    The rule is
+    :func:`~osprey.services.mml.va.verdicts.missing_nominal`, the one
+    ``map --init`` latched the family on, so a reviewer who couples it back
+    reads here what the emitter would otherwise refuse the whole machine for.
+    It is asked of the judged block, as the emitter asks it: a device a
+    reviewer dropped states nothing any more.
+    """
+    views = {view.raw_name: view for view in ctx.judged_views.get(pending.system, ())}
+    for raw, family in document.families.items():
+        view = views.get(raw)
+        if family.verdict != "couple" or view is None:
+            continue
+        try:
+            block = judged_va_block(
+                pending.system,
+                raw,
+                {pending.system: pending.block},
+                ctx.answers,
+                devices=view.n_devices,
+            )
+        except KeyError:
+            continue
+        gap = missing_nominal(
+            block, family.nominal_source or "Setpoint", family.kind, view.n_devices
+        )
+        if gap is not None:
+            yield Problem(
+                f"virtual_accelerator.families.{raw}.verdict",
+                f"couples as {family.kind} and the export {gap}; "
+                "a driven device starts the model somewhere",
+            )
 
 
 def _facility_token(ctx: _Context) -> Iterator[Problem]:
@@ -547,6 +647,7 @@ def _stated_against_vote(ctx: _Context) -> Iterator[Problem]:
 _PREDICATES: tuple[Predicate, ...] = (
     _null_domain,
     _judgments,
+    _va_values,
     _virtual_accelerator,
     _facility_token,
     _unknown_systems,
