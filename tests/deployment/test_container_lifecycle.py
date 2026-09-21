@@ -162,7 +162,8 @@ def _parse_env(tmp_path):
     return parse_dotenv_file(p) if p.is_file() else {}
 
 
-def test_deploy_up_generates_tokens_when_unset(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_deploy_up_generates_tokens_when_unset(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
     env = _parse_env(tmp_path)
@@ -172,7 +173,8 @@ def test_deploy_up_generates_tokens_when_unset(captured_argv, _clean_token_env, 
     assert len(env["EVENT_DISPATCHER_TOKEN"]) >= 40
 
 
-def test_token_generation_is_idempotent(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_token_generation_is_idempotent(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     first = _parse_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -186,7 +188,8 @@ def test_token_generation_is_idempotent(captured_argv, _clean_token_env, tmp_pat
     assert text.count("DISPATCH_WORKER_TOKEN=") == 1
 
 
-def test_existing_env_token_is_preserved(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_existing_env_token_is_preserved(_clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("EVENT_DISPATCHER_TOKEN=my-real-token\n", encoding="utf-8")
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -196,7 +199,8 @@ def test_existing_env_token_is_preserved(captured_argv, _clean_token_env, tmp_pa
     assert env.get("DISPATCH_WORKER_TOKEN")  # the missing one was generated
 
 
-def test_process_env_token_not_written_to_dotenv(captured_argv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_process_env_token_not_written_to_dotenv(monkeypatch, tmp_path):
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "from-shell")
     monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
 
@@ -208,9 +212,8 @@ def test_process_env_token_not_written_to_dotenv(captured_argv, monkeypatch, tmp
     assert env.get("DISPATCH_WORKER_TOKEN")
 
 
-def test_tokens_are_minted_into_the_repo_root_not_the_cwd(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_tokens_are_minted_into_the_repo_root_not_the_cwd(_clean_token_env, monkeypatch, tmp_path):
     """The mint follows the config's repo, not wherever the command was typed.
 
     Regression guard: the provisioners' ``env_path`` defaults to a cwd-relative
@@ -251,7 +254,8 @@ def test_non_dispatch_deploy_generates_no_tokens(monkeypatch, _clean_token_env, 
     assert not (tmp_path / ".env").exists()
 
 
-def test_an_exposed_deploy_refuses_an_empty_token(captured_argv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_an_exposed_deploy_refuses_an_empty_token(monkeypatch, tmp_path):
     # A token explicitly set empty must not be auto-overwritten, and a deployment
     # reachable off-host must refuse rather than bind a fail-open server to it.
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "")
@@ -1177,9 +1181,8 @@ def test_deploy_up_raises_before_any_compose_call_when_shared_disk_missing(
     assert "cmd" not in captured_argv
 
 
-def test_web_deploy_raises_before_any_compose_call_when_shared_disk_missing(
-    captured_web_runs, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured_web_runs")
+def test_web_deploy_raises_before_any_compose_call_when_shared_disk_missing(monkeypatch, tmp_path):
     """Wired into deploy_up: a missing shared_disk host_path aborts before the
     web-terminals path (which also reaches compose via deploy_up_web_terminals)."""
     missing = tmp_path / "no-such-mount"
@@ -1874,13 +1877,15 @@ def _build_args(cmd):
     )
 
 
-def test_site_image_build_args_are_empty_when_nothing_is_configured(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_are_empty_when_nothing_is_configured(tmp_path):
     """A deployment that declares no site settings builds exactly what it did
     before these keys existed — the argv is unchanged, flag for flag."""
     assert container_lifecycle.site_image_build_args({"project_name": "x"}, tmp_path) == []
 
 
-def test_site_image_build_args_carry_every_axis(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_carry_every_axis(tmp_path):
     args = container_lifecycle.site_image_build_args(_site_config(tmp_path), tmp_path)
 
     assert _build_args(args) == {
@@ -1895,7 +1900,8 @@ def test_site_image_build_args_carry_every_axis(no_site_env, tmp_path):
     assert staged.read_text() == "-----BEGIN CERTIFICATE-----\n"
 
 
-def test_site_image_build_args_refuse_a_site_ca_that_is_not_there(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_refuse_a_site_ca_that_is_not_there(tmp_path):
     """A CA the build cannot find must fail the deploy: an image built without
     it does not trust the site proxy, and says so only much later."""
     config = {"project_name": "x", "images": {"site_ca": str(tmp_path / "nope.pem")}}
@@ -1903,7 +1909,8 @@ def test_site_image_build_args_refuse_a_site_ca_that_is_not_there(no_site_env, t
         container_lifecycle.site_image_build_args(config, tmp_path)
 
 
-def test_clear_staged_site_ca_removes_the_copy_the_build_read(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_clear_staged_site_ca_removes_the_copy_the_build_read(tmp_path):
     """The staged CA is a copy of the operator's own bundle, living in a
     directory they keep — the project image's context IS the deployment repo —
     so it is cleared once the build has read it, like the dev wheel beside it.
@@ -1918,7 +1925,8 @@ def test_clear_staged_site_ca_removes_the_copy_the_build_read(no_site_env, tmp_p
     assert not staged.exists()
 
 
-def test_clear_staged_site_ca_leaves_a_file_this_build_did_not_stage(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_clear_staged_site_ca_leaves_a_file_this_build_did_not_stage(tmp_path):
     """Keyed on the argv rather than on the name: a deployment that configures
     no CA keeps whatever it happens to keep under that name."""
     theirs = tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME
@@ -1931,7 +1939,8 @@ def test_clear_staged_site_ca_leaves_a_file_this_build_did_not_stage(no_site_env
     assert theirs.read_text() == "the operator's own file\n"
 
 
-def test_the_project_image_build_stages_the_ca_then_clears_it(no_site_env, tmp_path, monkeypatch):
+@pytest.mark.usefixtures("no_site_env")
+def test_the_project_image_build_stages_the_ca_then_clears_it(tmp_path, monkeypatch):
     """End to end for the one context that is not regenerable: the CA is there
     while the build runs and gone when it returns."""
     staged_while_building: list[bool] = []
@@ -2194,7 +2203,8 @@ def test_an_attached_deploy_on_a_prebuilt_host_clears_them_too(tmp_path, monkeyp
     assert execd["staged"] is False, execd
 
 
-def test_site_image_build_args_read_offline_from_the_top_level_key(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_read_offline_from_the_top_level_key(tmp_path):
     """`offline: true` is what makes the image vendor its web assets — the same
     key `vendor.is_offline` reads at run time to decide whether to serve them."""
     args = container_lifecycle.site_image_build_args(
@@ -2203,7 +2213,8 @@ def test_site_image_build_args_read_offline_from_the_top_level_key(no_site_env, 
     assert _build_args(args) == {"OSPREY_OFFLINE": "1"}
 
 
-def test_site_image_build_args_omit_offline_when_the_key_is_off(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_omit_offline_when_the_key_is_off(tmp_path):
     args = container_lifecycle.site_image_build_args(
         {"project_name": "x", "offline": False}, tmp_path
     )
@@ -2227,7 +2238,8 @@ def test_site_image_build_args_take_the_environment_ahead_of_the_config(monkeypa
     }
 
 
-def test_project_image_build_cmd_carries_the_site_build_args(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_project_image_build_cmd_carries_the_site_build_args(tmp_path):
     """The project image is one of the three managed builds fed by the helper."""
     cmd = container_lifecycle._project_image_build_cmd(
         _site_config(tmp_path, offline=True), "docker", str(tmp_path)
@@ -2241,7 +2253,8 @@ def test_project_image_build_cmd_carries_the_site_build_args(no_site_env, tmp_pa
     assert cmd[-1] == str(tmp_path)
 
 
-def test_project_and_persona_builds_share_one_site_arg_producer(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_project_and_persona_builds_share_one_site_arg_producer(tmp_path):
     """Two builders, one producer: an image built for a persona and the project
     image must not end up trusting different CAs or resolving from different
     indexes on the same host."""
@@ -3321,7 +3334,8 @@ def test_seeder_authenticates_with_the_project_dotenv_password(staged_archiver, 
     assert staged_archiver["store"]["password"] == "s3cret"
 
 
-def test_deploy_without_the_store_service_stages_nothing(captured_argv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_deploy_without_the_store_service_stages_nothing(monkeypatch, tmp_path):
     """A project that reads a store someone else runs must never have its history
     seeded by a local deploy."""
     staged: list = []
@@ -3426,9 +3440,8 @@ def test_health_poll_is_bounded(monkeypatch):
         container_lifecycle._wait_for_archiver_store(collection, time.monotonic() - 1)
 
 
-def test_missing_store_password_aborts_with_the_variable_named(
-    staged_archiver, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("staged_archiver")
+def test_missing_store_password_aborts_with_the_variable_named(monkeypatch, tmp_path):
     """Without the credential the store is created with, the seeder cannot open
     the store it is staging — and the fix is a named variable."""
     (tmp_path / ".env").write_text("")

@@ -148,9 +148,8 @@ def _captured(tmp_path: Path, output: str | None) -> CapturedProcessError:
     return CapturedProcessError(["docker", "compose", "up", "-d"], 1, spool)
 
 
-def test_the_detail_is_read_off_the_spool(
-    tmp_path: Path, fake_runtime: _FakeRuntime, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.usefixtures("fake_runtime")
+def test_the_detail_is_read_off_the_spool(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         runtime_helper, "get_runtime_command", lambda config=None: ["docker", "compose"]
     )

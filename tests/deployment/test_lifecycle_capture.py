@@ -184,9 +184,8 @@ def image_build_stubs(monkeypatch, tmp_path):
     return repo
 
 
-def test_the_project_image_build_spools_its_output(
-    captured, reporter, image_build_stubs, no_bare_subprocess
-):
+@pytest.mark.usefixtures("no_bare_subprocess")
+def test_the_project_image_build_spools_its_output(captured, reporter, image_build_stubs):
     """An image build is the loudest thing on the deploy path — and the slowest.
 
     Layer-by-layer output is exactly what an operator does not need until
@@ -202,7 +201,8 @@ def test_the_project_image_build_spools_its_output(
     assert reporter.steps == ["project image proj:local"]
 
 
-def test_the_image_step_is_reported_after_the_build(reporter, image_build_stubs, monkeypatch):
+@pytest.mark.usefixtures("image_build_stubs")
+def test_the_image_step_is_reported_after_the_build(reporter, monkeypatch):
     """The step line names the build's own cost, so it follows the build.
 
     ``Phase.step`` reports the lap since the previous step. A line emitted
@@ -310,9 +310,8 @@ def _stage(config: dict, project_dir: Path) -> None:
     container_lifecycle._stage_archiver_store(config, ["compose.yml"], {}, project_dir)
 
 
-def test_the_archiver_store_bring_up_spools_its_output(
-    captured, reporter, archiver_stubs, no_bare_subprocess, tmp_path
-):
+@pytest.mark.usefixtures("archiver_stubs", "no_bare_subprocess")
+def test_the_archiver_store_bring_up_spools_its_output(captured, reporter, tmp_path):
     """The store is started on its own, ahead of the stack, and boots noisily."""
     _stage({"deployed_services": ["archiver_store"]}, tmp_path)
 
@@ -322,9 +321,8 @@ def test_the_archiver_store_bring_up_spools_its_output(
     assert "archiver store started" in reporter.steps
 
 
-def test_the_recorder_quiesce_stays_best_effort(
-    captured, reporter, archiver_stubs, no_bare_subprocess, tmp_path
-):
+@pytest.mark.usefixtures("archiver_stubs", "no_bare_subprocess")
+def test_the_recorder_quiesce_stays_best_effort(captured, reporter, tmp_path):
     """A recorder that will not stop warns; it does not abort the reseed.
 
     Capturing must not change that. ``check=False`` keeps the non-zero exit a
@@ -343,9 +341,8 @@ def test_the_recorder_quiesce_stays_best_effort(
     assert "archiver recorder quiesced" in reporter.steps
 
 
-def test_a_recorder_that_will_not_stop_still_warns(
-    captured, reporter, archiver_stubs, monkeypatch, tmp_path, caplog
-):
+@pytest.mark.usefixtures("captured", "reporter", "archiver_stubs")
+def test_a_recorder_that_will_not_stop_still_warns(monkeypatch, tmp_path, caplog):
     """The quiesce invariant is still reported when the stop exits non-zero."""
 
     def _failing(cmd, *, env=None, spool_name, repo_root=None, check=True):
@@ -360,9 +357,8 @@ def test_a_recorder_that_will_not_stop_still_warns(
     assert "Could not stop `archiver-recorder`" in caplog.text
 
 
-def test_the_archiver_compose_echoes_are_debug_only(
-    captured, reporter, archiver_stubs, tmp_path, caplog
-):
+@pytest.mark.usefixtures("captured", "reporter", "archiver_stubs")
+def test_the_archiver_compose_echoes_are_debug_only(tmp_path, caplog):
     """The argv echoes are for debugging, not for the operator's terminal.
 
     These two were the last ``INFO``-level ``Running command:`` lines on the
@@ -431,9 +427,8 @@ def _start(
     )
 
 
-def test_the_stack_compose_calls_all_spool_their_output(
-    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path
-):
+@pytest.mark.usefixtures("start_stack_stubs", "no_bare_subprocess")
+def test_the_stack_compose_calls_all_spool_their_output(captured, reporter, tmp_path):
     """``rm``, ``build`` and ``up`` — the three loudest calls in a dev deploy.
 
     Ordering is part of the contract: the self-heal ``rm`` clears wedged
@@ -454,9 +449,8 @@ def test_the_stack_compose_calls_all_spool_their_output(
     ]
 
 
-def test_the_self_heal_removal_stays_best_effort(
-    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path
-):
+@pytest.mark.usefixtures("reporter", "start_stack_stubs", "no_bare_subprocess")
+def test_the_self_heal_removal_stays_best_effort(captured, tmp_path):
     """``compose rm`` is advisory: if it fails, ``up`` surfaces the real error.
 
     Raising here would turn a self-heal that was always allowed to fail into a
@@ -469,7 +463,8 @@ def test_the_self_heal_removal_stays_best_effort(
     assert captured.call("compose-up")["check"] is True
 
 
-def test_a_non_dev_deploy_does_not_build(captured, reporter, start_stack_stubs, tmp_path):
+@pytest.mark.usefixtures("start_stack_stubs")
+def test_a_non_dev_deploy_does_not_build(captured, reporter, tmp_path):
     """Compose's implicit build-on-up covers it; a separate build step would not."""
     _start(_repo(tmp_path))
 
@@ -477,8 +472,12 @@ def test_a_non_dev_deploy_does_not_build(captured, reporter, start_stack_stubs, 
     assert "service images built" not in reporter.steps
 
 
+@pytest.mark.usefixtures("start_stack_stubs", "no_bare_subprocess")
 def test_prebuilt_images_replace_the_build_with_a_step_that_says_so(
-    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path, monkeypatch
+    captured,
+    reporter,
+    tmp_path,
+    monkeypatch,
 ):
     """A host with the tags already loaded runs the same sequence minus the build.
 
@@ -500,9 +499,8 @@ def test_prebuilt_images_replace_the_build_with_a_step_that_says_so(
     ]
 
 
-def test_prebuilt_images_leave_the_up_asking_not_to_build(
-    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path, monkeypatch
-):
+@pytest.mark.usefixtures("reporter", "start_stack_stubs", "no_bare_subprocess")
+def test_prebuilt_images_leave_the_up_asking_not_to_build(captured, tmp_path, monkeypatch):
     """``--no-build`` has to survive the skip.
 
     Dropping it here would hand the build back to compose's implicit
@@ -516,9 +514,8 @@ def test_prebuilt_images_leave_the_up_asking_not_to_build(
     assert "--no-build" in captured.call("compose-up")["cmd"]
 
 
-def test_the_config_key_skips_the_build_without_an_env_var(
-    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path
-):
+@pytest.mark.usefixtures("start_stack_stubs", "no_bare_subprocess")
+def test_the_config_key_skips_the_build_without_an_env_var(captured, reporter, tmp_path):
     """The switch has to be a property of the deployment, not of one shell.
 
     A host that can never build should say so once in its config rather than
@@ -530,8 +527,12 @@ def test_the_config_key_skips_the_build_without_an_env_var(
     assert "skipped image build (prebuilt images)" in reporter.steps
 
 
+@pytest.mark.usefixtures("start_stack_stubs", "no_bare_subprocess")
 def test_the_env_var_can_force_a_build_the_config_would_have_skipped(
-    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path, monkeypatch
+    captured,
+    reporter,
+    tmp_path,
+    monkeypatch,
 ):
     """The override runs both ways, so a pinned host stays debuggable.
 
@@ -548,9 +549,8 @@ def test_the_env_var_can_force_a_build_the_config_would_have_skipped(
     assert "skipped image build (prebuilt images)" not in reporter.steps
 
 
-def test_a_non_dev_deploy_is_unaffected_by_the_switch(
-    captured, reporter, start_stack_stubs, tmp_path, monkeypatch
-):
+@pytest.mark.usefixtures("start_stack_stubs")
+def test_a_non_dev_deploy_is_unaffected_by_the_switch(captured, reporter, tmp_path, monkeypatch):
     """Non-dev never ran a separate build, so there is nothing for it to skip.
 
     Emitting the skip line here would claim a decision the switch did not make,
@@ -672,9 +672,8 @@ def test_a_failed_build_stops_being_watched(reporter):
     assert reporter._heartbeat_pass(time.monotonic() + 3600) == []
 
 
-def test_the_dev_build_watches_the_model_it_feeds(
-    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path
-):
+@pytest.mark.usefixtures("start_stack_stubs", "no_bare_subprocess")
+def test_the_dev_build_watches_the_model_it_feeds(captured, reporter, tmp_path):
     """The wiring the site must get right: the model registered for the live
     view is the very object handed to ``run_captured`` as ``on_line``."""
     watched: list = []
@@ -685,9 +684,8 @@ def test_the_dev_build_watches_the_model_it_feeds(
     assert watched == [captured.call("compose-build")["on_line"].model]
 
 
-def test_the_dev_build_streams_per_image_progress(
-    captured, reporter, start_stack_stubs, no_bare_subprocess, tmp_path
-):
+@pytest.mark.usefixtures("reporter", "start_stack_stubs", "no_bare_subprocess")
+def test_the_dev_build_streams_per_image_progress(captured, tmp_path):
     """The build call — and only the build call — carries the line parser.
 
     `rm` and `up` produce no `naming to` lines, so a parser there would be
@@ -701,9 +699,8 @@ def test_the_dev_build_streams_per_image_progress(
     assert captured.call("compose-up")["on_line"] is None
 
 
-def test_the_stack_compose_echoes_are_debug_only(
-    captured, reporter, start_stack_stubs, tmp_path, caplog
-):
+@pytest.mark.usefixtures("captured", "reporter", "start_stack_stubs")
+def test_the_stack_compose_echoes_are_debug_only(tmp_path, caplog):
     """No raw compose argv on an operator's terminal."""
     with caplog.at_level(logging.INFO):
         _start(_repo(tmp_path), dev_mode=True)
@@ -716,7 +713,8 @@ def test_the_stack_compose_echoes_are_debug_only(
 # ---------------------------------------------------------------------------
 
 
-def test_steps_are_silent_without_an_open_phase(captured, start_stack_stubs, tmp_path):
+@pytest.mark.usefixtures("start_stack_stubs")
+def test_steps_are_silent_without_an_open_phase(captured, tmp_path):
     """These helpers are also library calls, and tests, and ``up_as_built``.
 
     Only a lifecycle verb installs a reporter and opens a phase. Every other
@@ -757,8 +755,11 @@ def _exec_spy(reporter, monkeypatch):
     return manager
 
 
+@pytest.mark.usefixtures("captured", "start_stack_stubs")
 def test_the_attached_start_hands_the_terminal_over_before_it_execs(
-    captured, reporter, start_stack_stubs, monkeypatch, tmp_path
+    reporter,
+    monkeypatch,
+    tmp_path,
 ):
     """``os.execvpe`` replaces this process with compose.
 
@@ -775,9 +776,8 @@ def test_the_attached_start_hands_the_terminal_over_before_it_execs(
     assert "up" in manager.execvpe.call_args.args[1]
 
 
-def test_the_attached_start_hands_off_inside_its_open_phase(
-    captured, reporter, start_stack_stubs, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured", "start_stack_stubs")
+def test_the_attached_start_hands_off_inside_its_open_phase(reporter, monkeypatch, tmp_path):
     """The hand-off commits the open phase, and closes nothing.
 
     Committing is what leaves the operator a permanent reading of the phase
@@ -792,9 +792,8 @@ def test_the_attached_start_hands_off_inside_its_open_phase(
     assert reporter._phase is not None, "the hand-off closed the phase it committed"
 
 
-def test_the_detached_start_hands_nothing_over(
-    captured, reporter, start_stack_stubs, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured", "start_stack_stubs")
+def test_the_detached_start_hands_nothing_over(reporter, monkeypatch, tmp_path):
     """``-d`` returns to a process that keeps the terminal.
 
     The hand-off degrades the reporter to plain lines permanently, so making

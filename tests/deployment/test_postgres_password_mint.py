@@ -60,7 +60,8 @@ def _parse_env(tmp_path):
     return parse_dotenv_file(path) if path.is_file() else {}
 
 
-def test_postgresql_deploy_mints_ariel_db_password(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_postgresql_deploy_mints_ariel_db_password(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
     env = _parse_env(tmp_path)
@@ -73,8 +74,12 @@ def test_postgresql_deploy_mints_ariel_db_password(captured_argv, _clean_token_e
 
 
 @pytest.mark.parametrize("execution_method", ["local", "subprocess"])
+@pytest.mark.usefixtures("captured_argv")
 def test_ariel_db_password_mints_under_writes_enabled_and_subprocess_execution(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path, execution_method
+    _clean_token_env,
+    monkeypatch,
+    tmp_path,
+    execution_method,
 ):
     """ARIEL_DB_PASSWORD mints with writes enabled and Python running as a subprocess.
 
@@ -123,7 +128,8 @@ def test_ariel_db_password_generator_is_uri_safe_every_time():
         assert _validate_var("ARIEL_DB_PASSWORD", value)
 
 
-def test_postgresql_mint_is_idempotent(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_postgresql_mint_is_idempotent(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     first = _parse_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -133,15 +139,15 @@ def test_postgresql_mint_is_idempotent(captured_argv, _clean_token_env, tmp_path
     assert (tmp_path / ".env").read_text().count("ARIEL_DB_PASSWORD=") == 1
 
 
-def test_existing_ariel_db_password_is_preserved(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_existing_ariel_db_password_is_preserved(_clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=preexistingvalue\n", encoding="utf-8")
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     assert _parse_env(tmp_path)["ARIEL_DB_PASSWORD"] == "preexistingvalue"
 
 
-def test_operator_password_with_reserved_char_is_rejected(
-    captured_argv, _clean_token_env, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_operator_password_with_reserved_char_is_rejected(_clean_token_env, tmp_path):
     """An operator-supplied password containing a URI-reserved character would
     silently reshape the ariel DSN — refuse at the deploy boundary instead."""
     (tmp_path / ".env").write_text("ARIEL_DB_PASSWORD=p@ssword\n", encoding="utf-8")
@@ -149,9 +155,8 @@ def test_operator_password_with_reserved_char_is_rejected(
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
 
-def test_postgresql_deploy_mints_the_readonly_password_too(
-    captured_argv, _clean_token_env, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_postgresql_deploy_mints_the_readonly_password_too(_clean_token_env, tmp_path):
     """The SELECT-only role's login secret is minted beside the owner's.
 
     Both are Postgres identities the same fresh volume is initialized with, so
@@ -174,9 +179,8 @@ def test_readonly_password_generator_is_uri_safe_every_time():
         assert _validate_var("ARIEL_DB_READONLY_PASSWORD", value)
 
 
-def test_operator_readonly_password_with_reserved_char_is_rejected(
-    captured_argv, _clean_token_env, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_operator_readonly_password_with_reserved_char_is_rejected(_clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("ARIEL_DB_READONLY_PASSWORD=p@ssword\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="ARIEL_DB_READONLY_PASSWORD"):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)

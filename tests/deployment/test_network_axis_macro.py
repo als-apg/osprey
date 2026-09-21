@@ -88,7 +88,8 @@ def test_unset_axis_renders_todays_membership_block(net, svc):
     assert net.network(svc) == TODAYS_NETWORKS_BLOCK
 
 
-def test_undefined_service_renders_todays_membership_block(net):
+@pytest.mark.usefixtures("net")
+def test_undefined_service_renders_todays_membership_block():
     """A template may pass a `services.<name>` key that does not exist."""
     rendered = render(
         '{% import "_network_axis.j2" as net %}'
@@ -183,7 +184,8 @@ def test_ports_honour_indent(net):
 # ---------------------------------------------------------------------------
 
 
-def test_replacing_a_literal_block_is_byte_identical(net):
+@pytest.mark.usefixtures("net")
+def test_replacing_a_literal_block_is_byte_identical():
     """The call idiom reproduces a block a template already carries.
 
     This is the guarantee the whole axis rests on: adopting the macro must not
@@ -207,7 +209,8 @@ def test_replacing_a_literal_block_is_byte_identical(net):
     assert through_macro == literal
 
 
-def test_a_suppressed_block_costs_not_even_a_blank_line(net):
+@pytest.mark.usefixtures("net")
+def test_a_suppressed_block_costs_not_even_a_blank_line():
     """Host mode drops `ports:` without leaving the line an `{% if %}` would."""
     rendered = render(
         '{% import "_network_axis.j2" as net %}'
@@ -220,7 +223,8 @@ def test_a_suppressed_block_costs_not_even_a_blank_line(net):
     assert rendered == "    restart: unless-stopped\n    environment:\n"
 
 
-def test_file_level_stanza_closes_the_file_as_today(net):
+@pytest.mark.usefixtures("net")
+def test_file_level_stanza_closes_the_file_as_today():
     """The declaration is the last thing a compose template emits."""
     rendered = render(
         '{% import "_network_axis.j2" as net %}'
@@ -232,7 +236,8 @@ def test_file_level_stanza_closes_the_file_as_today(net):
     assert rendered == "volumes:\n  dispatch_workspace_1:\nnetworks:\n  osprey-network:\n"
 
 
-def test_host_mode_leaves_no_trailing_stanza(net):
+@pytest.mark.usefixtures("net")
+def test_host_mode_leaves_no_trailing_stanza():
     rendered = render(
         '{% import "_network_axis.j2" as net %}'
         "volumes:\n"

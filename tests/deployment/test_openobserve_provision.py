@@ -749,7 +749,8 @@ def test_the_organization_comes_from_the_setting_the_agent_uses(env_file):
     assert all(path.startswith(("/healthz", "/api/als/")) for path in store.paths)
 
 
-def test_the_organization_is_resolved_the_way_the_agent_resolves_it(env_file):
+@pytest.mark.usefixtures("env_file")
+def test_the_organization_is_resolved_the_way_the_agent_resolves_it():
     """One config, one organization — including where the setting is odd.
 
     The two sides read the same key through different code, so the risk is not a
@@ -779,7 +780,8 @@ def test_the_organization_is_resolved_the_way_the_agent_resolves_it(env_file):
         assert provision.store_org(config) == agent_org(telemetry), telemetry
 
 
-def test_the_address_is_the_one_this_deploy_publishes(env_file):
+@pytest.mark.usefixtures("env_file")
+def test_the_address_is_the_one_this_deploy_publishes():
     """Read the way the health category reads it, so the two cannot disagree."""
     config = {
         **CONFIG,
@@ -818,7 +820,8 @@ def test_a_deployment_with_no_root_credential_is_reported(tmp_path, capsys):
     assert not store.touched("service_accounts")
 
 
-def test_the_identity_variable_is_read_from_the_registry(env_file):
+@pytest.mark.usefixtures("env_file")
+def test_the_identity_variable_is_read_from_the_registry():
     """Spelled once, in the registry that records where the credential comes
     from, rather than again here."""
     from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS

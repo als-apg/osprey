@@ -143,7 +143,8 @@ def test_manifest_without_preset_hash_skips_content_check(tmp_path, presets_dir,
     assert staleness.staleness_reasons(tmp_path) == []
 
 
-def test_removed_preset_is_silent_on_content_check(tmp_path, presets_dir, monkeypatch):
+@pytest.mark.usefixtures("presets_dir")
+def test_removed_preset_is_silent_on_content_check(tmp_path, monkeypatch):
     """A preset that no longer ships must not crash or false-positive."""
     monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.7.0")
     _write_manifest(tmp_path, creation={"preset_hash": "sha256:deadbeef"})

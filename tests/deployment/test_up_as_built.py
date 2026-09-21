@@ -286,8 +286,10 @@ def test_a_start_exports_no_repo_identity_variable(lifecycle_repo, started):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("started")
 def test_host_side_work_during_a_start_reads_the_render_not_the_working_directory(
-    lifecycle_repo, started, monkeypatch
+    lifecycle_repo,
+    monkeypatch,
 ):
     """A start does real work in-process, and it must read ``build/config.yml``.
 
@@ -322,9 +324,8 @@ def test_host_side_work_during_a_start_reads_the_render_not_the_working_director
     assert seen["tz"] == "America/Los_Angeles"
 
 
-def test_a_start_leaves_no_config_anchor_behind_in_the_environment(
-    lifecycle_repo, started, monkeypatch
-):
+@pytest.mark.usefixtures("started")
+def test_a_start_leaves_no_config_anchor_behind_in_the_environment(lifecycle_repo, monkeypatch):
     """The anchor is scoped to the start, like the working directory is.
 
     ``CONFIG_FILE`` is a generic enough name that leaving one deployment's render
@@ -565,7 +566,8 @@ def test_an_unverifiable_build_refuses_with_the_as_built_escape(lifecycle_repo, 
     assert started
 
 
-def test_as_built_on_an_unverifiable_build_claims_no_mismatch(lifecycle_repo, started):
+@pytest.mark.usefixtures("started")
+def test_as_built_on_an_unverifiable_build_claims_no_mismatch(lifecycle_repo):
     """A failed comparison is not a finding.
 
     On DRIFT the mismatch is established and the warning says so. Here nothing
@@ -705,7 +707,8 @@ def test_a_declined_offer_refuses_and_writes_nothing(lifecycle_repo, started, mo
     assert not started
 
 
-def test_an_existing_env_is_never_prompted_about(lifecycle_repo, started, monkeypatch):
+@pytest.mark.usefixtures("started")
+def test_an_existing_env_is_never_prompted_about(lifecycle_repo, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-from-the-shell")
     monkeypatch.setattr(deploy_cmd, "_stdin_is_a_terminal", lambda: True)
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=already-here\n", encoding="utf-8")
@@ -723,9 +726,8 @@ def test_an_existing_env_is_never_prompted_about(lifecycle_repo, started, monkey
 # ---------------------------------------------------------------------------
 
 
-def test_minted_tokens_land_in_the_repo_env_and_are_copied_nowhere(
-    lifecycle_repo, started, monkeypatch
-):
+@pytest.mark.usefixtures("started")
+def test_minted_tokens_land_in_the_repo_env_and_are_copied_nowhere(lifecycle_repo, monkeypatch):
     """One repo, one secret store.
 
     A profile write-back used to keep a project ``.env`` and a profile ``.env``
@@ -760,7 +762,8 @@ def test_minted_tokens_land_in_the_repo_env_and_are_copied_nowhere(
     assert copies == [], f"the deploy left a second secret store: {copies}"
 
 
-def test_the_mint_is_idempotent_across_starts(lifecycle_repo, started, monkeypatch):
+@pytest.mark.usefixtures("started")
+def test_the_mint_is_idempotent_across_starts(lifecycle_repo, monkeypatch):
     monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
     monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
@@ -812,7 +815,8 @@ def test_a_wildcard_build_is_treated_as_exposed_without_the_flag(
     assert not started
 
 
-def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, started, monkeypatch, caplog):
+@pytest.mark.usefixtures("started")
+def test_a_web_terminal_deploy_counts_as_exposed(lifecycle_repo, monkeypatch, caplog):
     """A published-port check alone would call a web deploy private.
 
     Every service in the web stack runs ``network_mode: host`` and its nginx
@@ -953,9 +957,8 @@ def test_the_web_stack_bakes_the_same_identity_as_the_services_stack(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_the_web_re_render_lands_in_the_block_the_build_recorded(
-    lifecycle_repo, started, monkeypatch
-):
+@pytest.mark.usefixtures("started")
+def test_the_web_re_render_lands_in_the_block_the_build_recorded(lifecycle_repo, monkeypatch):
     """``up``'s web re-render resolves ``port_base`` from ``build/config.yml``.
 
     A start that lost the base would publish nginx and every panel in the
@@ -1123,7 +1126,8 @@ def test_a_supplied_password_is_never_echoed_either_way(tmp_path, monkeypatch, c
     assert "Minted" not in printed
 
 
-def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, started, monkeypatch):
+@pytest.mark.usefixtures("started")
+def test_the_up_path_reaches_the_sink_aware_mint(lifecycle_repo, monkeypatch):
     """The whole point of the fix: a real ``osprey up`` uses the guarded sink.
 
     Asserted through the deploy path rather than on the helper alone, because
@@ -1255,7 +1259,8 @@ def test_dev_mode_refuses_before_any_work_when_it_cannot_be_honored(
     assert not started
 
 
-def test_the_working_directory_survives_a_refusal(lifecycle_repo, started, monkeypatch):
+@pytest.mark.usefixtures("started")
+def test_the_working_directory_survives_a_refusal(lifecycle_repo, monkeypatch):
     """A verb that chdirs must put it back however it ends.
 
     Refused here by the ``--dev`` preflight, which is the refusal that happens
@@ -1340,7 +1345,8 @@ def built_repo(lifecycle_repo):
     return lifecycle_repo
 
 
-def test_a_real_build_lands_compose_where_up_looks_for_it(built_repo, started):
+@pytest.mark.usefixtures("started")
+def test_a_real_build_lands_compose_where_up_looks_for_it(built_repo):
     """SC: the two halves of the contract, exercised end to end.
 
     The rendered files spell their own mounts against the repo root

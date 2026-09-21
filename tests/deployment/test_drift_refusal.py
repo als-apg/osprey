@@ -209,7 +209,8 @@ def test_material_change_is_named_once(repo):
     assert staleness.MATERIAL_DISPLAY not in staleness.check_drift(repo).changed_keys
 
 
-def test_unenumerated_material_is_still_reported(repo):
+@pytest.mark.usefixtures("repo")
+def test_unenumerated_material_is_still_reported():
     """The combined digest is the backstop for material no key names.
 
     The per-input split mirrors the build's material fold. Should the fold grow

@@ -74,7 +74,8 @@ def _parse_env(tmp_path):
     return _parse_dotenv(tmp_path / ".env")
 
 
-def test_bluesky_deploy_generates_launch_token(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_bluesky_deploy_generates_launch_token(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
     env = _parse_env(tmp_path)
@@ -86,7 +87,8 @@ def test_bluesky_deploy_generates_launch_token(captured_argv, _clean_token_env, 
     assert "DISPATCH_WORKER_TOKEN" not in env
 
 
-def test_bluesky_deploy_generates_tiled_api_key(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_bluesky_deploy_generates_tiled_api_key(_clean_token_env, tmp_path):
     """The Tiled catalog key hangs off the deployed 'bluesky' service.
 
     Keying it off a 'tiled' service would never mint: 'tiled' is never in
@@ -100,7 +102,8 @@ def test_bluesky_deploy_generates_tiled_api_key(captured_argv, _clean_token_env,
     assert env["BLUESKY_TILED_API_KEY"] != env["BLUESKY_LAUNCH_TOKEN"]
 
 
-def test_bluesky_token_generation_is_idempotent(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_bluesky_token_generation_is_idempotent(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     first = _parse_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -114,7 +117,8 @@ def test_bluesky_token_generation_is_idempotent(captured_argv, _clean_token_env,
     assert text.count("BLUESKY_TILED_API_KEY=") == 1
 
 
-def test_bluesky_existing_env_token_is_preserved(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_bluesky_existing_env_token_is_preserved(_clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=my-real-token\n", encoding="utf-8")
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -123,7 +127,8 @@ def test_bluesky_existing_env_token_is_preserved(captured_argv, _clean_token_env
     assert env["BLUESKY_LAUNCH_TOKEN"] == "my-real-token"  # untouched
 
 
-def test_bluesky_process_env_token_not_written_to_dotenv(captured_argv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_bluesky_process_env_token_not_written_to_dotenv(monkeypatch, tmp_path):
     monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "from-shell")
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -133,8 +138,11 @@ def test_bluesky_process_env_token_not_written_to_dotenv(captured_argv, monkeypa
     assert "BLUESKY_LAUNCH_TOKEN" not in env
 
 
+@pytest.mark.usefixtures("captured_argv")
 def test_an_empty_dotenv_token_is_minted_on_the_default_loopback_deploy(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
+    _clean_token_env,
+    monkeypatch,
+    tmp_path,
 ):
     """``BLUESKY_LAUNCH_TOKEN=`` in ``.env`` is a blank the mint fills in.
 
@@ -156,9 +164,8 @@ def test_an_empty_dotenv_token_is_minted_on_the_default_loopback_deploy(
     assert env["BLUESKY_TILED_API_KEY"].isalnum()
 
 
-def test_an_exposed_bluesky_deploy_refuses_an_empty_exported_token(
-    captured_argv, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_an_exposed_bluesky_deploy_refuses_an_empty_exported_token(monkeypatch, tmp_path):
     # An *exported* empty token is the one spelling a mint cannot repair: the
     # export shadows the .env line minting would write, so nothing is generated
     # and a deployment reachable off-host refuses rather than bind a fail-open
@@ -331,8 +338,11 @@ def test_non_tiled_vars_are_not_forced_alphanumeric(var):
     assert all(len(t) >= 40 for t in minted)
 
 
+@pytest.mark.usefixtures("captured_argv")
 def test_deploy_up_routes_each_var_through_its_own_generator(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
+    _clean_token_env,
+    monkeypatch,
+    tmp_path,
 ):
     """The mint site consults the registry — it does not hardcode one recipe."""
     monkeypatch.setattr(secrets, "token_urlsafe", lambda n: "sentinel-urlsafe_value")
@@ -442,8 +452,10 @@ def test_ensure_service_tokens_rejects_reserved_char_in_ariel_dsn(tmp_path):
     assert "p@ss" not in str(exc_info.value)
 
 
+@pytest.mark.usefixtures("captured_argv")
 def test_ensure_service_tokens_rejects_reserved_char_in_ariel_dsn_alongside_a_real_service(
-    captured_argv, _clean_token_env, tmp_path
+    _clean_token_env,
+    tmp_path,
 ):
     """Same check, but on a deploy that also mints an unrelated service token —
     proves the two loops (required_vars and _VALIDATE_ONLY_VARS) coexist."""

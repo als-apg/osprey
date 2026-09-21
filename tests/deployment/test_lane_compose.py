@@ -1256,7 +1256,8 @@ def test_a_single_lane_deploy_mints_only_the_historical_keypair(env_path: Path) 
     }
 
 
-def test_each_lane_declares_its_own_launch_token(env_path: Path) -> None:
+@pytest.mark.usefixtures("env_path")
+def test_each_lane_declares_its_own_launch_token() -> None:
     """The token map is what ``_ensure_service_tokens`` mints from."""
     from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
 
@@ -1308,9 +1309,8 @@ def rendered_config(monkeypatch: pytest.MonkeyPatch):
     return _set
 
 
-def test_a_lane_unaware_caller_resolves_exactly_what_it_always_did(
-    rendered_config, env_path: Path
-) -> None:
+@pytest.mark.usefixtures("env_path")
+def test_a_lane_unaware_caller_resolves_exactly_what_it_always_did(rendered_config) -> None:
     """Lane 1 is the default on every entry point, spelled as it always was."""
     from osprey.bluesky_bridge_connection import (
         DEFAULT_BRIDGE_URL,
@@ -1328,8 +1328,10 @@ def test_a_lane_unaware_caller_resolves_exactly_what_it_always_did(
     assert resolve_launch_token() == "dev-token"
 
 
+@pytest.mark.usefixtures("env_path")
 def test_each_lane_resolves_its_own_bridge_and_token(
-    rendered_config, env_path: Path, monkeypatch: pytest.MonkeyPatch
+    rendered_config,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A second lane is addressed at its own port under its own token.
 
@@ -1354,9 +1356,8 @@ def test_each_lane_resolves_its_own_bridge_and_token(
     assert resolve_launch_token("bluesky_live") == "minted"
 
 
-def test_an_unrendered_lane_is_refused_rather_than_resolved_to_lane_one(
-    rendered_config, env_path: Path
-) -> None:
+@pytest.mark.usefixtures("env_path")
+def test_an_unrendered_lane_is_refused_rather_than_resolved_to_lane_one(rendered_config) -> None:
     """The fallback this refusal replaces is the wrong-machine bug itself.
 
     Quietly answering with lane 1 would send a plan to a bridge bound to a
