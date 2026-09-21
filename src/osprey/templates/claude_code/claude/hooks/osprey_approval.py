@@ -890,7 +890,7 @@ def _target_line(hook_input=None, record=_UNREAD) -> str:
 
 
 def _describe_control_target_set(
-    tool_input, config, hook_input=None, read_record=None
+    tool_input, _config, hook_input=None, read_record=None
 ) -> list[str]:
     """Render where a prospective target switch would leave the session.
 
@@ -972,7 +972,7 @@ _TARGET_DESCRIBERS = {
 }
 
 
-def _describe_manual_fire(tool_input, config, hook_input=None, read_record=None) -> list[str]:
+def _describe_manual_fire(tool_input, _config, _hook_input=None, _read_record=None) -> list[str]:
     """Name the trigger a manual fire would start, and the payload it carries.
 
     The tool name alone says a job would start; it does not say which one, and
@@ -1755,7 +1755,7 @@ def _unresolved_lane_lines(situation: dict, action: str) -> list[str]:
     ]
 
 
-def _lane_bridge_url(situation: dict, lane_key, config: dict) -> str | None:
+def _lane_bridge_url(lane_key, config: dict) -> str | None:
     """The base URL of one lane's bridge, or ``None`` when it cannot be resolved.
 
     Lane 1 resolves exactly as it always has (:func:`_resolve_bridge_url`), so a
@@ -1847,7 +1847,7 @@ def _describe_queue_add(
             f"— the lane serving the deployment's target, which is where this plan binds."
         )
 
-    base_url = _lane_bridge_url(situation, lane_key, config)
+    base_url = _lane_bridge_url(lane_key, config)
     if base_url is None:
         lines.append(_unaddressable_lane_line(lane_key))
         return lines
@@ -2156,7 +2156,7 @@ def _describe_queue_start(
         _null_queue_start_stamps(hook_input)
         return lines
 
-    base_url = _lane_bridge_url(situation, lane_key, config)
+    base_url = _lane_bridge_url(lane_key, config)
     if base_url is None:
         lines.append(_unaddressable_lane_line(lane_key))
         _null_queue_start_stamps(hook_input)
@@ -2177,7 +2177,7 @@ def _describe_queue_start(
 
 
 def _describe_queue_stop(
-    tool_input: dict, config: dict, hook_input=None, read_record=None
+    tool_input: dict, config: dict, _hook_input=None, _read_record=None
 ) -> list[str]:
     """Render the stop-approval prompt, whose two directions are opposites.
 
@@ -2204,7 +2204,7 @@ def _describe_queue_stop(
 
 
 def _describe_queue_remove(
-    tool_input: dict, config: dict, hook_input=None, read_record=None
+    tool_input: dict, config: dict, _hook_input=None, _read_record=None
 ) -> list[str]:
     """Render the removal-approval prompt: name the item being dropped.
 
@@ -2247,7 +2247,7 @@ def _describe_queue_remove(
 
 
 def _describe_stop_run(
-    tool_input: dict, config: dict, hook_input=None, read_record=None
+    _tool_input: dict, config: dict, _hook_input=None, _read_record=None
 ) -> list[str]:
     """Render the abort-approval prompt: what an abort costs, and what is running.
 
