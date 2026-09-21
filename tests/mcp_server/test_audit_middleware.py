@@ -946,7 +946,7 @@ class TestAnUnstoredInnerRecordIsNotSubstituted:
     async def test_a_tool_error_over_an_unstored_marker_files_the_middlewares_own_record(
         self, project
     ):
-        async def call_next(context):
+        async def call_next(_context):
             mark_recorded(DECISION_REFUSED, "runtime_guard", stored=False)
             raise ToolError("refused, and the inner write never landed")
 
@@ -960,7 +960,7 @@ class TestAnUnstoredInnerRecordIsNotSubstituted:
     async def test_a_successful_call_over_an_unstored_marker_files_no_substitute_record(
         self, project
     ):
-        async def call_next(context):
+        async def call_next(_context):
             mark_recorded(DECISION_REFUSED, "runtime_guard", stored=False)
             return "ran"
 

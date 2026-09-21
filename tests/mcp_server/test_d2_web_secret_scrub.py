@@ -478,7 +478,7 @@ async def _drive_one_request_through_auth_middleware() -> int:
     """
     from osprey.interfaces.common_middleware import WebAuthMiddleware
 
-    async def downstream(scope, receive, send):
+    async def downstream(_scope, _receive, send):
         await send({"type": "http.response.start", "status": 200, "headers": []})
         await send({"type": "http.response.body", "body": b"downstream"})
 

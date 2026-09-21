@@ -66,7 +66,7 @@ class _FakeContext:
         cypher: str,
         params: Any = None,
         *,
-        max_rows: int | None = None,
+        max_rows: int | None = None,  # noqa: ARG002 - the graph client's run_read fixes this keyword-only parameter
     ) -> QueryResult:
         self.calls.append((cypher, params))
         if self._raises is not None:

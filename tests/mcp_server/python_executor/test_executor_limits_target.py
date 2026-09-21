@@ -73,7 +73,7 @@ def _run_local(tmp_path, monkeypatch) -> _LocalRun:
         reads["n"] += 1
         return _record("va" if reads["n"] == 1 else "live")
 
-    def fake_from_config(*, connector_type=None, target=None):
+    def fake_from_config(*, connector_type=None, target=None):  # noqa: ARG001 - LimitsValidator.from_config fixes this keyword-only parameter
         targets.append(target)
         return _validator_for(target)
 
@@ -151,7 +151,7 @@ class TestLoadLimitsValidator:
         turn a mis-wired call site into a silently unvalidated sandbox.
         """
 
-        def boom(*, connector_type=None, target=None):
+        def boom(*, connector_type=None, target=None):  # noqa: ARG001 - LimitsValidator.from_config fixes these keyword-only parameters
             raise TypeError("takes connector_type or target, not both")
 
         monkeypatch.setattr(LimitsValidator, "from_config", boom)
@@ -163,7 +163,7 @@ class TestLoadLimitsValidator:
     def test_config_unavailable_is_none(self, monkeypatch, exc):
         """The errors ``from_config`` documents as "config unavailable" disable checking."""
 
-        def boom(*, connector_type=None, target=None):
+        def boom(*, connector_type=None, target=None):  # noqa: ARG001 - LimitsValidator.from_config fixes these keyword-only parameters
             raise exc("nope")
 
         monkeypatch.setattr(LimitsValidator, "from_config", boom)
@@ -235,7 +235,7 @@ class TestStepReadTimeout:
     def test_a_config_that_cannot_be_read_still_bounds_the_read(self, monkeypatch):
         """Config that will not load must not be what takes the bound off the read."""
 
-        def explode(key, default=None):
+        def explode(_key, _default=None):
             raise RuntimeError("no config here")
 
         monkeypatch.setattr("osprey_connectors.config.get_config_value", explode)

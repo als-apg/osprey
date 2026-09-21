@@ -892,7 +892,7 @@ def test_unset_va_ports_follow_the_deployed_va_service_port(monkeypatch) -> None
     """The VA is a service this project deploys, so its gateways follow it."""
     from osprey_connectors import config as config_module
 
-    def fake_get_config_value(path: str, default: Any = None, config_path: str | None = None):
+    def fake_get_config_value(path: str, _default: Any = None, _config_path: str | None = None):
         assert path == "services.virtual_accelerator.port", path
         return 5077
 

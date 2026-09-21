@@ -113,7 +113,7 @@ class TestCreateStaticPlot:
         """Verify data_source generates loading code in executed code."""
         captured_code = None
 
-        async def mock_execute(code, execution_folder):
+        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
             nonlocal captured_code
             captured_code = code
             return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
@@ -138,7 +138,7 @@ class TestCreateStaticPlot:
         art_file = tmp_path / "a1b2c3d4e5f6_data.csv"
         art_file.write_text("x,y\n1,2\n")
 
-        async def mock_execute(code, execution_folder):
+        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
             nonlocal captured_code
             captured_code = code
             return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
@@ -163,7 +163,7 @@ class TestCreateStaticPlot:
         """Verify matplotlib imports and styling are prepended."""
         captured_code = None
 
-        async def mock_execute(code, execution_folder):
+        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
             nonlocal captured_code
             captured_code = code
             return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])
@@ -183,7 +183,7 @@ class TestCreateStaticPlot:
         """Verify no plt.tight_layout() is auto-appended (must be explicit)."""
         captured_code = None
 
-        async def mock_execute(code, execution_folder):
+        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
             nonlocal captured_code
             captured_code = code
             return SandboxExecutionResult(success=True, stdout="", stderr="", artifacts=[])

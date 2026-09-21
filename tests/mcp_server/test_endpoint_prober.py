@@ -519,7 +519,7 @@ async def test_a_failed_publish_does_not_stop_the_loop(listener, monkeypatch, ca
     """An unwritable state directory costs a publish, never the measurements."""
     calls: list[int] = []
 
-    def _boom(rows: Any, **kwargs: Any) -> bool:
+    def _boom(rows: Any, **kwargs: Any) -> bool:  # noqa: ARG001 - target_state.publish_reachability fixes this stand-in's signature
         calls.append(1)
         raise OSError("state directory is read-only")
 

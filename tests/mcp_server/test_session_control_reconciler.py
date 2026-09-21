@@ -119,7 +119,7 @@ class FakeManager:
     def is_started(self) -> bool:
         return self.started
 
-    def applying_bound_s(self, *, fallback_retry: bool = True) -> float:
+    def applying_bound_s(self, *, fallback_retry: bool = True) -> float:  # noqa: ARG002 - ConnectorHostManager.applying_bound_s fixes this keyword-only parameter
         return self.bound_s
 
     def publish_display(self) -> bool:
@@ -261,7 +261,7 @@ def allow_every_target(monkeypatch):
     """Stub eligibility open, so the gate's third rung is not the subject."""
     from osprey.mcp_server.control_system.target_eligibility import TargetAvailability
 
-    def available(config, target, control_target, baseline_target, **kwargs):
+    def available(config, target, control_target, baseline_target, **kwargs):  # noqa: ARG001 - target_availability fixes this stand-in's signature
         return TargetAvailability(
             target=target,
             eligible=True,

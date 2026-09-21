@@ -431,7 +431,7 @@ async def test_entry_create_with_html_artifact_auto_converts(tmp_path, monkeypat
     )
 
     # Mock convert_html_to_image to write a fake PNG
-    async def fake_convert(html_path, output_path, **kwargs):
+    async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
         from pathlib import Path
 
         Path(output_path).write_bytes(b"\x89PNG converted")
@@ -484,7 +484,7 @@ async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
         tool_source="execute",
     )
 
-    async def fake_convert(html_path, output_path, **kwargs):
+    async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
         from pathlib import Path
 
         Path(output_path).write_bytes(b"\x89PNG md")
@@ -537,7 +537,7 @@ async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatc
         tool_source="test",
     )
 
-    async def fake_convert(html_path, output_path, **kwargs):
+    async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
         from pathlib import Path
 
         Path(output_path).write_bytes(b"\x89PNG fallback")

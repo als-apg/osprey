@@ -1225,7 +1225,7 @@ def test_describe_available_packages_falls_back_on_failure(
     module = clean_package_cache
     monkeypatch.setattr(module, "resolve_agent_interpreter", lambda: Path("/usr/bin/python3"))
 
-    def fail(cmd, **kwargs):
+    def fail(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
         raise failure
 
     monkeypatch.setattr(module.subprocess, "run", fail)

@@ -223,7 +223,7 @@ def test_notify_panel_register_passes_health_endpoint():
     """The optional health_endpoint is forwarded in the payload."""
     captured: dict = {}
 
-    def _fake(url, payload, *, timeout):
+    def _fake(_url, payload, *, timeout):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
         captured.update(payload)
         return 200, {}
 
@@ -310,7 +310,7 @@ def test_notify_panel_arrange_posts_tiles_and_focus():
     """Tiles, focus and the agent attribution are sent to the arrange route."""
     captured: dict = {}
 
-    def _fake(url, payload, *, timeout):
+    def _fake(url, payload, *, timeout):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
         captured["url"] = url
         captured["payload"] = payload
         return 200, {"status": "ok", "tiles": payload["tiles"]}
@@ -333,7 +333,7 @@ def test_notify_panel_arrange_preset_omits_tiles_and_focus():
     """A preset call sends only the preset name (plus attribution)."""
     captured: dict = {}
 
-    def _fake(url, payload, *, timeout):
+    def _fake(_url, payload, *, timeout):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
         captured.update(payload)
         return 200, {}
 

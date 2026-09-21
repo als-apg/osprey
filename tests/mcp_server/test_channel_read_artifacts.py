@@ -425,7 +425,7 @@ async def test_retention_fires_after_an_image_save(tmp_path, monkeypatch):
     """The rolling window is swept on the image path too, with the config window."""
     calls: list[tuple] = []
 
-    def fake_prune(self, address, keep):
+    def fake_prune(_self, address, keep):
         calls.append((address, keep))
         return []
 
