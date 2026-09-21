@@ -570,7 +570,7 @@ def _finite(value: Any, path: str, what: str) -> float:
 def _one_of(value: Any, path: str, allowed: tuple[str, ...]) -> str:
     if value not in allowed:
         raise BindingsError(path, f"must be one of {_words(allowed)}, got {_shown(value)}")
-    return value
+    return str(value)
 
 
 def _null(value: Any, path: str, why: str) -> None:

@@ -245,7 +245,7 @@ def assign_directions(
             :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator.writable_addresses`).
     """
     if limits_path is None:
-        directions = {
+        directions: dict[tuple[str, str, str], str] = {
             group.key: (DIRECTION_WRITE if group.subfield == WRITE_SUBFIELD else DIRECTION_READ)
             for group in model.signal_groups
         }
@@ -273,7 +273,7 @@ def assign_directions(
 
     path = Path(limits_path)
     writable = LimitsValidator.writable_addresses(path)
-    directions: dict[tuple[str, str, str], str] = {}
+    directions = {}
     for group in model.signal_groups:
         by_direction: dict[str, list[str]] = {}
         for address in group.members:

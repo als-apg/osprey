@@ -378,8 +378,8 @@ def import_cmd(inputs: tuple[Path, ...], systems: tuple[str, ...], repo: Path | 
     if swept:
         names = ", ".join(str(path.relative_to(out_dir)) for path in swept)
         report(f"Removed {_count(len(swept), 'file')} left by an earlier import: {names}.")
-    for path, filename in ((va_path, VA_FILENAME), (response_path, RESPONSE_FILENAME)):
-        if path is not None:
+    for written, filename in ((va_path, VA_FILENAME), (response_path, RESPONSE_FILENAME)):
+        if written is not None:
             report(f"Wrote {filename} for {_count(len(documents[filename]), 'system')}.")
 
 

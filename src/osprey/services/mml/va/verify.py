@@ -821,9 +821,10 @@ def _undrivable(
         return f"the emitted bindings carry no device of the actuator family {family!r}"
     deltas = _deltas(block)
     if deltas is None:
-        stated = block.get("actuator_delta")
+        widths = block.get("actuator_delta")
+        swept: list[Any] = widths if isinstance(widths, list) else []
         return (
-            f"the block states {len(stated)} actuator_delta values for the "
+            f"the block states {len(swept)} actuator_delta values for the "
             f"{len(_rows(block, 'actuator'))} devices of {family!r}, and each device is "
             "swept by its own"
         )
@@ -1414,7 +1415,7 @@ def _usable(
     for index, (device, reason) in _alignment(block, side, grain, judged_va).items():
         if refusal is not None:
             reason = refusal
-        elif reason is None and device not in bindings:
+        elif reason is None and device is not None and device not in bindings:
             reason = (shared or {}).get(device) or f"{unbound} device at this row"
         elif reason is None and unswept is not None:
             reason = unswept.get(index)

@@ -57,7 +57,7 @@ from osprey.services.virtual_accelerator.lattice.calibration import to_physics
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable
 
-    from osprey.services.virtual_accelerator.bindings import Binding
+    from osprey.services.virtual_accelerator.bindings import Binding, Calibration
     from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 
 __all__ = ["orbit_response"]
@@ -108,7 +108,7 @@ def orbit_response(
     delta = _sweep_width(delta_hw)
     planes = _planes_to_read(model, monitors)
 
-    held = float(model.get(address))
+    held = float(model.get([address])[address])
     span = _actuator_span(binding, held, delta)
 
     arms: list[dict[str, float]] = []
@@ -168,6 +168,24 @@ def _require_served(model: PyATRingModel, address: str, role: str) -> None:
             f"the model serves no variable on {address!r}, so it cannot be the {role} of an "
             "orbit response; the manifest the model was built on does not carry that address"
         )
+
+
+def _calibration(binding: Binding) -> Calibration:
+    """The conversion a binding of the sweep converts through.
+
+    Both roles are refused before anything is written -- the actuator by
+    :func:`_actuator_address`, each monitor by :func:`_planes_to_read` -- so a
+    binding that reaches a conversion carries one.
+
+    Raises:
+        ValueError: the binding converts through no calibration.
+    """
+    if binding.calibration is None:
+        raise ValueError(
+            f"binding {binding.setpoint_address!r} carries no calibration, so it has no "
+            "physics value an orbit response can be measured in"
+        )
+    return binding.calibration
 
 
 def _sweep_width(delta_hw: float) -> float:
@@ -245,8 +263,9 @@ def _actuator_span(binding: Binding, held: float, delta: float) -> float:
             the beam is asked for two identical settings and the response has
             nothing to be measured against.
     """
-    high = float(to_physics(binding.calibration, held + 0.5 * delta))
-    low = float(to_physics(binding.calibration, held - 0.5 * delta))
+    calibration = _calibration(binding)
+    high = float(to_physics(calibration, held + 0.5 * delta))
+    low = float(to_physics(calibration, held - 0.5 * delta))
     span = high - low
     if span == 0.0:
         raise ValueError(
@@ -269,7 +288,7 @@ def _physics_readings(
     hardware = model.get([monitor.setpoint_address for monitor in monitors])
     return {
         monitor.setpoint_address: float(
-            to_physics(monitor.calibration, hardware[monitor.setpoint_address])
+            to_physics(_calibration(monitor), hardware[monitor.setpoint_address])
         )
         for monitor in monitors
     }

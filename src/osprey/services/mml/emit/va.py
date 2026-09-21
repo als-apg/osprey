@@ -1257,9 +1257,9 @@ def _element_binding_by_device(
             positions.setdefault(key, index)
     found: dict[int, ElementBinding] = {}
     for entry in entries:
-        index = positions.get(tuple(entry.device))
-        if index is not None:
-            found.setdefault(index, entry)
+        position = positions.get(tuple(entry.device))
+        if position is not None:
+            found.setdefault(position, entry)
     return found
 
 

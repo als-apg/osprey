@@ -122,7 +122,7 @@ _MONITOR_AXES: tuple[str, ...] = ("x", "y")
 #: The polynomial coefficient each multipole order writes. A dipole is a trim
 #: coil rather than a driven multipole, so it is calibrated before this table
 #: is consulted and carries no row here.
-_MULTIPOLE_INDEX: tuple[tuple[type, int], ...] = (
+_MULTIPOLE_INDEX: tuple[tuple[type[at.elements.Element], int], ...] = (
     (at.Quadrupole, 1),
     (at.Sextupole, 2),
 )

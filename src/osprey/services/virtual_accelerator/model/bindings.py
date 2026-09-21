@@ -51,37 +51,124 @@ rescales nothing.
 from __future__ import annotations
 
 from functools import partial
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 from lume_pyat.actions import ElementBinding, PyATWritableScalarVariable
 
+from osprey.services.virtual_accelerator.bindings import BindingsError
 from osprey.services.virtual_accelerator.model.variables import (
     EnergyVariable,
     KickVariable,
     MonitorVariable,
     RFVariable,
     StrengthVariable,
+    _CalibratedSetpoint,
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Callable, Mapping
+    from typing import TypeVar, Unpack
 
-    from lume.variables import ScalarVariable
+    from lume.variables import ConfigEnum, ScalarVariable
 
-    from osprey.services.virtual_accelerator.bindings import Binding, BindingsDocument
+    from osprey.services.virtual_accelerator.bindings import (
+        Binding,
+        BindingsDocument,
+        Calibration,
+    )
 
     #: What the catalog calls per address: ``factory(channel, **scalar_kwargs)``.
     VariableFactory = Callable[..., ScalarVariable]
+
+    _T = TypeVar("_T")
+
+
+class ScalarFields(TypedDict, total=False):
+    """The ``ScalarVariable`` fields the catalog derives, as it hands them over.
+
+    One name per field
+    :func:`~osprey.services.virtual_accelerator.model.catalog.build_variable_catalog`
+    passes a factory, typed as the variable classes declare it. Naming them is
+    what keeps the two halves of one construction in step: a field the catalog
+    starts deriving reaches a variable only once it is listed here.
+    """
+
+    name: str
+    read_only: bool
+    default_validation_config: ConfigEnum
+    default_value: float | None
+    value_range: tuple[float, float] | None
+    unit: str | None
+
 
 #: The class each writable element kind is implemented by. The three name
 #: what a kind writes and nothing more -- a weight is any finite non-zero
 #: factor for all of them -- which is why the construction below is one
 #: function rather than three.
-_SETPOINT_CLASS: dict[str, type[PyATWritableScalarVariable]] = {
+_SETPOINT_CLASS: dict[str, type[_CalibratedSetpoint]] = {
     "strength": StrengthVariable,
     "kick": KickVariable,
     "rf": RFVariable,
 }
+
+
+def _stated(value: _T | None, binding: Binding, key: str) -> _T:
+    """Return a field the binding's kind is built from, refusing a document without it.
+
+    A document is held to the fields each kind needs before it is parsed, so a
+    binding that reaches a factory carries every one of them. Refusing here is
+    what keeps that true of a binding built by any other route.
+    """
+    if value is None:
+        raise BindingsError(
+            f"{binding.setpoint_address}.{key}",
+            f"is required: a {binding.kind} binding is built from it",
+        )
+    return value
+
+
+def _curve(value: Calibration | None, binding: Binding, key: str) -> Calibration:
+    """Return a conversion the binding's kind is built from.
+
+    The refusal :func:`_stated` makes, for the field whose two shapes -- a
+    straight line and a sampled table -- are one conversion.
+    """
+    if value is None:
+        raise BindingsError(
+            f"{binding.setpoint_address}.{key}",
+            f"is required: a {binding.kind} binding is built from it",
+        )
+    return value
+
+
+def _axis(binding: Binding) -> Literal["x", "y"]:
+    """The transverse plane a monitor reads, as its own attribute names it.
+
+    The attribute *is* the axis, and the solved orbit has the two planes, so
+    nothing translates between a facility's spelling and the model's.
+    """
+    attribute = binding.attribute
+    if attribute == "x":
+        return "x"
+    if attribute == "y":
+        return "y"
+    raise BindingsError(
+        f"{binding.setpoint_address}.attribute",
+        f"a monitor reads plane 'x' or 'y', got {attribute!r}",
+    )
+
+
+def _energy_scaling(binding: Binding) -> Literal["brho", "none"]:
+    """Whether the binding's physics value moves with the beam rigidity."""
+    scaling = binding.energy_scaling
+    if scaling == "brho":
+        return "brho"
+    if scaling == "none":
+        return "none"
+    raise BindingsError(
+        f"{binding.setpoint_address}.energy_scaling",
+        f"must be 'brho' or 'none', got {scaling!r}",
+    )
 
 
 def _element_bindings(binding: Binding) -> list[ElementBinding]:
@@ -95,7 +182,7 @@ def _element_bindings(binding: Binding) -> list[ElementBinding]:
     return [
         ElementBinding(
             element_name=slice_.element,
-            attribute=binding.attribute,
+            attribute=_stated(binding.attribute, binding, "attribute"),
             index=binding.index,
             weight=slice_.weight,
         )
@@ -107,7 +194,7 @@ def _setpoint_variable(
     binding: Binding,
     deck_energy_gev: float,
     channel: dict,
-    **scalar_kwargs: object,
+    **scalar_kwargs: Unpack[ScalarFields],
 ) -> PyATWritableScalarVariable:
     """Build one hardware setpoint: a strength, a kick or the rf frequency.
 
@@ -127,9 +214,9 @@ def _setpoint_variable(
     """
     return _SETPOINT_CLASS[binding.kind](
         bindings=_element_bindings(binding),
-        calibration=binding.calibration,
+        calibration=_curve(binding.calibration, binding, "calibration"),
         monitor_inverse=binding.monitor_inverse,
-        energy_scaling=binding.energy_scaling,
+        energy_scaling=_energy_scaling(binding),
         deck_energy_gev=deck_energy_gev,
         **scalar_kwargs,
     )
@@ -138,7 +225,7 @@ def _setpoint_variable(
 def _monitor_variable(
     binding: Binding,
     channel: dict,
-    **scalar_kwargs: object,
+    **scalar_kwargs: Unpack[ScalarFields],
 ) -> MonitorVariable:
     """Build one orbit reading, on the axis and monitor the binding names.
 
@@ -148,9 +235,9 @@ def _monitor_variable(
         **scalar_kwargs: the ``ScalarVariable`` fields the catalog derived.
     """
     return MonitorVariable(
-        element_name=binding.element,
-        axis=binding.attribute,
-        monitor_inverse=binding.monitor_inverse,
+        element_name=_stated(binding.element, binding, "element"),
+        axis=_axis(binding),
+        monitor_inverse=_curve(binding.monitor_inverse, binding, "monitor_inverse"),
         **scalar_kwargs,
     )
 
@@ -159,7 +246,7 @@ def _energy_variable(
     binding: Binding,
     deck_energy_gev: float,
     channel: dict,
-    **scalar_kwargs: object,
+    **scalar_kwargs: Unpack[ScalarFields],
 ) -> EnergyVariable:
     """Build the ring's energy knob from the bend's own energy table.
 
@@ -176,8 +263,8 @@ def _energy_variable(
             leave every energy the knob writes undefined.
     """
     return EnergyVariable(
-        energy_table=binding.energy_table,
-        nominal=binding.nominal,
+        energy_table=_stated(binding.energy_table, binding, "energy_table"),
+        nominal=_stated(binding.nominal, binding, "nominal"),
         deck_energy_gev=deck_energy_gev,
         **scalar_kwargs,
     )

@@ -28,15 +28,16 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterator
 
 __all__ = [
     "ENERGY_TOLERANCE_GEV",
     "FINGERPRINT_KEYS",
     "Mismatch",
+    "Ring",
     "check_fingerprint",
     "lattice_fingerprint",
 ]
@@ -73,7 +74,18 @@ class Mismatch:
     actual: Any
 
 
-def lattice_fingerprint(ring: Iterable[Any]) -> dict[str, Any]:
+class Ring(Protocol):
+    """A lattice deck's ring: its elements in saved order, and its model energy.
+
+    What a fingerprint is recomputed from, and no more of a deck than that.
+    """
+
+    energy: float
+
+    def __iter__(self) -> Iterator[Any]: ...
+
+
+def lattice_fingerprint(ring: Ring) -> dict[str, Any]:
     """Recompute the four facts of a fingerprint from a lattice deck's ring.
 
     Args:

@@ -9,7 +9,9 @@ Subclasses FlatChannelDatabase to inherit chunking, formatting, and validation.
 try:
     import gspread
 except ImportError:
-    gspread = None
+    # The client ships in an optional extra, and ``None`` is the sentinel the
+    # connection refuses on when that extra is not installed.
+    gspread = None  # type: ignore[assignment]
 
 from ..core.exceptions import DatabaseLoadError
 from .flat import ChannelDatabase as FlatChannelDatabase

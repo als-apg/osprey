@@ -786,8 +786,12 @@ def _attype_answer(value: Any, key: str) -> AttypeAnswer | None:
     if value is None:
         return None
     if isinstance(value, str):
-        if value in ("latch", "energy", "rf"):
-            return value
+        if value == "latch":
+            return "latch"
+        if value == "energy":
+            return "energy"
+        if value == "rf":
+            return "rf"
         match = _STRENGTH_ANSWER.fullmatch(value)
         if match is not None:
             attribute: Literal["PolynomB", "PolynomA"] = (
@@ -806,7 +810,7 @@ def _shared_field_answer(value: Any, key: str) -> SharedFieldAnswer | None:
         return None
     if isinstance(value, str):
         if value == "latch":
-            return value
+            return "latch"
         owner, sep, family = value.partition(":")
         if owner == "owner" and sep and family:
             return OwnerAnswer(family=family)
@@ -818,8 +822,11 @@ def _shared_field_answer(value: Any, key: str) -> SharedFieldAnswer | None:
 def _escape_hatch_answer(value: Any, key: str) -> EscapeHatchAnswer | None:
     if value is None:
         return None
-    if isinstance(value, str) and value in ("latch", "ignore_hook"):
-        return value
+    if isinstance(value, str):
+        if value == "latch":
+            return "latch"
+        if value == "ignore_hook":
+            return "ignore_hook"
     raise MappingError(
         key, f"must be {VA_ANSWER_WORDS[ESCAPE_HATCH_KIND]} or null, got {_shown(value)}"
     )

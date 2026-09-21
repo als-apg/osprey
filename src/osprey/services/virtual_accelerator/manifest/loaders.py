@@ -100,7 +100,9 @@ def _listed_addresses(db: MiddleLayerDatabase, channel: dict) -> list[str]:
         node = node.get(level) if isinstance(node, dict) else None
     if not isinstance(node, dict):
         return []
-    names = node.get(_PROTOCOL_CHANNEL_KEYS.get(channel.get("protocol"), "ChannelNames"), [])
+    protocol = channel.get("protocol")
+    key = _PROTOCOL_CHANNEL_KEYS.get(protocol) if isinstance(protocol, str) else None
+    names = node.get(key or "ChannelNames", [])
     return [names] if isinstance(names, str) else list(names)
 
 

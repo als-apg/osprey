@@ -755,6 +755,11 @@ def _hook_value(value: Any) -> str | None:
     return _text_or_none(value)
 
 
+def _block(value: Any) -> dict:
+    """A nested block as the mapping it is, or an empty one where it is not stated."""
+    return value if isinstance(value, dict) else {}
+
+
 def _at_block(body: Any) -> dict:
     at = body.get("AT") if isinstance(body, dict) else None
     return at if isinstance(at, dict) else {}
@@ -927,9 +932,9 @@ def va_census(
     """
     if not isinstance(va, dict):
         return None
-    lattice = va.get("lattice") if isinstance(va.get("lattice"), dict) else {}
-    export = va.get("_export") if isinstance(va.get("_export"), dict) else {}
-    bodies = va.get("families") if isinstance(va.get("families"), dict) else {}
+    lattice = _block(va.get("lattice"))
+    export = _block(va.get("_export"))
+    bodies = _block(va.get("families"))
     families = {
         name: body
         for name, body in bodies.items()
