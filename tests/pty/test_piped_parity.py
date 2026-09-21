@@ -280,12 +280,9 @@ def diff(expected: list[str], actual: list[str]) -> str:
     )
 
 
+@pytest.mark.usefixtures("unhurried_runtime")
 def test_the_scripted_deploy_reads_the_same_piped_as_it_does_on_a_terminal(
-    startable_repo: Path,
-    stub_runtime: StubRuntime,
-    pty_env: dict[str, str],
-    tmp_path: Path,
-    unhurried_runtime: None,
+    startable_repo: Path, stub_runtime: StubRuntime, pty_env: dict[str, str], tmp_path: Path
 ) -> None:
     """Criterion 9's comparison: two devices, one deploy, the same lines.
 

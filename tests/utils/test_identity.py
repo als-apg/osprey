@@ -65,16 +65,16 @@ class TestDeclaredNames:
 class TestEnvRungs:
     """Rungs 1 and 2 — the values a deployment renders."""
 
-    def test_terminal_user_outranks_audit_identity(
-        self, monkeypatch: pytest.MonkeyPatch, no_identity_env: None, local_account: str
-    ) -> None:
+    @pytest.mark.usefixtures("no_identity_env", "local_account")
+    def test_terminal_user_outranks_audit_identity(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "channel_finder")
 
         assert acting_identity() == "alice"
 
+    @pytest.mark.usefixtures("no_identity_env", "local_account")
     def test_audit_identity_used_when_no_terminal_user(
-        self, monkeypatch: pytest.MonkeyPatch, no_identity_env: None, local_account: str
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A framework service names itself rather than the process account."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
@@ -82,12 +82,9 @@ class TestEnvRungs:
         assert acting_identity() == "sidecar"
 
     @pytest.mark.parametrize("env_name", IDENTITY_ENV_LADDER)
+    @pytest.mark.usefixtures("no_identity_env", "local_account")
     def test_surrounding_whitespace_is_stripped(
-        self,
-        env_name: str,
-        monkeypatch: pytest.MonkeyPatch,
-        no_identity_env: None,
-        local_account: str,
+        self, env_name: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The stripped value is what names the file, so it is what names the actor."""
         monkeypatch.setenv(env_name, "  alice\n")
@@ -95,12 +92,9 @@ class TestEnvRungs:
         assert acting_identity() == "alice"
 
     @pytest.mark.parametrize("blank", ["", "   ", "\t", "\n"])
+    @pytest.mark.usefixtures("no_identity_env", "local_account")
     def test_blank_terminal_user_falls_through(
-        self,
-        blank: str,
-        monkeypatch: pytest.MonkeyPatch,
-        no_identity_env: None,
-        local_account: str,
+        self, blank: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A rendered-but-empty entry is the unset case spelled differently."""
         monkeypatch.setenv(TERMINAL_USER_ENV, blank)
@@ -109,20 +103,18 @@ class TestEnvRungs:
         assert acting_identity() == "channel_finder"
 
     @pytest.mark.parametrize("blank", ["", "   "])
+    @pytest.mark.usefixtures("no_identity_env")
     def test_both_rungs_blank_falls_to_local_account(
-        self,
-        blank: str,
-        monkeypatch: pytest.MonkeyPatch,
-        no_identity_env: None,
-        local_account: str,
+        self, blank: str, monkeypatch: pytest.MonkeyPatch, local_account: str
     ) -> None:
         for env_name in IDENTITY_ENV_LADDER:
             monkeypatch.setenv(env_name, blank)
 
         assert acting_identity() == local_account
 
+    @pytest.mark.usefixtures("no_identity_env")
     def test_environment_is_read_per_call(
-        self, monkeypatch: pytest.MonkeyPatch, no_identity_env: None, local_account: str
+        self, monkeypatch: pytest.MonkeyPatch, local_account: str
     ) -> None:
         """Nothing is cached at import: a later export changes the next record."""
         assert acting_identity() == local_account
@@ -139,12 +131,9 @@ class TestPathSafety:
         "unsafe",
         ["..", ".", "../elsewhere", "a/b", "/absolute", "back\\slash"],
     )
+    @pytest.mark.usefixtures("no_identity_env", "local_account")
     def test_unsafe_terminal_user_falls_through(
-        self,
-        unsafe: str,
-        monkeypatch: pytest.MonkeyPatch,
-        no_identity_env: None,
-        local_account: str,
+        self, unsafe: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A traversal or split would file one service's records under another."""
         monkeypatch.setenv(TERMINAL_USER_ENV, unsafe)
@@ -153,12 +142,9 @@ class TestPathSafety:
         assert acting_identity() == "channel_finder"
 
     @pytest.mark.parametrize("unsafe", ["..", "a/b", "/absolute"])
+    @pytest.mark.usefixtures("no_identity_env")
     def test_unsafe_audit_identity_falls_through(
-        self,
-        unsafe: str,
-        monkeypatch: pytest.MonkeyPatch,
-        no_identity_env: None,
-        local_account: str,
+        self, unsafe: str, monkeypatch: pytest.MonkeyPatch, local_account: str
     ) -> None:
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, unsafe)
 
@@ -176,9 +162,8 @@ class TestPathSafety:
         assert _usable("nul\0byte") == ""
         assert _usable("alice") == "alice"
 
-    def test_unsafe_local_account_becomes_unknown(
-        self, monkeypatch: pytest.MonkeyPatch, no_identity_env: None
-    ) -> None:
+    @pytest.mark.usefixtures("no_identity_env")
+    def test_unsafe_local_account_becomes_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The floor is honest, not a value that would escape the audit tree."""
         monkeypatch.setattr("getpass.getuser", lambda: "../root")
 
@@ -188,12 +173,9 @@ class TestPathSafety:
         "accepted",
         ["alice", "alice.smith", "als_operator", "svc-web-terminal", "user@example.org"],
     )
+    @pytest.mark.usefixtures("no_identity_env", "local_account")
     def test_ordinary_names_are_accepted(
-        self,
-        accepted: str,
-        monkeypatch: pytest.MonkeyPatch,
-        no_identity_env: None,
-        local_account: str,
+        self, accepted: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Rejection stays narrow: a strict allowlist would erase real accounts."""
         monkeypatch.setenv(TERMINAL_USER_ENV, accepted)
@@ -204,17 +186,14 @@ class TestPathSafety:
 class TestLocalAccountRung:
     """Rung 3 and the floor — the single-user laptop, and the slim container."""
 
-    def test_local_account_when_no_env_rung_is_set(
-        self, no_identity_env: None, local_account: str
-    ) -> None:
+    @pytest.mark.usefixtures("no_identity_env")
+    def test_local_account_when_no_env_rung_is_set(self, local_account: str) -> None:
         assert acting_identity() == local_account
 
     @pytest.mark.parametrize("failure", [KeyError("uid"), OSError("no passwd entry")])
+    @pytest.mark.usefixtures("no_identity_env")
     def test_unresolvable_account_yields_unknown(
-        self,
-        failure: Exception,
-        monkeypatch: pytest.MonkeyPatch,
-        no_identity_env: None,
+        self, failure: Exception, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A uid with no passwd entry is normal in a slim image, not an error."""
 
@@ -225,9 +204,8 @@ class TestLocalAccountRung:
 
         assert acting_identity() == UNKNOWN_IDENTITY
 
-    def test_any_other_failure_also_yields_unknown(
-        self, monkeypatch: pytest.MonkeyPatch, no_identity_env: None
-    ) -> None:
+    @pytest.mark.usefixtures("no_identity_env")
+    def test_any_other_failure_also_yields_unknown(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Resolving an identity must never be what breaks the audited operation."""
 
         def _raise() -> str:
@@ -238,15 +216,17 @@ class TestLocalAccountRung:
         assert acting_identity() == UNKNOWN_IDENTITY
 
     @pytest.mark.parametrize("empty", ["", "   "])
+    @pytest.mark.usefixtures("no_identity_env")
     def test_empty_account_name_yields_unknown(
-        self, empty: str, monkeypatch: pytest.MonkeyPatch, no_identity_env: None
+        self, empty: str, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr("getpass.getuser", lambda: empty)
 
         assert acting_identity() == UNKNOWN_IDENTITY
 
+    @pytest.mark.usefixtures("no_identity_env")
     def test_env_rung_still_wins_over_a_broken_account(
-        self, monkeypatch: pytest.MonkeyPatch, no_identity_env: None
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The container case must not depend on the account resolving at all."""
 
@@ -262,8 +242,9 @@ class TestLocalAccountRung:
 class TestNeverTheHostname:
     """The one fallback that must never appear, however plausible it looks."""
 
+    @pytest.mark.usefixtures("no_identity_env")
     def test_exhausted_ladder_yields_unknown_not_a_machine_name(
-        self, monkeypatch: pytest.MonkeyPatch, no_identity_env: None
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A host-network container reports the shared host; a bridge one, noise."""
         import socket

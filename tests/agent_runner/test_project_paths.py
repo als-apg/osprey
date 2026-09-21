@@ -32,7 +32,8 @@ def test_config_dir_defaults_to_dot_claude_under_home(fake_home):
     assert claude_config_dir() == fake_home / ".claude"
 
 
-def test_config_dir_honours_the_environment(fake_home, tmp_path, monkeypatch):
+@pytest.mark.usefixtures("fake_home")
+def test_config_dir_honours_the_environment(tmp_path, monkeypatch):
     """``CLAUDE_CONFIG_DIR`` is used verbatim — no ``.claude`` appended."""
     configured = tmp_path / "data" / "claude-config"
     monkeypatch.setenv(CLAUDE_CONFIG_DIR_ENV, str(configured))
@@ -54,7 +55,8 @@ def test_config_dir_expands_a_tilde(fake_home, monkeypatch):
     assert claude_config_dir() == fake_home / "elsewhere"
 
 
-def test_project_dir_sits_under_projects_with_the_encoded_name(fake_home, tmp_path, monkeypatch):
+@pytest.mark.usefixtures("fake_home")
+def test_project_dir_sits_under_projects_with_the_encoded_name(tmp_path, monkeypatch):
     configured = tmp_path / "data" / "claude-config"
     monkeypatch.setenv(CLAUDE_CONFIG_DIR_ENV, str(configured))
     project = tmp_path / "app" / "my_project" / "build"

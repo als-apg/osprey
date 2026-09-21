@@ -134,7 +134,8 @@ class TestFindFreePort:
 
 
 class TestStartStop:
-    def test_start_returns_port_and_populates_state(self, monkeypatch, clean_proxy_state):
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_returns_port_and_populates_state(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
         port = lifecycle.start_proxy("https://up.example/v1", upstream_api_key="k")
@@ -145,7 +146,8 @@ class TestStartStop:
         assert lifecycle.get_proxy_url() == f"http://127.0.0.1:{port}"
         app_factory.assert_called_once_with("https://up.example/v1", "k")
 
-    def test_start_is_idempotent(self, monkeypatch, clean_proxy_state):
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_is_idempotent(self, monkeypatch):
         app_factory = _install_fake_uvicorn(monkeypatch)
 
         first = lifecycle.start_proxy("https://up.example/v1")
@@ -157,7 +159,8 @@ class TestStartStop:
         app_factory.assert_called_once()
         assert lifecycle._state["server"] is server
 
-    def test_start_waits_for_server_readiness(self, monkeypatch, clean_proxy_state):
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_start_waits_for_server_readiness(self, monkeypatch):
         class _SlowStartServer(_FakeServer):
             def __init__(self, config):
                 super().__init__(config)
@@ -184,7 +187,8 @@ class TestStartStop:
         # It polled ``started`` and slept while the server was still coming up.
         assert sleep.called
 
-    def test_stop_shuts_down_and_clears_state(self, monkeypatch, clean_proxy_state):
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_stop_shuts_down_and_clears_state(self, monkeypatch):
         _install_fake_uvicorn(monkeypatch)
         lifecycle.start_proxy("https://up.example/v1")
         server = lifecycle._state["server"]
@@ -197,11 +201,13 @@ class TestStartStop:
         assert lifecycle._state["port"] is None
         assert lifecycle.get_proxy_url() is None
 
-    def test_stop_when_not_running_is_a_noop(self, clean_proxy_state):
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_stop_when_not_running_is_a_noop(self):
         # Nothing started — stop must not raise and state stays empty.
         lifecycle.stop_proxy()
         assert lifecycle._state["server"] is None
         assert lifecycle.get_proxy_url() is None
 
-    def test_get_proxy_url_none_before_start(self, clean_proxy_state):
+    @pytest.mark.usefixtures("clean_proxy_state")
+    def test_get_proxy_url_none_before_start(self):
         assert lifecycle.get_proxy_url() is None
