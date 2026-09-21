@@ -109,7 +109,8 @@ def save_run_bookkeeping(store: ArtifactStore) -> None:
     )
 
 
-def test_repeated_startup_registers_exactly_once(project):
+@pytest.mark.usefixtures("project")
+def test_repeated_startup_registers_exactly_once():
     """Startup runs 3x in-process under test; the store appends unconditionally."""
     from osprey.mcp_server.startup import initialize_workspace_singletons
 

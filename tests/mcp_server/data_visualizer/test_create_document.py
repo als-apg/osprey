@@ -83,7 +83,7 @@ Welcome to the presentation.
         result = _exc_ctx["envelope"]
         assert "timed out" in result["error_message"]
 
-    async def test_successful_compilation(self, tool_fn, simple_latex, tmp_path):
+    async def test_successful_compilation(self, tool_fn, simple_latex):
         """Test successful PDF generation with mocked pdflatex."""
         call_count = 0
 
@@ -156,7 +156,8 @@ Welcome to the presentation.
         assert tex_entry.mime_type == "application/x-tex"
         assert tex_entry.artifact_type == "text"
 
-    async def test_artifact_ids_resolved_to_build_dir(self, tool_fn, simple_latex):
+    @pytest.mark.usefixtures("simple_latex")
+    async def test_artifact_ids_resolved_to_build_dir(self, tool_fn):
         """Verify referenced artifact figures are copied to the build directory."""
         # Create a test artifact
         store = get_artifact_store()

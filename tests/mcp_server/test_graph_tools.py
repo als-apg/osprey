@@ -125,7 +125,8 @@ class TestCapabilitiesServerCreation:
         assert graph_server.create_server() is graph_server.mcp
         assert stubbed_startup == {"prime": 1, "context": 1}
 
-    def test_capabilities_registered_after_server_creation(self, stubbed_startup):
+    @pytest.mark.usefixtures("stubbed_startup")
+    def test_capabilities_registered_after_server_creation(self):
         from osprey.mcp_server.graph import server as graph_server
 
         names = registered_tool_names(graph_server.create_server())

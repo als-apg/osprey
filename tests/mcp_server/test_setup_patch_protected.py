@@ -122,7 +122,8 @@ PROTECTED_CASES = [
 
 
 @pytest.mark.parametrize("file,key_path", PROTECTED_CASES)
-async def test_protected_key_is_refused(render, file, key_path):
+@pytest.mark.usefixtures("render")
+async def test_protected_key_is_refused(file, key_path):
     """The envelope names the key, the file it did not touch, and the real channel."""
     fn = _get_setup_patch()
     with _notify(), assert_raises_error(error_type="protected_key") as ctx:
@@ -140,7 +141,8 @@ async def test_protected_key_is_refused(render, file, key_path):
 
 
 @pytest.mark.parametrize("key_path", RUNTIME_WRITE_PATH_KEYS)
-async def test_every_runtime_write_path_key_is_refused(render, key_path):
+@pytest.mark.usefixtures("render")
+async def test_every_runtime_write_path_key_is_refused(key_path):
     """Repointing a runtime-write path moves what a safety layer treats as writable.
 
     Parametrized over the tuple itself rather than a copy of it: a key added to
@@ -196,7 +198,8 @@ async def test_each_refusal_appends_its_own_record(render):
     ]
 
 
-async def test_refusal_emits_activity(render):
+@pytest.mark.usefixtures("render")
+async def test_refusal_emits_activity():
     """The operator sees the attempt in the feed, with the file and key but no value."""
     fn = _get_setup_patch()
     with _notify() as notify, assert_raises_error(error_type="protected_key"):

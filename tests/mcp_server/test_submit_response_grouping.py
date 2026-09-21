@@ -32,7 +32,8 @@ class TestSubmitResponseGrouping:
     """Verify that agent results are grouped by source_agent in ArtifactStore."""
 
     @pytest.mark.asyncio
-    async def test_source_agent_set_on_artifact_entry(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_source_agent_set_on_artifact_entry(self):
         """When source_agent is given, artifact entry.source_agent should be the agent name."""
         raw = await _fn(
             title="Beam Loss Analysis",
@@ -51,7 +52,8 @@ class TestSubmitResponseGrouping:
         assert entry.tool_source == "submit_response"
 
     @pytest.mark.asyncio
-    async def test_source_agent_empty_without_agent(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_source_agent_empty_without_agent(self):
         """When no source_agent, entry.source_agent should be empty."""
         raw = await _fn(
             title="Generic Result",
@@ -67,7 +69,8 @@ class TestSubmitResponseGrouping:
         assert entry.tool_source == "submit_response"
 
     @pytest.mark.asyncio
-    async def test_artifact_filename_uses_agent_name(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_artifact_filename_uses_agent_name(self):
         """Artifact file should be named with agent, e.g. {id}_logbook-search.md."""
         raw = await _fn(
             title="Logbook Result",
@@ -83,7 +86,8 @@ class TestSubmitResponseGrouping:
         assert "submit_response" not in entry.filename
 
     @pytest.mark.asyncio
-    async def test_artifact_store_groups_by_source_agent(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_artifact_store_groups_by_source_agent(self):
         """Multiple agents should produce entries with different source_agent values."""
         await _fn(
             title="Logbook Result",
@@ -114,7 +118,8 @@ class TestSubmitResponseGrouping:
         assert "channel-finder" in agents
 
     @pytest.mark.asyncio
-    async def test_source_agent_filter_works(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_source_agent_filter_works(self):
         """Should be able to filter by source_agent_filter=agent_name."""
         await _fn(
             title="Logbook Result",
@@ -133,7 +138,8 @@ class TestSubmitResponseGrouping:
         assert logbook_entries[0].title == "Logbook Result"
 
     @pytest.mark.asyncio
-    async def test_source_agent_in_entry_and_metadata(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_source_agent_in_entry_and_metadata(self):
         """source_agent should be on both the entry field and in metadata."""
         raw = await _fn(
             title="Test Result",

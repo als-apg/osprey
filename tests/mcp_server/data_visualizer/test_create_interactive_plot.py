@@ -184,7 +184,7 @@ class TestCreateInteractivePlot:
         # Resolved path should appear in the generated code
         assert str(art_file) in captured_code
 
-    async def test_data_source_artifact_store_entry(self, tool_fn, tmp_path, mock_execution_folder):
+    async def test_data_source_artifact_store_entry(self, tool_fn, mock_execution_folder):
         """Verify hex artifact ID data_source resolves via ArtifactStore."""
         # Save data to ArtifactStore so a hex artifact ID exists
         store = get_artifact_store()

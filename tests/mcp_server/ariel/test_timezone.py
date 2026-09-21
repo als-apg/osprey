@@ -21,19 +21,22 @@ def facility_tokyo(monkeypatch):
     monkeypatch.setattr("osprey.utils.config.get_facility_timezone", lambda: TOKYO)
 
 
-def test_parse_date_filters_interprets_naive_input_as_facility_local(facility_tokyo):
+@pytest.mark.usefixtures("facility_tokyo")
+def test_parse_date_filters_interprets_naive_input_as_facility_local():
     start, end = parse_date_filters("2026-06-01 09:00:00", "2026-06-01T17:00:00")
     assert start.utcoffset().total_seconds() == 9 * 3600
     assert end.utcoffset().total_seconds() == 9 * 3600
 
 
-def test_parse_date_filters_respects_explicit_offset(facility_tokyo):
+@pytest.mark.usefixtures("facility_tokyo")
+def test_parse_date_filters_respects_explicit_offset():
     # An input that already carries an offset must NOT be overridden.
     start, _ = parse_date_filters("2026-06-01T09:00:00+00:00", None)
     assert start.utcoffset().total_seconds() == 0
 
 
-def test_serialize_entry_renders_timestamp_in_facility_zone(facility_tokyo):
+@pytest.mark.usefixtures("facility_tokyo")
+def test_serialize_entry_renders_timestamp_in_facility_zone():
     entry = {
         "entry_id": "e1",
         "timestamp": datetime(2026, 6, 1, 0, 0, 0, tzinfo=UTC),  # midnight UTC

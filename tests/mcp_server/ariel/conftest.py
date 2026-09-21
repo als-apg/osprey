@@ -18,7 +18,7 @@ from tests.mcp_server.conftest import get_tool_fn  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
-def _reset_registry(tmp_path):
+def _reset_registry():
     """Reset the ARIEL MCP registry singletons between tests."""
     yield
     reset_ariel_context()

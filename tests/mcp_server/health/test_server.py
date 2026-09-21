@@ -60,7 +60,8 @@ async def _tool_names(server) -> set[str]:
     return {getattr(t, "name", t) for t in tools}
 
 
-async def test_create_server_exposes_exactly_two_tools(stub_server_context):
+@pytest.mark.usefixtures("stub_server_context")
+async def test_create_server_exposes_exactly_two_tools():
     """create_server() returns a server exposing exactly the two tiered tools."""
     from osprey.mcp_server.health.server import create_server
 
@@ -79,7 +80,8 @@ async def test_create_server_initializes_server_context(stub_server_context):
     assert stub_server_context["initialized"] >= 1
 
 
-async def test_create_server_does_not_blow_up_when_context_stubbed(stub_server_context):
+@pytest.mark.usefixtures("stub_server_context")
+async def test_create_server_does_not_blow_up_when_context_stubbed():
     """create_server() completes cleanly when server_context is stubbed."""
     from osprey.mcp_server.health.server import create_server
 
@@ -88,7 +90,8 @@ async def test_create_server_does_not_blow_up_when_context_stubbed(stub_server_c
     assert server is not None
 
 
-async def test_tool_signatures_are_categories_only(stub_server_context):
+@pytest.mark.usefixtures("stub_server_context")
+async def test_tool_signatures_are_categories_only():
     """Both tools carry the final ``(categories: list[str] | None = None)`` signature."""
     from osprey.mcp_server.health.tools.health_check import health_check
     from osprey.mcp_server.health.tools.health_check_full import health_check_full

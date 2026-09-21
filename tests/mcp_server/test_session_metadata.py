@@ -55,7 +55,8 @@ def _make_subprocess_raise(*args, **kwargs):
 class TestGatherSessionMetadata:
     """Tests for gather_session_metadata()."""
 
-    def test_all_fields_present(self, fake_project):
+    @pytest.mark.usefixtures("fake_project")
+    def test_all_fields_present(self):
         """Return dict always has all 8 keys, even when values are None."""
         from osprey.mcp_server.session import gather_session_metadata
 
@@ -73,7 +74,8 @@ class TestGatherSessionMetadata:
         }
         assert set(result.keys()) == expected_keys
 
-    def test_created_via_always_matches(self, fake_project):
+    @pytest.mark.usefixtures("fake_project")
+    def test_created_via_always_matches(self):
         """created_via matches the argument regardless of other failures."""
         from osprey.mcp_server.session import gather_session_metadata
 
@@ -82,7 +84,8 @@ class TestGatherSessionMetadata:
 
         assert result["created_via"] == "my-caller-id"
 
-    def test_git_fallback_when_unavailable(self, fake_project):
+    @pytest.mark.usefixtures("fake_project")
+    def test_git_fallback_when_unavailable(self):
         """git_branch and git_commit_short are None when git fails."""
         from osprey.mcp_server.session import gather_session_metadata
 
@@ -92,7 +95,8 @@ class TestGatherSessionMetadata:
         assert result["git_branch"] is None
         assert result["git_commit_short"] is None
 
-    def test_transcript_fields_when_no_transcript(self, fake_project):
+    @pytest.mark.usefixtures("fake_project")
+    def test_transcript_fields_when_no_transcript(self):
         """Transcript fields are None when no transcript directory exists."""
         from osprey.mcp_server.session import gather_session_metadata
 
@@ -107,7 +111,8 @@ class TestGatherSessionMetadata:
         assert result["transcript_path"] is None
         assert result["session_start_time"] is None
 
-    def test_transcript_fields_populated(self, fake_project, fake_transcript):
+    @pytest.mark.usefixtures("fake_project")
+    def test_transcript_fields_populated(self, fake_transcript):
         """Transcript fields are populated when a JSONL transcript exists."""
         from osprey.mcp_server.session import gather_session_metadata
 
@@ -122,7 +127,8 @@ class TestGatherSessionMetadata:
         assert result["transcript_path"] == str(fake_transcript)
         assert result["session_start_time"] == "2026-02-22T10:00:00Z"
 
-    def test_session_id_env_fallback(self, fake_project, monkeypatch):
+    @pytest.mark.usefixtures("fake_project")
+    def test_session_id_env_fallback(self, monkeypatch):
         """session_id falls back to OSPREY_SESSION_ID env var."""
         from osprey.mcp_server.session import gather_session_metadata
 
@@ -137,7 +143,8 @@ class TestGatherSessionMetadata:
 
         assert result["session_id"] == "env-session-99"
 
-    def test_settings_json_missing(self, fake_project, monkeypatch):
+    @pytest.mark.usefixtures("fake_project")
+    def test_settings_json_missing(self, monkeypatch):
         """model_name is None when settings.json doesn't exist and env vars unset."""
         from osprey.mcp_server.session import gather_session_metadata
 
@@ -148,7 +155,8 @@ class TestGatherSessionMetadata:
 
         assert result["model_name"] is None
 
-    def test_model_name_from_settings(self, fake_project, fake_settings):
+    @pytest.mark.usefixtures("fake_project", "fake_settings")
+    def test_model_name_from_settings(self):
         """model_name comes from .claude/settings.json when present."""
         from osprey.mcp_server.session import gather_session_metadata
 
@@ -156,7 +164,8 @@ class TestGatherSessionMetadata:
 
         assert result["model_name"] == "claude-sonnet-4-6"
 
-    def test_model_name_env_fallback(self, fake_project, monkeypatch):
+    @pytest.mark.usefixtures("fake_project")
+    def test_model_name_env_fallback(self, monkeypatch):
         """model_name falls back to ANTHROPIC_MODEL env var."""
         from osprey.mcp_server.session import gather_session_metadata
 
@@ -167,7 +176,8 @@ class TestGatherSessionMetadata:
         # settings.json doesn't exist, so env var should be used
         assert result["model_name"] == "claude-haiku-4-5"
 
-    def test_operator_is_the_container_user(self, fake_project, monkeypatch):
+    @pytest.mark.usefixtures("fake_project")
+    def test_operator_is_the_container_user(self, monkeypatch):
         """operator names the person the audit ledger names.
 
         A per-user terminal container sets ``OSPREY_TERMINAL_USER`` and no
@@ -183,7 +193,8 @@ class TestGatherSessionMetadata:
 
         assert result["operator"] == "alice"
 
-    def test_operator_floors_at_unknown(self, fake_project, monkeypatch):
+    @pytest.mark.usefixtures("fake_project")
+    def test_operator_floors_at_unknown(self, monkeypatch):
         """An unresolvable identity is spelled, not left empty."""
         from osprey.mcp_server import session
         from osprey.utils.identity import UNKNOWN_IDENTITY

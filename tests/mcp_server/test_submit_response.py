@@ -44,7 +44,8 @@ class TestSubmitResponse:
     """Tests for the submit_response tool."""
 
     @pytest.mark.asyncio
-    async def test_submit_response_basic(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_submit_response_basic(self):
         raw = await _fn(title="Beam Loss Analysis", content="Found 3 beam loss events.")
         data = extract_response_dict(raw)
 
@@ -59,7 +60,8 @@ class TestSubmitResponse:
         assert "context_entry_id" not in data
 
     @pytest.mark.asyncio
-    async def test_submit_response_with_entry_ids(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_submit_response_with_entry_ids(self):
         raw = await _fn(
             title="Vacuum Events",
             content="Analysis of vacuum events.",
@@ -77,27 +79,31 @@ class TestSubmitResponse:
         assert entry.metadata["entry_ids"] == ["e101", "e102", "e103"]
 
     @pytest.mark.asyncio
-    async def test_submit_response_empty_title(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_submit_response_empty_title(self):
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await _fn(title="", content="Some content.")
         data = _exc_ctx["envelope"]
         assert "title" in data["error_message"]
 
     @pytest.mark.asyncio
-    async def test_submit_response_whitespace_title(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_submit_response_whitespace_title(self):
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await _fn(title="   ", content="Some content.")
         _exc_ctx["envelope"]
 
     @pytest.mark.asyncio
-    async def test_submit_response_empty_content(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_submit_response_empty_content(self):
         with assert_raises_error(error_type="validation_error") as _exc_ctx:
             await _fn(title="Valid Title", content="")
         data = _exc_ctx["envelope"]
         assert "content" in data["error_message"]
 
     @pytest.mark.asyncio
-    async def test_submit_response_custom_data_type(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_submit_response_custom_data_type(self):
         raw = await _fn(
             title="BPM Channels",
             content="Found BPM channels.",
@@ -114,7 +120,8 @@ class TestSubmitResponse:
         assert entry.metadata["data_type"] == "channel_addresses"
 
     @pytest.mark.asyncio
-    async def test_submit_response_with_source_agent(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_submit_response_with_source_agent(self):
         raw = await _fn(
             title="Beam Loss Analysis",
             content="Found 3 beam loss events.",
@@ -133,7 +140,8 @@ class TestSubmitResponse:
         assert entry.metadata["source_agent"] == "logbook-search"
 
     @pytest.mark.asyncio
-    async def test_submit_response_without_source_agent(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_submit_response_without_source_agent(self):
         raw = await _fn(title="Basic Result", content="No agent specified.")
         data = extract_response_dict(raw)
 
@@ -149,7 +157,8 @@ class TestSubmitResponse:
         assert entry.metadata["source_agent"] == ""
 
     @pytest.mark.asyncio
-    async def test_artifact_file_contains_markdown_content(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_artifact_file_contains_markdown_content(self):
         """The artifact file on disk should contain the raw markdown content."""
         raw = await _fn(
             title="Test Title",
@@ -178,7 +187,8 @@ class TestSubmitResponse:
     # ---- Artifact auto-registration tests ----
 
     @pytest.mark.asyncio
-    async def test_submit_response_creates_artifact(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_submit_response_creates_artifact(self):
         """submit_response should automatically create a gallery artifact."""
         raw = await _fn(title="Beam Loss Analysis", content="Found 3 beam loss events.")
         data = extract_response_dict(raw)
@@ -189,7 +199,8 @@ class TestSubmitResponse:
         assert len(data["artifact_id"]) == 12  # hex UUID prefix
 
     @pytest.mark.asyncio
-    async def test_artifact_is_markdown_file(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_artifact_is_markdown_file(self):
         """The auto-created artifact should be a markdown file on disk."""
         raw = await _fn(
             title="BPM Calibration Logbook Review",
@@ -214,7 +225,8 @@ class TestSubmitResponse:
         assert file_path.read_text() == "## Summary\n\nFound 5 relevant entries."
 
     @pytest.mark.asyncio
-    async def test_artifact_metadata_has_source_agent_and_entry_ids(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_artifact_metadata_has_source_agent_and_entry_ids(self):
         """Artifact metadata should carry source_agent and entry_ids."""
         raw = await _fn(
             title="BPM Channel Addresses",
@@ -234,7 +246,8 @@ class TestSubmitResponse:
         assert entry.source_agent == "channel-finder"
 
     @pytest.mark.asyncio
-    async def test_artifact_not_created_on_validation_error(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_artifact_not_created_on_validation_error(self):
         """Validation errors should NOT create an artifact."""
         with assert_raises_error() as _exc_ctx:
             await _fn(title="", content="Some content.")
@@ -243,7 +256,8 @@ class TestSubmitResponse:
         assert len(store.list_entries()) == 0
 
     @pytest.mark.asyncio
-    async def test_unnamed_category_falls_back_to_uncategorized(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_unnamed_category_falls_back_to_uncategorized(self):
         """A hand-in that names no category files under the generic fallback.
 
         The fallback is deliberately unhelpful — it shows as "Uncategorized" in
@@ -264,7 +278,8 @@ class TestSubmitResponse:
         assert entry.category == "agent_response"
 
     @pytest.mark.asyncio
-    async def test_one_call_files_exactly_one_artifact(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_one_call_files_exactly_one_artifact(self):
         """Prose is the whole deliverable: one hand-in, one artifact.
 
         A computing agent used to owe a second JSON copy of its own numbers,
@@ -290,7 +305,8 @@ class TestSubmitResponse:
         assert entries[0].source_agent == "pyat-specialist"
 
     @pytest.mark.asyncio
-    async def test_description_carries_the_label_not_the_key(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_description_carries_the_label_not_the_key(self):
         """The description is operator-facing, so it reads as words.
 
         Storing the raw key put plumbing in front of the user
@@ -309,7 +325,8 @@ class TestSubmitResponse:
         assert entry.description == "Channel Addresses — channel-finder"
 
     @pytest.mark.asyncio
-    async def test_description_without_an_agent_is_the_bare_label(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_description_without_an_agent_is_the_bare_label(self):
         raw = await _fn(
             title="Ad-hoc note",
             content="Some prose.",
@@ -322,7 +339,8 @@ class TestSubmitResponse:
         assert entry.description == "Document"
 
     @pytest.mark.asyncio
-    async def test_explicit_data_type_drives_the_category(self, workspace):
+    @pytest.mark.usefixtures("workspace")
+    async def test_explicit_data_type_drives_the_category(self):
         """An explicit data_type is the category — the agent name never overrides it."""
         raw = await _fn(
             title="BPM Channel Addresses",

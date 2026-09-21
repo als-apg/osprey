@@ -247,7 +247,8 @@ def test_health_row_names_both_targets_while_switched(
     )
 
 
-def test_health_row_is_absent_on_the_baseline(tmp_path, monkeypatch, control_context_root):
+@pytest.mark.usefixtures("control_context_root")
+def test_health_row_is_absent_on_the_baseline(tmp_path, monkeypatch):
     """Nothing to announce, so nothing is added — an unswitched report is unchanged."""
     _config(tmp_path, monkeypatch, "epics")
 
@@ -269,7 +270,8 @@ async def test_suite_opens_with_the_row_while_switched(
     assert report.exit_code == 0
 
 
-async def test_suite_adds_no_row_on_the_baseline(tmp_path, monkeypatch, control_context_root):
+@pytest.mark.usefixtures("control_context_root")
+async def test_suite_adds_no_row_on_the_baseline(tmp_path, monkeypatch):
     """On the baseline the report is byte-identical to what it was before the row."""
     _config(tmp_path, monkeypatch, "epics")
 

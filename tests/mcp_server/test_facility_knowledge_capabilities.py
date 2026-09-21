@@ -91,7 +91,8 @@ class TestCapabilities:
         assert "types" in result
 
     @pytest.mark.asyncio
-    async def test_count_matches_concepts(self, fixture_bundle: Path):
+    @pytest.mark.usefixtures("fixture_bundle")
+    async def test_count_matches_concepts(self):
         from osprey.mcp_server.facility_knowledge.server import capabilities, list_concepts
 
         cap = json.loads(await get_tool_fn(capabilities)())

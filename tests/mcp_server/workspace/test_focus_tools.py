@@ -86,7 +86,8 @@ class TestArtifactFocus:
                 await _focus_fn()(artifact_id=entry.id)
 
     @pytest.mark.asyncio
-    async def test_unknown_artifact_is_not_found(self, store, _gallery_url):
+    @pytest.mark.usefixtures("store")
+    async def test_unknown_artifact_is_not_found(self, _gallery_url):
         with assert_raises_error(error_type="not_found"):
             await _focus_fn()(artifact_id="nonexistent")
 
@@ -118,6 +119,7 @@ class TestArtifactPin:
         assert store.get_entry(entry.id).pinned is True
 
     @pytest.mark.asyncio
-    async def test_pin_unknown_artifact_is_not_found(self, store, _gallery_url):
+    @pytest.mark.usefixtures("store")
+    async def test_pin_unknown_artifact_is_not_found(self, _gallery_url):
         with assert_raises_error(error_type="not_found"):
             await _pin_fn()(artifact_id="nonexistent")

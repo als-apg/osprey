@@ -265,8 +265,9 @@ def reset_config_caches(monkeypatch):
     _cfg._config_cache.update(saved_cache)
 
 
+@pytest.mark.usefixtures("reset_config_caches")
 async def test_executor_sandbox_subprocess_sees_no_sensitive_credential(
-    tmp_path, monkeypatch, sensitive_parent_env, reset_config_caches
+    tmp_path, monkeypatch, sensitive_parent_env
 ):
     """Real python-executor subprocess: agent code cannot read any credential.
 
@@ -498,9 +499,8 @@ async def _drive_one_request_through_auth_middleware() -> int:
     return sent[0]["status"]
 
 
-async def test_serving_process_pops_operator_secret_and_panel_token(
-    sensitive_parent_env, unpopulated_web_credentials
-):
+@pytest.mark.usefixtures("sensitive_parent_env", "unpopulated_web_credentials")
+async def test_serving_process_pops_operator_secret_and_panel_token():
     """Once credentials are populated, the popped names are gone from ``os.environ``.
 
     This is what actually closes those two names on the SDK path, where the
@@ -520,9 +520,8 @@ async def test_serving_process_pops_operator_secret_and_panel_token(
     )
 
 
-async def test_serving_process_keeps_proxy_upstream_credentials(
-    sensitive_parent_env, unpopulated_web_credentials
-):
+@pytest.mark.usefixtures("unpopulated_web_credentials")
+async def test_serving_process_keeps_proxy_upstream_credentials(sensitive_parent_env):
     """The proxy-upstream credentials deliberately REMAIN in ``os.environ``.
 
     Stating the other half of the split explicitly is the point: the web server
@@ -569,7 +568,8 @@ def test_every_sensitive_name_is_classified_popped_or_retained():
     assert not (_POPPED_IN_WEB_SERVER & _RETAINED_FOR_PROXY_UPSTREAM)
 
 
-def test_populate_pops_exactly_the_names_declared_popped(monkeypatch, unpopulated_web_credentials):
+@pytest.mark.usefixtures("unpopulated_web_credentials")
+def test_populate_pops_exactly_the_names_declared_popped(monkeypatch):
     """``_populate`` really pops every name :data:`_POPPED_IN_WEB_SERVER` claims.
 
     The companion to the classification test above: that one checks the split
@@ -588,7 +588,8 @@ def test_populate_pops_exactly_the_names_declared_popped(monkeypatch, unpopulate
     assert not still_present, f"_populate did not pop {still_present} out of os.environ"
 
 
-def test_close_env_carriers_covers_the_same_names(monkeypatch, unpopulated_web_credentials):
+@pytest.mark.usefixtures("unpopulated_web_credentials")
+def test_close_env_carriers_covers_the_same_names(monkeypatch):
     """The construction-time close removes every name declared popped, too.
 
     ``_populate`` is not the only mechanism, and on the default ``osprey web``
@@ -614,9 +615,8 @@ def test_close_env_carriers_covers_the_same_names(monkeypatch, unpopulated_web_c
     )
 
 
-def test_direct_serve_app_construction_closes_a_republished_secret(
-    sensitive_parent_env, unpopulated_web_credentials, tmp_path
-):
+@pytest.mark.usefixtures("sensitive_parent_env", "unpopulated_web_credentials")
+def test_direct_serve_app_construction_closes_a_republished_secret(tmp_path):
     """The real seam, in the real order: publish, construct, then check a child env.
 
     ``mint_and_announce`` is what every OSPREY launcher calls just before it
