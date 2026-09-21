@@ -557,7 +557,12 @@ def _show_web_terminal_users(config, all_containers, repo_root=None):
     output.table(table)
 
 
-def show_status(config_path, *, console=None, styles=None):
+def show_status(
+    config_path,
+    *,
+    console=None,  # noqa: ARG001 - accepted and ignored; output goes through the CLI renderer, which resolves its own console per call
+    styles=None,  # noqa: ARG001 - accepted and ignored; output goes through the CLI renderer, which resolves its own console per call
+):
     """Show detailed status of services with formatted output.
 
     Uses direct container runtime ps to show actual container state, independent of compose files.
@@ -1199,7 +1204,13 @@ def _print_agent_section(repo_root, build_dir, config, *, show_agents):
         output.warn(summary, detail)
 
 
-def show_repo_status(repo_root, *, console=None, styles=None, show_agents=False):
+def show_repo_status(
+    repo_root,
+    *,
+    console=None,  # noqa: ARG001 - accepted and ignored; output goes through the CLI renderer, which resolves its own console per call
+    styles=None,  # noqa: ARG001 - accepted and ignored; output goes through the CLI renderer, which resolves its own console per call
+    show_agents=False,
+):
     """Report what a deployment repo is doing and whether it still matches its source.
 
     The read-only counterpart to the start verbs, and deliberately the one place

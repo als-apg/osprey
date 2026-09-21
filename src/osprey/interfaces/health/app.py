@@ -151,7 +151,7 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
 
     @app.get("/checks")
     async def checks(
-        categories: Annotated[list[str] | None, Query()] = None,
+        categories: Annotated[list[str] | None, Query()] = None,  # noqa: ARG001 - declared query parameter; the report covers every category
     ) -> dict[str, Any]:
         """Return the health-report envelope, constant-time in all states.
 

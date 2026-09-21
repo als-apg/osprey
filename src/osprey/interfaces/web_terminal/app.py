@@ -2543,7 +2543,7 @@ def _create_lifespan(
     return lifespan
 
 
-async def _scaffold_claim_conflict(request: Request, exc: Exception) -> JSONResponse:
+async def _scaffold_claim_conflict(_request: Request, exc: Exception) -> JSONResponse:
     """Render a refused claim as a 409 carrying the refusal verbatim.
 
     A refused claim is a conflict with the state of the project, and the
@@ -2553,7 +2553,7 @@ async def _scaffold_claim_conflict(request: Request, exc: Exception) -> JSONResp
     naming the channel that actually owns the file, and reads the same way.
 
     Args:
-        request: The request whose route raised. Unused; part of the Starlette
+        _request: The request whose route raised. Unused; part of the Starlette
             handler signature.
         exc: The :class:`~osprey.cli.scaffold_cmd.ScaffoldClaimError` raised.
 
@@ -2563,14 +2563,14 @@ async def _scaffold_claim_conflict(request: Request, exc: Exception) -> JSONResp
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
-async def _ownership_store_conflict(request: Request, exc: Exception) -> JSONResponse:
+async def _ownership_store_conflict(_request: Request, exc: Exception) -> JSONResponse:
     """Render a store that would not take the write as a 409.
 
     Nothing was recorded, so this must not read as success. Surfacing the
     reason beats the bare 500 an uncaught store error would otherwise give.
 
     Args:
-        request: The request whose route raised. Unused; part of the Starlette
+        _request: The request whose route raised. Unused; part of the Starlette
             handler signature.
         exc: The
             :class:`~osprey.interfaces.web_terminal.ownership.OwnershipStoreError`

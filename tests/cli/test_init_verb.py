@@ -1241,7 +1241,7 @@ class TestResetFlag:
             )
             for index in range(resources)
         ]
-        error = _foreign_refusal(tmp_path / "demo", "demo", "0123456789ab", foreign)
+        error = _foreign_refusal("demo", "0123456789ab", foreign)
 
         def _raise(repo_root, **kw):
             raise error
