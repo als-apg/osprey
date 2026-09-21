@@ -32,7 +32,7 @@ import scipy.stats as stats
 async def create_interactive_plot(
     code: str,
     title: str,
-    description: str = "",
+    description: str = "",  # noqa: ARG001 - MCP tool schema parameter; each artifact carries the description its save_artifact call names
     data_source: str | None = None,
 ) -> str:
     """Execute Plotly code and save results as interactive HTML artifacts.
@@ -113,8 +113,6 @@ async def create_interactive_plot(
     # Collect artifacts with category and embedded metadata
     artifact_ids = collect_and_register_artifacts(
         exec_result,
-        title,
-        description,
         tool_source="create_interactive_plot",
         category="visualization",
         code=code,

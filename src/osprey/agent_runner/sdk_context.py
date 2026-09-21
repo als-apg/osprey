@@ -81,7 +81,7 @@ def make_tool_allowlist(
     allowed_set = frozenset(allowed)
     denied_tuple = tuple(denied)
 
-    async def can_use_tool(tool_name, tool_input, context):  # type: ignore[no-untyped-def]
+    async def can_use_tool(tool_name, _tool_input, _context):  # type: ignore[no-untyped-def]
         if matches_denylist(tool_name, denied_tuple):
             return PermissionResultDeny(
                 message=f"Tool {tool_name!r} is blocked by the dispatch server denylist",
