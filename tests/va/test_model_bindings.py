@@ -469,34 +469,43 @@ class TestScalarFieldsStayTheCatalogs:
 class TestARefusalIsNeverASkip:
     """A binding the model cannot build stops the boot."""
 
-    def test_a_slice_weight_the_kind_forbids_is_a_refusal(self) -> None:
-        """A strength shared out instead of replicated: every slice weighs 1.
+    def test_a_strength_writes_every_slice_its_own_share_of_the_value(self) -> None:
+        """A supply feeding two magnets in series is one knob with two shares.
 
-        The rule lives on the variable class, and the factory hands the
-        weights straight to it rather than repairing or dropping them.
+        The magnets are not identical, so each carries the fixed factor its
+        own strength stands in to the string's, and neither factor is one.
+        The factory hands those weights straight to the variable rather than
+        repairing them or refusing the string.
         """
         document = _document(
             _strength(
                 slices=[
-                    {"element": "qf_sector3_a", "weight": 0.5},
-                    {"element": "qf_sector3_b", "weight": 0.5},
+                    {"element": "qf_sector3_a", "weight": 1.02},
+                    {"element": "qf_sector3_b", "weight": 0.98},
                 ]
             )
         )
-        with pytest.raises(ValidationError, match="each slice weighs 1.0"):
-            _build(build_action_variables(document), QUAD_SP)
+        variable = _build(build_action_variables(document), QUAD_SP)
+        assert [binding.weight for binding in variable.bindings] == [1.02, 0.98]
 
-    def test_a_kick_that_does_not_share_evenly_is_a_refusal(self) -> None:
+    def test_a_kick_still_shares_evenly_over_the_pieces_of_one_corrector(self) -> None:
+        """The ``1/n`` share is one reading of the weight, no longer the only one."""
+        document = _document(_kick())
+        variable = _build(build_action_variables(document), CORR_SP)
+        assert [binding.weight for binding in variable.bindings] == [0.5, 0.5]
+
+    def test_a_kick_whose_pieces_do_not_share_evenly_is_no_longer_refused(self) -> None:
+        """One supply bending two correctors in series weighs each its own factor."""
         document = _document(
             _kick(
                 slices=[
                     {"element": "ch_sector1", "weight": 1.0},
-                    {"element": "ch_sector1_tail", "weight": 1.0},
+                    {"element": "ch_sector1_tail", "weight": 0.75},
                 ]
             )
         )
-        with pytest.raises(ValidationError, match="each slice weighs 0.5"):
-            _build(build_action_variables(document), CORR_SP)
+        variable = _build(build_action_variables(document), CORR_SP)
+        assert [binding.weight for binding in variable.bindings] == [1.0, 0.75]
 
 
 class TestThroughTheCatalog:

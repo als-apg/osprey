@@ -350,10 +350,20 @@ class TestStrengthVariable:
 
         assert variable._get(simulator) == pytest.approx(QUAD_CURRENT, rel=1e-9)
 
-    def test_refuses_slices_that_share_the_strength_out(self) -> None:
-        """Halved weights would leave each piece at half the strength."""
-        with pytest.raises(ValidationError, match="written to every slice in full"):
-            sextupole(bindings=slices(SEXTUPOLE_SLICES, "PolynomB", 2, 0.5))
+    def test_a_slice_takes_the_share_its_weight_states(self, simulator) -> None:
+        """A weight is a share, not a convention with one legal value.
+
+        Two magnets a supply feeds in series each hold the fixed factor their
+        own strength stands in to the string's, so a weight other than one is
+        the ordinary case rather than a mistake to refuse.
+        """
+        sextupole(bindings=slices(SEXTUPOLE_SLICES, "PolynomB", 2, 0.5))._set(
+            simulator, SEXT_CURRENT
+        )
+
+        whole = SEXT_CALIBRATION.gain * SEXT_CURRENT + SEXT_CALIBRATION.offset
+        held = [element(simulator.lattice, name).PolynomB[2] for name in SEXTUPOLE_SLICES]
+        assert held == pytest.approx([0.5 * whole, 0.5 * whole])
 
     def test_reads_back_through_the_exported_inverse_not_the_calibration(self, simulator) -> None:
         """The two directions are independent data: a readback follows the
@@ -448,18 +458,14 @@ class TestKickVariable:
 
         assert variable._get(simulator) == pytest.approx(KICK_CURRENT, rel=1e-9)
 
-    def test_refuses_slices_that_each_carry_the_whole_kick(self) -> None:
-        """Unit weights would bend the beam by twice what was asked for."""
-        with pytest.raises(ValidationError, match="divided over the 2 slices"):
-            corrector(bindings=slices(CORRECTOR_SLICES, "KickAngle", 0, 1.0))
-
-    def test_refuses_slices_with_unequal_shares(self) -> None:
-        """Shares that are not 1/n leave the first slice reading back wrong."""
+    def test_unequal_shares_are_written_as_stated(self, simulator) -> None:
+        """One supply bending two correctors in series weighs each its own factor."""
         uneven = slices(CORRECTOR_SLICES, "KickAngle", 0, 0.5)
         uneven[1]["weight"] = 0.6
+        corrector(bindings=uneven)._set(simulator, KICK_CURRENT)
 
-        with pytest.raises(ValidationError, match="divided over the 2 slices"):
-            corrector(bindings=uneven)
+        held = [element(simulator.lattice, name).KickAngle[0] for name in CORRECTOR_SLICES]
+        assert held[1] == pytest.approx(held[0] * 0.6 / 0.5)
 
 
 class TestRFVariable:
@@ -477,10 +483,13 @@ class TestRFVariable:
 
         assert variable._get(simulator) == pytest.approx(RF_SETPOINT, rel=1e-9)
 
-    def test_refuses_slices_that_share_the_frequency_out(self) -> None:
-        """A ring's cavities all run at the same frequency."""
-        with pytest.raises(ValidationError, match="written to every slice in full"):
-            cavity(bindings=slices(CAVITIES, "Frequency", None, 0.5))
+    def test_a_cavity_slice_takes_the_share_its_weight_states(self, simulator) -> None:
+        """Nothing narrows the weight here either; the emitter writes one."""
+        cavity(bindings=slices(CAVITIES, "Frequency", None, 0.5))._set(simulator, RF_SETPOINT)
+
+        whole = cavity()._physics(simulator, RF_SETPOINT)
+        held = [element(simulator.lattice, name).Frequency for name in CAVITIES]
+        assert held == pytest.approx([0.5 * whole, 0.5 * whole])
 
 
 class TestMonitorVariable:

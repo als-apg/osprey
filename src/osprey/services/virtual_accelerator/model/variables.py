@@ -12,13 +12,19 @@ read from the bindings document rather than from a family name:
   calibration onto one polynomial coefficient, in full on every slice of a
   split device.
 * :class:`KickVariable` -- the same conversion, shared out instead: each of
-  the ``n`` slices takes ``1/n`` of the kick, so the first slice reads back as
-  the whole of it.
+  the ``n`` pieces of a corrector takes ``1/n`` of the kick, so the first
+  slice reads back as the whole of it.
 * :class:`RFVariable` -- a frequency, written to every cavity.
 * :class:`MonitorVariable` -- a solved orbit reading, in the hardware units
   the facility publishes it in.
 * :class:`EnergyVariable` -- the ring energy, driven by the bend's own
   hardware setpoint through its energy table.
+
+Each of those slice shares is one reading of the same arithmetic: a write puts
+the physics value times the slice's weight on the element, and a read divides
+the first slice's reading by the first weight. A supply feeding several
+magnets in series is the third reading of it, each magnet weighing the fixed
+factor its own strength stands in to the string's.
 
 **Beam rigidity is the coupling between them.** A calibration states its
 physics value at the energy the lattice deck was built for. A family the
@@ -71,67 +77,30 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Iterable, Mapping
 
     import at
-    from lume_pyat.actions import ElementBinding, SnapshotTarget
+    from lume_pyat.actions import SnapshotTarget
     from lume_pyat.simulator import PyATSimulator
 
 #: pyAT holds the ring energy in electron-volts; a calibration's energies, and
 #: the rigidity expression, are in GeV.
 EV_PER_GEV: float = 1.0e9
 
-#: How far a slice weight may sit from the share its kind prescribes. A share
-#: of ``1/n`` is not exact in binary for most ``n``, so the convention is
-#: checked to the precision the emitter can actually write it in.
-_WEIGHT_TOLERANCE: float = 1e-9
-
-
-def _require_replicated_weights(bindings: list[ElementBinding], kind: str) -> None:
-    """Refuse slices that do not each carry the whole value.
-
-    Args:
-        bindings: the variable's bindings, one per slice.
-        kind: the binding kind, for the refusal.
-
-    Raises:
-        ValueError: a slice weighs anything but one, so the value would be
-            shared out over the slices instead of replicated to them.
-    """
-    offenders = [binding for binding in bindings if binding.weight != 1.0]
-    if offenders:
-        shown = ", ".join(f"{binding.element_name}={binding.weight}" for binding in offenders)
-        raise ValueError(
-            f"a {kind} value is written to every slice in full, so each slice weighs 1.0; "
-            f"got {shown}"
-        )
-
-
-def _require_shared_weights(bindings: list[ElementBinding]) -> None:
-    """Refuse slices that do not each carry an equal share of the value.
-
-    Args:
-        bindings: the variable's bindings, one per slice.
-
-    Raises:
-        ValueError: the weights are not ``1/n`` each, so the first slice would
-            not read back as the whole kick.
-    """
-    share = 1.0 / len(bindings)
-    if any(
-        not math.isclose(binding.weight, share, rel_tol=_WEIGHT_TOLERANCE) for binding in bindings
-    ):
-        shown = ", ".join(f"{binding.element_name}={binding.weight}" for binding in bindings)
-        raise ValueError(
-            f"a kick is divided over the {len(bindings)} slices it is bound to, so each "
-            f"slice weighs {share}; got {shown}"
-        )
-
 
 class _CalibratedSetpoint(PyATWritableScalarVariable):
     """A hardware setpoint written onto lattice elements through a calibration.
 
     The shared half of the three writable kinds. What separates them is the
-    slice convention each enforces and the attribute the bindings name; the
-    conversion, the rigidity factor and the way back to hardware units are the
-    same for all three.
+    attribute their bindings name; the conversion, the rigidity factor and the
+    way back to hardware units are the same for all three.
+
+    **What a slice weight means.** A write puts the setpoint's physics value
+    times the slice's own weight on each bound element, and a read divides the
+    first slice's reading by that first weight. A weight is therefore any
+    finite non-zero number, which the bindings document is the one guard of:
+    one for a piece that carries the whole value, ``1/n`` for a piece that
+    takes an equal share of a divisible one, and the fixed factor its own
+    strength stands in to the string's for a magnet a supply feeds in series.
+    Nothing here narrows that further, because the three meanings are the same
+    arithmetic and only the emitter knows which of them it wrote.
 
     Attributes:
         calibration: Hardware to physics, as the facility sampled it at the
@@ -257,33 +226,24 @@ class _CalibratedSetpoint(PyATWritableScalarVariable):
 class StrengthVariable(_CalibratedSetpoint):
     """One magnet setpoint, onto a polynomial coefficient of every slice.
 
-    A split magnet is one setpoint over several lattice elements, and each
-    piece carries the family's full strength -- the control system sets a
-    strength, not a strength to divide up -- so every slice weighs one and the
-    first of them reads back as the whole.
+    The slices of a strength are the pieces a split magnet is modelled as and
+    the magnets a supply feeds in series, and each carries the setpoint's
+    physics value times its own weight. A split magnet's pieces each carry the
+    whole strength, because the control system sets a strength rather than a
+    strength to divide up; a series magnet carries the fixed factor its own
+    strength stands in to the string's.
     """
-
-    @model_validator(mode="after")
-    def _check_the_slice_weights(self) -> StrengthVariable:
-        """Refuse slices that share the value out instead of replicating it."""
-        _require_replicated_weights(self.bindings, "strength")
-        return self
 
 
 class KickVariable(_CalibratedSetpoint):
-    """One corrector setpoint, divided over the slices it is bound to.
+    """One corrector setpoint, over the slices it is bound to.
 
     A kick *is* divisible: a corrector modelled as ``n`` pieces bends the beam
-    by the sum of what its pieces do, so each slice takes ``1/n`` of the kick
-    and reading the first slice back multiplies by ``n`` again -- which is the
-    same value the control system reads.
+    by the sum of what its pieces do, so each piece takes ``1/n`` of the kick
+    and reading the first slice back multiplies by ``n`` again, which is the
+    value the control system reads. Where one supply bends several correctors
+    in series, that share is multiplied by the magnet's own fixed factor.
     """
-
-    @model_validator(mode="after")
-    def _check_the_slice_weights(self) -> KickVariable:
-        """Refuse slices that do not each carry an equal share of the kick."""
-        _require_shared_weights(self.bindings)
-        return self
 
 
 class RFVariable(_CalibratedSetpoint):
@@ -293,12 +253,6 @@ class RFVariable(_CalibratedSetpoint):
     a ring's cavities run at one frequency, so the slices replicate it exactly
     as a split magnet's pieces replicate a strength.
     """
-
-    @model_validator(mode="after")
-    def _check_the_slice_weights(self) -> RFVariable:
-        """Refuse slices that share the frequency out instead of replicating it."""
-        _require_replicated_weights(self.bindings, "rf")
-        return self
 
 
 class MonitorVariable(PyATReadOnlyScalarVariable):

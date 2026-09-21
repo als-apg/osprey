@@ -36,8 +36,9 @@ earlier or later, and neither is restated here --
 :func:`~osprey.services.virtual_accelerator.lattice.ring.build_ring` refuses
 a bound element name the served lattice does not carry exactly once, naming
 the family, and ``LUMEPyATModel`` validates every element, attribute and
-index when it adopts the variables. This module's own construction refusals
-are the per-kind rules on the variable classes, chiefly the slice weights.
+index when it adopts the variables. A slice weight is any finite non-zero
+factor and the served base validates it, so nothing here narrows it: a series
+string gives each magnet its fixed factor and a split device shares ``1/n``.
 
 **The energy knob has to be coupled.** The knob rescales every
 rigidity-scaled setpoint when the ring energy moves, and it can only adopt
@@ -72,9 +73,10 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     #: What the catalog calls per address: ``factory(channel, **scalar_kwargs)``.
     VariableFactory = Callable[..., ScalarVariable]
 
-#: The class each writable element kind is implemented by. The three differ
-#: only in the slice convention they enforce, which is why the construction
-#: below is one function rather than three.
+#: The class each writable element kind is implemented by. The three name
+#: what a kind writes and nothing more -- a weight is any finite non-zero
+#: factor for all of them -- which is why the construction below is one
+#: function rather than three.
 _SETPOINT_CLASS: dict[str, type[PyATWritableScalarVariable]] = {
     "strength": StrengthVariable,
     "kick": KickVariable,

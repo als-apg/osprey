@@ -16,10 +16,12 @@ file the bindings were derived against -- and then one binding per address:
   writes every cavity's ``Frequency``; ``monitor`` reads a transverse axis;
   ``energy`` is the lattice-level knob and binds no element at all.
 * ``slices`` names every element the value is written to, each with the weight
-  it is multiplied by -- one slice with weight 1 for an ordinary device, and
-  for a split device one slice per piece, weighted ``1/n`` where the value is
-  shared out rather than replicated. The first slice is the element the
-  readback is read from, so ``element`` always repeats it.
+  it is multiplied by. A weight is any finite non-zero factor: an ordinary
+  device weighs 1, a split device shares the value out as ``1/n`` a piece
+  rather than replicating it, and a supply feeding magnets in series gives
+  each magnet the fixed factor that puts it at its own strength. The first
+  slice is the element the readback is read from, so ``element`` always
+  repeats it.
 * ``readback`` says how the readback value is produced and
   ``readback_address`` where it is served: ``identity`` is the written value on
   its own address, ``inverse`` is the value mapped back through
