@@ -1268,6 +1268,7 @@ async def explore_channels(
     subfield: str | None = None,
     sectors: str | None = None,
     devices: str | None = None,
+    protocol: Literal["ca", "tango"] | None = None,
 ):
     """Get channel names for a system/family/field path.
 
@@ -1279,6 +1280,8 @@ async def explore_channels(
         subfield: Optional subfield name.
         sectors: Optional JSON-encoded list of sector numbers.
         devices: Optional JSON-encoded list of device numbers.
+        protocol: Optional channel protocol, ``ca`` or ``tango``. Absent, the
+            field's first listed names are returned.
     """
     if _pipeline_type(request) != "middle_layer":
         raise HTTPException(status_code=404, detail="Not available for this pipeline type")
@@ -1287,8 +1290,9 @@ async def explore_channels(
         db = _get_database(request)
         parsed_sectors = json.loads(sectors) if sectors else None
         parsed_devices = json.loads(devices) if devices else None
+        extra = {} if protocol is None else {"protocol": protocol}
         channels = db.list_channel_names(
-            system, family, field, subfield, parsed_sectors, parsed_devices
+            system, family, field, subfield, parsed_sectors, parsed_devices, **extra
         )
         return {"channels": channels, "total": len(channels)}
 

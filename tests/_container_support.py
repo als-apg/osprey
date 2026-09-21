@@ -328,6 +328,22 @@ _PROGRESS_TAIL_LINES = 3
 #: reports a dead container in the words of a slow one.
 _TERMINAL_STATES = frozenset({"exited", "dead", "removing"})
 
+#: How a readiness wait that ended on a terminal state opens its ``ending``. One
+#: spelling, because three readers key on it: the failure text, the exit detail
+#: appended to it, and the error type the wait raises.
+_EXITED_ENDING_PREFIX = "the container reached state"
+
+
+class ContainerExitedError(AssertionError):
+    """A readiness wait ended because the container it was waiting on exited.
+
+    An ``AssertionError``, so a caller that does nothing special reports it as
+    the real failure it is. It is its own type because it is the one ending a
+    caller can do something about: a container that is still running and will
+    not answer is the same container on a second look, while one that exited
+    during its own boot is gone, and only a fresh one can come up differently.
+    """
+
 
 def wait_until_ready(
     probe: Callable[[], object],
@@ -396,7 +412,10 @@ def wait_until_ready(
         ceiling: Seconds the whole wait may take, however much progress there is.
 
     Raises:
-        AssertionError: If no call succeeded before the wait ended.
+        ContainerExitedError: If the wait ended because *container* reached a
+            terminal state. A subclass of ``AssertionError``.
+        AssertionError: If no call succeeded before the wait ended for any
+            other reason.
     """
     started = time.monotonic()
     hard_deadline = started + ceiling
@@ -420,7 +439,7 @@ def wait_until_ready(
         if container is not None:
             status, tail = _container_liveness(container)
             if status in _TERMINAL_STATES:
-                ending = f"the container reached state {status!r}"
+                ending = f"{_EXITED_ENDING_PREFIX} {status!r}"
                 break
             if tail is not None and tail != seen_tail:
                 if seen_tail is not None:
@@ -436,7 +455,8 @@ def wait_until_ready(
             break
         time.sleep(interval)
 
-    raise AssertionError(
+    exited = ending.startswith(_EXITED_ENDING_PREFIX)
+    raise (ContainerExitedError if exited else AssertionError)(
         _readiness_failure(
             label=label,
             elapsed=time.monotonic() - started,
@@ -532,7 +552,7 @@ def _readiness_failure(
         f"and {attempts} attempt(s), and {shape}. The daemon is reachable, so this "
         f"is a real failure, not a missing dependency."
     )
-    if container is not None and ending.startswith("the container reached"):
+    if container is not None and ending.startswith(_EXITED_ENDING_PREFIX):
         message += _container_exit_detail(container)
     return f"{message}\nlast attempt: {type(last).__name__}: {last}"
 

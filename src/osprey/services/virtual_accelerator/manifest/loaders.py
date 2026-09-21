@@ -82,11 +82,72 @@ def load_in_context_addresses(paths: ManifestPaths = PACKAGE_PATHS) -> set[str]:
     return {ch["address"] for ch in db.get_all_channels()}
 
 
-def load_middle_layer_addresses(paths: ManifestPaths = PACKAGE_PATHS) -> set[str]:
-    """Expand ``paths``' middle_layer (MML) DB into an address set."""
+#: The list a field states its addresses in, per protocol a record is read
+#: under. A field may carry either list, or both.
+_PROTOCOL_CHANNEL_KEYS = {"ca": "ChannelNames", "tango": "TangoNames"}
+
+
+def _listed_addresses(db: MiddleLayerDatabase, channel: dict) -> list[str]:
+    """One field's address list, exactly as the database states it.
+
+    Blanks and repeats kept: this list is read for its POSITIONS, and a
+    position is a device. The expanded records are the same list with the
+    blanks and repeats gone, which is why they no longer say which device
+    each surviving address belongs to.
+    """
+    node = db.data.get(channel["system"], {}).get(channel["family"], {}).get(channel["field"])
+    for level in channel["subfield"] or ():
+        node = node.get(level) if isinstance(node, dict) else None
+    if not isinstance(node, dict):
+        return []
+    protocol = channel.get("protocol")
+    key = _PROTOCOL_CHANNEL_KEYS.get(protocol) if isinstance(protocol, str) else None
+    names = node.get(key or "ChannelNames", [])
+    return [names] if isinstance(names, str) else list(names)
+
+
+def load_middle_layer_channels(paths: ManifestPaths = PACKAGE_PATHS) -> list[dict]:
+    """Expand ``paths``' middle_layer (MML) DB into its channel records.
+
+    Each record carries the signal group the address was read from -- its
+    system, family and field path -- plus whatever field metadata the export
+    wrote (``MemberOf``, ``HWUnits`` and the rest). The manifest generator
+    needs those: on a tree with no hierarchical database they are the only
+    statement of which addresses are the read and write halves of one device
+    field (see ``build._middle_layer_pairs``).
+
+    Each record also carries ``slot``: the position its field lists it at,
+    which is the device the family puts at that position. Two fields of one
+    family state the same device where their slots agree, and only there --
+    a field that leaves a device blank, or names one address twice, keeps
+    addresses whose places in the expanded records have shifted against its
+    sibling field's. ``slot`` is ``None`` for an address its own field does
+    not list.
+    """
     db = MiddleLayerDatabase(str(paths.middle_layer_db))
     db.load_database()
-    return {ch["address"] for ch in db.get_all_channels()}
+    listings: dict[tuple, list[str]] = {}
+    records: list[dict] = []
+    for channel in db.get_all_channels():
+        key = (
+            channel["system"],
+            channel["family"],
+            channel["field"],
+            tuple(channel["subfield"] or ()),
+            channel.get("protocol"),
+        )
+        if key not in listings:
+            listings[key] = [name.strip() for name in _listed_addresses(db, channel)]
+        listed = listings[key]
+        address = channel["address"]
+        slot = listed.index(address) if address in listed else None
+        records.append(dict(channel, slot=slot))
+    return records
+
+
+def load_middle_layer_addresses(paths: ManifestPaths = PACKAGE_PATHS) -> set[str]:
+    """Expand ``paths``' middle_layer (MML) DB into an address set."""
+    return {ch["address"] for ch in load_middle_layer_channels(paths)}
 
 
 def load_machine_json_channels(

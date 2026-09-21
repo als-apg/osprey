@@ -5396,15 +5396,19 @@ jobs:
     #     bounded by the directory conftest's `CONTAINER_BOOT_TIMEOUT_S` of
     #     120 s (tests/va/e2e/conftest.py), followed by channel reads;
     #   - test_serving_parity.py, two module-scoped boots under that same
-    #     bound plus its 28 tests.
-    # 45 is that with headroom, which is deliberate for a lane that has never
+    #     bound plus its 28 tests;
+    #   - test_mml_trees_boot.py, which installs a facility export from
+    #     scratch for each of its three trees — init, import, emit, set,
+    #     validate, build — and boots a container of its own per tree under
+    #     that module's own `BOOT_TIMEOUT_S` of 240 s.
+    # 60 is that with headroom, which is deliberate for a lane that has never
     # run here: the first pull request must not be reddened by a cap tuned to
-    # a laptop. It is the same cap as va-substrate-equivalence-e2e and
-    # archiver-world-e2e, and larger than the switch lane's 30 because that
-    # lane runs four modules against containers two of its own images serve,
-    # while this one runs seven and boots three. Tighten once there are
-    # observed green timings on a runner.
-    timeout-minutes: 45
+    # a laptop. It is larger than va-substrate-equivalence-e2e and
+    # archiver-world-e2e, and than the switch lane's 30, because that lane
+    # runs four modules against containers two of its own images serve, while
+    # this one runs eight and boots six. Tighten once there are observed green
+    # timings on a runner.
+    timeout-minutes: 60
 
     steps:
     - name: Checkout repository
@@ -5446,11 +5450,11 @@ jobs:
     - name: Run the live virtual accelerator E2E
       # Step cap under the job cap so a hang fails THIS step, leaving the
       # capture step below room to run. A job-level timeout is a hard cancel
-      # that takes the container logs with it. 35 leaves the image build the
+      # that takes the container logs with it. 50 leaves the image build the
       # rest of the job cap, and still bounds the realistic hang here — a read
       # of a channel nobody serves, which the connector itself gives up on
       # after 120 s.
-      timeout-minutes: 35
+      timeout-minutes: 50
       env:
         # Without it every test in tests/va/e2e/ skips by design (the directory
         # must collect and skip cleanly on a laptop with no runtime). The
@@ -5470,13 +5474,15 @@ jobs:
       # losing tests to it reds the step rather than passing on what is left.
       #
       # Ordered cheapest first — the six that share the session container, then
-      # the parity module with its own two boots — so a failure in the cheap
-      # set is reported before the expensive work starts.
+      # the parity module with its own two boots, then the harvested-tree module
+      # which installs a facility export from scratch before each of its own
+      # boots — so a failure in the cheap set is reported before the expensive
+      # work starts.
       run: |
         uv run pytest tests/va/e2e/test_approval_smoke.py tests/va/e2e/test_limits_enforcement.py \
           tests/va/e2e/test_orbit_response.py tests/va/e2e/test_full_sweep.py \
           tests/va/e2e/test_finder_live_reads.py tests/va/e2e/test_scenario_reload.py \
-          tests/va/e2e/test_serving_parity.py \
+          tests/va/e2e/test_serving_parity.py tests/va/e2e/test_mml_trees_boot.py \
           -v --tb=short --junitxml=junit-va-live-e2e.xml
 
     - name: Fail the lane on any skipped test

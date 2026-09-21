@@ -110,6 +110,35 @@ def _import_families(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
     return len(rows)
 
 
+#: The MML ``Units`` mode words, lower-cased: which of ``HWUnits`` and
+#: ``PhysicsUnits`` a field is served in. Any other ``Units`` string is a unit.
+_UNITS_MODE_WORDS: frozenset[str] = frozenset({"hardware", "physics"})
+
+
+def _engineering_unit(meta: dict) -> str:
+    """Return the engineering unit of one channel, or ``''`` when it has none.
+
+    MML spells ``Units`` as a mode word --- ``Hardware`` or ``Physics`` ---
+    naming which of ``HWUnits`` and ``PhysicsUnits`` the field is served in.
+    The mode word is never a unit, so it is never written to the column; a
+    ``Units`` string that is not a mode word is the unit itself, the spelling a
+    hand-written channel database uses. A per-device list counts as a unit only
+    when its non-blank entries agree.
+    """
+    mode = meta.get("Units")
+    word = mode.strip() if isinstance(mode, str) else ""
+    if word and word.lower() not in _UNITS_MODE_WORDS:
+        return word
+    value = meta.get("PhysicsUnits" if word.lower() == "physics" else "HWUnits")
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (list, tuple)):
+        distinct = {item.strip() for item in value if isinstance(item, str) and item.strip()}
+        if len(distinct) == 1:
+            return distinct.pop()
+    return ""
+
+
 def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
     """Import channels from the flattened channel_map. Returns row count."""
     now = datetime.now(UTC)
@@ -137,7 +166,7 @@ def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
                 meta.get("field", ""),
                 subfield,
                 meta.get("Description", meta.get("description", "")),
-                meta.get("Units", meta.get("HWUnits", "")),
+                _engineering_unit(meta),
                 meta.get("DataType", ""),
                 meta.get("Mode", ""),
                 member_of,

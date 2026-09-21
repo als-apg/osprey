@@ -34,9 +34,7 @@ avoids spurious write-approval prompts. Never use `execution_mode="readwrite"`.
 
 ## Import Surface (the only symbols you may import)
 
-- `from osprey.simulation.lattice import build_ring, load_canonical_ring, ALS_U_AR`
-  — `ALS_U_AR` is the `FacilitySpec` constant carrying the bundled ring's declared
-  parameters, for when you need them rather than the built lattice
+- `from osprey.simulation.lattice import build_ring, load_canonical_ring`
 - plain `import at` (pyAT / accelerator-toolbox) and `import numpy as np`
 - stdlib as needed (`copy`, `math`, `json`)
 
@@ -50,6 +48,19 @@ any control-system module. The recipes below need none of them.
 If `import at` or `import osprey...` raises `ModuleNotFoundError`, the deployment
 environment lacks accelerator-toolbox or osprey-framework. **Report that environment
 limitation plainly and stop** — do not retry, do not fabricate numbers.
+
+## What a Channel Drives
+
+`data/simulation/va_bindings.json` is this deployment's source of truth for the coupling
+between its channels and the lattice: one binding per coupled address, naming the element
+it drives, the field it writes, the polynomial index where that field has one, and its
+nominal. Read that file — with `Read`, or with `json` inside the computing call — whenever
+a question names a channel rather than an element, and answer from what it says. Never
+infer a channel's element from its name, and never state declared machine parameters from
+memory. A channel the file binds nothing to is one the model does not drive; say that.
+The element names in that file belong to this deployment's emitted model: if the ring you
+built carries no element of the name a binding gives, report that mismatch plainly rather
+than matching by resemblance to an element the ring does carry.
 
 ## The 4D Recipe (use for linear optics and closed orbit)
 
@@ -195,6 +206,8 @@ yourself.
 - **Always label answers as computed from the simulated design lattice**,
   in the answer itself.
 - **Import only** `osprey.simulation.lattice` plus `at`/`numpy`/stdlib.
+- **Read `data/simulation/va_bindings.json` for what a channel drives**, rather
+  than inferring the element from the channel's name.
 - **Report environment limitations** (`ModuleNotFoundError`) instead of retrying or
   fabricating.
 {% endif %}

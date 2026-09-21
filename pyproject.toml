@@ -177,10 +177,12 @@ dependencies = [
     # pyAT physics backend implementing the LUMEModel contract above
     # (osprey.services.virtual_accelerator.model). Exact-pinned for the same
     # reason as lume-base: a young package whose surface is still settling, and
-    # the facility adapter is written against the 0.1.0 contract specifically —
-    # the persistent-lattice simulator, the atomic multi-variable set, and the
-    # rollback-on-lost-orbit guarantee the VA's write path depends on.
-    "lume-pyat==0.1.0",
+    # the facility adapter is written against the 0.2.0 contract specifically —
+    # the persistent-lattice simulator, the multi-element writable variable a
+    # setpoint spanning lattice slices needs, the lattice-level variable kind
+    # the energy knob rides on, and the rollback-on-lost-orbit guarantee the
+    # VA's write path depends on.
+    "lume-pyat==0.2.0",
     # Bluesky scan stack (osprey.services.bluesky_bridge): RunEngine, ophyd-async
     # devices, and the Tiled writer/reader. Core, not optional — Bluesky is a
     # core part of OSPREY, joining PyAT above. ophyd-async's [ca] brings
@@ -455,7 +457,10 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 # ambient `exclude-newer` window some developer machines set (a rolling
 # "nothing newer than N days" policy). Both are exact pins this project needs
 # by name, so a window that hides them makes the lock unresolvable rather than
-# merely conservative.
+# merely conservative. Each timestamp must sit after the upload time of the
+# version pinned above it: uv filters candidates by upload time BEFORE the
+# specifier is applied, so an entry left behind its pin hides the only
+# acceptable candidate, and moving a pin means moving its entry too.
 #
 # These must live HERE, in repo config, and not be left to the command line.
 # uv.lock does record what was applied, under `[options.exclude-newer-package]`,
@@ -470,7 +475,7 @@ epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 # package's upload date; neither is load-bearing beyond making the resolve
 # reproducible.
 [tool.uv]
-exclude-newer-package = { lume-pyat = "2026-08-06T00:00:00Z", lume-pva-apg = "2026-09-13T00:00:00Z" }
+exclude-newer-package = { lume-pyat = "2026-09-18T00:00:00Z", lume-pva-apg = "2026-09-13T00:00:00Z" }
 
 # Hatchling build configuration
 # The version comes from the git tag, not a literal — a release is cut by tagging.
@@ -611,6 +616,7 @@ markers = [
     "requires_als_apg: Tests that require ALS-APG API key (the ALS-APG gateway; reachable from GitHub Actions runners)",
     "requires_e2e_provider: Tests that build a deployment repo with the provider the run named in OSPREY_E2E_PROVIDER, and so need that provider's credential — the variable holding it comes from PROVIDER_API_KEYS, not from the test",
     "requires_ollama: Tests that require local Ollama service",
+    "requires_matlab: Tests that need a MATLAB installation plus the AT toolbox; skip when `matlab` is not on PATH",
     "asyncio: Async test marker",
     "flaky: Rerun on failure to absorb nondeterminism outside the process — LLM sampling in e2e, OS event delivery in a couple of watcher tests (pytest-rerunfailures). Not for flaky unit tests; see tests/README.md",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",

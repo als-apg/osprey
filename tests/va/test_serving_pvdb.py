@@ -42,9 +42,16 @@ from osprey.services.virtual_accelerator.serving.pvdb import (
 # Pinned namespace counts. These are a client-visible contract, not an
 # implementation detail: the channel-finder databases, the safety limits file
 # and every CA client agree on exactly this channel set.
+#
+# The three partitions tile the namespace: 840 coupled + 96 sp-echo + 1972
+# static-noisy is EXPECTED_TOTAL. Which channel lands where is the tree's own
+# bindings document and its pairing, never the address text -- a status bit
+# has no setpoint behind it and reads out of the simulation engine, so it is
+# static-noisy whichever ring it names.
 EXPECTED_TOTAL = 2908
 EXPECTED_PYAT_COUPLED = 840
-EXPECTED_STATIC_NOISY = 1922
+EXPECTED_SP_ECHO = 96
+EXPECTED_STATIC_NOISY = 1972
 EXPECTED_MAGNET_SETPOINTS = 348
 EXPECTED_MAGNET_READBACKS = 348
 EXPECTED_BPM_READINGS = 144
@@ -103,6 +110,31 @@ def _sp_rb_pair(prefix: str, *, partition: str = PARTITION_SP_ECHO) -> list[dict
             field="CURRENT",
         ),
     ]
+
+
+def _bound(
+    address: str,
+    *,
+    subfield: str,
+    pair_key: str | None = None,
+    partition: str = PARTITION_PYAT_COUPLED,
+) -> dict:
+    """One channel in the shape a bindings-derived manifest emits.
+
+    The four hierarchy keys are empty and ``device`` carries the binding's
+    own setpoint address: what makes these channels one device's halves is
+    the bindings document, not an address grammar a facility never promised.
+    """
+    return _channel(
+        address,
+        subfield=subfield,
+        partition=partition,
+        ring="",
+        system="",
+        family="",
+        device=pair_key if pair_key is not None else address,
+        field="",
+    )
 
 
 class FakeDriver:
@@ -749,13 +781,16 @@ class TestBootReconciliation:
 
 
 class TestPhysicsReadbacksReachPva:
-    """The defect this task exists to close, at the seam it appears on.
+    """A solved reading reaches Channel Access and PVA alike, at the one seam.
 
     ``PhysicsBridge`` pushes each BPM's seeded-error reading through the
     record shim after every solve. Nothing between the solve and the wire is
-    aware of a transport, which is the point: the bridge is unchanged and the
-    reading reaches both views because the shim it already pushes through
-    carries both.
+    aware of a transport, which is the point: the bridge knows only the shim,
+    and the reading reaches both views because that shim carries both.
+
+    The model is the packaged tree's own, built the way the entrypoint builds
+    it, so what moves the orbit here is the lattice and the bindings the demo
+    ships rather than a stand-in wired up for the assertion.
     """
 
     BPM_X = "SR:DIAG:BPM:01:POSITION:X"
@@ -763,19 +798,18 @@ class TestPhysicsReadbacksReachPva:
 
     @pytest.fixture(scope="class")
     def channels(self) -> list[dict]:
-        from osprey.services.virtual_accelerator.manifest import build_manifest
-
-        return [
-            channel
-            for channel in build_manifest()["channels"]
-            if channel["partition"] == PARTITION_PYAT_COUPLED
-        ]
+        return build_manifest()["channels"]
 
     def test_a_solved_bpm_reading_moves_on_both_views(self, channels: list[dict]) -> None:
         from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
+        from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
+        from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 
-        records = build_serving_pvdb(channels)
-        bridge = PhysicsBridge(rng_seed=11)
+        coupled = [c for c in channels if c["partition"] == PARTITION_PYAT_COUPLED]
+        records = build_serving_pvdb(coupled)
+        # No seeded faults, so the bridge needs no seed: the reading moves
+        # because the corrector moved it, with no noise mixed into the check.
+        bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels))
         # Bound before the driver exists, exactly as the runner binds it: the
         # first push is the boot state and has to land in the specs.
         bridge.bind(records.pyat_coupled)
@@ -818,7 +852,9 @@ class TestPartitionsAndPairing:
         }
 
     def test_pyat_setpoint_may_stand_alone(self) -> None:
-        """Its physics effect is observed on the BPM readbacks."""
+        """A coupled setpoint owes no readback record of its own: its effect
+        is observed on the BPM readbacks, and where one address carries both
+        halves of a device that address is the whole of what is served."""
         channels = [
             _channel(
                 "SR:MAG:HCM:01:CURRENT:SP",
@@ -831,6 +867,109 @@ class TestPartitionsAndPairing:
         ]
         records = build_serving_pvdb(channels)
 
+        assert records.setpoint_readbacks == {}
+
+
+class TestReadbackCollapse:
+    """The two readback shapes a bindings-derived manifest carries.
+
+    A binding whose setpoint and monitor are one address states
+    ``same_as_setpoint`` and reaches this module as a single ``SP`` entry:
+    one record, carrying both halves. A binding with a monitor address of its
+    own states ``identity`` or ``inverse`` and reaches it as two entries keyed
+    on the setpoint's address, which pair into the record the write path
+    publishes the computed readback onto. Both are served, and the difference
+    between them is a record count.
+    """
+
+    def test_a_same_as_setpoint_binding_serves_one_readback_record(self) -> None:
+        records = build_serving_pvdb([_bound("SR-MAG-QF1", subfield="SP")])
+
+        assert list(records.pvdb) == ["SR-MAG-QF1"]
+        assert list(records.pyat_coupled) == ["SR-MAG-QF1"]
+        assert records.all["SR-MAG-QF1"] is records.pyat_coupled["SR-MAG-QF1"]
+        assert records.physics_setpoints == frozenset({"SR-MAG-QF1"})
+        assert records.setpoint_readbacks == {}
+
+    def test_a_same_as_setpoint_record_is_seeded_from_the_boot_state(self) -> None:
+        records = build_serving_pvdb(
+            [_bound("SR-MAG-QF1", subfield="SP")], boot_values={"SR-MAG-QF1": 12.5}
+        )
+
+        assert records.pvdb["SR-MAG-QF1"]["value"] == 12.5
+
+    def test_an_identity_binding_serves_its_readback_on_a_record_of_its_own(self) -> None:
+        records = build_serving_pvdb(
+            [
+                _bound("SR-MAG-QF1", subfield="SP"),
+                _bound("SR-MAG-QF1-RB", subfield="RB", pair_key="SR-MAG-QF1"),
+            ]
+        )
+
+        assert sorted(records.pvdb) == ["SR-MAG-QF1", "SR-MAG-QF1-RB"]
+        assert sorted(records.pyat_coupled) == ["SR-MAG-QF1", "SR-MAG-QF1-RB"]
+        assert records.setpoint_readbacks == {"SR-MAG-QF1": "SR-MAG-QF1-RB"}
+        assert records.physics_setpoints == frozenset({"SR-MAG-QF1"})
+
+    def test_the_two_readback_shapes_are_served_side_by_side(self) -> None:
+        """What the demo census counts: one record collapsed, two paired."""
+        records = build_serving_pvdb(
+            [
+                _bound("SR-MAG-SQ1", subfield="SP"),
+                _bound("SR-MAG-QF1", subfield="SP"),
+                _bound("SR-MAG-QF1-RB", subfield="RB", pair_key="SR-MAG-QF1"),
+            ]
+        )
+
+        assert len(records.pyat_coupled) == 3
+        assert records.setpoint_readbacks == {"SR-MAG-QF1": "SR-MAG-QF1-RB"}
+        assert records.physics_setpoints == frozenset({"SR-MAG-SQ1", "SR-MAG-QF1"})
+
+    def test_a_monitor_binding_serves_a_reading_and_no_setpoint_readback(self) -> None:
+        """A reading is not a setpoint, whatever its address is spelled like."""
+        records = build_serving_pvdb([_bound("SR-BPM-01-X", subfield="X")])
+
+        assert list(records.pyat_coupled) == ["SR-BPM-01-X"]
+        assert records.physics_setpoints == frozenset()
+        assert records.setpoint_readbacks == {}
+
+    def test_sp_echo_pairs_its_readback_on_the_hierarchy_keys_unchanged(self) -> None:
+        """The collapse is the coupled partition's; sp-echo pairs as before."""
+        records = build_serving_pvdb(
+            [
+                *_sp_rb_pair("SR:VAC:VALVE:01:POSITION"),
+                _bound("SR-MAG-QF1", subfield="SP"),
+            ]
+        )
+
+        assert records.setpoint_readbacks == {
+            "SR:VAC:VALVE:01:POSITION:SP": "SR:VAC:VALVE:01:POSITION:RB"
+        }
+
+    def test_a_readback_keyed_on_an_unserved_setpoint_is_refused(self) -> None:
+        """The written half is where such a readback gets its value from."""
+        channels = [_bound("SR-MAG-QF1-RB", subfield="RB", pair_key="SR-MAG-QF1")]
+
+        with pytest.raises(ManifestContractError, match="SR-MAG-QF1"):
+            build_serving_pvdb(channels)
+
+    def test_a_readback_on_hierarchy_keys_needs_no_setpoint_of_its_own(self) -> None:
+        """A coupled reading identified by a path rather than by a pair key:
+        the keys name a device, not an address, so nothing is claimed absent.
+        """
+        records = build_serving_pvdb(
+            [
+                _channel(
+                    "SR:DIAG:BPM:01:POSITION:RB",
+                    subfield="RB",
+                    partition=PARTITION_PYAT_COUPLED,
+                    family="BPM",
+                    field="POSITION",
+                )
+            ]
+        )
+
+        assert list(records.pyat_coupled) == ["SR:DIAG:BPM:01:POSITION:RB"]
         assert records.setpoint_readbacks == {}
 
 
@@ -891,11 +1030,14 @@ class TestFullManifest:
             _load_boot_values,
             _load_drive_limits,
         )
+        from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 
         channels = build_manifest()["channels"]
         return build_serving_pvdb(
             channels,
-            drive_limits=_load_drive_limits(setpoints=setpoint_addresses(channels)),
+            drive_limits=_load_drive_limits(
+                PACKAGE_PATHS.channel_limits, setpoints=setpoint_addresses(channels)
+            ),
             boot_values=_load_boot_values(),
         )
 
@@ -904,8 +1046,18 @@ class TestFullManifest:
         assert len(records.all) == EXPECTED_TOTAL
 
     def test_partition_counts(self, records: ServingRecords) -> None:
+        """The census of the served namespace, partition by partition.
+
+        sp-echo has no dict of its own -- the write path echoes those records
+        directly -- so it is what the other two leave over, and pinning the
+        remainder keeps a channel that quietly changes partition from hiding
+        inside a total that still adds up.
+        """
         assert len(records.pyat_coupled) == EXPECTED_PYAT_COUPLED
         assert len(records.static_noisy) == EXPECTED_STATIC_NOISY
+
+        sp_echo = len(records.all) - len(records.pyat_coupled) - len(records.static_noisy)
+        assert sp_echo == EXPECTED_SP_ECHO
 
     def test_magnet_and_bpm_counts(self, records: ServingRecords) -> None:
         setpoints = [a for a in records.pyat_coupled if a.endswith(":CURRENT:SP")]

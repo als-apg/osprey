@@ -1,12 +1,22 @@
-"""The BPM readout perturbation the stand-in instance ships with.
+"""The readout perturbation the stand-in instance ships with.
 
 A deployment that sets ``virtual_accelerator.live_standin`` runs a SECOND
-soft-IOC container as its own ``standin`` target. Both instances run one image over
-one lattice and one machine description, so without a perturbation the two
+soft-IOC container as its own ``standin`` target. Both instances run one image
+over one lattice and one machine description, so without a perturbation the two
 would read identically -- and a stand-in that is indistinguishable from the
-machine it stands in for proves nothing. This module holds the perturbation
-that makes them tell apart, as the value the compose template renders as the
+machine it stands in for proves nothing. This module resolves the perturbation
+that makes them tell apart: the value the compose template renders as the
 stand-in's ``VA_BPM_ERRORS`` default.
+
+**The perturbation is the served tree's data.** Which devices are displaced
+and by how much is a property of the machine being simulated, so it is stated
+where that machine is described -- the :data:`STANDIN_BPM_ERRORS_KEY` entry of
+the ``machine.json`` the deployment's own containers are handed -- and only
+read here. Every deployment answers this from its own tree, the packaged demo
+included; there is no framework-side fallback, so a tree that states no
+perturbation ships none, and no deployment is ever handed another machine's
+device names. Nothing in this package names a device: device names belong to a
+facility, and one spelled in framework code would serve exactly that facility.
 
 **Offsets only, and that is the design, not a simplification.** With the rest
 of ``bpm_read``'s keyword set left at identity -- unit gain, unit calibration,
@@ -20,16 +30,13 @@ cannot reproduce additively, and a noise term would make it irreproducible at
 all. A build-time check refuses any other field in the shipped default for
 exactly this reason.
 
-**Every device named here exists in the packaged manifest**
-(``channel_manifest.json``), and every named axis has its
-``SR:DIAG:BPM:<id>:POSITION:<axis>`` address there -- a fam_name the lattice
-has no BPM for perturbs nothing (the physics bridge warns and carries on), and
-an axis the manifest does not serve has no readback for the offset to show up
-on. The magnitudes are 100-200 um: comfortably inside the parse bounds
-(``|offset| <= 1e-2`` m, see ``entrypoint._BPM_ERROR_FIELD_BOUNDS``) and well
-clear of the machine's own motion, whose BPM channels sit on a 0.0 m baseline
-with a 30 um wander texture and 1 um noise. A reader comparing the two targets
-sees the offset, not the weather.
+**What a tree's own entry has to satisfy** is pinned by the test suite rather
+than restated here: every device it names is one that tree's manifest serves,
+every axis it perturbs has a readback address there, and its magnitudes sit
+well clear of the machine's own motion -- so a reader comparing the two targets
+sees the offset, not the weather. How large a displacement may be is a question
+for that machine alone: the container's parser carries a seeded offset through
+as written, in the unit the monitor publishes.
 
 **An operator can still override it at deploy time.** The template renders
 ``VA_BPM_ERRORS: "${VA_STANDIN_BPM_ERRORS-<the rendered default>}"``, so a
@@ -40,13 +47,11 @@ unperturbed stand-in and gets one; that is the shortest way to run this
 stand-in clean, and it is what validation points a facility at when its lattice
 cannot carry these offsets.
 
-**The rendered default is not always this value.** These offsets displace the
-builtin PyAT model, and a deployment whose env chain leaves ``VA_LATTICE`` off
-``builtin`` -- ``none``, or a facility channel manifest -- has no model to
-displace. The render hands that stand-in the EMPTY set instead
-(``compose_generator._standin_perturbation``), and reports that it serves the
-facility manifest unperturbed. This value is the default for the builtin
-lattice only.
+**A stand-in with no lattice is handed the empty set** whatever its tree
+states. These offsets displace a lattice's model, and a deployment whose env
+chain serves no lattice has none to displace; the render hands that stand-in
+nothing (``compose_generator._standin_perturbation``) and reports that it
+serves its manifest unperturbed.
 
 The container's interpolation is the authority on all of this, and the archiver
 seed follows the same rule
@@ -57,31 +62,92 @@ about which machine the stand-in is. The baseline instance's own
 
 from __future__ import annotations
 
-#: The shipped stand-in perturbation, in ``VA_BPM_ERRORS`` grammar
-#: (``DEVICE:field=value[,field=value];DEVICE:...``; device keys are BPM
-#: fam_names, ``BPM`` + the manifest's device id). Four devices spread around
-#: the 72-BPM ring, mixed signs, some single-axis: enough that a comparison
-#: between the two targets cannot come out zero by luck, few enough that the
-#: rendered compose line stays readable. Deterministic by construction -- no
-#: randomness, no host-dependent value.
-STANDIN_BPM_ERRORS_DEFAULT: str = (
-    "BPM03:offset_x=1.5e-4,offset_y=-1.0e-4;"
-    "BPM21:offset_x=-2.0e-4;"
-    "BPM45:offset_y=1.2e-4;"
-    "BPM63:offset_x=1.0e-4,offset_y=1.8e-4"
-)
+import json
+from pathlib import Path
 
-#: The ``VA_LATTICE`` value :data:`STANDIN_BPM_ERRORS_DEFAULT` has a model to
-#: displace on. The authority is the container's entrypoint
-#: (``entrypoint.LATTICE_BUILTIN``), which the build and the render cannot
-#: import: that module pulls in the whole serving stack. So it is respelled here
-#: and pinned by test against the entrypoint's own, exactly as
-#: :func:`parse_bpm_error_spec` respells the grammar beside it.
-LATTICE_BUILTIN = "builtin"
+from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS, ManifestPaths
+
+#: The subdirectory a deployment keeps its served data tree in, under the
+#: deployment repo root and under a published render alike. The build copies
+#: the profile's tree here, so both roots carry one layout and
+#: :class:`~osprey.services.virtual_accelerator.manifest.paths.ManifestPaths`
+#: resolves either.
+DATA_DIR_NAME = "data"
+
+#: The ``machine.json`` key a machine states its stand-in's perturbation under,
+#: written in ``VA_BPM_ERRORS`` grammar
+#: (``DEVICE:field=value[,field=value];DEVICE:...``).
+STANDIN_BPM_ERRORS_KEY = "standin_bpm_errors"
 
 
-def default_bpm_errors_for_lattice(lattice: str) -> str:
-    """The perturbation a stand-in booting on *lattice* is handed by default.
+def read_standin_bpm_errors(machine_json: Path) -> str:
+    """The perturbation a machine description states for its stand-in.
+
+    Args:
+        machine_json: The ``machine.json`` describing the machine the stand-in
+            stands in for.
+
+    Returns:
+        The spec as written, stripped. Empty where the machine states none --
+        a machine whose stand-in is asked to read exactly as it does.
+
+    Raises:
+        ValueError: The key is present but is not text. The value is
+            interpolated into a compose line verbatim, so anything else would
+            reach the container as its own repr and fail at a boot nobody is
+            watching.
+    """
+    machine = json.loads(machine_json.read_text(encoding="utf-8"))
+    spec = machine.get(STANDIN_BPM_ERRORS_KEY, "")
+    if not isinstance(spec, str):
+        raise ValueError(
+            f"{machine_json}: '{STANDIN_BPM_ERRORS_KEY}' must be a VA_BPM_ERRORS "
+            f"string, not {type(spec).__name__}"
+        )
+    return spec.strip()
+
+
+#: What the packaged demo tree's machine states for its own stand-in.
+#:
+#: The demo reaches this value the way every deployment reaches its own -- from
+#: the ``machine.json`` in the tree its containers are handed, which a project
+#: built from the demo preset carries a copy of. Nothing on the deployment path
+#: reads this constant: it is here for the suites and the end-to-end lane that
+#: serve exactly this tree and need to know what it says without re-reading it.
+STANDIN_BPM_ERRORS_DEFAULT: str = read_standin_bpm_errors(PACKAGE_PATHS.machine_json)
+
+
+def served_data_root(repo_root: Path, build_dir: Path | None = None) -> Path | None:
+    """The data tree a deployment's containers will be handed, on this host.
+
+    The two roots a deployment's answer can live in, in the order
+    :func:`~osprey_connectors.dotenv.resolved_va_lattice` reads its chain from
+    them: the deployment repo's own tree, then the published render, which wins
+    because it is the tree the containers actually mount. A render that has not
+    staged its data yet leaves the repo's tree as the honest answer, since that
+    is what the build is about to copy.
+
+    Args:
+        repo_root: The deployment repo root.
+        build_dir: The published output zone, when the caller has one.
+
+    Returns:
+        The data root to resolve a ``machine.json`` against, or ``None`` where
+        neither root describes a machine -- a deployment whose stand-in has no
+        machine to be a stand-in for.
+    """
+    resolved: Path | None = None
+    for root in (repo_root, build_dir):
+        if root is None:
+            continue
+        candidate = Path(root) / DATA_DIR_NAME
+        if ManifestPaths(data_root=candidate).machine_json.is_file():
+            resolved = candidate
+    return resolved
+
+
+def default_bpm_errors_for_lattice(served: bool, data_root: Path | None) -> str:
+    """The perturbation a stand-in is handed by default, given its tree.
 
     One rule, one home, for the two sides that must agree about what the
     container receives: the render writes this into the stand-in's
@@ -93,25 +159,39 @@ def default_bpm_errors_for_lattice(lattice: str) -> str:
     it could disagree, and the disagreement would be a build that validated on
     one answer and rendered on another.
 
-    Outside :data:`LATTICE_BUILTIN` the answer is the EMPTY set rather than the
-    shipped one: these offsets displace the builtin PyAT model, and a deployment
-    on ``none`` or on a facility channel manifest has no model for them to move.
-    Such a stand-in serves its manifest unperturbed, which is honest; carrying
-    faults nothing can apply is not.
+    The answer comes from the deployment's own tree and from nowhere else, so
+    one bindings-driven path serves every facility: a tree that states no
+    perturbation ships none rather than inheriting a machine it has never
+    served. The read happens per call rather than once, because a build stages
+    that tree while this process runs.
+
+    A stand-in with no lattice is handed the EMPTY set whatever its tree says:
+    these offsets displace a model, and a deployment serving no lattice has none
+    for them to move. Such a stand-in serves its manifest unperturbed, which is
+    honest; carrying faults nothing can apply is not.
 
     Args:
-        lattice: ``VA_LATTICE`` as the deployment's env chain resolves it, per
+        served: Whether the deployment's env chain names a lattice for the
+            stand-in to boot with -- ``VA_LATTICE`` resolved to anything but
+            ``none``, per
             :func:`~osprey_connectors.dotenv.resolved_va_lattice`.
+        data_root: The served tree, from :func:`served_data_root`. ``None``
+            where the deployment describes no machine.
 
     Returns:
-        :data:`STANDIN_BPM_ERRORS_DEFAULT`, or ``''`` where the lattice cannot
-        carry it.
+        The tree's own perturbation, or ``''`` where there is no lattice to
+        carry it, no tree to read, or no entry in that tree.
     """
-    return STANDIN_BPM_ERRORS_DEFAULT if lattice.strip().lower() == LATTICE_BUILTIN else ""
+    if not served or data_root is None:
+        return ""
+    machine_json = ManifestPaths(data_root=Path(data_root)).machine_json
+    if not machine_json.is_file():
+        return ""
+    return read_standin_bpm_errors(machine_json)
 
 
 def parse_bpm_error_spec(spec: str) -> dict[str, dict[str, float]]:
-    """``"BPM03:offset_x=1.5e-4;BPM21:offset_x=-2e-4"`` -> ``{fam: {field: value}}``.
+    """``"D1:offset_x=1.5e-4;D2:offset_x=-2e-4"`` -> ``{fam: {field: value}}``.
 
     The host side's one copy of the ``VA_BPM_ERRORS`` split, for every consumer
     that needs the offsets as numbers rather than as an env string: this
@@ -124,10 +204,13 @@ def parse_bpm_error_spec(spec: str) -> dict[str, dict[str, float]]:
     The authority on the grammar is ``entrypoint._parse_bpm_errors``, which is
     what the container actually runs; it cannot be called here because it reads
     ``os.environ`` and lives in a module that imports the whole serving stack.
-    So the split is spelled again -- ``;`` between devices, ``:`` between a
-    device and its fields, ``,`` between fields, ``=`` between a field and its
-    value -- and pinned: the test suite parses the shipped default through the
-    real entrypoint parser and asserts the two agree.
+    So the split is spelled again -- ``;`` between devices, the LAST ``:``
+    between a device and its fields (a device spelled as the address its
+    reading is published on is colon-separated at every level and stays one
+    token, while a field list carries no colon), ``,`` between fields, ``=``
+    between a field and its value -- and pinned: the test suite parses the
+    shipped default through the real entrypoint parser and asserts the two
+    agree.
 
     Nothing here validates bounds or field names: the IOC owns those and
     refuses a bad spec by name at boot, and a second set of limits here would
@@ -146,7 +229,7 @@ def parse_bpm_error_spec(spec: str) -> dict[str, dict[str, float]]:
         entry = entry.strip()
         if not entry:
             continue
-        device, separator, fields_raw = entry.partition(":")
+        device, separator, fields_raw = entry.rpartition(":")
         device = device.strip()
         if not separator or not device:
             continue

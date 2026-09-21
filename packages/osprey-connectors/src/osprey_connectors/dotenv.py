@@ -139,19 +139,17 @@ BUILD_DERIVED_KEYS = frozenset({"VA_CHANNELS_FILE", "VA_LATTICE"})
 #: The chain key naming the virtual accelerator's lattice source.
 VA_LATTICE_KEY = "VA_LATTICE"
 
-#: What :func:`resolved_va_lattice` answers when no chain file pins the key —
-#: the value the build itself appends whenever it generates a channel manifest.
+#: What :func:`resolved_va_lattice` answers when no chain file pins the key.
 #:
-#: The container reads an EMPTY ``VA_LATTICE`` the other way: the virtual
-#: accelerator's entrypoint (``entrypoint.LATTICE_NONE``) boots no lattice
-#: rather than the framework's tutorial ring. The two are never asked the same
-#: question. This one speaks for the render-side readers of a chain the build
-#: has not written yet; the entrypoint's speaks for a hand-run container. A
-#: deployed container only ever starts on a chain carrying the key, because the
-#: deploy preflight (``container_lifecycle._preflight_build_derived_env``)
-#: refuses to start a stack whose manifest is on disk and whose derived keys
-#: are not.
-VA_LATTICE_DEFAULT = "builtin"
+#: ``VA_LATTICE`` names a lattice file relative to the virtual accelerator's
+#: data directory, and ``none`` is the one value naming no file at all. A chain
+#: no build has written the key into names no file, so it serves no lattice —
+#: the same reading the container's entrypoint gives an empty value, rather
+#: than a second answer the render side has to reconcile with it. A deployed
+#: container only ever starts on a chain carrying the key, because the deploy
+#: preflight (``container_lifecycle._preflight_build_derived_env``) refuses to
+#: start a stack whose manifest is on disk and whose derived keys are not.
+VA_LATTICE_DEFAULT = "none"
 
 
 #: Section header the deploy write-back groups its minted secrets under.
@@ -581,12 +579,13 @@ def resolved_va_lattice(repo_root: Path, build_dir: Path | None = None) -> str:
     that refuses on one answer and renders on another is worse than either
     answer on its own.
 
-    Unset resolves to :data:`VA_LATTICE_DEFAULT` (``builtin``): an unpinned
-    deployment is one the build speaks for — ``VA_LATTICE`` is a
-    :data:`BUILD_DERIVED_KEYS` member, and the build's own
-    ``VA_LATTICE=builtin`` write is where an unpinned value comes from. A chain
-    that DOES pin the key wins, at build time as at run time, because every
-    writer of these files appends and none overwrite.
+    The value is a lattice file's name relative to the virtual accelerator's
+    data directory, or :data:`VA_LATTICE_DEFAULT` (``none``), which names no
+    file. Unset resolves to that default: ``VA_LATTICE`` is a
+    :data:`BUILD_DERIVED_KEYS` member, so a chain carrying no value is one no
+    build has pointed at a lattice. A chain that DOES pin the key wins, at
+    build time as at run time, because every writer of these files appends and
+    none overwrite.
 
     :param repo_root: Directory the chain lives in (the deployment repo root).
     :param build_dir: A published render carrying a chain of its own, when the
@@ -594,7 +593,8 @@ def resolved_va_lattice(repo_root: Path, build_dir: Path | None = None) -> str:
         *repo_root*'s chain, so it wins on a key both set — the same later-wins
         precedence :data:`ENV_CHAIN_FILENAMES` gives within one root, extended
         to the tree the containers are actually handed.
-    :return: The value as written, stripped of surrounding whitespace;
+    :return: The value as written, stripped of surrounding whitespace and with
+        its case preserved (the served tree is searched for that file name);
         :data:`VA_LATTICE_DEFAULT` when no chain file sets it.
     """
     value = merge_chain(Path(repo_root)).get(VA_LATTICE_KEY, "")

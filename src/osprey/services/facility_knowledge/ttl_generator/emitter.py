@@ -81,6 +81,8 @@ from .model import (
 from .ontology_map import ClassDef, OntologyMap
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
+    from collections.abc import Sequence
+
     import rdflib
 
 __all__ = [
@@ -675,6 +677,7 @@ def serialize_turtle(
     ontology: OntologyMap,
     *,
     direction_source: DirectionSource | str | None = None,
+    header_comments: Sequence[str] = (),
 ) -> str:
     """Serialise the corpus as deterministic Turtle text.
 
@@ -698,6 +701,9 @@ def serialize_turtle(
             :class:`~osprey.services.facility_knowledge.ttl_generator.direction.DirectionSource`
             or its bare value.  ``None`` emits the document unchanged, byte for
             byte, from what it was before the header existed.
+        header_comments: Free-text provenance lines, each written as a ``# ``
+            comment immediately after the direction line (or first, when there
+            is no direction line), in the order given.  Empty emits nothing.
 
     Returns:
         The Turtle document, ending in a newline.
@@ -705,21 +711,37 @@ def serialize_turtle(
     Raises:
         UndirectedSignalError: If any signal group is still undirected.
         UnknownFamilyError: If a device family has no class in the table.
+        ValueError: If a header comment contains a line break.
     """
     by_subject: dict[str, dict[str, dict[tuple[str, str], _Term]]] = {}
     for subject, predicate, obj in _model_triples(model, ontology):
         objects = by_subject.setdefault(subject, {}).setdefault(predicate, {})
         objects[(obj.kind, obj.value)] = obj
 
+    comment_lines = [_header_comment_line(entry) for entry in header_comments]
+
     lines: list[str] = []
     if direction_source is not None:
         lines.append(f"{DIRECTION_SOURCE_HEADER}{DirectionSource(direction_source).value}")
+    lines += comment_lines
     lines += [f"@prefix {prefix}: <{namespace}> ." for prefix, namespace in PREFIXES.items()]
     lines.append("")
     for subject, predicates in by_subject.items():
         lines.extend(_subject_block(subject, predicates))
         lines.append("")
     return "\n".join(lines[:-1]) + "\n"
+
+
+def _header_comment_line(entry: str) -> str:
+    """Render one header comment as a ``# `` line.
+
+    Raises:
+        ValueError: If *entry* contains a line break, which would end the
+            comment and spill the rest of the text into the Turtle body.
+    """
+    if "\n" in entry or "\r" in entry:
+        raise ValueError(f"header comment must not contain a newline: {entry!r}")
+    return f"# {entry}"
 
 
 def _subject_block(subject: str, predicates: dict[str, dict[tuple[str, str], _Term]]) -> list[str]:
@@ -759,6 +781,7 @@ def write_turtle(
     path: Path,
     *,
     direction_source: DirectionSource | str | None = None,
+    header_comments: Sequence[str] = (),
 ) -> Path:
     """Serialise the corpus and write it to *path* as UTF-8.
 
@@ -769,6 +792,8 @@ def write_turtle(
         direction_source: Forwarded to :func:`serialize_turtle`, which records it
             as the file's first line.  ``None`` writes the same bytes it always
             did.
+        header_comments: Forwarded to :func:`serialize_turtle`, which writes each
+            as a ``# `` line under the direction line.
 
     Returns:
         *path*, so a caller can report where the corpus landed.
@@ -776,9 +801,12 @@ def write_turtle(
     Raises:
         UndirectedSignalError: If any signal group is still undirected.
         UnknownFamilyError: If a device family has no class in the table.
+        ValueError: If a header comment contains a line break.
         OSError: If the file cannot be written.
     """
-    text = serialize_turtle(model, ontology, direction_source=direction_source)
+    text = serialize_turtle(
+        model, ontology, direction_source=direction_source, header_comments=header_comments
+    )
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")

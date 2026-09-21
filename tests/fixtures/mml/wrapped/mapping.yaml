@@ -1,0 +1,78 @@
+facility:
+  token: Quokka
+  title: Quokka
+  description: The invented Quokka light source used by the synthetic MML fixtures.
+  provenance: stated
+systems:
+  INJ:
+    name: INJ
+    description: Quokka injector line, exported inside a wrapper object.
+    provenance: stated
+section_order:
+- INJ
+families:
+  BPM:
+    class: BeamPositionMonitor
+    aliases:
+    - BPM
+    description: Injector beam position monitors, horizontal plane only.
+    provenance: stated
+    channels: 1
+    fields:
+      X:
+        description: 'Field X: 1 channel via ChannelNames.'
+        provenance: stated
+  GUN:
+    aliases:
+    - GUN
+    description: Electron gun; no channels exported.
+    provenance: stated
+    channels: 0
+    fields: {}
+  QM:
+    class: Quadrupole
+    aliases:
+    - QM
+    description: Injector quadrupoles with power-state monitor and control.
+    provenance: stated
+    channels: 12
+    fields:
+      Monitor:
+        description: 'Field Monitor: 3 channels via ChannelNames, hardware units
+          Amps.'
+        provenance: stated
+      'On':
+        description: Power state readback of the QM supplies.
+        provenance: stated
+      OnControl:
+        description: Power state command of the QM supplies.
+        provenance: stated
+      Setpoint:
+        description: 'Field Setpoint: 3 channels via ChannelNames, one channel broadcast
+          to every device, hardware units Amps.'
+        provenance: stated
+directions:
+  BPM.X:
+    direction: read
+    provenance: stated
+    override: false
+  QM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QM.On:
+    direction: read
+    provenance: stated
+    override: false
+  QM.OnControl:
+    direction: write
+    provenance: stated
+    override: false
+  QM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+judgments:
+  QM:
+    shared_pvs:
+      2: 2

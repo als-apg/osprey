@@ -14,9 +14,9 @@ into the worker -- selected from the deployment repo's own channel ROSTER
 (``osprey.channel_roster``: the channel-finder database this deployment's
 render points its channel finder at), never a hardcoded preset channel and
 never ``channel_limits.json``, which gates writes on a subset of the facility
-rather than enumerating it. Restricted here to pyat-coupled correctors/BPMs
-specifically, since the ORM plan sweeps correctors and reads BPMs rather than
-arbitrary writable setpoints.
+rather than enumerating it. Restricted here to the channels the served
+bindings document binds as a kick or as a monitor, since the ORM plan sweeps
+correctors and reads monitors rather than arbitrary writable setpoints.
 
 Authoring that file is why the builders take a ``pre_build`` hook: the device
 file has to exist in the repo's source zone by the time ``osprey build`` runs,
@@ -39,9 +39,9 @@ tests need a live stack).
 Where the work is split. ``roster_records`` asks the product's one
 enumerator which channels this facility has;
 ``select_correctors``/``select_bpms`` are the HARNESS's own, because which
-channels a corrector-sweeping plan can do physics with is a fact about this
-demo machine's lattice partitions and has no place in a framework that must
-stay facility-agnostic. ``write_devices_file`` then hands the chosen records
+channels a corrector-sweeping plan can do physics with is a question a lane
+asks of the facility's own bindings document (``served_bindings``) and has no
+place in a framework that must stay facility-agnostic. ``write_devices_file`` then hands the chosen records
 to the canonical producer in
 ``osprey.services.bluesky_bridge.substrate_devices`` for the document and its
 atomic write -- the same producer the build path uses
@@ -64,17 +64,20 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
+from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeVar
 
 import yaml
 
+from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS, ManifestPaths
 from tests.e2e.profile_edits import set_pairs
 
 if TYPE_CHECKING:
     from click.testing import CliRunner, Result
 
     from osprey.channel_roster import ChannelRecord, RosterResult
+    from osprey.services.virtual_accelerator.bindings import BindingsDocument
 
 #: What :func:`_keyed_by_address` keys -- a corrector ``(sp, rb)`` pair or a
 #: BPM address, both of which name their device by an address the selector
@@ -833,88 +836,144 @@ def restart_bridge(
     wait_for_health(f"{bridge_url}/health", health_timeout)
 
 
-#: Address components a corrector setpoint has, in the 6-part colon grammar
-#: this facility's addresses follow: ``SR:MAG:<family>:<device>:<field>:<sub>``.
-CORRECTOR_RING = "SR"
-CORRECTOR_SYSTEM = "MAG"
-CORRECTOR_FAMILIES = ("HCM", "VCM")
+#: The bound-element attribute component a horizontal kick is written to, in
+#: pyAT's ``KickAngle`` order -- ``(horizontal, vertical)``. Framework
+#: vocabulary rather than a facility's: a lane wanting one plane of corrector
+#: asks the bindings for the component, never the address text for a family
+#: name.
+KICK_HORIZONTAL = 0
+KICK_VERTICAL = 1
 
-#: The same, for the BPM readbacks a plan reads back.
-BPM_RING = "SR"
-BPM_SYSTEM = "DIAG"
-BPM_FAMILY = "BPM"
+#: The transverse axis a monitor binding reads, in the spelling
+#: ``bindings.ATTRIBUTES_BY_KIND`` reserves for a ``monitor``.
+MONITOR_X = "x"
+MONITOR_Y = "y"
 
 
-def _address_path(address: str) -> dict[str, str] | None:
-    """Split a 6-part colon address into the named components
-    ``classify_partition`` consumes, or ``None`` when it does not have exactly
-    six parts.
+def _facility_data_root(source_path: Path) -> Path:
+    """The facility data tree a roster source sits in -- the directory whose
+    ``simulation/va_bindings.json`` describes the machine those channels are
+    served from.
 
-    Lives HERE rather than in the product: which grammar an address follows and
-    which partition of the accelerator model a channel belongs to are facts
-    about THIS facility's demo machine, and the plans these lanes run sweep
-    correctors specifically. The roster (``osprey.channel_roster``) enumerates
-    channels and says which way each points; everything below this line is the
-    harness choosing a physics-appropriate subset of that answer, and none of
-    it belongs in a framework that must stay facility-agnostic.
+    Found by walking up from the file the roster read rather than by counting
+    parents: the channel databases sit at a tier depth the paradigm decides,
+    and the tree is identified by what it carries rather than by how far down
+    the database happens to be.
+
+    The walk stops at the roster's own data root -- the directory holding the
+    ``channel_databases`` the source came out of -- so a deployment whose tree
+    carries no bindings fails where the fault is. Above that directory lies
+    whatever tree the deployment happens to have been created inside, and a
+    bindings document found there describes a different machine.
     """
-    parts = address.split(":")
-    if len(parts) != 6:
-        return None
-    ring, system, family, device, field, subfield = parts
-    return {
-        "ring": ring,
-        "system": system,
-        "family": family,
-        "device": device,
-        "field": field,
-        "subfield": subfield,
+    for candidate in source_path.parents:
+        if ManifestPaths(candidate).va_bindings.is_file():
+            return candidate
+        if (candidate / "channel_databases").is_dir():
+            raise AssertionError(
+                f"the data tree {candidate} that {source_path} was enumerated from "
+                f"carries no simulation/va_bindings.json, so nothing here can say "
+                f"which of its channels the accelerator model is coupled to"
+            )
+    raise AssertionError(
+        f"no facility data tree above {source_path}: no parent directory up to the "
+        f"filesystem root holds the channel databases it was enumerated from, so "
+        f"there is no tree here whose bindings could be read"
+    )
+
+
+@cache
+def _bindings_of_resolved(data_root: Path) -> BindingsDocument:
+    """The memoized read behind :func:`_bindings_at`, keyed on a resolved tree."""
+    from osprey.services.virtual_accelerator.bindings import load_bindings
+
+    return load_bindings(ManifestPaths(data_root).va_bindings)
+
+
+def _bindings_at(data_root: Path) -> BindingsDocument:
+    """The bindings document of one facility data tree, read once per tree.
+
+    Memoized because a lane calls the selectors several times inside one
+    ``pre_build`` hook and the demo document is some hundreds of bindings.
+
+    The memo is keyed on the RESOLVED tree, so the relative and absolute
+    spellings of one tree -- and a symlinked temporary directory against the
+    path it points at -- are one entry rather than two. The document is read
+    once per tree per process: a lane that rewrites
+    ``simulation/va_bindings.json`` under a tree already read here gets the
+    first read back, and must stage the new document under a fresh path to be
+    served the new one.
+    """
+    return _bindings_of_resolved(data_root.resolve())
+
+
+def served_bindings(records: Sequence[ChannelRecord]) -> BindingsDocument:
+    """The bindings document of the tree ``records`` were enumerated from.
+
+    The one authority on which channels the accelerator model drives and what
+    each of them does to it: a binding names the element it writes, the
+    attribute it writes there, and the calibration between the facility's
+    hardware unit and the lattice's physics unit. A lane choosing devices with
+    a plane, a kind or a calibration in mind reads them from here.
+
+    Lives HERE rather than in the product because choosing a physics-appropriate
+    subset of a facility's channels is a harness concern: the roster
+    (``osprey.channel_roster``) enumerates channels and says which way each
+    points, and which of them a given plan can do physics with is the lane's
+    own question.
+    """
+    assert records, "no roster records, so there is no tree to read bindings from"
+    return _bindings_at(_facility_data_root(Path(records[0].source.path)))
+
+
+def _addresses_of_kind(document: BindingsDocument, kind: str) -> frozenset[str]:
+    """Every address the document binds as ``kind``, by its own ``kind`` field.
+
+    Grouping by what a binding DOES -- a kick, a monitor -- rather than by the
+    family name its address spells is what keeps a lane's device choice the
+    same question on every facility.
+    """
+    return frozenset(
+        binding.setpoint_address for binding in document.bindings if binding.kind == kind
+    )
+
+
+def claimed_addresses(document: BindingsDocument) -> frozenset[str]:
+    """Every address ``document`` claims -- each binding's setpoint, plus the
+    readback it serves where it serves one.
+
+    The single spelling of what "the accelerator model drives this channel"
+    means, so a lane asking whether a channel is coupled and a lane asking for
+    the channels that are not both read the rule from here. A binding kind that
+    one day claims a second readback widens both at once.
+    """
+    claimed = {binding.setpoint_address for binding in document.bindings}
+    claimed |= {
+        binding.readback_address
+        for binding in document.bindings
+        if binding.readback_address is not None
     }
+    return frozenset(claimed)
 
 
-def _in_partition(address: str, *, ring: str, system: str, families: tuple[str, ...]) -> bool:
-    """Whether ``address`` names a pyat-coupled channel of the given family set.
+def pyat_coupled(address: str, *, data_root: Path | None = None) -> bool:
+    """Whether ``address`` is a channel the accelerator model actually drives.
 
-    Pyat-coupled specifically -- a write actually steers the beam through the AT
-    lattice model, and a read actually moves when it does. The generic sp-echo
-    partition (a physics-free software copy) is the wrong device class for a
-    plan that sweeps correctors and watches BPMs respond, which is why the
-    restriction is applied here rather than left to the roster: the roster's job
-    is which channels EXIST, not which of them a given plan can do physics with.
+    A channel is coupled because a binding claims it -- as the address it
+    writes or reads, or as the readback that binding serves -- and for no other
+    reason. Everything else the deployment serves is either a physics-free
+    software echo or a plausible noisy constant: a plan sweeping one finishes
+    as fast as the network round-trips allow and proves nothing about rows
+    arriving while physics runs. Lanes that read the BUILD's staged device file
+    (rather than selecting from the roster) narrow it with this so the device
+    they drive is a modelled one whichever order the build wrote the file in.
+
+    ``data_root`` is the facility tree to ask; it defaults to the bundled demo
+    tree, which is the tree a deployment built from the shipped preset serves.
+    A lane deploying a facility's own tree passes that tree's ``data/``.
     """
-    from osprey.services.virtual_accelerator.manifest import (
-        PARTITION_PYAT_COUPLED,
-        classify_partition,
-    )
-
-    path = _address_path(address)
-    if path is None:
-        return False
-    if path["ring"] != ring or path["system"] != system or path["family"] not in families:
-        return False
-    return classify_partition(path) == PARTITION_PYAT_COUPLED
-
-
-def pyat_coupled(address: str) -> bool:
-    """Whether ``address`` is a channel the AT lattice model actually drives.
-
-    The demo machine's storage-ring devices are pyat-coupled: a setpoint write
-    steers the beam through the lattice and a readback moves when it does. Its
-    booster and transfer-line channels are not -- a setpoint there is a
-    software echo and a monitor is static noise, so a plan sweeping one
-    finishes as fast as the network round-trips allow and proves nothing about
-    rows arriving while physics runs. Lanes that read the BUILD's staged device
-    file (rather than selecting from the roster) narrow it with this so the
-    device they drive is a modelled one whichever order the build wrote the
-    file in. Same classifier as :func:`_in_partition`, without the family cut.
-    """
-    from osprey.services.virtual_accelerator.manifest import (
-        PARTITION_PYAT_COUPLED,
-        classify_partition,
-    )
-
-    path = _address_path(address)
-    return path is not None and classify_partition(path) == PARTITION_PYAT_COUPLED
+    document = _bindings_at(PACKAGE_PATHS.data_root if data_root is None else data_root)
+    return address in claimed_addresses(document)
 
 
 def _keyed_by_address(
@@ -1056,60 +1115,62 @@ def roster_records(repo: Path) -> tuple[ChannelRecord, ...]:
 def select_correctors(
     records: Sequence[ChannelRecord], count: int | None = DEFAULT_CORRECTOR_COUNT
 ) -> dict[str, tuple[str, str]]:
-    """Pick ``count`` SR corrector (HCM/VCM) ``:SP``/``:RB`` pairs out of
-    ``records`` -- the repo's own roster (:func:`roster_records`), never a
-    hardcoded preset channel.
+    """Pick ``count`` corrector ``:SP``/``:RB`` pairs out of ``records`` -- the
+    repo's own roster (:func:`roster_records`), never a hardcoded preset
+    channel.
 
-    Restricted to the pyat-coupled corrector partition (see
-    :func:`_in_partition`): the ORM plan sweeps correctors specifically, so a
-    generic sp-echo pair -- physics-free -- would be the wrong device class.
+    A corrector is an address the served bindings document binds as a ``kick``
+    (:func:`served_bindings`): a write to it steers the beam by changing an
+    element's kick angle through the lattice model. The ORM plan sweeps
+    correctors specifically, so a writable channel no binding claims -- a
+    physics-free software echo -- is the wrong device class for it, and the
+    kind is the same question on any facility where the address text is not.
     A settable the roster paired no readback with is skipped: these plans read
     a corrector back after setting it, and a device whose readback is its own
     setpoint would echo the demand rather than report the magnet.
 
-    If ``count`` is ``None``, returns the FULL available pyat-coupled corrector
-    set instead of a fixed-size slice -- no assertion is raised in that case,
-    regardless of how many pairs are found.
+    If ``count`` is ``None``, returns the FULL available corrector set instead
+    of a fixed-size slice -- no assertion is raised in that case, regardless of
+    how many pairs are found.
 
     Returns a dict of ``sp_address -> (sp_address, rb_address)`` -- the
     setpoint's device name is its own ``:SP`` address -- ready to hand to
     :func:`write_devices_file` as the device file's ``settables``.
     """
+    kicks = _addresses_of_kind(served_bindings(records), "kick")
     pairs = [
         (record.address, record.readback)
         for record in sorted(records, key=lambda record: record.address)
-        if record.direction == "write"
-        and record.readback is not None
-        and _in_partition(
-            record.address,
-            ring=CORRECTOR_RING,
-            system=CORRECTOR_SYSTEM,
-            families=CORRECTOR_FAMILIES,
-        )
+        if record.direction == "write" and record.readback is not None and record.address in kicks
     ]
-    return _keyed_by_address(pairs, lambda pair: pair[0], count, "SR corrector (HCM/VCM) pairs")
+    return _keyed_by_address(pairs, lambda pair: pair[0], count, "corrector pairs")
 
 
 def select_bpms(
     records: Sequence[ChannelRecord], count: int | None = DEFAULT_BPM_COUNT
 ) -> dict[str, str]:
-    """Pick ``count`` SR BPM readbacks out of ``records`` -- same roster, same
-    no-hardcoded-channel convention as :func:`select_correctors`.
+    """Pick ``count`` beam-position readbacks out of ``records`` -- same roster,
+    same no-hardcoded-channel convention as :func:`select_correctors`.
 
-    If ``count`` is ``None``, returns the FULL available pyat-coupled BPM set
-    instead of a fixed-size slice -- no assertion is raised in that case.
+    A beam-position readback is an address the served bindings document binds
+    as a ``monitor``: a reading the lattice model solves for, which moves when
+    a corrector is swept. A readable no binding claims is static noise and
+    would sit still through any sweep.
+
+    If ``count`` is ``None``, returns the FULL available monitor set instead of
+    a fixed-size slice -- no assertion is raised in that case.
 
     Returns a dict of ``read_address -> read_address`` -- the readback's device
     name is its own read address -- ready to hand to :func:`write_devices_file`
     as the device file's ``readables``.
     """
+    monitors = _addresses_of_kind(served_bindings(records), "monitor")
     addresses = [
         record.address
         for record in sorted(records, key=lambda record: record.address)
-        if record.direction == "read"
-        and _in_partition(record.address, ring=BPM_RING, system=BPM_SYSTEM, families=(BPM_FAMILY,))
+        if record.direction == "read" and record.address in monitors
     ]
-    return _keyed_by_address(addresses, lambda address: address, count, "SR BPM readbacks")
+    return _keyed_by_address(addresses, lambda address: address, count, "monitor readbacks")
 
 
 def write_devices_file(

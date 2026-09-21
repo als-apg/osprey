@@ -1,0 +1,98 @@
+{
+  "_export": {
+    "exporter": "mml_export 1.0.0",
+    "matlab": "24.2.0 (R2024b)",
+    "machine": "Quokka",
+    "timestamp": "2026-01-01T00:00:00"
+  },
+  "BPM": {
+    "FamilyName": "BPM",
+    "MemberOf": ["BPM", "Diagnostics"],
+    "DeviceList": [[1, 1], [1, 2], [2, 1], [2, 2]],
+    "ElementList": [1, 2, 3, 4],
+    "Status": [1, 1, 1, 0],
+    "CommonNames": ["bpm-1a", "bpm-1b", "bpm-2a", "bpm-2b"],
+    "Position": [1.0, 3.5, 46.0, 48.5],
+    "DeviceType": ["Button", "Button", "Button", "Button"],
+    "X": {
+      "MemberOf": ["BPM", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "ChannelNames": ["QK:R1:BPM1:X", "QK:R1:BPM2:X", "QK:R2:BPM1:X", ""],
+      "Units": "Hardware",
+      "HWUnits": "mm",
+      "PhysicsUnits": "m"
+    },
+    "Y": {
+      "MemberOf": ["BPM", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "ChannelNames": ["QK:R1:BPM1:Y", "QK:R1:BPM2:Y", "QK:R2:BPM1:Y", ""],
+      "Units": "Hardware",
+      "HWUnits": [],
+      "PhysicsUnits": "m"
+    }
+  },
+  "HCM": {
+    "FamilyName": "HCM",
+    "MemberOf": ["HCM", "Magnet"],
+    "DeviceList": [[1, 1], [2, 1]],
+    "CommonNames": ["hcm-1", "hcm-2"],
+    "Position": [2.0, 47.0],
+    "Setpoint": {
+      "MemberOf": ["HCM", "Setpoint"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "ChannelNames": ["QK:R1:HCM1:SP", "QK:R2:HCM1:SP"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "rad",
+      "Range": ["-Inf", "Inf"]
+    },
+    "Monitor": {
+      "MemberOf": ["HCM", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "ChannelNames": ["QK:R12:HCM:RB", "QK:R12:HCM:RB"],
+      "Units": "Hardware",
+      "HWUnits": ["Amps", "Amps"],
+      "PhysicsUnits": "rad"
+    }
+  },
+  "SQ": {
+    "FamilyName": "SQ",
+    "MemberOf": ["SKEWQUAD", "Magnet"],
+    "DeviceList": [[1, 1], [1, 2], [2, 1]],
+    "Description": "Skew quadrupole trims on one shared supply",
+    "Setpoint": {
+      "MemberOf": ["SKEWQUAD", "Setpoint"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "ChannelNames": ["QK:SQ:SP"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "1/m^2"
+    },
+    "Monitor": {
+      "MemberOf": ["SKEWQUAD", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "ChannelNames": ["QK:SQ1:RB", "QK:SQ2:RB", "QK:SQ3:RB", "QK:SQ4:RB"],
+      "Units": "Hardware",
+      "HWUnits": "Amps",
+      "PhysicsUnits": "1/m^2"
+    }
+  },
+  "KICKER": {
+    "FamilyName": "KICKER",
+    "MemberOf": ["KICKER", "Injection"],
+    "DeviceList": [[1, 1], [1, 2]],
+    "CommonNames": ["kicker-1", "kicker-2"],
+    "Monitor": {
+      "MemberOf": ["KICKER", "Monitor"],
+      "Mode": "Simulator",
+      "DataType": "Scalar",
+      "HWUnits": "kV"
+    }
+  }
+}

@@ -27,7 +27,7 @@ Three of them are about the third target rather than about ports:
   the stand-in itself; on a baseline naming the facility's own machine that
   store would be read as the real machine's past.
 * :func:`live_standin_lattice_errors` — a readout perturbation with no lattice
-  behind it. The IOC treats a perturbation without ``VA_LATTICE=builtin`` as
+  behind it. The IOC treats a perturbation on ``VA_LATTICE=none`` as
   fatal at boot (``services/virtual_accelerator/entrypoint.py``). Left alone
   that is a container in a crash loop, hours after the build reported success.
 
@@ -275,13 +275,15 @@ def effective_standin_bpm_errors(project_root: Path, build_dir: Path | None = No
     the documented way out of :func:`live_standin_lattice_errors`, and it can
     only be that if an empty value is honored rather than rounded back up.
 
-    **The fallback is lattice-conditional**, and the condition is asked of
+    **The fallback is the deployment's own machine, and it is
+    lattice-conditional.** Both halves are asked of
     :func:`~osprey.services.virtual_accelerator.manifest.standin_defaults.default_bpm_errors_for_lattice`
-    rather than restated here: the shipped default exists for the builtin
-    lattice only, since it names offsets on a PyAT model and there is nothing to
-    displace anywhere else. That is the same function the render side writes the
-    compose interpolation from, so validation and the rendered file cannot come
-    to different answers about what the container receives.
+    rather than restated here: the perturbation is the one the served tree's
+    ``machine.json`` states, and it applies only to a deployment serving a
+    lattice, since it names offsets on a model and there is nothing to displace
+    without one. That is the same function the render side writes the compose
+    interpolation from, over the same two roots, so validation and the rendered
+    file cannot come to different answers about what the container receives.
 
     Args:
         project_root: The deployment repo root, whose env chain the containers
@@ -294,30 +296,35 @@ def effective_standin_bpm_errors(project_root: Path, build_dir: Path | None = No
     """
     from osprey.services.virtual_accelerator.manifest.standin_defaults import (
         default_bpm_errors_for_lattice,
+        served_data_root,
     )
-    from osprey.utils.dotenv import merge_chain, resolved_va_lattice
+    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, merge_chain, resolved_va_lattice
 
     chain: dict[str, str] = merge_chain(Path(project_root))
     if STANDIN_BPM_ERRORS_ENV in chain:
         return chain[STANDIN_BPM_ERRORS_ENV].strip()
-    return default_bpm_errors_for_lattice(resolved_va_lattice(project_root, build_dir)).strip()
+    lattice = resolved_va_lattice(project_root, build_dir)
+    return default_bpm_errors_for_lattice(
+        lattice != VA_LATTICE_DEFAULT,
+        served_data_root(Path(project_root), build_dir),
+    ).strip()
 
 
 def live_standin_lattice_errors(project_root: Path, build_dir: Path | None = None) -> list[str]:
     """Reasons the stand-in would exit at boot for want of a lattice.
 
     The stand-in ships a readout perturbation, and the IOC refuses a
-    perturbation it cannot apply: without ``VA_LATTICE=builtin`` there is no
-    PyAT model to displace, and the entrypoint raises rather than serving a
-    machine that ignores the faults it was configured with.
+    perturbation it cannot apply: with ``VA_LATTICE=none`` there is no model to
+    displace, and the entrypoint raises rather than serving a machine that
+    ignores the faults it was configured with.
 
     Both halves are read the way the deployment will read them —
     :func:`effective_standin_bpm_errors` for the perturbation,
     :func:`~osprey.utils.dotenv.resolved_va_lattice` for the lattice — which
     narrows this to exactly one shape: a chain that ASKED for a fault set, on a
     lattice that cannot apply it. A deployment that never asked has nothing to
-    refuse, because the shipped default is the builtin lattice's and the render
-    gives a latticeless stand-in an empty set. So a facility may pin
+    refuse, because a tree's own default belongs to a served lattice and the
+    render gives a latticeless stand-in an empty set. So a facility may pin
     ``VA_LATTICE=none`` and still rehearse; only its own non-empty
     ``VA_STANDIN_BPM_ERRORS`` beside that pin is a build that cannot boot.
 
@@ -337,22 +344,21 @@ def live_standin_lattice_errors(project_root: Path, build_dir: Path | None = Non
         The accumulated failures, empty when the stand-in has a lattice or
         ships no perturbation to need one.
     """
-    from osprey.services.virtual_accelerator.manifest.standin_defaults import LATTICE_BUILTIN
-    from osprey.utils.dotenv import resolved_va_lattice
+    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, resolved_va_lattice
 
     if not effective_standin_bpm_errors(project_root, build_dir):
         return []
 
     lattice: str = resolved_va_lattice(project_root, build_dir)
-    if lattice.strip().lower() == LATTICE_BUILTIN:
+    if lattice != VA_LATTICE_DEFAULT:
         return []
     return [
         f"virtual_accelerator.live_standin ships a readout perturbation, but this "
-        f"deployment's env chain resolves VA_LATTICE={lattice!r}. There is no PyAT "
+        f"deployment's env chain resolves VA_LATTICE={lattice!r}. There is no "
         f"model to displace, so the stand-in's IOC exits at boot rather than serving "
-        f"a machine that ignores the faults it was configured with. Set "
-        f"VA_LATTICE={LATTICE_BUILTIN}, or turn the perturbation off with "
-        f"{STANDIN_BPM_ERRORS_ENV}= (empty)."
+        f"a machine that ignores the faults it was configured with. Name the "
+        f"deployment's lattice file in VA_LATTICE, or turn the perturbation off "
+        f"with {STANDIN_BPM_ERRORS_ENV}= (empty)."
     ]
 
 

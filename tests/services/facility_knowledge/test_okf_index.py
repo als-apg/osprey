@@ -67,6 +67,13 @@ class TestSynthesizeDescription:
         assert "Alpha" in result
         assert "Beta" in result
 
+    def test_titles_are_listed_case_insensitively_sorted(self):
+        """The summary orders titles the way the child index lists them."""
+        result = _synthesize_description(
+            [("MAIN CH", ""), ("MAIN bpmx_slow", ""), ("MAIN BPMx", "")]
+        )
+        assert result == "Contains 3 entries: MAIN BPMx, MAIN bpmx_slow, MAIN CH."
+
     def test_no_model_call(self):
         """Verify determinism: calling twice returns identical output."""
         children = [("X", ""), ("Y", "Ydesc")]
@@ -219,6 +226,98 @@ class TestRegenerateIndexes:
         # Should complete without raising ImportError for the blocked modules
         _concept(tmp_path, "sub/x.md", type_="T", title="X", desc="A description.")
         regenerate_indexes(tmp_path)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# regenerate_indexes — emptied directories
+# ---------------------------------------------------------------------------
+
+
+class TestEmptiedDirectory:
+    """A directory whose pages were all removed ships no stale index."""
+
+    def _emptied_bundle(self, tmp_path: Path) -> Path:
+        _concept(tmp_path, "facility.md", type_="Facility", title="Quokka", desc="Facility.")
+        _concept(tmp_path, "families/sr-bpm.md", type_="DeviceFamily", title="SR BPM", desc="B.")
+        _concept(tmp_path, "demo/a.md", type_="Device", title="Demo A", desc="A.")
+        _concept(tmp_path, "demo/deep/b.md", type_="Device", title="Demo B", desc="B.")
+        regenerate_indexes(tmp_path)
+        assert (tmp_path / "demo" / "index.md").exists()
+        (tmp_path / "demo" / "a.md").unlink()
+        (tmp_path / "demo" / "deep" / "b.md").unlink()
+        return tmp_path
+
+    def test_stale_indexes_are_deleted(self, tmp_path: Path) -> None:
+        root = self._emptied_bundle(tmp_path)
+
+        written = regenerate_indexes(root)
+
+        assert not (root / "demo" / "index.md").exists()
+        assert not (root / "demo" / "deep" / "index.md").exists()
+        assert root / "demo" / "index.md" not in written
+
+    def test_no_phantom_subdirectory_in_parent(self, tmp_path: Path) -> None:
+        root = self._emptied_bundle(tmp_path)
+
+        regenerate_indexes(root)
+
+        text = (root / "index.md").read_text(encoding="utf-8")
+        assert "(/demo/)" not in text
+        assert "[families](/families/)" in text
+        assert "[Quokka](/facility.md)" in text
+
+    def test_no_dangling_concept(self, tmp_path: Path) -> None:
+        from osprey.services.facility_knowledge.okf.bundle import OKFBundle
+
+        root = self._emptied_bundle(tmp_path)
+
+        regenerate_indexes(root)
+
+        concepts = OKFBundle(root).list_concepts()
+        ids = {entry.concept_id for entry in concepts}
+        assert ids == {"facility", "families/sr-bpm"}
+        for entry in concepts:
+            assert (root / f"{entry.concept_id}.md").is_file()
+
+    def test_directory_without_md_is_not_listed(self, tmp_path: Path) -> None:
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        (tmp_path / "assets").mkdir()
+        (tmp_path / "assets" / "logo.png").write_bytes(b"\x89PNG")
+
+        regenerate_indexes(tmp_path)
+
+        assert "(/assets/)" not in (tmp_path / "index.md").read_text(encoding="utf-8")
+
+    def test_blank_placeholder_index_is_kept(self, tmp_path: Path) -> None:
+        """A blank index lists nothing, so the skeleton directory it holds stays listed."""
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        (tmp_path / "devices").mkdir()
+        (tmp_path / "devices" / "index.md").write_text("", encoding="utf-8")
+
+        regenerate_indexes(tmp_path)
+
+        assert (tmp_path / "devices" / "index.md").read_text(encoding="utf-8") == ""
+        assert "[devices](/devices/)" in (tmp_path / "index.md").read_text(encoding="utf-8")
+
+    def test_unparseable_page_keeps_directory(self, tmp_path: Path) -> None:
+        """Only an index-only directory loses its index; a broken page is not absence."""
+        _concept(tmp_path, "a.md", type_="Device", title="A")
+        _concept(tmp_path, "sub/c.md", type_="Device", title="C")
+        regenerate_indexes(tmp_path)
+        (tmp_path / "sub" / "c.md").write_text("---\nkey: [\n---\n", encoding="utf-8")
+
+        regenerate_indexes(tmp_path)
+
+        assert (tmp_path / "sub" / "index.md").exists()
+
+    def test_second_regeneration_is_byte_identical(self, tmp_path: Path) -> None:
+        root = self._emptied_bundle(tmp_path)
+        regenerate_indexes(root)
+        before = {p: p.read_bytes() for p in root.rglob("*.md")}
+
+        regenerate_indexes(root)
+
+        assert {p: p.read_bytes() for p in root.rglob("*.md")} == before
 
 
 # ---------------------------------------------------------------------------

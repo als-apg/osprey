@@ -182,15 +182,17 @@ class TestTheDerivationIsFilterFree:
             "HCM",
             "VCM",
             "ALS_U_AR",
-            "classify_partition",
+            "partition",
+            "va_bindings",
             "virtual_accelerator",
             "channel_limits",
         ],
     )
     def test_the_module_names_no_partition_vocabulary(self, token: str) -> None:
         """The gate this task is measured by, kept honest from inside the suite:
-        no corrector/BPM family, no partition classifier, and no channel-limits
-        projection anywhere in the module -- prose included."""
+        no corrector/BPM family, no partition vocabulary, no reach into the
+        bindings document, and no channel-limits projection anywhere in the
+        module -- prose included."""
         text = Path(substrate_devices.__file__).read_text(encoding="utf-8")
 
         assert token not in text
@@ -343,8 +345,8 @@ class TestDeviceFileRoundTrip:
     """The written file, read back by the worker's own parser."""
 
     # Addresses the env-var channel could not have carried: every name holds
-    # colons, and one settable's device component holds a comma (16 real
-    # BTS quadrupoles really do).
+    # colons, and one settable's device component holds a comma (a real
+    # transport line's quadrupoles really do).
     _AWKWARD = (
         _write("SR:MAG:COIL:01,02:CURRENT:SP", readback="SR:MAG:COIL:01,02:CURRENT:RB"),
         _write("SR:RF:CAV:03:VOLTAGE:SP"),

@@ -126,17 +126,25 @@ services:
     # the deployment repo root — so each is spelled from there. Both read-only:
     # the IOC only ever reads.
     #
-    # The simulation model comes from the OUTPUT zone, `build/data/simulation`,
-    # and not from a source `data/` tree, for two reasons. Only the rendered
-    # copy is the whole model: the build writes the generated channel manifest
-    # and its drive limits in beside machine.json, and points VA_CHANNELS_FILE
-    # above at that manifest — a pointer the source tree cannot satisfy, and
-    # the entrypoint RAISES on a manifest file it cannot find rather than
-    # falling back, so a container aimed at the source tree would not boot at
-    # all. And a source tree is not even guaranteed: a profile with no `data:`
-    # key takes the bundle's tree, which is copied into the render and exists
-    # nowhere else in the repo. See entrypoint.py's run contract: the IOC
-    # SystemExits without a machine.json in the data dir.
+    # The simulation model comes from the OUTPUT zone, `build/data`, and not
+    # from a source `data/` tree, for two reasons. Only the rendered copy is
+    # the whole model: the build writes the generated channel manifest and its
+    # drive limits in beside machine.json, and points VA_CHANNELS_FILE above at
+    # that manifest — a pointer the source tree cannot satisfy, and the
+    # entrypoint RAISES on a manifest file it cannot find rather than falling
+    # back, so a container aimed at the source tree would not boot at all. And
+    # a source tree is not even guaranteed: a profile with no `data:` key takes
+    # the bundle's tree, which is copied into the render and exists nowhere
+    # else in the repo. See entrypoint.py's run contract: the IOC SystemExits
+    # without a machine.json in the data dir.
+    #
+    # The whole data ROOT is mounted, not the served `simulation/` directory
+    # alone, because a lattice-backed boot reads two levels of that tree: the
+    # lattice and the bindings sit under `simulation/`, beside the manifest,
+    # while the write bands the model builds its variables from sit at the root
+    # in channel_limits.json. VA_DATA_DIR still names `/data/simulation`, so
+    # the served directory and every bare file name in it are unchanged; what
+    # the wider mount adds is the one file a model cannot be built without.
     #
     # Two mounts because the two directories have different owners: the model
     # is build-owned (re-rendered and checksummed every build), while the
@@ -145,7 +153,7 @@ services:
     # rendered from agent_data.base_dir rather than hardcoded, so it follows a
     # project that relocates its agent-data root.
     volumes:
-      - ./build/data/simulation:/data/simulation:ro
+      - ./build/data:/data:ro
       - ./var/agent_data/simulation:/state/simulation:ro
     networks:
       - osprey-network

@@ -1,0 +1,1319 @@
+facility:
+  token: SPEAR3
+  title: SPEAR3
+  description: SPEAR3, the 3 GeV storage-ring light source of SSRL at SLAC National Accelerator Laboratory.
+    The export covers the storage ring, taken from the Middle Layer in simulator mode; the Middle Layer
+    stages a few transfer-line and beamline signals under the same system.
+  provenance: stated
+systems:
+  StorageRing:
+    name: StorageRing
+    description: 'The SPEAR3 storage ring at 3.0 GeV in user mode: dipoles, quadrupoles, sextupoles, skew
+      quadrupoles and orbit correctors, 117 beam position monitors, the DCCT, the RF station, the injection
+      kickers and septum, vacuum instrumentation and the beamline and orbit-interlock signals the Middle
+      Layer exposes alongside the ring.'
+    provenance: stated
+section_order:
+- StorageRing
+families:
+  BDM:
+    branch: Corrector
+    class: BendTrim
+    aliases:
+    - BDM
+    description: Trim windings on the main dipole string, tagged as corrector, bend and multipole-corrector
+      in the Middle Layer; eight supplies with current readback and setpoint.
+    provenance: stated
+    channels: 16
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  BEND:
+    class: Dipole
+    aliases:
+    - BEND
+    description: The 36 main dipoles on one supply string, with current readback, immediate setpoint and
+      desired setpoint.
+    provenance: stated
+    channels: 108
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  BLErr:
+    branch: Instrumentation
+    class: BeamlineMonitor
+    aliases:
+    - BLErr
+    description: Beamline BPM vertical error signal for each of the 11 beamlines.
+    provenance: stated
+    channels: 11
+    fields:
+      Monitor:
+        description: Beamline BPM vertical error signal per beamline (arbitrary units).
+        provenance: stated
+  BLOpen:
+    branch: Instrumentation
+    class: BeamlineMonitor
+    aliases:
+    - BLOpen
+    description: Open state of each of the 11 beamlines.
+    provenance: stated
+    channels: 11
+    fields:
+      Monitor:
+        description: Beamline open state per beamline.
+        provenance: stated
+  BLSum:
+    branch: Instrumentation
+    class: BeamlineMonitor
+    aliases:
+    - BLSum
+    description: Beamline BPM sum signal for each of the 11 beamlines.
+    provenance: stated
+    channels: 11
+    fields:
+      Monitor:
+        description: Beamline BPM sum signal per beamline (arbitrary units).
+        provenance: stated
+  BPLD:
+    branch: Instrumentation
+    class: OrbitInterlock
+    aliases:
+    - BPLD
+    description: 'Orbit-interlock beam position limit detectors: the state of each of the 18 interlock
+      channels.'
+    provenance: stated
+    channels: 18
+    fields:
+      Monitor:
+        description: Orbit-interlock limit-detector state per interlock channel (mm).
+        provenance: stated
+  BPMx:
+    class: BeamPositionMonitor
+    aliases:
+    - BPMx
+    description: 'The 117 storage-ring beam position monitors, horizontal plane: position readback and
+      desired orbit reference.'
+    provenance: stated
+    channels: 234
+    fields:
+      Desired:
+        description: Desired horizontal orbit reference per BPM (mm).
+        provenance: stated
+      Monitor:
+        description: Horizontal beam position per BPM (mm).
+        provenance: stated
+  BPMy:
+    class: BeamPositionMonitor
+    aliases:
+    - BPMy
+    description: 'The 117 storage-ring beam position monitors, vertical plane: position readback and desired
+      orbit reference.'
+    provenance: stated
+    channels: 234
+    fields:
+      Desired:
+        description: Desired vertical orbit reference per BPM (mm).
+        provenance: stated
+      Monitor:
+        description: Vertical beam position per BPM (mm).
+        provenance: stated
+  BTSBPMx:
+    class: BeamPositionMonitor
+    aliases:
+    - BTSBPMx
+    description: The nine booster-to-storage-ring transfer line BPMs, horizontal plane.
+    provenance: stated
+    channels: 18
+    fields:
+      Desired:
+        description: Desired horizontal orbit reference per BPM (mm).
+        provenance: stated
+      Monitor:
+        description: Horizontal beam position per BPM (mm).
+        provenance: stated
+  BTSBPMy:
+    class: BeamPositionMonitor
+    aliases:
+    - BTSBPMy
+    description: The nine booster-to-storage-ring transfer line BPMs, vertical plane.
+    provenance: stated
+    channels: 18
+    fields:
+      Desired:
+        description: Desired vertical orbit reference per BPM (mm).
+        provenance: stated
+      Monitor:
+        description: Vertical beam position per BPM (mm).
+        provenance: stated
+  CD:
+    class: Dipole
+    aliases:
+    - CD
+    description: The four sector-9 dipole correctors (CD), tagged bend and corrector in the Middle Layer,
+      with current readback, immediate setpoint and desired setpoint.
+    provenance: stated
+    channels: 12
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  DCCT:
+    class: BeamCurrentMonitor
+    aliases:
+    - DCCT
+    description: The DCCT, read as the averaged stored-beam current.
+    provenance: stated
+    channels: 1
+    fields:
+      Monitor:
+        description: Averaged stored-beam current (milli-ampere).
+        provenance: stated
+  HCM:
+    class: HCorrector
+    aliases:
+    - HCM
+    description: The 78 horizontal orbit correctors (76 with channels), with current readback and setpoint.
+    provenance: stated
+    channels: 152
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  HCMCurrReference:
+    branch: Corrector
+    class: CorrectorCurrentReference
+    aliases:
+    - HCMCurrReference
+    description: Reference current of the four sector-12 horizontal correctors that serve beamline 5.
+    provenance: stated
+    channels: 4
+    fields:
+      Monitor:
+        description: Corrector reference current per device (ampere).
+        provenance: stated
+  IonGauge:
+    class: Gauge
+    aliases:
+    - IonGauge
+    description: The 55 ion gauges, read as vacuum pressure.
+    provenance: stated
+    channels: 55
+    fields:
+      Monitor:
+        description: Vacuum pressure per gauge (Torr).
+        provenance: stated
+  IonPump:
+    class: Pump
+    aliases:
+    - IonPump
+    description: The 28 ion pumps, read as pump current.
+    provenance: stated
+    channels: 28
+    fields:
+      Monitor:
+        description: Pump current per ion pump (microampere).
+        provenance: stated
+  KickerAmp:
+    branch: Magnet
+    class: InjectionKicker
+    aliases:
+    - KickerAmp
+    description: Injection kicker pulser amplitude for the three kickers, in DAC units.
+    provenance: stated
+    channels: 6
+    fields:
+      Monitor:
+        description: Kicker pulser amplitude readback per kicker (DAC).
+        provenance: stated
+      Setpoint:
+        description: Kicker pulser amplitude setpoint per kicker (DAC).
+        provenance: stated
+  KickerDelay:
+    branch: Magnet
+    class: InjectionKicker
+    aliases:
+    - KickerDelay
+    description: Injection kicker pulse delay for the three kickers.
+    provenance: stated
+    channels: 6
+    fields:
+      Monitor:
+        description: Kicker pulse delay readback per kicker (volts).
+        provenance: stated
+      Setpoint:
+        description: Kicker pulse delay setpoint per kicker (volts).
+        provenance: stated
+  LTBBPMx:
+    class: BeamPositionMonitor
+    aliases:
+    - LTBBPMx
+    description: The five linac-to-booster transfer line BPMs, horizontal plane.
+    provenance: stated
+    channels: 10
+    fields:
+      Desired:
+        description: Desired horizontal orbit reference per BPM (mm).
+        provenance: stated
+      Monitor:
+        description: Horizontal beam position per BPM (mm).
+        provenance: stated
+  LTBBPMy:
+    class: BeamPositionMonitor
+    aliases:
+    - LTBBPMy
+    description: The five linac-to-booster transfer line BPMs, vertical plane.
+    provenance: stated
+    channels: 10
+    fields:
+      Desired:
+        description: Desired vertical orbit reference per BPM (mm).
+        provenance: stated
+      Monitor:
+        description: Vertical beam position per BPM (mm).
+        provenance: stated
+  MachineParameters:
+    branch: Instrumentation
+    class: MachineStatus
+    aliases:
+    - MachineParameters
+    description: Machine status words such as the beam status, exposed as four monitor and setpoint pairs.
+    provenance: stated
+    channels: 8
+    fields:
+      Monitor:
+        description: Machine status word readback per parameter.
+        provenance: stated
+      Setpoint:
+        description: Machine status word setpoint per parameter, on the same records as Monitor.
+        provenance: stated
+  Q9S:
+    class: Quadrupole
+    aliases:
+    - Q9S
+    description: The three sector-9 QF quadrupoles on individual supplies.
+    provenance: stated
+    channels: 9
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  QD:
+    class: Quadrupole
+    aliases:
+    - QD
+    description: The 28 arc defocusing quadrupoles QD on one supply string.
+    provenance: stated
+    channels: 84
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  QDX:
+    class: Quadrupole
+    aliases:
+    - QDX
+    description: The four matching quadrupoles QDX in the east and west straights.
+    provenance: stated
+    channels: 12
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  QDY:
+    class: Quadrupole
+    aliases:
+    - QDY
+    description: The four matching quadrupoles QDY in the east and west straights.
+    provenance: stated
+    channels: 12
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  QDZ:
+    class: Quadrupole
+    aliases:
+    - QDZ
+    description: The four matching quadrupoles QDZ in the east and west straights.
+    provenance: stated
+    channels: 12
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  QF:
+    class: Quadrupole
+    aliases:
+    - QF
+    description: The 28 arc focusing quadrupoles QF on one supply string.
+    provenance: stated
+    channels: 84
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  QFC:
+    class: Quadrupole
+    aliases:
+    - QFC
+    description: The 14 arc quadrupoles QFC on one supply string.
+    provenance: stated
+    channels: 42
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  QFX:
+    class: Quadrupole
+    aliases:
+    - QFX
+    description: The four matching quadrupoles QFX in the east and west straights.
+    provenance: stated
+    channels: 12
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  QFY:
+    class: Quadrupole
+    aliases:
+    - QFY
+    description: The four matching quadrupoles QFY in the east and west straights.
+    provenance: stated
+    channels: 12
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  QFZ:
+    class: Quadrupole
+    aliases:
+    - QFZ
+    description: The four matching quadrupoles QFZ in the east and west straights.
+    provenance: stated
+    channels: 12
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  RF:
+    class: RadioFrequency
+    aliases:
+    - RF
+    description: 'The RF station: ring frequency, cavity voltage, station phase and klystron power, each
+      as a readback with its control where one exists.'
+    provenance: stated
+    channels: 9
+    fields:
+      KlysPower:
+        description: Klystron output forward power readback (MWatts).
+        provenance: stated
+      Monitor:
+        description: Ring RF frequency readback (MHz), on the same record as Setpoint.
+        provenance: stated
+      Phase:
+        description: Station phase, calculated (Degrees).
+        provenance: stated
+      PhaseCtrl:
+        description: Station phase control (Degrees).
+        provenance: stated
+      Power:
+        description: Klystron drive forward power readback (MWatts).
+        provenance: stated
+      PowerCtrl:
+        description: Klystron drive power on/off control.
+        provenance: stated
+      Setpoint:
+        description: Ring RF frequency setpoint (MHz).
+        provenance: stated
+      Voltage:
+        description: Cavity voltage readback (kV).
+        provenance: stated
+      VoltageCtrl:
+        description: Cavity voltage control (Volts).
+        provenance: stated
+  SD:
+    class: Sextupole
+    aliases:
+    - SD
+    description: The 28 arc defocusing sextupoles SD on one supply string; chromaticity correctors.
+    provenance: stated
+    channels: 84
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  SDM:
+    class: Sextupole
+    aliases:
+    - SDM
+    description: The eight matching-cell sextupoles SDM; chromaticity correctors.
+    provenance: stated
+    channels: 24
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  SF:
+    class: Sextupole
+    aliases:
+    - SF
+    description: The 28 arc focusing sextupoles SF on one supply string; chromaticity correctors.
+    provenance: stated
+    channels: 84
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  SFM:
+    class: Sextupole
+    aliases:
+    - SFM
+    description: The eight matching-cell sextupoles SFM; chromaticity correctors.
+    provenance: stated
+    channels: 24
+    fields:
+      Desired:
+        description: Desired power-supply current per magnet (ampere), the target the supply ramps to.
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  Septum:
+    branch: Magnet
+    class: InjectionSeptum
+    aliases:
+    - Septum
+    description: The injection septum, driven as the last BTS bend, with current readback and setpoint.
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  ShuntCurrent:
+    branch: Instrumentation
+    class: QuadrupoleShunt
+    aliases:
+    - ShuntCurrent
+    description: Shunt current of the quadrupole measurement shunt system (QMS).
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: QMS shunt current readback (ampere), on the same record as Setpoint.
+        provenance: stated
+      Setpoint:
+        description: QMS shunt current setpoint (ampere).
+        provenance: stated
+  ShuntRelay:
+    branch: Instrumentation
+    class: QuadrupoleShunt
+    aliases:
+    - ShuntRelay
+    description: Channel select relay of the quadrupole measurement shunt system (QMS), addressed by quadrupole
+      number.
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: QMS channel select readback, by quadrupole number, on the same record as Setpoint.
+        provenance: stated
+      Setpoint:
+        description: QMS channel select, by quadrupole number.
+        provenance: stated
+  SkewQuad:
+    branch: Quadrupole
+    class: SkewQuadrupole
+    aliases:
+    - SkewQuad
+    description: The 72 skew quadrupole windings on the sextupoles, used for coupling correction.
+    provenance: stated
+    channels: 144
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  TUNE:
+    branch: Instrumentation
+    class: TuneMonitor
+    aliases:
+    - TUNE
+    description: The tune measurement, read as the measured fractional tunes on one broadcast channel.
+    provenance: stated
+    channels: 3
+    fields:
+      Monitor:
+        description: Measured fractional betatron tunes, one channel broadcast to every device.
+        provenance: stated
+  VCM:
+    class: VCorrector
+    aliases:
+    - VCM
+    description: The 78 vertical orbit correctors (74 with channels), with current readback and setpoint.
+    provenance: stated
+    channels: 148
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (ampere).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (ampere), applied immediately.
+        provenance: stated
+  VCMCurrReference:
+    branch: Corrector
+    class: CorrectorCurrentReference
+    aliases:
+    - VCMCurrReference
+    description: Reference current of the four sector-12 vertical correctors that serve beamline 5.
+    provenance: stated
+    channels: 4
+    fields:
+      Monitor:
+        description: Corrector reference current per device (ampere).
+        provenance: stated
+directions:
+  BDM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BDM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  BEND.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  BEND.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BEND.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  BLErr.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BLOpen.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BLSum.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BPLD.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BPMx.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  BPMx.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BPMy.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  BPMy.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BTSBPMx.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  BTSBPMx.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BTSBPMy.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  BTSBPMy.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  CD.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  CD.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  CD.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  DCCT.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  HCMCurrReference.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  IonGauge.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  IonPump.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  KickerAmp.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  KickerAmp.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  KickerDelay.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  KickerDelay.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  LTBBPMx.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  LTBBPMx.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  LTBBPMy.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  LTBBPMy.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  MachineParameters.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  MachineParameters.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  Q9S.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  Q9S.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  Q9S.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QD.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  QD.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QD.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QDX.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  QDX.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QDX.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QDY.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  QDY.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QDY.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QDZ.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  QDZ.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QDZ.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QF.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  QF.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QFC.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  QFC.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QFC.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QFX.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  QFX.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QFX.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QFY.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  QFY.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QFY.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QFZ.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  QFZ.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QFZ.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  RF.KlysPower:
+    direction: read
+    provenance: stated
+    override: false
+  RF.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  RF.Phase:
+    direction: read
+    provenance: stated
+    override: false
+  RF.PhaseCtrl:
+    direction: write
+    provenance: stated
+    override: false
+  RF.Power:
+    direction: read
+    provenance: stated
+    override: false
+  RF.PowerCtrl:
+    direction: write
+    provenance: stated
+    override: false
+  RF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  RF.Voltage:
+    direction: read
+    provenance: stated
+    override: false
+  RF.VoltageCtrl:
+    direction: write
+    provenance: stated
+    override: false
+  SD.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  SD.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SD.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SDM.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  SDM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SDM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SF.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  SF.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SFM.Desired:
+    direction: write
+    provenance: stated
+    override: false
+  SFM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SFM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  Septum.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  Septum.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  ShuntCurrent.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  ShuntCurrent.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  ShuntRelay.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  ShuntRelay.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SkewQuad.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SkewQuad.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  TUNE.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  VCM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  VCM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  VCMCurrReference.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+judgments:
+  BDM:
+    shared_pvs: keep_all
+  BEND:
+    shared_pvs: keep_all
+  BTSBPMx:
+    shared_pvs: keep_all
+  QD:
+    shared_pvs: keep_all
+  QDX:
+    shared_pvs: keep_all
+  QDY:
+    shared_pvs: keep_all
+  QDZ:
+    shared_pvs: keep_all
+  QF:
+    shared_pvs: keep_all
+  QFC:
+    shared_pvs: keep_all
+  QFX:
+    shared_pvs: keep_all
+  QFY:
+    shared_pvs: keep_all
+  QFZ:
+    shared_pvs: keep_all
+  SD:
+    shared_pvs: keep_all
+  SDM:
+    shared_pvs: keep_all
+  SF:
+    shared_pvs: keep_all
+  SFM:
+    shared_pvs: keep_all
+  SkewQuad:
+    shared_pvs: keep_all
+virtual_accelerator:
+  system: StorageRing
+  families:
+    BDM:
+      verdict: latch
+      reason: element BDM (BendLinearPass) takes no KickAngle
+    BEND:
+      verdict: couple
+      kind: energy
+      calibration: table
+      nominal_source: Setpoint
+    BLErr:
+      verdict: latch
+      reason: no lattice element
+    BLOpen:
+      verdict: latch
+      reason: no lattice element
+    BLSum:
+      verdict: latch
+      reason: no lattice element
+    BPLD:
+      verdict: latch
+      reason: no lattice element
+    BPMx:
+      verdict: couple
+      kind: monitor
+      element_field: x
+      calibration: linear
+      nominal_source: Monitor
+    BPMy:
+      verdict: couple
+      kind: monitor
+      element_field: y
+      calibration: linear
+      nominal_source: Monitor
+    BTSBPMx:
+      verdict: latch
+      reason: no lattice element
+    BTSBPMy:
+      verdict: latch
+      reason: no lattice element
+    CD:
+      verdict: latch
+      reason: element CD (BendLinearPass) takes no KickAngle
+    DCCT:
+      verdict: latch
+      reason: no lattice element
+    HCM:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[0]
+      calibration: linear
+      nominal_source: Setpoint
+    HCMCurrReference:
+      verdict: latch
+      reason: Index exceeds the number of array elements. Index must not exceed 1.
+    IonGauge:
+      verdict: latch
+      reason: no lattice element
+    IonPump:
+      verdict: latch
+      reason: no lattice element
+    KickerAmp:
+      verdict: latch
+      reason: injection elements not in the stored-beam model
+      slot:
+        kind: attype
+        question: ATType KickerAmp is not one the table knows; what does this family drive?
+        answer: latch
+    KickerDelay:
+      verdict: latch
+      reason: injection elements not in the stored-beam model
+      slot:
+        kind: attype
+        question: ATType Kicker is not one the table knows; what does this family drive?
+        answer: latch
+    LTBBPMx:
+      verdict: latch
+      reason: no lattice element
+    LTBBPMy:
+      verdict: latch
+      reason: no lattice element
+    MachineParameters:
+      verdict: latch
+      reason: Index exceeds array bounds.
+    Q9S:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QD:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QDX:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QDY:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QDZ:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QF:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QFC:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QFX:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QFY:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QFZ:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    RF:
+      verdict: couple
+      kind: rf
+      calibration: linear
+      nominal_source: Setpoint
+    SD:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SDM:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SF:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SFM:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    Septum:
+      verdict: latch
+      reason: injection elements not in the stored-beam model
+      slot:
+        kind: attype
+        question: ATType Septum is not one the table knows; what does this family drive?
+        answer: latch
+    ShuntCurrent:
+      verdict: latch
+      reason: no lattice element
+    ShuntRelay:
+      verdict: latch
+      reason: no lattice element
+    SkewQuad:
+      verdict: couple
+      kind: strength
+      element_field: PolynomA[1]
+      calibration: linear
+      nominal_source: Setpoint
+    TUNE:
+      verdict: latch
+      reason: The length of ValPhysics must match the number of devices
+    VCM:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[1]
+      calibration: linear
+      nominal_source: Setpoint
+    VCMCurrReference:
+      verdict: latch
+      reason: Index exceeds the number of array elements. Index must not exceed 1.

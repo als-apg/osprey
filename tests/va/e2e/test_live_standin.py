@@ -381,11 +381,10 @@ def _serving(prefix: str, *, bpm_errors: str | None):
         "-e",
         f"EPICS_CA_SERVER_PORT={port}",
         "-e",
-        "VA_LATTICE=builtin",
+        f"VA_LATTICE={e2e_conftest.DEMO_LATTICE_FILENAME}",
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
-        "-v",
-        f"{e2e_conftest.demo_data_dir()}:/data/simulation:ro",
+        *e2e_conftest.demo_data_run_args(),
         # The namespace, named: the IOC refuses to boot without one rather
         # than picking the framework's demo channels on its own. VA_LATTICE
         # is already asserted above, so only the manifest is added here.

@@ -113,11 +113,11 @@ echo "Using container runtime: ${RUNTIME}"
 # and the container, so none of them leaks regardless of which path runs or
 # where the script exits.
 STAGING_DIR=""
-DEMO_DATA_DIR=""
+DEMO_DATA_ROOT=""
 cleanup() {
     "${RUNTIME}" rm -f "${CONTAINER}" >/dev/null 2>&1 || true
     [[ -n "${STAGING_DIR}" ]] && rm -rf "${STAGING_DIR}"
-    [[ -n "${DEMO_DATA_DIR}" ]] && rm -rf "${DEMO_DATA_DIR}"
+    [[ -n "${DEMO_DATA_ROOT}" ]] && rm -rf "${DEMO_DATA_ROOT}"
     return 0
 }
 trap cleanup EXIT INT TERM
@@ -162,27 +162,23 @@ fi
 #
 # A DATA_DIR carrying its own channel_manifest.json is a built project, and it
 # is already in the layout the IOC reads: manifest and channel_limits.json
-# beside machine.json, which is exactly what `osprey build` stages. Mount it as
-# it stands and name the manifest relative to the mount, the same way the
-# project's own .env names it. VA_LATTICE then defaults to `none`, because the
-# only model this image could build is the framework's tutorial ring and that
-# ring is not this facility's physics; export VA_LATTICE to override.
+# beside machine.json under `simulation/`, and the tree's write bands at the
+# data root one level up, which is exactly what `osprey build` stages. Mount
+# that root as it stands and name the manifest relative to the served
+# directory, the same way the project's own .env names it.
 #
 # Otherwise this is the tutorial quick-start. The packaged preset tree is NOT
 # in that layout -- it carries no manifest at all (the framework's is package
-# data) and keeps channel_limits.json one level up, at the data root -- so the
-# same layout is assembled in a temp directory and that is what gets mounted.
-# Assembled rather than overlaid with extra bind mounts because a bind mount
-# INTO a read-only mount cannot create its own mountpoint (the runtime refuses
-# with EROFS), and mounting the tree read-write to make room would leave the
-# container able to write into the checkout.
+# data) -- so the same layout is assembled in a temp directory and that root is
+# what gets mounted. Assembled rather than overlaid with extra bind mounts
+# because a bind mount INTO a read-only mount cannot create its own mountpoint
+# (the runtime refuses with EROFS), and mounting the tree read-write to make
+# room would leave the container able to write into the checkout.
 VA_LATTICE_VALUE="${VA_LATTICE:-}"
 MOUNT_DIR="${DATA_DIR}"
 if [[ -f "${DATA_DIR}/channel_manifest.json" ]]; then
-    : "${VA_LATTICE_VALUE:=none}"
     echo "--- Serving this project's own manifest: ${DATA_DIR}/channel_manifest.json ---"
 else
-    : "${VA_LATTICE_VALUE:=builtin}"
     # Say what is about to happen, because this branch REINTERPRETS the argument.
     # A DATA_DIR with no manifest beside machine.json is not a built project, so
     # it is being treated as a plain simulation tree for the demo -- the channels
@@ -232,17 +228,75 @@ print(MANIFEST_OUTPUT)')"
         exit 1
     fi
 
-    DEMO_DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-demo-data.XXXXXX")"
-    echo "--- Assembling the demo data dir at ${DEMO_DATA_DIR} ---"
-    cp -R "${DATA_DIR}/." "${DEMO_DATA_DIR}/"
-    cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_DIR}/channel_manifest.json"
-    cp "${PRESET_LIMITS}" "${DEMO_DATA_DIR}/channel_limits.json"
-    MOUNT_DIR="${DEMO_DATA_DIR}"
+    # A data ROOT, not a flat directory: the served files go under
+    # `simulation/` and the write bands sit beside it at the root, because that
+    # is the layout a model is resolved against and the whole root is what gets
+    # mounted. The bands are copied to both places -- the IOC clamps setpoints
+    # from the served directory, the model reads its variable bounds from the
+    # root -- so the demo tree answers the same two questions a built one does.
+    DEMO_DATA_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-demo-data.XXXXXX")"
+    echo "--- Assembling the demo data root at ${DEMO_DATA_ROOT} ---"
+    mkdir -p "${DEMO_DATA_ROOT}/simulation"
+    cp -R "${DATA_DIR}/." "${DEMO_DATA_ROOT}/simulation/"
+    cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_ROOT}/simulation/channel_manifest.json"
+    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/simulation/channel_limits.json"
+    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/channel_limits.json"
+    MOUNT_DIR="${DEMO_DATA_ROOT}/simulation"
 fi
 CHANNELS_FILE_VALUE="channel_manifest.json"
+
+# The lattice to serve, read off the mounted tree the same way the build derives
+# it: the bindings file is what says a tree models the channels it names, and
+# the lattice beside it is what the model is built from. A tree carrying neither
+# serves `none` and the IOC boots without physics. An exported VA_LATTICE wins
+# over both, and its only two useful values are `none`, to serve a tree's
+# channels without a model, and the name the tree's own deck already carries.
+# It cannot select a differently named deck: the entrypoint refuses any name
+# but the one the bindings were derived against, because serving one ring
+# while modelling another is invisible on the wire.
+BINDINGS_FILE_VALUE="va_bindings.json"
+LATTICE_FILE_VALUE="lattice.json"
+if [[ -z "${VA_LATTICE_VALUE}" ]]; then
+    if [[ -f "${MOUNT_DIR}/${BINDINGS_FILE_VALUE}" ]]; then
+        VA_LATTICE_VALUE="${LATTICE_FILE_VALUE}"
+    else
+        VA_LATTICE_VALUE="none"
+    fi
+fi
+
 echo "--- Channel manifest: ${MOUNT_DIR}/${CHANNELS_FILE_VALUE} (VA_LATTICE=${VA_LATTICE_VALUE}) ---"
 
+# The container is handed the data ROOT and finds the served directory inside
+# it. A model is resolved against the whole tree -- the lattice and the
+# bindings under the served directory, the write bands its variables are built
+# from at the root -- so mounting the served directory alone carries no bands
+# and refuses a lattice-backed boot. VA_DATA_DIR is named from the directory's
+# own basename rather than assumed to be `simulation`, so the layout named on
+# the command line is passed through instead of one being assumed. That is not
+# licence to rename the served directory: the entrypoint resolves the model
+# through ManifestPaths(data_root=<the mounted root>), which anchors the
+# lattice at <root>/simulation, so a lattice-backed boot still requires the
+# basename to be `simulation`.
+MOUNT_ROOT="$(cd "${MOUNT_DIR}/.." && pwd)"
+CONTAINER_DATA_DIR="/data/$(basename "${MOUNT_DIR}")"
+
+# A lattice is built from the tree's write bands, and those sit at the data
+# root rather than beside the served files. The root is one level up from the
+# directory named on the command line, so a served directory sitting anywhere
+# else is a tree whose bands the wider mount does not carry: refused here,
+# where the path can be named, rather than inside the container with the mount
+# already made.
+if [[ "${VA_LATTICE_VALUE}" != "none" && ! -f "${MOUNT_ROOT}/channel_limits.json" ]]; then
+    echo "FATAL: serving ${VA_LATTICE_VALUE} needs the tree's write bands, and" >&2
+    echo "       ${MOUNT_ROOT}/channel_limits.json does not exist." >&2
+    echo "       ${MOUNT_ROOT} is the data root that would be mounted, being the" >&2
+    echo "       parent of ${MOUNT_DIR}. Name a served directory that sits inside a" >&2
+    echo "       built data root, or export VA_LATTICE=none to boot without a model." >&2
+    exit 1
+fi
+
 echo "--- Serving CA on localhost:${CA_PORT} (name-server mode); data dir: ${MOUNT_DIR} ---"
+echo "--- Data root mounted read-only at /data: ${MOUNT_ROOT} ---"
 echo "--- On the host, connect with: ---"
 echo "    export EPICS_CA_NAME_SERVERS=localhost:${CA_PORT}"
 echo "    export EPICS_CA_AUTO_ADDR_LIST=NO"
@@ -253,15 +307,16 @@ echo "--- Ctrl-C stops the container. ---"
 # to one port and published on another hands clients an unreachable address
 # with no useful error. (The image derives EPICS_CAS_SERVER_PORT from this.)
 # Both source variables are passed, never left to the IOC: it has no default
-# namespace at all, and its lattice default is `none`. The packaged manifest
-# and the tutorial ring are the two halves of one machine, so the quick-start
-# asks for both together.
+# namespace at all, and its lattice default is `none`. A manifest and the
+# lattice its channels drive are the two halves of one machine, so this names
+# both together.
 "${RUNTIME}" run --rm --name "${CONTAINER}" \
     --platform linux/amd64 \
     -e "EPICS_CA_SERVER_PORT=${CA_PORT}" \
     -e "VA_CHANNELS_FILE=${CHANNELS_FILE_VALUE}" \
     -e "VA_LATTICE=${VA_LATTICE_VALUE}" \
+    -e "VA_DATA_DIR=${CONTAINER_DATA_DIR}" \
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
-    -v "${MOUNT_DIR}:/data/simulation:ro" \
+    -v "${MOUNT_ROOT}:/data:ro" \
     ${STATE_MOUNT[@]+"${STATE_MOUNT[@]}"} \
     "${IMAGE}"

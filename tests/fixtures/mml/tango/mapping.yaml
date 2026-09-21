@@ -1,0 +1,112 @@
+facility:
+  token: Quokka
+  title: Quokka
+  description: The invented Quokka light source used by the synthetic MML fixtures.
+  provenance: stated
+systems:
+  RING:
+    name: RING
+    description: Quokka storage ring, exported through a Tango-style name table.
+    provenance: stated
+section_order:
+- RING
+families:
+  BEND:
+    aliases:
+    - BEND
+    description: Ring bending dipoles; no channels exported.
+    provenance: stated
+    channels: 0
+    fields: {}
+  BPM:
+    class: BeamPositionMonitor
+    aliases:
+    - BPM
+    description: Beam position monitors
+    provenance: stated
+    channels: 4
+    fields:
+      X:
+        description: 'Field X: 2 channels via TangoNames, hardware units mm.'
+        provenance: stated
+      Y:
+        description: 'Field Y: 2 channels via TangoNames.'
+        provenance: stated
+  DCCT:
+    class: BeamCurrentMonitor
+    aliases:
+    - DCCT
+    description: Stored beam current monitor.
+    provenance: stated
+    channels: 1
+    fields:
+      Monitor:
+        description: 'Field Monitor: 1 channel via TangoNames, hardware units mA.'
+        provenance: stated
+  HCM:
+    class: HCorrector
+    aliases:
+    - HCM
+    description: Horizontal orbit corrector magnets.
+    provenance: stated
+    channels: 6
+    fields:
+      Monitor:
+        description: 'Field Monitor: 3 channels via TangoNames.'
+        provenance: stated
+      Setpoint:
+        description: 'Field Setpoint: 3 channels via TangoNames, hardware units Amps.'
+        provenance: stated
+  SF:
+    class: Sextupole
+    aliases:
+    - SF
+    description: Focusing sextupoles on one shared supply.
+    provenance: stated
+    channels: 4
+    fields:
+      Setpoint:
+        description: 'Field Setpoint: 4 channels via TangoNames, one channel broadcast to
+          every device, hardware units Amps.'
+        provenance: stated
+  VCM:
+    branch: Corrector
+    class: QuokkaVCorrector
+    aliases:
+    - VCM
+    description: Vertical orbit corrector magnets.
+    provenance: stated
+    channels: 2
+    fields:
+      Setpoint:
+        description: 'Field Setpoint: 2 channels via TangoNames, hardware units Amps.'
+        provenance: stated
+directions:
+  BPM.X:
+    direction: read
+    provenance: stated
+    override: false
+  BPM.Y:
+    direction: read
+    provenance: stated
+    override: false
+  DCCT.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  VCM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false

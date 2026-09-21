@@ -26,6 +26,11 @@ The two sources agree on the shipped demo data (the 396 writable channels are
 exactly the ``:SP`` set); the group-constant check turns that agreement into an
 asserted invariant instead of an unstated assumption.
 
+A corpus built from a MatlabMiddleLayer export takes its directions from the
+export's ``MemberOf`` tags and the facility's mapping file instead; this module
+does not compute those, but :class:`DirectionSource` names that derivation too
+so every corpus records where its edges came from.
+
 This module is standard-library plus in-repo imports only: no ``rdflib``, no
 ``neo4j``, and no I/O beyond reading the limits JSON.
 """
@@ -70,6 +75,10 @@ class DirectionSource(StrEnum):
 
     #: Derived from the PV grammar because no limits file was available.
     GRAMMAR = "grammar"
+
+    #: Derived from a MatlabMiddleLayer export's ``MemberOf`` tags and the
+    #: facility's mapping file, rather than by this module.
+    MAPPING = "mapping"
 
 
 @dataclass(frozen=True)
@@ -236,7 +245,7 @@ def assign_directions(
             :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator.writable_addresses`).
     """
     if limits_path is None:
-        directions = {
+        directions: dict[tuple[str, str, str], str] = {
             group.key: (DIRECTION_WRITE if group.subfield == WRITE_SUBFIELD else DIRECTION_READ)
             for group in model.signal_groups
         }
@@ -264,7 +273,7 @@ def assign_directions(
 
     path = Path(limits_path)
     writable = LimitsValidator.writable_addresses(path)
-    directions: dict[tuple[str, str, str], str] = {}
+    directions = {}
     for group in model.signal_groups:
         by_direction: dict[str, list[str]] = {}
         for address in group.members:

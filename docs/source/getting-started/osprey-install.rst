@@ -98,9 +98,17 @@ checklist: every optional feature of the full reference example, recommended on
 whenever your facility has the source it consumes. A logbook means the ARIEL logbook
 search is recommended on, with your logbook ingested. Documentation, an IOC database or
 a channel list mean the knowledge bundle, the facility graph and the graph channel
-finder are recommended on, seeded from those sources when you say so. Each adopted
-feature enters the profile through the same fixed sequence, and every file that lands
-gets a row in a provenance ledger.
+finder are recommended on, seeded from those sources when you say so. A MATLAB Middle
+Layer export is the one source that carries all of them at once: the installer reads it
+in with ``osprey mml``, has you review what each device family means, and emits the
+channel database, the knowledge pages and the facility graph from that one review
+(:doc:`/how-to/use-channel-finder`). An export that also carries its simulator model
+gives you a virtual accelerator besides: the same review says which families the model
+drives, and the deployment can serve your own channel names against your own ring
+before it is ever pointed at the machine
+(:doc:`/how-to/control-systems/use-virtual-accelerator`). Each adopted feature enters
+the profile through the same fixed sequence, and every file that lands gets a row in a
+provenance ledger.
 
 **CLOSE** checks the ledger against the file tree and blocks until every path names your
 facility, a skeleton, or a reason; then a second agent argues against the setup; then a

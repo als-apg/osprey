@@ -11,11 +11,16 @@
 #
 # The channel namespace is named, never inferred: the IOC has no default one
 # and refuses to boot without VA_CHANNELS_FILE. So for the default run the gate
-# assembles the demo data directory itself -- the preset's simulation tree plus
-# the packaged channel manifest and the preset's channel_limits.json, the
-# layout `osprey build` stages for a project -- and boots against that with the
-# tutorial lattice. Those three are the machine every assertion below is
-# written against.
+# assembles the demo data root itself -- the preset's simulation tree plus the
+# packaged channel manifest and the preset's channel_limits.json, the layout
+# `osprey build` stages for a project -- and boots against that. Those three
+# are the machine every assertion below is written against.
+#
+# The lattice is derived from that tree rather than named: a tree staging the
+# bindings that tie its channels to a ring serves that ring by name, and a tree
+# staging none serves no lattice. The physics assertions (steps 2, 3, 5, 6, 7)
+# therefore hold only for a tree that carries a model; against a latticeless
+# one the gate certifies the serving chain and not the physics behind it.
 #
 # Before asserting anything, the gate proves it is measuring its OWN container:
 # every Channel Access step below runs from the host, and a host client is
@@ -134,17 +139,6 @@ EXCITE_VALUE="0.5"
 # at both BPMs, so this sits ~100x below the signal and far above float noise.
 MOVED_THRESHOLD_M="1e-8"
 
-# The model-only fault step 5 writes over the model RPC, and it must be the
-# one belonging to ${GATE_PV}'s device -- the fault perturbs that BPM's
-# reading and nothing else, and the step measures it there. Dot grammar, so
-# the name can never parse as a channel address: the model surface refuses a
-# write to a served address on principle, and this is what a write it accepts
-# looks like. 5e-4 m sits well inside the +/-1e-2 m the offset takes and some
-# 500x above the orbit step 3's excitation produces, so the shift it puts on
-# the reading cannot be confused with the movement step 3 measures.
-MODEL_FAULT_VAR="BPM01.offset_x"
-MODEL_FAULT_OFFSET="5e-4"
-
 # ${EXCITE_PV}'s drive band is [-12, 12] (channel_limits.json). A put past the
 # top of it must land clamped at the limit rather than being refused or taken
 # literally.
@@ -191,11 +185,11 @@ echo "Using container runtime: ${RUNTIME}"
 VENV_PY="${WORKTREE_ROOT}/.venv/bin/python"
 
 STAGING_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-full-build.XXXXXX")"
-DEMO_DATA_DIR=""
+DEMO_DATA_ROOT=""
 cleanup() {
     "${RUNTIME}" rm -f "${CONTAINER}" >/dev/null 2>&1 || true
     rm -rf "${STAGING_DIR}"
-    [[ -n "${DEMO_DATA_DIR}" ]] && rm -rf "${DEMO_DATA_DIR}"
+    [[ -n "${DEMO_DATA_ROOT}" ]] && rm -rf "${DEMO_DATA_ROOT}"
     return 0
 }
 trap cleanup EXIT
@@ -235,24 +229,21 @@ echo "--- Building ${IMAGE} (linux/amd64) ---"
 #
 # A DATA_DIR carrying its own channel_manifest.json is a built project, already
 # in the layout the IOC reads -- manifest and channel_limits.json beside
-# machine.json, which is what `osprey build` stages. Mount it as it stands.
+# machine.json under the served directory, the tree's write bands at the data
+# root one level up, which is what `osprey build` stages. Mount that root as it
+# stands.
 #
 # Otherwise this is the default run, and the answer is the packaged demo
-# manifest plus the tutorial lattice and the preset's drive limits: the machine
-# every assertion below is written against. The packaged preset tree is not in
-# that layout -- no manifest at all (the framework's is package data), and
-# channel_limits.json one level up at the data root -- so the layout is
-# assembled in a temp directory and that is what gets mounted. Assembled rather
-# than overlaid with extra bind mounts because a bind mount INTO a read-only
-# mount cannot create its own mountpoint (the runtime refuses with EROFS), and
-# mounting the tree read-write to make room would leave the container able to
-# write into the checkout.
+# manifest and the preset's drive limits: the machine every assertion below is
+# written against. The packaged preset tree carries no manifest at all (the
+# framework's is package data), so the layout is assembled in a temp directory
+# and that root is what gets mounted. Assembled rather than overlaid with extra
+# bind mounts because a bind mount INTO a read-only mount cannot create its own
+# mountpoint (the runtime refuses with EROFS), and mounting the tree read-write
+# to make room would leave the container able to write into the checkout.
 VA_LATTICE_VALUE="${VA_LATTICE:-}"
 MOUNT_DIR="${DATA_DIR}"
-if [[ -f "${DATA_DIR}/channel_manifest.json" ]]; then
-    : "${VA_LATTICE_VALUE:=none}"
-else
-    : "${VA_LATTICE_VALUE:=builtin}"
+if [[ ! -f "${DATA_DIR}/channel_manifest.json" ]]; then
     # Say what is about to happen, because this branch REINTERPRETS the argument:
     # a DATA_DIR with no manifest beside machine.json is not a built project, so
     # it is being certified as a demo data tree and the channels under test will
@@ -297,14 +288,48 @@ print(MANIFEST_OUTPUT)')"
         exit 1
     fi
 
-    DEMO_DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-demo-data.XXXXXX")"
-    echo "--- Assembling the demo data dir at ${DEMO_DATA_DIR} ---"
-    cp -R "${DATA_DIR}/." "${DEMO_DATA_DIR}/"
-    cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_DIR}/channel_manifest.json"
-    cp "${PRESET_LIMITS}" "${DEMO_DATA_DIR}/channel_limits.json"
-    MOUNT_DIR="${DEMO_DATA_DIR}"
+    # A data ROOT, not a flat directory: the served files go under
+    # `simulation/` and the write bands sit beside it at the root, because that
+    # is the layout a model is resolved against and the whole root is what gets
+    # mounted. The bands are copied to both places -- the IOC clamps setpoints
+    # from the served directory, a model reads its variable bounds from the
+    # root -- so the demo tree answers the same two questions a built one does.
+    DEMO_DATA_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/osprey-va-demo-data.XXXXXX")"
+    echo "--- Assembling the demo data root at ${DEMO_DATA_ROOT} ---"
+    mkdir -p "${DEMO_DATA_ROOT}/simulation"
+    cp -R "${DATA_DIR}/." "${DEMO_DATA_ROOT}/simulation/"
+    cp "${PACKAGED_MANIFEST}" "${DEMO_DATA_ROOT}/simulation/channel_manifest.json"
+    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/simulation/channel_limits.json"
+    cp "${PRESET_LIMITS}" "${DEMO_DATA_ROOT}/channel_limits.json"
+    MOUNT_DIR="${DEMO_DATA_ROOT}/simulation"
 fi
 CHANNELS_FILE_VALUE="channel_manifest.json"
+
+# The lattice to certify, read off the mounted tree the same way the build
+# derives it: the bindings file is what says a tree models the channels it
+# names, and the lattice beside it is what the model is built from. A tree
+# carrying neither serves `none` and the IOC boots without physics. An exported
+# VA_LATTICE wins over both, for a tree that keeps its lattice under another
+# name.
+BINDINGS_FILE_VALUE="va_bindings.json"
+LATTICE_FILE_VALUE="lattice.json"
+if [[ -z "${VA_LATTICE_VALUE}" ]]; then
+    if [[ -f "${MOUNT_DIR}/${BINDINGS_FILE_VALUE}" ]]; then
+        VA_LATTICE_VALUE="${LATTICE_FILE_VALUE}"
+    else
+        VA_LATTICE_VALUE="none"
+    fi
+fi
+
+# The container is handed the data ROOT and finds the served directory inside
+# it. A model is resolved against the whole tree -- the lattice and the
+# bindings under the served directory, the write bands its variables are built
+# from at the root -- so mounting the served directory alone carries no bands
+# and refuses a lattice-backed boot. VA_DATA_DIR is named from the directory's
+# own basename rather than assumed to be `simulation`, so a tree that keeps its
+# served files under another name still resolves.
+MOUNT_ROOT="$(cd "${MOUNT_DIR}/.." && pwd)"
+CONTAINER_DATA_DIR="/data/$(basename "${MOUNT_DIR}")"
 
 # The credential the model RPC checks before a write, minted per run. It is a
 # secret only in the sense that matters here: nothing but this container is
@@ -324,10 +349,11 @@ echo "--- Starting ${CONTAINER} (data dir: ${MOUNT_DIR}; manifest: ${CHANNELS_FI
     -e "EPICS_PVAS_SERVER_PORT=${PVA_PORT}" \
     -e "VA_CHANNELS_FILE=${CHANNELS_FILE_VALUE}" \
     -e "VA_LATTICE=${VA_LATTICE_VALUE}" \
+    -e "VA_DATA_DIR=${CONTAINER_DATA_DIR}" \
     -e "VA_MODEL_WRITE_TOKEN=${MODEL_WRITE_TOKEN}" \
     -p "127.0.0.1:${CA_PORT}:${CA_PORT}/tcp" \
     -p "127.0.0.1:${PVA_PORT}:${PVA_PORT}/tcp" \
-    -v "${MOUNT_DIR}:/data/simulation:ro" \
+    -v "${MOUNT_ROOT}:/data:ro" \
     "${IMAGE}" >/dev/null
 
 # What the container calls itself, which is the host half of the endpoint
@@ -731,15 +757,23 @@ echo "--- [5/8] The model RPC from the host: status, a refused write, an accepte
 #     exactly the offset after it, so neither half can be satisfied by a
 #     divergence that was already there.
 #
+# The fault to write is not named here. The mounted tree's own bindings
+# document says which element ${GATE_PV} reads at, and the model declares that
+# element's readout faults under it -- so the gate measures the write on the
+# one reading it perturbs, on whatever tree it was pointed at. A tree with no
+# bindings carries no faults, and the write half says so and is skipped.
+#
 # The offset is written back to zero at the end, because steps 6 and 7 measure
 # the same reading and are entitled to an unfaulted one.
-host_py "${PVA_PORT}" "${MODEL_WRITE_TOKEN}" "${MODEL_FAULT_VAR}" "${MODEL_FAULT_OFFSET}" \
-    "${GATE_PV}" "${VA_LATTICE_VALUE}" "${CONTAINER_HOSTNAME}" \
+host_py "${PVA_PORT}" "${MODEL_WRITE_TOKEN}" "${GATE_PV}" "${VA_LATTICE_VALUE}" \
+    "${CONTAINER_HOSTNAME}" "${MOUNT_DIR}/${BINDINGS_FILE_VALUE}" \
     <<'PY' || ca_fail "the model RPC round from the host failed"
 import sys
+from pathlib import Path
 
 from p4p.client.thread import Context
 
+from osprey.services.virtual_accelerator.bindings import load_bindings
 from osprey.services.virtual_accelerator.serving.model_rpc import (
     RPC_PV,
     RPC_TIMEOUT_S,
@@ -749,17 +783,20 @@ from osprey.services.virtual_accelerator.serving.model_rpc import (
 )
 from osprey.services.virtual_accelerator.serving.model_surface import WRITES_DISABLED
 
-port, token, fault = sys.argv[1], sys.argv[2], sys.argv[3]
-offset = float(sys.argv[4])
-gate_pv, lattice_source, hostname = sys.argv[5], sys.argv[6], sys.argv[7]
+port, token, gate_pv = sys.argv[1], sys.argv[2], sys.argv[3]
+lattice_source, hostname, bindings_path = sys.argv[4], sys.argv[5], Path(sys.argv[6])
 
 # The refusal a write with no token must meet. Spelled out rather than
 # imported because it is the wire text a client is shown, and this gate is one
 # of the clients: the point is that the sentence itself has not changed.
 NO_TOKEN = "model write refused: no write token was presented"
-# Well below the offset written (5e-4 m) and the orbit measured (order 1e-6 m),
-# and well above float noise on either.
+# Well below the offset written and the orbit measured, and well above float
+# noise on either.
 TOL = 1e-9
+# The smallest displacement to write when the served readings sit too close to
+# the axis to scale one from. Six orders of magnitude above TOL, in whatever
+# unit this tree publishes its monitors in.
+OFFSET_FLOOR = 1e-3
 
 ctx = Context("pva")
 
@@ -772,12 +809,19 @@ def call(verb, **kwargs):
 status = call("status")
 print(f"  status      : backend={status['backend']} lattice_source={status['lattice_source']}")
 print(f"                endpoint={status['endpoint']} queue_depth={status['queue_depth']!r}")
-if status["lattice_source"] != lattice_source:
+served_lattice = str(status["lattice_source"])
+if lattice_source == "none":
+    if served_lattice != "none":
+        raise SystemExit(
+            f"FATAL: status reports lattice_source={served_lattice!r} on a boot this gate "
+            "started with VA_LATTICE=none"
+        )
+elif not served_lattice.endswith(lattice_source):
     raise SystemExit(
-        f"FATAL: status reports lattice_source={status['lattice_source']!r}, but this gate "
-        f"booted the container with VA_LATTICE={lattice_source!r}"
+        f"FATAL: status reports lattice_source={served_lattice!r}, but this gate booted the "
+        f"container with VA_LATTICE={lattice_source!r}"
     )
-if lattice_source == "builtin" and status["backend"] != "PyATRingModel":
+elif status["backend"] != "PyATRingModel":
     raise SystemExit(
         f"FATAL: status reports backend={status['backend']!r} on a lattice-backed boot; the "
         "ring model is what produces every reading the steps around this one assert on"
@@ -799,6 +843,34 @@ elif endpoint_host != hostname:
         "is the hostname of the container this gate started"
     )
 
+if not bindings_path.is_file():
+    print(f"  note        : {bindings_path} carries no bindings, so the tree declares no faults")
+    print("OK: the model RPC answered the host; the tree carries no model fault to write")
+    raise SystemExit(0)
+
+# Which element ${GATE_PV} reads at, from the same document the server read.
+document = load_bindings(bindings_path)
+element = next(
+    (
+        binding.element
+        for binding in document.bindings
+        if binding.kind == "monitor" and binding.setpoint_address == gate_pv
+    ),
+    None,
+)
+if element is None:
+    raise SystemExit(
+        f"FATAL: {bindings_path} publishes no monitor reading on {gate_pv}, which is the "
+        "address every physics step of this gate measures"
+    )
+fault = f"{element}.offset_x"
+declared = {entry["name"] for entry in call("info")["variables"]}
+if fault not in declared:
+    raise SystemExit(
+        f"FATAL: the model declares no {fault!r}; the document reads {gate_pv} at element "
+        f"{element!r}, so that is the fault this step measures the write on"
+    )
+
 before = call("diff")
 if gate_pv not in before:
     raise SystemExit(
@@ -809,9 +881,16 @@ gap_before = float(before[gate_pv]["served"]) - float(before[gate_pv]["truth"])
 print(f"  diff before : {gate_pv} served - truth = {gap_before:.3g}")
 if abs(gap_before) > TOL:
     raise SystemExit(
-        f"FATAL: {gate_pv} already reads {gap_before:.3g} m away from the model's truth before "
+        f"FATAL: {gate_pv} already reads {gap_before:.3g} away from the model's truth before "
         "anything was written, so a disagreement after the write would prove nothing"
     )
+
+# A seeded displacement carries no declared bound -- it is whatever magnitude
+# was asked for, in whatever unit this facility publishes its monitors in -- so
+# the size to write is derived from what the deployment actually serves: ten
+# times the largest reading on the machine, floored well above float noise.
+scale = max(abs(float(entry["truth"])) for entry in before.values())
+offset = max(10.0 * scale, OFFSET_FLOOR)
 
 held_before = float(call("get", names=[fault])[fault])
 try:
@@ -846,8 +925,8 @@ gap_after = served - truth
 print(f"  diff after  : {gate_pv} served={served:.6g} truth={truth:.6g} (gap {gap_after:.6g})")
 if abs(gap_after + offset) > TOL:
     raise SystemExit(
-        f"FATAL: {fault} was written to {offset:g} m, so the served reading should sit that "
-        f"far below the model's truth; the two are {gap_after:.6g} m apart instead"
+        f"FATAL: {fault} was written to {offset:g}, so the served reading should sit that far "
+        f"below the model's truth; the two are {gap_after:.6g} apart instead"
     )
 
 restored = call("set", values={fault: 0.0}, token=token)
@@ -856,7 +935,7 @@ gap_restored = float(back[gate_pv]["served"]) - float(back[gate_pv]["truth"])
 if restored != [fault] or abs(gap_restored) > TOL:
     raise SystemExit(
         f"FATAL: {fault} did not go back to 0 ({restored!r}): {gate_pv} still reads "
-        f"{gap_restored:.3g} m away from the truth, and the steps below measure that reading"
+        f"{gap_restored:.3g} away from the truth, and the steps below measure that reading"
     )
 print(f"  restored    : {fault} back to 0, served and truth agree again")
 print("OK: the model RPC answered the host, refused the token-less write and took the other")

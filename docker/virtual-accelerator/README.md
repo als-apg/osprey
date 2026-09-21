@@ -40,11 +40,16 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
 
 ## Run contract
 
-- **Bind-mount `data/simulation/`** to `/data/simulation` in the container
-  (`VA_DATA_DIR` env var overrides the mount point). This is the build-owned
-  simulation model — `machine.json` and its `scenarios/` bundles — re-rendered
-  from the project's profile on every build. Read-only; the IOC never writes
-  it.
+- **Bind-mount the data root `data/`** to `/data` in the container, so the
+  served directory lands at `/data/simulation` (`VA_DATA_DIR` env var overrides
+  which directory that is). This is the build-owned simulation model —
+  `machine.json`, its `scenarios/` bundles, and the lattice and bindings when
+  the tree carries them — re-rendered from the project's profile on every
+  build. The whole root is mounted rather than the served directory alone
+  because a lattice-backed boot also reads the tree's write bands from
+  `channel_limits.json` at the root, one level above what it serves; without
+  them the model has no bounds to build its variables from and the boot
+  refuses by name. Read-only; the IOC never writes it.
 - **Set `VA_CHANNELS_FILE`** to the channel manifest to serve. **Required** —
   the IOC has no default channel namespace and refuses to start without one,
   because the only namespace it could pick unasked is the framework's own
@@ -59,13 +64,15 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
   manifest explicitly — it ships as package data inside the image, at the path
   `osprey.services.virtual_accelerator.manifest.paths.MANIFEST_OUTPUT`
   resolves to, and the startup refusal prints that path for you.
-- **`VA_LATTICE`** selects `builtin` or `none` — whether the PyAT model behind
-  the pyat-coupled channels is constructed. **Defaults to `none`**: a manifest
-  names a facility's channels and says nothing about whether this image holds
-  physics for them, and the only model it could build unasked is the same
-  tutorial ring. `osprey build` derives the value from the generated manifest's
-  own partition census and writes it beside `VA_CHANNELS_FILE`. The demo needs
-  `builtin` — that plus the packaged manifest is the tutorial machine.
+- **`VA_LATTICE`** names the lattice file to serve, relative to the data dir,
+  or `none`. **Defaults to `none`**: a manifest names a facility's channels and
+  says nothing about whether the mounted tree holds a model for them, so a
+  deployment that wants one asks for it by name. The name is looked up in the
+  served tree verbatim, case included, and a name the tree does not carry
+  refuses the boot rather than degrading to no physics. `osprey build` derives
+  the value from the tree it publishes — a tree staging the bindings that tie
+  its channels to a ring serves that ring, one staging none serves nothing —
+  and writes it beside `VA_CHANNELS_FILE`.
 - **Bind-mount the repo's `var/agent_data/simulation/`** to `/state/simulation`
   and point `VA_STATE_DIR` at it. It holds `active_scenarios`, which
   `osprey sim apply NAME` rewrites on the host while the system runs — hence a

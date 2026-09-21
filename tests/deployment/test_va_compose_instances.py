@@ -35,6 +35,7 @@ it on the host and receives the model write token.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -412,9 +413,9 @@ def test_va_compose_standin_perturbation_default_is_empty_until_supplied() -> No
 # Which default the generator renders, and which interpolation operator carries
 # it. Two claims, and they only make one contract together:
 #
-# * the DEFAULT is lattice-conditional — the shipped offsets displace the
-#   builtin PyAT model, so a deployment that resolves VA_LATTICE elsewhere gets
-#   the EMPTY set and a stand-in serving its facility manifest unperturbed;
+# * the DEFAULT is lattice-conditional — the shipped offsets displace a served
+#   lattice's model, so a deployment that resolves VA_LATTICE to none gets
+#   the EMPTY set and a stand-in serving its manifest unperturbed;
 # * the OPERATOR is `-`, not `:-` — so a deployment that explicitly asks for an
 #   empty perturbation is not rounded back up to whatever the default is.
 #
@@ -430,11 +431,24 @@ def _project_root(tmp_path: Path, *, env: str | None = None, build_env: str | No
     Two writable rungs, because the resolver reads both and the render zone wins
     on a key both name: the repo's own ``.env``, and the published ``build/``
     tree the containers are actually handed.
+
+    That published tree describes a machine, and the machine states the
+    perturbation its stand-in carries -- the deployment's own answer, which is
+    the only place the render takes one from.
     """
+    from osprey.services.virtual_accelerator.manifest.standin_defaults import (
+        STANDIN_BPM_ERRORS_DEFAULT,
+    )
+
     if env is not None:
         (tmp_path / ".env").write_text(env, encoding="utf-8")
+    simulation = tmp_path / "build" / "data" / "simulation"
+    simulation.mkdir(parents=True, exist_ok=True)
+    (simulation / "machine.json").write_text(
+        json.dumps({"standin_bpm_errors": STANDIN_BPM_ERRORS_DEFAULT, "channels": {}}),
+        encoding="utf-8",
+    )
     if build_env is not None:
-        (tmp_path / "build").mkdir(exist_ok=True)
         (tmp_path / "build" / ".env").write_text(build_env, encoding="utf-8")
     return tmp_path
 
@@ -449,13 +463,13 @@ def _rendered_default(project_root: Path) -> str:
     return str(context["standin_bpm_errors_default"])
 
 
-def test_va_compose_standin_default_is_the_shipped_perturbation_on_the_builtin_lattice(
+def test_va_compose_standin_default_is_the_shipped_perturbation_on_a_served_lattice(
     tmp_path: Path,
 ) -> None:
-    """An unpinned chain is the builtin lattice, which is what the offsets need.
+    """A chain naming a lattice file is a model for the offsets to displace.
 
-    The shipped default is only correct where there is a PyAT model to displace,
-    and this is that case: the value reaches the template whole, and the render
+    The shipped default is only correct where there is a model to displace, and
+    this is that case: the value reaches the template whole, and the render
     hands the container the faults that make the stand-in tell apart from the
     machine beside it.
     """
@@ -463,7 +477,7 @@ def test_va_compose_standin_default_is_the_shipped_perturbation_on_the_builtin_l
         STANDIN_BPM_ERRORS_DEFAULT,
     )
 
-    default = _rendered_default(_project_root(tmp_path))
+    default = _rendered_default(_project_root(tmp_path, env="VA_LATTICE=lattice.json\n"))
 
     assert default == STANDIN_BPM_ERRORS_DEFAULT
     rendered = _render_text(
@@ -476,15 +490,18 @@ def test_va_compose_standin_default_is_the_shipped_perturbation_on_the_builtin_l
     assert f'VA_BPM_ERRORS: "${{VA_STANDIN_BPM_ERRORS-{STANDIN_BPM_ERRORS_DEFAULT}}}"' in rendered
 
 
-def test_va_compose_standin_default_is_empty_on_a_non_builtin_lattice(tmp_path: Path) -> None:
-    """``VA_LATTICE=none`` renders the empty set rather than refusing the build.
+@pytest.mark.parametrize("env", [None, "VA_LATTICE=none\n"])
+def test_va_compose_standin_default_is_empty_without_a_served_lattice(
+    tmp_path: Path, env: str | None
+) -> None:
+    """No lattice renders the empty set rather than refusing the build.
 
-    A facility that pins its own lattice — ``none``, or a channel manifest — has
-    no model for the shipped offsets to displace. The honest render is the
-    stand-in serving that manifest unperturbed, so the default it carries is
-    empty and the container receives an empty fault set.
+    A deployment serving no lattice — pinned ``none``, or a chain no build has
+    written the key into — has no model for the shipped offsets to displace. The
+    honest render is the stand-in serving its manifest unperturbed, so the
+    default it carries is empty and the container receives an empty fault set.
     """
-    default = _rendered_default(_project_root(tmp_path, env="VA_LATTICE=none\n"))
+    default = _rendered_default(_project_root(tmp_path, env=env))
 
     assert default == ""
     rendered = _render_text(
@@ -505,7 +522,9 @@ def test_va_compose_standin_default_reads_the_render_zones_pin_too(tmp_path: Pat
     would render the shipped faults for a deployment whose delivered chain says
     there is nothing to apply them to.
     """
-    project = _project_root(tmp_path, env="VA_LATTICE=builtin\n", build_env="VA_LATTICE=none\n")
+    project = _project_root(
+        tmp_path, env="VA_LATTICE=lattice.json\n", build_env="VA_LATTICE=none\n"
+    )
 
     assert _rendered_default(project) == ""
 
@@ -548,7 +567,7 @@ def test_va_compose_instances_share_the_scenario_mounts(
     standin = two_instances["services"]["live-standin"]["volumes"]
     assert baseline == standin
     assert standin == [
-        "./build/data/simulation:/data/simulation:ro",
+        "./build/data:/data:ro",
         f"{STATE_MOUNT_SOURCE}:/state/simulation:ro",
     ]
 

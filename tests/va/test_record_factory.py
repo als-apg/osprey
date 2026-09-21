@@ -68,7 +68,6 @@ os.environ.setdefault("EPICS_CAS_SERVER_PORT", os.environ["EPICS_CA_SERVER_PORT"
 os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
 
 from osprey.services.virtual_accelerator.entrypoint import (  # noqa: E402
-    _channel_limits_path,
     _load_drive_limits,
 )
 from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
@@ -78,6 +77,9 @@ from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     RECORD_TYPE_ANALOG,
     build_manifest,
     setpoint_addresses,
+)
+from osprey.services.virtual_accelerator.manifest.paths import (  # noqa: E402
+    PACKAGE_PATHS,
 )
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb  # noqa: E402
 from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E402
@@ -833,7 +835,7 @@ class TestDerivedDriveLimitsMatchChannelLimitsFile:
     """
 
     def test_derived_map_matches_writable_sp_entries_in_the_file(self) -> None:
-        raw = json.loads(_channel_limits_path().read_text())
+        raw = json.loads(PACKAGE_PATHS.channel_limits.read_text())
         defaults = raw.get("defaults", {})
         setpoints = setpoint_addresses(build_manifest()["channels"])
         expected: dict[str, tuple[float, float]] = {}
@@ -849,7 +851,7 @@ class TestDerivedDriveLimitsMatchChannelLimitsFile:
                 continue
             expected[address] = (float(min_value), float(max_value))
 
-        derived = _load_drive_limits(setpoints=setpoints)
+        derived = _load_drive_limits(PACKAGE_PATHS.channel_limits, setpoints=setpoints)
         assert derived == expected
         # Sanity count: pins today's writable-setpoint-with-bounds population so a
         # channel_limits.json edit that silently drops or adds entries is caught

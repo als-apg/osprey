@@ -162,6 +162,16 @@ whether a store exists. Useful for testing the wiring, not for anything else.
 Generating a Corpus
 ===================
 
+Two routes write a corpus, and both end at the same file and the same seeding
+command. A facility that runs a MATLAB Middle Layer gets one without a separate
+step: ``osprey mml emit`` writes ``data/<facility token>.ttl`` beside the
+middle-layer channel database, from the same reviewed mapping, so the graph and
+the database describe the same machine by construction. That route is the
+install flow in :doc:`/how-to/use-channel-finder`; point
+``services.graphdb.ttl_path`` at the file it names and skip to the
+``seed-graph`` step at the end of this section. Everyone else derives a corpus
+from the project's channel databases, which is the rest of it.
+
 ``osprey knowledge build-ttl`` derives a NARAD-convention Turtle corpus from a
 project's own channel databases, so the graph describes the same machine the
 channel finder does. Inside a rendered project:

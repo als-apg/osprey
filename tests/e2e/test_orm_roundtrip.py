@@ -43,9 +43,9 @@ No preset channel names are hardcoded: correctors and BPMs are selected from
 the deployment repo's own channel ROSTER -- the channel-finder database the
 build copies verbatim into the build zone, where the deployed containers read
 it -- via ``_orm_stack.roster_records`` +
-``_orm_stack.select_correctors``/``select_bpms`` (restricted to the
-pyat-coupled partition, exactly the class of device the ``orm`` plan and the
-model oracle both operate on). They reach the queueserver worker as the
+``_orm_stack.select_correctors``/``select_bpms`` (restricted to the channels
+the tree's own bindings document couples to the lattice, exactly the class of
+device the ``orm`` plan and the model oracle both operate on). They reach the queueserver worker as the
 device file this fixture authors before the build stages it, so the names a
 plan here may address are exactly the names the worker registered.
 
@@ -83,6 +83,9 @@ import pytest
 from osprey.deployment.compose_generator import resolve_project_name
 from osprey.services.bluesky_bridge.figure import rows_from_columnar
 from osprey.services.bluesky_bridge.orm_analysis import build_response_matrix
+from osprey.services.virtual_accelerator.manifest import build_manifest
+from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 from tests.e2e import _orm_stack, _queue_drive
 from tests.e2e._deploy_diagnostics import dead_container_logs, queue_stack_logs
 from tests.e2e._volumes import remove_project_volumes
@@ -292,7 +295,7 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
 
 
 # ---------------------------------------------------------------------------
-# Model oracle -- lattice/response.py's independent orbit_response, driven the
+# Model oracle -- a second, in-process model of the served tree, driven the
 # same way the deployed orm plan sweeps (mirrors build_response_matrix's own
 # degree-1-polyfit-over-the-sweep method, not a two-point finite difference,
 # so a mismatch can only mean the two code paths disagree -- never an
@@ -300,34 +303,48 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
 # ---------------------------------------------------------------------------
 
 
-def _corrector_famname(sp_address: str) -> str:
-    """e.g. "SR:MAG:HCM:05:CURRENT:SP" -> "HCM05" (matches PhysicsBridge's
-    on_setpoint / lattice/response.py's orbit_response FamName convention)."""
-    _ring, _system, family, device, _field, _subfield = sp_address.split(":")
-    return f"{family}{device}"
+def _oracle_model(repo: Path) -> PyATRingModel:
+    """A second, independent model of the ring the deployed stack is serving.
 
-
-def _bpm_famname_axis(address: str) -> tuple[str, int]:
-    """e.g. "SR:DIAG:BPM:07:POSITION:X" -> ("BPM07", 0); ":Y" -> axis 1
-    (matches orbit_response's (x, y) tuple order)."""
-    _ring, _system, family, device, _field, subfield = address.split(":")
-    return f"{family}{device}", {"X": 0, "Y": 1}[subfield]
+    Built here in-process from the deployment repo's OWN data tree -- the same
+    lattice and the same ``va_bindings.json`` the containers mount -- so the
+    oracle and the stack agree about which elements exist and what each address
+    does to them, while the two arrive at a response matrix by entirely
+    separate paths.
+    """
+    paths = ManifestPaths(repo / "data")
+    return PyATRingModel(paths.data_root, build_manifest(paths)["channels"])
 
 
 def _model_response_matrix(
+    repo: Path,
     correctors: dict[str, tuple[str, str]],
     bpms: dict[str, str],
     currents: list[float],
 ) -> np.ndarray:
-    from osprey.services.virtual_accelerator.lattice import orbit_response
+    """The response matrix the model predicts, in the units the stack measures.
 
+    Every value here is a hardware one -- amps commanded, metres published --
+    because that is what the deployed plan wrote and read, and the two matrices
+    are compared entry by entry. The model is driven through the same addresses
+    the plan drove, so the calibration each write and each reading passes
+    through is the binding's own on both sides.
+
+    Each corrector is returned to the working point it was found at before the
+    next one is swept, so the columns are independent of the order they are
+    measured in -- the same thing the deployed plan does around its own sweep.
+    """
+    model = _oracle_model(repo)
     matrix = np.zeros((len(bpms), len(correctors)))
     for j, (_corr_name, (sp, _rb)) in enumerate(correctors.items()):
-        fam = _corrector_famname(sp)
-        readings = [orbit_response(fam, current) for current in currents]
-        for i, (_bpm_name, addr) in enumerate(bpms.items()):
-            bpm_fam, axis = _bpm_famname_axis(addr)
-            values = [reading[bpm_fam][axis] for reading in readings]
+        held = float(model.get(sp))
+        readings: list[list[float]] = []
+        for current in currents:
+            model.set({sp: current})
+            readings.append([float(model.get(address)) for address in bpms.values()])
+        model.set({sp: held})
+        for i in range(len(bpms)):
+            values = [reading[i] for reading in readings]
             slope, _intercept = np.polyfit(currents, values, deg=1)
             matrix[i, j] = slope
     return matrix
@@ -729,11 +746,11 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     # currents and the model needs no offset of its own.
     step = (2 * SPAN_A) / (NUM_POINTS - 1)
     currents = [-SPAN_A + i * step for i in range(NUM_POINTS)]
-    model = _model_response_matrix(correctors, bpms, currents)
+    model = _model_response_matrix(deployed_orm_stack.repo, correctors, bpms, currents)
 
     assert np.allclose(measured, model, rtol=MATCH_RTOL, atol=MATCH_ATOL), (
         "measured ORM (driven over the deployed HTTP+container stack) does not match "
-        f"the independent lattice/response.py model oracle within tolerance "
+        f"the independent in-process model oracle within tolerance "
         f"(rtol={MATCH_RTOL}, atol={MATCH_ATOL}):\n"
         f"measured=\n{measured}\nmodel=\n{model}\n"
         f"max abs diff={float(np.max(np.abs(measured - model))):.3e}"

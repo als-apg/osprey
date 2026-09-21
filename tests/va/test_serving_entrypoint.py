@@ -27,7 +27,6 @@ import re
 import subprocess
 import sys
 import types
-from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -75,6 +74,12 @@ MAG1_RB = f"{RING}:MAG:HCM:01:CURRENT:RB"
 MAG2_SP = f"{RING}:MAG:HCM:02:CURRENT:SP"
 MAG2_RB = f"{RING}:MAG:HCM:02:CURRENT:RB"
 BPM_X = f"{RING}:BPM:BPM:01:X:RB"
+#: The elements the deck carries those devices at. Every device has two
+#: spellings -- one of these and an address above -- and which of them a
+#: facility's people use to name it is theirs to decide.
+BPM_ELEMENT = "BPM1"
+MAG1_ELEMENT = "M1"
+MAG2_ELEMENT = "M2"
 VALVE_SP = f"{RING}:VAC:VALVE:01:POSITION:SP"
 VALVE_RB = f"{RING}:VAC:VALVE:01:POSITION:RB"
 GAUGE_RB = f"{RING}:VAC:GAUGE:01:PRESSURE:RB"
@@ -83,18 +88,21 @@ MAG_BAND = (-5.0, 5.0)
 DRIVE_LIMITS = {MAG1_SP: MAG_BAND, MAG2_SP: MAG_BAND}
 BOOT_VALUES = {MAG1_SP: 1.0, MAG1_RB: 1.0, MAG2_SP: 2.0, MAG2_RB: 2.0}
 
+#: The file name a served tree's lattice carries, and so the only value
+#: ``VA_LATTICE`` can take other than ``none``: the bindings beside it were
+#: derived against that file, and it is the one the model reads.
+SERVED_LATTICE = "lattice.json"
+
 #: Every VA_* variable the entrypoint reads. Cleared before each test: a
 #: developer's shell that happens to export one would otherwise change what
 #: these tests assemble.
 VA_ENV_VARS = (
     "VA_DATA_DIR",
-    "VA_STATE_DIR",
     "VA_CHANNELS_FILE",
     "VA_LATTICE",
     "VA_STUCK_SETPOINTS",
     "VA_BPM_ERRORS",
     "VA_CORR_GAIN",
-    "VA_MODEL_WRITE_TOKEN",
 )
 
 
@@ -198,15 +206,92 @@ def _clean_va_environment(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(name, raising=False)
 
 
+def _identity_binding(setpoint: str, readback: str, element: str) -> dict[str, Any]:
+    """One writable binding that serves the value written on its readback.
+
+    The rules a document is parsed against live in the schema's own suite;
+    what matters here is a document this facility's coupled setpoints are
+    bound by, with a readback rule that needs no calibration curve -- so the
+    boot tests exercise the wiring and not a conversion.
+    """
+    return {
+        "kind": "strength",
+        "family": "hcm",
+        "setpoint_address": setpoint,
+        "readback_address": readback,
+        "readback": "identity",
+        "element": element,
+        "attribute": "PolynomB",
+        "index": 1,
+        "slices": [{"element": element, "weight": 1.0}],
+        "owner": "hcm",
+        "calibration": {"kind": "linear", "gain": 0.01, "offset": 0.0},
+        "monitor_inverse": None,
+        "nominal": 1.0,
+        "energy_scaling": "brho",
+        "energy_table": None,
+    }
+
+
+def _monitor_binding(address: str, element: str) -> dict[str, Any]:
+    """One orbit reading, served on its own address.
+
+    A monitor is read only and names no second address, so what it adds to a
+    document is the pair a seeded readout error is resolved through: the
+    address the reading is published on, and the element it is read at.
+    """
+    return {
+        "kind": "monitor",
+        "family": "bpm",
+        "setpoint_address": address,
+        "readback_address": None,
+        "readback": "inverse",
+        "element": element,
+        "attribute": "x",
+        "index": None,
+        "slices": [{"element": element, "weight": 1.0}],
+        "owner": "bpm",
+        "calibration": {"kind": "linear", "gain": 1.0e-3, "offset": 0.0},
+        "monitor_inverse": {"kind": "linear", "gain": 1.0e3, "offset": 0.0},
+        "nominal": None,
+        "energy_scaling": "none",
+        "energy_table": None,
+    }
+
+
+BINDINGS_DOCUMENT: dict[str, Any] = {
+    "system": "TestFacility",
+    "energy_gev": 3.0,
+    "lattice_sha256": "0" * 64,
+    "bindings": [
+        _identity_binding(MAG1_SP, MAG1_RB, MAG1_ELEMENT),
+        _identity_binding(MAG2_SP, MAG2_RB, MAG2_ELEMENT),
+        _monitor_binding(BPM_X, BPM_ELEMENT),
+    ],
+}
+
+
 @pytest.fixture()
 def facility(tmp_path: Path) -> Path:
-    """A mounted data directory: a manifest, a machine file and a limits file.
+    """A served data directory inside the facility tree that carries it.
 
     The whole file-backed source in one place, so a boot test says which
-    facility it is booting and nothing about how the files are shaped.
+    facility it is booting and nothing about how the files are shaped -- laid
+    out the way a built project's is: the served directory is the tree's
+    ``simulation/``, holding the manifest, the machine file, the model and the
+    limits copy ``osprey build`` writes in beside them, and the tree's own
+    ``channel_limits.json`` sits at the data root, which is where the model
+    reads its bands from.
     """
-    (tmp_path / "channels.json").write_text(json.dumps({"channels": CHANNELS}))
-    (tmp_path / "machine.json").write_text(
+    root = tmp_path / "data"
+    served = root / "simulation"
+    served.mkdir(parents=True)
+    (served / "channels.json").write_text(json.dumps({"channels": CHANNELS}))
+    # Never loaded: every test that serves a lattice fakes the model. What the
+    # boot path asks of it is that the name VA_LATTICE gives is really there.
+    (served / SERVED_LATTICE).write_text("{}")
+    (served / "va_bindings.json").write_text(json.dumps(BINDINGS_DOCUMENT))
+    (served / "machine.json").write_text(
         json.dumps(
             {
                 "name": "test-facility",
@@ -221,20 +306,34 @@ def facility(tmp_path: Path) -> Path:
             }
         )
     )
-    (tmp_path / "channel_limits.json").write_text(
-        json.dumps(
-            {
-                "defaults": {"writable": True},
-                MAG1_SP: {"min_value": MAG_BAND[0], "max_value": MAG_BAND[1]},
-                MAG2_SP: {"min_value": MAG_BAND[0], "max_value": MAG_BAND[1]},
-            }
-        )
+    limits = json.dumps(
+        {
+            "defaults": {"writable": True},
+            MAG1_SP: {"min_value": MAG_BAND[0], "max_value": MAG_BAND[1]},
+            MAG2_SP: {"min_value": MAG_BAND[0], "max_value": MAG_BAND[1]},
+        }
     )
-    (tmp_path / "active_scenarios").write_text("[]")
-    return tmp_path
+    # Twice, as a built tree carries it: the authored file at the data root,
+    # which is what the model weighs its nominals against, and the copy the
+    # build writes in beside the manifest, which is what the IOC clamps
+    # writes with -- the container mounts the served directory alone.
+    (root / "channel_limits.json").write_text(limits)
+    (served / "channel_limits.json").write_text(limits)
+    (served / "active_scenarios").write_text("[]")
+    return served
 
 
 # --- the assembly, driven against a fake runner ---------------------------
+
+
+@dataclass
+class FakeWritePath:
+    """``CohostWritePath``, reduced to the reader the entrypoint hands on."""
+
+    stuck: frozenset[str] = frozenset()
+
+    def stuck_setpoints(self) -> frozenset[str]:
+        return self.stuck
 
 
 @dataclass
@@ -251,6 +350,9 @@ class FakeRunner:
     kwargs: dict[str, Any]
     journal: list[tuple[str, Any]]
     interrupt: bool = False
+    #: The real runner's write path, reduced to the one reader the entrypoint
+    #: hands on: which setpoints are stuck right now.
+    write_path: Any = field(default_factory=lambda: FakeWritePath())
 
     def run(self) -> None:
         self.journal.append(("run", None))
@@ -274,19 +376,6 @@ class FakeEngineSource:
 
 
 @dataclass
-class FakeRingModel:
-    """``PyATRingModel``, minus the ring.
-
-    The fault seeds are the model's now -- it declares a variable per seeded
-    field and the bridge reads them back through ``get`` -- so what the
-    entrypoint owes it is the parsed seeds, and that is what is recorded.
-    """
-
-    bpm_errors: Any
-    corrector_gains: Any
-
-
-@dataclass
 class FakeBridge:
     """``PhysicsBridge``, minus the lattice.
 
@@ -298,25 +387,25 @@ class FakeBridge:
     journal: list[tuple[str, Any]]
     model: Any
     bound: dict[str, Any] | None = None
-    bound_setpoints: frozenset[str] | None = None
+    setpoints: frozenset[str] = frozenset()
+    stuck_reader: Any = None
 
     def bind(
         self, records: dict[str, Any], *, physics_setpoints: frozenset[str] = frozenset()
     ) -> None:
         self.bound = records
-        self.bound_setpoints = physics_setpoints
+        self.setpoints = physics_setpoints
         self.journal.append(("bind", records))
 
     def on_setpoint(self, address: str, value: float) -> None:  # pragma: no cover - identity only
         """Never called here: the fake runner enqueues nothing."""
 
-    def refresh(self, changed: Iterable[str]) -> None:  # pragma: no cover - identity only
-        """Never called here: the fake runner serves no model RPC.
+    def refresh(self, changed: Any) -> None:  # pragma: no cover - identity only
+        """Never called here: nothing writes the model through the surface."""
 
-        Present because the entrypoint reads it off the bridge to hand the
-        runner its post-model-write hook, so a fake without it would fail the
-        boot rather than the assertion under test.
-        """
+    def follow_stuck_setpoints(self, stuck: Any) -> None:
+        self.stuck_reader = stuck
+        self.journal.append(("follow-stuck", stuck))
 
 
 @dataclass
@@ -380,6 +469,10 @@ def _boot(
     interrupt: bool = False,
     env: dict[str, str] | None = None,
     orbit_solve_error: bool = False,
+    unknown_device: bool = False,
+    fake_model: bool = True,
+    fake_bridge: bool = True,
+    channels_file: str = "channels.json",
 ) -> Boot:
     """Assemble the virtual accelerator against fakes, and journal the order.
 
@@ -392,7 +485,7 @@ def _boot(
     boot = Boot()
 
     monkeypatch.setenv("VA_DATA_DIR", str(facility))
-    monkeypatch.setenv("VA_CHANNELS_FILE", "channels.json")
+    monkeypatch.setenv("VA_CHANNELS_FILE", channels_file)
     if lattice is not None:
         monkeypatch.setenv("VA_LATTICE", lattice)
     for name, value in (env or {}).items():
@@ -419,29 +512,62 @@ def _boot(
         ep, "_install_shutdown_signals", lambda: boot.journal.append(("signals", None))
     )
 
-    if lattice == ep.LATTICE_BUILTIN:
-        _install_fake_physics(monkeypatch, boot, orbit_solve_error=orbit_solve_error)
+    if lattice not in (None, ep.LATTICE_NONE):
+        _install_fake_physics(
+            monkeypatch,
+            boot,
+            orbit_solve_error=orbit_solve_error,
+            unknown_device=unknown_device,
+            fake_model=fake_model,
+            fake_bridge=fake_bridge,
+        )
 
     ep.main()
     return boot
 
 
 def _install_fake_physics(
-    monkeypatch: pytest.MonkeyPatch, boot: Boot, *, orbit_solve_error: bool
+    monkeypatch: pytest.MonkeyPatch,
+    boot: Boot,
+    *,
+    orbit_solve_error: bool,
+    unknown_device: bool = False,
+    fake_model: bool = True,
+    fake_bridge: bool = True,
 ) -> None:
     """Replace the ring model and the bridge, keeping their real error type.
 
     The lattice-backed branch is being asserted for its *composition* -- one
     model, shared, bound before the runner exists -- and solving a real ring
     would establish none of that while costing a full closed-orbit solve.
+
+    The bridge is replaced on every lattice-backed boot, real model or not.
+    What the boot owes it is the composition above; what it does with a
+    reading once it has one -- the readout errors it applies, the records it
+    pushes into -- is its own suite's subject, and the fake's ``bind`` is
+    exactly the boot-value push whose position in the order is the contract.
+
+    ``fake_model=False`` keeps the real model, for the tests that are about
+    the tree it is built from rather than about the assembly, and
+    ``fake_bridge=False`` keeps the real one too, for the test that asks
+    whether a facility tree's own monitors are readable by the bridge the
+    deployment actually runs.
     """
     from osprey.services.virtual_accelerator.ioc import physics_bridge as bridge_module
     from osprey.services.virtual_accelerator.model import pyat as pyat_module
 
-    def ring_model(*, bpm_errors: Any, corrector_gains: Any) -> Any:
+    def ring_model(
+        data_root: Any, channels: Any, *, bpm_errors: Any = None, corrector_gains: Any = None
+    ) -> Any:
         if orbit_solve_error:
             raise bridge_module.OrbitSolveError("no stable closed orbit")
-        model = FakeRingModel(bpm_errors=bpm_errors, corrector_gains=corrector_gains)
+        if unknown_device:
+            # The one class the model raises for a binding, a misalignment and
+            # a fault seed alike -- which is the point of the test below.
+            raise bridge_module.UnknownDeviceError("the ring has no element named 'ABSENT'")
+        model = NullModel()
+        boot.journal.append(("model-sources", (data_root, channels)))
+        boot.journal.append(("model-faults", (bpm_errors, corrector_gains)))
         boot.journal.append(("model", model))
         return model
 
@@ -450,8 +576,10 @@ def _install_fake_physics(
         boot.journal.append(("bridge", bridge))
         return bridge
 
-    monkeypatch.setattr(pyat_module, "PyATRingModel", ring_model)
-    monkeypatch.setattr(bridge_module, "PhysicsBridge", physics_bridge)
+    if fake_model:
+        monkeypatch.setattr(pyat_module, "PyATRingModel", ring_model)
+    if fake_bridge:
+        monkeypatch.setattr(bridge_module, "PhysicsBridge", physics_bridge)
 
 
 class TestBootOrder:
@@ -466,14 +594,17 @@ class TestBootOrder:
     def test_the_process_is_assembled_in_the_documented_order(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
-        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
         assert boot.order() == [
             "logging",
+            "model-sources",
+            "model-faults",
             "model",
             "bridge",
             "bind",
             "engine-source",
             "runner",
+            "follow-stuck",
             "engine-thread",
             "signals",
             "run",
@@ -518,7 +649,7 @@ class TestBootOrder:
         """``bind`` writes the boot BPM readings into PV specs. The Channel
         Access server copies each spec when it creates the PV, so a push after
         the runner exists would never be served."""
-        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
         assert boot.at("bind") < boot.at("runner")
 
     def test_telemetry_starts_only_once_the_runner_exists(
@@ -686,92 +817,6 @@ class TestRunnerHandoff:
         assert attached == []
 
 
-class TestModelRpcHandoff:
-    """What the runner is told about the model it serves over the model RPC.
-
-    Three facts the endpoint cannot derive for itself: the token a write must
-    present, the backend behind the variables, and where its lattice came
-    from. All three are resolved at boot and handed over once.
-    """
-
-    def test_a_configured_token_reaches_the_runner(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path
-    ) -> None:
-        boot = _boot(monkeypatch, facility, env={"VA_MODEL_WRITE_TOKEN": "s3cret"})
-        assert boot.runner.kwargs["model_write_token"] == "s3cret"
-
-    def test_an_unset_token_disables_model_writes(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path
-    ) -> None:
-        """``None``, not an empty string: the endpoint refuses every write
-        when there is no token, and an empty credential must not match."""
-        boot = _boot(monkeypatch, facility)
-        assert boot.runner.kwargs["model_write_token"] is None
-
-    def test_an_empty_token_is_an_unset_one(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path
-    ) -> None:
-        """Which is the shape the compose passthrough sends when the host var
-        is absent."""
-        boot = _boot(monkeypatch, facility, env={"VA_MODEL_WRITE_TOKEN": ""})
-        assert boot.runner.kwargs["model_write_token"] is None
-
-    def test_the_backend_is_named_by_the_model_being_served(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path
-    ) -> None:
-        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
-        assert boot.runner.kwargs["backend_name"] == "NullModel"
-        assert boot.runner.kwargs["backend_name"] == type(boot.runner.model).__name__
-
-    def test_a_lattice_backed_boot_names_its_own_backend(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path
-    ) -> None:
-        """The name comes off the model the entrypoint built, so the two
-        branches cannot report the same backend."""
-        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
-        assert boot.runner.kwargs["backend_name"] == type(boot.one("model")).__name__
-        assert boot.runner.kwargs["backend_name"] != "NullModel"
-
-    @pytest.mark.parametrize("lattice", [None, ep.LATTICE_NONE, ep.LATTICE_BUILTIN])
-    def test_the_lattice_source_is_the_mode_that_was_resolved(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path, lattice: str | None
-    ) -> None:
-        """Including the default: what ``status`` reports is what this boot
-        resolved, never the raw env var."""
-        boot = _boot(monkeypatch, facility, lattice=lattice)
-        expected = ep.LATTICE_NONE if lattice is None else lattice
-        assert boot.runner.kwargs["lattice_source"] == expected
-
-
-class TestModelWriteTokenBootLine:
-    """The boot line that says whether model writes are armed.
-
-    Whether they are armed is operational state an operator has to be able to
-    read out of ``docker logs``; the token itself is a secret, and a secret
-    printed once is a secret leaked for as long as the logs are kept.
-    """
-
-    def test_a_configured_token_is_reported_as_armed(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        _boot(monkeypatch, facility, env={"VA_MODEL_WRITE_TOKEN": "s3cret"})
-        assert "Model writes armed" in capsys.readouterr().out
-
-    def test_the_token_itself_is_never_printed(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        _boot(monkeypatch, facility, env={"VA_MODEL_WRITE_TOKEN": "s3cret"})
-        assert "s3cret" not in capsys.readouterr().out
-
-    def test_no_token_is_reported_as_disabled(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path, capsys: pytest.CaptureFixture[str]
-    ) -> None:
-        _boot(monkeypatch, facility)
-        out = capsys.readouterr().out
-        assert "Model writes disabled" in out
-        assert "Model writes armed" not in out
-
-
 class TestNullLatticeBoot:
     """A boot whose facility has channels but no physics in this process."""
 
@@ -810,7 +855,7 @@ class TestNullLatticeBoot:
         """Same addresses, same count as a lattice-backed boot of the same
         facility: the difference is confined to what happens after a write."""
         boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
-        with_lattice = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
+        with_lattice = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
         assert set(boot.runner.records.pvdb) == {channel["address"] for channel in CHANNELS}
         assert set(boot.runner.records.pvdb) == set(with_lattice.runner.records.pvdb)
 
@@ -857,7 +902,7 @@ class TestLatticeBoot:
     ) -> None:
         """A second model would be a second lattice, silently diverging from
         the one the BPM readings are solved out of."""
-        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
         bridge = boot.one("bridge")
         assert bridge.model is boot.one("model")
         assert boot.runner.model is bridge.model
@@ -865,66 +910,44 @@ class TestLatticeBoot:
     def test_the_physics_hook_is_the_bridges(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
-        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
         assert boot.runner.kwargs["on_setpoint"] == boot.one("bridge").on_setpoint
 
     def test_the_bridge_is_bound_to_the_coupled_partition(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
-        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
         assert boot.one("bridge").bound is boot.runner.records.pyat_coupled
-        # The manifest says which of those records are setpoints; the bridge
-        # is told, never left to read it off the address text.
-        assert boot.one("bridge").bound_setpoints == boot.runner.records.physics_setpoints
-        assert boot.runner.records.physics_setpoints
 
     def test_setpoints_are_not_also_synced_into_the_engine(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
         """Physics coupling flows through the bridge; a second path into the
         engine would be a second thing moving the same channels."""
-        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
         assert boot.engine_source.setpoint_echo_records is None
 
     def test_the_fault_seeds_reach_the_model(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
-        """The model holds the faults, as variables the bridge reads back at
-        the moment it serves a reading -- so a seed goes to the model and the
-        bridge is given nothing but the model."""
         boot = _boot(
             monkeypatch,
             facility,
-            lattice=ep.LATTICE_BUILTIN,
-            env={"VA_BPM_ERRORS": "BPM01:offset_x=1e-4", "VA_CORR_GAIN": "HCM01=1.5"},
+            lattice=SERVED_LATTICE,
+            env={
+                "VA_BPM_ERRORS": f"{BPM_ELEMENT}:offset_x=1e-4",
+                "VA_CORR_GAIN": f"{MAG1_ELEMENT}=1.5",
+            },
         )
-        model = boot.one("model")
-        assert model.bpm_errors == {"BPM01": {"offset_x": 1e-4}}
-        assert model.corrector_gains == {"HCM01": {"factor": 1.5}}
-
-    def test_the_corrector_gain_map_reaches_the_model_field_shaped(
-        self, monkeypatch: pytest.MonkeyPatch, facility: Path
-    ) -> None:
-        """VA_CORR_GAIN names one number per device; the model takes a field
-        map, and ``factor`` is the field that number is."""
-        boot = _boot(
-            monkeypatch,
-            facility,
-            lattice=ep.LATTICE_BUILTIN,
-            env={"VA_CORR_GAIN": "HCM01=1.5,QF07=0.8"},
-        )
-        assert boot.one("model").corrector_gains == {
-            "HCM01": {"factor": 1.5},
-            "QF07": {"factor": 0.8},
-        }
+        bpm_errors, corrector_gains = boot.one("model-faults")
+        assert bpm_errors == {BPM_ELEMENT: {"offset_x": 1e-4}}
+        assert corrector_gains == {MAG1_ELEMENT: {"factor": 1.5}}
 
     def test_no_faults_are_passed_as_none_rather_than_an_empty_map(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
-        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN)
-        model = boot.one("model")
-        assert model.bpm_errors is None
-        assert model.corrector_gains is None
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+        assert boot.one("model-faults") == (None, None)
 
     def test_a_lattice_with_no_stable_orbit_ends_the_boot(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
@@ -932,7 +955,190 @@ class TestLatticeBoot:
         """Diagnosable rather than an opaque crash -- which is why the model
         itself never ends the process."""
         with pytest.raises(SystemExit, match="no stable closed orbit"):
-            _boot(monkeypatch, facility, lattice=ep.LATTICE_BUILTIN, orbit_solve_error=True)
+            _boot(monkeypatch, facility, lattice=SERVED_LATTICE, orbit_solve_error=True)
+
+    def test_an_element_the_tree_does_not_carry_ends_the_boot_without_guessing_why(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """A binding, a misalignment and a fault seed all raise the one class,
+        so the headline names the condition and carries the model's own
+        message. Naming a cause it cannot know would send an operator to the
+        wrong file."""
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(monkeypatch, facility, lattice=SERVED_LATTICE, unknown_device=True)
+
+        message = str(excinfo.value)
+        assert "does not carry" in message
+        assert "ABSENT" in message, "the model's own message has to survive"
+        assert "fault seed" not in message, "the boot cannot know which of the three it was"
+
+    def test_the_model_is_built_from_the_tree_around_the_served_directory(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The model reads a whole facility tree, not a lattice file.
+
+        Its bindings and the lattice sit under the tree's ``simulation/`` --
+        which is the mounted directory -- and the bands its nominals are
+        weighed against at the root above it. So what the model is given is
+        that root, and nothing here re-derives it.
+        """
+        root, _ = _boot(monkeypatch, facility, lattice=SERVED_LATTICE).one("model-sources")
+        assert root == facility.parent
+
+    def test_the_model_is_put_on_the_namespace_the_ioc_serves(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The channel list is passed in, not resolved a second time: two
+        resolutions could land on two namespaces, and then the model would
+        describe addresses the IOC does not serve."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+        _, channels = boot.one("model-sources")
+        assert [channel["address"] for channel in channels] == [
+            channel["address"] for channel in CHANNELS
+        ]
+
+    def test_the_documents_readback_rules_reach_the_runner(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """What a coupled setpoint serves on readback is the document's
+        statement, and only the served path can apply it.
+
+        Without this the runner derives the coupled set from the manifest
+        alone and every readback is an echo of the value written -- so a
+        facility that exported a reverse curve for a channel gets its channel
+        served as though it had not.
+        """
+        bound = _boot(monkeypatch, facility, lattice=SERVED_LATTICE).runner.kwargs[
+            "bound_setpoints"
+        ]
+        assert sorted(bound) == sorted(PHYSICS_SETPOINTS)
+        assert {entry.rule for entry in bound.values()} == {"identity"}
+        assert bound[MAG1_SP].readback == MAG1_RB
+
+    def test_a_lattice_free_boot_declares_no_readback_rules(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """There is no document to read them from, and an empty map is what
+        the write path treats as the lattice-free behaviour: every coupled
+        readback echoes the value written."""
+        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
+        assert boot.runner.kwargs["bound_setpoints"] == {}
+
+
+class TestTheModelSurfaceIsWiredAtBoot:
+    """What the runner needs to answer for the model, and to arm a write.
+
+    A model write reaches the model and no setpoint, so the one thing the
+    boot owes the surface besides the token is the hook that re-serves what
+    a written variable feeds.
+    """
+
+    def test_the_bridge_is_handed_the_setpoints_it_may_re_command(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """A calibration write leaves a magnet delivering the wrong value for
+        its standing command; the bridge can only put that right if it was
+        told which records carry those commands."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.one("bridge").setpoints == frozenset(PHYSICS_SETPOINTS)
+
+    def test_the_refresh_hook_is_the_bridges(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.runner.kwargs["refresh"] == boot.one("bridge").refresh
+
+    def test_the_bridge_reads_the_stuck_set_from_the_write_path(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """A stuck setpoint records what was written and hands the model
+        nothing, so the bridge must not re-command from it on a calibration
+        change. The set changes at runtime, so the bridge is handed the write
+        path's reader rather than a copy of the boot set."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.one("bridge").stuck_reader == boot.runner.write_path.stuck_setpoints
+
+    def test_the_stuck_reader_is_handed_over_only_once_the_runner_exists(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The write path is built with the server, and the bridge had to be
+        bound before that -- so this is the earliest the reader exists."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.at("follow-stuck") > boot.at("runner")
+
+    def test_a_lattice_free_boot_wires_no_stuck_reader(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """There is no bridge to hand it to."""
+        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
+
+        assert "follow-stuck" not in boot.order()
+
+    def test_a_lattice_free_boot_passes_no_refresh_hook(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Nothing derives a reading from a model variable, so there is
+        nothing to recompute and the runner's own inert default stands."""
+        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
+
+        assert "refresh" not in boot.runner.kwargs
+
+    def test_the_status_verb_is_told_what_this_boot_built(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Both are boot facts nothing downstream can recover: the backend is
+        whichever model was built, and the source is the file this boot
+        resolved rather than the raw variable behind it."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.runner.kwargs["backend_name"] == type(boot.one("model")).__name__
+        assert boot.runner.kwargs["lattice_source"].endswith(SERVED_LATTICE)
+
+    def test_a_lattice_free_boot_says_it_serves_no_lattice(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
+
+        assert boot.runner.kwargs["lattice_source"] == ep.LATTICE_NONE
+
+    def test_model_writes_are_refused_unless_the_deployment_arms_them(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The model RPC reaches past the served namespace into the physics,
+        so an unset variable is a refusal rather than an open door."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.runner.kwargs["model_write_token"] is None
+
+    def test_an_armed_token_reaches_the_runner_exactly_as_given(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Matched byte for byte against what a client presents, so nothing
+        here rewrites it."""
+        boot = _boot(
+            monkeypatch,
+            facility,
+            lattice=SERVED_LATTICE,
+            env={"VA_MODEL_WRITE_TOKEN": " s3cret "},
+        )
+
+        assert boot.runner.kwargs["model_write_token"] == " s3cret "
+
+    def test_a_blank_token_is_unset_rather_than_a_token(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The compose passthrough sends an empty string when the host
+        variable is absent, and an empty token is one an empty credential
+        would match."""
+        boot = _boot(
+            monkeypatch, facility, lattice=SERVED_LATTICE, env={"VA_MODEL_WRITE_TOKEN": "   "}
+        )
+
+        assert boot.runner.kwargs["model_write_token"] is None
 
 
 class TestBootRefusals:
@@ -954,11 +1160,270 @@ class TestBootRefusals:
         with pytest.raises(SystemExit, match="DIRECTORY"):
             ep.main()
 
-    def test_an_unknown_lattice_mode_is_fatal(
+    def test_a_lattice_the_tree_does_not_carry_is_fatal(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
+        """``VA_LATTICE`` names a source, so a name the mount does not carry
+        is refused against the tree rather than deep inside a loader."""
         with pytest.raises(SystemExit, match="VA_LATTICE"):
-            _boot(monkeypatch, facility, lattice="maybe")
+            _boot(monkeypatch, facility, lattice="maybe.json")
+
+    def test_an_unknown_lattice_name_is_refused_against_the_tree_it_searched(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The refusal has to say where it looked and where to go next.
+
+        A deployment reading it knows only the name it set; the path it was
+        resolved against is this process's own, and the value that serves the
+        manifest without physics is the way out of the refusal.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(monkeypatch, facility, lattice="maybe.json")
+        message = str(excinfo.value)
+        assert str(facility / "maybe.json") in message
+        assert f"VA_LATTICE={ep.LATTICE_NONE}" in message
+
+    def test_a_differently_cased_lattice_name_never_reaches_the_runner(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The name is looked up verbatim, so its case is part of it.
+
+        Which refusal answers depends on the host: where the filesystem folds
+        case the name finds the tree's own lattice and is refused as a
+        different file, and where it does not the name finds nothing. Both
+        name the spelling that was given, and neither serves a ring under a
+        name the deployment did not write.
+        """
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(monkeypatch, facility, lattice=SERVED_LATTICE.upper())
+        assert SERVED_LATTICE.upper() in str(excinfo.value)
+
+    def test_a_lattice_beside_a_different_name_is_fatal(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Serving one ring while modelling another is invisible from the
+        wire: every channel is served and every write accepted, with the
+        physics behind them belonging to a different lattice."""
+        (facility / "other.json").write_text("{}")
+        with pytest.raises(SystemExit, match="the tree's own lattice"):
+            _boot(monkeypatch, facility, lattice="other.json")
+
+    def test_a_served_directory_outside_a_facility_tree_is_fatal(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path, tmp_path: Path
+    ) -> None:
+        """The model resolves the tree around the mount, so the mount has to
+        be the tree's ``simulation/`` directory; anything else would have it
+        looking for its lattice somewhere the deployment never wrote one."""
+        flat = tmp_path / "flat"
+        flat.mkdir()
+        for name in ("channels.json", "machine.json", SERVED_LATTICE, "va_bindings.json"):
+            (flat / name).write_text((facility / name).read_text())
+        with pytest.raises(SystemExit, match="simulation/ directory"):
+            _boot(monkeypatch, flat, lattice=SERVED_LATTICE)
+
+    def test_a_lattice_with_no_bindings_beside_it_is_fatal(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """A lattice on its own models nothing any channel can reach."""
+        (facility / "va_bindings.json").unlink()
+        with pytest.raises(SystemExit, match="no bindings"):
+            _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+    def test_a_coupled_channel_the_document_binds_to_nothing_is_fatal(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The manifest's coupled partition is derived from the document, so a
+        disagreement means the two came from different builds.
+
+        Named here, with the address and the file, because the model layer
+        only ever sees the unbound channel as a variable of the wrong type --
+        no address, no file.
+        """
+        document = {**BINDINGS_DOCUMENT, "bindings": BINDINGS_DOCUMENT["bindings"][:1]}
+        (facility / "va_bindings.json").write_text(json.dumps(document))
+        with pytest.raises(SystemExit, match=re.escape(MAG2_SP)):
+            _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+    def test_a_readback_the_served_namespace_cannot_produce_is_fatal(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """A readback served through the facility's own inverse needs a model
+        variable of that address to compute it.
+
+        The model is built from the manifest's channels, so an address the
+        manifest does not carry gets no variable and there is nothing to map
+        back along -- the same two-builds disagreement the check above refuses
+        from the other direction. Refused by name here, because all the write
+        path can say is that the readback of some binding cannot be produced,
+        and an unnamed refusal out of a container's PID 1 is a traceback.
+        """
+        unserved = f"{RING}:MAG:HCM:09:CURRENT:SP"
+        bound_to_nothing = {
+            **_identity_binding(unserved, f"{RING}:MAG:HCM:09:CURRENT:RB", "M9"),
+            "readback": "inverse",
+            "monitor_inverse": {"kind": "linear", "gain": 100.0, "offset": 0.0},
+        }
+        document = {
+            **BINDINGS_DOCUMENT,
+            "bindings": [*BINDINGS_DOCUMENT["bindings"], bound_to_nothing],
+        }
+        (facility / "va_bindings.json").write_text(json.dumps(document))
+        with pytest.raises(SystemExit, match=re.escape(unserved)):
+            _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+    def test_a_readback_is_bound_by_nothing_and_is_not_missed(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The serving layer mirrors a setpoint onto its readback record, so a
+        coupled readback is not a model variable and no binding names it.
+
+        The whole coupled partition here is two setpoints and three readbacks;
+        a check that asked for a binding per coupled channel would refuse
+        every tree ever exported.
+        """
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+        assert len(boot.runner.records.pyat_coupled) > len(PHYSICS_SETPOINTS)
+
+
+class TestSeededReadoutErrorsAreResolvedAgainstTheDocument:
+    """A seeded readout error is keyed by the monitor it perturbs.
+
+    The grammar's device token is whatever the person seeding the fault knows
+    the device by, and a facility publishes a monitor under two names: the
+    address its reading goes out on and the element the deck reads it at. The
+    bridge holds one error model per element, so the served document is what
+    turns the first into the second -- and a token it knows under neither name
+    ends the boot, because a machine that serves unperturbed readings while
+    reporting a seeded fault is exactly the failure the seed exists to reveal.
+    """
+
+    def test_a_device_named_by_its_element_reaches_the_model(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(
+            monkeypatch,
+            facility,
+            lattice=SERVED_LATTICE,
+            env={"VA_BPM_ERRORS": f"{BPM_ELEMENT}:offset_x=1e-4,gain_y=1.05"},
+        )
+        assert boot.one("model-faults")[0] == {BPM_ELEMENT: {"offset_x": 1e-4, "gain_y": 1.05}}
+
+    def test_a_device_named_by_its_address_reaches_the_same_monitor(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The spelling an operator reads off the control system, which is
+        colon separated at every level -- so it survives the grammar whole and
+        lands on the element the bridge keys by."""
+        boot = _boot(
+            monkeypatch,
+            facility,
+            lattice=SERVED_LATTICE,
+            env={"VA_BPM_ERRORS": f"{BPM_X}:offset_x=1e-4"},
+        )
+        assert boot.one("model-faults")[0] == {BPM_ELEMENT: {"offset_x": 1e-4}}
+
+    def test_a_device_the_document_knows_under_neither_name_ends_the_boot(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(
+                monkeypatch,
+                facility,
+                lattice=SERVED_LATTICE,
+                env={"VA_BPM_ERRORS": "BPM99:offset_x=1e-4"},
+            )
+        message = str(excinfo.value)
+        assert "VA_BPM_ERRORS" in message
+        assert "BPM99" in message
+
+    def test_one_monitor_seeded_twice_on_one_field_ends_the_boot(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Both spellings name one monitor, so seeding a field through each
+        states two values for one readout error and which was meant could only
+        be guessed."""
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(
+                monkeypatch,
+                facility,
+                lattice=SERVED_LATTICE,
+                env={"VA_BPM_ERRORS": (f"{BPM_ELEMENT}:offset_x=1e-4;{BPM_X}:offset_x=2e-4")},
+            )
+        assert "VA_BPM_ERRORS" in str(excinfo.value)
+
+    def test_seeding_nothing_leaves_the_model_unperturbed(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Resolution of an empty seed map is empty, and an empty map is the
+        None the model reads as "every monitor reads the true position"."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+        assert boot.one("model-faults")[0] is None
+
+
+class TestSeededCalibrationsAreResolvedTheSameWay:
+    """A magnet is named on the same terms a monitor is.
+
+    An operator reads a magnet's address off the same screen as a monitor's,
+    and a scenario file renders whichever spelling it was written with. The
+    model keys its calibrations by element, so the document turns one into the
+    other here too -- and a name it knows neither way ends the boot rather
+    than perturbing nothing.
+    """
+
+    def test_a_magnet_named_by_its_element_reaches_the_model(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(
+            monkeypatch,
+            facility,
+            lattice=SERVED_LATTICE,
+            env={"VA_CORR_GAIN": f"{MAG1_ELEMENT}=1.5"},
+        )
+        assert boot.one("model-faults")[1] == {MAG1_ELEMENT: {"factor": 1.5}}
+
+    def test_a_magnet_named_by_its_setpoint_address_reaches_the_same_element(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The spelling the control system publishes. Without this a scenario
+        that names its magnets the way an operator does would end the boot."""
+        boot = _boot(
+            monkeypatch, facility, lattice=SERVED_LATTICE, env={"VA_CORR_GAIN": f"{MAG1_SP}=1.5"}
+        )
+        assert boot.one("model-faults")[1] == {MAG1_ELEMENT: {"factor": 1.5}}
+
+    def test_a_magnet_the_document_knows_under_neither_name_ends_the_boot(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(monkeypatch, facility, lattice=SERVED_LATTICE, env={"VA_CORR_GAIN": "HCM99=1.5"})
+        message = str(excinfo.value)
+        assert "VA_CORR_GAIN" in message
+        assert "HCM99" in message
+
+    def test_one_magnet_seeded_twice_on_one_field_ends_the_boot(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(
+                monkeypatch,
+                facility,
+                lattice=SERVED_LATTICE,
+                env={"VA_CORR_GAIN": f"{MAG1_ELEMENT}=1.5,{MAG1_SP}=2.0"},
+            )
+        assert "VA_CORR_GAIN" in str(excinfo.value)
+
+    def test_a_monitor_is_not_a_magnet(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The two rosters are resolved against different halves of the
+        document, so a monitor's name is no more a magnet than a typo is."""
+        with pytest.raises(SystemExit, match="VA_CORR_GAIN"):
+            _boot(
+                monkeypatch,
+                facility,
+                lattice=SERVED_LATTICE,
+                env={"VA_CORR_GAIN": f"{BPM_ELEMENT}=1.5"},
+            )
 
 
 class TestShutdown:

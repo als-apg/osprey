@@ -40,6 +40,11 @@ import json
 
 from ..core.base_database import BaseDatabase, DatabaseWriteError
 
+#: Keys under which a middle-layer field lists its channel addresses, in the
+#: order readers consult them. ``ChannelNames`` holds Channel Access names and
+#: ``TangoNames`` Tango device attributes; a field may carry either or both.
+CHANNEL_KEYS: tuple[str, ...] = ("ChannelNames", "TangoNames")
+
 # Metadata keys to skip during tree traversal (not navigable families/fields)
 _ML_META_KEYS = frozenset(
     {
@@ -47,7 +52,7 @@ _ML_META_KEYS = frozenset(
         "_setup",
         "setup",
         "pyat",
-        "ChannelNames",
+        *CHANNEL_KEYS,
         "DataType",
         "Mode",
         "Units",
@@ -75,6 +80,25 @@ def _get_setup(family_data: dict) -> dict:
         The setup dict, or an empty dict if neither key is present.
     """
     return family_data.get("setup") or family_data.get("_setup") or {}
+
+
+def _count_field_channels(field_data: dict) -> int:
+    """Return the number of channel slots a field lists under every channel key.
+
+    A list counts its length and any other value (a bare string) counts one.
+
+    Args:
+        field_data: A field or subfield dict from the MML tree.
+
+    Returns:
+        The slot count summed over the keys of ``CHANNEL_KEYS`` present.
+    """
+    count = 0
+    for channel_key in CHANNEL_KEYS:
+        if channel_key in field_data:
+            names = field_data[channel_key]
+            count += len(names) if isinstance(names, list) else 1
+    return count
 
 
 class MiddleLayerDatabase(BaseDatabase):
@@ -197,12 +221,17 @@ class MiddleLayerDatabase(BaseDatabase):
             if not isinstance(value, dict):
                 continue
 
-            # Check if this is a terminal field with ChannelNames
-            if "ChannelNames" in value:
-                channel_names = value["ChannelNames"]
-                # Normalize string to list (MML exports may use string for single channels)
-                if isinstance(channel_names, str):
-                    channel_names = [channel_names]
+            # Check if this is a terminal field carrying a channel key
+            present_keys = [channel_key for channel_key in CHANNEL_KEYS if channel_key in value]
+            if present_keys:
+                # Protocol per channel key, aligned with CHANNEL_KEYS order
+                key_protocols = dict(zip(CHANNEL_KEYS, ("ca", "tango"), strict=True))
+                channel_names: list[tuple[str, str]] = []
+                for channel_key in present_keys:
+                    names = value[channel_key]
+                    # Normalize string to list (MML exports may use string for single channels)
+                    for name in [names] if isinstance(names, str) else names:
+                        channel_names.append((name, key_protocols[channel_key]))
                 field_path = path + [key]
 
                 # Extract metadata if present (preserve from MML exports)
@@ -221,11 +250,15 @@ class MiddleLayerDatabase(BaseDatabase):
                     if meta_key in value:
                         metadata[meta_key] = value[meta_key]
 
-                # Store each channel with its metadata
-                for channel_name in channel_names:
+                # Store each channel with its metadata. A name listed under
+                # several keys of this field keeps the protocol of the first
+                # key in CHANNEL_KEYS order.
+                field_names: set[str] = set()
+                for channel_name, protocol in channel_names:
                     # Strip whitespace from channel names (MML exports have padding)
                     clean_name = channel_name.strip()
-                    if clean_name:  # Only add non-empty names
+                    if clean_name and clean_name not in field_names:
+                        field_names.add(clean_name)
                         channels[clean_name] = {
                             "channel": clean_name,
                             "address": clean_name,
@@ -234,6 +267,7 @@ class MiddleLayerDatabase(BaseDatabase):
                             "field": field_path[0] if field_path else "",
                             "subfield": field_path[1:] if len(field_path) > 1 else None,
                             "description": f"{system}:{family}:{':'.join(field_path)}",
+                            "protocol": protocol,
                             **metadata,  # Include MML metadata if present
                         }
             else:
@@ -390,20 +424,17 @@ class MiddleLayerDatabase(BaseDatabase):
 
             if isinstance(field_data, dict):
                 for key, value in field_data.items():
-                    if key.startswith("_"):  # Skip metadata
+                    # Skip metadata and setup blocks; neither is a subfield
+                    if key.startswith("_") or key.lower() == "setup":
                         continue
                     if isinstance(value, dict):
-                        # Check if it's a subfield with ChannelNames or nested structure
-                        if "ChannelNames" in value:
-                            result[key] = {
-                                "type": "ChannelNames",
-                                "description": value.get("_description", ""),
-                            }
-                        else:
-                            result[key] = {
-                                "type": "dict (subfield)",
-                                "description": value.get("_description", ""),
-                            }
+                        # Label a channel-keyed subfield by its first present key
+                        channel_key = next((k for k in CHANNEL_KEYS if k in value), None)
+                        result[key] = {
+                            "type": channel_key or "dict (subfield)",
+                            "description": value.get("_description")
+                            or value.get("Description", ""),
+                        }
                     else:
                         result[key] = {"type": type(value).__name__, "description": ""}
 
@@ -420,16 +451,12 @@ class MiddleLayerDatabase(BaseDatabase):
                     "description": "Device setup information (CommonNames, DeviceList)",
                 }
             elif isinstance(value, dict):
-                if "ChannelNames" in value:
-                    result[key] = {
-                        "type": "ChannelNames",
-                        "description": value.get("_description", ""),
-                    }
-                else:
-                    result[key] = {
-                        "type": "dict (has subfields)",
-                        "description": value.get("_description", ""),
-                    }
+                # Label a channel-keyed field by its first present key
+                channel_key = next((k for k in CHANNEL_KEYS if k in value), None)
+                result[key] = {
+                    "type": channel_key or "dict (has subfields)",
+                    "description": value.get("_description") or value.get("Description", ""),
+                }
             else:
                 result[key] = {"type": type(value).__name__, "description": ""}
 
@@ -443,6 +470,8 @@ class MiddleLayerDatabase(BaseDatabase):
         subfield: str | None = None,
         sectors: list[int] | None = None,
         devices: list[int] | None = None,
+        *,
+        protocol: str | None = None,
     ) -> list[str]:
         """
         Get channel names for a specific field/subfield with optional filtering.
@@ -454,13 +483,25 @@ class MiddleLayerDatabase(BaseDatabase):
             subfield: Optional subfield name
             sectors: Optional list of sector numbers to filter by
             devices: Optional list of device numbers to filter by
+            protocol: ``"ca"`` for the ``ChannelNames`` list or ``"tango"`` for
+                the ``TangoNames`` list. When omitted, the list under the first
+                present key in ``CHANNEL_KEYS`` order is returned.
 
         Returns:
             List of channel names
 
         Raises:
-            ValueError: If path not found or invalid
+            ValueError: If path not found or invalid, if ``protocol`` is not a
+                known protocol, or if the requested protocol's key is absent
+                (the message names the keys the field does carry).
         """
+        # Channel key per protocol, aligned with CHANNEL_KEYS order
+        protocol_keys = dict(zip(("ca", "tango"), CHANNEL_KEYS, strict=True))
+        if protocol is not None and protocol not in protocol_keys:
+            raise ValueError(
+                f"Unknown protocol '{protocol}'. Known protocols: {sorted(protocol_keys)}"
+            )
+
         # Navigate to field
         if system not in self.data:
             raise ValueError(f"System '{system}' not found")
@@ -481,15 +522,27 @@ class MiddleLayerDatabase(BaseDatabase):
                 raise ValueError(f"Subfield '{subfield}' not found in '{system}:{family}:{field}'")
             field_data = field_data[subfield]
 
-        # Get channel names
-        if "ChannelNames" not in field_data:
-            raise ValueError(
-                f"No ChannelNames found at '{system}:{family}:{field}"
-                + (f":{subfield}" if subfield else "")
-                + "'"
-            )
+        location = f"{system}:{family}:{field}" + (f":{subfield}" if subfield else "")
+        present_keys = (
+            [key for key in CHANNEL_KEYS if key in field_data]
+            if isinstance(field_data, dict)
+            else []
+        )
 
-        channel_names = field_data["ChannelNames"]
+        # Get channel names from the requested protocol's key, or the first present
+        if protocol is None:
+            channel_key = present_keys[0] if present_keys else None
+            if channel_key is None:
+                raise ValueError(f"No {' or '.join(CHANNEL_KEYS)} found at '{location}'")
+        else:
+            channel_key = protocol_keys[protocol]
+            if channel_key not in present_keys:
+                raise ValueError(
+                    f"No {channel_key} (protocol '{protocol}') found at '{location}'. "
+                    f"Channel keys present: {present_keys}"
+                )
+
+        channel_names = field_data[channel_key]
         # Normalize string to list (MML exports may use string for single channels)
         if isinstance(channel_names, str):
             channel_names = [channel_names]
@@ -840,12 +893,10 @@ class MiddleLayerDatabase(BaseDatabase):
             if key in _ML_META_KEYS or key.startswith("_"):
                 continue
             if isinstance(val, dict):
-                if "ChannelNames" in val:
-                    ch = val["ChannelNames"]
-                    count += len(ch) if isinstance(ch, list) else 1
+                if any(channel_key in val for channel_key in CHANNEL_KEYS):
+                    count += _count_field_channels(val)
                 else:
                     for _sk, sv in val.items():
-                        if isinstance(sv, dict) and "ChannelNames" in sv:
-                            ch = sv["ChannelNames"]
-                            count += len(ch) if isinstance(ch, list) else 1
+                        if isinstance(sv, dict):
+                            count += _count_field_channels(sv)
         return count

@@ -377,6 +377,26 @@ class TestDirectionProvenance:
         assert "derived from the address grammar" in block
         assert "no channel limits were available" in block
 
+    def test_mapping_derived_edges_name_the_export_and_the_mapping_file(self):
+        block = _block(direction_source="mapping")
+        assert (
+            "Direction provenance: read/write edges derived from the MML export's "
+            "MemberOf tags and the facility's mapping file."
+        ) in block
+        assert "Direction provenance: `mapping`." not in block
+
+    def test_every_direction_source_has_a_provenance_line(self):
+        """A source the generator can record never falls back to the verbatim form."""
+        from osprey.services.facility_knowledge.ttl_generator.direction import DirectionSource
+
+        for source in DirectionSource:
+            assert f"Direction provenance: `{source.value}`." not in _block(
+                direction_source=source.value
+            )
+            assert mod.DIRECTION_PROVENANCE_LINES[source.value] in _block(
+                direction_source=source.value
+            )
+
     def test_an_unrecognised_source_is_printed_verbatim(self):
         """A newer builder's spelling beats silence."""
         assert "Direction provenance: `handmade`." in _block(direction_source="handmade")
@@ -385,7 +405,7 @@ class TestDirectionProvenance:
         """There is no honest default: the two derivations are not interchangeable."""
         assert "Direction provenance" not in _block(direction_source=None)
 
-    @pytest.mark.parametrize("source", [None, "limits", "grammar", "handmade"])
+    @pytest.mark.parametrize("source", [None, "limits", "grammar", "mapping", "handmade"])
     def test_no_variant_ever_names_a_limits_file(self, source):
         """The prompt-surface guard forbids that bigram anywhere in the render."""
         assert "limits file" not in _block(direction_source=source).lower()

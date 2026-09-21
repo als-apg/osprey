@@ -333,11 +333,18 @@ def _virtual_accelerator(port: int, repo: Path) -> Iterator[str]:
     server's port, so a remap would hand every client a port it cannot reach,
     with no useful error — and that number also names the container.
 
-    The mount is the RENDER's ``data/simulation``, not the packaged template's.
-    Same lattice either way, but pointing the container at the same tree the
-    agent's own config names means a future edit to one cannot leave the machine
-    the agent reasons about and the machine it talks to describing different
-    accelerators.
+    The served directory is the RENDER's ``data/simulation``, not the packaged
+    template's. Same lattice either way, but pointing the container at the same
+    tree the agent's own config names means a future edit to one cannot leave
+    the machine the agent reasons about and the machine it talks to describing
+    different accelerators. What is MOUNTED is the render's whole ``data/``,
+    with ``VA_DATA_DIR`` naming the served directory inside it: the model
+    behind that directory is resolved against the tree around it -- the write
+    bands its variables are built from sit at the data root beside it -- so a
+    served directory mounted on its own carries no bands and a lattice-backed
+    boot is refused. The basename is read off the directory rather than typed;
+    a lattice-backed boot still requires it to be ``simulation``, because the
+    manifest paths anchor the model files there.
 
     The channel source comes from the deployment's own ``.env`` rather than from
     constants here. The IOC has no default namespace — it refuses to boot
@@ -351,6 +358,7 @@ def _virtual_accelerator(port: int, repo: Path) -> Iterator[str]:
     from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
     from osprey.utils.dotenv import VA_LATTICE_KEY, parse_dotenv_file
 
+    served_dir = render_dir(repo) / "data" / "simulation"
     env_path = repo / COMPOSE_ENV_FILENAME
     build_env = parse_dotenv_file(env_path) if env_path.is_file() else {}
     channels_file = build_env.get("VA_CHANNELS_FILE", "")
@@ -379,7 +387,9 @@ def _virtual_accelerator(port: int, repo: Path) -> Iterator[str]:
         "-p",
         f"127.0.0.1:{port}:{port}/tcp",
         "-v",
-        f"{render_dir(repo) / 'data' / 'simulation'}:/data/simulation:ro",
+        f"{served_dir.parent}:/data:ro",
+        "-e",
+        f"VA_DATA_DIR=/data/{served_dir.name}",
         VA_IMAGE,
     )
     if started.returncode != 0:

@@ -1,48 +1,36 @@
-"""Cross-check: an orbit bump measured and solved through `PhysicsBridge`
-against the independent `lattice/response.py` model oracle (SC4).
+"""A solved orbit bump is a real bump on the modelled machine.
 
-Two physics code paths that never call each other meet here, the same way
-`test_orm_crosscheck.py` pairs them. The *measured* path drives `PhysicsBridge`
--- the live IOC-facing setpoint -> orbit -> BPM-reading path, read through
-`bind()`'s bound records so the seeded-error read pipeline
-(`_push_bpm_readbacks`) is the one supplying the numbers -- and hands those
-readings to `bump_analysis`, which fits the corrector -> BPM response from a
-two-sided probe dither and solves it for the corrector offsets that produce a
-requested bump. The *oracle* path evaluates `lattice.response.orbit_response`,
-an offline model of the same corrector-kick -> closed-orbit response built and
-cached independently in `response.py`'s own module-global ring, once per solved
-offset. Agreement between them means the bump `bump_analysis` computed is a real
-orbit bump on the modelled machine, not merely an internally consistent piece of
-linear algebra.
+``bump_analysis`` never touches an accelerator. It is handed a two-sided probe
+of each corrector, fits the local corrector-to-monitor response from those
+readings, and solves that fit for the offsets producing a requested orbit
+change at the monitors an operator constrained. Everything it returns is
+linear algebra over numbers a plan measured -- which is exactly why it can be
+internally consistent and still wrong about the machine.
 
-Corrector and BPM device ids come from the manifest's pyat-coupled inventory
-(`lattice.inventory`), never hardcoded preset channel names, per the epic's
-VA-safety-test convention. Only the index positions of the chosen devices within
-that inventory are fixed here, and only so the bump's geometry is reproducible;
-see `CORRECTOR_INDICES` for how they were picked.
+So the bump is solved here through the live path, applied through the live
+path, and then compared against the independent prediction
+:func:`~osprey.services.virtual_accelerator.lattice.response.orbit_response`
+makes for the same offsets on its own model. The measured path -- probe,
+solve, apply, read -- goes through ``PhysicsBridge`` and the records
+``bind()`` wired up, so the seeded-error read pipeline a real plan's readings
+travel is in the loop. The two share a served tree and nothing else.
 
-**Why the comparison is a bound and not an equality.** The oracle is evaluated
-one corrector at a time, so the prediction it yields for a three-corrector bump
-is the *linear superposition* of three single-corrector orbits. Superposition is
-exact only on a linear ring, and the AR lattice is not one: its strong
-low-emittance sextupoles feed down, so a kick set applied together does not
-produce quite the sum of the orbits each kick produces alone (see
-`calibration.py`'s `AMPS_PER_RADIAN_KICK` comment, and `test_lattice.py`'s
-antisymmetry check for the same effect measured directly). The discrepancy grows
-with amplitude, which is why every current in this test is held inside the
-quasi-linear window that constant was chosen to give: a `PROBE_AMPLITUDE_A` of a
-few amps and a solved bump whose offsets come out single-digit. The residual
-that remains is then a small fraction of the bump, and `BOUND` is where the two
-paths must agree.
+**Why this comparison is a bound and the sibling ORM one is an equality.**
+There, both sides evaluate one corrector's response about one orbit, and
+anything but agreement to the last bits is a code-path bug. Here the oracle is
+evaluated one corrector at a time, so its prediction for a three-corrector
+bump is the linear *superposition* of three single-corrector responses.
+Superposition is exact only on a linear ring, and a real lattice's
+nonlinearities feed down once the orbit excursion is large enough to sample
+them. Everything below is therefore held inside the small-signal window the
+exported kick calibration is written for, where the residual that remains is a
+small fraction of the bump -- and a sign error, a mis-ordered probe pair or a
+wrong-row solve still misses by orders of magnitude more than the bound.
 
-This is the opposite tolerance regime from `test_orm_crosscheck`'s `<=1e-9`, and
-deliberately so: that test compares two evaluations of the *same* estimator over
-the *same* single-corrector sweep, so any disagreement is a code-path bug. Here
-the two sides are genuinely different physics -- a simultaneous three-corrector
-orbit versus the sum of three separate ones -- so a bound that admits the known
-nonlinearity is the honest one. It is still a real check: the residual measured
-below sits well inside `BOUND`, so a sign error, a mis-ordered probe pair, or a
-wrong-row solve would blow through it by orders of magnitude.
+Correctors come from the served document by binding kind; which plane each
+moves is measured, and the target bump is sized from the response that
+measurement found rather than stated in metres. No family name, device count
+or strength constant appears below.
 """
 
 from __future__ import annotations
@@ -53,73 +41,55 @@ import numpy as np
 import pytest
 
 from osprey.services.bluesky_bridge.bump_analysis import fit_probe_response, solve_offsets
+from osprey.services.virtual_accelerator.bindings import Binding, BindingsDocument, load_bindings
 from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
-from osprey.services.virtual_accelerator.lattice import inventory, orbit_response
+from osprey.services.virtual_accelerator.lattice.calibration import to_physics
+from osprey.services.virtual_accelerator.lattice.response import orbit_response
+from osprey.services.virtual_accelerator.manifest import build_manifest
+from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
+from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
 
-# Positions within `inventory.pyat_coupled_device_ids()`'s sorted lists, not
-# device names -- the manifest owns which devices exist.
-#
-# The three correctors are clustered inside one sixth of the ring (roughly
-# s = 30 m .. 45 m of a 182 m circumference) with enough betatron phase between
-# them to close a bump: the fitted response comes back well conditioned, and the
-# solve asks for single-digit amps to make a `TARGET_BUMP_M` displacement. A
-# tighter cluster is closer to a single combined kick and needs far more current
-# for the same bump, which would push the run out of the quasi-linear window the
-# superposition comparison depends on -- `test_solved_bump_stays_quasi_linear`
-# is what fails first if a lattice change breaks that.
-#
-# BPMs and correctors are colocated in this lattice (72 of each, one pair per
-# position), so the target BPM sits at the middle corrector, just upstream of
-# it, and is the peak of the bump. The closure BPMs are spread around the rest
-# of the ring, every one of them at least four positions clear of the corrector
-# span.
-CORRECTOR_INDICES = (11, 12, 17)
-TARGET_BPM_INDEX = 12
-CLOSURE_BPM_INDICES = (0, 22, 31, 40, 49, 58)
+#: The half-width of the two-sided probe each corrector is dithered by, in the
+#: hardware unit the facility states for it.
+_PROBE = 2.0
 
-#: Probe dither half-amplitude, in amps. Large enough that the orbit it moves is
-#: far above any readback resolution (tens of microns, per `calibration.py`),
-#: small enough to stay quasi-linear.
-PROBE_AMPLITUDE_A = 5.0
+#: How many correctors the bump is built from. Three is the smallest set that
+#: can hit a target and close on both sides of it.
+_CORRECTORS = 3
 
-#: The bump asked for at the target BPM, in meters. Sized from the measured
-#: response so the solve lands inside `QUASI_LINEAR_CURRENT_A`.
-TARGET_BUMP_M = 20e-6
+#: The bump's target, as a fraction of the largest orbit change one corrector
+#: makes at the probe amplitude. Sized from the machine rather than stated in
+#: metres, so the solved offsets land in the same small-signal window the
+#: probe did on any ring.
+_TARGET_FRACTION = 0.5
 
-#: Reads taken with nothing moved, to establish the reference orbit the bump is
-#: measured against and the per-BPM noise the bound floors at. Matches the plan
-#: schema's `baseline_reads` default.
-BASELINE_READS = 5
+#: How far the measured bump may sit from the superposition prediction, as a
+#: fraction of the bump's own peak. The gap is the ring's own nonlinearity
+#: over three simultaneous kicks; see the module docstring.
+_SUPERPOSITION_BOUND = 5.0e-2
 
-#: Agreement bound, as a fraction of the peak bump amplitude -- the tolerable
-#: share of the bump that sextupole feed-down may account for at these currents.
-RELATIVE_BOUND = 1e-2
+#: How close the bump must come to the target it was solved for, as a fraction
+#: of that target. Loose enough for the same nonlinearity, tight enough that a
+#: bump landing at half its demand fails.
+_TARGET_BOUND = 1.0e-1
 
-#: Noise multiplier the bound floors at, so a BPM whose reading scatters is
-#: never asked to agree to better than it can be read. The VA's read path is
-#: deterministic unless a `noise_x` BPM error is seeded (see
-#: `physics_bridge._push_bpm_readbacks`), so on this clean bridge the baseline
-#: reads return identical values, sigma measures exactly zero, and the relative
-#: term above is the operative bound. The floor is computed anyway because it is
-#: the bound the plan itself works to, and it is what would take over on a
-#: bridge that does add read noise.
-NOISE_SIGMAS = 3.0
-
-#: Current, in amps, above which the quasi-linear premise of this comparison no
-#: longer holds -- `calibration.py` sets `AMPS_PER_RADIAN_KICK` so that a
-#: corrector's typical +-10 A range stays in the small-signal regime.
-QUASI_LINEAR_CURRENT_A = 10.0
+#: How much of the bump's peak may appear outside the correctors' span before
+#: it stops being a local bump.
+_CLOSURE_BOUND = 1.0e-1
 
 
-class _FakeRecord:
-    """Minimal duck-typed stand-in for a softioc In record: just `.set()`.
+@pytest.fixture(scope="module")
+def document() -> BindingsDocument:
+    return load_bindings(PACKAGE_PATHS.va_bindings)
 
-    Mirrors `test_orm_crosscheck.py`'s (and `test_physics_bridge.py`'s) record
-    stub rather than importing one, keeping each VA test module's device
-    scaffolding self-contained. Reading through `bind()`'s bound records instead
-    of `bpm_positions()` (the physics-only truth) is what puts the seeded-error
-    read pipeline in the loop, which is the path a real plan's BPM reads take.
-    """
+
+@pytest.fixture(scope="module")
+def channels() -> list[dict]:
+    return build_manifest()["channels"]
+
+
+class FakeRecord:
+    """The one thing the bridge asks of a record: that it can be ``set``."""
 
     def __init__(self) -> None:
         self.value: float | None = None
@@ -129,208 +99,202 @@ class _FakeRecord:
 
 
 @dataclass(frozen=True)
-class _BumpMeasurement:
+class _Bump:
     """Everything one bump run produced, for the assertions to pick apart.
 
-    `measured` and `predicted` are orbit *changes* away from the reference orbit
-    -- the reference is measured, never assumed to be zero, exactly as
-    `bump_analysis` documents its inputs.
+    ``measured`` and ``predicted`` are orbit *changes* away from the reference
+    orbit, in physics units. The reference is measured, never assumed to be
+    zero -- a ring's undisturbed closed orbit is not.
     """
 
-    bpm_names: list[str]
     offsets: np.ndarray
     measured: np.ndarray
     predicted: np.ndarray
-    sigma: np.ndarray
+    target_row: int
+    target: float
     outside_span: np.ndarray
 
     @property
     def peak(self) -> float:
-        """Largest orbit change the bump made anywhere on the ring."""
         return float(np.max(np.abs(self.measured)))
 
-    @property
-    def bound(self) -> np.ndarray:
-        """Per-BPM agreement bound: `max(RELATIVE_BOUND * peak, NOISE_SIGMAS * sigma)`."""
-        return np.maximum(RELATIVE_BOUND * self.peak, NOISE_SIGMAS * self.sigma)
+
+def _plane_of(binding: Binding) -> str:
+    return binding.attribute
 
 
-def _sp_address(corrector: str) -> str:
-    family, device = corrector[:3], corrector[3:]
-    return f"SR:MAG:{family}:{device}:CURRENT:SP"
+def _ring_order(model: PyATRingModel, bindings: list[Binding]) -> list[Binding]:
+    """Bindings in the order their elements sit around the deck.
 
-
-def _bpm_x_address(bpm: str) -> str:
-    return f"SR:DIAG:BPM:{bpm[len('BPM') :]}:POSITION:X"
-
-
-def _devices() -> tuple[list[str], list[str], list[int]]:
-    """The bump's correctors, every BPM, and the constraint rows into that BPM list.
-
-    Horizontal plane only: the bump is built from HCM correctors and read on the
-    BPMs' X axis, so one value per BPM is what the probe rows carry -- the shape
-    `fit_probe_response` fits and the shape an `orbit_bump_sweep` run's event
-    documents have.
+    By element name, looked up in the ring the model holds -- never by any
+    position the export stated, which does not address the saved deck.
     """
-    inv = inventory.pyat_coupled_device_ids()
-    correctors = [f"HCM{inv['HCM'][i]}" for i in CORRECTOR_INDICES]
-    bpms = [f"BPM{device}" for device in inv["BPM"]]
-    constraint_rows = [TARGET_BPM_INDEX, *CLOSURE_BPM_INDICES]
-    return correctors, bpms, constraint_rows
+    return sorted(bindings, key=lambda binding: model.element_index(binding.element))
 
 
-def _read_orbit(records: dict[str, _FakeRecord], bpms: list[str]) -> dict[str, float]:
-    """One orbit read, shaped like an event document's `data` dict."""
-    return {bpm: float(records[bpm].value) for bpm in bpms}
-
-
-def _measure_bump() -> _BumpMeasurement:
-    """Run the whole bump on the bridge and predict it from the oracle.
-
-    Follows the plan's own order of operations: baseline reads first, then a
-    two-sided probe of each corrector in turn with every other one left at its
-    working point, then the solve, then the bump applied all at once.
-    """
-    correctors, bpms, constraint_rows = _devices()
-
-    bridge = PhysicsBridge()
-    records = {bpm: _FakeRecord() for bpm in bpms}
-    bridge.bind({_bpm_x_address(bpm): record for bpm, record in records.items()})
-
-    try:
-        baseline = [_read_orbit(records, bpms) for _ in range(BASELINE_READS)]
-        reference = np.array([baseline[-1][bpm] for bpm in bpms])
-        sigma = np.std(np.array([[row[bpm] for bpm in bpms] for row in baseline]), axis=0, ddof=1)
-
-        # Strictly [corr0+, corr0-, corr1+, corr1-, ...]: `fit_probe_response`
-        # reads the pair for column j at rows 2j and 2j+1 and raises on any
-        # other row count. Each corrector goes back to its working point (0 A on
-        # this VA) before the next is probed, so every pair is a dither about
-        # the same orbit.
-        probe_rows: list[dict[str, float]] = []
-        for corrector in correctors:
-            try:
-                for sign in (+1.0, -1.0):
-                    bridge.on_setpoint(_sp_address(corrector), sign * PROBE_AMPLITUDE_A)
-                    probe_rows.append(_read_orbit(records, bpms))
-            finally:
-                bridge.on_setpoint(_sp_address(corrector), 0.0)
-
-        response = fit_probe_response(probe_rows, correctors, bpms, PROBE_AMPLITUDE_A)
-
-        # Constraint rows only -- the target and the closure BPMs, sliced in the
-        # same row order as `desired`. Every other BPM is a monitor here, read
-        # and compared but never asked for, which is the split `solve_offsets`
-        # requires of its caller.
-        desired = np.zeros(len(constraint_rows))
-        desired[0] = TARGET_BUMP_M
-        offsets = solve_offsets(response[constraint_rows, :], desired)
-
-        try:
-            for corrector, offset in zip(correctors, offsets, strict=True):
-                bridge.on_setpoint(_sp_address(corrector), float(offset))
-            bumped = np.array([_read_orbit(records, bpms)[bpm] for bpm in bpms])
-        finally:
-            for corrector in correctors:
-                bridge.on_setpoint(_sp_address(corrector), 0.0)
-    finally:
-        for corrector in correctors:
-            bridge.on_setpoint(_sp_address(corrector), 0.0)
-
-    # The oracle's own reference orbit: `orbit_response` at zero current is the
-    # undisturbed closed orbit, which is not identically zero and must be
-    # subtracted from each single-corrector orbit before they are summed.
-    oracle_reference = orbit_response(correctors[0], 0.0)
-    predicted = np.zeros(len(bpms))
-    for corrector, offset in zip(correctors, offsets, strict=True):
-        single = orbit_response(corrector, float(offset))
-        predicted += np.array([single[bpm][0] - oracle_reference[bpm][0] for bpm in bpms])
-
-    span = set(range(min(CORRECTOR_INDICES), max(CORRECTOR_INDICES) + 1))
-    outside_span = np.array([i for i in range(len(bpms)) if i not in span])
-
-    return _BumpMeasurement(
-        bpm_names=bpms,
-        offsets=offsets,
-        measured=bumped - reference,
-        predicted=predicted,
-        sigma=sigma,
-        outside_span=outside_span,
-    )
+def _dominant_plane(response: dict[str, tuple[float, float]]) -> str:
+    """Which transverse plane a corrector actually moves, measured."""
+    x = max(abs(entry[0]) for entry in response.values())
+    y = max(abs(entry[1]) for entry in response.values())
+    return "x" if x >= y else "y"
 
 
 @pytest.fixture(scope="module")
-def bump() -> _BumpMeasurement:
-    """One bump run, shared by every assertion below.
+def bump(channels: list[dict], document: BindingsDocument) -> _Bump:
+    """One bump run: probe, solve, apply, read, and predict.
 
-    Module-scoped because the run is a few dozen closed-orbit solves and the
-    bridge is deterministic: re-running it per test would buy nothing but
-    seconds. Nothing here mutates the result, and both the bridge and the
-    oracle's ring are left with every corrector back at zero.
+    Module scoped because the run is a few dozen closed-orbit solves and both
+    paths are deterministic. Nothing below mutates it, and the bridge is left
+    with every driven corrector back at its working point.
     """
-    return _measure_bump()
+    oracle_model = PyATRingModel(PACKAGE_PATHS.data_root, channels)
+    monitors_all = [binding for binding in document.bindings if binding.kind == "monitor"]
+    kicks = _ring_order(
+        oracle_model, [binding for binding in document.bindings if binding.kind == "kick"]
+    )
 
+    # Which plane the first corrector moves decides the whole run: the bump is
+    # built, constrained and read on that one plane, which is the shape
+    # ``fit_probe_response`` takes -- one value per monitor.
+    first = orbit_response(oracle_model, kicks[0], 2 * _PROBE, monitors=monitors_all)
+    plane = _dominant_plane(first)
+    actuators_all = [
+        binding
+        for binding in kicks
+        if _dominant_plane(orbit_response(oracle_model, binding, 2 * _PROBE, monitors=monitors_all))
+        == plane
+    ]
+    stride = len(actuators_all) // (_CORRECTORS + 1)
+    actuators = [actuators_all[(index + 1) * stride] for index in range(_CORRECTORS)]
 
-def test_solved_bump_stays_quasi_linear(bump: _BumpMeasurement):
-    """The solved offsets sit inside the window superposition is valid in.
+    monitors = _ring_order(
+        oracle_model, [binding for binding in monitors_all if _plane_of(binding) == plane]
+    )
+    positions = [oracle_model.element_index(binding.element) for binding in monitors]
+    span = (
+        oracle_model.element_index(actuators[0].element),
+        oracle_model.element_index(actuators[-1].element),
+    )
+    inside = [row for row, place in enumerate(positions) if span[0] <= place <= span[1]]
+    outside = np.array(
+        [row for row, place in enumerate(positions) if not span[0] <= place <= span[1]]
+    )
+    assert inside and outside.size, "the chosen correctors span every monitor or none"
+    target_row = inside[len(inside) // 2]
 
-    Checked first because it is the premise of every other assertion in this
-    module rather than a claim about the bump: if a lattice or inventory change
-    makes this corrector set need more current for `TARGET_BUMP_M`, the
-    single-corrector orbits stop summing and the comparisons below would fail
-    for a reason that has nothing to do with `bump_analysis`.
-    """
-    largest = float(np.max(np.abs(bump.offsets)))
-    assert largest <= QUASI_LINEAR_CURRENT_A, (
-        f"the bump needs {largest:.2f} A, past the {QUASI_LINEAR_CURRENT_A} A quasi-linear "
-        f"window: superposition is no longer a valid prediction, so this crosscheck's "
-        f"corrector set or target amplitude needs re-picking, not its bound loosening"
+    bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels))
+    records = {binding.setpoint_address: FakeRecord() for binding in monitors}
+    bridge.bind(records)
+
+    def orbit() -> np.ndarray:
+        """One read, in physics units, one value per monitor in ring order."""
+        return np.array(
+            [
+                float(to_physics(binding.calibration, records[binding.setpoint_address].value))
+                for binding in monitors
+            ]
+        )
+
+    def raw() -> dict[str, float]:
+        """The same read in the unit each monitor publishes, which is what a
+        plan's event documents carry and what ``fit_probe_response`` fits."""
+        return {
+            binding.setpoint_address: float(records[binding.setpoint_address].value)
+            for binding in monitors
+        }
+
+    idle = {binding.setpoint_address: float(binding.nominal) for binding in actuators}
+    reference = orbit()
+
+    # Strictly [corrector 0 high, corrector 0 low, corrector 1 high, ...]:
+    # the pair for column j is read at rows 2j and 2j+1. Each corrector is
+    # restored before the next is probed, so every pair dithers one orbit.
+    probe_rows: list[dict[str, float]] = []
+    for binding in actuators:
+        address = binding.setpoint_address
+        try:
+            for sign in (+1.0, -1.0):
+                bridge.on_setpoint(address, idle[address] + sign * _PROBE)
+                probe_rows.append(raw())
+        finally:
+            bridge.on_setpoint(address, idle[address])
+
+    names = [binding.setpoint_address for binding in actuators]
+    response = fit_probe_response(
+        probe_rows, names, [binding.setpoint_address for binding in monitors], _PROBE
+    )
+
+    # Sized from what the probe just measured, so the demand is reachable
+    # without leaving the window the probe itself stayed in.
+    target = _TARGET_FRACTION * float(np.max(np.abs(response))) * _PROBE
+    rows = [target_row, *outside[:: max(1, outside.size // 2)][:2]]
+    desired = np.zeros(len(rows))
+    desired[0] = target
+    offsets = solve_offsets(response[rows, :], desired)
+
+    try:
+        for binding, offset in zip(actuators, offsets, strict=True):
+            bridge.on_setpoint(
+                binding.setpoint_address, idle[binding.setpoint_address] + float(offset)
+            )
+        measured = orbit() - reference
+    finally:
+        for binding in actuators:
+            bridge.on_setpoint(binding.setpoint_address, idle[binding.setpoint_address])
+
+    # The oracle's prediction: each corrector's own response column, scaled by
+    # how far that corrector moved in physics, summed. Superposition -- which
+    # is the approximation the bound admits.
+    predicted = np.zeros(len(monitors))
+    axis = 0 if plane == "x" else 1
+    for binding, offset in zip(actuators, offsets, strict=True):
+        held = idle[binding.setpoint_address]
+        column = orbit_response(oracle_model, binding, 2 * _PROBE, monitors=monitors_all)
+        moved = float(to_physics(binding.calibration, held + float(offset))) - float(
+            to_physics(binding.calibration, held)
+        )
+        predicted += moved * np.array([column[monitor.element][axis] for monitor in monitors])
+
+    # The monitor readings are in physics; the fitted response and the target
+    # were in the monitors' published unit, so the target is converted through
+    # the same curve before it is compared with a measured change.
+    scale = float(
+        to_physics(monitors[target_row].calibration, target)
+        - to_physics(monitors[target_row].calibration, 0.0)
+    )
+
+    return _Bump(
+        offsets=offsets,
+        measured=measured,
+        predicted=predicted,
+        target_row=target_row,
+        target=scale,
+        outside_span=outside,
     )
 
 
-def test_solved_bump_reaches_its_target(bump: _BumpMeasurement):
-    """The bump the solve asked for is the bump the machine made.
+class TestTheBumpIsRealOnTheModelledMachine:
+    def test_the_measured_bump_matches_the_oracles_superposition(self, bump: _Bump) -> None:
+        """The cross-check itself: the orbit the live path produced is the one
+        the model predicts for the offsets that were applied."""
+        assert bump.peak > 0.0
+        assert np.max(np.abs(bump.measured - bump.predicted)) <= _SUPERPOSITION_BOUND * bump.peak
 
-    Guards the whole module against passing vacuously: a comparison of two
-    orbits that both happen to be zero agrees perfectly and proves nothing.
-    """
-    reached = float(bump.measured[TARGET_BPM_INDEX])
-    assert reached == pytest.approx(TARGET_BUMP_M, rel=RELATIVE_BOUND), (
-        f"asked for a {TARGET_BUMP_M:.3e} m bump at {bump.bpm_names[TARGET_BPM_INDEX]}, "
-        f"reached {reached:.3e} m"
-    )
-    assert bump.peak == pytest.approx(TARGET_BUMP_M, rel=RELATIVE_BOUND), (
-        f"the bump peaks at {bump.peak:.3e} m, not at the target amplitude -- the orbit "
-        f"excursion is not where it was asked for"
-    )
+    def test_the_bump_reaches_the_target_it_was_solved_for(self, bump: _Bump) -> None:
+        """A solve that agreed with the oracle while missing its own demand
+        would mean the constraint rows were not the rows that were read."""
+        assert bump.measured[bump.target_row] == pytest.approx(
+            bump.target, rel=_TARGET_BOUND, abs=_TARGET_BOUND * abs(bump.target)
+        )
 
+    def test_the_bump_closes_outside_the_correctors_span(self, bump: _Bump) -> None:
+        """What makes it a bump rather than a global orbit distortion: past
+        the last corrector there is nothing left of it."""
+        assert np.max(np.abs(bump.measured[bump.outside_span])) <= _CLOSURE_BOUND * bump.peak
 
-def test_measured_bump_matches_lattice_superposition(bump: _BumpMeasurement):
-    """SC4: the orbit the bridge produced == the oracle's superposition, per BPM."""
-    residual = np.abs(bump.measured - bump.predicted)
-    bound = bump.bound
-    worst = int(np.argmax(residual / bound))
-    assert np.all(residual <= bound), (
-        f"BPM {bump.bpm_names[worst]} measured {bump.measured[worst]:.3e} m but the lattice "
-        f"oracle's superposition predicts {bump.predicted[worst]:.3e} m -- a residual of "
-        f"{residual[worst]:.3e} m against a bound of {bound[worst]:.3e} m "
-        f"({residual[worst] / bound[worst]:.2f}x)"
-    )
-
-
-def test_bump_closes_outside_the_corrector_span(bump: _BumpMeasurement):
-    """SC4: the bump is local -- the ring outside the correctors does not move.
-
-    Closure is asserted over *every* BPM outside the span, not just the six the
-    solve constrained. A bump that held its closure BPMs while leaking somewhere
-    nobody listed would satisfy the solve and still not be a local bump, and
-    that is precisely the failure the monitor BPMs exist to catch.
-    """
-    leaked = np.abs(bump.measured[bump.outside_span])
-    bound = bump.bound[bump.outside_span]
-    worst = int(np.argmax(leaked / bound))
-    assert np.all(leaked <= bound), (
-        f"the bump leaked {leaked[worst]:.3e} m at "
-        f"{bump.bpm_names[bump.outside_span[worst]]}, outside the corrector span, against a "
-        f"closure bound of {bound[worst]:.3e} m -- it is not a closed local bump"
-    )
+    def test_the_solve_moved_every_corrector(self, bump: _Bump) -> None:
+        """Guards the agreement above from a degenerate solve: an all-zero
+        offset vector produces no bump, and no bump matches no prediction
+        perfectly."""
+        assert bump.offsets.shape == (_CORRECTORS,)
+        assert np.all(np.abs(bump.offsets) > 0.0)

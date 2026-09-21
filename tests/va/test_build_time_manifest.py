@@ -62,6 +62,17 @@ _SOURCE_FILES = (
     "channel_limits.json",
 )
 
+# What a tree adds to those to serve a virtual accelerator: the deck, and the
+# bindings derived against it. They come as a pair -- bindings without their
+# deck are a missing source, and a tree carrying neither partitions by the
+# no-bindings fallback -- so a copy that is to reproduce the bundle's own
+# manifest carries both, while the tests that watch the fallback carry
+# neither.
+_SIMULATION_MODEL_FILES = (
+    "simulation/lattice.json",
+    "simulation/va_bindings.json",
+)
+
 
 #: A hierarchical database levelled the way another facility levels one --
 #: the shipped worked example, five levels with no ring/field/subfield among
@@ -103,9 +114,18 @@ _FOREIGN_TOKEN_DB = {
 }
 
 
-def _facility_tree(root: Path) -> Path:
-    """Copy the bundled sources into ``root`` as a standalone facility tree."""
-    for relative in _SOURCE_FILES:
+def _facility_tree(root: Path, *, simulation_model: bool = False) -> Path:
+    """Copy the bundled sources into ``root`` as a standalone facility tree.
+
+    Args:
+        root: Where the copy lands; becomes the tree's data root.
+        simulation_model: Also copy the deck and the bindings derived against
+            it, which is what makes the copy serve the same virtual
+            accelerator the bundle does. Left out by default so a test can
+            watch the no-bindings fallback partition a tree.
+    """
+    sources = (*_SOURCE_FILES, *(_SIMULATION_MODEL_FILES if simulation_model else ()))
+    for relative in sources:
         source = PACKAGE_PATHS.data_root / relative
         destination = root / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -115,8 +135,22 @@ def _facility_tree(root: Path) -> Path:
 
 @pytest.fixture(scope="module")
 def facility_tree(tmp_path_factory) -> Path:
-    """An unedited copy of the bundled tree, shared by the read-only tests."""
+    """An unedited copy of the bundled tree, shared by the read-only tests.
+
+    Serves no virtual accelerator: the tests on this fixture are the ones that
+    watch a tree with no bindings partition by the fallback.
+    """
     return _facility_tree(tmp_path_factory.mktemp("facility_data"))
+
+
+@pytest.fixture(scope="module")
+def served_facility_tree(tmp_path_factory) -> Path:
+    """The same copy, carrying the bundle's own deck and bindings too.
+
+    What a facility hands a container: the whole tree, so the accelerator the
+    copy serves is the accelerator the bundle serves.
+    """
+    return _facility_tree(tmp_path_factory.mktemp("served_data"), simulation_model=True)
 
 
 @pytest.fixture
@@ -195,8 +229,8 @@ class TestNonProfileBehaviorUnchanged:
 
 
 class TestPreparedFromFacilityTree:
-    def test_copy_of_the_bundle_reproduces_the_bundle_manifest(self, facility_tree):
-        prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
+    def test_copy_of_the_bundle_reproduces_the_bundle_manifest(self, served_facility_tree):
+        prepared = prepare_project_manifest(served_facility_tree, DEFAULT_TIER)
 
         assert prepared is not None
         assert prepared.manifest == build_manifest()
@@ -578,6 +612,698 @@ class TestWriteProjectManifest:
         assert (project_data / "simulation" / LIMITS_FILENAME).read_bytes() == (
             facility_tree / LIMITS_FILENAME
         ).read_bytes()
+
+
+#: A lattice with the shape the copy cares about: valid JSON, and
+#: byte-identical on the other side. Nothing in the generator parses it, so the
+#: smallest well-formed document is the whole requirement. The bindings beside
+#: it are parsed -- they are the partition -- so they are a real document.
+_LATTICE_TEXT = '{"name": "test ring", "elements": []}\n'
+
+#: The digest a hand-written document stamps. The manifest generator never
+#: opens the lattice, so what it holds only has to be a digest's shape.
+_LATTICE_DIGEST = "0" * 64
+
+
+def _linear(gain: float) -> dict:
+    return {"kind": "linear", "gain": gain, "offset": 0.0}
+
+
+def _strength(setpoint: str, readback: str | None, *, element: str = "Q1") -> dict:
+    """A written binding: a magnet current onto one element's ``PolynomB[1]``.
+
+    ``readback`` of ``None`` is the family that serves setpoint and readback on
+    one address, which the schema spells ``same_as_setpoint``.
+    """
+    return {
+        "kind": "strength",
+        "family": "quad_a",
+        "setpoint_address": setpoint,
+        "readback_address": readback,
+        "readback": "identity" if readback is not None else "same_as_setpoint",
+        "element": element,
+        "attribute": "PolynomB",
+        "index": 1,
+        "slices": [{"element": element, "weight": 1.0}],
+        "owner": "quad_a",
+        "calibration": _linear(0.01),
+        "monitor_inverse": None,
+        "nominal": 100.0,
+        "energy_scaling": "brho",
+        "energy_table": None,
+    }
+
+
+def _monitor(address: str, *, axis: str = "x", element: str = "BPM1") -> dict:
+    """A read binding: one transverse axis of one orbit monitor."""
+    return {
+        "kind": "monitor",
+        "family": "mon_a",
+        "setpoint_address": address,
+        "readback_address": None,
+        "readback": "inverse",
+        "element": element,
+        "attribute": axis,
+        "index": None,
+        "slices": [{"element": element, "weight": 1.0}],
+        "owner": "mon_a",
+        "calibration": _linear(1.0e-3),
+        "monitor_inverse": _linear(1.0e3),
+        "nominal": None,
+        "energy_scaling": "none",
+        "energy_table": None,
+    }
+
+
+def _bindings_text(*bindings: dict) -> str:
+    """A whole bindings document carrying *bindings*, as the emit lane writes one."""
+    document = {
+        "system": "StorageRing",
+        "energy_gev": 2.0,
+        "lattice_sha256": _LATTICE_DIGEST,
+        "bindings": list(bindings),
+    }
+    return json.dumps(document, indent=2) + "\n"
+
+
+#: The document a tree gets when the test only cares that it carries one: a
+#: valid document binding nothing, so no address is coupled by it.
+_BINDINGS_TEXT = _bindings_text()
+
+
+def _with_simulation_model(
+    tree: Path, *, lattice: bool = True, bindings: bool = True, document: str | None = None
+) -> Path:
+    """Give *tree* the files that say it serves a virtual accelerator."""
+    paths = ManifestPaths(data_root=tree, tier=DEFAULT_TIER)
+    paths.lattice_json.parent.mkdir(parents=True, exist_ok=True)
+    if lattice:
+        paths.lattice_json.write_text(_LATTICE_TEXT)
+    if bindings:
+        paths.va_bindings.write_text(_BINDINGS_TEXT if document is None else document)
+    return tree
+
+
+class TestSimulationModelSources:
+    """The lattice and the bindings travel with the manifest that names them.
+
+    A container is handed one directory, so a model left behind in the source
+    tree is a model the virtual accelerator cannot load. The copies are
+    byte-for-byte, which is what keeps the lattice digest recorded at emit time
+    equal to the digest of the file the container reads.
+    """
+
+    def test_a_tree_carrying_lattice_and_bindings_backs_a_manifest(self, editable_tree):
+        _with_simulation_model(editable_tree)
+        paths = ManifestPaths(data_root=editable_tree, tier=DEFAULT_TIER)
+
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        assert prepared is not None
+        assert prepared.model_sources == (paths.lattice_json, paths.va_bindings)
+
+    def test_bindings_without_a_lattice_refuse_the_build(self, editable_tree):
+        _with_simulation_model(editable_tree, lattice=False)
+
+        assert prepare_project_manifest(editable_tree, DEFAULT_TIER) is None
+        assert "simulation/lattice.json" in manifest_gap_reason(editable_tree, DEFAULT_TIER)
+
+    def test_a_lattice_nothing_is_bound_to_is_not_a_source(self, editable_tree):
+        """Without bindings no channel reaches the ring, so none of it ships."""
+        _with_simulation_model(editable_tree, bindings=False)
+
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        assert prepared is not None
+        assert prepared.model_sources == ()
+
+    def test_lattice_and_bindings_land_beside_the_manifest(self, editable_tree, tmp_path):
+        _with_simulation_model(editable_tree)
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+        project_data = tmp_path / "project" / "data"
+        project_data.mkdir(parents=True)
+
+        manifest_path = write_project_manifest(prepared, project_data)
+
+        built = ManifestPaths(data_root=project_data, tier=DEFAULT_TIER)
+        assert built.lattice_json.parent == manifest_path.parent
+        assert built.lattice_json.is_file()
+        assert built.va_bindings.is_file()
+
+    def test_the_lattice_and_bindings_copies_are_byte_identical(self, editable_tree, tmp_path):
+        _with_simulation_model(editable_tree)
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+        project_data = tmp_path / "project" / "data"
+        project_data.mkdir(parents=True)
+
+        write_project_manifest(prepared, project_data)
+
+        built = ManifestPaths(data_root=project_data, tier=DEFAULT_TIER)
+        source = ManifestPaths(data_root=editable_tree, tier=DEFAULT_TIER)
+        assert built.lattice_json.read_bytes() == source.lattice_json.read_bytes()
+        assert built.va_bindings.read_bytes() == source.va_bindings.read_bytes()
+
+    def test_a_tree_serving_no_lattice_copies_neither_file(self, facility_tree, tmp_path):
+        prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
+        project_data = tmp_path / "data"
+        project_data.mkdir()
+
+        write_project_manifest(prepared, project_data)
+
+        built = ManifestPaths(data_root=project_data, tier=DEFAULT_TIER)
+        assert not built.lattice_json.exists()
+        assert not built.va_bindings.exists()
+
+    def test_writing_into_the_source_tree_leaves_the_lattice_alone(self, editable_tree):
+        """Destination and source are one file when a tree is built in place."""
+        _with_simulation_model(editable_tree)
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+        paths = ManifestPaths(data_root=editable_tree, tier=DEFAULT_TIER)
+
+        write_project_manifest(prepared, editable_tree)
+
+        assert paths.lattice_json.read_text() == _LATTICE_TEXT
+        assert paths.va_bindings.read_text() == _BINDINGS_TEXT
+
+
+# --- the partition rule ------------------------------------------------------
+
+
+def _by_address(manifest: dict) -> dict[str, dict]:
+    return {channel["address"]: channel for channel in manifest["channels"]}
+
+
+def _a_stated_pair(manifest: dict) -> tuple[str, str]:
+    """A setpoint and its readback, as the unedited tree itself states them.
+
+    Read off the manifest rather than spelled out, so nothing here carries one
+    facility's address vocabulary: whichever device field the bundled tree
+    happens to state first is as good as any other for the rule under test.
+    """
+    halves: dict[tuple[str, ...], dict[str, str]] = {}
+    for channel in manifest["channels"]:
+        key = (
+            channel["ring"],
+            channel["system"],
+            channel["family"],
+            channel["device"],
+            channel["field"],
+        )
+        halves.setdefault(key, {})[channel["subfield"]] = channel["address"]
+    for group in sorted(halves.values(), key=lambda g: sorted(g.values())):
+        if "SP" in group and "RB" in group:
+            return group["SP"], group["RB"]
+    raise AssertionError("the bundled tree states no setpoint/readback pair")
+
+
+def _an_unpaired_analog(manifest: dict) -> str:
+    """An address the unedited tree serves static-noisy, for a monitor binding."""
+    for channel in sorted(manifest["channels"], key=lambda c: c["address"]):
+        if channel["partition"] == classify.PARTITION_STATIC_NOISY and channel["record_type"] == (
+            classify.RECORD_TYPE_ANALOG
+        ):
+            return channel["address"]
+    raise AssertionError("the bundled tree serves no static-noisy analog channel")
+
+
+class TestTheBindingsAreThePyatCoupledPartition:
+    """What a write steers the beam with is what the tree's bindings say it is.
+
+    No address text, no hierarchy token and no family list decides this
+    partition, so the same generator serves a facility whose magnets are
+    called anything at all.
+    """
+
+    def test_a_tree_carrying_no_bindings_couples_nothing(self, facility_tree):
+        prepared = prepare_project_manifest(facility_tree, DEFAULT_TIER)
+
+        metadata = prepared.manifest["_metadata"]
+        assert classify.PARTITION_PYAT_COUPLED not in metadata["by_partition"]
+        assert metadata["partition_source"] == "none"
+
+    def test_a_bound_setpoint_and_its_readback_become_the_coupled_pair(self, editable_tree):
+        baseline = prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest
+        setpoint, readback = _a_stated_pair(baseline)
+        _with_simulation_model(
+            editable_tree, document=_bindings_text(_strength(setpoint, readback))
+        )
+
+        served = _by_address(prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest)
+
+        assert served[setpoint]["partition"] == classify.PARTITION_PYAT_COUPLED
+        assert served[readback]["partition"] == classify.PARTITION_PYAT_COUPLED
+        assert served[setpoint]["subfield"] == "SP"
+        assert served[readback]["subfield"] == "RB"
+
+    def test_the_pair_is_keyed_on_the_setpoint_address_alone(self, editable_tree):
+        """The bindings pair the two halves, so the bindings supply the key.
+
+        A hierarchy path cannot be trusted to agree with a document that is
+        free to serve a readback anywhere in the namespace, so the identity
+        keys are emptied and the setpoint's own address carries the pair --
+        the key ``serving/pvdb`` matches the two records on.
+        """
+        baseline = prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest
+        setpoint, readback = _a_stated_pair(baseline)
+        _with_simulation_model(
+            editable_tree, document=_bindings_text(_strength(setpoint, readback))
+        )
+
+        served = _by_address(prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest)
+
+        for half in (served[setpoint], served[readback]):
+            assert half["device"] == setpoint
+            assert half["ring"] == half["system"] == half["family"] == half["field"] == ""
+            assert half["record_type"] == classify.RECORD_TYPE_ANALOG
+
+    def test_the_coupled_setpoints_are_exactly_the_documents_own(self, editable_tree):
+        """The equality the deployed model is built against."""
+        from osprey.services.virtual_accelerator.bindings import parse_bindings, setpoints
+
+        baseline = prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest
+        setpoint, readback = _a_stated_pair(baseline)
+        monitor = _an_unpaired_analog(baseline)
+        text = _bindings_text(_strength(setpoint, readback), _monitor(monitor))
+        _with_simulation_model(editable_tree, document=text)
+
+        manifest = prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest
+
+        document = parse_bindings(json.loads(text))
+        assert classify.pyat_coupled_setpoint_addresses(manifest["channels"]) == set(
+            setpoints(document)
+        )
+
+    def test_a_monitor_is_served_under_the_axis_it_reads(self, editable_tree):
+        baseline = prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest
+        monitor = _an_unpaired_analog(baseline)
+        _with_simulation_model(editable_tree, document=_bindings_text(_monitor(monitor, axis="y")))
+
+        served = _by_address(prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest)
+
+        assert served[monitor]["partition"] == classify.PARTITION_PYAT_COUPLED
+        assert served[monitor]["subfield"] == "Y"
+        assert served[monitor]["device"] == monitor
+        # A monitor is read, never written: it is not one of the setpoints.
+        assert monitor not in classify.setpoint_addresses(
+            prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest["channels"]
+        )
+
+    def test_one_address_carrying_both_halves_emits_one_setpoint(self, editable_tree):
+        """``same_as_setpoint``: there is no second channel, so there is no RB."""
+        baseline = prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest
+        setpoint, readback = _a_stated_pair(baseline)
+        _with_simulation_model(editable_tree, document=_bindings_text(_strength(setpoint, None)))
+
+        served = _by_address(prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest)
+
+        assert served[setpoint]["subfield"] == "SP"
+        assert served[setpoint]["partition"] == classify.PARTITION_PYAT_COUPLED
+        # The tree's own readback channel is still served, just not coupled.
+        assert served[readback]["partition"] == classify.PARTITION_STATIC_NOISY
+
+    def test_a_bound_pair_stops_being_an_echo_pair(self, editable_tree):
+        """The partitions are exclusive: an address coupled is not echoed."""
+        baseline = prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest
+        setpoint, readback = _a_stated_pair(baseline)
+        assert _by_address(baseline)[setpoint]["partition"] == classify.PARTITION_SP_ECHO
+        _with_simulation_model(
+            editable_tree, document=_bindings_text(_strength(setpoint, readback))
+        )
+
+        manifest = prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest
+
+        counts = manifest["_metadata"]["by_partition"]
+        assert counts[classify.PARTITION_PYAT_COUPLED] == 2
+        assert counts[classify.PARTITION_SP_ECHO] == (
+            baseline["_metadata"]["by_partition"][classify.PARTITION_SP_ECHO] - 2
+        )
+
+    def test_metadata_names_the_document_that_claimed_the_partition(self, editable_tree):
+        _with_simulation_model(editable_tree)
+
+        prepared = prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+        assert prepared.manifest["_metadata"]["partition_source"] == "simulation/va_bindings.json"
+
+    def test_an_address_no_database_named_still_arrives_from_the_bindings(self, editable_tree):
+        """The coupled entries ARE the document, whatever the databases listed.
+
+        Normally nothing to report -- one emit run writes both files -- so the
+        discrepancy is recorded rather than swallowed.
+        """
+        novel = "ZZRING:ZZSYS:ZZFAM:99:ZZFIELD:SP"
+        _with_simulation_model(editable_tree, document=_bindings_text(_strength(novel, None)))
+
+        manifest = prepare_project_manifest(editable_tree, DEFAULT_TIER).manifest
+
+        served = _by_address(manifest)
+        assert served[novel]["partition"] == classify.PARTITION_PYAT_COUPLED
+        assert manifest["_metadata"]["bindings_novel_addresses"] == [novel]
+
+    def test_a_refused_document_stops_the_manifest_by_name(self, editable_tree):
+        from osprey.services.virtual_accelerator.bindings import BindingsError
+
+        _with_simulation_model(editable_tree, document='{"system": "SR"}\n')
+
+        with pytest.raises(BindingsError, match="va_bindings.json"):
+            prepare_project_manifest(editable_tree, DEFAULT_TIER)
+
+
+class TestSetpointEchoPairsFromAHierarchyPath:
+    """Without bindings, a pair is the SP/RB halves of one device field."""
+
+    def test_every_echo_channel_is_one_half_of_a_stated_pair(self, facility_tree):
+        manifest = prepare_project_manifest(facility_tree, DEFAULT_TIER).manifest
+
+        halves: dict[tuple, set[str]] = {}
+        for channel in manifest["channels"]:
+            if channel["partition"] != classify.PARTITION_SP_ECHO:
+                continue
+            assert channel["subfield"] in ("SP", "RB")
+            key = (
+                channel["ring"],
+                channel["system"],
+                channel["family"],
+                channel["device"],
+                channel["field"],
+            )
+            halves.setdefault(key, set()).add(channel["subfield"])
+        assert halves, "the bundled tree states setpoint/readback pairs"
+        assert all(group == {"SP", "RB"} for group in halves.values())
+
+    def test_a_setpoint_is_echoed_only_where_the_tree_states_a_readback(self, facility_tree):
+        """Every writable channel of this tree is paired; none is left dangling.
+
+        The serving layer refuses an echo setpoint with nothing to echo into,
+        so the generator must never make one.
+        """
+        manifest = prepare_project_manifest(facility_tree, DEFAULT_TIER).manifest
+
+        echoes = {
+            channel["address"]
+            for channel in manifest["channels"]
+            if channel["partition"] == classify.PARTITION_SP_ECHO
+        }
+        setpoints = classify.setpoint_addresses(manifest["channels"])
+        assert setpoints <= echoes
+
+    def test_a_status_flag_is_not_a_readback(self, facility_tree):
+        """It shares no subfield vocabulary with a setpoint, so it pairs with none."""
+        manifest = prepare_project_manifest(facility_tree, DEFAULT_TIER).manifest
+
+        flags = [
+            channel
+            for channel in manifest["channels"]
+            if channel["record_type"] == classify.RECORD_TYPE_BINARY
+        ]
+        assert flags, "the bundled tree carries status flags"
+        assert all(channel["partition"] == classify.PARTITION_STATIC_NOISY for channel in flags)
+
+
+# --- a tree with no hierarchy path -------------------------------------------
+
+#: A middle-layer database in the shape a real MML export has: one list of
+#: addresses per (family, field), the field's direction stated by its
+#: ``MemberOf`` tags, and its quantity by ``HWUnits``. The second setpoint
+#: group (``SPKL``) is NSLS-II's shape: a magnet states its kick angle beside
+#: its current, so a family alone does not say which readback a setpoint
+#: echoes into.
+_MML_DB = {
+    "ZZSR": {
+        "QUADA": {
+            "setup": {"DeviceList": [[1, 1], [1, 2]], "CommonNames": ["Q1", "Q2"]},
+            "Setpoint": {
+                "MemberOf": ["Magnet", "Setpoint"],
+                "HWUnits": "A",
+                "ChannelNames": ["ZZ-QUADA{1}Cur:Sp", "ZZ-QUADA{2}Cur:Sp"],
+            },
+            "Monitor": {
+                "MemberOf": ["Magnet", "Monitor"],
+                "HWUnits": "A",
+                "ChannelNames": ["ZZ-QUADA{1}Cur:Am", "ZZ-QUADA{2}Cur:Am"],
+            },
+            "SPKL": {
+                "MemberOf": ["Magnet", "Setpoint"],
+                "HWUnits": "T*m^-1",
+                "ChannelNames": ["ZZ-QUADA{1}K:Sp", "ZZ-QUADA{2}K:Sp"],
+            },
+            "RBKL": {
+                "MemberOf": ["Magnet", "Readback"],
+                "HWUnits": "T*m^-1",
+                "ChannelNames": ["ZZ-QUADA{1}K:Rb", "ZZ-QUADA{2}K:Rb"],
+            },
+        },
+        "SWITCHA": {
+            "setup": {"DeviceList": [[1, 1], [1, 2]], "CommonNames": ["S1", "S2"]},
+            "OnControl": {
+                "MemberOf": ["Magnet", "Control"],
+                "HWUnits": "",
+                "ChannelNames": ["ZZ-SWITCHA{1}On:Sp", "ZZ-SWITCHA{2}On:Sp"],
+            },
+            "Fault": {
+                "MemberOf": ["Magnet", "Monitor"],
+                "HWUnits": "",
+                "ChannelNames": ["ZZ-SWITCHA{1}Flt:Am", "ZZ-SWITCHA{2}Flt:Am"],
+            },
+        },
+        "AMBIGA": {
+            "setup": {"DeviceList": [[1, 1], [1, 2]], "CommonNames": ["A1", "A2"]},
+            "Setpoint": {
+                "MemberOf": ["Magnet", "Setpoint"],
+                "HWUnits": "A",
+                "ChannelNames": ["ZZ-AMBIGA{1}Cur:Sp", "ZZ-AMBIGA{2}Cur:Sp"],
+            },
+            "Monitor": {
+                "MemberOf": ["Magnet", "Monitor"],
+                "HWUnits": "A",
+                "ChannelNames": ["ZZ-AMBIGA{1}Cur:Am", "ZZ-AMBIGA{2}Cur:Am"],
+            },
+            "Readback": {
+                "MemberOf": ["Magnet", "Monitor"],
+                "HWUnits": "A",
+                "ChannelNames": ["ZZ-AMBIGA{1}Cur:Rb", "ZZ-AMBIGA{2}Cur:Rb"],
+            },
+        },
+        "SHIFTA": {
+            "setup": {"DeviceList": [[1, 1], [1, 2], [1, 3]], "CommonNames": ["H1", "H2", "H3"]},
+            "Setpoint": {
+                "MemberOf": ["Magnet", "Setpoint"],
+                "HWUnits": "A",
+                "ChannelNames": ["", "ZZ-SHIFTA{2}Cur:Sp", "ZZ-SHIFTA{3}Cur:Sp"],
+            },
+            "Monitor": {
+                "MemberOf": ["Magnet", "Monitor"],
+                "HWUnits": "A",
+                "ChannelNames": [
+                    "ZZ-SHIFTA{1}Cur:Am",
+                    "ZZ-SHIFTA{2}Cur:Am",
+                    "ZZ-SHIFTA{1}Cur:Am",
+                ],
+            },
+        },
+        "MONA": {
+            "setup": {"DeviceList": [[1, 1]], "CommonNames": ["M1"]},
+            "Monitor": {
+                "MemberOf": ["Monitor"],
+                "HWUnits": "mm",
+                "ChannelNames": ["ZZ-MONA{1}Pos:X"],
+            },
+        },
+    }
+}
+
+_MML_SETPOINTS = ("ZZ-QUADA{1}Cur:Sp", "ZZ-QUADA{2}Cur:Sp")
+_MML_READBACKS = ("ZZ-QUADA{1}Cur:Am", "ZZ-QUADA{2}Cur:Am")
+_MML_KICK_SETPOINT = "ZZ-QUADA{1}K:Sp"
+_MML_MONITOR = "ZZ-MONA{1}Pos:X"
+#: The two halves of a family that states no hardware units on either.
+_MML_UNITLESS_WRITE = ("ZZ-SWITCHA{1}On:Sp", "ZZ-SWITCHA{2}On:Sp")
+_MML_UNITLESS_READ = ("ZZ-SWITCHA{1}Flt:Am", "ZZ-SWITCHA{2}Flt:Am")
+#: A setpoint two read-voted groups of the same quantity and count could answer.
+_MML_TWICE_ANSWERED_SETPOINT = "ZZ-AMBIGA{1}Cur:Sp"
+_MML_TWICE_ANSWERED_READS = ("ZZ-AMBIGA{1}Cur:Am", "ZZ-AMBIGA{1}Cur:Rb")
+#: A family whose setpoint list is blank at its first device and whose monitor
+#: list repeats that device's address at its third: equal counts, places that
+#: no longer line up, and exactly one device both fields state.
+_MML_SHIFTED_PAIR = ("ZZ-SHIFTA{2}Cur:Sp", "ZZ-SHIFTA{2}Cur:Am")
+_MML_SHIFTED_LONE_SETPOINT = "ZZ-SHIFTA{3}Cur:Sp"
+_MML_SHIFTED_LONE_MONITOR = "ZZ-SHIFTA{1}Cur:Am"
+
+
+@pytest.fixture(scope="module")
+def middle_layer_tree(tmp_path_factory) -> Path:
+    """A data tree staging a middle-layer database and nothing else.
+
+    The shape every MML-emitted tree has: no hierarchical database, so no
+    channel carries a hierarchy path and every partition, record type and
+    noise flag is read off the middle-layer database's own signal groups.
+    """
+    root = tmp_path_factory.mktemp("mml_data")
+    paths = ManifestPaths(data_root=root, tier=DEFAULT_TIER)
+    paths.middle_layer_db.parent.mkdir(parents=True, exist_ok=True)
+    paths.middle_layer_db.write_text(json.dumps(_MML_DB))
+    paths.machine_json.parent.mkdir(parents=True, exist_ok=True)
+    paths.machine_json.write_text(json.dumps({"name": "zz", "channels": {}}))
+    paths.machine_state_channels.write_text("{}")
+    paths.channel_limits.write_text(json.dumps({"_version": "1.0"}))
+    return root
+
+
+class TestPartitionsWithoutAHierarchyPath:
+    """A middle-layer database states its pairs by signal group, not by path."""
+
+    def test_a_write_voted_group_pairs_with_its_read_voted_sibling(self, middle_layer_tree):
+        served = _by_address(prepare_project_manifest(middle_layer_tree, DEFAULT_TIER).manifest)
+
+        for setpoint, readback in zip(_MML_SETPOINTS, _MML_READBACKS, strict=True):
+            assert served[setpoint]["partition"] == classify.PARTITION_SP_ECHO
+            assert served[readback]["partition"] == classify.PARTITION_SP_ECHO
+            assert served[setpoint]["subfield"] == "SP"
+            assert served[readback]["subfield"] == "RB"
+            assert served[setpoint]["device"] == served[readback]["device"] == setpoint
+
+    def test_a_setpoint_measuring_another_quantity_is_not_paired(self, middle_layer_tree):
+        """Same family, different units: not the readback of this setpoint.
+
+        Echoing a current onto a kick-angle readback would publish a reading
+        the facility never claimed, so the group is left unpaired instead.
+        """
+        served = _by_address(prepare_project_manifest(middle_layer_tree, DEFAULT_TIER).manifest)
+
+        assert served[_MML_KICK_SETPOINT]["partition"] == classify.PARTITION_STATIC_NOISY
+
+    def test_a_group_stating_no_units_pairs_with_nothing(self, middle_layer_tree):
+        """Two groups that state no units do not thereby measure the same thing.
+
+        An absent unit is the absence of a statement, so a write-voted control
+        and a read-voted flag stay apart: echoing the write onto the flag
+        would publish a reading the facility never claimed.
+        """
+        served = _by_address(prepare_project_manifest(middle_layer_tree, DEFAULT_TIER).manifest)
+
+        for address in _MML_UNITLESS_WRITE + _MML_UNITLESS_READ:
+            assert served[address]["partition"] == classify.PARTITION_STATIC_NOISY
+            assert served[address]["subfield"] == ""
+
+    def test_a_setpoint_two_read_groups_could_answer_is_not_paired(self, middle_layer_tree):
+        """Two candidates of one quantity and count identify neither as the pair."""
+        served = _by_address(prepare_project_manifest(middle_layer_tree, DEFAULT_TIER).manifest)
+
+        assert served[_MML_TWICE_ANSWERED_SETPOINT]["partition"] == classify.PARTITION_STATIC_NOISY
+        for address in _MML_TWICE_ANSWERED_READS:
+            assert served[address]["partition"] == classify.PARTITION_STATIC_NOISY
+
+    def test_a_pair_is_the_device_both_fields_state(self, middle_layer_tree):
+        """The device position pairs the halves, not their place in the list.
+
+        A field that leaves a device blank and a sibling that repeats one
+        device's address keep the same number of addresses while their places
+        no longer line up; only the device both fields state is a pair, and
+        the halves that stand alone are served unpaired.
+        """
+        setpoint, readback = _MML_SHIFTED_PAIR
+        served = _by_address(prepare_project_manifest(middle_layer_tree, DEFAULT_TIER).manifest)
+
+        assert served[setpoint]["partition"] == classify.PARTITION_SP_ECHO
+        assert served[readback]["partition"] == classify.PARTITION_SP_ECHO
+        assert served[setpoint]["device"] == served[readback]["device"] == setpoint
+        assert served[_MML_SHIFTED_LONE_SETPOINT]["partition"] == classify.PARTITION_STATIC_NOISY
+        assert served[_MML_SHIFTED_LONE_MONITOR]["partition"] == classify.PARTITION_STATIC_NOISY
+
+    def test_every_channel_is_analog(self, middle_layer_tree):
+        """No hierarchy path means no record-type grammar to read one off."""
+        manifest = prepare_project_manifest(middle_layer_tree, DEFAULT_TIER).manifest
+
+        assert {c["record_type"] for c in manifest["channels"]} == {classify.RECORD_TYPE_ANALOG}
+
+    def test_noise_is_the_address_read_vote(self, middle_layer_tree):
+        """A measured address jitters; one that reports a write does not."""
+        served = _by_address(prepare_project_manifest(middle_layer_tree, DEFAULT_TIER).manifest)
+
+        assert served[_MML_MONITOR]["noise"] is True
+        assert served[_MML_READBACKS[0]]["noise"] is True
+        assert served[_MML_SETPOINTS[0]]["noise"] is False
+        assert served[_MML_KICK_SETPOINT]["noise"] is False
+
+    def test_an_unpaired_monitor_is_static_noisy(self, middle_layer_tree):
+        served = _by_address(prepare_project_manifest(middle_layer_tree, DEFAULT_TIER).manifest)
+
+        assert served[_MML_MONITOR]["partition"] == classify.PARTITION_STATIC_NOISY
+        assert served[_MML_MONITOR]["subfield"] == ""
+
+    def test_a_bound_address_leaves_the_echo_pair_for_the_model(self, middle_layer_tree, tmp_path):
+        """The bindings win over the database's own pairing, on every tree."""
+        root = tmp_path / "bound"
+        shutil.copytree(middle_layer_tree, root)
+        _with_simulation_model(
+            root,
+            document=_bindings_text(_strength(_MML_SETPOINTS[0], _MML_READBACKS[0])),
+        )
+
+        served = _by_address(prepare_project_manifest(root, DEFAULT_TIER).manifest)
+
+        assert served[_MML_SETPOINTS[0]]["partition"] == classify.PARTITION_PYAT_COUPLED
+        assert served[_MML_READBACKS[0]]["partition"] == classify.PARTITION_PYAT_COUPLED
+        # The sibling device is untouched: one binding claims one device.
+        assert served[_MML_SETPOINTS[1]]["partition"] == classify.PARTITION_SP_ECHO
+
+
+# --- the re-exported facility trees ------------------------------------------
+
+#: Where the SERVED trees are looked for. A served tree is a data root
+#: carrying ``simulation/va_bindings.json``; the lane below runs for every
+#: such tree under the MML fixtures, and says so rather than passing on
+#: nothing when the fixtures carry none.
+_MML_FIXTURE_ROOT = Path(__file__).resolve().parents[1] / "fixtures" / "mml"
+
+
+def _served_fixture_trees() -> list[Path]:
+    return sorted(
+        path.parent.parent for path in _MML_FIXTURE_ROOT.rglob("simulation/va_bindings.json")
+    )
+
+
+@pytest.mark.skipif(
+    not _served_fixture_trees(),
+    reason="no data root under tests/fixtures/mml carries simulation/va_bindings.json",
+)
+@pytest.mark.parametrize(
+    "tree", _served_fixture_trees() or [None], ids=lambda p: getattr(p, "name", "none")
+)
+class TestReExportedFacilityTrees:
+    """The rule against the real thing, on whichever facilities ship a tree.
+
+    Facility-agnostic by construction: every name here is read out of the tree
+    under test, so adding a third facility's fixture adds a third case and no
+    code.
+    """
+
+    def test_the_coupled_setpoints_are_the_documents_own(self, tree):
+        from osprey.services.virtual_accelerator.bindings import load_bindings, setpoints
+
+        paths = ManifestPaths(data_root=tree, tier=DEFAULT_TIER)
+        prepared = prepare_project_manifest(tree, DEFAULT_TIER)
+
+        assert prepared is not None
+        document = load_bindings(paths.va_bindings)
+        assert classify.pyat_coupled_setpoint_addresses(prepared.manifest["channels"]) == set(
+            setpoints(document)
+        )
+
+    def test_every_entry_is_analog_and_noise_follows_the_read_vote(self, tree):
+        manifest = prepare_project_manifest(tree, DEFAULT_TIER).manifest
+
+        assert {c["record_type"] for c in manifest["channels"]} == {classify.RECORD_TYPE_ANALOG}
+        for channel in manifest["channels"]:
+            if channel["subfield"] == "SP":
+                assert channel["noise"] is False, channel["address"]
+            elif channel["subfield"] == "RB":
+                assert channel["noise"] is True, channel["address"]
+
+    def test_the_document_names_itself_as_the_partition_source(self, tree):
+        manifest = prepare_project_manifest(tree, DEFAULT_TIER).manifest
+
+        assert manifest["_metadata"]["partition_source"] == "simulation/va_bindings.json"
 
 
 # --- the knowledge-graph source ---------------------------------------------

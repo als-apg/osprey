@@ -210,3 +210,71 @@ class TestUnknownPipelineType:
         resp = client.get("/api/statistics")
         assert resp.status_code == 400
         assert "channel_finder.pipeline_mode" in resp.json()["detail"]
+
+
+class TestExploreChannelsProtocol:
+    """GET /api/explore/channels passes the optional ``protocol`` through."""
+
+    _DB = {
+        "RING": {
+            "KICK": {
+                "Voltage": {
+                    "ChannelNames": ["K1:V", "K2:V"],
+                    "TangoNames": ["ring/kick/1/v", "ring/kick/2/v"],
+                },
+                "Current": {"TangoNames": ["ring/kick/1/i", "ring/kick/2/i"]},
+                "setup": {"DeviceList": [[1, 1], [1, 2]]},
+            }
+        }
+    }
+
+    def _database(self, tmp_path):
+        import json
+
+        from osprey.services.channel_finder.databases.middle_layer import MiddleLayerDatabase
+
+        path = tmp_path / "middle_layer.json"
+        path.write_text(json.dumps(self._DB), encoding="utf-8")
+        return MiddleLayerDatabase(str(path))
+
+    def test_absent_protocol_keeps_the_positional_call(self, client):
+        client.app.state.pipeline_type = "middle_layer"
+        mock_db = MagicMock()
+        mock_db.list_channel_names.return_value = ["K1:V"]
+        with patch(_DB_PATCH, return_value=mock_db):
+            resp = client.get("/api/explore/channels?system=RING&family=KICK&field=Voltage")
+        assert resp.status_code == 200
+        assert resp.json() == {"channels": ["K1:V"], "total": 1}
+        mock_db.list_channel_names.assert_called_once_with(
+            "RING", "KICK", "Voltage", None, None, None
+        )
+
+    def test_tango_protocol_on_dual_key(self, client, tmp_path):
+        client.app.state.pipeline_type = "middle_layer"
+        with patch(_DB_PATCH, return_value=self._database(tmp_path)):
+            resp = client.get(
+                "/api/explore/channels?system=RING&family=KICK&field=Voltage&protocol=tango"
+            )
+        assert resp.status_code == 200
+        assert resp.json() == {"channels": ["ring/kick/1/v", "ring/kick/2/v"], "total": 2}
+
+    def test_absent_protocol_key_names_the_keys_present(self, client, tmp_path):
+        client.app.state.pipeline_type = "middle_layer"
+        with patch(_DB_PATCH, return_value=self._database(tmp_path)):
+            resp = client.get(
+                "/api/explore/channels?system=RING&family=KICK&field=Current&protocol=ca"
+            )
+        assert resp.status_code == 500
+        detail = resp.json()["detail"]
+        assert "ChannelNames" in detail
+        assert "TangoNames" in detail
+
+    def test_unknown_protocol_is_refused_by_the_enum(self, client):
+        client.app.state.pipeline_type = "middle_layer"
+        mock_db = MagicMock()
+        with patch(_DB_PATCH, return_value=mock_db):
+            resp = client.get(
+                "/api/explore/channels?system=RING&family=KICK&field=Voltage&protocol=pva"
+            )
+        assert resp.status_code == 422
+        mock_db.list_channel_names.assert_not_called()

@@ -903,10 +903,18 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
         # static monitor -- so a sweep of one drains in seconds and the ~1 s
         # liveness sampling test_3 rests on never sees a row count advance. The
         # grid sizes above are calibrated against modelled devices.
+        # Asked of THIS deployment's tree, not of the bundled one: the answer is
+        # about the channels these containers serve, and a deployment harvested
+        # from a facility export couples an entirely different set.
+        deployed = repo / "data"
         correctors = {
-            name: pair for name, pair in correctors.items() if _orm_stack.pyat_coupled(pair[0])
+            name: pair
+            for name, pair in correctors.items()
+            if _orm_stack.pyat_coupled(pair[0], data_root=deployed)
         }
-        bpms = {name: pv for name, pv in bpms.items() if _orm_stack.pyat_coupled(pv)}
+        bpms = {
+            name: pv for name, pv in bpms.items() if _orm_stack.pyat_coupled(pv, data_root=deployed)
+        }
         assert correctors, "the build staged no modelled settable device -- nothing to drive"
         assert bpms, "the build staged no modelled readable device -- nothing to read"
 

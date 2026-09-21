@@ -1,0 +1,1129 @@
+facility:
+  token: NSLS2
+  title: NSLS2
+  description: NSLS-II, the 3 GeV storage-ring light source at Brookhaven National Laboratory. The export
+    covers the storage ring and the linac-to-booster transfer line, both taken from the Middle Layer in
+    simulator mode.
+  provenance: stated
+systems:
+  StorageRing:
+    name: StorageRing
+    description: 'The NSLS-II storage ring at 3.0 GeV: 30 cells of quadrupoles, sextupoles, skew quadrupoles
+      and orbit correctors, with 180 beam position monitors, a DCCT, the RF master oscillator and the
+      tune measurement.'
+    provenance: stated
+  LTB:
+    name: LTB
+    description: 'The NSLS-II linac-to-booster transfer line at 200 MeV: bends, quadrupoles, orbit correctors,
+      beam position monitors and fluorescent screens.'
+    provenance: stated
+section_order:
+- StorageRing
+- LTB
+families:
+  BEND:
+    class: Dipole
+    aliases:
+    - BEND
+    description: 'Main dipoles: the storage-ring bend string (one supply per pair of cells) and the four
+      LTB bends, each with a current readback and setpoint; the LTB bends also carry an on/off control
+      and a summary fault.'
+    provenance: stated
+    channels: 136
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet.
+        provenance: stated
+      Fault:
+        description: Power-supply summary fault status per LTB device (boolean monitor).
+        provenance: stated
+      OnControl:
+        description: Power-supply on/off control per LTB device (boolean control).
+        provenance: stated
+  BPMx:
+    class: BeamPositionMonitor
+    aliases:
+    - BPMx
+    description: 'Horizontal beam position monitors: 180 in the storage ring (position, turn-by-turn)
+      and 7 in the LTB (position, sum signal).'
+    provenance: stated
+    channels: 372
+    fields:
+      Monitor:
+        description: Horizontal beam position per BPM (mm).
+        provenance: stated
+      TBT:
+        description: Single-shot turn-by-turn horizontal position per storage-ring BPM (mm).
+        provenance: stated
+      Sum:
+        description: Button sum signal per LTB BPM.
+        provenance: stated
+  BPMy:
+    class: BeamPositionMonitor
+    aliases:
+    - BPMy
+    description: 'Vertical beam position monitors: 180 in the storage ring (position, turn-by-turn) and
+      7 in the LTB (position, sum signal).'
+    provenance: stated
+    channels: 372
+    fields:
+      Monitor:
+        description: Vertical beam position per BPM (mm).
+        provenance: stated
+      TBT:
+        description: Single-shot turn-by-turn vertical position per storage-ring BPM (mm).
+        provenance: stated
+      Sum:
+        description: Button sum signal per LTB BPM.
+        provenance: stated
+  DCCT:
+    class: BeamCurrentMonitor
+    aliases:
+    - DCCT
+    description: The storage-ring DCCT, read as the averaged stored-beam current.
+    provenance: stated
+    channels: 3
+    fields:
+      Monitor:
+        description: Averaged stored-beam current (mA).
+        provenance: stated
+      Lifetime:
+        description: Beam lifetime reported by the DCCT electronics.
+        provenance: stated
+      Total:
+        description: Total stored-beam current summed over all bunches (mA).
+        provenance: stated
+  HCM:
+    class: HCorrector
+    aliases:
+    - HCM
+    description: 'Horizontal orbit correctors: 180 in the storage ring with current and integrated-kick
+      setpoints and readbacks, and 8 in the LTB with an on/off control and a summary fault.'
+    provenance: stated
+    channels: 752
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet.
+        provenance: stated
+      RBKL:
+        description: Integrated kick readback per corrector (rad), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated kick setpoint per corrector (rad), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet.
+        provenance: stated
+      Fault:
+        description: Power-supply summary fault status per LTB device (boolean monitor).
+        provenance: stated
+      OnControl:
+        description: Power-supply on/off control per LTB device (boolean control).
+        provenance: stated
+  QH1:
+    class: Quadrupole
+    aliases:
+    - QH1
+    description: High-beta straight quadrupoles QH1, one per cell; tune correctors.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated gradient setpoint per quadrupole (T*m^-1), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  QH2:
+    class: Quadrupole
+    aliases:
+    - QH2
+    description: High-beta straight quadrupoles QH2, one per cell; tune correctors.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated gradient setpoint per quadrupole (T*m^-1), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  QH3:
+    class: Quadrupole
+    aliases:
+    - QH3
+    description: High-beta straight quadrupoles QH3, one per cell; tune correctors.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated gradient setpoint per quadrupole (T*m^-1), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  QL1:
+    class: Quadrupole
+    aliases:
+    - QL1
+    description: Low-beta straight quadrupoles QL1, one per cell; tune correctors.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated gradient setpoint per quadrupole (T*m^-1), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  QL2:
+    class: Quadrupole
+    aliases:
+    - QL2
+    description: Low-beta straight quadrupoles QL2, one per cell; tune correctors.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated gradient setpoint per quadrupole (T*m^-1), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  QL3:
+    class: Quadrupole
+    aliases:
+    - QL3
+    description: Low-beta straight quadrupoles QL3, one per cell; tune correctors.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated gradient setpoint per quadrupole (T*m^-1), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  QM1:
+    class: Quadrupole
+    aliases:
+    - QM1
+    description: Arc quadrupoles QM1, two per cell; dispersion correctors.
+    provenance: stated
+    channels: 240
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated gradient setpoint per quadrupole (T*m^-1), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  QM2:
+    class: Quadrupole
+    aliases:
+    - QM2
+    description: Arc quadrupoles QM2, two per cell; dispersion correctors.
+    provenance: stated
+    channels: 240
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated gradient readback per quadrupole (T*m^-1), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated gradient setpoint per quadrupole (T*m^-1), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  RF:
+    class: RadioFrequency
+    aliases:
+    - RF
+    description: The storage-ring RF master oscillator, exposed as its frequency readback and setpoint.
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: Master-oscillator frequency readback (MHz).
+        provenance: stated
+      Setpoint:
+        description: Master-oscillator frequency setpoint (MHz).
+        provenance: stated
+  SH1:
+    class: Sextupole
+    aliases:
+    - SH1
+    description: Harmonic sextupoles SH1 in the high-beta straights, one per cell.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
+          of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated sextupole strength setpoint per magnet (T*m^-2), the strength companion
+          of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  SH3:
+    class: Sextupole
+    aliases:
+    - SH3
+    description: Harmonic sextupoles SH3 in the high-beta straights, one per cell.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
+          of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated sextupole strength setpoint per magnet (T*m^-2), the strength companion
+          of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  SH4:
+    class: Sextupole
+    aliases:
+    - SH4
+    description: Harmonic sextupoles SH4 in the high-beta straights, one per cell.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
+          of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated sextupole strength setpoint per magnet (T*m^-2), the strength companion
+          of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  SL1:
+    class: Sextupole
+    aliases:
+    - SL1
+    description: Harmonic sextupoles SL1 in the low-beta straights, one per cell.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
+          of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated sextupole strength setpoint per magnet (T*m^-2), the strength companion
+          of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  SL2:
+    class: Sextupole
+    aliases:
+    - SL2
+    description: Harmonic sextupoles SL2 in the low-beta straights, one per cell.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
+          of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated sextupole strength setpoint per magnet (T*m^-2), the strength companion
+          of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  SL3:
+    class: Sextupole
+    aliases:
+    - SL3
+    description: Harmonic sextupoles SL3 in the low-beta straights, one per cell.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
+          of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated sextupole strength setpoint per magnet (T*m^-2), the strength companion
+          of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  SM1:
+    class: Sextupole
+    aliases:
+    - SM1
+    description: Arc sextupoles SM1, two per cell; chromaticity correctors.
+    provenance: stated
+    channels: 240
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
+          of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated sextupole strength setpoint per magnet (T*m^-2), the strength companion
+          of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  SM2:
+    class: Sextupole
+    aliases:
+    - SM2
+    description: Arc sextupoles SM2, one per cell; chromaticity correctors.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      RBKL:
+        description: Integrated sextupole strength readback per magnet (T*m^-2), the strength companion
+          of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated sextupole strength setpoint per magnet (T*m^-2), the strength companion
+          of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  SQ:
+    branch: Quadrupole
+    class: SkewQuadrupole
+    aliases:
+    - SQ
+    description: Skew quadrupole windings, two per cell, used for coupling correction.
+    provenance: stated
+    channels: 120
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet (A).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (A).
+        provenance: stated
+  TUNE:
+    branch: Instrumentation
+    class: TuneMonitor
+    aliases:
+    - TUNE
+    description: The tune measurement system, read as the horizontal and vertical betatron tunes.
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: Measured fractional betatron tune per plane.
+        provenance: stated
+  VCM:
+    class: VCorrector
+    aliases:
+    - VCM
+    description: 'Vertical orbit correctors: 180 in the storage ring with current and integrated-kick
+      setpoints and readbacks, and 8 in the LTB with an on/off control and a summary fault.'
+    provenance: stated
+    channels: 752
+    fields:
+      Monitor:
+        description: Power-supply current readback per magnet.
+        provenance: stated
+      RBKL:
+        description: Integrated kick readback per corrector (rad), the strength companion of Monitor.
+        provenance: stated
+      SPKL:
+        description: Integrated kick setpoint per corrector (rad), the strength companion of Setpoint.
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet.
+        provenance: stated
+      Fault:
+        description: Power-supply summary fault status per LTB device (boolean monitor).
+        provenance: stated
+      OnControl:
+        description: Power-supply on/off control per LTB device (boolean control).
+        provenance: stated
+  Q:
+    class: Quadrupole
+    aliases:
+    - Q
+    description: The 15 LTB quadrupoles, each with a current readback and setpoint, an on/off control
+      and a summary fault.
+    provenance: stated
+    channels: 60
+    fields:
+      Fault:
+        description: Power-supply summary fault status per LTB device (boolean monitor).
+        provenance: stated
+      Monitor:
+        description: Power-supply current readback per magnet (Ampere).
+        provenance: stated
+      OnControl:
+        description: Power-supply on/off control per LTB device (boolean control).
+        provenance: stated
+      Setpoint:
+        description: Power-supply current setpoint per magnet (Ampere).
+        provenance: stated
+  Screen:
+    aliases:
+    - Screen
+    description: The five LTB fluorescent screens; the Middle Layer stages no channels for them.
+    provenance: stated
+    channels: 0
+    fields:
+      Monitor:
+        description: Screen in/out status; no channels are staged.
+        provenance: stated
+      Setpoint:
+        description: Screen in/out control; no channels are staged.
+        provenance: stated
+directions:
+  BEND.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BEND.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  BEND.Fault:
+    direction: read
+    provenance: stated
+    override: false
+  BEND.OnControl:
+    direction: write
+    provenance: stated
+    override: false
+  BPMx.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BPMx.TBT:
+    direction: read
+    provenance: stated
+    override: false
+  BPMx.Sum:
+    direction: read
+    provenance: stated
+    override: false
+  BPMy.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  BPMy.TBT:
+    direction: read
+    provenance: stated
+    override: false
+  BPMy.Sum:
+    direction: read
+    provenance: stated
+    override: false
+  DCCT.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  DCCT.Lifetime:
+    direction: read
+    provenance: stated
+    override: false
+  DCCT.Total:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  HCM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  HCM.Fault:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.OnControl:
+    direction: write
+    provenance: stated
+    override: false
+  QH1.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QH1.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  QH1.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  QH1.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QH2.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QH2.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  QH2.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  QH2.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QH3.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QH3.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  QH3.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  QH3.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QL1.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QL1.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  QL1.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  QL1.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QL2.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QL2.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  QL2.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  QL2.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QL3.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QL3.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  QL3.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  QL3.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QM1.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QM1.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  QM1.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  QM1.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  QM2.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  QM2.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  QM2.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  QM2.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  RF.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  RF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SH1.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SH1.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  SH1.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  SH1.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SH3.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SH3.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  SH3.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  SH3.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SH4.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SH4.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  SH4.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  SH4.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SL1.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SL1.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  SL1.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  SL1.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SL2.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SL2.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  SL2.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  SL2.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SL3.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SL3.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  SL3.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  SL3.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SM1.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SM1.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  SM1.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  SM1.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SM2.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SM2.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  SM2.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  SM2.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SQ.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  SQ.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  TUNE.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  VCM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  VCM.RBKL:
+    direction: read
+    provenance: stated
+    override: false
+  VCM.SPKL:
+    direction: write
+    provenance: stated
+    override: false
+  VCM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  VCM.Fault:
+    direction: read
+    provenance: stated
+    override: false
+  VCM.OnControl:
+    direction: write
+    provenance: stated
+    override: false
+  Q.Fault:
+    direction: read
+    provenance: stated
+    override: false
+  Q.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  Q.OnControl:
+    direction: write
+    provenance: stated
+    override: false
+  Q.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  Screen.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  Screen.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+judgments:
+  BEND:
+    shared_pvs: keep_all
+  DCCT:
+    rows_beyond_devices:
+      Monitor:
+        SR:C03-BI{DCCT:1}Lifetime-I: {field: Lifetime}
+        SR:C03-BI{DCCT:1}I:Total-I: {field: Total}
+  SH1:
+    shared_pvs: keep_all
+  SH3:
+    shared_pvs: keep_all
+  SH4:
+    shared_pvs: keep_all
+  SL1:
+    shared_pvs: keep_all
+  SL2:
+    shared_pvs: keep_all
+  SL3:
+    shared_pvs: keep_all
+  SM1:
+    shared_pvs: keep_all
+  SM2:
+    shared_pvs: keep_all
+  SQ:
+    shared_pvs: keep_all
+  TUNE:
+    unbound_devices:
+      3: drop
+virtual_accelerator:
+  system: StorageRing
+  families:
+    BEND:
+      verdict: latch
+      reason: bend2gev is constant at this facility
+    BPMx:
+      verdict: couple
+      kind: monitor
+      element_field: x
+      calibration: linear
+      nominal_source: Monitor
+    BPMy:
+      verdict: couple
+      kind: monitor
+      element_field: y
+      calibration: linear
+      nominal_source: Monitor
+    DCCT:
+      verdict: latch
+      reason: no lattice element
+    HCM:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[0]
+      calibration: linear
+      nominal_source: Setpoint
+    QH1:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QH2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QH3:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QL1:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QL2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QL3:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QM1:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QM2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    RF:
+      verdict: couple
+      kind: rf
+      calibration: linear
+      nominal_source: Setpoint
+      values:
+        voltage:
+          question: the deck holds no cavity and one is built from the export, which states no voltage
+            for it; the voltage sets the synchrotron tune and never the orbit. What does this cavity run
+            at?
+          units: volts
+          answer: 3000000.0
+    SH1:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SH3:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 30 devices
+    SH4:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 30 devices
+    SL1:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 30 devices
+    SL2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SL3:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 30 devices
+    SM1:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 60 devices
+    SM2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SQ:
+      verdict: couple
+      kind: strength
+      element_field: PolynomA[1]
+      calibration: linear
+      nominal_source: Setpoint
+      reason: Setpoint states rad where Monitor states its units
+    TUNE:
+      verdict: latch
+      reason: The length of ValPhysics must match the number of devices
+    VCM:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[1]
+      calibration: linear
+      nominal_source: Setpoint

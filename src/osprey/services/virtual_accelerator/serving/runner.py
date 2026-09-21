@@ -131,6 +131,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
     from osprey.services.virtual_accelerator.serving.model_rpc import RpcRequest
     from osprey.services.virtual_accelerator.serving.pvdb import ServingRecords
+    from osprey.services.virtual_accelerator.serving.write_path import BoundSetpoint
 
 #: Protocols served. PVA carries the model's own variables and the
 #: ``model_info`` structure; CA carries the co-hosted namespace. CA must be
@@ -285,6 +286,7 @@ class CohostRunner(Runner):
         on_setpoint: Callable[[str, float], None] | None = None,
         refresh: Callable[[list[str]], None] = _refresh_nothing,
         drive_limits: Mapping[str, tuple[float, float]] | None = None,
+        bound_setpoints: Mapping[str, BoundSetpoint] | None = None,
         stuck_setpoints: frozenset[str] = frozenset(),
         model_write_token: str | None,
         backend_name: str,
@@ -327,6 +329,15 @@ class CohostRunner(Runner):
                 behind it needs.
             drive_limits: ``{address: (low, high)}``; each written value is
                 clamped into its band before anything else happens to it.
+            bound_setpoints: what the served bindings document says each
+                writable address does on readback, from
+                :func:`~osprey.services.virtual_accelerator.serving.write_path.bound_setpoints`.
+                Passed in rather than derived here because it takes the
+                document and the model's variables, and this class resolves no
+                tree: it is handed a built database and a built model. Empty
+                (the default) is the lattice-free behaviour: every coupled
+                readback echoes the value written, which is all a deployment
+                with no document can say.
             stuck_setpoints: the apply-fault addresses stuck at boot, whose
                 readbacks do not move. The write path and the wrapper both
                 start from this set; a write to the wrapper's
@@ -364,7 +375,14 @@ class CohostRunner(Runner):
         self._backend_name = backend_name
         self._lattice_source = lattice_source
         self._refresh = refresh
+        # The same set reached from the two ends of one tree: the manifest's
+        # coupled partition, and the document's writable bindings. Their union
+        # is what routes through the model, so a setpoint either end knows
+        # about is served by the physics rather than latched -- and the
+        # document's rule is what decides its readback (see the write path).
         physics_setpoints = physics_setpoint_addresses(records)
+        bound = dict(bound_setpoints or {})
+        routed = physics_setpoints | frozenset(bound)
 
         # Bound before the base constructor runs, because the base
         # constructor is what builds the driver, and the driver's first act
@@ -375,6 +393,7 @@ class CohostRunner(Runner):
             records,
             enqueue=self._enqueue if on_setpoint is not None else None,
             physics_setpoints=physics_setpoints,
+            bound_setpoints=bound,
             stuck_setpoints=stuck_setpoints,
             drive_limits=drive_limits,
             refusal_alarm=REFUSAL_ALARM,
@@ -388,9 +407,12 @@ class CohostRunner(Runner):
         model = SetpointRoutedModel(
             model,
             on_setpoint=on_setpoint,
-            routed=physics_setpoints,
+            routed=routed,
             stuck_setpoints=stuck_setpoints,
-            known_setpoints=frozenset(records.setpoint_readbacks) | physics_setpoints,
+            # What the write path actually routes, so the refusal a runtime
+            # write meets names an address this server has no setpoint for
+            # and nothing else.
+            known_setpoints=self.write_path.setpoints,
             on_stuck_change=self.write_path.set_stuck_setpoints,
         )
 

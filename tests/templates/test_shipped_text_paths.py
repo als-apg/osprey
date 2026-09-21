@@ -1,13 +1,14 @@
 """Shipped text names only files and pages that exist where it is read.
 
-Three guards over the paths the shipped templates cite. Each one pins a class
+Four guards over the paths the shipped templates cite. Each one pins a class
 of drift that has recurred: a prompt that sends the agent to a ``src/osprey/``
 path (only a source checkout has one — a facility runs the installed package),
 a ``config.yml`` comment that cites a docs page by a path the docs tree no
-longer has, and a generated README that tells the operator to copy or edit a
-file the renderer never produces.
+longer has, a generated README that tells the operator to copy or edit a file
+the renderer never produces, and a prompt that names the reference facility's
+own lattice constants where it should name this deployment's bindings file.
 
-All three scan template SOURCE, not a render: the offending text is literal in
+All four scan template SOURCE, not a render: the offending text is literal in
 the template, and a scan over the source names the line to fix.
 """
 
@@ -200,4 +201,64 @@ def test_shipped_readmes_name_only_files_the_renderer_produces() -> None:
                     offenders.append((_rel(path), lineno, line.strip()))
     assert offenders == [], "A shipped README names a file the renderer never produces:\n" + (
         _describe(offenders)
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4. A prompt names this deployment's model, not the reference facility's
+# ---------------------------------------------------------------------------
+
+#: Symbols that exist only for the reference facility's bundled ring: the
+#: ``FacilitySpec`` dataclass, the module that holds it, and the constant
+#: carrying that one ring's declared parameters. A shipped prompt naming any of
+#: them hands every facility's agent the reference facility's numbers.
+_REFERENCE_FACILITY_LATTICE_SYMBOLS = ("facility_spec", "FacilitySpec", "ALS_U_AR")
+
+#: What a channel does to the deck is read from the deployment's own file, at
+#: the path a deployment holds it at.
+_BINDINGS_PATH = "data/simulation/va_bindings.json"
+
+#: The section of the lattice-agent prompt that turns that path into an
+#: instruction: read the bindings before answering anything about a channel.
+_CHANNEL_SECTION_HEADING = "## What a Channel Drives"
+
+PYAT_PROMPT = CLAUDE_CODE_TEMPLATES / "claude" / "agents" / "pyat-specialist.md.j2"
+
+
+def test_no_shipped_prompt_names_a_reference_facility_lattice_symbol() -> None:
+    """Nothing under ``templates/claude_code/`` cites the reference ring's spec.
+
+    The agent reading these files serves whichever facility rendered them, and
+    declared machine parameters belong to that facility's emitted model.
+    """
+    offenders: list[tuple[str, int, str]] = []
+    for path in _text_files(CLAUDE_CODE_TEMPLATES):
+        text = _read(path)
+        if text is None:
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if any(symbol in line for symbol in _REFERENCE_FACILITY_LATTICE_SYMBOLS):
+                offenders.append((_rel(path), lineno, line.strip()))
+    assert offenders == [], (
+        "Shipped prompt text names the reference facility's lattice spec; name "
+        f"{_BINDINGS_PATH} instead:\n" + _describe(offenders)
+    )
+
+
+def test_the_pyat_prompt_names_the_bindings_file() -> None:
+    """The lattice agent is told where the channel-to-element coupling lives.
+
+    The negative guard above forbids the reference facility's symbols; this is
+    the positive half: the prompt says what a channel drives, and says it by the
+    path the deployment holds.
+    """
+    assert PYAT_PROMPT.is_file(), f"lattice agent template not found at {_rel(PYAT_PROMPT)}"
+    text = PYAT_PROMPT.read_text(encoding="utf-8")
+    assert _BINDINGS_PATH in text, (
+        f"{_rel(PYAT_PROMPT)} never names {_BINDINGS_PATH}, so the agent is not told "
+        "where the channel-to-element coupling is recorded"
+    )
+    assert _CHANNEL_SECTION_HEADING in text, (
+        f"{_rel(PYAT_PROMPT)} has no {_CHANNEL_SECTION_HEADING!r} section, so the path "
+        "may survive as a bare mention while the instruction that reads it is gone"
     )

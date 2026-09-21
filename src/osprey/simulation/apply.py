@@ -1362,7 +1362,7 @@ def _drop_densified(collection, windows: Sequence[tuple[float, float]]) -> int:
 
 # BpmErrorSpec field -> VA_BPM_ERRORS sub-field(s) it fans out to, at the
 # entrypoint's per-transverse-plane granularity (see
-# `virtual_accelerator/entrypoint.py::_BPM_ERROR_FIELD_BOUNDS`). A scenario
+# `virtual_accelerator/entrypoint.py::_BPM_ERROR_FIELDS`). A scenario
 # author states one isotropic value per BPM; the render step applies it to
 # both planes. `roll` has no axis split on either side, so it maps 1:1.
 _BPM_ERROR_AXIS_FIELDS: dict[str, tuple[str, ...]] = {
@@ -1382,7 +1382,7 @@ _BPM_ERROR_IDENTITY: dict[str, float] = {
     "noise": 0.0,
 }
 # Emission order within one device's field list, matching the entrypoint's own
-# `_BPM_ERROR_FIELD_BOUNDS` ordering -- deterministic, readable .env output.
+# `_BPM_ERROR_FIELDS` ordering -- deterministic, readable .env output.
 _BPM_ERROR_FIELD_ORDER = (
     "offset_x",
     "offset_y",

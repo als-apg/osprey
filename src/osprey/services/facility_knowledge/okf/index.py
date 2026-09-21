@@ -50,7 +50,7 @@ def _synthesize_description(children: list[tuple[str, str]]) -> str:
         return ""
     if len(children) == 1 and children[0][1]:
         return children[0][1]
-    titles = ", ".join(t for t, _ in children if t) or "no titled entries"
+    titles = ", ".join(sorted((t for t, _ in children if t), key=str.lower)) or "no titled entries"
     return f"Contains {len(children)} entries: {titles}."
 
 
@@ -103,6 +103,28 @@ def _directories_to_index(bundle_root: Path) -> list[Path]:
     return sorted(dirs)
 
 
+def _holds_pages(directory: Path) -> bool:
+    """Return whether *directory* holds any ``.md`` file at any depth."""
+    return next(directory.rglob("*.md"), None) is not None
+
+
+def _drop_stale_index(directory: Path) -> None:
+    """Delete a non-blank ``index.md`` that is the only ``.md`` left in *directory*.
+
+    Such an index lists pages that no longer exist. A blank ``index.md`` lists
+    nothing and is kept: it is the placeholder that holds a skeleton directory
+    in place until the facility adds its own pages. Child directories are
+    processed first, so a child that held only a stale index has already lost
+    it and no longer counts as content here.
+    """
+    index_path = directory / _INDEX_FILE
+    if not index_path.is_file() or not index_path.read_text(encoding="utf-8").strip():
+        return
+    if any(md != index_path for md in directory.rglob("*.md")):
+        return
+    index_path.unlink()
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -113,6 +135,11 @@ def regenerate_indexes(bundle_root: Path) -> list[Path]:
 
     Directories are processed deepest-first so that child-directory
     descriptions are available when the parent index is written.
+
+    A directory whose only ``.md`` file is its own non-blank ``index.md`` has
+    that stale index deleted (a blank placeholder index is kept), and a parent
+    never lists a child directory that holds no ``.md`` file, so an emptied
+    directory advertises no removed page.
 
     The bundle-root ``index.md`` includes an ``okf_version`` frontmatter block
     (OKF §11).  All other ``index.md`` files have no frontmatter (OKF §6).
@@ -156,11 +183,12 @@ def regenerate_indexes(bundle_root: Path) -> list[Path]:
                 desc = str(fm.get("description") or "")
                 typ = str(fm.get("type") or "")
                 entries.append((typ, title, f"/{rel}", desc))
-            elif child.is_dir():
+            elif child.is_dir() and _holds_pages(child):
                 desc = dir_descriptions.get(child, "")
                 entries.append(("Subdirectories", child.name, f"/{rel}/", desc))
 
         if not entries:
+            _drop_stale_index(directory)
             continue
 
         is_root = directory == bundle_root

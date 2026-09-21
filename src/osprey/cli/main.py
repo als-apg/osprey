@@ -76,6 +76,7 @@ class LazyGroup(click.Group):
             "audit": "osprey.cli.audit_cmd",  # Safety auditor
             "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
             "knowledge": "osprey.cli.knowledge_cmd",  # OKF facility knowledge
+            "mml": "osprey.cli.mml_cmd",  # MATLAB Middle Layer install
             "query": "osprey.cli.query_cmd",  # Headless agent query
             "users": "osprey.cli.users_cmd",  # Web-terminal roster
             "feedback": "osprey.cli.feedback_cmd",  # Web-terminal feedback store
@@ -143,6 +144,7 @@ class LazyGroup(click.Group):
             "audit",
             "vendor",
             "knowledge",
+            "mml",  # MATLAB Middle Layer install
             "query",
             "users",
             "feedback",

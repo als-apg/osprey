@@ -148,6 +148,136 @@ every state blank, so the user sees that nothing was assumed.
  Is this correct?  yes / modify
 ```
 
+## VA MAP
+
+Drawn after `osprey mml map --init` appends the `virtual_accelerator:` block, and again
+after every answer. `?` rows first, then the families grouped by verdict. The export is
+not editable from the card, so its facts ride in the EXPORT box and there is no second
+card for them.
+
+```
+ VA MAP — <facility> · <system>      export 2.0 · <n> families · <n> open
+ ┌ EXPORT ── <exporter> · <n> refused ──────────────────────────────────┐
+ │ deck        <deck> · <n> elements · <n> GeV · <n|unstated> cavities  │
+ │ calibrate   <kind> <n> · <kind> <n>                                  │
+ │ nominals    <n> · <n> synthetic                                      │
+ │ response    <origin> · <n> blocks of <rows>×<cols> · <mons> × <acts> │
+ │ others      <system>: <n> families, <n> elements, <n> GeV            │
+ │ ⚠ <FAMILY>  <the MATLAB reason, verbatim>                            │
+ └──────────────────────────────────────────────────────────────────────┘
+ ┌ OPEN ── <n> slots need an answer ────────────────────────────────────┐
+ │ ? <FAMILY>  <attype|shared_field|escape_hatch>                       │
+ │             <the slot's question, verbatim>                          │
+ │             answers: <the `# answers:` comment beside the null slot> │
+ └──────────────────────────────────────────────────────────────────────┘
+ ┌ COUPLE ── <n> families the model drives ─────────────────────────────┐
+ │ <FAMILY>    <kind> · <field> · <calib> · <nominal> · <n> devices     │
+ │             ⚠ <the verdict's reason, where it carries one>           │
+ └──────────────────────────────────────────────────────────────────────┘
+ ┌ LATCH ── <n> families the model does not drive ──────────────────────┐
+ │ <FAMILY> · <FAMILY>     <the reason they share>                      │
+ └──────────────────────────────────────────────────────────────────────┘
+ Is this the map?  yes / answer <family> … / modify
+```
+
+Where each line comes from:
+
+- **Header.** `<facility>` is `facility.token` in `mapping.yaml`, `<system>` is
+  `virtual_accelerator.system`. `<n> families` counts the block's `families`; `<n> open`
+  counts its null slots — the number `map --init` already reported.
+- **EXPORT** reads PROFILE.md's `### Virtual accelerator` heading for that system, which
+  sits last in the system's section and carries six level-4 headings: `Export facts`,
+  `Refused families`, `Response`, `Family coverage`, `Sampled fields`, `Other systems`.
+  `deck`, `calibrate` and `nominals` are rows of the `| Fact | Value |` table under
+  `#### Export facts`. `response` collapses the `#### Response` table: its origin, its
+  block count, the shape every block shares, then the monitor families and the actuator
+  families — `<mons>` and `<acts>` are each `/`-joined in the table's row order.
+  `others` is `#### Other systems`, one line per system the VA lane ignores, drawn only
+  when the export carried more than one; a system that carried no block of its own reads
+  `<system>: no 2.0 export`. A fact the export left unstated reads `unstated`, never
+  `0` and never blank. Each `⚠` line is one `#### Refused families` bullet with the
+  MATLAB reason verbatim — that reason is what sends the reviewer back to MATLAB.
+- **OPEN** is one `?` row per null slot, in the block's order, carrying the slot's
+  `kind`, its `question` verbatim, and the `# answers:` comment `map --init` wrote under
+  it. Never re-type that answer list: the vocabularies are closed and `map --check`
+  refuses a word outside them by name. An undecided `system:` is a slot too — draw it as
+  `? system` and offer the system tokens the export carried.
+- **COUPLE** is one line per `verdict: couple` family: `kind`, `element_field`,
+  `calibration`, `nominal_source`, then the device count from `#### Family coverage`.
+  Sorted by kind — energy, rf, strength, kick, monitor — and within a kind in the block's
+  order. The energy knob and the cavity bind no element field, so those lines drop that
+  term. Where the verdict carries a `reason` — the sibling field whose units disagree —
+  it goes on a `⚠` continuation under the family's line.
+- **LATCH** is one line per distinct `reason`, naming every family that shares it. The
+  largest group goes first; groups of equal size follow the block's order of the first
+  family in each. A family whose export block is a refusal and nothing else latches on
+  `no lattice element` and groups on that line with every other family that binds
+  nothing; its MATLAB reason stays in the EXPORT box.
+
+A family with an open slot is drawn in OPEN only. It joins COUPLE or LATCH once its
+answer is written and the card is drawn again.
+
+The card's words are the mapping's words. Verdicts are `couple` and `latch`; kinds are
+`strength`, `kick`, `monitor`, `energy`, `rf`; slot kinds are `attype`, `shared_field`,
+`escape_hatch`. Nothing is paraphrased into a friendlier word.
+
+One AskUserQuestion follows the card: `Is this the map?  yes / answer <family> … /
+modify`. An answer is written into that family's `slot.answer`; `modify` edits the block
+by hand. `map --init` refuses to touch a block that may already hold reviewed answers —
+`--force-va` replaces it and discards every answer in it.
+
+Draw no card when there is nothing to draw: PROFILE's heading reads `no 2.0 export`, or
+`map --init` reported `no lattice deck for <system> in <dir>; VA block not written`. Say
+that in one line instead.
+
+A worked example — the synthetic `quokka` export, one storage ring, two slots open:
+
+```
+ VA MAP — Quokka · SR                   export 2.0 · 17 families · 2 open
+ ┌ EXPORT ── mml_export 2.0.0 · 3 refused ──────────────────────────────┐
+ │ deck        quokka_sr_deck · 41 elements · 2 GeV · unstated cavities │
+ │ calibrate   linear 20 · table 2                                      │
+ │ nominals    15 · 4 synthetic                                         │
+ │ response    model · 4 blocks of 4×4 · BPMx/BPMy × HC/VC              │
+ │ ⚠ SEPTUM    SEPTUM.Monitor: getpvmodel answered the nominal in       │
+ │             Physics units, not the hardware units it was asked in.   │
+ │ ⚠ TUNE      Family TUNE lists no devices to read a nominal for.;     │
+ │             Family TUNE lists no devices to sample.                  │
+ │ ⚠ Version   Invalid input argument of type 'char'. Input must be a   │
+ │             structure array or an object.                            │
+ └──────────────────────────────────────────────────────────────────────┘
+ ┌ OPEN ── 2 slots need an answer ──────────────────────────────────────┐
+ │ ? IDGAP     escape_hatch                                             │
+ │             the AT block reaches this family through                 │
+ │             SpecialFunctionSet; does the model drive it?             │
+ │             answers: latch, ignore_hook                              │
+ │ ? SEPTUM    attype                                                   │
+ │             ATType Septum is not one the table knows; what does this │
+ │             family drive?                                            │
+ │             answers: latch, strength:<PolynomB|PolynomA>[<i>],       │
+ │             kick:<0|1>, energy, rf, monitor:<x|y>                    │
+ └──────────────────────────────────────────────────────────────────────┘
+ ┌ COUPLE ── 10 families the model drives ──────────────────────────────┐
+ │ BEND        energy · table · Setpoint · 4 devices                    │
+ │ RF          rf · linear · Setpoint · 1 device                        │
+ │ QD          strength · PolynomB[1] · linear · Setpoint · 4 devices   │
+ │ QF          strength · PolynomB[1] · linear · Setpoint · 4 devices   │
+ │ SF          strength · PolynomB[2] · linear · Setpoint · 4 devices   │
+ │ SQ          strength · PolynomA[1] · linear · Setpoint · 4 devices   │
+ │ HC          kick · KickAngle[0] · linear · Setpoint · 4 devices      │
+ │ VC          kick · KickAngle[1] · linear · Setpoint · 4 devices      │
+ │ BPMx        monitor · x · linear · Monitor · 4 devices               │
+ │ BPMy        monitor · y · linear · Monitor · 4 devices               │
+ └──────────────────────────────────────────────────────────────────────┘
+ ┌ LATCH ── 5 families the model does not drive ────────────────────────┐
+ │ DCCT · TUNE · Version   no lattice element                           │
+ │ BDM                     element BD1 (BndMPoleSymplectic4Pass) takes  │
+ │                         no KickAngle                                 │
+ │ BSOFT                   bend2gev is constant at this facility        │
+ └──────────────────────────────────────────────────────────────────────┘
+ Is this the map?  yes / answer <family> … / modify
+```
+
 ## FEATURES
 
 One box per feature area of the reference example, in the order of

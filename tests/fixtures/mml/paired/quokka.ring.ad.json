@@ -1,0 +1,20 @@
+{
+  "_export": {
+    "exporter": "mml_export 1.0.0",
+    "matlab": "24.2.0 (R2024b)",
+    "machine": "Quokka",
+    "timestamp": "2026-01-01T00:00:00"
+  },
+  "Machine": "Quokka",
+  "SubMachine": "RING",
+  "OperationalMode": "Simulated user optics",
+  "Energy": 2.4,
+  "InjectionEnergy": 2.4,
+  "Circumference": 92.0,
+  "HarmonicNumber": 150,
+  "MCF": 0.0012,
+  "ATModel": "quokka_ring_lattice",
+  "OpsData": {
+    "LatticeFile": "quokka_ring_user"
+  }
+}

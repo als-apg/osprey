@@ -41,16 +41,75 @@ from osprey.deployment import container_lifecycle
 # The shipped stand-in default, as the four devices and axes it perturbs. Read
 # from the module that owns it rather than restated, so a change to the shipped
 # perturbation moves this test with it instead of leaving it asserting history.
-from osprey.services.virtual_accelerator.manifest.standin_defaults import parse_standin_default
+from osprey.services.virtual_accelerator.manifest.standin_defaults import (
+    STANDIN_BPM_ERRORS_DEFAULT,
+    parse_standin_default,
+)
 
 STANDIN_PORT = 5164
 
+# Where this fixture tree publishes each monitor reading: the element a monitor
+# sits at and the transverse axis it reads, mapped to the address it is served
+# on. The spelling is this tree's own -- an address grammar belongs to the
+# facility that states it, and the seed takes it from the tree's bindings
+# rather than assuming one -- so these four entries are what make the
+# assertions below about literal addresses meaningful.
+SHIPPED_MONITORS = {
+    (fam_name, field[-1].lower()): (
+        f"SR:DIAG:BPM:{fam_name.removeprefix('BPM')}:POSITION:{field[-1].upper()}"
+    )
+    for fam_name, fields in parse_standin_default().items()
+    for field in fields
+}
+
 # Every address the shipped default reaches, mapped to the offset on it.
 SHIPPED_OFFSETS = {
-    f"SR:DIAG:BPM:{fam_name.removeprefix('BPM')}:POSITION:{field[-1].upper()}": value
+    SHIPPED_MONITORS[fam_name, field[-1].lower()]: value
     for fam_name, fields in parse_standin_default().items()
     for field, value in fields.items()
 }
+
+
+def _bindings_document() -> str:
+    """The tree's ``va_bindings.json``: one monitor binding per served reading.
+
+    Written through the document's own writer rather than hand-rolled as JSON,
+    so a fixture the loader would refuse fails here instead of quietly leaving
+    the seed with nothing to place.
+    """
+    from osprey.services.virtual_accelerator.bindings import (
+        Binding,
+        BindingsDocument,
+        Linear,
+        Slice,
+        dump_bindings,
+    )
+
+    unit = Linear(gain=1.0, offset=0.0)
+    bindings = tuple(
+        Binding(
+            kind="monitor",
+            family="BPM",
+            setpoint_address=address,
+            readback_address=None,
+            readback="inverse",
+            element=element,
+            attribute=axis,
+            index=None,
+            slices=(Slice(element=element, weight=1.0),),
+            owner="BPM",
+            calibration=unit,
+            monitor_inverse=unit,
+            nominal=0.0,
+            energy_scaling="none",
+            energy_table=None,
+        )
+        for (element, axis), address in sorted(SHIPPED_MONITORS.items())
+    )
+    return dump_bindings(
+        BindingsDocument(system="SR", energy_gev=2.0, lattice_sha256="0" * 64, bindings=bindings)
+    )
+
 
 UNPERTURBED = "SR:VAC:IP07:PRESSURE"
 
@@ -85,15 +144,44 @@ def _manifest_channel(address: str) -> dict:
     }
 
 
-def _project(tmp_path: Path, *, env: str = "") -> Path:
-    """A project directory whose manifest serves every shipped-default address."""
+def _project(
+    tmp_path: Path,
+    *,
+    env: str = "",
+    lattice: str | None = "lattice.json",
+    bindings: bool = True,
+) -> Path:
+    """A project directory whose manifest serves every shipped-default address.
+
+    Its served tree states the perturbation these tests seed against, because a
+    deployment's stand-in displaces the devices its own machine names and
+    inherits none from the framework.
+
+    Its bindings say where each of those monitors publishes its reading, which
+    is what lets the seed place an offset at all: the grammar is the tree's, so
+    the seed reads it off the tree rather than assuming a facility's.
+
+    Its chain names a lattice unless a test says otherwise, because that
+    perturbation applies only where there is a model to displace: a project
+    serving none is the deliberate case, pinned by the tests that ask for it.
+    ``lattice=None`` leaves the key off the chain entirely, which is a
+    deployment no build has pointed at a lattice. ``bindings=False`` stages the
+    tree without its bindings document, which is a deployment nothing tells
+    where a monitor's reading is published.
+    """
     simulation_dir = tmp_path / "build" / "data" / "simulation"
     simulation_dir.mkdir(parents=True)
     addresses = [*SHIPPED_OFFSETS, UNPERTURBED]
     (simulation_dir / "channel_manifest.json").write_text(
         json.dumps({"channels": [_manifest_channel(address) for address in addresses]})
     )
-    (tmp_path / ".env").write_text(f"VA_CHANNELS_FILE=channel_manifest.json\n{env}")
+    (simulation_dir / "machine.json").write_text(
+        json.dumps({"standin_bpm_errors": STANDIN_BPM_ERRORS_DEFAULT, "channels": {}})
+    )
+    if bindings:
+        (simulation_dir / "va_bindings.json").write_text(_bindings_document())
+    lattice_line = "" if lattice is None else f"VA_LATTICE={lattice}\n"
+    (tmp_path / ".env").write_text(f"VA_CHANNELS_FILE=channel_manifest.json\n{lattice_line}{env}")
     return tmp_path
 
 
@@ -250,6 +338,64 @@ def test_the_seed_transform_subtracts_on_the_perturbed_addresses_only(tmp_path: 
     assert transform(UNPERTURBED, [1.0, 2.0]) == [1.0, 2.0]
 
 
+def test_a_spec_keyed_by_a_served_address_places_the_same_offsets(tmp_path: Path) -> None:
+    """The two spellings the served tree carries resolve to one set of offsets.
+
+    The shipped default names each device by the element its monitor sits at,
+    which is the spelling every other case here goes through. A spec naming the
+    address that monitor publishes its reading on states the same devices the
+    other way the container accepts them, and the bindings place both.
+    """
+    spec = ";".join(
+        f"{SHIPPED_MONITORS[fam_name, field[-1].lower()]}:{field}={value!r}"
+        for fam_name, fields in parse_standin_default().items()
+        for field, value in fields.items()
+    )
+
+    transform, fingerprint = _seed_transform(
+        _standin_config(), _project(tmp_path, env=f"VA_STANDIN_BPM_ERRORS={spec}\n")
+    )
+
+    assert fingerprint == {"kind": "bpm_offsets", "offsets": SHIPPED_OFFSETS}
+    assert transform is not None
+
+
+def test_a_token_the_bindings_place_nowhere_is_named_and_left_unseeded(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A token that is neither a published monitor address nor an element a
+    monitor sits at has nowhere to land, so the seeded past carries no offset
+    for it — and the report names it, because that device is exactly where the
+    recorded present and the seeded past will differ."""
+    address, offset = next(iter(SHIPPED_OFFSETS.items()))
+    device = address.split(":")[3]
+    project = _project(
+        tmp_path,
+        env=f"VA_STANDIN_BPM_ERRORS=BPM{device}:offset_x={offset!r};QF01:offset_x=3.0e-4\n",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        transform, fingerprint = _seed_transform(_standin_config(), project)
+
+    assert fingerprint == {"kind": "bpm_offsets", "offsets": {f"{address[:-1]}X": offset}}
+    assert transform is not None
+    assert "QF01" in caplog.text
+
+
+def test_a_tree_that_stages_no_bindings_places_no_offset_anywhere(tmp_path: Path) -> None:
+    """Nothing states where a monitor's reading is served, so no offset has an
+    honest address to land on. The seeded history is the unperturbed machine's,
+    which is the machine such a deployment serves."""
+    project = _project(tmp_path, bindings=False)
+
+    assert container_lifecycle._served_monitor_readings(project) == (None, None)
+
+    transform, fingerprint = _seed_transform(_standin_config(), project)
+
+    assert transform is None
+    assert fingerprint is None
+
+
 def test_the_seed_transform_ignores_a_device_the_manifest_does_not_serve(tmp_path: Path) -> None:
     """A fam_name this lattice has no BPM for perturbs nothing on the live half
     either (the physics bridge warns and carries on), so the fingerprint
@@ -335,26 +481,26 @@ def test_a_non_offset_override_field_is_skipped_and_warned_about(
 
 # --- begin: compose-standin-default-conditional ----------------------------
 # Which default the seed falls back to when the chain names no perturbation.
-# The shipped offsets displace the builtin PyAT model, so they are the default
-# for the builtin lattice ONLY: a deployment whose chain resolves VA_LATTICE
-# elsewhere is rendered the empty set and serves its facility manifest
-# unperturbed, and a past seeded with the shipped offsets under it would
-# describe a machine this deployment never runs. Read through the one function
+# The shipped offsets displace a lattice's model, so they are the default for a
+# deployment that serves one ONLY: a deployment whose chain resolves VA_LATTICE
+# to none is rendered the empty set and serves its manifest unperturbed, and a
+# past seeded with the shipped offsets under it would describe a machine this
+# deployment never runs. Read through the one function
 # that owns the rule (`build_profile_va_faults.effective_standin_bpm_errors`),
 # so the refusal, the render and the seed cannot answer it three ways.
 # ---------------------------------------------------------------------------
 
 
-def test_a_non_builtin_lattice_seeds_an_unperturbed_seed_transform_standin(
+def test_no_lattice_seeds_an_unperturbed_seed_transform_standin(
     tmp_path: Path,
 ) -> None:
     """``VA_LATTICE=none`` has no model to displace, so there is nothing to seed.
 
     The render hands that stand-in an empty fault set rather than refusing the
     build, and the seeded past has to match the machine that will actually be
-    serving — clean, on the facility's own manifest.
+    serving — clean, on the deployment's own manifest.
     """
-    project = _project(tmp_path, env="VA_LATTICE=none\n")
+    project = _project(tmp_path, lattice="none")
 
     transform, fingerprint = _seed_transform(_standin_config(), project)
 
@@ -362,21 +508,23 @@ def test_a_non_builtin_lattice_seeds_an_unperturbed_seed_transform_standin(
     assert fingerprint is None
 
 
-def test_a_builtin_lattice_pin_keeps_the_shipped_seed_transform_default(tmp_path: Path) -> None:
-    """The conditional turns on the lattice and nothing else.
+def test_a_chain_naming_no_lattice_seeds_an_unperturbed_standin(tmp_path: Path) -> None:
+    """A chain no build wrote the key into names no lattice, and is seeded clean.
 
-    A chain that pins the lattice the shipped offsets were written for gets
-    exactly what an unpinned one gets — the resolver's default IS ``builtin``,
-    so naming it changes no answer.
+    ``VA_LATTICE`` is build-derived, so a chain silent about it is a deployment
+    nothing has pointed at a lattice — the same answer as an explicit ``none``,
+    reached without anyone writing it down. Seeding the shipped offsets there
+    would give a clean machine a displaced past.
     """
-    project = _project(tmp_path, env="VA_LATTICE=builtin\n")
+    project = _project(tmp_path, lattice=None)
 
-    _transform, fingerprint = _seed_transform(_standin_config(), project)
+    transform, fingerprint = _seed_transform(_standin_config(), project)
 
-    assert fingerprint == {"kind": "bpm_offsets", "offsets": SHIPPED_OFFSETS}
+    assert transform is None
+    assert fingerprint is None
 
 
-def test_a_non_builtin_lattice_still_seeds_an_explicit_seed_transform_override(
+def test_no_lattice_still_seeds_an_explicit_seed_transform_override(
     tmp_path: Path,
 ) -> None:
     """A chain that names its own perturbation is seeded with it, lattice aside.
@@ -390,7 +538,8 @@ def test_a_non_builtin_lattice_still_seeds_an_explicit_seed_transform_override(
     device = address.split(":")[3]
     project = _project(
         tmp_path,
-        env=f"VA_LATTICE=none\nVA_STANDIN_BPM_ERRORS=BPM{device}:offset_x=3.0e-4\n",
+        lattice="none",
+        env=f"VA_STANDIN_BPM_ERRORS=BPM{device}:offset_x=3.0e-4\n",
     )
 
     _transform, fingerprint = _seed_transform(_standin_config(), project)

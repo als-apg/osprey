@@ -26,6 +26,7 @@ import json
 import logging
 import os
 import shutil
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -68,6 +69,28 @@ def _facility_tree(root: Path) -> Path:
         destination = root / source.relative_to(PACKAGE_PATHS.data_root)
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, destination)
+    return root
+
+
+def _without_model(root: Path) -> Path:
+    """Take the ring and the bindings back out of a copied tree.
+
+    The bundle stages a model, so :func:`_facility_tree` copies one: the
+    sources it walks are the tree's ``required_sources``, and those include the
+    ring and the bindings exactly when the tree carries bindings. That matters
+    to every case about how a channel got classified, because bindings claim
+    the pyat-coupled partition outright -- a tree carrying them is never asked
+    what its hierarchy could have derived.
+
+    So the two shapes are named rather than assumed. A tree WITH a model is the
+    bundle's own and the one a facility ends up with; a tree without one is the
+    only shape in which the hierarchy is the classifier, which is what the
+    degradation facts below are about.
+    """
+    paths = ManifestPaths(data_root=root, tier=DEFAULT_TIER)
+    for path in (paths.va_bindings, paths.lattice_json):
+        if path.is_file():
+            path.unlink()
     return root
 
 
@@ -241,8 +264,15 @@ def test_a_whole_trees_fact_claims_no_seeded_addresses(whole_tree, tmp_path, cap
 
 
 def test_without_a_hierarchical_database_the_fact_states_the_cost(tmp_path, capsys):
-    """The absence that changes what the accelerator can DO is spelled out."""
-    root = _facility_tree(tmp_path / "pathless" / "data")
+    """The absence that changes what the accelerator can DO is spelled out.
+
+    Asked of a tree with no model in it, because that is the only tree where
+    the hierarchy is what classifies a channel. Bindings claim the pyat-coupled
+    partition themselves (see the sibling below), so on a tree carrying them
+    the hierarchical database's identity keys are not what pairing rests on and
+    there is no cost to state.
+    """
+    root = _without_model(_facility_tree(tmp_path / "pathless" / "data"))
     ManifestPaths(data_root=root, tier=DEFAULT_TIER).hierarchical_db.unlink()
     prepared = prepare_project_manifest(root, DEFAULT_TIER)
 
@@ -254,6 +284,31 @@ def test_without_a_hierarchical_database_the_fact_states_the_cost(tmp_path, caps
     assert "static-noisy" in printed
     # And the claim is true of the manifest it describes.
     assert prepared.manifest["_metadata"]["setpoint_count"] == 0
+
+
+def test_bindings_pair_the_channels_a_missing_hierarchy_could_not(tmp_path, capsys):
+    """The same tree, with its model: the cost is not stated because it is not paid.
+
+    What a channel is driven as comes from the bindings when the tree has them
+    -- they name the element behind each address, which no hierarchy can infer
+    -- and the hierarchical database's identity keys are a fallback for a tree
+    that ships no model. So the absence reported above is reported only when it
+    costs something, and a tree whose model answers the question is not told
+    about a database it did not need.
+    """
+    root = _facility_tree(tmp_path / "modelled" / "data")
+    ManifestPaths(data_root=root, tier=DEFAULT_TIER).hierarchical_db.unlink()
+    prepared = prepare_project_manifest(root, DEFAULT_TIER)
+    metadata = prepared.manifest["_metadata"]
+
+    _report(_shared(tmp_path), _profile(), root, prepared)
+
+    printed = _printed(capsys)
+    assert metadata["partition_source"] == "simulation/va_bindings.json"
+    assert metadata["setpoint_count"] > 0
+    assert metadata["by_partition"]["pyat-coupled"] > 0
+    assert "carry no identity keys" not in printed
+    assert "serves 0 setpoints" not in printed
 
 
 #: The shipped worked example of a database levelled the way another facility
@@ -293,10 +348,17 @@ _FOREIGN_TOKEN_DB = {
 
 
 def _single_database_tree(root: Path) -> ManifestPaths:
-    """A tree staging the hierarchical database alone, so the caller can swap it."""
+    """A tree staging the hierarchical database alone, so the caller can swap it.
+
+    And staging no model, so what the swapped database is levelled like is what
+    decides how its channels are driven. With bindings in the tree they would
+    decide it instead, and a database levelled for another machine would be
+    read past in silence rather than reported.
+    """
     paths = ManifestPaths(data_root=_facility_tree(root), tier=DEFAULT_TIER)
     paths.in_context_db.unlink()
     paths.middle_layer_db.unlink()
+    _without_model(paths.data_root)
     return paths
 
 
@@ -326,6 +388,29 @@ def test_a_foreign_token_database_is_reported_with_the_tokens_it_saw(tmp_path, c
     assert "matched no partition rule (top-level tokens seen: ZZLINAC)" in printed
     assert "serves 0 setpoints" in printed
     assert "not levelled the way" not in printed
+
+
+def test_a_foreign_database_beside_a_model_costs_nothing_and_says_nothing(tmp_path, capsys):
+    """With bindings in the tree, how the database is levelled stops deciding.
+
+    The bindings name the element behind each address, so the channels they
+    name are driven whatever the database's levels look like, and the ones they
+    do not name are static-noisy either way. Nothing is mis-driven, so nothing
+    is reported -- which also means a facility that staged a database levelled
+    for another machine hears about it only if it ships no model.
+    """
+    paths = _single_database_tree(tmp_path / "levels-modelled" / "data")
+    shutil.copy2(_FOREIGN_LEVELS_DB, paths.hierarchical_db)
+    for source in (PACKAGE_PATHS.va_bindings, PACKAGE_PATHS.lattice_json):
+        shutil.copy2(source, paths.data_root / "simulation" / source.name)
+
+    prepared = prepare_project_manifest(paths.data_root, DEFAULT_TIER)
+    _report(_shared(tmp_path), _profile(), paths.data_root, prepared)
+
+    printed = _printed(capsys)
+    assert prepared.manifest["_metadata"]["partition_source"] == "simulation/va_bindings.json"
+    assert "not levelled the way" not in printed
+    assert "serves 0 setpoints" not in printed
 
 
 def test_a_hierarchical_trees_fact_states_no_degradation(whole_tree, tmp_path, capsys):
@@ -446,8 +531,12 @@ def test_a_staged_but_empty_database_refuses(tmp_path):
     The gate one layer down asks whether the database FILE is there. Without
     this, an empty one would sail past it and hand a deployed accelerator a
     manifest with no channels in it.
+
+    Asked of a tree with no model, which is where the staged databases are the
+    only source of channels. The sibling below is the other tree, and it does
+    not refuse.
     """
-    root = _facility_tree(tmp_path / "empty" / "data")
+    root = _without_model(_facility_tree(tmp_path / "empty" / "data"))
     paths = ManifestPaths(data_root=root, tier=DEFAULT_TIER)
     paths.hierarchical_db.unlink()
     paths.middle_layer_db.unlink()
@@ -466,6 +555,56 @@ def test_a_staged_but_empty_database_refuses(tmp_path):
 
     assert "name no channels" in str(excinfo.value)
     assert "in_context" in str(excinfo.value)
+
+
+def test_an_empty_database_beside_a_model_is_credited_with_the_models_channels(tmp_path, capsys):
+    """Current behaviour, pinned because it reads as the thing this file forbids.
+
+    The same empty database, on a tree that stages the bundle's bindings: the
+    build does not refuse, because the bindings name addresses and those become
+    the manifest. The channels are real and the accelerator can serve them.
+    What is not right is the sentence said about them -- they are credited to
+    "its in_context channel database(s)", the one file in the tree that named
+    nothing -- and the machine-state reconciliation turns up invalid
+    candidates, which is the tree telling the operator the two halves disagree.
+
+    Asserted as it behaves today, not as it should. The fix is a build_cmd.py
+    change (attribute channels to what actually produced them, and reconsider
+    whether a database naming nothing should still be called a source) and is
+    reported rather than made here.
+    """
+    root = _facility_tree(tmp_path / "empty-modelled" / "data")
+    paths = ManifestPaths(data_root=root, tier=DEFAULT_TIER)
+    paths.hierarchical_db.unlink()
+    paths.middle_layer_db.unlink()
+    database = json.loads(paths.in_context_db.read_text())
+    database["channels"] = {}
+    paths.in_context_db.write_text(json.dumps(database, indent=2))
+    (root / "simulation" / "machine.json").write_text(json.dumps({"channels": {}}))
+
+    prepared = prepare_project_manifest(root, DEFAULT_TIER)
+    _report(_shared(tmp_path), _profile(), root, prepared)
+
+    from osprey.services.virtual_accelerator.bindings import load_bindings, setpoints
+    from osprey.services.virtual_accelerator.manifest.classify import (
+        pyat_coupled_setpoint_addresses,
+    )
+
+    printed = _printed(capsys)
+    metadata = prepared.manifest["_metadata"]
+    total = metadata["total_channels"]
+
+    assert prepared is not None
+    assert metadata["partition_source"] == "simulation/va_bindings.json"
+    # Every channel in the manifest came from the bindings: nothing else named one.
+    assert set(metadata["by_partition"]) == {"pyat-coupled"}
+    assert metadata["by_partition"]["pyat-coupled"] == total
+    assert pyat_coupled_setpoint_addresses(prepared.manifest["channels"]) == set(
+        setpoints(load_bindings(paths.va_bindings))
+    )
+    # And the fact credits the empty file, which is the part that is wrong.
+    assert f"{total} channel(s) from its in_context channel database(s)" in printed
+    assert metadata["machine_state_reconciliation"]["invalid"]
 
 
 def test_a_tree_missing_its_drive_limits_refuses(tmp_path):
@@ -519,17 +658,36 @@ def test_an_attached_project_says_nothing(tmp_path, capsys):
 # --- the lattice the manifest earns ----------------------------------------
 
 
-def _wired_env(tmp_path: Path, manifest: dict) -> dict[str, str]:
-    """Run the build's one write outside ``build/`` over *manifest*, and read it."""
+def _wired_env(
+    tmp_path: Path, *, model: Sequence[str] = (), partition_source: str | None = None
+) -> dict[str, str]:
+    """Run the build's one write outside the output zone, and read what it wrote.
+
+    *model* names the model files the published tree stages beside its
+    manifest, and *partition_source* what that manifest says claimed its
+    pyat-coupled partition -- defaulting to the bindings when the tree stages
+    them. Together they say in one line which tree a test is describing: a tree
+    whose bindings both claimed its channels and are there to be mounted serves
+    the lattice they tie those channels to, and anything less serves none.
+    """
     from osprey.cli.build_cmd import _wire_build_derived_env
     from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
     from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
     from osprey.utils.dotenv import parse_dotenv_file
 
+    bindings_name = ManifestPaths(data_root=Path("unused")).va_bindings.name
+    if partition_source is None:
+        partition_source = f"simulation/{bindings_name}" if bindings_name in model else "none"
+
     repo = tmp_path / "repo"
     simulation = repo / "build" / "data" / "simulation"
     simulation.mkdir(parents=True)
-    (simulation / MANIFEST_FILENAME).write_text(json.dumps(manifest), encoding="utf-8")
+    (simulation / MANIFEST_FILENAME).write_text(
+        json.dumps({"_metadata": {"partition_source": partition_source}, "channels": []}),
+        encoding="utf-8",
+    )
+    for name in model:
+        (simulation / name).write_text("{}", encoding="utf-8")
 
     _wire_build_derived_env(repo, repo / "build")
 
@@ -544,41 +702,112 @@ def test_the_none_lattice_spelling_matches_the_containers_own():
     assert _VA_LATTICE_NONE == entrypoint.LATTICE_NONE
 
 
-def test_a_manifest_with_lattice_channels_keeps_the_builtin_lattice(whole_tree, tmp_path):
-    """The bundle's case: pyat-coupled channels, so there is a model to run."""
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT
+def test_a_tree_that_stages_bindings_serves_its_lattice_by_name(tmp_path):
+    """The name, not a mode: the entrypoint looks that file up in the tree."""
+    paths = ManifestPaths(data_root=tmp_path / "unused")
 
-    prepared = prepare_project_manifest(whole_tree, DEFAULT_TIER)
-    assert prepared.manifest["_metadata"]["by_partition"].get("pyat-coupled")
+    env = _wired_env(tmp_path, model=[paths.va_bindings.name, paths.lattice_json.name])
 
-    env = _wired_env(tmp_path, prepared.manifest)
-
-    assert env["VA_LATTICE"] == VA_LATTICE_DEFAULT
+    assert env["VA_LATTICE"] == paths.lattice_json.name
 
 
-def test_a_manifest_without_lattice_channels_gets_no_lattice(tmp_path):
-    """Nothing for the built-in model to steer, so it is not asserted over it.
+def test_a_tree_that_stages_no_bindings_names_no_lattice(tmp_path):
+    """Nothing ties the channel set to a ring, so none is asserted over it.
 
     The physics half of the fallback this feature removed: a lattice behind a
     namespace it does not describe.
     """
     from osprey.cli.build_cmd import _VA_LATTICE_NONE
 
-    manifest = {"_metadata": {"by_partition": {"static-noisy": 9}}, "channels": []}
-
-    env = _wired_env(tmp_path, manifest)
-
-    assert env["VA_LATTICE"] == _VA_LATTICE_NONE
-
-
-def test_an_unreadable_census_claims_no_lattice(tmp_path):
-    """A lattice is the claim that needs evidence, so absence of it answers no."""
-    from osprey.cli.build_cmd import _VA_LATTICE_NONE
-
-    env = _wired_env(tmp_path, {"channels": []})
+    env = _wired_env(tmp_path)
 
     assert env["VA_LATTICE"] == _VA_LATTICE_NONE
     assert env["VA_CHANNELS_FILE"]
+
+
+def test_a_lattice_without_bindings_is_not_a_served_lattice(tmp_path):
+    """A ring no address reaches moves nothing, so the bindings are the evidence."""
+    from osprey.cli.build_cmd import _VA_LATTICE_NONE
+
+    paths = ManifestPaths(data_root=tmp_path / "unused")
+
+    env = _wired_env(tmp_path, model=[paths.lattice_json.name])
+
+    assert env["VA_LATTICE"] == _VA_LATTICE_NONE
+
+
+def test_a_census_no_bindings_claimed_is_not_a_served_lattice(tmp_path):
+    """The graph-sourced tree's case: readback pairs stated, nothing coupled.
+
+    Its roster states which channels pair and no bindings at all, so its
+    channels reach no model and a lattice beside them would boot one that
+    nothing drives.
+    """
+    from osprey.cli.build_cmd import _VA_LATTICE_NONE
+
+    paths = ManifestPaths(data_root=tmp_path / "unused")
+
+    env = _wired_env(
+        tmp_path,
+        model=[paths.va_bindings.name, paths.lattice_json.name],
+        partition_source="none",
+    )
+
+    assert env["VA_LATTICE"] == _VA_LATTICE_NONE
+
+
+def test_bindings_the_render_did_not_stage_are_named_and_not_served(tmp_path, caplog):
+    """A manifest partitioned by a document the mount does not carry."""
+    import logging
+
+    from osprey.cli.build_cmd import _VA_LATTICE_NONE
+
+    with caplog.at_level(logging.WARNING):
+        env = _wired_env(tmp_path, partition_source="simulation/va_bindings.json")
+
+    assert env["VA_LATTICE"] == _VA_LATTICE_NONE
+    assert "simulation/va_bindings.json" in caplog.text
+
+
+def test_a_lattice_the_render_did_not_stage_is_named_and_not_served(tmp_path, caplog):
+    """The other half of the same pair: bindings staged, the ring they name absent.
+
+    The derived value is the lattice file's name, so a tree missing that file
+    would be handed a pointer to nothing and refuse at boot. Both halves are
+    checked on the tree the container mounts, and the absent one is named.
+    """
+    import logging
+
+    from osprey.cli.build_cmd import _VA_LATTICE_NONE
+
+    paths = ManifestPaths(data_root=tmp_path / "unused")
+
+    with caplog.at_level(logging.WARNING):
+        env = _wired_env(tmp_path, model=[paths.va_bindings.name])
+
+    assert env["VA_LATTICE"] == _VA_LATTICE_NONE
+    assert paths.lattice_json.name in caplog.text
+
+
+def test_the_bundles_own_tree_stages_its_model(whole_tree):
+    """What the framework ships, so the served case above is the demo's today.
+
+    The bundle carries a ring and the bindings that tie its channels to it, so
+    a build over the demo tree names that ring rather than ``none`` -- the
+    served branch, not the unserved one. Both files are asked for, because the
+    derivation requires the pair: bindings alone describe a model the tree
+    cannot build, and a ring alone is one no address reaches.
+
+    It is also why every tree copied from the bundle here carries a model
+    unless :func:`_without_model` takes it back out: ``required_sources`` names
+    the pair once the bindings are staged.
+    """
+    paths = ManifestPaths(data_root=whole_tree, tier=DEFAULT_TIER)
+
+    assert paths.va_bindings.is_file()
+    assert paths.lattice_json.is_file()
+    assert set(paths.required_sources) >= {paths.va_bindings, paths.lattice_json}
+    assert paths.missing_sources() == []
 
 
 # --- the whole build, on the framework's own gold-standard repo -------------
@@ -682,25 +911,34 @@ def test_a_va_deploying_repo_with_no_channel_databases_fails_the_build(tmp_path_
     assert not (repo / "build" / "config.yml").is_file()
 
 
-def test_the_exemplar_build_derives_its_lattice_from_its_own_channels(built_exemplar):
-    """It EARNS `builtin`: 8 of its 9 channels are pyat-coupled, so a model applies.
+def test_the_exemplar_build_names_the_lattice_its_own_tree_stages(built_exemplar):
+    """The value is derived from the published tree, and here it says no model.
 
-    The value is derived, not asserted, and here the derivation says yes. What
-    would have been wrong is claiming the lattice without checking, which is
-    what a manifest of pure telemetry gets caught by in
-    ``test_a_manifest_without_lattice_channels_gets_no_lattice``.
+    The exemplar's data tree carries no bindings, so the build names no lattice
+    over a channel set nothing would steer. What would be wrong is claiming one
+    without checking the tree the container is about to mount.
     """
+    from osprey.cli.build_cmd import _VA_LATTICE_NONE
     from osprey.deployment.compose_generator import COMPOSE_ENV_FILENAME
-    from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
-    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, parse_dotenv_file
+    from osprey.utils.dotenv import parse_dotenv_file
 
-    manifest = json.loads(
-        (built_exemplar / "build" / "data" / "simulation" / MANIFEST_FILENAME).read_text()
-    )
+    paths = ManifestPaths(data_root=built_exemplar / "build" / "data")
     env = parse_dotenv_file(built_exemplar / COMPOSE_ENV_FILENAME)
 
-    assert manifest["_metadata"]["by_partition"]["pyat-coupled"] > 0
-    assert env["VA_LATTICE"] == VA_LATTICE_DEFAULT
+    assert not paths.va_bindings.is_file()
+    assert env["VA_LATTICE"] == _VA_LATTICE_NONE
+
+
+def test_the_exemplar_render_carries_its_write_bands_at_the_data_root(built_exemplar):
+    """The mount is the whole data root, and the model reads its bands from there.
+
+    A lattice-backed boot builds its variables from ``channel_limits.json`` at
+    the tree's root, one level above the served directory. The render has to
+    carry it there or the container mounts a tree its model cannot read.
+    """
+    paths = ManifestPaths(data_root=built_exemplar / "build" / "data")
+
+    assert paths.channel_limits.is_file()
 
 
 # --- a graph-mode tree, served from its knowledge graph ---------------------
@@ -980,3 +1218,103 @@ def test_a_graph_repo_with_an_unreadable_corpus_fails_a_real_build(tmp_path_fact
     env = parse_dotenv_file(env_path) if env_path.is_file() else {}
     assert "VA_CHANNELS_FILE" not in env
     assert "VA_LATTICE" not in env
+
+
+# --- the same facts, about a tree a facility harvested --------------------
+
+# Every case above describes a tree assembled here, from the bundle's own
+# sources or from a literal written into this file. These describe the tree an
+# operator ends up with after running the MML chain and `osprey build` over a
+# real export: the one shape of project that reaches this code with a channel
+# set, a ring and the bindings between them all written by the same harvest.
+#
+# The recipe that produces it lives beside its own assertions in
+# test_mml_build_recipes.py and is imported rather than rebuilt, so the chain
+# is spelled once and both files read the same published tree.
+from tests.cli.test_mml_build_recipes import (  # noqa: E402
+    LIMITS_FILE,
+    PACKAGED_DATA,
+    SERVED,
+    served_manifest,
+    served_repo,  # noqa: F401  (pytest resolves it by name, not by reference)
+)
+
+
+@pytest.fixture(scope="module")
+def harvested(served_repo):  # noqa: F811  (the imported fixture, by pytest's own name)
+    """The recipe's published tree, under the name this file reads it by."""
+    return served_repo
+
+
+def _collapsed(text: str) -> str:
+    """One line, whitespace collapsed -- the phase reporter wraps its facts."""
+    return " ".join(text.split())
+
+
+def test_a_harvested_trees_fact_names_the_database_the_harvest_wrote(harvested):
+    """The channel set is the harvest's, and the fact says which file backs it.
+
+    The same sentence the bundled trees above are held to, said about a tree
+    whose one staged database was written minutes earlier by ``mml emit``: it
+    names the paradigm that fed the manifest, names the two the harvest did
+    not write, and claims no channel the tree does not hold.
+    """
+    printed = _collapsed(harvested["build"])
+    total = served_manifest(harvested["repo"])["_metadata"]["total_channels"]
+
+    assert f"{total} channel(s) from its middle_layer channel database(s)" in printed
+    assert "Not staged at that tier: hierarchical and in_context" in printed
+    assert _DEAD_FALLBACK_SENTENCE not in printed
+
+
+def test_the_reconciliation_fact_rides_along_on_a_harvested_tree(harvested):
+    """The machine-state list the harvest emitted is checked against that set.
+
+    Both facts are said once per tree, so a harvested tree gets the second one
+    too -- and on a tree where one harvest wrote both documents, every
+    candidate the list names is an address the manifest serves.
+    """
+    printed = _collapsed(harvested["build"])
+    listed = json.loads(
+        (harvested["repo"] / "data" / "machine_state_channels.json").read_text(encoding="utf-8")
+    )
+    # The document is address -> entry, with the provenance stamp and the
+    # note it opens on spelled as underscore keys.
+    checked = len([key for key in listed if not key.startswith("_")])
+
+    assert checked
+    assert f"{checked} checked, {checked} valid, 0 invalid" in printed
+
+
+def test_the_facility_bands_survive_the_lane_and_the_build(harvested):
+    """A band the facility authored is still its own after the whole chain.
+
+    ``channel_limits.json`` is the one document of the served tree that is
+    shared: the deployment's own bands are in it before the harvest runs, and
+    the virtual-accelerator lane states the bands of the channels it bound by
+    merging into that file rather than replacing it. The build then copies the
+    merged file beside the manifest. So the invariant is asked of the end of
+    the chain, where it can actually fail: every entry the project carried
+    before the harvest is still there, unchanged, in what the container will
+    read -- and the lane's own bands are an addition to it.
+    """
+    before = json.loads((PACKAGED_DATA / LIMITS_FILE).read_text(encoding="utf-8"))
+    published = json.loads((harvested["repo"] / SERVED / LIMITS_FILE).read_text(encoding="utf-8"))
+
+    assert {key: published.get(key) for key in before} == before
+    assert published.keys() > before.keys()
+
+
+def test_the_published_bands_sit_at_the_root_and_beside_the_manifest(harvested):
+    """Both readers find the same file: the model's, and the IOC's clamp.
+
+    The model resolves the bands from the data root it is mounted at, and the
+    IOC reads them from beside the manifest it serves. One build writes both,
+    and a difference between them would clamp a write at one value while the
+    model believed another.
+    """
+    data_root = harvested["repo"] / "build" / "data"
+
+    assert (data_root / LIMITS_FILE).read_bytes() == (
+        data_root / "simulation" / LIMITS_FILE
+    ).read_bytes()

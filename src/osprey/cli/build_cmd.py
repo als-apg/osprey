@@ -2955,38 +2955,74 @@ def _render_container_projects(
 
 
 #: The ``VA_LATTICE`` value naming no lattice at all. Respelled from the
-#: container entrypoint's ``LATTICE_NONE`` for the reason
-#: ``manifest.standin_defaults`` respells ``LATTICE_BUILTIN``: that module pulls
-#: in the whole serving stack, which a build must not import. Pinned by test
-#: against the entrypoint's own.
+#: container entrypoint's ``LATTICE_NONE`` rather than imported from it: that
+#: module pulls in the whole serving stack, which a build must not import.
+#: Pinned by test against the entrypoint's own.
 _VA_LATTICE_NONE = "none"
 
 
-def _manifest_has_lattice_channels(manifest_path: Path) -> bool:
-    """Whether a generated manifest carries channels the built-in lattice moves.
+def _served_lattice(data_root: Path, manifest_path: Path) -> str:
+    """The ``VA_LATTICE`` value a published data tree earns.
 
-    The PyAT model behind ``VA_LATTICE=builtin`` acts on the ``pyat-coupled``
-    partition and nothing else, so its presence in the manifest's own partition
-    census is the whole question. Read from the written file rather than passed
-    down from the render: this runs after the swap, on the tree that was
-    actually published, which is the manifest the container will mount.
+    A tree serves a lattice when it stages the bindings document that ties its
+    channels to one. That document is the evidence and the lattice file is not:
+    a ring no address reaches moves nothing the manifest names, so the bindings
+    are what make the two halves a model. The value written is the lattice
+    file's own name relative to the directory the container is handed -- the
+    same directory ``VA_CHANNELS_FILE`` names the manifest in -- and the
+    entrypoint looks that name up verbatim, case included.
+
+    Two things have to hold, and they answer one question between them. The
+    manifest has to record that a bindings document claimed its pyat-coupled
+    partition (``_metadata.partition_source``), because a channel set nothing
+    coupled reaches no model however many files sit beside it -- that is the
+    case a knowledge-graph roster produces, which states readback pairs and no
+    bindings at all. And both model files have to be in the published tree --
+    the bindings document and the lattice it names -- because
+    what has to be true at boot is that the model files are in the directory
+    the container mounts; this runs after the swap, on exactly that tree.
 
     Args:
-        manifest_path: The generated ``channel_manifest.json`` in the output zone.
+        data_root: The published ``data/`` tree in the output zone, whose
+            ``simulation/`` directory is the container's data dir.
+        manifest_path: The generated manifest in that tree, whose ``_metadata``
+            names what claimed its partition.
 
     Returns:
-        True when the manifest declares at least one pyat-coupled channel. False
-        when it declares none, and also when the file cannot be read as the
-        expected shape: a lattice is the claim that needs evidence, so an
-        unreadable census answers no rather than guessing yes.
+        The lattice file's name, or :data:`_VA_LATTICE_NONE` for a tree with
+        nothing for a model to steer.
     """
-    from osprey.services.virtual_accelerator.manifest.classify import PARTITION_PYAT_COUPLED
+    from osprey.services.virtual_accelerator.manifest.build import PARTITION_SOURCE_NONE
+    from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 
     try:
-        census = json.loads(manifest_path.read_text())["_metadata"]["by_partition"]
+        source = json.loads(manifest_path.read_text())["_metadata"]["partition_source"]
     except (json.JSONDecodeError, KeyError, OSError, TypeError):
-        return False
-    return bool(census.get(PARTITION_PYAT_COUPLED))
+        # A lattice is the claim that needs evidence, so a manifest that cannot
+        # be read for it answers no rather than guessing yes.
+        return _VA_LATTICE_NONE
+    if source == PARTITION_SOURCE_NONE:
+        return _VA_LATTICE_NONE
+
+    paths = ManifestPaths(data_root=data_root)
+    # The bindings and the lattice are the two halves of one model -- the
+    # document states which channels couple, the lattice is what they steer --
+    # so a tree missing either carries no model to build, whatever its manifest
+    # claims, and the absent half is named rather than discovered at boot.
+    absent = [path.name for path in (paths.va_bindings, paths.lattice_json) if not path.is_file()]
+    if absent:
+        logger.warning(
+            "  The generated channel manifest was partitioned by %s, but %s is not in %s. "
+            "The accelerator is left serving no lattice, since the tree the container "
+            "mounts carries no model to build.",
+            source,
+            " and ".join(absent),
+            data_root,
+        )
+        return _VA_LATTICE_NONE
+    # Both the lattice and the manifest sit in the served directory, so the
+    # lattice's bare name IS its data-dir-relative name.
+    return paths.lattice_json.name
 
 
 def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
@@ -3033,14 +3069,14 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     from osprey.utils.dotenv import (
         BUILD_DERIVED_BANNER,
         BUILD_DERIVED_KEYS,
-        VA_LATTICE_DEFAULT,
         VA_LATTICE_KEY,
         append_profile_env,
         parse_dotenv_file,
     )
 
     env_path = repo_root / COMPOSE_ENV_FILENAME
-    manifest = build_dir / "data" / "simulation" / MANIFEST_FILENAME
+    data_root = build_dir / "data"
+    manifest = data_root / "simulation" / MANIFEST_FILENAME
 
     if not manifest.is_file():
         on_file = parse_dotenv_file(env_path) if env_path.is_file() else {}
@@ -3060,41 +3096,47 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     # against its data mount, which is the directory the manifest was just
     # written into.
     #
-    # VA_LATTICE is DERIVED from that manifest rather than asserted, and the
-    # rule is the same one that governs the channel set itself: a project's
-    # accelerator runs on what the project actually has. `builtin` names the
-    # framework's PyAT model of the tutorial machine, which can only move
-    # channels the manifest classifies as pyat-coupled. A manifest carrying
-    # none of those has nothing for that model to steer, and asserting
-    # `builtin` over it would put a lattice behind a namespace it does not
-    # describe -- the physics half of the fallback this feature removed. So a
-    # manifest with pyat-coupled channels keeps `builtin`, and every other one
-    # gets `none`, which is also the entrypoint's own default for a
-    # file-backed source.
+    # VA_LATTICE is DERIVED from the same published tree rather than asserted,
+    # and the rule is the one that governs the channel set itself: a project's
+    # accelerator runs on what the project actually has. A tree staging the
+    # bindings that tie its channels to a ring serves that ring, by name; a
+    # tree staging none has nothing for a model to steer, and naming a lattice
+    # over it would put physics behind a namespace it does not describe -- the
+    # half of the fallback this feature removed that a channel set alone
+    # cannot catch. So the lattice's own name is written when the model is in
+    # the tree the container mounts, and `none` otherwise, which is also the
+    # entrypoint's reading of an unset value.
     #
-    # `builtin` is written from `VA_LATTICE_DEFAULT` because that constant is
-    # DEFINED as the value an unpinned chain resolves to, and `resolved_va_lattice`
-    # answers every reader from it: the stand-in's lattice refusal, the render,
-    # the archive seed. `none` has no such constant outside the container's
-    # entrypoint, which the build cannot import (it pulls in the whole serving
-    # stack), so it is respelled below and pinned by test against
-    # `entrypoint.LATTICE_NONE`.
+    # `none` has no constant outside the container's entrypoint, which the
+    # build cannot import (it pulls in the whole serving stack), so it is
+    # respelled above and pinned by test against `entrypoint.LATTICE_NONE`.
+    lattice = _served_lattice(data_root, manifest)
     entries = {
         "VA_CHANNELS_FILE": MANIFEST_FILENAME,
-        VA_LATTICE_KEY: (
-            VA_LATTICE_DEFAULT if _manifest_has_lattice_channels(manifest) else _VA_LATTICE_NONE
-        ),
+        VA_LATTICE_KEY: lattice,
     }
     result = append_profile_env(env_path, entries, BUILD_DERIVED_BANNER)
 
     if result.added:
-        # The build's one write outside build/, into a file that is the
-        # operator's rather than a build artifact. It runs after the render
+        # The build's one write outside the output zone, into a file that is
+        # the operator's rather than a build artifact. It runs after the render
         # phase has closed, so it is reported rather than stepped.
-        _report_fact(
+        line = (
             f"Pointed {COMPOSE_ENV_FILENAME} at the generated channel manifest "
             f"({', '.join(sorted(result.added))})"
         )
+        if VA_LATTICE_KEY in result.added:
+            # The lattice is named rather than summarised: which ring the
+            # accelerator runs on is the one fact an operator cannot read back
+            # off the channel set, and a file name is what they would go
+            # looking for in the served tree.
+            line += (
+                f", which serves the lattice {lattice}"
+                if lattice != _VA_LATTICE_NONE
+                else ", which serves no lattice: the tree stages no bindings document, so "
+                "its channels reach no model"
+            )
+        _report_fact(line)
     for conflict in result.conflicts:
         # Named, never valued: the store this reads is the one holding the
         # facility's provider keys, and a warning is not a safe place for it.
@@ -3497,8 +3539,8 @@ def _build_repo(
         # The build-time half of the stand-in's lattice gate. Validation asks
         # the same question of the env chain alone; only here is the other half
         # knowable — whether this render produced a channel manifest, which is
-        # the precondition the line above gates its `VA_LATTICE=builtin` write
-        # on. A stand-in with no lattice behind the readout perturbation it
+        # the precondition the line above gates its `VA_LATTICE` write on. A
+        # stand-in with no lattice behind the readout perturbation it
         # ships exits at container start, so it is refused now rather than
         # discovered at `osprey up`.
         va = build_profile.virtual_accelerator
@@ -3872,6 +3914,10 @@ def _repo_render_context(
     ``ariel_server_on`` is the flag the framework template gates its two
     ARIEL-dependent blocks on; see :func:`_ariel_server_enabled`.
 
+    ``middle_layer_duckdb`` says whether the profile's data tree holds
+    ``channel_databases/middle_layer.duckdb``; the framework template renders
+    the middle-layer ``duckdb_path`` only when it does.
+
     Raises:
         ValueError: If the profile's ``deployment.port_base`` is out of range;
             see :func:`_profile_port_base`.
@@ -3909,6 +3955,15 @@ def _repo_render_context(
     if build_profile.claude_md_template:
         context["claude_md_template"] = build_profile.claude_md_template
     context["ariel_server_on"] = _ariel_server_enabled(build_profile)
+    # Binds the middle-layer pipeline's `duckdb_path` when the profile ships the
+    # database. Decided here, against the tree the build copies, because the
+    # template manager builds its context before it copies any data and so
+    # cannot see the file.
+    context["middle_layer_duckdb"] = (
+        (build_profile.resolved_data_root(repo_root) or repo_root / "data")
+        / "channel_databases"
+        / "middle_layer.duckdb"
+    ).is_file()
 
     python_env = build_profile.python_env or "project"
     if runtime_interpreter:

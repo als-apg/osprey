@@ -418,8 +418,8 @@ class ConfigKeyGuard:
         """The framework render matrix: base context × every matrix cell.
 
         The cells are the template's own remaining branches — the three
-        channel-finder pipeline modes, the ARIEL gate, and the web block's
-        three switches. ``_enable_flags`` is imported rather than spelled so the
+        channel-finder pipeline modes, the ARIEL gate, the middle-layer DuckDB
+        gate, and the web block's three switches. ``_enable_flags`` is imported rather than spelled so the
         mode → flag mapping cannot drift from the one the build applies.
         """
         from osprey.cli.templates.manager import _enable_flags
@@ -429,17 +429,19 @@ class ConfigKeyGuard:
         out = []
         for mode in matrix.get("channel_finder_mode", [None]):
             for ariel_on in matrix.get("ariel_server_on", [True]):
-                for selection in matrix.get("web_selection", [{}]):
-                    ctx = dict(base)
-                    if mode:
-                        ctx["channel_finder_mode"] = mode
-                        ctx["default_pipeline"] = mode
-                        ctx.update(_enable_flags(mode))
-                    ctx["ariel_server_on"] = ariel_on
-                    ctx["selected_web_panels"] = self._selected_panels(base, selection)
-                    ctx["default_panel"] = selection.get("default_panel")
-                    ctx["panel_presets"] = selection.get("panel_presets")
-                    out.append(ctx)
+                for duck in matrix.get("middle_layer_duckdb", [False]):
+                    for selection in matrix.get("web_selection", [{}]):
+                        ctx = dict(base)
+                        if mode:
+                            ctx["channel_finder_mode"] = mode
+                            ctx["default_pipeline"] = mode
+                            ctx.update(_enable_flags(mode))
+                        ctx["ariel_server_on"] = ariel_on
+                        ctx["middle_layer_duckdb"] = duck
+                        ctx["selected_web_panels"] = self._selected_panels(base, selection)
+                        ctx["default_panel"] = selection.get("default_panel")
+                        ctx["panel_presets"] = selection.get("panel_presets")
+                        out.append(ctx)
         return out
 
     @staticmethod

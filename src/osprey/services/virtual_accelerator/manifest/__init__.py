@@ -20,10 +20,13 @@ nor paired with one.
 
 This package expands all three file formats at their build-resolved tier,
 verifies they agree, unions in the scenario-seed ``machine.json`` channels,
-reconciles the machine-state template against the result, and classifies
-every address into a physics-fidelity partition (pyat-coupled / sp-echo /
-static-noisy) plus an EPICS record type. The served channel set is derived
-from these sources -- never hand-listed.
+reconciles the machine-state template against the result, and assigns every
+address a physics-fidelity partition (pyat-coupled / sp-echo / static-noisy)
+plus an EPICS record type. The partition comes from the facility's own
+bindings document -- an address is pyat-coupled because a binding claims it,
+not because its text matches a family name (see ``classify`` for the
+vocabulary and ``build`` for the assignment). The served channel set is
+derived from these sources -- never hand-listed.
 
 See :func:`build.build_manifest` for the entry point.
 """
@@ -40,7 +43,6 @@ from .classify import (
     RECORD_TYPE_MBB,
     RECORD_TYPE_STRING,
     SETPOINT_SUBFIELD,
-    classify_partition,
     derive_record_type,
     pyat_coupled_setpoint_addresses,
     setpoint_addresses,
@@ -49,7 +51,6 @@ from .loaders import MANIFEST_CHANNEL_KEYS, ManifestFileError, load_manifest_fil
 
 __all__ = [
     "build_manifest",
-    "classify_partition",
     "derive_record_type",
     "load_manifest_file",
     "ManifestFileError",

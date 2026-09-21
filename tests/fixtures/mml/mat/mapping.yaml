@@ -1,0 +1,85 @@
+facility:
+  token: Quokka
+  title: Quokka
+  description: The invented Quokka light source used by the synthetic MML fixtures.
+  provenance: stated
+systems:
+  BOOSTER:
+    name: BOOSTER
+    description: Quokka booster synchrotron, simulated ramp.
+    provenance: stated
+section_order:
+- BOOSTER
+families:
+  BPM:
+    class: BeamPositionMonitor
+    aliases:
+    - BPM
+    description: Booster beam position monitors.
+    provenance: stated
+    channels: 4
+    fields:
+      X:
+        description: 'Field X: 2 channels via ChannelNames, hardware units mm.'
+        provenance: stated
+      Y:
+        description: 'Field Y: 2 channels via ChannelNames.'
+        provenance: stated
+  HCM:
+    class: HCorrector
+    aliases:
+    - HCM
+    description: Horizontal orbit corrector magnets.
+    provenance: stated
+    channels: 4
+    fields:
+      Monitor:
+        description: 'Field Monitor: 2 channels via ChannelNames, hardware units
+          Amps.'
+        provenance: stated
+      Setpoint:
+        description: 'Field Setpoint: 2 channels via ChannelNames, hardware units Amps.'
+        provenance: stated
+  SEPTUM:
+    aliases:
+    - SEPTUM
+    description: Extraction septum; no channels exported.
+    provenance: stated
+    channels: 0
+    fields: {}
+  SF:
+    class: Sextupole
+    aliases:
+    - SF
+    description: Focusing sextupoles on one shared supply.
+    provenance: stated
+    channels: 3
+    fields:
+      Setpoint:
+        description: 'Field Setpoint: 3 channels via ChannelNames, one channel broadcast
+          to every device, hardware units Amps.'
+        provenance: stated
+directions:
+  BPM.X:
+    direction: read
+    provenance: stated
+    override: false
+  BPM.Y:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  HCM.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  SF.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+judgments:
+  HCM:
+    shared_pvs: keep_all

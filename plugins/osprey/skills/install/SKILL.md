@@ -215,11 +215,29 @@ last is an `osprey init` argument; the other three are `osprey set` keys applied
      Deferred. Never write a custom component mid-run.
 6. **Wiring rule.** A `port` on a data path, and an adopted area's data path, is complete
    only when the config keys binding that path are set. Files nothing points at are
-   invisible to the build.
+   invisible to the build. A harvest that emits two artifacts for one area binds one of
+   them; the other is `built, unbound` in the ledger, with the keys that would bind it.
 7. **Harvest.** For every source the user named in DISCOVER — documents, a channel list,
-   an IOC database, a lattice — one question: harvest it, or an empty placeholder. One
-   question per source, batched up to four per AskUserQuestion call. The steps, the `derived` provenance and the commands are in
+   an IOC database, a MATLAB Middle Layer, a lattice — one question: harvest it, or an
+   empty placeholder. One question per source, batched up to four per AskUserQuestion
+   call. The steps, the `derived` provenance and the commands are in
    `references/knowledge-starter.md`. Harvested material is curation owed, under Deferred.
+   - A Middle Layer runs the chain in §3.1 of that file, in order:
+     `osprey scaffold pull control-assistant:data/mml/mml_export.m`; the user runs
+     `mml_export` once per sub-machine; `osprey mml import <machine>.<sub>.ao.json`;
+     `osprey mml map --init`; fill every `null`; answer every slot of the
+     `judgments:` block with the user; review every `derived` description,
+     direction, `class` and `branch` with the user and mark each slot `stated`;
+     `osprey mml map --check --no-derived`; `osprey mml emit`; on a 2.0 export
+     `osprey mml verify`, whose `data/mml/VA-REPORT.md` is read before building;
+     `osprey build`; then the PARADIGM card binds one of the two channel-finder
+     artifacts emit wrote.
+   - A 2.0 export also decides, family by family, what the model drives. `map --init`
+     appends the `virtual_accelerator:` block; the VA MAP card in `references/cards.md`
+     (`## VA MAP`) is drawn from it at that step and again after every answer, and its
+     open slots are answered there. `map --check` and `emit` refuse while one is open.
+   - `osprey mml emit` refuses while the deployment holds demo files it would contradict
+     and prints one `rm` line naming them. Run that line as printed, then emit again.
 8. `osprey validate --drift=warn` after every change. Drift from the preset is expected.
 9. Core four, hardwired, resolved before wrap-up. **Provider and its key**: the list is
    `providers.yml` beside the profile; `osprey init` writes `.env.example`, never `.env`, so the
@@ -239,8 +257,13 @@ No-invention rules, all detailed in `references/knowledge-starter.md`:
 
 - Facility knowledge: skeleton and index files, stubs in the user's words, or stubs
   derived from a named source and marked as such. Nothing else gets a file.
-- Channel databases: the shipped template, the facility's own file, or one built from
-  the facility's CSV by `osprey channel-finder build-database`. Never by hand.
+- Channel databases: the shipped template, the facility's own file, one built from the
+  facility's CSV by `osprey channel-finder build-database`, or one emitted from the
+  facility's MML export by `osprey mml emit`. Never by hand.
+- The MML mapping: `data/mml/mapping.yaml` is reviewed to `stated` and every
+  `judgments:` slot is answered by the user before anything is emitted from it, and
+  every file `osprey mml emit` writes is `built` — the database, the ontology, the
+  knowledge pages and the corpus alike.
 - Write limits: absent, empty, or ported, never a hand-written min or max.
 - Personas and users: emit all, then prune. One ordering, one home:
   `references/knowledge-starter.md` §6, which the web-terminal recipe points at too.

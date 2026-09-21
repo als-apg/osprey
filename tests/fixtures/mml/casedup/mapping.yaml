@@ -1,0 +1,92 @@
+facility:
+  token: Quokka
+  title: Quokka
+  description: The invented Quokka light source used by the synthetic MML fixtures.
+  provenance: stated
+systems:
+  MAIN:
+    name: MAIN
+    description: Quokka main ring, whose export carries two families differing only by case.
+    provenance: stated
+section_order:
+- MAIN
+families:
+  BPMx:
+    branch: BeamPositionMonitor
+    class: QuokkaOrbitMonitor
+    aliases:
+    - BPMx
+    description: Orbit position, horizontal plane
+    provenance: stated
+    channels: 3
+    fields:
+      Monitor:
+        description: 'Field Monitor: 3 channels via ChannelNames.'
+        provenance: stated
+  CH:
+    branch: Corrector
+    class: QuokkaSteerer
+    aliases:
+    - CH
+    description: Horizontal steering correctors.
+    provenance: stated
+    channels: 6
+    fields:
+      Monitor:
+        description: 'Field Monitor: 4 channels via ChannelNames, hardware units Amps.'
+        provenance: stated
+      Setpoint:
+        description: 'Field Setpoint: 2 channels via ChannelNames, one channel broadcast
+          to every device, hardware units Amps.'
+        provenance: stated
+      SumCurrent:
+        description: Summed current of the corrector string, carved out of a Monitor
+          row beyond the device list.
+        provenance: stated
+  DIPOLE:
+    aliases:
+    - DIPOLE
+    description: Main ring dipoles; no channels exported.
+    provenance: stated
+    channels: 0
+    fields: {}
+  bpmx:
+    rename: bpmx_slow
+    branch: BeamPositionMonitor
+    class: QuokkaOrbitMonitor
+    aliases:
+    - bpmx
+    description: Slow orbit acquisition, horizontal plane
+    provenance: stated
+    channels: 2
+    fields:
+      Monitor:
+        description: 'Field Monitor: 2 channels via ChannelNames.'
+        provenance: stated
+directions:
+  BPMx.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  CH.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+  CH.Setpoint:
+    direction: write
+    provenance: stated
+    override: false
+  CH.SumCurrent:
+    direction: read
+    provenance: stated
+    override: false
+  bpmx.Monitor:
+    direction: read
+    provenance: stated
+    override: false
+judgments:
+  CH:
+    rows_beyond_devices:
+      Monitor:
+        MN-CH:Sum-Mon: {field: SumCurrent}
+        MN-CH:Spare-Mon: drop
