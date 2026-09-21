@@ -68,7 +68,8 @@ def _parse_env(tmp_path):
     return parse_dotenv_file(path) if path.is_file() else {}
 
 
-def test_bluesky_web_deploy_mints_the_operator_secret(captured_argv, _clean_secret_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_bluesky_web_deploy_mints_the_operator_secret(_clean_secret_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
     env = _parse_env(tmp_path)
@@ -77,7 +78,8 @@ def test_bluesky_web_deploy_mints_the_operator_secret(captured_argv, _clean_secr
     assert len(secret) >= 32, f"minted secret is implausibly short: {len(secret)} chars"
 
 
-def test_bluesky_web_existing_secret_is_preserved(captured_argv, _clean_secret_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_bluesky_web_existing_secret_is_preserved(_clean_secret_env, tmp_path):
     (tmp_path / ".env").write_text("OSPREY_TERMINAL_SECRET=operator-chose-this\n", encoding="utf-8")
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)

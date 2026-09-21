@@ -174,7 +174,8 @@ def _unit(project: str, persona: str, tmp_path) -> dict:
     }
 
 
-def test_persona_build_captures_per_image_with_its_own_spool(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_persona_build_captures_per_image_with_its_own_spool(monkeypatch, tmp_path):
     """Each persona image is its own captured run, named for the image it
     builds, so a failed build names a spool holding only that build's output."""
     units = [_unit("demo-ops", "ops", tmp_path), _unit("demo-physics", "physics", tmp_path)]
@@ -204,9 +205,8 @@ def test_persona_build_reports_one_step_per_image(monkeypatch, tmp_path, reporte
     assert reporter.steps == ["persona image demo-ops:local", "persona image demo-physics:local"]
 
 
-def test_default_view_hides_buildkit_lines_but_the_spool_keeps_them(
-    monkeypatch, tmp_path, capfd, terminal_reporter
-):
+@pytest.mark.usefixtures("terminal_reporter")
+def test_default_view_hides_buildkit_lines_but_the_spool_keeps_them(monkeypatch, tmp_path, capfd):
     """SC2, end to end on the headline path: a real child emitting BuildKit
     progress, the real reporter, the real capture helper. The operator's
     terminal shows the step line and nothing of the build; the spool file
@@ -230,7 +230,8 @@ def test_default_view_hides_buildkit_lines_but_the_spool_keeps_them(
         assert line in spooled
 
 
-def test_persona_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_persona_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path):
     """A single-image build's BuildKit headers name no service (`#10 [ 2/13]`),
     so the watcher carries the image tag as its label. Without it the whole
     build parses into nothing — silently, with no error — so the assertion is
@@ -356,7 +357,8 @@ def _sidecar_build(monkeypatch, tmp_path, runtime: str) -> tuple[RunRecorder, di
     return recorder, config
 
 
-def test_auth_sidecar_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_auth_sidecar_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_path):
     """Same single-image trap as the persona build: the sidecar's BuildKit
     headers name no service, so an unlabeled watcher would parse the whole
     build into nothing without ever erroring."""
@@ -370,7 +372,8 @@ def test_auth_sidecar_build_is_watched_under_its_own_image_tag(monkeypatch, tmp_
     assert row.step == "2/13"
 
 
-def test_auth_sidecar_build_pins_plain_progress_on_docker(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_auth_sidecar_build_pins_plain_progress_on_docker(monkeypatch, tmp_path):
     recorder, _ = _sidecar_build(monkeypatch, tmp_path, "docker")
 
     cmd = recorder.by_spool("build-auth-sidecar")["cmd"]
@@ -378,7 +381,8 @@ def test_auth_sidecar_build_pins_plain_progress_on_docker(monkeypatch, tmp_path,
     assert cmd[-1].endswith("auth")  # the flag lands ahead of the context
 
 
-def test_auth_sidecar_build_carries_the_site_build_args(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_auth_sidecar_build_carries_the_site_build_args(monkeypatch, tmp_path):
     """The login service is the container that reaches the identity provider,
     so its image gets the same site CA every other managed image is built
     with — staged into its own context, since a COPY cannot leave one."""
@@ -471,7 +475,8 @@ def test_auth_sidecar_build_keeps_a_stable_pin_strict(monkeypatch, tmp_path, rep
     assert "OSPREY_PIP_PRE" not in args
 
 
-def test_auth_sidecar_build_omits_plain_progress_on_podman(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_auth_sidecar_build_omits_plain_progress_on_podman(monkeypatch, tmp_path):
     """`podman build` has no `--progress`; passing it would fail the deploy."""
     recorder, _ = _sidecar_build(monkeypatch, tmp_path, "podman")
 
@@ -513,7 +518,8 @@ def test_force_recreate_is_captured_with_the_callers_repo_root(monkeypatch, tmp_
     assert reporter.steps == ["recreated osprey-auth, nginx"]
 
 
-def test_image_drift_reconcile_forwards_the_deploys_repo_root(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_image_drift_reconcile_forwards_the_deploys_repo_root(monkeypatch, tmp_path):
     """The post-`up` reconcile is handed the root `deploy_up_web_terminals`
     already resolved, so the recreate spools beside the `up` that preceded it
     rather than wherever the process happens to be."""
@@ -577,7 +583,8 @@ def _web_config(image_source: str = "registry") -> dict:
     }
 
 
-def test_dev_mode_up_captures_every_compose_invocation(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_dev_mode_up_captures_every_compose_invocation(monkeypatch, tmp_path):
     """A dev-mode registry deploy runs both stacks: services rm/build/up, then
     the web stack's rm/pull/up. Every one is captured, in that order, each
     under its own spool name and anchored to the repo root."""
@@ -611,7 +618,8 @@ def test_dev_mode_up_captures_every_compose_invocation(monkeypatch, tmp_path, re
     ]
 
 
-def test_stale_container_preflights_stay_non_fatal(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_stale_container_preflights_stay_non_fatal(monkeypatch, tmp_path):
     """Both `rm -f` preflights no-op on a clean stack and must never abort the
     deploy on a non-zero exit — check=False, exactly as before the conversion.
     Every other invocation stays fail-loud."""
@@ -646,7 +654,8 @@ def test_up_reports_a_step_for_each_stack(monkeypatch, tmp_path, reporter):
     ]
 
 
-def test_the_services_build_streams_per_image_progress(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_the_services_build_streams_per_image_progress(monkeypatch, tmp_path):
     """The web path's `build` gets the same per-image steps as the plain path.
 
     It is the identical half-hour silence — same compose build, reached through
@@ -662,7 +671,8 @@ def test_the_services_build_streams_per_image_progress(monkeypatch, tmp_path, re
         assert recorder.by_spool(other)["on_line"] is None
 
 
-def test_local_mode_up_still_never_pulls(monkeypatch, tmp_path, reporter):
+@pytest.mark.usefixtures("reporter")
+def test_local_mode_up_still_never_pulls(monkeypatch, tmp_path):
     """The local-only tags have no upstream, so local mode issues no pull —
     the conversion must not smuggle one back in."""
     recorder = _stub_web_stack(monkeypatch, tmp_path)
@@ -703,9 +713,8 @@ def test_verify_script_is_captured_from_the_project_root(monkeypatch, tmp_path, 
     assert reporter.steps == ["smoke check verify.sh: exit 0"]
 
 
-def test_verify_script_output_never_reaches_the_terminal(
-    monkeypatch, tmp_path, capfd, terminal_reporter
-):
+@pytest.mark.usefixtures("terminal_reporter")
+def test_verify_script_output_never_reaches_the_terminal(monkeypatch, tmp_path, capfd):
     """Real script, real capture: a chatty health report belongs in the spool,
     with only the step line on the operator's terminal."""
     _write_verify_script(tmp_path, body="\n".join(f"echo '{line}'" for line in BUILDKIT_OUTPUT))
@@ -720,9 +729,8 @@ def test_verify_script_output_never_reaches_the_terminal(
         assert line in spooled
 
 
-def test_failing_verify_script_names_its_spool_and_does_not_raise(
-    monkeypatch, tmp_path, caplog, terminal_reporter
-):
+@pytest.mark.usefixtures("terminal_reporter")
+def test_failing_verify_script_names_its_spool_and_does_not_raise(monkeypatch, tmp_path, caplog):
     """A non-zero exit stays advisory — and now that nothing streamed, the
     warning has to name the file holding the report."""
     _write_verify_script(tmp_path, body="echo 'probe failed'\nexit 3")

@@ -146,9 +146,8 @@ def test_a_project_without_ariel_stages_nothing(ariel_stubs, tmp_path):
     assert ariel_stubs["migrated"] == []
 
 
-def test_the_staging_invocation_is_shaped_by_the_provider_it_is_handed(
-    ariel_stubs, tmp_path, monkeypatch
-):
+@pytest.mark.usefixtures("ariel_stubs")
+def test_the_staging_invocation_is_shaped_by_the_provider_it_is_handed(tmp_path, monkeypatch):
     """The provider must reach all three halves of the invocation contract:
     the argv builder, the env-file arguments, and the process environment.
     Left unthreaded, the store's `up` runs docker-shaped in the middle of a

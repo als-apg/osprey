@@ -231,7 +231,7 @@ class _Probe:
 
 
 @pytest.fixture
-def probe(restore_root_logging):
+def probe(restore_root_logging):  # noqa: ARG001 - root logging is restored around the handler
     """Capture the printed stream and the painted log stream of one call.
 
     A local instrument rather than ``tests/cli``'s ``terminal_probe`` fixture,

@@ -46,7 +46,8 @@ def editable_checkout(tmp_path, monkeypatch):
 class TestPreflightDevMode:
     """Every precondition fails fast, before any deploy work happens."""
 
-    def test_missing_build_package_raises(self, editable_checkout, monkeypatch):
+    @pytest.mark.usefixtures("editable_checkout")
+    def test_missing_build_package_raises(self, monkeypatch):
         import importlib.util
 
         real_find_spec = importlib.util.find_spec
@@ -61,7 +62,8 @@ class TestPreflightDevMode:
 
         assert "build" in str(exc.value)
 
-    def test_missing_build_package_names_the_install_command(self, editable_checkout, monkeypatch):
+    @pytest.mark.usefixtures("editable_checkout")
+    def test_missing_build_package_names_the_install_command(self, monkeypatch):
         """The error is only useful if it says how to fix it."""
         import importlib.util
 
@@ -104,11 +106,13 @@ class TestPreflightDevMode:
 
         assert "pyproject.toml" in str(exc.value)
 
-    def test_healthy_environment_passes(self, editable_checkout):
+    @pytest.mark.usefixtures("editable_checkout")
+    def test_healthy_environment_passes(self):
         """The repo's own dev environment must satisfy the preflight."""
         preflight_dev_mode()  # must not raise
 
-    def test_preflight_is_cheap(self, editable_checkout, monkeypatch):
+    @pytest.mark.usefixtures("editable_checkout")
+    def test_preflight_is_cheap(self, monkeypatch):
         """No subprocess: the whole point is failing before any real work."""
 
         def _explode(*args, **kwargs):

@@ -436,9 +436,8 @@ def test_a_store_this_project_does_not_run_is_left_alone(graphdb_stubs, tmp_path
     assert graphdb_stubs["events"] == []
 
 
-def test_the_staging_invocation_is_shaped_by_the_provider_it_is_handed(
-    graphdb_stubs, tmp_path, monkeypatch
-):
+@pytest.mark.usefixtures("graphdb_stubs")
+def test_the_staging_invocation_is_shaped_by_the_provider_it_is_handed(tmp_path, monkeypatch):
     """The provider must reach all three halves of the invocation contract: the
     argv builder, the env-file arguments, and the process environment. Left
     unthreaded, the store's `up` runs docker-shaped in a podman-shaped deploy."""

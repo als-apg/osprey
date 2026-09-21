@@ -328,9 +328,8 @@ def _web_config(enabled: bool = True) -> dict:
     }
 
 
-def test_up_migrates_before_the_web_terminal_preflight_reads_the_file(
-    tmp_path, stubbed_start_stack, monkeypatch
-):
+@pytest.mark.usefixtures("stubbed_start_stack")
+def test_up_migrates_before_the_web_terminal_preflight_reads_the_file(tmp_path, monkeypatch):
     legacy = tmp_path / LEGACY_USERS_ENV_FILENAME
     legacy.write_text("CBORG_API_KEY=carried\n", encoding="utf-8")
 
@@ -350,7 +349,8 @@ def test_up_migrates_before_the_web_terminal_preflight_reads_the_file(
     assert not legacy.exists()
 
 
-def test_a_deploy_with_no_web_terminals_leaves_the_old_file_alone(tmp_path, stubbed_start_stack):
+@pytest.mark.usefixtures("stubbed_start_stack")
+def test_a_deploy_with_no_web_terminals_leaves_the_old_file_alone(tmp_path):
     """Nothing runs the web tier here, so nothing renames its artifact."""
     legacy = tmp_path / LEGACY_USERS_ENV_FILENAME
     legacy.write_text("CBORG_API_KEY=carried\n", encoding="utf-8")

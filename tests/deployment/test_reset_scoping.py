@@ -246,7 +246,8 @@ def run_reset(repo: Path, fake: FakeRuntime, **kwargs) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_a_resource_labelled_for_this_checkout_is_removed(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_a_resource_labelled_for_this_checkout_is_removed(repo):
     fake = FakeRuntime(
         containers={"als-exemplar-dispatch": ours(repo)},
         volumes={"als-exemplar_dispatch_workspace": ours(repo)},
@@ -462,7 +463,8 @@ def test_containers_and_volumes_are_both_reported_in_one_refusal(repo):
     assert "volume als-exemplar_dispatch_workspace" in str(excinfo.value)
 
 
-def test_an_unlabelled_resource_is_never_removed(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_an_unlabelled_resource_is_never_removed(repo):
     """The gate is AND. A project-name match alone proves nothing and removes nothing."""
     fake = FakeRuntime(
         containers={"als-exemplar-dispatch": unlabelled()},
@@ -532,7 +534,8 @@ def test_partition_puts_every_resource_in_exactly_one_bucket(labels, bucket):
     assert all(other == [] for other in buckets.values())
 
 
-def test_two_spellings_of_one_repo_are_one_checkout(repo, tmp_path, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_two_spellings_of_one_repo_are_one_checkout(repo, tmp_path):
     """A symlinked path must not read as a foreign checkout of the same name."""
     link = tmp_path / "via-symlink"
     link.symlink_to(repo, target_is_directory=True)
@@ -548,7 +551,8 @@ def test_two_spellings_of_one_repo_are_one_checkout(repo, tmp_path, no_down):
 # ---------------------------------------------------------------------------
 
 
-def test_everything_the_plan_lists_gets_a_removal_argv(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_everything_the_plan_lists_gets_a_removal_argv(repo):
     inventory = {
         "containers": {"c1": ours(repo), "c2": ours(repo)},
         "volumes": {"v1": ours(repo)},
@@ -564,7 +568,8 @@ def test_everything_the_plan_lists_gets_a_removal_argv(repo, no_down):
     assert planned == ["c1", "c2", "v1", f"{PROJECT}:local"]
 
 
-def test_no_removal_argv_names_anything_the_plan_did_not_list(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_no_removal_argv_names_anything_the_plan_did_not_list(repo):
     """Including the resources reset deliberately left alone."""
     fake = FakeRuntime(
         containers={"mine": ours(repo), "unprovable": unlabelled()},
@@ -580,7 +585,8 @@ def test_no_removal_argv_names_anything_the_plan_did_not_list(repo, no_down):
     assert "unprovable-vol" not in fake.removed_names()
 
 
-def test_nothing_is_re_discovered_after_the_confirmation(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_nothing_is_re_discovered_after_the_confirmation(repo):
     """A second scan could widen the set past what the operator agreed to."""
     fake = FakeRuntime(containers={"mine": ours(repo)}, volumes={"mine-vol": ours(repo)})
     run_reset(repo, fake)
@@ -592,7 +598,8 @@ def test_nothing_is_re_discovered_after_the_confirmation(repo, no_down):
     assert not [argv for argv in after if argv[1:3] == ["volume", "ls"]]
 
 
-def test_no_destructive_argv_is_a_glob_a_prune_or_an_all(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_no_destructive_argv_is_a_glob_a_prune_or_an_all(repo):
     """The removal surface, read straight off the recorded argv."""
     fake = FakeRuntime(
         containers={"mine": ours(repo)},
@@ -663,7 +670,8 @@ def test_declining_the_confirmation_is_a_true_no_op(repo, no_down, monkeypatch):
     assert "Nothing was touched" in "\n".join(emitted)
 
 
-def test_the_confirmation_token_is_this_repos_name(repo, no_down, monkeypatch):
+@pytest.mark.usefixtures("no_down")
+def test_the_confirmation_token_is_this_repos_name(repo, monkeypatch):
     typed: list[str] = []
 
     def fake_input(prompt: str) -> str:
@@ -696,7 +704,8 @@ def test_an_interrupt_at_the_prompt_says_nothing_was_touched(repo, no_down, monk
     assert no_down == []
 
 
-def test_the_prompt_counts_what_the_plan_lists(repo, no_down, monkeypatch):
+@pytest.mark.usefixtures("no_down")
+def test_the_prompt_counts_what_the_plan_lists(repo, monkeypatch):
     """The last line before the gate must not name things that are not going."""
     prompts: list[str] = []
     monkeypatch.setattr("builtins.input", lambda p: prompts.append(p) or "no")
@@ -708,7 +717,8 @@ def test_the_prompt_counts_what_the_plan_lists(repo, no_down, monkeypatch):
     assert "container" not in prompts[0]
 
 
-def test_a_removal_that_fails_is_not_reported_as_a_complete_reset(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_a_removal_that_fails_is_not_reported_as_a_complete_reset(repo):
     """The plan said this volume would go. It did not. The report must say so.
 
     An operator who reads "Reset complete." believes the data in that volume is
@@ -737,7 +747,8 @@ def test_a_removal_that_fails_is_not_reported_as_a_complete_reset(repo, no_down)
     assert not (repo / "build").exists()
 
 
-def test_an_already_absent_resource_is_not_reported_as_a_failure(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_an_already_absent_resource_is_not_reported_as_a_failure(repo):
     """The ``down`` usually removed the containers already; that is not an error."""
     fake = FakeRuntime(containers={"mine": ours(repo)})
     plan_probe = make_probe(fake)
@@ -777,7 +788,8 @@ def test_dry_run_still_refuses_on_a_foreign_checkout(repo):
 # ---------------------------------------------------------------------------
 
 
-def test_the_audit_log_survives_a_default_reset(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_audit_log_survives_a_default_reset(repo):
     run_reset(repo, FakeRuntime())
 
     assert (repo / "var" / "audit" / "2026-08-11.jsonl").is_file()
@@ -791,7 +803,8 @@ def test_the_plan_names_the_audit_log_as_kept(repo):
     assert "--purge-audit" in kept
 
 
-def test_purge_audit_destroys_it_and_says_so_in_the_removal_list(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_purge_audit_destroys_it_and_says_so_in_the_removal_list(repo):
     plan = plan_reset(repo, probe=make_probe(FakeRuntime()), purge_audit=True)
     removed = "\n".join(plan.render()).split("WILL BE REMOVED", 1)[1].split("WILL BE KEPT", 1)[0]
     assert "var/audit/" in removed
@@ -801,7 +814,8 @@ def test_purge_audit_destroys_it_and_says_so_in_the_removal_list(repo, no_down):
     assert not (repo / "var" / "audit" / "2026-08-11.jsonl").exists()
 
 
-def test_purge_audit_is_gated_by_the_same_typed_confirmation(repo, no_down, monkeypatch):
+@pytest.mark.usefixtures("no_down")
+def test_purge_audit_is_gated_by_the_same_typed_confirmation(repo, monkeypatch):
     monkeypatch.setattr("builtins.input", lambda _p: "")
     fake = FakeRuntime()
 
@@ -881,7 +895,8 @@ def test_the_two_web_credential_files_land_on_opposite_sides_of_the_plan(repo):
     assert "osprey users passwd" in rendered
 
 
-def test_reset_keeps_users_env_and_removes_auth_env(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_reset_keeps_users_env_and_removes_auth_env(repo):
     """The disclosure and the behaviour, asserted against each other: the kept
     file survives byte-identical, the removed one is gone — not truncated, not
     recreated as anything."""
@@ -899,7 +914,8 @@ def test_reset_keeps_users_env_and_removes_auth_env(repo, no_down):
 # ---------------------------------------------------------------------------
 
 
-def test_minted_tokens_go_and_provider_keys_stay(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_minted_tokens_go_and_provider_keys_stay(repo):
     run_reset(repo, FakeRuntime())
     text = (repo / ".env").read_text(encoding="utf-8")
 
@@ -909,7 +925,8 @@ def test_minted_tokens_go_and_provider_keys_stay(repo, no_down):
     assert "Auto-generated service auth tokens" not in text
 
 
-def test_the_operators_own_lines_come_out_byte_identical(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_operators_own_lines_come_out_byte_identical(repo):
     """``.env`` is hand-edited. A reset strips a block; it does not reformat a file."""
     (repo / ".env").write_text(
         "# my own note\n"
@@ -944,7 +961,8 @@ def test_every_minted_block_shape_is_stripped():
     assert removed == [f"KEY_{i}" for i in range(len(MINTED_ENV_BANNERS))]
 
 
-def test_a_token_minted_after_the_plan_survives_the_reset(repo, no_down, monkeypatch):
+@pytest.mark.usefixtures("no_down")
+def test_a_token_minted_after_the_plan_survives_the_reset(repo, monkeypatch):
     """ "Nothing is re-discovered after the confirmation" has to be true of ``.env`` too.
 
     A concurrent ``osprey up`` — or an operator in another terminal — can append
@@ -975,7 +993,8 @@ def test_a_token_minted_after_the_plan_survives_the_reset(repo, no_down, monkeyp
     assert "ANTHROPIC_API_KEY=sk-provider-secret" in text
 
 
-def test_a_surviving_key_keeps_the_banner_that_explains_it(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_a_surviving_key_keeps_the_banner_that_explains_it(repo):
     """A block is only removed whole when every key under it was planned."""
     (repo / ".env").write_text(
         f"# {MINTED_ENV_BANNERS[0]}\nPLANNED_TOKEN=a\nUNPLANNED_TOKEN=b\n",
@@ -1008,13 +1027,15 @@ def test_the_kept_count_does_not_undercount_a_name_shared_with_a_minted_key(repo
     assert set(plan.env_kept_keys) == {"OSPREY_DISPATCH_TOKEN", "ANTHROPIC_API_KEY"}
 
 
-def test_the_env_file_keeps_its_mode_across_the_rewrite(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_env_file_keeps_its_mode_across_the_rewrite(repo):
     run_reset(repo, FakeRuntime())
 
     assert stat.S_IMODE((repo / ".env").stat().st_mode) == 0o600
 
 
-def test_an_env_with_no_minted_block_is_not_rewritten(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_an_env_with_no_minted_block_is_not_rewritten(repo):
     (repo / ".env").write_text("ANTHROPIC_API_KEY=sk-x\n", encoding="utf-8")
     before = (repo / ".env").stat().st_mtime_ns
 
@@ -1076,7 +1097,8 @@ def test_every_banner_the_deploy_writes_is_one_reset_knows_about():
 # ---------------------------------------------------------------------------
 
 
-def test_agent_data_is_destroyed_and_left_as_an_empty_directory(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_agent_data_is_destroyed_and_left_as_an_empty_directory(repo):
     run_reset(repo, FakeRuntime())
     agent_data = repo / "var" / "agent_data"
 
@@ -1093,7 +1115,8 @@ def _relocate_agent_data(repo: Path, base_dir: str) -> None:
     (repo / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
 
 
-def test_a_relocated_agent_data_root_is_planned_printed_and_wiped(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_a_relocated_agent_data_root_is_planned_printed_and_wiped(repo):
     """``agent_data.base_dir`` is a real key, and reading the default instead is silent.
 
     A deployment that moved its agent data got neither the wipe nor a word about
@@ -1118,7 +1141,8 @@ def test_a_relocated_agent_data_root_is_planned_printed_and_wiped(repo, no_down)
     assert memory.is_dir()  # recreated empty, as the default location would be
 
 
-def test_the_default_location_is_not_touched_when_the_config_moved_it(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_default_location_is_not_touched_when_the_config_moved_it(repo):
     """The mirror image: reset must not wipe a directory this deployment does not use."""
     _relocate_agent_data(repo, "var/memory")
     (repo / "var" / "memory").mkdir(parents=True)
@@ -1130,8 +1154,12 @@ def test_the_default_location_is_not_touched_when_the_config_moved_it(repo, no_d
 
 
 @pytest.mark.parametrize("spelling", ["{outside}", "~/{name}"])
+@pytest.mark.usefixtures("no_down")
 def test_an_agent_data_root_outside_the_repo_is_disclosed_and_never_deleted(
-    repo, no_down, tmp_path, monkeypatch, spelling
+    repo,
+    tmp_path,
+    monkeypatch,
+    spelling,
 ):
     """The containment boundary: reset deletes directories, so it stops at the repo.
 
@@ -1166,7 +1194,8 @@ def test_an_agent_data_root_outside_the_repo_is_disclosed_and_never_deleted(
     assert (resolved / "notes.md").is_file()
 
 
-def test_an_agent_data_root_that_is_the_repo_itself_is_never_deleted(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_an_agent_data_root_that_is_the_repo_itself_is_never_deleted(repo):
     """``base_dir: "."`` is the most dangerous value this key can take.
 
     It resolves to the repo root, and removing that would take the tracked
@@ -1196,7 +1225,8 @@ def test_an_agent_data_root_that_is_the_repo_itself_is_never_deleted(repo, no_do
     assert repo.is_dir()
 
 
-def test_an_outside_root_and_a_repo_root_get_their_own_reasons(repo, no_down, tmp_path):
+@pytest.mark.usefixtures("no_down")
+def test_an_outside_root_and_a_repo_root_get_their_own_reasons(repo, tmp_path):
     """Both refusals can appear at once, and neither may borrow the other's reason."""
     outside = tmp_path / "shared-agent-data"
     outside.mkdir()
@@ -1213,7 +1243,8 @@ def test_an_outside_root_and_a_repo_root_get_their_own_reasons(repo, no_down, tm
     assert root_line < section.index("would take the source zone") < outside_line
 
 
-def test_an_unreadable_build_config_does_not_block_a_reset(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_an_unreadable_build_config_does_not_block_a_reset(repo):
     """A reset is what an operator reaches for when a deployment is already broken."""
     (repo / "build" / "config.yml").write_text("{{{ not yaml", encoding="utf-8")
 
@@ -1223,14 +1254,16 @@ def test_an_unreadable_build_config_does_not_block_a_reset(repo, no_down):
     assert repo / "var" / "agent_data" in plan.paths
 
 
-def test_the_build_zone_is_deleted_outright(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_build_zone_is_deleted_outright(repo):
     """Its ABSENCE is what ``osprey up`` reads as "no build found"."""
     run_reset(repo, FakeRuntime())
 
     assert not (repo / "build").exists()
 
 
-def test_the_source_zone_is_untouched(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_source_zone_is_untouched(repo):
     run_reset(repo, FakeRuntime())
 
     assert (repo / "profile.yml").read_text(encoding="utf-8") == "preset: control-assistant\n"
@@ -1238,7 +1271,8 @@ def test_the_source_zone_is_untouched(repo, no_down):
     assert (repo / "personas").is_dir()
 
 
-def test_a_repo_with_nothing_to_reset_says_so_and_skips_the_gate(tmp_path, no_down, monkeypatch):
+@pytest.mark.usefixtures("no_down")
+def test_a_repo_with_nothing_to_reset_says_so_and_skips_the_gate(tmp_path, monkeypatch):
     def never(_prompt):  # pragma: no cover - reaching it is the failure
         raise AssertionError("a no-op reset must not prompt")
 
@@ -1281,14 +1315,16 @@ def test_without_a_build_the_name_is_derived_and_the_plan_says_it_is_a_derivatio
 # ---------------------------------------------------------------------------
 
 
-def test_the_project_image_is_removed_when_its_label_says_it_is_ours(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_project_image_is_removed_when_its_label_says_it_is_ours(repo):
     fake = FakeRuntime(images={f"{PROJECT}:local": {reset_mod.OSPREY_PROJECT_LABEL: PROJECT}})
     run_reset(repo, fake)
 
     assert fake.removed_names() == [f"{PROJECT}:local"]
 
 
-def test_a_same_named_image_belonging_to_something_else_survives(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_a_same_named_image_belonging_to_something_else_survives(repo):
     fake = FakeRuntime(images={f"{PROJECT}:local": {reset_mod.OSPREY_PROJECT_LABEL: "other"}})
     run_reset(repo, fake)
 
@@ -1296,14 +1332,16 @@ def test_a_same_named_image_belonging_to_something_else_survives(repo, no_down):
     assert f"{PROJECT}:local" in fake.images
 
 
-def test_an_unlabelled_image_is_not_assumed_to_be_ours(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_an_unlabelled_image_is_not_assumed_to_be_ours(repo):
     fake = FakeRuntime(images={f"{PROJECT}:local": {}})
     run_reset(repo, fake)
 
     assert fake.removals == []
 
 
-def test_a_missing_image_tag_is_not_an_error_and_not_in_the_plan(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_a_missing_image_tag_is_not_an_error_and_not_in_the_plan(repo):
     plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
 
     assert plan.images == []
@@ -1327,7 +1365,8 @@ def _with_web_terminals(repo: Path) -> None:
     (repo / "build" / "config.yml").write_text(yaml.safe_dump(config), encoding="utf-8")
 
 
-def test_a_web_terminal_personas_local_image_is_a_candidate(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_a_web_terminal_personas_local_image_is_a_candidate(repo):
     """Reset absorbs ``deploy nuke``, whose image half is the persona tags."""
     _with_web_terminals(repo)
     persona_tag = "acc-control:local"
@@ -1342,7 +1381,8 @@ def test_a_web_terminal_personas_local_image_is_a_candidate(repo, no_down):
     assert sorted(fake.removed_names()) == sorted([f"{PROJECT}:local", persona_tag])
 
 
-def test_a_persona_image_belonging_to_another_deployment_survives(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_a_persona_image_belonging_to_another_deployment_survives(repo):
     """Image tags are host-global, so the project label is checked tag by tag."""
     _with_web_terminals(repo)
     persona_tag = "acc-control:local"
@@ -1353,7 +1393,8 @@ def test_a_persona_image_belonging_to_another_deployment_survives(repo, no_down)
     assert persona_tag in fake.images
 
 
-def test_an_unreadable_roster_leaves_the_project_image_removable(repo, no_down, caplog):
+@pytest.mark.usefixtures("no_down")
+def test_an_unreadable_roster_leaves_the_project_image_removable(repo, caplog):
     """A broken persona catalog degrades reset's image half; it never blocks the reset."""
     import yaml
 
@@ -1368,7 +1409,8 @@ def test_an_unreadable_roster_leaves_the_project_image_removable(repo, no_down, 
     assert not (repo / "build").exists()
 
 
-def test_no_image_is_removed_when_any_foreign_resource_exists(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_no_image_is_removed_when_any_foreign_resource_exists(repo):
     """The load-bearing half of the image argument, asserted rather than reasoned.
 
     Images are the one class with no per-checkout identity to gate on, so the
@@ -1436,7 +1478,8 @@ def test_the_project_image_tag_is_local_while_no_axis_is_set(repo):
     assert reset_mod._candidate_image_tags(repo, PROJECT) == [f"{PROJECT}:local"]
 
 
-def test_the_environment_axes_rename_the_image_reset_removes(repo, no_down, monkeypatch):
+@pytest.mark.usefixtures("no_down")
+def test_the_environment_axes_rename_the_image_reset_removes(repo, monkeypatch):
     """The deploy built ``<registry>/<project>:<tag>``, so that is what must go.
 
     The ``:local`` image is present on this host too, and is asserted to survive:
@@ -1458,7 +1501,8 @@ def test_the_environment_axes_rename_the_image_reset_removes(repo, no_down, monk
     assert f"{PROJECT}:local" in fake.images
 
 
-def test_the_configured_axes_rename_the_image_reset_removes(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_configured_axes_rename_the_image_reset_removes(repo):
     """The config layer, which a deploy carries in ``build/config.yml`` with no env at all."""
     _with_image_axes(repo, _AXIS_REGISTRY, _AXIS_TAG)
     fake = FakeRuntime(images={_AXIS_IMAGE: {reset_mod.OSPREY_PROJECT_LABEL: PROJECT}})
@@ -1559,7 +1603,8 @@ def test_the_plan_is_honest_that_reset_removes_no_network(repo):
     assert "reset never removes one on its own" in rendered
 
 
-def test_reset_issues_no_network_argv_at_all(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_reset_issues_no_network_argv_at_all(repo):
     fake = FakeRuntime(containers={"mine": ours(repo)})
     run_reset(repo, fake)
 
@@ -1629,8 +1674,13 @@ def test_cli_refuses_and_names_the_other_checkout(repo, monkeypatch):
     ],
     ids=["dry-run-is-success", "decline-is-failure", "completed-is-success"],
 )
+@pytest.mark.usefixtures("no_down")
 def test_cli_exit_codes_distinguish_a_decline_from_a_dry_run(
-    repo, no_down, monkeypatch, argv, typed, expected_code
+    repo,
+    monkeypatch,
+    argv,
+    typed,
+    expected_code,
 ):
     """A declined reset must stop a shell chain; a dry run and a no-op must not.
 
@@ -1648,7 +1698,8 @@ def test_cli_exit_codes_distinguish_a_decline_from_a_dry_run(
     assert result.exit_code == expected_code, result.output
 
 
-def test_a_partial_reset_exits_three_rather_than_claiming_success(repo, no_down, monkeypatch):
+@pytest.mark.usefixtures("no_down")
+def test_a_partial_reset_exits_three_rather_than_claiming_success(repo, monkeypatch):
     """A survivor on the plan must stop a chain, distinctly from a decline.
 
     Exit 0 here would be the false-completion defect moved out of the prose and
@@ -1679,7 +1730,8 @@ def test_a_partial_reset_exits_three_rather_than_claiming_success(repo, no_down,
     assert "fine-vol" not in fake.volumes
 
 
-def test_every_outcome_has_an_exit_code(repo):
+@pytest.mark.usefixtures("repo")
+def test_every_outcome_has_an_exit_code():
     """A new outcome must not silently fall through to success.
 
     The mapping is a table rather than a chain of branches so that adding a
@@ -1740,7 +1792,8 @@ def test_an_interrupt_mid_teardown_reports_the_partial_state_not_a_clean_refusal
     assert "Nothing was touched" not in result.output
 
 
-def test_a_declined_reset_exits_nonzero_without_a_second_error_line(repo, no_down, monkeypatch):
+@pytest.mark.usefixtures("no_down")
+def test_a_declined_reset_exits_nonzero_without_a_second_error_line(repo, monkeypatch):
     """The reason was printed with the plan; Click must not restate it as "Error:"."""
     fake = FakeRuntime(volumes={"mine-vol": ours(repo)})
     monkeypatch.setattr(reset_mod, "_default_probe", lambda root: make_probe(fake))
@@ -1753,7 +1806,8 @@ def test_a_declined_reset_exits_nonzero_without_a_second_error_line(repo, no_dow
     assert "Error:" not in result.output
 
 
-def test_cli_exit_code_is_zero_when_there_was_nothing_to_reset(tmp_path, no_down, monkeypatch):
+@pytest.mark.usefixtures("no_down")
+def test_cli_exit_code_is_zero_when_there_was_nothing_to_reset(tmp_path, monkeypatch):
     root = tmp_path / PROJECT
     root.mkdir()
     (root / "profile.yml").write_text("preset: hello-world\n", encoding="utf-8")
@@ -1765,14 +1819,16 @@ def test_cli_exit_code_is_zero_when_there_was_nothing_to_reset(tmp_path, no_down
     assert "Nothing to reset" in result.output
 
 
-def test_cli_help_names_what_survives(repo):
+@pytest.mark.usefixtures("repo")
+def test_cli_help_names_what_survives():
     result = CliRunner().invoke(reset_command, ["--help"])
 
     assert "var/audit/" in result.output
     assert "--purge-audit" in result.output
 
 
-def test_cli_help_documents_the_exit_status_contract(repo):
+@pytest.mark.usefixtures("repo")
+def test_cli_help_documents_the_exit_status_contract():
     """A script author has to be able to discover what `reset && ...` promises."""
     result = CliRunner().invoke(reset_command, ["--help"])
 

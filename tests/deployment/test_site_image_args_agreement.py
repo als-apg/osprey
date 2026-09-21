@@ -99,7 +99,8 @@ def _rendered_args(mapping):
     return parsed["services"]["s"]["build"]["args"] or {}
 
 
-def test_both_renderers_carry_the_same_arg_names_and_values(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_both_renderers_carry_the_same_arg_names_and_values(tmp_path):
     """One resolved config, two renderers, one set of ARG names and values."""
     config = _site_config(tmp_path)
     argv_context = _context(tmp_path, "argv-context")
@@ -127,7 +128,8 @@ def test_both_renderers_carry_the_same_arg_names_and_values(no_site_env, tmp_pat
         assert bundle.read_text() == "-----BEGIN CERTIFICATE-----\n"
 
 
-def test_the_two_renderers_order_their_args_deliberately_and_differently(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_the_two_renderers_order_their_args_deliberately_and_differently(tmp_path):
     """Order carries no meaning — a build arg is addressed by name.
 
     The argv follows the axis table so a reader can match a flag to its
@@ -153,7 +155,8 @@ def test_the_two_renderers_order_their_args_deliberately_and_differently(no_site
     assert set(rendered_names) == set(compose_generator.SITE_IMAGE_AXES)
 
 
-def test_only_the_project_image_is_told_the_deployment_is_offline(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_only_the_project_image_is_told_the_deployment_is_offline(tmp_path):
     """The one flag the two forms do not share is the one no service would read.
 
     Offline is a property of the image that SERVES the vendored web assets:
@@ -174,9 +177,8 @@ def test_only_the_project_image_is_told_the_deployment_is_offline(no_site_env, t
     assert "OSPREY_OFFLINE" not in _rendered_args(staged)
 
 
-def test_a_deployment_that_declares_nothing_builds_and_renders_as_it_always_did(
-    no_site_env, tmp_path
-):
+@pytest.mark.usefixtures("no_site_env")
+def test_a_deployment_that_declares_nothing_builds_and_renders_as_it_always_did(tmp_path):
     """No site settings means the argv and the fragment these axes were added to."""
     config = {"project_name": "x"}
     context = _context(tmp_path, "context")
@@ -195,7 +197,8 @@ def test_a_deployment_that_declares_nothing_builds_and_renders_as_it_always_did(
         "https://user:it's&<fine>@mirror.example.org/simple",
     ],
 )
-def test_a_value_that_carries_a_quote_survives_the_render(no_site_env, tmp_path, index_url):
+@pytest.mark.usefixtures("no_site_env")
+def test_a_value_that_carries_a_quote_survives_the_render(tmp_path, index_url):
     """A value is emitted as a scalar the parser reads back character for character.
 
     A proxy or index URL carrying credentials is where a quote, an ampersand or
