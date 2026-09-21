@@ -203,7 +203,7 @@ def test_a_mirrored_repo_layout_resolves_from_the_container_workdir(tmp_path: Pa
     assert (project_root / RENDERED_CONFIG_RELPATH).is_file()
 
 
-def test_the_pinned_container_interpreter_is_the_base_images(tmp_path: Path) -> None:
+def test_the_pinned_container_interpreter_is_the_base_images() -> None:
     """The interpreter constant and the base image it was read off, held together.
 
     A container render cannot derive its interpreter: the render happens on this

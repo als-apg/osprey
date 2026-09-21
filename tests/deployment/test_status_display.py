@@ -385,9 +385,7 @@ services:
     assert f"127.0.0.1:{ports['postgres']}" in output
 
 
-def test_the_endpoints_section_resolves_personas_against_the_live_checkout(
-    tmp_path, monkeypatch, rendered
-):
+def test_the_endpoints_section_resolves_personas_against_the_live_checkout(tmp_path, monkeypatch):
     """Status hands ``endpoint_entries`` the repo it is reporting on.
 
     The panel rows are narrowed per persona by reading each persona's rendered

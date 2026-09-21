@@ -1912,7 +1912,7 @@ def test_lint_local_mode_delta_valued_build_profile_is_accepted(tmp_path) -> Non
     assert any(f.code == "web_terminals.persona_project_path_not_rendered_yet" for f in findings)
 
 
-def test_lint_registry_mode_keeps_its_own_build_profile_vocabulary(tmp_path) -> None:
+def test_lint_registry_mode_keeps_its_own_build_profile_vocabulary() -> None:
     """The delta rule is local-mode only. Registry mode feeds `build_profile` to
     a generated CI job as a committed profile path, so a `profiles/*.yml` value
     stays valid there and must not inherit the local-mode shape error."""

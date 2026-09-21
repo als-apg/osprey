@@ -987,7 +987,7 @@ def _without(*tools: str) -> list[str]:
     return [entry for entry in _SHIPPED_DENY if entry not in tools]
 
 
-def test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them(tmp_path):
+def test_the_open_mode_egress_tools_are_spelled_as_the_template_ships_them():
     """The gate compares literal `permissions.deny` entries against the artifact
     `settings.json.j2` writes from `deny_defaults`. A rename there that this tuple
     did not follow would not fail loudly — it would silently stop matching, and the

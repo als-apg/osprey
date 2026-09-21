@@ -58,7 +58,7 @@ def _no_dev_wheel_staging(monkeypatch):
     )
 
 
-def test_build_persona_images_noop_in_registry_mode(monkeypatch, tmp_path):
+def test_build_persona_images_noop_in_registry_mode(monkeypatch):
     calls = []
     monkeypatch.setattr(persona_images, "run_captured", lambda *a, **k: calls.append(a))
     config = {"modules": {"web_terminals": {"image_source": "registry"}}}
@@ -68,7 +68,7 @@ def test_build_persona_images_noop_in_registry_mode(monkeypatch, tmp_path):
     assert calls == []
 
 
-def test_build_persona_images_local_without_catalog_raises(tmp_path):
+def test_build_persona_images_local_without_catalog_raises():
     config = {"modules": {"web_terminals": {"image_source": "local"}}}
 
     with pytest.raises(ValueError, match="requires both"):
@@ -849,7 +849,7 @@ def test_a_store_issued_credential_absent_before_the_first_start_is_accepted(
     assert calls == []
 
 
-def test_the_carve_out_reads_the_store_issued_registry_not_a_local_list(tmp_path):
+def test_the_carve_out_reads_the_store_issued_registry_not_a_local_list():
     """Stated against the registry so a var added there is covered here on the
     same commit, and so this test fails rather than passing vacuously if the
     registry is ever emptied."""
@@ -862,7 +862,7 @@ def test_the_carve_out_reads_the_store_issued_registry_not_a_local_list(tmp_path
     assert not persona_images._all_store_issued(["NOT_A_STORE_ISSUED_VAR"], deploys_them)
 
 
-def test_the_carve_out_needs_the_deploy_to_actually_run_the_store(tmp_path):
+def test_the_carve_out_needs_the_deploy_to_actually_run_the_store():
     """Registered as store-issued is not enough: a deploy that does not run the
     store issues nothing, so the same variable is an operator requirement there."""
     from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS
@@ -931,7 +931,7 @@ def test_a_mixed_set_of_unresolved_credentials_still_refuses(tmp_path, calls, mo
     assert calls == []
 
 
-def test_the_messages_own_placeholder_token_is_not_reported_as_a_variable(tmp_path):
+def test_the_messages_own_placeholder_token_is_not_reported_as_a_variable():
     """The credential error's prose carries a literal ``${VAR}`` of its own.
 
     Left in, it reads as a variable named VAR that the operator is told to set,

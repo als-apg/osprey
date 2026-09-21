@@ -1374,7 +1374,7 @@ def test_an_absent_telemetry_switch_reads_as_off(tmp_path):
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
 
 
-def test_the_deployed_services_gate_reads_the_registry_not_a_spelling(tmp_path):
+def test_the_deployed_services_gate_reads_the_registry_not_a_spelling():
     """`deploy_issued_credential_vars` answers from the registry entry's own
     service, so a var registered for a store this deploy does not run is not
     silently carved out by the name of a store it does."""

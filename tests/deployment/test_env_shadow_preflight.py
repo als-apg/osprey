@@ -791,7 +791,7 @@ def test_a_shared_value_moving_past_an_unchanged_local_pin_warns(tmp_path, caplo
     assert "A" in caplog.text
 
 
-def test_a_stale_pin_is_kept_out_of_the_deliberate_line(tmp_path, caplog):
+def test_a_stale_pin_is_kept_out_of_the_deliberate_line(tmp_path):
     """The split has to be a split: a stale pin reported at both volumes is noise."""
     repo = _repo(tmp_path, "A=old-shared-value\nB=chosen-for-this-host\n")
     _shared(repo, "A=old-shared-value\nB=shared-b\n")
@@ -881,13 +881,13 @@ def test_the_record_holds_digests_and_never_a_value(tmp_path):
     assert "A" in json.loads(raw)["shared_value_digests"]
 
 
-def test_the_record_lives_in_the_machine_zone_under_a_dot_env_name(tmp_path):
+def test_the_record_lives_in_the_machine_zone_under_a_dot_env_name():
     """It is derived, never committed — and every ``.env*`` sweep must catch it."""
     assert ENV_CHAIN_STATE_RELPATH.parts[0] == "build"
     assert ENV_CHAIN_STATE_RELPATH.name.startswith(".env")
 
 
-def test_an_unreadable_record_is_treated_as_no_history(tmp_path, caplog):
+def test_an_unreadable_record_is_treated_as_no_history(tmp_path):
     """Garbage in the cache means "no evidence", never a crashed deploy."""
     repo = _repo(tmp_path, "A=old-shared-value\n")
     _shared(repo, "A=new-shared-value\n")
@@ -1120,7 +1120,7 @@ def test_drift_refuses_the_deploy_before_the_image_build(tmp_path, monkeypatch):
     )
 
 
-def test_a_matching_chain_lets_the_deploy_through(tmp_path, monkeypatch, caplog):
+def test_a_matching_chain_lets_the_deploy_through(tmp_path, monkeypatch):
     """The refusal must be about drift, not about having a chain at all."""
     repo = _repo(tmp_path, "A=x\n", _worker_compose("./.env.shared", "./.env"))
     _shared(repo, "B=y\n")
@@ -1560,7 +1560,7 @@ def test_an_agreeing_export_of_a_pinned_name_is_not_a_divergence(tmp_path, monke
     assert caplog.text == ""
 
 
-def test_a_pinned_name_no_compose_file_reads_is_not_refused(tmp_path, monkeypatch, caplog):
+def test_a_pinned_name_no_compose_file_reads_is_not_refused(tmp_path, monkeypatch):
     """Interpolation scope is unchanged: a name nothing reads cannot change a start."""
     repo = _repo(
         tmp_path,
