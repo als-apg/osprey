@@ -536,7 +536,7 @@ async def remove_run(run_id: str) -> dict:
 
 
 @app.post("/runs/{run_id}/launch")
-def launch_run(run_id: str) -> dict:
+def launch_run(run_id: str) -> dict:  # noqa: ARG001 - route path parameter names the run in the URL
     """Retired: launching a pre-minted run in-process is gone.
 
     Execution is the queueserver worker's, and the only way into it is the
@@ -568,7 +568,7 @@ def launch_draft_run() -> dict:
 
 
 @app.post("/runs/{run_id}/stop")
-def stop_run(run_id: str) -> dict:
+def stop_run(run_id: str) -> dict:  # noqa: ARG001 - route path parameter names the run in the URL
     """Retired: stopping is a queue operation.
 
     This route can only stop a plan running inside the bridge process, and none

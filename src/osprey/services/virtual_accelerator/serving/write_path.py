@@ -996,12 +996,12 @@ class CohostWritePath:
             # can fail, so what is lost is one PVA update and not a value.
             LOG.exception("failed to publish %s on the PVA view of %s", value, address)
 
-    def _signal_ca(self, driver: WriteDriver, route: SetpointRoute, error: str | None) -> None:
+    def _signal_ca(self, driver: WriteDriver, route: SetpointRoute, _error: str | None) -> None:
         """Complete the Channel Access write, if this setpoint declares one.
 
         Always last, and on every outcome. Last, because completion is what
         unblocks a client waiting on the put and it must find the values
-        already committed. On every outcome -- ``error`` is accepted and
+        already committed. On every outcome -- ``_error`` is accepted and
         ignored, there being no failure channel to carry it -- because the
         server library postpones every later write to a PV whose asynchronous
         write is still in flight, so a refusal that skipped this would freeze

@@ -245,7 +245,7 @@ class OKFBundle:
 
         # Primary: walk every index.md in the tree for fast enumeration.
         for idx in self.root.rglob("index.md"):
-            dir_entries = _parse_index(self.root, idx)
+            dir_entries = _parse_index(idx)
             for e in dir_entries:
                 if e.concept_id not in seen:
                     seen.add(e.concept_id)
@@ -679,7 +679,7 @@ def _recover_normalised_concept_id(index: dict[str, list[str]], reported: str) -
     return None
 
 
-def _parse_index(root: Path, index_path: Path) -> list[ConceptEntry]:
+def _parse_index(index_path: Path) -> list[ConceptEntry]:
     """Extract concept entries from a single ``index.md`` file.
 
     The index format used by the OKF index generator is a Markdown list of
@@ -687,7 +687,6 @@ def _parse_index(root: Path, index_path: Path) -> list[ConceptEntry]:
     entries without reading the linked files.
 
     Args:
-        root: Bundle root, used for ID normalisation.
         index_path: Path to the ``index.md`` to parse.
 
     Returns:

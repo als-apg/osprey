@@ -481,7 +481,7 @@ class CohostRunner(Runner):
         channel.rpc(self._rpc)
         self.providers[f"{self.config['prefix']}{RPC_PV}"] = channel
 
-    def _rpc(self, channel: SharedPV, op: ServerOperation) -> None:
+    def _rpc(self, _channel: SharedPV, op: ServerOperation) -> None:
         """Take one model RPC call, and hand the run loop the work.
 
         Runs on a p4p worker thread, which is no more allowed to touch the
@@ -622,7 +622,7 @@ class CohostRunner(Runner):
             return
         channel.put(partial(self._put, var.name))
 
-    def _put(self, address: str, channel: SharedPV, op: ServerOperation) -> None:
+    def _put(self, address: str, _channel: SharedPV, op: ServerOperation) -> None:
         """Route a PVA put through the write path a CA write goes through.
 
         Runs on a p4p worker thread, which is no more allowed to touch the

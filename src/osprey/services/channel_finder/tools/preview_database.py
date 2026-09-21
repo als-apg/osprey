@@ -443,7 +443,7 @@ def preview_hierarchical(
         _render_stats_section(database, hierarchy_levels, console=console)
 
     if "breakdown" in sections:
-        _render_breakdown_section(database, hierarchy_levels, focus, console=console)
+        _render_breakdown_section(database, hierarchy_levels, console=console)
 
     if "samples" in sections:
         _render_samples_section(database, console=console)
@@ -469,9 +469,7 @@ def _render_tree_section(
 
     if focus:
         focus_parts = focus.split(":")
-        tree_root, start_level = _navigate_to_focus(
-            db_tree, focus_parts, hierarchy_levels, database
-        )
+        tree_root, start_level = _navigate_to_focus(db_tree, focus_parts)
         if tree_root is None:
             console.print(f"[error]\u2717 Focus path '{focus}' not found in database[/error]\n")
             return
@@ -562,12 +560,12 @@ def _render_stats_section(database, hierarchy_levels, *, console: Console | None
     )
 
 
-def _render_breakdown_section(database, hierarchy_levels, focus, *, console: Console | None = None):
+def _render_breakdown_section(database, hierarchy_levels, *, console: Console | None = None):
     """Render channel count breakdown by path."""
     console = console or _default_console
     console.print()
 
-    breakdown = _calculate_breakdown(database, hierarchy_levels, focus)
+    breakdown = _calculate_breakdown(database, hierarchy_levels)
 
     breakdown_table = Table(show_header=True, box=box.ROUNDED, padding=(0, 2))
     breakdown_table.add_column("Path", style="label", no_wrap=False)
@@ -616,7 +614,7 @@ def _render_samples_section(database, num_samples=5, *, console: Console | None 
     )
 
 
-def _navigate_to_focus(tree, focus_parts, hierarchy_levels, database):
+def _navigate_to_focus(tree, focus_parts):
     """Navigate to a focus path in the tree.
 
     Returns:
@@ -665,7 +663,7 @@ def _calculate_level_statistics(database, hierarchy_levels):
     return level_counts
 
 
-def _calculate_breakdown(database, hierarchy_levels, focus):
+def _calculate_breakdown(database, hierarchy_levels):
     """Calculate channel count breakdown by path."""
     path_counts = {}
 
@@ -704,7 +702,7 @@ def _add_hierarchy_level_new(
         return
 
     current_level = hierarchy_levels[level_idx]
-    children = _get_children_at_level(data, current_level, hierarchy_levels, level_idx)
+    children = _get_children_at_level(data)
 
     if not children:
         return
@@ -746,7 +744,7 @@ def _add_hierarchy_level_new(
             )
 
 
-def _get_children_at_level(data, current_level, hierarchy_levels, level_idx):
+def _get_children_at_level(data):
     """Get children at a specific hierarchy level."""
     if not isinstance(data, dict):
         return {}

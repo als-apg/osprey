@@ -60,10 +60,10 @@ class NullModel(LUMEModel):
         """
         return {}
 
-    def _get(self, names: list[str]) -> dict[str, Any]:
+    def _get(self, _names: list[str]) -> dict[str, Any]:
         """Return nothing.
 
-        Only ever reached with an empty ``names``: the public ``get`` checks
+        Only ever reached with an empty ``_names``: the public ``get`` checks
         every requested name against :attr:`supported_variables` first and
         raises on anything it does not find, and nothing is ever found here.
         """

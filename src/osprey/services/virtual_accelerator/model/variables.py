@@ -426,12 +426,12 @@ class EnergyVariable(PyATLatticeScalarVariable):
             "cannot be recovered from the lattice"
         )
 
-    def _after_write(self, ring: at.Lattice, value: float) -> None:
+    def _after_write(self, ring: at.Lattice, _value: float) -> None:
         """Rescale every adopted binding to the energy just written.
 
         Args:
             ring: the live lattice, already carrying the new energy.
-            value: the energy just written, in eV.
+            _value: the energy just written, in eV.
         """
         before = self._energy_before_write
         self._energy_before_write = None

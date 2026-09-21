@@ -168,21 +168,17 @@ class TestResolvePath:
 
 class TestNavigateToFocus:
     def test_navigates_one_level(self, hier_db: HierarchicalChannelDatabase):
-        subtree, level = _navigate_to_focus(hier_db.tree, ["SR"], hier_db.hierarchy_levels, hier_db)
+        subtree, level = _navigate_to_focus(hier_db.tree, ["SR"])
         assert level == 1
         assert "BPM" in subtree
 
     def test_navigates_two_levels(self, hier_db: HierarchicalChannelDatabase):
-        subtree, level = _navigate_to_focus(
-            hier_db.tree, ["SR", "BPM"], hier_db.hierarchy_levels, hier_db
-        )
+        subtree, level = _navigate_to_focus(hier_db.tree, ["SR", "BPM"])
         assert level == 2
         assert "X" in subtree and "Y" in subtree
 
     def test_missing_focus_returns_none(self, hier_db: HierarchicalChannelDatabase):
-        subtree, level = _navigate_to_focus(
-            hier_db.tree, ["NOPE"], hier_db.hierarchy_levels, hier_db
-        )
+        subtree, level = _navigate_to_focus(hier_db.tree, ["NOPE"])
         assert subtree is None and level is None
 
 
@@ -207,7 +203,7 @@ class TestLevelStatistics:
 
 class TestCalculateBreakdown:
     def test_breakdown_sorted_by_count_desc(self, hier_db: HierarchicalChannelDatabase):
-        breakdown = _calculate_breakdown(hier_db, hier_db.hierarchy_levels, focus=None)
+        breakdown = _calculate_breakdown(hier_db, hier_db.hierarchy_levels)
         as_dict = dict(breakdown)
         # Top-level SR has 3 channels, BR has 2.
         assert as_dict["SR"] == 3
@@ -235,21 +231,21 @@ class TestCountChannelsAtPath:
 class TestGetChildrenAtLevel:
     def test_plain_dict_children_skip_underscore_keys(self):
         data = {"_description": "x", "A": {}, "B": {}, "leaf": "notdict"}
-        children = _get_children_at_level(data, "device", ["system", "device"], 1)
+        children = _get_children_at_level(data)
         assert set(children.keys()) == {"A", "B"}
 
     def test_range_expansion(self):
         data = {"_expansion": {"_type": "range", "_pattern": "{:02d}", "_range": [1, 3]}}
-        children = _get_children_at_level(data, "device", ["system", "device"], 1)
+        children = _get_children_at_level(data)
         assert set(children.keys()) == {"01", "02", "03"}
 
     def test_list_expansion(self):
         data = {"_expansion": {"_type": "list", "_instances": ["A1", "A2"]}}
-        children = _get_children_at_level(data, "device", ["system", "device"], 1)
+        children = _get_children_at_level(data)
         assert set(children.keys()) == {"A1", "A2"}
 
     def test_non_dict_returns_empty(self):
-        assert _get_children_at_level("scalar", "device", ["device"], 0) == {}
+        assert _get_children_at_level("scalar") == {}
 
 
 # ---------------------------------------------------------------------------

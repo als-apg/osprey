@@ -156,7 +156,7 @@ class _HierarchicalWriteMixin(_HierarchicalNamingMixin):
 
     def edit_node(
         self,
-        level: str,
+        level: str,  # noqa: ARG002 - tree-node write API; the request body addresses the row by level and add_node echoes it
         selections: dict[str, str],
         old_name: str,
         new_name: str | None = None,
@@ -200,7 +200,7 @@ class _HierarchicalWriteMixin(_HierarchicalNamingMixin):
 
     def delete_node(
         self,
-        level: str,
+        level: str,  # noqa: ARG002 - tree-node write API; the request body addresses the row by level and add_node echoes it
         selections: dict[str, str],
         name: str,
     ) -> dict:
