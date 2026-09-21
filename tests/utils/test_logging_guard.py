@@ -118,7 +118,8 @@ def configuring_module_fixture():
     configure_logging()
 
 
-def test_higher_scoped_configuration_is_undone_for_the_test(configuring_module_fixture):
+@pytest.mark.usefixtures("configuring_module_fixture")
+def test_higher_scoped_configuration_is_undone_for_the_test():
     """Both the handler and the third-party levels the fixture set are already undone."""
     assert _rich_handler_count() == 0
     _assert_third_party_pristine()

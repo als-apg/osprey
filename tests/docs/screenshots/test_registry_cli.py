@@ -156,27 +156,32 @@ def sample_registry(monkeypatch):
     return reg
 
 
-def test_select_default_only_standalone(sample_registry):
+@pytest.mark.usefixtures("sample_registry")
+def test_select_default_only_standalone():
     names = [s.name for s in select_recipes()]
     assert names == ["switch"]
 
 
-def test_select_stack_adds_tutorial_static(sample_registry):
+@pytest.mark.usefixtures("sample_registry")
+def test_select_stack_adds_tutorial_static():
     names = {s.name for s in select_recipes(stack=True)}
     assert names == {"switch", "ariel"}
 
 
-def test_select_agentic_adds_hero(sample_registry):
+@pytest.mark.usefixtures("sample_registry")
+def test_select_agentic_adds_hero():
     names = {s.name for s in select_recipes(agentic=True)}
     assert names == {"switch", "hero"}
 
 
-def test_select_only_filters(sample_registry):
+@pytest.mark.usefixtures("sample_registry")
+def test_select_only_filters():
     names = [s.name for s in select_recipes(stack=True, only="ariel")]
     assert names == ["ariel"]
 
 
-def test_select_only_disabled_returns_empty(sample_registry):
+@pytest.mark.usefixtures("sample_registry")
+def test_select_only_disabled_returns_empty():
     # 'ariel' exists but --stack not passed → not selectable.
     assert select_recipes(only="ariel") == []
 
@@ -190,7 +195,8 @@ def test_cli_list_returns_zero(capsys):
     assert main(["list"]) == 0
 
 
-def test_cli_list_prints_recipes(sample_registry, capsys):
+@pytest.mark.usefixtures("sample_registry")
+def test_cli_list_prints_recipes(capsys):
     main(["list"])
     out = capsys.readouterr().out
     assert "switch" in out and "ariel" in out and "hero" in out
@@ -205,12 +211,14 @@ def test_cli_run_no_recipes_selected(monkeypatch, capsys):
     assert "No recipes selected" in capsys.readouterr().err
 
 
-def test_cli_only_unknown_recipe(sample_registry, capsys):
+@pytest.mark.usefixtures("sample_registry")
+def test_cli_only_unknown_recipe(capsys):
     assert main(["--only", "nope"]) == 1
     assert "No recipe named" in capsys.readouterr().err
 
 
-def test_cli_only_needs_flag_hint(sample_registry, capsys):
+@pytest.mark.usefixtures("sample_registry")
+def test_cli_only_needs_flag_hint(capsys):
     # 'hero' is agentic; running --only hero without --agentic should hint.
     assert main(["--only", "hero"]) == 1
     assert "--agentic" in capsys.readouterr().err
@@ -231,7 +239,8 @@ def test_cli_invalid_registry_returns_two(monkeypatch, capsys):
 # ---------------------------------------------------------------------------
 
 
-def test_caption_substitutions_captured_vs_placeholder(sample_registry):
+@pytest.mark.usefixtures("sample_registry")
+def test_caption_substitutions_captured_vs_placeholder():
     # 'switch' is captured (has a manifest entry); 'ariel'/'hero' are not.
     manifest = {"switch": {"osprey_version": "2026.6.3", "kind": "static", "captured_utc": "x"}}
     subs = caption_substitutions(manifest)

@@ -144,22 +144,23 @@ class TestRegistryInitializationRegistersTheStandIn:
         finally:
             manager.reset_registry()
 
-    def test_initialize_registry_registers_the_stand_in(self, framework_registry) -> None:
+    @pytest.mark.usefixtures("framework_registry")
+    def test_initialize_registry_registers_the_stand_in(self) -> None:
         """The bug: the sandbox's own setup step leaves the type unregistered."""
         from osprey.connectors.control_system.epics_connector import EPICSConnector
 
         assert types.LIVE_STANDIN in ConnectorFactory.list_control_systems()
         assert ConnectorFactory._control_system_connectors[types.LIVE_STANDIN] is EPICSConnector
 
-    def test_every_builtin_control_system_is_registered(self, framework_registry) -> None:
+    @pytest.mark.usefixtures("framework_registry")
+    def test_every_builtin_control_system_is_registered(self) -> None:
         """Not just the stand-in: the registry path registers the whole set."""
         registered = set(ConnectorFactory.list_control_systems())
         assert set(_BUILTIN_CONTROL_SYSTEMS) <= registered
 
+    @pytest.mark.usefixtures("framework_registry")
     @pytest.mark.asyncio
-    async def test_the_stand_in_resolves_after_initialize_registry(
-        self, framework_registry
-    ) -> None:
+    async def test_the_stand_in_resolves_after_initialize_registry(self) -> None:
         """Resolving ``live_standin`` succeeds, and is stamped with its own type.
 
         Previously this raised ``Unknown control system type: 'live_standin'``

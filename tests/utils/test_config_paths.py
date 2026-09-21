@@ -32,7 +32,8 @@ def foreign_cwd(tmp_path, monkeypatch):
     return cwd
 
 
-def test_absolute_value_passes_through_unchanged(foreign_cwd, tmp_path):
+@pytest.mark.usefixtures("foreign_cwd")
+def test_absolute_value_passes_through_unchanged(tmp_path):
     """An absolute value is returned as given — not re-resolved."""
     absolute = tmp_path / "shared" / "bundle"
 
@@ -40,7 +41,8 @@ def test_absolute_value_passes_through_unchanged(foreign_cwd, tmp_path):
     assert resolve_config_relative_path(str(absolute), None) == absolute
 
 
-def test_tilde_value_is_expanded_against_home(foreign_cwd, tmp_path, monkeypatch):
+@pytest.mark.usefixtures("foreign_cwd")
+def test_tilde_value_is_expanded_against_home(tmp_path, monkeypatch):
     """``~/...`` expands to the user's home, ignoring both CWD and config dir."""
     home = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home))
@@ -60,7 +62,8 @@ def test_relative_value_resolves_against_config_dir(foreign_cwd, tmp_path):
     assert resolved != (foreign_cwd / "data/facility_knowledge").resolve()
 
 
-def test_relative_value_in_the_build_zone_resolves_against_the_repo(foreign_cwd, tmp_path):
+@pytest.mark.usefixtures("foreign_cwd")
+def test_relative_value_in_the_build_zone_resolves_against_the_repo(tmp_path):
     """A config at ``<repo>/build/config.yml`` anchors on ``<repo>``, not ``build/``.
 
     The render zone is disposable — every ``osprey build`` re-creates it — and
@@ -80,7 +83,8 @@ def test_relative_value_in_the_build_zone_resolves_against_the_repo(foreign_cwd,
     assert project_root_for_config_dir(build) == repo
 
 
-def test_a_container_project_dir_is_its_own_root(foreign_cwd, tmp_path):
+@pytest.mark.usefixtures("foreign_cwd")
+def test_a_container_project_dir_is_its_own_root(tmp_path):
     """A config not in a ``build/`` zone anchors on its own directory.
 
     A container's project directory IS its render (``/app/<project>`` holds the
@@ -96,9 +100,8 @@ def test_a_container_project_dir_is_its_own_root(foreign_cwd, tmp_path):
     assert resolve_config_relative_path("data/kb", project) == (project / "data/kb").resolve()
 
 
-def test_relative_value_without_config_dir_uses_the_resolved_config_file(
-    foreign_cwd, tmp_path, monkeypatch
-):
+@pytest.mark.usefixtures("foreign_cwd")
+def test_relative_value_without_config_dir_uses_the_resolved_config_file(tmp_path, monkeypatch):
     """Without *config_dir*, the project of ``OSPREY_CONFIG``'s file wins."""
     config_dir = tmp_path / "project"
     config_dir.mkdir()
@@ -110,9 +113,8 @@ def test_relative_value_without_config_dir_uses_the_resolved_config_file(
     assert resolved == (config_dir / "data/vocab.yml").resolve()
 
 
-def test_without_config_dir_a_build_zone_config_still_anchors_on_the_repo(
-    foreign_cwd, tmp_path, monkeypatch
-):
+@pytest.mark.usefixtures("foreign_cwd")
+def test_without_config_dir_a_build_zone_config_still_anchors_on_the_repo(tmp_path, monkeypatch):
     """The ``OSPREY_CONFIG`` fallback applies the same build-zone rule."""
     repo = tmp_path / "repo"
     build = repo / "build"

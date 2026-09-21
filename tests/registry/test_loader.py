@@ -92,7 +92,8 @@ class TestBuildMergedConfiguration:
         assert isinstance(config, RegistryConfig)
         assert excluded == []
 
-    def test_standalone_config_bypasses_framework(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_standalone_config_bypasses_framework(self, tmp_path):
         registry_file = _write_registry(
             tmp_path,
             """
@@ -117,7 +118,8 @@ class StandaloneProvider(RegistryConfigProvider):
         assert [c.name for c in config.connectors] == ["only_one"]
         assert excluded == []
 
-    def test_extend_mode_merges_framework(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_extend_mode_merges_framework(self, tmp_path):
         registry_file = _write_registry(
             tmp_path,
             """
@@ -145,7 +147,8 @@ class ExtendingProvider(RegistryConfigProvider):
         assert len(merged.connectors) == len(framework_only.connectors) + 1
         assert excluded == []
 
-    def test_provider_returning_none_raises(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_provider_returning_none_raises(self, tmp_path):
         registry_file = _write_registry(
             tmp_path,
             """
@@ -257,7 +260,8 @@ class TestLoadRegistryFromPath:
         with pytest.raises(RegistryError, match="not a file"):
             load_registry_from_path(str(a_dir))
 
-    def test_valid_standalone_returns_config(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_valid_standalone_returns_config(self, tmp_path):
         registry_file = _write_registry(
             tmp_path,
             """
@@ -272,7 +276,8 @@ class P(RegistryConfigProvider):
         assert isinstance(config, RegistryConfig)
         assert not isinstance(config, ExtendedRegistryConfig)
 
-    def test_extended_config_type_preserved(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_extended_config_type_preserved(self, tmp_path):
         registry_file = _write_registry(
             tmp_path,
             """
@@ -287,12 +292,14 @@ class P(RegistryConfigProvider):
         config = load_registry_from_path(str(registry_file))
         assert isinstance(config, ExtendedRegistryConfig)
 
-    def test_no_provider_raises(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_no_provider_raises(self, tmp_path):
         registry_file = _write_registry(tmp_path, "x = 1\n")
         with pytest.raises(RegistryError, match="No RegistryConfigProvider"):
             load_registry_from_path(str(registry_file))
 
-    def test_multiple_providers_raises(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_multiple_providers_raises(self, tmp_path):
         registry_file = _write_registry(
             tmp_path,
             """
@@ -310,12 +317,14 @@ class P2(RegistryConfigProvider):
         with pytest.raises(RegistryError, match="Multiple RegistryConfigProvider"):
             load_registry_from_path(str(registry_file))
 
-    def test_syntax_error_wrapped(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_syntax_error_wrapped(self, tmp_path):
         registry_file = _write_registry(tmp_path, "def broken(:\n")
         with pytest.raises(RegistryError, match="Failed to load Python module"):
             load_registry_from_path(str(registry_file))
 
-    def test_provider_get_config_error_wrapped(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_provider_get_config_error_wrapped(self, tmp_path):
         registry_file = _write_registry(
             tmp_path,
             """
@@ -329,7 +338,8 @@ class P(RegistryConfigProvider):
         with pytest.raises(RegistryError, match="Failed to instantiate or get config"):
             load_registry_from_path(str(registry_file))
 
-    def test_src_layout_added_to_sys_path(self, tmp_path, restore_sys_state):
+    @pytest.mark.usefixtures("restore_sys_state")
+    def test_src_layout_added_to_sys_path(self, tmp_path):
         # project/src/app/registry.py -> project/src is added to sys.path.
         src_dir = tmp_path / "project" / "src"
         registry_file = src_dir / "app" / "registry.py"
