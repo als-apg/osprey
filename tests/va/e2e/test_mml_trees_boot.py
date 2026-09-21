@@ -196,8 +196,26 @@ def _recipes():
 #: nominal. Small on purpose: the point of every write lane is what the served
 #: machine does with a value, and a large excursion invites the drive-limit
 #: clamp -- which would make the readback assertions pass against a number the
-#: test never chose.
+#: test never chose. The band is not the only thing that can stop a write: a
+#: value inside it is still refused when the ring loses its closed orbit, and
+#: the one lane whose step of this size reaches that has a fraction of its
+#: own below.
 WRITE_FRACTION = 1e-3
+
+#: The same, for the RF frequency alone. A frequency step moves the whole beam
+#: off momentum: the ring answers a fractional step with a momentum deviation
+#: larger by one over the momentum compaction, so what a ring takes is its
+#: momentum acceptance times the momentum compaction itself -- tens of parts
+#: per million on a real machine, and a part per thousand loses the closed
+#: orbit outright. The model rolls such a write back and withholds its echo,
+#: so the readback would then be about the refusal and not about the write.
+#: The band does not stand in for this: a part per thousand sits well inside a
+#: cavity's band and is refused anyway. A ring whose momentum compaction is
+#: orders larger turns the same frequency step into a far smaller momentum
+#: deviation and takes it, which is why the general fraction does not notice.
+#: Measured on the served real-machine trees: both take one part in a hundred
+#: thousand, and the tighter of them refuses two.
+RF_WRITE_FRACTION = 1e-6
 
 #: Tolerance for a readback that came back through a calibration. Generous
 #: against the wire (Channel Access serves a double, and the IOC's display
@@ -253,12 +271,15 @@ class BuiltTree:
         Derived from the tree's own band and the device's own nominal rather
         than chosen here, because a value outside the band is clamped by the
         IOC: the readback would then be about the limit and not about the write.
-        The step is taken in whichever direction the band has room for.
+        The step is taken in whichever direction the band has room for, and
+        it is the RF fraction for a cavity, whose step the ring bounds more
+        tightly than the band does (see ``RF_WRITE_FRACTION``).
         """
         low, high = self.band(binding.setpoint_address)
         nominal = binding.nominal
         assert nominal is not None, f"{binding.setpoint_address} carries no nominal"
-        step = abs(nominal) * WRITE_FRACTION or (high - low) * WRITE_FRACTION
+        fraction = RF_WRITE_FRACTION if binding.kind == "rf" else WRITE_FRACTION
+        step = abs(nominal) * fraction or (high - low) * fraction
         for candidate in (nominal + step, nominal - step):
             if low < candidate < high:
                 return candidate
