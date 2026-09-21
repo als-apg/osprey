@@ -1216,7 +1216,7 @@ class TestCheckoutAttribution:
         refusing the deploy over a question it could not ask."""
         _, port = listening_port
 
-        def _no_root(config=None, config_path=None):
+        def _no_root(_config=None, _config_path=None):
             raise OSError("no repo root here")
 
         monkeypatch.setattr(host_ports, "resolve_repo_root", _no_root)
@@ -1239,7 +1239,7 @@ class TestCheckoutAttribution:
         """The other half of the fallback: degrading must not exempt everything."""
         _, port = listening_port
 
-        def _no_root(config=None, config_path=None):
+        def _no_root(_config=None, _config_path=None):
             raise OSError("no repo root here")
 
         monkeypatch.setattr(host_ports, "resolve_repo_root", _no_root)

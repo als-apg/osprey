@@ -59,7 +59,11 @@ class RecordingReporter(PhaseReporter):
         super().__init__(color=False)
         self.lines: list[str] = []
 
-    def emit(self, text: str, style: str | None = None) -> None:
+    def emit(
+        self,
+        text: str,
+        style: str | None = None,  # noqa: ARG002 - PhaseReporter.emit's style argument
+    ) -> None:
         self.lines.append(text)
 
     @property
@@ -210,7 +214,15 @@ def test_the_image_step_is_reported_after_the_build(reporter, monkeypatch):
     charged to whatever step came next.
     """
 
-    def _marking(cmd, *, env=None, spool_name, repo_root=None, check=True, on_line=None):
+    def _marking(
+        cmd,
+        *,
+        env=None,  # noqa: ARG001 - run_captured's keyword-only arguments
+        spool_name,  # noqa: ARG001 - run_captured's keyword-only arguments
+        repo_root=None,  # noqa: ARG001 - run_captured's keyword-only arguments
+        check=True,  # noqa: ARG001 - run_captured's keyword-only arguments
+        on_line=None,  # noqa: ARG001 - run_captured's keyword-only arguments
+    ):
         reporter.lines.append("<<ran>>")
         return subprocess.CompletedProcess(list(cmd), 0)
 
@@ -345,7 +357,14 @@ def test_the_recorder_quiesce_stays_best_effort(captured, reporter, tmp_path):
 def test_a_recorder_that_will_not_stop_still_warns(monkeypatch, tmp_path, caplog):
     """The quiesce invariant is still reported when the stop exits non-zero."""
 
-    def _failing(cmd, *, env=None, spool_name, repo_root=None, check=True):
+    def _failing(
+        cmd,
+        *,
+        env=None,  # noqa: ARG001 - run_captured's keyword-only arguments
+        spool_name,
+        repo_root=None,  # noqa: ARG001 - run_captured's keyword-only arguments
+        check=True,  # noqa: ARG001 - run_captured's keyword-only arguments
+    ):
         code = 1 if spool_name == "archiver-recorder-stop" else 0
         return subprocess.CompletedProcess(list(cmd), code)
 

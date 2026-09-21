@@ -385,7 +385,7 @@ class TestDetectComposeProvider:
             detect_compose_provider(["podman", "compose"])
 
     def test_missing_binary_fails_closed(self, monkeypatch):
-        def _run(cmd, **kwargs):
+        def _run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
             raise FileNotFoundError("podman")
 
         monkeypatch.setattr(runtime_helper.subprocess, "run", _run)
@@ -473,7 +473,7 @@ class TestVerifyRuntimeIsRunning:
         assert "timed out" in msg
 
     def test_no_runtime_returns_runtime_error_text(self, monkeypatch):
-        def _raise(config=None):
+        def _raise(_config=None):
             raise RuntimeError("No container runtime found")
 
         monkeypatch.setattr(runtime_helper, "get_runtime_command", _raise)

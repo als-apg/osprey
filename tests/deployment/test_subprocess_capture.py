@@ -130,7 +130,7 @@ class TestRetention:
         assert any(name.startswith("new-") for name in names)
 
     def test_unreadable_spool_does_not_fail_the_run(self, tmp_path, monkeypatch):
-        def boom(self):
+        def boom(_self):
             raise OSError("nope")
 
         monkeypatch.setattr(Path, "unlink", boom)

@@ -240,7 +240,7 @@ def test_other_services_never_compute_the_snapshot(repo, rendered_contexts, monk
     """Only the bluesky_web render pays for the database load."""
     from osprey.deployment import compose_generator
 
-    def unexpected(config):
+    def unexpected(_config):
         raise AssertionError("compute_channel_snapshot ran for a non-bluesky_web service")
 
     monkeypatch.setattr(compose_generator, "compute_channel_snapshot", unexpected)

@@ -734,7 +734,7 @@ def test_web_deploy_provisions_every_subdir_before_any_compose_invocation(monkey
         stdout = ""
         stderr = ""
 
-    def _run(cmd, **kwargs):
+    def _run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
         seen_at_first_compose.append(
             [audit_identity_dir(tmp_path, identity).is_dir() for identity in expected]
         )

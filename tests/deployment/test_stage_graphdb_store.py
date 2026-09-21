@@ -108,25 +108,25 @@ def graphdb_stubs(monkeypatch, tmp_path):
         state["sessions"].append((uri, username, password))
         yield _FakeSession()
 
-    def _bootstrap(session):
+    def _bootstrap(_session):
         state["events"].append("bootstrap")
         return state["bootstrap"]
 
-    def _resource_count(session):
+    def _resource_count(_session):
         state["events"].append("count")
         return state["resources"]
 
-    def _import_ttl(session, text):
+    def _import_ttl(_session, text):
         state["events"].append("import")
         state["imported"].append(text)
         return state["import_result"]
 
-    def _write_marker(session, sha256, direction_source=None):
+    def _write_marker(_session, sha256, direction_source=None):
         state["events"].append("marker")
         state["markers"].append(sha256)
         state["direction_sources"].append(direction_source)
 
-    def _bake_snapshot(session, render_dir):
+    def _bake_snapshot(_session, render_dir):
         state["events"].append("bake")
         state["baked_dirs"].append(render_dir)
         if state["bake_error"] is not None:
@@ -342,7 +342,7 @@ def test_an_unreachable_store_warns_and_leaves_the_deploy_standing(
     over it."""
 
     # Arrange
-    def _boom(connection, deadline):
+    def _boom(_connection, _deadline):
         raise RuntimeError("connection refused")
 
     monkeypatch.setattr(container_lifecycle, "_wait_for_graphdb_store", _boom)
@@ -445,15 +445,20 @@ def test_the_staging_invocation_is_shaped_by_the_provider_it_is_handed(tmp_path,
 
     seen: dict = {}
 
-    def _record_base(runtime_cmd, files, root, env_args, provider=None):
+    def _record_base(_runtime_cmd, _files, _root, _env_args, provider=None):
         seen["base_provider"] = provider
         return ["docker", "compose"]
 
-    def _record_env_files(root=None, provider=None):
+    def _record_env_files(_root=None, provider=None):
         seen["env_file_provider"] = provider
         return []
 
-    def _record_run(cmd, *, env=None, **kwargs):
+    def _record_run(
+        cmd,  # noqa: ARG001 - run_captured's argv, the rest in **kwargs
+        *,
+        env=None,
+        **kwargs,
+    ):
         seen["run_env"] = dict(env or {})
 
     monkeypatch.setattr(container_lifecycle, "compose_base_cmd", _record_base)

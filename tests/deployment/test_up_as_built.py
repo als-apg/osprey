@@ -163,7 +163,7 @@ def started(monkeypatch):
     # runtime; nothing here has one. Its own tests live under web_terminals/.
     monkeypatch.setattr(container_lifecycle, "remove_orphan_terminals", lambda config: {})
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         record.setdefault("cmds", []).append(list(cmd))
         record["env"] = dict(env or {})
         # run_captured hangs its spool path off the result, so a stand-in has to
@@ -174,7 +174,7 @@ def started(monkeypatch):
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
-    def _fake_image_build(config, dev_mode, env, build_context=None):
+    def _fake_image_build(_config, _dev_mode, _env, build_context=None):
         record["build_context"] = build_context
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _fake_image_build)
@@ -313,7 +313,7 @@ def test_host_side_work_during_a_start_reads_the_render_not_the_working_director
 
     seen: dict = {}
 
-    def _probe(config, dev_mode, env, build_context=None):
+    def _probe(_config, _dev_mode, _env, _build_context=None):
         seen["tz"] = str(get_facility_timezone())
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _probe)
@@ -502,7 +502,7 @@ def test_build_chains_the_render_then_starts(lifecycle_repo, started, monkeypatc
     render_build(lifecycle_repo, stamped_hash="stale")
     chained: list[Path] = []
 
-    def _fake_chain(ctx, repo_root, *, dev=False):
+    def _fake_chain(_ctx, repo_root, *, dev=False):  # noqa: ARG001 - _chain_build's dev keyword
         chained.append(repo_root)
         # A real build would leave a matching fingerprint behind; the gate has
         # already been passed by then, so only the render's effect matters here.
@@ -981,7 +981,12 @@ def test_the_web_re_render_lands_in_the_block_the_build_recorded(lifecycle_repo,
     base = 20000
     handed: dict = {}
 
-    def _record_web_deploy(config, compose_files, *args, **kwargs) -> None:
+    def _record_web_deploy(
+        config,
+        compose_files,  # noqa: ARG001 - deploy_up_web_terminals's signature, the rest in **kwargs
+        *args,
+        **kwargs,
+    ) -> None:
         handed["config"] = config
 
     monkeypatch.setattr(container_lifecycle, "deploy_up_web_terminals", _record_web_deploy)
@@ -1194,7 +1199,11 @@ def test_the_legacy_deploy_up_still_renders(tmp_path, monkeypatch):
     """
     rendered: list = []
 
-    def _prepare(config_path, dev_mode=False, expose_network=False):
+    def _prepare(
+        config_path,
+        dev_mode=False,  # noqa: ARG001 - prepare_compose_files's keyword arguments
+        expose_network=False,  # noqa: ARG001 - prepare_compose_files's keyword arguments
+    ):
         rendered.append(config_path)
         return {"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]
 

@@ -48,7 +48,11 @@ class RecordingReporter(PhaseReporter):
         super().__init__(color=False)
         self.lines: list[str] = []
 
-    def emit(self, text: str, style: str | None = None) -> None:
+    def emit(
+        self,
+        text: str,
+        style: str | None = None,  # noqa: ARG002 - PhaseReporter.emit's style argument
+    ) -> None:
         self.lines.append(text)
 
     @property
@@ -431,7 +435,7 @@ def test_auth_sidecar_build_carries_the_site_build_args(monkeypatch, tmp_path):
     assert cmd[-1] == str(context)
 
 
-def _auth_sidecar_build_args(monkeypatch, tmp_path, reporter, pin_version: str) -> dict:
+def _auth_sidecar_build_args(monkeypatch, tmp_path, _reporter, pin_version: str) -> dict:
     """Build the sidecar under a stubbed framework pin; return its --build-args."""
     monkeypatch.chdir(tmp_path)
     context = tmp_path / "build" / "auth"

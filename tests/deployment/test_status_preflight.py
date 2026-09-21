@@ -118,7 +118,12 @@ def runtime_calls(monkeypatch):
             self.returncode = returncode
             self.stderr = ""
 
-    def _fake_run(cmd, capture_output=True, text=True, timeout=10):
+    def _fake_run(
+        cmd,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        timeout=10,  # noqa: ARG001 - subprocess.run's keywords
+    ):
         calls["argvs"].append(cmd)  # type: ignore[union-attr]
         if cmd[:2] == ["docker", "ps"]:
             return _Result(calls["ps_stdout"])

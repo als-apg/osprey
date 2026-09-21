@@ -118,7 +118,12 @@ def runtime_calls(monkeypatch):
             self.returncode = returncode
             self.stderr = ""
 
-    def _fake_run(cmd, capture_output=True, text=True, timeout=10):
+    def _fake_run(
+        cmd,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        timeout=10,  # noqa: ARG001 - subprocess.run's keywords
+    ):
         calls["argvs"].append(cmd)
         if cmd[:2] == ["docker", "ps"]:
             return _Result(calls["ps_stdout"])
@@ -398,7 +403,7 @@ def test_the_endpoints_section_resolves_personas_against_the_live_checkout(tmp_p
 
     seen = {}
 
-    def _fake_endpoint_entries(config, compose_files, *, project_root=None):
+    def _fake_endpoint_entries(_config, _compose_files, *, project_root=None):
         seen["project_root"] = project_root
         return []
 

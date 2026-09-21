@@ -105,7 +105,7 @@ def _load_config(path: Path) -> dict:
         return yaml.safe_load(fh)
 
 
-def _dial_port_bluesky(persona_dir: Path, persona_cfg: dict, monkeypatch) -> int:
+def _dial_port_bluesky(persona_dir: Path, _persona_cfg: dict, monkeypatch) -> int:
     """The port the persona's Bluesky clients dial — via the real resolver.
 
     ``resolve_bridge_url`` is the single source of truth both the bluesky MCP
@@ -153,7 +153,7 @@ def _dial_port_va(persona_dir: Path, persona_cfg: dict, monkeypatch) -> int:
         reset_config_cache()
 
 
-def _dial_port_telemetry(persona_dir: Path, persona_cfg: dict, monkeypatch) -> int:
+def _dial_port_telemetry(_persona_dir: Path, persona_cfg: dict, monkeypatch) -> int:
     """The OTLP port the persona's agent launch exports to — via the real resolver.
 
     The port is resolved the way the launch path resolves it

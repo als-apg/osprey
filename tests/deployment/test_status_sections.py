@@ -96,7 +96,13 @@ def runtime(monkeypatch):
     )
     monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
 
-    def _fake_run(cmd, capture_output=True, text=True, timeout=None, **kwargs):
+    def _fake_run(
+        cmd,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        timeout=None,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         argv = list(cmd)
         record["cmds"].append(argv)
         if argv[:2] == ["docker", "ps"]:
@@ -716,7 +722,11 @@ def test_a_container_targeted_build_is_not_told_to_probe_a_host_venv(lifecycle_r
     calls: list[dict] = []
 
     class _Manager:
-        def regenerate_claude_code(self, project_dir, **kwargs):
+        def regenerate_claude_code(
+            self,
+            project_dir,  # noqa: ARG002 - the template manager's signature, the rest in **kwargs
+            **kwargs,
+        ):
             calls.append(kwargs)
             return {"changed": [], "unchanged": []}
 
@@ -733,7 +743,11 @@ def test_out_of_sync_artifacts_name_the_rebuild(lifecycle_repo, monkeypatch):
     render_build(lifecycle_repo)
 
     class _Manager:
-        def regenerate_claude_code(self, project_dir, **kwargs):
+        def regenerate_claude_code(
+            self,
+            project_dir,  # noqa: ARG002 - the template manager's signature, the rest in **kwargs
+            **kwargs,
+        ):
             return {"changed": [".claude/settings.json"], "unchanged": []}
 
     monkeypatch.setattr("osprey.cli.templates.manager.TemplateManager", lambda: _Manager())
@@ -751,7 +765,11 @@ def test_an_artifact_check_that_cannot_run_is_not_a_passing_one(lifecycle_repo, 
     render_build(lifecycle_repo)
 
     class _Manager:
-        def regenerate_claude_code(self, project_dir, **kwargs):
+        def regenerate_claude_code(
+            self,
+            project_dir,  # noqa: ARG002 - the template manager's signature, the rest in **kwargs
+            **kwargs,
+        ):
             raise RuntimeError("template exploded")
 
     monkeypatch.setattr("osprey.cli.templates.manager.TemplateManager", lambda: _Manager())

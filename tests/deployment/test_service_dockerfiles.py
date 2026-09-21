@@ -377,7 +377,10 @@ def _version_pinned_deps_body(dockerfile: pathlib.Path) -> str:
 
 @pytest.mark.parametrize("dockerfile", FRAMEWORK_PINNED_DOCKERFILES, ids=FRAMEWORK_PINNED_IDS)
 class TestPrereleasePin:
-    def test_covers_every_framework_primed_recipe(self, dockerfile):
+    def test_covers_every_framework_primed_recipe(
+        self,
+        dockerfile,  # noqa: ARG002 - a column of the shared FRAMEWORK_PINNED_DOCKERFILES table
+    ):
         # The discovery above must find the recipes the layer-split contract
         # names — a recipe that pins the framework some other way would slip
         # past both.

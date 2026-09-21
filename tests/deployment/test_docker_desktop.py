@@ -313,7 +313,7 @@ class TestTheDockerDesktopPredicate:
         """No runtime is resolved where the product does not exist."""
         monkeypatch.setattr(docker_desktop.sys, "platform", "freebsd13")
 
-        def fail(config: dict) -> list[str]:
+        def fail(_config: dict) -> list[str]:
             raise AssertionError("the runtime should not be resolved here")
 
         monkeypatch.setattr(docker_desktop, "get_runtime_command", fail)
