@@ -373,7 +373,7 @@ def _remove_cell_markers() -> None:
         )
 
 
-def pre_run_cell(info: Any = None) -> None:
+def pre_run_cell(_info: Any = None) -> None:
     """Route this cell at the deployment's control target, then open the cell.
 
     Nothing here refuses a cell: ``IPython`` swallows a callback's exception,
@@ -382,14 +382,14 @@ def pre_run_cell(info: Any = None) -> None:
     control-system call raises on.
 
     Args:
-        info: ``IPython``'s ``ExecutionInfo``, unused. The routing is read from
+        _info: ``IPython``'s ``ExecutionInfo``, unused. The routing is read from
             the record, not from the code about to run.
     """
     _stamp_from_record(os.environ)
     os.environ[ENV_IN_CELL] = IN_CELL
 
 
-def post_run_cell(result: Any = None) -> None:
+def post_run_cell(_result: Any = None) -> None:
     """Close the cell: no cell is running, and its markers are gone.
 
     ``IPython`` fires this from ``run_cell``'s ``finally``, so it runs for a
@@ -398,7 +398,7 @@ def post_run_cell(result: Any = None) -> None:
     switch to wait on it.
 
     Args:
-        result: ``IPython``'s ``ExecutionResult``, unused. A cell that failed
+        _result: ``IPython``'s ``ExecutionResult``, unused. A cell that failed
             still held the target while it ran.
     """
     os.environ.pop(ENV_IN_CELL, None)

@@ -383,7 +383,9 @@ def parse_event(raw: Any, cfg: TeamsBridgeConfig) -> InboundEvent | None:
     )
 
 
-def resolve_reply_context(event: InboundEvent) -> ReplyContext:
+def resolve_reply_context(
+    event: InboundEvent,  # noqa: ARG001 - cross-channel reply-context signature; channels that thread replies parse the event
+) -> ReplyContext:
     """The empty reply context — Teams delivers no inbound quote to this bot.
 
     A bot reads a Teams message it was not mentioned in, or the message a reply
