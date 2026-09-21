@@ -151,7 +151,7 @@ __pycache__/
 """
 
 
-def _repo_env_shared(name: str, seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
+def _repo_env_shared(name: str, _seeded: tuple[str, ...] = (), _facility_rule: bool = False) -> str:
     """The committed half of the deployment's environment, as a commented starter.
 
     Every line is commented out, because a deployment needs no shared defaults
@@ -378,7 +378,7 @@ Every key named here is written up in full at https://als-apg.github.io/osprey/.
 """
 
 
-def _ci_extra_text(name: str, seeded: tuple[str, ...] = (), facility_rule: bool = False) -> str:
+def _ci_extra_text(name: str, _seeded: tuple[str, ...] = (), _facility_rule: bool = False) -> str:
     """The starter ``ci-extra.yml`` — an include point with nothing in it yet.
 
     Written by this command and by nothing else, ever: the pipeline beside it
@@ -458,7 +458,7 @@ _NOT_A_DIRECTORY = "Not a directory: {target}. `osprey init` creates a deploymen
 
 
 def _repo_gitignore_for(
-    name: str, seeded: tuple[str, ...] = (), facility_rule: bool = False
+    _name: str, _seeded: tuple[str, ...] = (), _facility_rule: bool = False
 ) -> str:
     """:func:`_repo_gitignore`, with the uniform signature the table needs.
 
@@ -1154,7 +1154,7 @@ def _forwarded(command: click.Command, target: Path, flags: dict[str, bool]) -> 
 # ---------------------------------------------------------------------------
 
 
-def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+def _list_presets_callback(ctx: click.Context, _param: click.Parameter, value: bool) -> None:
     """Eager --list-presets: print the bundled presets and exit before anything parses.
 
     The list itself is ``osprey profile presets``'s

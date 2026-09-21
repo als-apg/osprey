@@ -238,7 +238,7 @@ class TemplateManager:
         # the local so the manifest-output filtering below reads the same
         # effective selection the context was built from.
         artifacts = self._effective_artifacts(data_bundle, artifacts)
-        ctx = self._project_context(project_name, project_dir, data_bundle, context, artifacts)
+        ctx = self._project_context(project_name, project_dir, context, artifacts)
 
         # 4. Create project structure
         scaffolding.create_project_structure(
@@ -482,7 +482,7 @@ class TemplateManager:
         Raises:
             ValueError: If the framework ships no ``config.yml.j2``.
         """
-        ctx = self._project_context(project_name, project_dir, None, context, artifacts)
+        ctx = self._project_context(project_name, project_dir, context, artifacts)
         scaffolding.render_project_config(self.template_root, self.jinja_env, output_path, ctx)
 
     def _effective_artifacts(
@@ -508,7 +508,6 @@ class TemplateManager:
         self,
         project_name: str,
         project_dir: Path,
-        data_bundle: str | None,
         context: dict[str, Any] | None,
         artifacts: dict[str, list[str]] | None,
     ) -> dict[str, Any]:
@@ -517,12 +516,8 @@ class TemplateManager:
         The defaults every template may read, the caller's *context* over
         them, the ``osprey_ports`` table derived from whichever ``port_base``
         survives that merge, and the channel-finder flags derived from the
-        artifact selection. *data_bundle* names the ``apps/`` directory whose
-        data tree the render copies (``None`` for a config-only render,
-        :meth:`render_config`, which copies nothing); no template reads the
-        bundle name any more, so it reaches no context key — what a rendered
-        project records about where it came from is the PRESET, which the
-        caller passes in *context*.
+        artifact selection. What a rendered project records about where it
+        came from is the PRESET, which the caller passes in *context*.
 
         Raises:
             BuildProfileError: If the channel-finder agent is selected with no

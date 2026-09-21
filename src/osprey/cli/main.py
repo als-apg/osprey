@@ -47,7 +47,7 @@ except ImportError:
 class LazyGroup(click.Group):
     """Click group that lazily loads subcommands only when invoked."""
 
-    def get_command(self, ctx, cmd_name):
+    def get_command(self, _ctx, cmd_name):
         """Lazily import and return the command when it's invoked."""
         # Map command names to their module paths
         commands = {
@@ -116,7 +116,10 @@ class LazyGroup(click.Group):
 
         return cmd_func
 
-    def list_commands(self, ctx):
+    def list_commands(
+        self,
+        ctx,  # noqa: ARG002 - click group signature; the command list is declared rather than resolved per context
+    ):
         """Return list of available commands (for --help)."""
         return [
             "init",

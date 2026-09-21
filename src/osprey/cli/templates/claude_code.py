@@ -528,8 +528,8 @@ def _policy_unit_of(tool: str, units: dict[str, tuple[str, frozenset[str]]]) -> 
 
 
 def build_claude_code_context(
-    template_root: Path,
-    jinja_env,
+    template_root: Path,  # noqa: ARG001 - context-builder signature; this context is rebuilt from the project directory and the config
+    jinja_env,  # noqa: ARG001 - context-builder signature; this context is rebuilt from the project directory and the config
     project_dir: Path,
     config: dict,
     project_root_override: Path | str | None = None,

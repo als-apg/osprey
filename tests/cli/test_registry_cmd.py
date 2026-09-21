@@ -165,14 +165,14 @@ class TestDisplayServicesTable:
     def test_displays_services(self, mock_registry, printed):
         """Test displaying services table."""
         # Should not raise exception
-        _display_services_table(mock_registry, verbose=False)
+        _display_services_table(mock_registry)
 
         # Should get stats for service names
         assert mock_registry.get_stats.called
 
     def test_table_comes_from_the_shared_factory(self, mock_registry, printed):
         """Re-pinned: the table used to spell ``dim`` for its own border."""
-        _display_services_table(mock_registry, verbose=False)
+        _display_services_table(mock_registry)
 
         tables = [r for r in printed if isinstance(r, Table)]
         assert len(tables) == 1
@@ -182,7 +182,7 @@ class TestDisplayServicesTable:
 
     def test_heading_and_rows_reach_stdout(self, mock_registry, capsys):
         """The heading is the verb's own output, so it survives any reporter."""
-        _display_services_table(mock_registry, verbose=False)
+        _display_services_table(mock_registry)
 
         out = capsys.readouterr().out
         assert "Services" in out

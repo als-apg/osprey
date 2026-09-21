@@ -1377,7 +1377,7 @@ def list_records(repo: Path | None) -> None:
         _render_records(_newest_first(store.records))
 
 
-def _file_to_write(ctx: click.Context, param: click.Parameter, value: Path | None) -> Path | None:
+def _file_to_write(_ctx: click.Context, _param: click.Parameter, value: Path | None) -> Path | None:
     """Refuse an ``--output`` that nothing could be written to.
 
     Click's own checks read the text the operator typed and only stat a path

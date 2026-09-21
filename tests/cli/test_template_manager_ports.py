@@ -80,7 +80,7 @@ def _context(**context: object) -> dict:
         The merged context ``TemplateManager`` hands the templates.
     """
     return TemplateManager()._project_context(
-        "build", Path("/tmp/does-not-need-to-exist"), "control_assistant", dict(context), None
+        "build", Path("/tmp/does-not-need-to-exist"), dict(context), None
     )
 
 
