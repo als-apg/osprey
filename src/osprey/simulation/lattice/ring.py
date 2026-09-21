@@ -45,6 +45,8 @@ built ring to that spec.
 
 from __future__ import annotations
 
+import math
+
 from at import (
     Corrector,
     Dipole,
@@ -338,7 +340,12 @@ def build_ring() -> Lattice:
 
     # RF frequency from the *ported* summed circumference (RF/circumference
     # self-consistent for later 6D optics). Correctors/markers are zero-length.
-    circumference = sum(float(getattr(el, "Length", 0.0)) for el in elements)
+    # Summed exactly: the frequency lands in a committed file that is compared
+    # byte for byte, and a plain float sum rounds differently from one
+    # interpreter to the next, which would make the last digit of this number
+    # a property of the machine that generated the file rather than of the
+    # ring.
+    circumference = math.fsum(float(getattr(el, "Length", 0.0)) for el in elements)
     cav.Frequency = _HARMONIC * _C / circumference
 
     return Lattice(elements, energy=_ENERGY_EV, periodicity=1)
