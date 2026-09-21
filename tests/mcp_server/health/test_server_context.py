@@ -290,7 +290,8 @@ async def test_shutdown_delegates_once_even_when_called_twice(env):
 # --- singleton --------------------------------------------------------------
 
 
-async def test_singleton_lifecycle(env):
+@pytest.mark.usefixtures("env")
+async def test_singleton_lifecycle():
     with pytest.raises(RuntimeError):
         get_server_context()
 

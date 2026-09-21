@@ -167,7 +167,7 @@ def _make_mock_xlib_modules():
 
 
 @pytest.fixture
-def mock_linux_env(tmp_path):
+def mock_linux_env():
     """Set up mocked mss + Xlib modules and DISPLAY env var."""
     mss_mod, mss_tools_mod = _make_mock_mss_module()
     xlib_mods = _make_mock_xlib_modules()

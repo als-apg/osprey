@@ -158,7 +158,8 @@ def _call():
 # --- envelope ---------------------------------------------------------------
 
 
-async def test_envelope_wire_shape_and_always_fresh(env):
+@pytest.mark.usefixtures("env")
+async def test_envelope_wire_shape_and_always_fresh():
     result = extract_response_dict(await _call()(None))
 
     # Locked report wire keys.

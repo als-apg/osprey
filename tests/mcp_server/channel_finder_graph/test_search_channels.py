@@ -143,7 +143,8 @@ def _envelope(exc: pytest.ExceptionInfo[ToolError]) -> dict:
 
 
 class TestKeywordSearch:
-    def test_a_keyword_answers_the_addresses_that_carry_it(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_keyword_answers_the_addresses_that_carry_it(self):
         payload = json.loads(_search(query="qf1"))
 
         assert set(payload) == PAYLOAD_KEYS
@@ -155,13 +156,15 @@ class TestKeywordSearch:
             "SR:MAG:QF1:NOTE",
         }
 
-    def test_a_row_carries_exactly_the_documented_keys(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_row_carries_exactly_the_documented_keys(self):
         rows = json.loads(_search(query="qf1"))["rows"]
 
         assert rows
         assert all(set(row) == ROW_KEYS for row in rows)
 
-    def test_direction_is_derived_from_the_rows_edges(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_direction_is_derived_from_the_rows_edges(self):
         payload = json.loads(_search(query="qf"))
         directions = {row["fullPv"]: row["direction"] for row in payload["rows"]}
 
@@ -170,18 +173,21 @@ class TestKeywordSearch:
         assert directions["SR:MAG:QF1:NOTE"] == "none"
         assert directions["SR:MAG:QF2:CURRENT"] == "RW"
 
-    def test_signals_are_uri_and_name_pairs(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_signals_are_uri_and_name_pairs(self):
         (row,) = json.loads(_search(query="qf1:current:rb"))["rows"]
 
         assert row["signals"] == [
             {"uri": f"{corpora.NARAD_SEM}quad_current_rb", "name": "quad_current_rb"}
         ]
 
-    def test_every_token_must_match(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_every_token_must_match(self):
         assert json.loads(_search(query="qf1 setpoint"))["total"] == 1
         assert json.loads(_search(query="qf1 nosuchword"))["total"] == 0
 
-    def test_an_unplaced_device_answers_with_null_section_and_system(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_an_unplaced_device_answers_with_null_section_and_system(self):
         (row,) = json.loads(_search(query="unplaced"))["rows"]
 
         assert row["fullPv"] == "NOWHERE:RB"
@@ -190,20 +196,23 @@ class TestKeywordSearch:
 
 
 class TestFilters:
-    def test_a_section_filter_keeps_only_that_section(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_section_filter_keeps_only_that_section(self):
         payload = json.loads(_search(section="BR"))
 
         assert payload["total"] == 1
         assert [row["fullPv"] for row in payload["rows"]] == ["SR:MAG:TWICE:CURRENT"]
         assert all(row["section"] == "BR" for row in payload["rows"])
 
-    def test_a_direction_filter_keeps_only_that_direction(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_direction_filter_keeps_only_that_direction(self):
         payload = json.loads(_search(direction="W"))
 
         assert payload["total"]
         assert all(row["direction"] in {"W", "RW"} for row in payload["rows"])
 
-    def test_a_signal_filter_keeps_only_channels_bound_to_it(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_signal_filter_keeps_only_channels_bound_to_it(self):
         payload = json.loads(_search(signal="quad_current_sp"))
 
         assert payload["total"]
@@ -212,35 +221,41 @@ class TestFilters:
             for row in payload["rows"]
         )
 
-    def test_a_class_filter_rolls_subclasses_up(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_class_filter_rolls_subclasses_up(self):
         under_magnet = json.loads(_search(class_uri=f"{corpora.NARAD_SEM}Magnet"))
         everything = json.loads(_search())
 
         assert under_magnet["total"] == everything["total"]
 
-    def test_filters_are_anded_with_the_query(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_filters_are_anded_with_the_query(self):
         assert json.loads(_search(query="qf1", section="BR"))["total"] == 0
 
 
 class TestFacets:
-    def test_the_five_facets_are_always_present(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_the_five_facets_are_always_present(self):
         payload = json.loads(_search())
 
         assert set(payload["facets"]) == {"section", "system", "class", "signal", "dir"}
 
-    def test_a_facet_entry_is_a_value_and_a_count(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_facet_entry_is_a_value_and_a_count(self):
         sections = {
             entry["value"]: entry["count"] for entry in json.loads(_search())["facets"]["section"]
         }
 
         assert sections == {"SR": 8, "BR": 1}
 
-    def test_no_facet_carries_more_than_ten_values(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_no_facet_carries_more_than_ten_values(self):
         facets = json.loads(_search())["facets"]
 
         assert all(len(entries) <= 10 for entries in facets.values())
 
-    def test_truncated_says_whether_a_facet_was_cut_off(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_truncated_says_whether_a_facet_was_cut_off(self):
         """The reader's own flag, handed through rather than dropped.
 
         Ten values is a short list, so an agent that reads a facet and sees
@@ -254,7 +269,8 @@ class TestFacets:
 
 
 class TestPaging:
-    def test_the_first_page_holds_every_row_of_a_small_index(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_the_first_page_holds_every_row_of_a_small_index(self):
         payload = json.loads(_search())
 
         assert payload["page"] == 1
@@ -262,7 +278,8 @@ class TestPaging:
         assert payload["total"] == 10
         assert len(payload["rows"]) == payload["total"]
 
-    def test_a_page_beyond_the_end_answers_no_rows_but_the_same_totals(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_page_beyond_the_end_answers_no_rows_but_the_same_totals(self):
         payload = json.loads(_search(page=3))
 
         assert payload["rows"] == []
@@ -295,7 +312,8 @@ class TestValidation:
         assert DIRECTIONS == get_args(Direction)
         assert set(DIRECTIONS) == {"R", "W", "RW", "none"}
 
-    def test_an_unknown_direction_is_refused(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_an_unknown_direction_is_refused(self):
         with pytest.raises(ToolError) as exc:
             _search(direction="read")
 
@@ -304,7 +322,8 @@ class TestValidation:
         assert "direction" in envelope["error_message"]
         assert envelope["suggestions"]
 
-    def test_page_zero_is_refused(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_page_zero_is_refused(self):
         with pytest.raises(ToolError) as exc:
             _search(page=0)
 
@@ -312,7 +331,8 @@ class TestValidation:
         assert envelope["error_type"] == "validation_error"
         assert "page" in envelope["error_message"]
 
-    def test_a_refusal_never_opens_the_index(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_refusal_never_opens_the_index(self):
         with pytest.raises(ToolError):
             _search(page=0)
 
@@ -393,7 +413,8 @@ class TestAbsence:
 
 
 class TestHeldIndex:
-    def test_a_second_call_reuses_the_index_the_first_one_opened(self, render: Path):
+    @pytest.mark.usefixtures("render")
+    def test_a_second_call_reuses_the_index_the_first_one_opened(self):
         json.loads(_search(query="qf1"))
         opened = tool_module._INDEX
         assert opened is not None
@@ -403,8 +424,9 @@ class TestHeldIndex:
         assert tool_module._INDEX is opened
         assert not opened.closed
 
+    @pytest.mark.usefixtures("render")
     def test_the_index_is_opened_once_however_many_searches_run(
-        self, render: Path, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch
     ):
         opens = []
         real_open = tool_module.open_graph_index

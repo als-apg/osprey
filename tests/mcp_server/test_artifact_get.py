@@ -60,7 +60,8 @@ class TestArtifactGet:
         assert "gallery_url" in result
 
     @pytest.mark.asyncio
-    async def test_get_missing_artifact(self, store, get_tool):
+    @pytest.mark.usefixtures("store")
+    async def test_get_missing_artifact(self, get_tool):
         with assert_raises_error(error_type="not_found") as _exc_ctx:
             await get_tool(artifact_id="nonexistent-id")
         result = _exc_ctx["envelope"]

@@ -266,7 +266,7 @@ def _block_web_terminal_posts(request, monkeypatch):
 
 
 @pytest.fixture
-def init_registry(tmp_path, monkeypatch):
+def init_registry():
     """Initialize the MCP registry after chdir and config setup.
 
     Call this fixture AFTER writing config.yml and chdir-ing to tmp_path.

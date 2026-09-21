@@ -85,7 +85,7 @@ class TestPathContract:
             state_root / "control_target" / acting_identity() / "server_4321.json"
         )
 
-    def test_report_defaults_to_this_process(self, state_root):
+    def test_report_defaults_to_this_process(self):
         assert target_state.report_file_path().name == f"server_{os.getpid()}.json"
 
     def test_glob_matches_the_file_the_writer_produces(self, state_root):
@@ -100,7 +100,7 @@ class TestPathContract:
 
 
 class TestWriteServerRecord:
-    def test_writes_the_report(self, state_root, monkeypatch):
+    def test_writes_the_report(self, monkeypatch):
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", "sess-1")
 
         target_state.write_server_record(TARGETS_META, server_pid=1234)
@@ -119,12 +119,12 @@ class TestWriteServerRecord:
             "updated_at": record["updated_at"],
         }
 
-    def test_captures_own_pid_by_default(self, state_root):
+    def test_captures_own_pid_by_default(self):
         target_state.write_server_record(TARGETS_META)
 
         assert target_state.read()["server_pid"] == os.getpid()
 
-    def test_a_restart_reports_having_reached_nothing_again(self, state_root):
+    def test_a_restart_reports_having_reached_nothing_again(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
         target_state.publish_switch("va", 7, server_pid=1234)
 
@@ -134,7 +134,7 @@ class TestWriteServerRecord:
         assert record["applied_target"] is None
         assert record["applied_generation"] is None
 
-    def test_every_target_slot_always_present(self, state_root):
+    def test_every_target_slot_always_present(self):
         target_state.write_server_record({"live": {"label": "Live"}}, server_pid=1234)
 
         targets = target_state.read(1234)["targets"]
@@ -147,7 +147,7 @@ class TestWriteServerRecord:
         assert target_state.TARGET_NAMES == ("live", "va", "standin")
         assert target_state.TARGET_STANDIN == "standin"
 
-    def test_unconfigured_standin_is_absent_as_empty_like_va(self, state_root):
+    def test_unconfigured_standin_is_absent_as_empty_like_va(self):
         """A deployment with no stand-in still carries the slot, empty."""
         meta = {"live": {"label": "Live", "endpoint": "gw:5064", "real_machine": True}}
         target_state.write_server_record(meta, server_pid=1234)
@@ -170,7 +170,7 @@ class TestWriteServerRecord:
 class TestProbeChannel:
     """The approval describer names the probe channel from this file alone."""
 
-    def test_present_probe_channel_is_preserved(self, state_root):
+    def test_present_probe_channel_is_preserved(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         targets = target_state.read(1234)["targets"]
@@ -178,7 +178,7 @@ class TestProbeChannel:
         assert targets["va"]["probe_channel"] == "VA:BeamCurrent"
         assert targets["standin"]["probe_channel"] == "STANDIN:BeamCurrent"
 
-    def test_absent_probe_channel_stays_absent(self, state_root):
+    def test_absent_probe_channel_stays_absent(self):
         meta = {
             "live": {"label": "Live", "endpoint": "gw:5064", "real_machine": True},
             "va": {"label": "VA", "endpoint": "localhost:5074", "real_machine": False},
@@ -192,13 +192,13 @@ class TestProbeChannel:
         assert "probe_channel" not in targets["standin"]
 
     @pytest.mark.parametrize("bogus", ["", None, 5064, ["SR:BeamCurrent"]])
-    def test_unusable_probe_channel_is_dropped_never_stringified(self, state_root, bogus):
+    def test_unusable_probe_channel_is_dropped_never_stringified(self, bogus):
         meta = {"live": {"label": "Live", "probe_channel": bogus}}
         target_state.write_server_record(meta, server_pid=1234)
 
         assert "probe_channel" not in target_state.read(1234)["targets"]["live"]
 
-    def test_probe_channel_survives_a_switch(self, state_root):
+    def test_probe_channel_survives_a_switch(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
         target_state.publish_switch("va", 1, server_pid=1234)
 
@@ -234,7 +234,7 @@ class TestSelectedRole:
         },
     }
 
-    def test_present_selected_role_is_preserved(self, state_root):
+    def test_present_selected_role_is_preserved(self):
         target_state.write_server_record(self.ROLED_META, server_pid=1234)
 
         targets = target_state.read(1234)["targets"]
@@ -242,7 +242,7 @@ class TestSelectedRole:
         assert targets["va"]["selected_role"] == "writes"
         assert targets["standin"]["selected_role"] == "read_only"
 
-    def test_absent_selected_role_stays_absent(self, state_root):
+    def test_absent_selected_role_stays_absent(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         targets = target_state.read(1234)["targets"]
@@ -251,26 +251,26 @@ class TestSelectedRole:
         assert "selected_role" not in targets["standin"]
 
     @pytest.mark.parametrize("bogus", ["", None, 5064, ["read_only"]])
-    def test_unusable_selected_role_is_dropped_never_stringified(self, state_root, bogus):
+    def test_unusable_selected_role_is_dropped_never_stringified(self, bogus):
         meta = {"live": {"label": "Live", "selected_role": bogus}}
         target_state.write_server_record(meta, server_pid=1234)
 
         assert "selected_role" not in target_state.read(1234)["targets"]["live"]
 
-    def test_selected_role_survives_a_switch(self, state_root):
+    def test_selected_role_survives_a_switch(self):
         target_state.write_server_record(self.ROLED_META, server_pid=1234)
         target_state.publish_switch("va", 1, server_pid=1234)
 
         assert target_state.read(1234)["targets"] == self.ROLED_META
 
-    def test_selected_role_survives_a_republish(self, state_root):
+    def test_selected_role_survives_a_republish(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         assert target_state.publish_targets(self.ROLED_META, server_pid=1234) is True
 
         assert target_state.read(1234)["targets"] == self.ROLED_META
 
-    def test_an_empty_role_is_dropped_on_a_republish_too(self, state_root):
+    def test_an_empty_role_is_dropped_on_a_republish_too(self):
         target_state.write_server_record(self.ROLED_META, server_pid=1234)
 
         target_state.publish_targets(
@@ -287,7 +287,7 @@ class TestSelectedRole:
 
 
 class TestPublish:
-    def test_publish_updates_the_binding(self, state_root):
+    def test_publish_updates_the_binding(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         assert target_state.publish_switch("va", 1, server_pid=1234) is True
@@ -296,7 +296,7 @@ class TestPublish:
         assert record["applied_target"] == "va"
         assert record["applied_generation"] == 1
 
-    def test_publish_preserves_display_metadata_and_the_pid(self, state_root):
+    def test_publish_preserves_display_metadata_and_the_pid(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
         target_state.publish_switch("va", 1, server_pid=1234)
 
@@ -304,7 +304,7 @@ class TestPublish:
         assert record["targets"] == TARGETS_META
         assert record["server_pid"] == 1234
 
-    def test_standin_round_trips_as_a_first_binding(self, state_root):
+    def test_standin_round_trips_as_a_first_binding(self):
         """``standin`` is a target like any other: it survives the first launch."""
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
@@ -315,7 +315,7 @@ class TestPublish:
         assert record["applied_generation"] == 0
         assert record["targets"] == TARGETS_META
 
-    def test_standin_round_trips_through_a_switch(self, state_root):
+    def test_standin_round_trips_through_a_switch(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         assert target_state.publish_switch(target_state.TARGET_STANDIN, 2, server_pid=1234) is True
@@ -326,7 +326,7 @@ class TestPublish:
         assert record["targets"]["standin"]["endpoint"] == "localhost:5084"
         assert record["targets"] == TARGETS_META
 
-    def test_switching_away_from_standin_back_to_live(self, state_root):
+    def test_switching_away_from_standin_back_to_live(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
         target_state.publish_switch(target_state.TARGET_STANDIN, 0, server_pid=1234)
 
@@ -336,17 +336,17 @@ class TestPublish:
         assert record["applied_target"] == "live"
         assert record["targets"] == TARGETS_META
 
-    def test_publish_can_carry_child_pids(self, state_root):
+    def test_publish_can_carry_child_pids(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
         target_state.publish_switch("va", 1, children=[5001, 5002], server_pid=1234)
 
         assert target_state.read(1234)["children"] == [5001, 5002]
 
-    def test_publish_without_a_record_writes_nothing(self, state_root):
+    def test_publish_without_a_record_writes_nothing(self):
         assert target_state.publish_switch("va", 1, server_pid=1234) is False
         assert target_state.read(1234) is None
 
-    def test_record_child_pids_sets_and_clears(self, state_root):
+    def test_record_child_pids_sets_and_clears(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         assert target_state.record_child_pids([5001, 5001, 0, "x"], server_pid=1234) is True
@@ -362,7 +362,7 @@ class TestPublish:
 
 
 class TestRead:
-    def test_absent_file_reads_as_none(self, state_root):
+    def test_absent_file_reads_as_none(self):
         assert target_state.read(1234) is None
 
     def test_corrupt_json_reads_as_none(self, state_root):
@@ -417,7 +417,7 @@ class TestSweep:
         assert target_state.sweep_stale(server_pid=1234) == []
         assert alive.exists()
 
-    def test_leaves_own_file_alone_without_probing_it(self, state_root, monkeypatch):
+    def test_leaves_own_file_alone_without_probing_it(self, monkeypatch):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
         # Even claiming our own PID is dead must not delete our file.
         monkeypatch.setattr(os, "kill", self._kill_with_dead({1234}))
@@ -459,7 +459,7 @@ class TestSweep:
 
         assert target_state.sweep_stale(server_pid=1234) == [5001, 5002, 5003]
 
-    def test_missing_state_dir_sweeps_to_empty(self, state_root):
+    def test_missing_state_dir_sweeps_to_empty(self):
         assert target_state.sweep_stale(server_pid=1234) == []
 
 
@@ -520,14 +520,14 @@ class TestRecordPid:
 
 
 class TestShutdown:
-    def test_delete_removes_the_file(self, state_root):
+    def test_delete_removes_the_file(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         target_state.delete_on_shutdown(server_pid=1234)
 
         assert not target_state.report_file_path(1234).exists()
 
-    def test_delete_is_idempotent(self, state_root):
+    def test_delete_is_idempotent(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         target_state.delete_on_shutdown(server_pid=1234)
@@ -798,7 +798,8 @@ class TestServerStartLaunchTarget:
 
         assert server_context.launch_target_from_record() == "va"
 
-    def test_server_start_launch_target_is_none_without_a_record(self, control_context_root):
+    @pytest.mark.usefixtures("control_context_root")
+    def test_server_start_launch_target_is_none_without_a_record(self):
         assert server_context.launch_target_from_record() is None
 
     def test_server_start_launch_target_is_none_when_the_record_is_unreadable(
@@ -823,9 +824,8 @@ class TestServerStartLaunchTarget:
 
         assert manager.ensure_started_calls == ["va"]
 
-    async def test_server_start_launches_on_the_baseline_when_there_is_no_record(
-        self, control_context_root
-    ):
+    @pytest.mark.usefixtures("control_context_root")
+    async def test_server_start_launches_on_the_baseline_when_there_is_no_record(self):
         manager = _FakeManager()
 
         await _switching_context(manager).control_system()

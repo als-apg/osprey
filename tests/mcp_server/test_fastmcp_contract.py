@@ -535,16 +535,16 @@ class TestExtendsCloneClamps:
         assert await _call("channel_read") == ["channel_read"]
         assert _records(audited, CLONE)[0]["decision"] == "allowed"
 
-    async def test_a_mixed_clone_tool_still_runs_under_the_sandbox_posture(
-        self, audited, monkeypatch
-    ):
+    @pytest.mark.usefixtures("audited")
+    async def test_a_mixed_clone_tool_still_runs_under_the_sandbox_posture(self, monkeypatch):
         """A readonly ``execute`` is exactly what a sandboxed session is for."""
         _sandbox(monkeypatch)
         _as_server(monkeypatch, MIXED_CLONE)
 
         assert await _call("execute") == ["execute"]
 
-    async def test_a_clone_write_tool_runs_under_the_writes_posture(self, audited, monkeypatch):
+    @pytest.mark.usefixtures("audited")
+    async def test_a_clone_write_tool_runs_under_the_writes_posture(self, monkeypatch):
         """The clamp is the posture's, not the clone's: writes posture, writes."""
         monkeypatch.setenv(am.POSTURE_ENV, "readwrite")
         _as_server(monkeypatch, CLONE)
@@ -558,7 +558,7 @@ class TestExtendsCloneClamps:
 
 
 @pytest.fixture
-def no_hook_config(cloned_render, audited, monkeypatch):
+def no_hook_config(cloned_render, audited):
     """The same rendered project with ``hook_config.json`` taken away.
 
     Restored on teardown so the module-scoped render stays reusable. A missing
@@ -583,7 +583,8 @@ class TestMissingHookConfigFloor:
     is still refused, and what keeps working.
     """
 
-    async def test_a_clone_write_tool_is_still_refused(self, no_hook_config, monkeypatch):
+    @pytest.mark.usefixtures("no_hook_config")
+    async def test_a_clone_write_tool_is_still_refused(self, monkeypatch):
         _sandbox(monkeypatch)
         _as_server(monkeypatch, CLONE)
 
@@ -598,31 +599,31 @@ class TestMissingHookConfigFloor:
 
         assert _records(no_hook_config, CLONE)[0]["detail"] == am.CLAMP_SOURCE_FLOOR
 
-    async def test_the_mixed_tool_survives_the_floor(self, no_hook_config, monkeypatch):
+    @pytest.mark.usefixtures("no_hook_config")
+    async def test_the_mixed_tool_survives_the_floor(self, monkeypatch):
         """``_FALLBACK_MIXED_TOOLS`` is subtracted from the floor, not from a loaded list."""
         _sandbox(monkeypatch)
         _as_server(monkeypatch, MIXED_CLONE)
 
         assert await _call("execute") == ["execute"]
 
-    async def test_a_read_tool_survives_the_floor(self, no_hook_config, monkeypatch):
+    @pytest.mark.usefixtures("no_hook_config")
+    async def test_a_read_tool_survives_the_floor(self, monkeypatch):
         _sandbox(monkeypatch)
         _as_server(monkeypatch, CLONE)
 
         assert await _call("channel_read") == ["channel_read"]
 
-    async def test_the_writes_posture_is_untouched_by_a_missing_render(
-        self, no_hook_config, monkeypatch
-    ):
+    @pytest.mark.usefixtures("no_hook_config")
+    async def test_the_writes_posture_is_untouched_by_a_missing_render(self, monkeypatch):
         """The floor narrows the sandbox posture; it does not invent a new one."""
         monkeypatch.setenv(am.POSTURE_ENV, "readwrite")
         _as_server(monkeypatch, CLONE)
 
         assert await _call("channel_write") == ["channel_write"]
 
-    async def test_the_missing_render_is_named_once_with_its_remedy(
-        self, no_hook_config, monkeypatch, caplog
-    ):
+    @pytest.mark.usefixtures("no_hook_config")
+    async def test_the_missing_render_is_named_once_with_its_remedy(self, monkeypatch, caplog):
         """A degraded clamp must not be a silent one — nor a per-call one."""
         _sandbox(monkeypatch)
         _as_server(monkeypatch, CLONE)

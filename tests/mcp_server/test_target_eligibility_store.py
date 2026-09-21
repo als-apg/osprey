@@ -147,7 +147,8 @@ def store_root(tmp_path, monkeypatch):
 
 
 class TestEffectiveWritesForTarget:
-    def test_an_unnarrowed_target_keeps_the_deployments_own_answer(self, store_root):
+    @pytest.mark.usefixtures("store_root")
+    def test_an_unnarrowed_target_keeps_the_deployments_own_answer(self):
         section = _config()["control_system"]
 
         assert te.effective_writes_for_target(section, LIVE) is True
@@ -160,14 +161,16 @@ class TestEffectiveWritesForTarget:
         assert te.effective_writes_for_target(section, VA) is False
         assert te.effective_writes_for_target(section, LIVE) is True
 
-    def test_the_store_never_widens_a_deployment_that_arms_nothing(self, store_root):
+    @pytest.mark.usefixtures("store_root")
+    def test_the_store_never_widens_a_deployment_that_arms_nothing(self):
         """Nothing in the store can arm a target the config left unarmed."""
         section = _config(live_writes=False, va_writes=False)["control_system"]
 
         assert te.effective_writes_for_target(section, LIVE) is False
         assert te.effective_writes_for_target(section, VA) is False
 
-    def test_a_readonly_run_answers_no_before_the_store_is_consulted(self, store_root, monkeypatch):
+    @pytest.mark.usefixtures("store_root")
+    def test_a_readonly_run_answers_no_before_the_store_is_consulted(self, monkeypatch):
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
         section = _config()["control_system"]
 
@@ -236,7 +239,8 @@ class TestEligibilityFollowsTheStore:
         assert "'read_only'" in verdict.detail
         assert "control_system.connector.virtual_accelerator.gateways.read_only" in verdict.detail
 
-    def test_the_same_write_only_block_is_eligible_while_the_session_is_armed(self, store_root):
+    @pytest.mark.usefixtures("store_root")
+    def test_the_same_write_only_block_is_eligible_while_the_session_is_armed(self):
         """Nothing about the config changed — only who is asking."""
         config = _config(va_gateways=_gateways(None, 5075))
 
@@ -246,7 +250,8 @@ class TestEligibilityFollowsTheStore:
 class TestNarrowingRefusal:
     """The pre-flight a surface offering the narrowing owes the operator."""
 
-    def test_it_names_what_a_write_only_block_would_lose(self, store_root):
+    @pytest.mark.usefixtures("store_root")
+    def test_it_names_what_a_write_only_block_would_lose(self):
         config = _config(va_gateways=_gateways(None, 5075))
 
         refusal = te.narrowing_refusal(config, VA)
@@ -255,7 +260,8 @@ class TestNarrowingRefusal:
         assert refusal.reason == te.REASON_SELECTED_ROLE_MISSING
         assert "'read_only'" in refusal.detail
 
-    def test_an_ordinary_block_loses_nothing(self, store_root):
+    @pytest.mark.usefixtures("store_root")
+    def test_an_ordinary_block_loses_nothing(self):
         assert te.narrowing_refusal(_config(), VA) is None
         assert te.narrowing_refusal(_config(), LIVE) is None
 
@@ -271,12 +277,14 @@ class TestNarrowingRefusal:
 
         assert te.narrowing_refusal(config, VA).reason == te.REASON_SELECTED_ROLE_MISSING
 
-    def test_a_readonly_run_does_not_answer_it_for_every_target(self, store_root, monkeypatch):
+    @pytest.mark.usefixtures("store_root")
+    def test_a_readonly_run_does_not_answer_it_for_every_target(self, monkeypatch):
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
         assert te.narrowing_refusal(_config(), VA) is None
 
-    def test_an_underivable_target_answers_with_that_reason(self, store_root):
+    @pytest.mark.usefixtures("store_root")
+    def test_an_underivable_target_answers_with_that_reason(self):
         # A deployment that never named its real machine: the section's own
         # type is absent (so it resolves to the mock) and no connector block
         # names a machine either, which is what `live` cannot be derived from.
@@ -304,7 +312,8 @@ class TestRosterRows:
         assert rows[LIVE]["writes_permitted"] is True
         assert rows[LIVE]["selected_role"] == "write_access"
 
-    def test_an_unnarrowed_roster_is_the_deployments_own_picture(self, store_root):
+    @pytest.mark.usefixtures("store_root")
+    def test_an_unnarrowed_roster_is_the_deployments_own_picture(self):
         rows = control_target.target_rows(_config(), control_target=LIVE, baseline=LIVE)
 
         assert rows[VA]["writes_permitted"] is True
@@ -319,7 +328,8 @@ class TestRosterRows:
         assert control_target._writes_permitted(config, VA) is False
         assert control_target._writes_permitted(config, LIVE) is True
 
-    def test_writes_permitted_still_refuses_a_readonly_run(self, store_root, monkeypatch):
+    @pytest.mark.usefixtures("store_root")
+    def test_writes_permitted_still_refuses_a_readonly_run(self, monkeypatch):
         monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
 
         assert control_target._writes_permitted(_config(), VA) is False
@@ -331,7 +341,7 @@ class TestRosterRows:
 
 
 @pytest.fixture
-async def make_manager(store_root, child_environment, monkeypatch):
+async def make_manager(store_root, child_environment, monkeypatch):  # noqa: ARG001 - the children this factory spawns need the prepared environment
     """Managers on the scratch store root, whose children are all reaped after.
 
     Not the harness's ``make_manager``, which this shadows: that one builds over
@@ -388,9 +398,8 @@ def _mixed_raw() -> dict[str, Any]:
 class TestSwitchingOntoANarrowedTarget:
     """The reviewer's scenario, end to end on real connector-host children."""
 
-    async def test_an_armed_target_lands_on_its_write_gateway(
-        self, make_manager, mixed_project, store_root
-    ):
+    @pytest.mark.usefixtures("store_root")
+    async def test_an_armed_target_lands_on_its_write_gateway(self, make_manager, mixed_project):
         """The control: nothing narrowed, so the write role is the one served."""
         manager = make_manager(_mixed_raw(), mixed_project)
         await manager.ensure_started()

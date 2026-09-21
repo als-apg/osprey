@@ -87,7 +87,8 @@ def test_execute_activity_names_the_recorded_target(
     assert only_target(posted)["detail"] == "[live] ran a script with control-system writes"
 
 
-def test_no_record_leaves_the_detail_alone(control_context_root, posted):
+@pytest.mark.usefixtures("control_context_root")
+def test_no_record_leaves_the_detail_alone(posted):
     """There is no record: the key is absent rather than guessed. A deployment
     baseline is not a claim about what this write touched."""
     http.notify_agent_activity("channel_write", "channel", detail="SR:MAG:QF:01:CURRENT:SP")
@@ -142,7 +143,8 @@ def test_stamp_survives_the_routes_detail_bound(
     assert len(detail) <= _MAX_DETAIL_LEN
 
 
-def test_a_raising_record_reader_never_breaks_an_emit(control_context_root, monkeypatch, posted):
+@pytest.mark.usefixtures("control_context_root")
+def test_a_raising_record_reader_never_breaks_an_emit(monkeypatch, posted):
     """Resolution is best-effort: a failure to answer must degrade to an
     unstamped event, never to an exception in a fire-and-forget notify."""
 

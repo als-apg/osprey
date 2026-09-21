@@ -366,7 +366,8 @@ class TestArchiverDownsampleErrors:
         )
 
     @pytest.mark.asyncio
-    async def test_wrong_category(self, workspace, non_archiver_entry):
+    @pytest.mark.usefixtures("workspace")
+    async def test_wrong_category(self, non_archiver_entry):
         fn = _get_archiver_downsample()
         with assert_raises_error() as _exc_ctx:
             await fn(artifact_id=non_archiver_entry.id)
@@ -374,7 +375,8 @@ class TestArchiverDownsampleErrors:
         assert "archiver_data" in result["error_message"].lower()
 
     @pytest.mark.asyncio
-    async def test_nonexistent_entry(self, workspace, art_store):
+    @pytest.mark.usefixtures("workspace", "art_store")
+    async def test_nonexistent_entry(self):
         fn = _get_archiver_downsample()
         with assert_raises_error() as _exc_ctx:
             await fn(artifact_id="deadbeef0000")
@@ -431,7 +433,8 @@ class TestArchiverDownsampleEmptyData:
         )
 
     @pytest.mark.asyncio
-    async def test_empty_timeseries(self, workspace, empty_entry):
+    @pytest.mark.usefixtures("workspace")
+    async def test_empty_timeseries(self, empty_entry):
         fn = _get_archiver_downsample()
         raw = await fn(artifact_id=empty_entry.id)
         result = json.loads(raw)
@@ -474,7 +477,8 @@ class TestArchiverDownsampleFlatFormat:
         )
 
     @pytest.mark.asyncio
-    async def test_flat_format_works(self, workspace, flat_entry):
+    @pytest.mark.usefixtures("workspace")
+    async def test_flat_format_works(self, flat_entry):
         fn = _get_archiver_downsample()
         raw = await fn(artifact_id=flat_entry.id, max_points=10)
         result = json.loads(raw)

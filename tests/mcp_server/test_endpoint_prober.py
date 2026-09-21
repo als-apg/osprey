@@ -494,7 +494,8 @@ async def test_published_rows_carry_the_gateway_they_were_measured_at(listener):
     datetime.fromisoformat(row["probed_at"])
 
 
-async def test_the_real_publisher_accepts_what_the_prober_produces(listener, published_state):
+@pytest.mark.usefixtures("published_state")
+async def test_the_real_publisher_accepts_what_the_prober_produces(listener):
     """End to end through ``target_state``: the file is read back, not mocked."""
     prober = _prober(_va_config(listener), targets=(VA,), interval_s=1000.0)
 

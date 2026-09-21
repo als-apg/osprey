@@ -146,13 +146,15 @@ class TestRegistration:
 class TestPayload:
     """What a seeded store produces."""
 
-    def test_reports_labels_and_relationship_types(self, ctx):
+    @pytest.mark.usefixtures("ctx")
+    def test_reports_labels_and_relationship_types(self):
         payload = json.loads(get_schema_fn())
 
         assert payload["labels"] == ["Class", "Resource"]
         assert payload["relationship_types"] == list(_DEFAULT_RELATIONSHIP_TYPES)
 
-    def test_properties_come_from_the_sampled_keys(self, ctx):
+    @pytest.mark.usefixtures("ctx")
+    def test_properties_come_from_the_sampled_keys(self):
         payload = json.loads(get_schema_fn())
 
         assert payload["properties_by_label"] == {
@@ -160,12 +162,14 @@ class TestPayload:
             "Resource": ["fullPv", "sourceName", "uri"],
         }
 
-    def test_prefixes_are_the_narad_map(self, ctx):
+    @pytest.mark.usefixtures("ctx")
+    def test_prefixes_are_the_narad_map(self):
         payload = json.loads(get_schema_fn())
 
         assert payload["prefixes"] == dict(NARAD_PREFIXES)
 
-    def test_naming_reports_the_sample_size(self, ctx):
+    @pytest.mark.usefixtures("ctx")
+    def test_naming_reports_the_sample_size(self):
         payload = json.loads(get_schema_fn())
 
         assert payload["naming"]["sample_size"] == mod.SCHEMA_SAMPLE_SIZE
@@ -175,7 +179,8 @@ class TestPayload:
 class TestBookkeepingExclusion:
     """Store state must be neither reported nor queried."""
 
-    def test_bookkeeping_labels_are_not_reported(self, ctx):
+    @pytest.mark.usefixtures("ctx")
+    def test_bookkeeping_labels_are_not_reported(self):
         payload = json.loads(get_schema_fn())
 
         assert set(payload["labels"]).isdisjoint(mod.BOOKKEEPING_LABELS)

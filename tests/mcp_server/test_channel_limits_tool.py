@@ -9,6 +9,8 @@ config key that answered, resolved for the deployment's control target).
 from dataclasses import dataclass
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from tests.mcp_server.conftest import (
     assert_raises_error,
     extract_response_dict,
@@ -232,7 +234,8 @@ async def test_lookup_not_found_allowed():
     assert "allowed" in ch["policy_action"]
 
 
-async def test_summary_unset_reports_null_and_deployment_wide_key(control_context_root):
+@pytest.mark.usefixtures("control_context_root")
+async def test_summary_unset_reports_null_and_deployment_wide_key():
     """Deployment-wide key unset → the summary reports null, not a permissive default."""
     with patch(
         "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
@@ -247,7 +250,8 @@ async def test_summary_unset_reports_null_and_deployment_wide_key(control_contex
     assert policy["allow_unlisted_key"] == DEPLOYMENT_WIDE_KEY
 
 
-async def test_lookup_unset_is_refused_naming_the_deployment_wide_key(control_context_root):
+@pytest.mark.usefixtures("control_context_root")
+async def test_lookup_unset_is_refused_naming_the_deployment_wide_key():
     """Unset is nobody's permission: the unlisted channel is refused, key named."""
     with patch(
         "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
