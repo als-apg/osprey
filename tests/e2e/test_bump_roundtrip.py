@@ -33,8 +33,9 @@ proving five things end to end:
   (c) the bump is a real, closed, local bump on the modelled machine: each
       recorded step sits inside ``±tolerance`` of what that step asked for at
       the target AND at every closure BPM; the full-amplitude step reaches the
-      requested displacement; the ring outside the corrector span does not
-      move, including at a monitor BPM the solve was never told to hold; and
+      requested displacement; the ring outside the corrector span moves by no
+      more than the dispersive share a ring solved with its cavity leaves
+      there, including at a monitor BPM the solve was never told to hold; and
       the terminal step brings the orbit and every corrector back to where the
       run found them.
   (d) ``GET /runs/{id}/figure`` serves the ``orbit_bump_sweep`` plan's OWN view
@@ -265,15 +266,21 @@ PROBE_AMPLITUDE_A = 5.0
 #: the same lattice, this corrector set needs at most 3.7 A for it.
 TARGET_BUMP_M = 20e-6
 
-#: The convergence band, in meters. 0.5% of the requested bump, and roughly 30x
-#: the worst step residual this corrector set actually produces on this lattice
-#: (~3e-9 m, measured in-process through the same `fit_probe_response` ->
-#: `solve_offsets` path the plan runs). Deliberately not floored at the VA's
-#: noise: this stack seeds no BPM errors, so the measured sigma is exactly zero
-#: and `noise_floor_violations` correctly declines to draw a floor from it,
-#: leaving the band exactly this value. A tolerance chosen at the noise floor
-#: would therefore have been zero, which no band can satisfy.
-TOLERANCE_M = 1e-7
+#: The convergence band, in meters. 2.5% of the requested bump, and roughly 4x
+#: the worst step residual this corrector set actually produces on this ring
+#: at the constrained rows (1.3e-7 m at full amplitude, measured in-process
+#: through the same `fit_probe_response` -> `solve_offsets` path the plan
+#: runs). That residual is structural, not numerical: the ring solves its
+#: closed orbit with the cavity on, so a bump's path-length change shifts the
+#: energy and moves every dispersive BPM, and three correctors cannot hold
+#: seven rows against it -- see CLOSURE_BOUND for the same term at the monitor
+#: the solve never constrains. With the cavity off the residual is ~3e-9 m.
+#: Deliberately not floored at the VA's noise: this stack seeds no BPM errors,
+#: so the measured sigma is exactly zero and `noise_floor_violations`
+#: correctly declines to draw a floor from it, leaving the band exactly this
+#: value. A tolerance chosen at the noise floor would therefore have been
+#: zero, which no band can satisfy.
+TOLERANCE_M = 5e-7
 
 #: Amplitude increments from zero to the requested bump. The plan visits
 #: ``2 * num`` steps monodirectionally (up then back down), so this is the
@@ -308,19 +315,42 @@ EXPECTED_SCALES = (0.5, 1.0, 0.5, 0.0)
 #: step. Every probe and convergence read is taken off the record.
 EXPECTED_ROWS = BASELINE_READS + len(EXPECTED_SCALES)
 
-#: Agreement bound for the magnitude cross-checks, as a fraction of the peak
-#: bump amplitude -- the same relative bound
-#: ``tests/va/test_bump_crosscheck.py`` holds its oracle comparison to, for the
-#: same reason: the tolerable share of the bump that sextupole feed-down may
-#: account for at these currents.
+#: Agreement bound for the magnitude cross-checks -- the bump reaching and
+#: peaking at its target, the span monitor's excursion, a corrector's return
+#: to its working point -- as a fraction of the peak bump amplitude: the
+#: tolerable share of the bump that the ring's own non-idealities may account
+#: for at these currents, the dispersive term ``CLOSURE_BOUND`` describes and
+#: sextupole feed-down under it; every consumer of this bound clears it by
+#: more than an order of magnitude. The same form
+#: ``tests/va/test_bump_crosscheck.py`` holds its oracle comparison to,
+#: tighter here because a deployed run compares the machine with itself
+#: rather than with a superposition of single-corrector predictions. The rows
+#: the solve was asked for are held to ``TOLERANCE_M``, the band the run
+#: itself was given.
 RELATIVE_BOUND = 1e-2
+
+#: Closure bound at the monitor BPM the solve was never told to hold, as a
+#: fraction of the peak. Looser than the solved rows' bound because the served
+#: ring solves its closed orbit with the cavity on (``lattice/ring.py``): a
+#: bump changes the path length, the RF frequency holds, and the energy shifts
+#: to compensate, so every BPM with dispersion moves by a share of the bump
+#: that is linear in its amplitude to better than a percent. Three correctors
+#: cannot zero that term at six closure BPMs and one more, and the unsolved
+#: monitor shows it whole. Measured in-process on this ring through the same
+#: ``fit_probe_response`` -> ``solve_offsets`` path the plan runs: 1.05 % of
+#: the peak at every probe amplitude, and 0.015 % with the cavity off.
+#: Roughly five times that dispersive share, half the outside-span bound the
+#: crosscheck holds -- a bump leaking this little is still a local bump, and a
+#: sign error or a wrong-row solve leaks a large fraction of the peak, not a
+#: few percent of it.
+CLOSURE_BOUND = 5e-2
 
 #: Noise multiplier the magnitude bounds floor at, so a BPM whose reading
 #: scatters is never asked to agree to better than it can be read. Zero on this
-#: clean stack (see the module docstring), which is why the relative term above
-#: is the operative one -- but it is computed from the run's OWN baseline rows
-#: rather than assumed, so a stack that did add read noise would widen these
-#: bounds instead of failing under them.
+#: clean stack (see the module docstring), which is why the relative terms
+#: above are the operative ones -- but it is computed from the run's OWN
+#: baseline rows rather than assumed, so a stack that did add read noise
+#: would widen these bounds instead of failing under them.
 NOISE_SIGMAS = 3.0
 
 # 7 recorded rows, but far more device traffic than that: 3 correctors x (2
@@ -802,15 +832,17 @@ class _Measured:
         """The largest excursion this run made anywhere among *devices*."""
         return max(abs(offset) for name in devices for offset in self.offsets[name])
 
-    def bound(self, device: str, peak: float) -> float:
+    def bound(self, device: str, peak: float, fraction: float = RELATIVE_BOUND) -> float:
         """The magnitude-agreement bound at *device*:
-        ``max(RELATIVE_BOUND * peak, NOISE_SIGMAS * sigma)``.
+        ``max(fraction * peak, NOISE_SIGMAS * sigma)``.
 
         The same form ``tests/va/test_bump_crosscheck.py`` uses: a share of the
-        bump the lattice's nonlinearity may account for, floored at what the
-        BPM can actually be read to.
+        bump the ring may account for on its own, floored at what the BPM can
+        actually be read to. *fraction* is ``RELATIVE_BOUND`` for the magnitude
+        checks (the span monitor's excursion, a corrector's return to its
+        working point) and ``CLOSURE_BOUND`` for the closure monitor's leak.
         """
-        return max(RELATIVE_BOUND * peak, NOISE_SIGMAS * self.sigma[device])
+        return max(fraction * peak, NOISE_SIGMAS * self.sigma[device])
 
 
 # ---------------------------------------------------------------------------
@@ -943,16 +975,18 @@ def test_orbit_bump_sweep_roundtrip_closes_a_local_bump(
     span_excursion = abs(measured.offsets[stack.span_monitor][full_scale])
     assert span_excursion > measured.bound(stack.span_monitor, peak), (
         f"the monitor BPM inside the corrector span ({stack.span_monitor}) moved only "
-        f"{span_excursion:.3e} m at full amplitude, within the {peak:.3e} m bump's own "
-        "closure bound -- the beam is not actually displaced across the span, so this run "
-        "constrained a few BPMs rather than making a bump"
+        f"{span_excursion:.3e} m at full amplitude, within the magnitude bound of the "
+        f"{peak:.3e} m bump itself -- the beam is not actually displaced across the span, "
+        "so this run constrained a few BPMs rather than making a bump"
     )
 
     # The closure monitor is outside the span and equally unsolved-for, so its
-    # staying put is the honest statement that the bump is LOCAL.
+    # staying put -- to within the dispersive share a ring solved with its
+    # cavity leaves there, see CLOSURE_BOUND -- is the honest statement that
+    # the bump is LOCAL.
     for step, scale in enumerate(EXPECTED_SCALES):
         leaked = abs(measured.offsets[stack.closure_monitor][step])
-        bound = measured.bound(stack.closure_monitor, peak)
+        bound = measured.bound(stack.closure_monitor, peak, CLOSURE_BOUND)
         assert leaked <= bound, (
             f"step {step + 1} (scale {scale:+g}) leaked {leaked:.3e} m at "
             f"{stack.closure_monitor}, a BPM outside the corrector span that the solve was "
