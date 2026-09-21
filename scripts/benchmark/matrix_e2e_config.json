@@ -47,6 +47,10 @@
       "reason": "Pure-logic unit tests for the per-cell ARIEL DB-uri override in sdk_helpers (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
     },
     {
+      "path": "tests/e2e/test_judge.py",
+      "reason": "Pure-logic unit tests for the judge's own retry rule, with the provider call scripted (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
+    },
+    {
       "path": "tests/e2e/test_dispatch_deploy.py",
       "reason": "Docker-dependent deploy of the dispatch stack; skips on bench box (no Docker). Its owner rows fire real dispatch jobs through the deployed worker, but what they judge is the owner wire and the narrowing verdict, not the model-under-test."
     },

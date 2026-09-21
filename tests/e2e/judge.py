@@ -12,6 +12,16 @@ from pydantic import BaseModel, Field
 
 from osprey.models import get_chat_completion
 
+#: How many times the judge is asked for a verdict before an unreadable reply
+#: is the answer. Two retries absorb a model that formats one reply in three
+#: badly; a judge that cannot be read three times running is reported.
+JUDGE_ATTEMPTS = 3
+
+#: How the provider adapter begins the error it raises when a structured reply
+#: is not the JSON the output model describes. That message, and only that
+#: message, means the judge should be asked again.
+UNPARSED_VERDICT = "Failed to parse structured output"
+
 
 def _default_provider_config(provider: str) -> dict[str, str] | None:
     """Build a self-contained provider_config from env vars for known providers.
@@ -97,6 +107,39 @@ class LLMJudge:
         self.verbose = verbose
         self.provider_config = provider_config or _default_provider_config(provider)
 
+    def _verdict(self, full_prompt: str) -> JudgeEvaluation:
+        """Ask the judge for its structured verdict, again if it cannot be read.
+
+        A verdict the adapter cannot parse says nothing about the run being
+        judged: the model sampled a reply that is not the JSON it was asked
+        for, which it does on some fraction of calls whatever the run did. The
+        run itself is never repeated for that -- an agent run is the expensive
+        thing under test, and its result already exists -- so the question is
+        put to the judge again, the same prompt, a bounded number of times.
+        The same prompt on purpose: a re-phrased question would make which
+        attempt parsed a part of the verdict. The judge runs at the default
+        temperature of zero, so a second ask leans on the serving side's own
+        nondeterminism rather than on sampling. Any other failure of the call
+        is raised as it comes: a gateway that refuses or a model that is
+        missing is not a sampling accident.
+        """
+        for attempt in range(1, JUDGE_ATTEMPTS + 1):
+            try:
+                return get_chat_completion(
+                    message=full_prompt,
+                    provider=self.provider,
+                    model_id=self.model,
+                    provider_config=self.provider_config,
+                    output_model=JudgeEvaluation,
+                    max_tokens=8096,
+                )
+            except ValueError as error:
+                if not str(error).startswith(UNPARSED_VERDICT) or attempt == JUDGE_ATTEMPTS:
+                    raise
+                if self.verbose:
+                    print(f"judge verdict did not parse (attempt {attempt}), asking again")
+        raise AssertionError("unreachable: the loop returns or raises")  # pragma: no cover
+
     async def evaluate(self, result: WorkflowResult, expectations: str) -> JudgeEvaluation:
         """Evaluate a workflow result against expectations.
 
@@ -120,14 +163,7 @@ class LLMJudge:
         # Get LLM evaluation using structured output
         full_prompt = f"{self._get_system_prompt()}\n\n{prompt}"
 
-        evaluation = get_chat_completion(
-            message=full_prompt,
-            provider=self.provider,
-            model_id=self.model,
-            provider_config=self.provider_config,
-            output_model=JudgeEvaluation,
-            max_tokens=8096,
-        )
+        evaluation = self._verdict(full_prompt)
 
         if self.verbose:
             print("\n" + "=" * 80)
@@ -214,14 +250,7 @@ Provide a clear PASS or FAIL decision with detailed reasoning."""
         # Get LLM evaluation using structured output
         full_prompt = f"{self._get_system_prompt()}\n\n{prompt}"
 
-        evaluation = get_chat_completion(
-            message=full_prompt,
-            provider=self.provider,
-            model_id=self.model,
-            provider_config=self.provider_config,
-            output_model=JudgeEvaluation,
-            max_tokens=8096,
-        )
+        evaluation = self._verdict(full_prompt)
 
         if self.verbose:
             print("\n" + "=" * 80)
