@@ -74,10 +74,12 @@ MAG1_RB = f"{RING}:MAG:HCM:01:CURRENT:RB"
 MAG2_SP = f"{RING}:MAG:HCM:02:CURRENT:SP"
 MAG2_RB = f"{RING}:MAG:HCM:02:CURRENT:RB"
 BPM_X = f"{RING}:BPM:BPM:01:X:RB"
-#: The element the deck carries that monitor at. A reading has two
-#: spellings -- this one and the address above -- and which of them a
-#: facility's people use to name the device is theirs to decide.
+#: The elements the deck carries those devices at. Every device has two
+#: spellings -- one of these and an address above -- and which of them a
+#: facility's people use to name it is theirs to decide.
 BPM_ELEMENT = "BPM1"
+MAG1_ELEMENT = "M1"
+MAG2_ELEMENT = "M2"
 VALVE_SP = f"{RING}:VAC:VALVE:01:POSITION:SP"
 VALVE_RB = f"{RING}:VAC:VALVE:01:POSITION:RB"
 GAUGE_RB = f"{RING}:VAC:GAUGE:01:PRESSURE:RB"
@@ -262,8 +264,8 @@ BINDINGS_DOCUMENT: dict[str, Any] = {
     "energy_gev": 3.0,
     "lattice_sha256": "0" * 64,
     "bindings": [
-        _identity_binding(MAG1_SP, MAG1_RB, "M1"),
-        _identity_binding(MAG2_SP, MAG2_RB, "M2"),
+        _identity_binding(MAG1_SP, MAG1_RB, MAG1_ELEMENT),
+        _identity_binding(MAG2_SP, MAG2_RB, MAG2_ELEMENT),
         _monitor_binding(BPM_X, BPM_ELEMENT),
     ],
 }
@@ -325,6 +327,16 @@ def facility(tmp_path: Path) -> Path:
 
 
 @dataclass
+class FakeWritePath:
+    """``CohostWritePath``, reduced to the reader the entrypoint hands on."""
+
+    stuck: frozenset[str] = frozenset()
+
+    def stuck_setpoints(self) -> frozenset[str]:
+        return self.stuck
+
+
+@dataclass
 class FakeRunner:
     """The runner, as the entrypoint sees it: constructed, then run.
 
@@ -338,6 +350,9 @@ class FakeRunner:
     kwargs: dict[str, Any]
     journal: list[tuple[str, Any]]
     interrupt: bool = False
+    #: The real runner's write path, reduced to the one reader the entrypoint
+    #: hands on: which setpoints are stuck right now.
+    write_path: Any = field(default_factory=lambda: FakeWritePath())
 
     def run(self) -> None:
         self.journal.append(("run", None))
@@ -371,16 +386,26 @@ class FakeBridge:
 
     journal: list[tuple[str, Any]]
     model: Any
-    bpm_errors: Any = None
-    corrector_gains: Any = None
     bound: dict[str, Any] | None = None
+    setpoints: frozenset[str] = frozenset()
+    stuck_reader: Any = None
 
-    def bind(self, records: dict[str, Any]) -> None:
+    def bind(
+        self, records: dict[str, Any], *, physics_setpoints: frozenset[str] = frozenset()
+    ) -> None:
         self.bound = records
+        self.setpoints = physics_setpoints
         self.journal.append(("bind", records))
 
     def on_setpoint(self, address: str, value: float) -> None:  # pragma: no cover - identity only
         """Never called here: the fake runner enqueues nothing."""
+
+    def refresh(self, changed: Any) -> None:  # pragma: no cover - identity only
+        """Never called here: nothing writes the model through the surface."""
+
+    def follow_stuck_setpoints(self, stuck: Any) -> None:
+        self.stuck_reader = stuck
+        self.journal.append(("follow-stuck", stuck))
 
 
 @dataclass
@@ -444,6 +469,7 @@ def _boot(
     interrupt: bool = False,
     env: dict[str, str] | None = None,
     orbit_solve_error: bool = False,
+    unknown_device: bool = False,
     fake_model: bool = True,
     fake_bridge: bool = True,
     channels_file: str = "channels.json",
@@ -491,6 +517,7 @@ def _boot(
             monkeypatch,
             boot,
             orbit_solve_error=orbit_solve_error,
+            unknown_device=unknown_device,
             fake_model=fake_model,
             fake_bridge=fake_bridge,
         )
@@ -504,6 +531,7 @@ def _install_fake_physics(
     boot: Boot,
     *,
     orbit_solve_error: bool,
+    unknown_device: bool = False,
     fake_model: bool = True,
     fake_bridge: bool = True,
 ) -> None:
@@ -528,21 +556,23 @@ def _install_fake_physics(
     from osprey.services.virtual_accelerator.ioc import physics_bridge as bridge_module
     from osprey.services.virtual_accelerator.model import pyat as pyat_module
 
-    def ring_model(data_root: Any, channels: Any) -> Any:
+    def ring_model(
+        data_root: Any, channels: Any, *, bpm_errors: Any = None, corrector_gains: Any = None
+    ) -> Any:
         if orbit_solve_error:
             raise bridge_module.OrbitSolveError("no stable closed orbit")
+        if unknown_device:
+            # The one class the model raises for a binding, a misalignment and
+            # a fault seed alike -- which is the point of the test below.
+            raise bridge_module.UnknownDeviceError("the ring has no element named 'ABSENT'")
         model = NullModel()
         boot.journal.append(("model-sources", (data_root, channels)))
+        boot.journal.append(("model-faults", (bpm_errors, corrector_gains)))
         boot.journal.append(("model", model))
         return model
 
-    def physics_bridge(*, model: Any, bpm_errors: Any, corrector_gains: Any) -> FakeBridge:
-        bridge = FakeBridge(
-            journal=boot.journal,
-            model=model,
-            bpm_errors=bpm_errors,
-            corrector_gains=corrector_gains,
-        )
+    def physics_bridge(*, model: Any) -> FakeBridge:
+        bridge = FakeBridge(journal=boot.journal, model=model)
         boot.journal.append(("bridge", bridge))
         return bridge
 
@@ -568,11 +598,13 @@ class TestBootOrder:
         assert boot.order() == [
             "logging",
             "model-sources",
+            "model-faults",
             "model",
             "bridge",
             "bind",
             "engine-source",
             "runner",
+            "follow-stuck",
             "engine-thread",
             "signals",
             "run",
@@ -895,7 +927,7 @@ class TestLatticeBoot:
         boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
         assert boot.engine_source.setpoint_echo_records is None
 
-    def test_the_fault_seeds_reach_the_bridge(
+    def test_the_fault_seeds_reach_the_model(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
         boot = _boot(
@@ -904,20 +936,18 @@ class TestLatticeBoot:
             lattice=SERVED_LATTICE,
             env={
                 "VA_BPM_ERRORS": f"{BPM_ELEMENT}:offset_x=1e-4",
-                "VA_CORR_GAIN": "HCM01=1.5",
+                "VA_CORR_GAIN": f"{MAG1_ELEMENT}=1.5",
             },
         )
-        bridge = boot.one("bridge")
-        assert bridge.bpm_errors == {BPM_ELEMENT: {"offset_x": 1e-4}}
-        assert bridge.corrector_gains == {"HCM01": {"factor": 1.5}}
+        bpm_errors, corrector_gains = boot.one("model-faults")
+        assert bpm_errors == {BPM_ELEMENT: {"offset_x": 1e-4}}
+        assert corrector_gains == {MAG1_ELEMENT: {"factor": 1.5}}
 
     def test_no_faults_are_passed_as_none_rather_than_an_empty_map(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
         boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
-        bridge = boot.one("bridge")
-        assert bridge.bpm_errors is None
-        assert bridge.corrector_gains is None
+        assert boot.one("model-faults") == (None, None)
 
     def test_a_lattice_with_no_stable_orbit_ends_the_boot(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
@@ -926,6 +956,21 @@ class TestLatticeBoot:
         itself never ends the process."""
         with pytest.raises(SystemExit, match="no stable closed orbit"):
             _boot(monkeypatch, facility, lattice=SERVED_LATTICE, orbit_solve_error=True)
+
+    def test_an_element_the_tree_does_not_carry_ends_the_boot_without_guessing_why(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """A binding, a misalignment and a fault seed all raise the one class,
+        so the headline names the condition and carries the model's own
+        message. Naming a cause it cannot know would send an operator to the
+        wrong file."""
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(monkeypatch, facility, lattice=SERVED_LATTICE, unknown_device=True)
+
+        message = str(excinfo.value)
+        assert "does not carry" in message
+        assert "ABSENT" in message, "the model's own message has to survive"
+        assert "fault seed" not in message, "the boot cannot know which of the three it was"
 
     def test_the_model_is_built_from_the_tree_around_the_served_directory(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
@@ -978,6 +1023,122 @@ class TestLatticeBoot:
         readback echoes the value written."""
         boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
         assert boot.runner.kwargs["bound_setpoints"] == {}
+
+
+class TestTheModelSurfaceIsWiredAtBoot:
+    """What the runner needs to answer for the model, and to arm a write.
+
+    A model write reaches the model and no setpoint, so the one thing the
+    boot owes the surface besides the token is the hook that re-serves what
+    a written variable feeds.
+    """
+
+    def test_the_bridge_is_handed_the_setpoints_it_may_re_command(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """A calibration write leaves a magnet delivering the wrong value for
+        its standing command; the bridge can only put that right if it was
+        told which records carry those commands."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.one("bridge").setpoints == frozenset(PHYSICS_SETPOINTS)
+
+    def test_the_refresh_hook_is_the_bridges(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.runner.kwargs["refresh"] == boot.one("bridge").refresh
+
+    def test_the_bridge_reads_the_stuck_set_from_the_write_path(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """A stuck setpoint records what was written and hands the model
+        nothing, so the bridge must not re-command from it on a calibration
+        change. The set changes at runtime, so the bridge is handed the write
+        path's reader rather than a copy of the boot set."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.one("bridge").stuck_reader == boot.runner.write_path.stuck_setpoints
+
+    def test_the_stuck_reader_is_handed_over_only_once_the_runner_exists(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The write path is built with the server, and the bridge had to be
+        bound before that -- so this is the earliest the reader exists."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.at("follow-stuck") > boot.at("runner")
+
+    def test_a_lattice_free_boot_wires_no_stuck_reader(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """There is no bridge to hand it to."""
+        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
+
+        assert "follow-stuck" not in boot.order()
+
+    def test_a_lattice_free_boot_passes_no_refresh_hook(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Nothing derives a reading from a model variable, so there is
+        nothing to recompute and the runner's own inert default stands."""
+        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
+
+        assert "refresh" not in boot.runner.kwargs
+
+    def test_the_status_verb_is_told_what_this_boot_built(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Both are boot facts nothing downstream can recover: the backend is
+        whichever model was built, and the source is the file this boot
+        resolved rather than the raw variable behind it."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.runner.kwargs["backend_name"] == type(boot.one("model")).__name__
+        assert boot.runner.kwargs["lattice_source"].endswith(SERVED_LATTICE)
+
+    def test_a_lattice_free_boot_says_it_serves_no_lattice(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(monkeypatch, facility, lattice=ep.LATTICE_NONE)
+
+        assert boot.runner.kwargs["lattice_source"] == ep.LATTICE_NONE
+
+    def test_model_writes_are_refused_unless_the_deployment_arms_them(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The model RPC reaches past the served namespace into the physics,
+        so an unset variable is a refusal rather than an open door."""
+        boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
+
+        assert boot.runner.kwargs["model_write_token"] is None
+
+    def test_an_armed_token_reaches_the_runner_exactly_as_given(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """Matched byte for byte against what a client presents, so nothing
+        here rewrites it."""
+        boot = _boot(
+            monkeypatch,
+            facility,
+            lattice=SERVED_LATTICE,
+            env={"VA_MODEL_WRITE_TOKEN": " s3cret "},
+        )
+
+        assert boot.runner.kwargs["model_write_token"] == " s3cret "
+
+    def test_a_blank_token_is_unset_rather_than_a_token(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The compose passthrough sends an empty string when the host
+        variable is absent, and an empty token is one an empty credential
+        would match."""
+        boot = _boot(
+            monkeypatch, facility, lattice=SERVED_LATTICE, env={"VA_MODEL_WRITE_TOKEN": "   "}
+        )
+
+        assert boot.runner.kwargs["model_write_token"] is None
 
 
 class TestBootRefusals:
@@ -1136,7 +1297,7 @@ class TestSeededReadoutErrorsAreResolvedAgainstTheDocument:
     reporting a seeded fault is exactly the failure the seed exists to reveal.
     """
 
-    def test_a_device_named_by_its_element_reaches_the_bridge(
+    def test_a_device_named_by_its_element_reaches_the_model(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
         boot = _boot(
@@ -1145,7 +1306,7 @@ class TestSeededReadoutErrorsAreResolvedAgainstTheDocument:
             lattice=SERVED_LATTICE,
             env={"VA_BPM_ERRORS": f"{BPM_ELEMENT}:offset_x=1e-4,gain_y=1.05"},
         )
-        assert boot.one("bridge").bpm_errors == {BPM_ELEMENT: {"offset_x": 1e-4, "gain_y": 1.05}}
+        assert boot.one("model-faults")[0] == {BPM_ELEMENT: {"offset_x": 1e-4, "gain_y": 1.05}}
 
     def test_a_device_named_by_its_address_reaches_the_same_monitor(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
@@ -1159,7 +1320,7 @@ class TestSeededReadoutErrorsAreResolvedAgainstTheDocument:
             lattice=SERVED_LATTICE,
             env={"VA_BPM_ERRORS": f"{BPM_X}:offset_x=1e-4"},
         )
-        assert boot.one("bridge").bpm_errors == {BPM_ELEMENT: {"offset_x": 1e-4}}
+        assert boot.one("model-faults")[0] == {BPM_ELEMENT: {"offset_x": 1e-4}}
 
     def test_a_device_the_document_knows_under_neither_name_ends_the_boot(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
@@ -1190,13 +1351,79 @@ class TestSeededReadoutErrorsAreResolvedAgainstTheDocument:
             )
         assert "VA_BPM_ERRORS" in str(excinfo.value)
 
-    def test_seeding_nothing_leaves_the_bridge_unperturbed(
+    def test_seeding_nothing_leaves_the_model_unperturbed(
         self, monkeypatch: pytest.MonkeyPatch, facility: Path
     ) -> None:
         """Resolution of an empty seed map is empty, and an empty map is the
-        None the bridge reads as "every monitor reads the model's truth"."""
+        None the model reads as "every monitor reads the true position"."""
         boot = _boot(monkeypatch, facility, lattice=SERVED_LATTICE)
-        assert boot.one("bridge").bpm_errors is None
+        assert boot.one("model-faults")[0] is None
+
+
+class TestSeededCalibrationsAreResolvedTheSameWay:
+    """A magnet is named on the same terms a monitor is.
+
+    An operator reads a magnet's address off the same screen as a monitor's,
+    and a scenario file renders whichever spelling it was written with. The
+    model keys its calibrations by element, so the document turns one into the
+    other here too -- and a name it knows neither way ends the boot rather
+    than perturbing nothing.
+    """
+
+    def test_a_magnet_named_by_its_element_reaches_the_model(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        boot = _boot(
+            monkeypatch,
+            facility,
+            lattice=SERVED_LATTICE,
+            env={"VA_CORR_GAIN": f"{MAG1_ELEMENT}=1.5"},
+        )
+        assert boot.one("model-faults")[1] == {MAG1_ELEMENT: {"factor": 1.5}}
+
+    def test_a_magnet_named_by_its_setpoint_address_reaches_the_same_element(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The spelling the control system publishes. Without this a scenario
+        that names its magnets the way an operator does would end the boot."""
+        boot = _boot(
+            monkeypatch, facility, lattice=SERVED_LATTICE, env={"VA_CORR_GAIN": f"{MAG1_SP}=1.5"}
+        )
+        assert boot.one("model-faults")[1] == {MAG1_ELEMENT: {"factor": 1.5}}
+
+    def test_a_magnet_the_document_knows_under_neither_name_ends_the_boot(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(monkeypatch, facility, lattice=SERVED_LATTICE, env={"VA_CORR_GAIN": "HCM99=1.5"})
+        message = str(excinfo.value)
+        assert "VA_CORR_GAIN" in message
+        assert "HCM99" in message
+
+    def test_one_magnet_seeded_twice_on_one_field_ends_the_boot(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        with pytest.raises(SystemExit) as excinfo:
+            _boot(
+                monkeypatch,
+                facility,
+                lattice=SERVED_LATTICE,
+                env={"VA_CORR_GAIN": f"{MAG1_ELEMENT}=1.5,{MAG1_SP}=2.0"},
+            )
+        assert "VA_CORR_GAIN" in str(excinfo.value)
+
+    def test_a_monitor_is_not_a_magnet(
+        self, monkeypatch: pytest.MonkeyPatch, facility: Path
+    ) -> None:
+        """The two rosters are resolved against different halves of the
+        document, so a monitor's name is no more a magnet than a typo is."""
+        with pytest.raises(SystemExit, match="VA_CORR_GAIN"):
+            _boot(
+                monkeypatch,
+                facility,
+                lattice=SERVED_LATTICE,
+                env={"VA_CORR_GAIN": f"{BPM_ELEMENT}=1.5"},
+            )
 
 
 class TestShutdown:

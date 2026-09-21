@@ -75,6 +75,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Any, Protocol
 
 from lume.model import LUMEModel
+from lume.variables import ConfigEnum, StrVariable
 
 from osprey.services.virtual_accelerator.serving.pvdb import (
     ServingRecords,
@@ -193,19 +194,24 @@ class WriteDriver(Protocol):
 
 @dataclass(frozen=True)
 class SetpointRoute:
-    """What one writable address does with a written value.
+    """What is fixed about one writable address for the life of the server.
+
+    Whether the address is stuck is not: that is a fault which changes at
+    runtime, so what a write *does* is decided per write
+    (:class:`RouteDecision`), from this and the stuck set in force then.
 
     Attributes:
         address: the setpoint's own address.
-        readback: the paired ``:RB`` that echoes an accepted value, or
-            ``None`` when this setpoint owes no echo (a stuck fault, a
-            pyat-coupled setpoint with no paired readback in the channel
-            set, or one served with no lattice behind it).
         limits: the ``(low, high)`` drive band a written value is clamped
             into, or ``None`` for an unbounded setpoint.
-        mode: one of ``MODE_PHYSICS`` / ``MODE_ECHO`` / ``MODE_LATCH``.
         asyn: whether the served PV declares an asynchronous write, and so
             whether the client is blocked until ``callbackPV`` fires.
+        coupled: whether the address is a coupled setpoint, whose writes go
+            to the model when there is a run loop to enqueue onto.
+        paired_readback: where an accepted value is echoed -- the readback
+            the bindings document declares for a coupled setpoint, the
+            manifest's own pairing for an echo -- or ``None`` when this
+            setpoint owes no echo at all.
         readback_rule: the document's rule for this readback (one of the
             ``READBACK_*`` constants), or ``None`` for a setpoint no bindings
             document described -- an echo pair, a latch, or a coupled
@@ -216,12 +222,56 @@ class SetpointRoute:
     """
 
     address: str
-    readback: str | None
     limits: tuple[float, float] | None
-    mode: str
     asyn: bool
+    coupled: bool
+    paired_readback: str | None
     readback_rule: str | None = None
     readback_value: Callable[[Any], Any] | None = None
+
+
+@dataclass(frozen=True)
+class RouteDecision:
+    """What one write to a setpoint does, decided when the write arrives.
+
+    Attributes:
+        route: the setpoint's fixed route.
+        mode: one of ``MODE_PHYSICS`` / ``MODE_ECHO`` / ``MODE_LATCH``.
+        readback: the readback that echoes an accepted value, or ``None``
+            when this write owes no echo (the setpoint is stuck, it is
+            coupled with no readback the namespace serves, or it is served
+            with no lattice behind it).
+    """
+
+    route: SetpointRoute
+    mode: str
+    readback: str | None
+
+
+#: The one variable :class:`SetpointRoutedModel` adds to the model it wraps:
+#: the setpoints currently stuck, as text -- their addresses sorted and
+#: comma-joined, empty for none. It names no served channel, so it is a
+#: model-only variable.
+STUCK_SETPOINTS_VARIABLE = "stuck_setpoints"
+
+
+def _ignore_stuck_change(stuck: frozenset[str]) -> None:
+    """Accept a new stuck set on behalf of a wrapper nothing else follows."""
+
+
+def format_stuck_setpoints(stuck: frozenset[str]) -> str:
+    """The one spelling of ``stuck``, so equal sets always read back equal."""
+    return ",".join(sorted(stuck))
+
+
+def parse_stuck_setpoints(text: str) -> frozenset[str]:
+    """The addresses in comma-separated ``text``, blanks and padding ignored.
+
+    The grammar of :data:`STUCK_SETPOINTS_VARIABLE` wherever it is written:
+    a model RPC ``set`` of the variable at runtime, and the boot-time
+    ``VA_STUCK_SETPOINTS`` the wrapper's first value is seeded from.
+    """
+    return frozenset(part.strip() for part in text.split(",") if part.strip())
 
 
 @dataclass(frozen=True)
@@ -251,7 +301,7 @@ class BoundSetpoint:
 
 
 class SetpointRoutedModel(LUMEModel):
-    """A model whose pyat-coupled setpoint writes go through a hook.
+    """The serving side's model: setpoint writes routed, the stuck set carried.
 
     The physics bridge -- not the model -- owns what a setpoint write needs
     around the lattice write itself: applying the commanded value to the
@@ -266,18 +316,30 @@ class SetpointRoutedModel(LUMEModel):
     thread: every transport the runner serves -- the co-hosted Channel
     Access namespace and the runner's own PVA puts alike -- ends up calling
     the same hook, from the same thread, rather than each transport
-    arranging its own physics.
+    arranging its own physics. With no hook, nothing is routed.
+
+    The wrapper also owns one variable the wrapped model knows nothing about,
+    :data:`STUCK_SETPOINTS_VARIABLE`. Which setpoints are stuck is a fault of
+    the serving side rather than physics, but it decides what the next write
+    to a setpoint means, so it changes on the run loop's thread, through the
+    same ``model.set()`` as every write it is ordered against. The wrapper
+    answers that name itself and hands each new set to ``on_stuck_change``
+    whole: the set is replaced, never edited, so a reader on another thread
+    sees the old set or the new one and nothing in between.
 
     Everything else delegates. A write to a variable outside ``routed`` is
-    handed to the wrapped model unchanged, as is every read and the reset.
+    handed to the wrapped model unchanged, as is every other read.
     """
 
     def __init__(
         self,
         model: LUMEModel,
         *,
-        on_setpoint: Callable[[str, float], None],
+        on_setpoint: Callable[[str, float], None] | None,
         routed: frozenset[str],
+        stuck_setpoints: frozenset[str] = frozenset(),
+        known_setpoints: frozenset[str] = frozenset(),
+        on_stuck_change: Callable[[frozenset[str]], None] = _ignore_stuck_change,
     ) -> None:
         """Wrap ``model``, routing writes to ``routed`` through ``on_setpoint``.
 
@@ -287,44 +349,118 @@ class SetpointRoutedModel(LUMEModel):
             on_setpoint: called as ``on_setpoint(address, value)`` for each
                 routed write. Expected to apply the write to ``model``
                 itself -- this wrapper does not also write it -- and to raise
-                if the model refuses it.
+                if the model refuses it. ``None`` routes nothing: every write
+                goes to ``model`` directly.
             routed: the addresses whose writes go through ``on_setpoint``.
+            stuck_setpoints: the boot stuck set -- the variable's default, and
+                what :meth:`reset` restores. An address in it that
+                ``known_setpoints`` lacks is carried, not refused: a boot
+                fault on an address this server does not carry is inert.
+            known_setpoints: the addresses a write to the stuck set may name.
+            on_stuck_change: called with each new stuck set, from the thread
+                that sets it or resets the model.
+
+        Raises:
+            ValueError: ``model`` itself declares
+                :data:`STUCK_SETPOINTS_VARIABLE`, which this wrapper would
+                otherwise shadow without a word.
         """
+        if STUCK_SETPOINTS_VARIABLE in model.supported_variables:
+            raise ValueError(
+                f"the wrapped model already declares {STUCK_SETPOINTS_VARIABLE!r}, "
+                "a name this wrapper answers itself"
+            )
         self._model = model
         self._on_setpoint = on_setpoint
         self._routed = routed
+        self._known = frozenset(known_setpoints)
+        self._on_stuck_change = on_stuck_change
+        self._boot_stuck = frozenset(stuck_setpoints)
+        self._stuck = self._boot_stuck
+        self._stuck_variable = StrVariable(
+            name=STUCK_SETPOINTS_VARIABLE,
+            default_value=format_stuck_setpoints(self._boot_stuck),
+            default_validation_config=ConfigEnum.ERROR,
+        )
+        self._inner_variables: dict[str, Any] | None = None
+        self._variables: dict[str, Any] = {}
 
     @property
     def supported_variables(self) -> dict[str, Any]:
-        """The wrapped model's variables, unchanged."""
-        return self._model.supported_variables
+        """The wrapped model's variables, then :data:`STUCK_SETPOINTS_VARIABLE`.
+
+        Rebuilt only when the wrapped model hands back a different mapping:
+        the base class looks this up once per name on every ``get`` and
+        ``set``, and the run loop reads every variable back each cycle. A
+        model that answers with a fresh mapping each time gets a fresh one
+        back each time.
+        """
+        inner = self._model.supported_variables
+        if inner is not self._inner_variables:
+            self._variables = {**inner, STUCK_SETPOINTS_VARIABLE: self._stuck_variable}
+            self._inner_variables = inner
+        return self._variables
 
     def _get(self, names: list[str]) -> dict[str, Any]:
-        return dict(self._model.get(list(names)))
+        """Read ``names``, answering the stuck set without the wrapped model."""
+        inner = [name for name in names if name != STUCK_SETPOINTS_VARIABLE]
+        values = dict(self._model.get(inner)) if inner else {}
+        if len(inner) != len(names):
+            values[STUCK_SETPOINTS_VARIABLE] = format_stuck_setpoints(self._stuck)
+        return values
 
     def _set(self, values: dict[str, Any]) -> None:
-        """Apply ``values``, routing the hooked addresses through the hook.
+        """Apply ``values``: hooked addresses through the hook, the stuck set here.
 
+        A new stuck set is checked before anything in the batch is applied,
+        so a refused one leaves the whole batch unapplied; it is handed over
+        last, so a batch the model refuses leaves the stuck set as it was.
         The unrouted remainder is applied in one call, preserving the run
-        loop's one-``set``-per-cycle shape. An empty batch is passed through
-        rather than dropped: the run loop's startup cycle carries no values
-        at all, and the wrapped model treats that as "re-solve and refresh".
-        """
-        routed = {name: values[name] for name in values if name in self._routed}
-        direct = {name: values[name] for name in values if name not in self._routed}
+        loop's one-``set``-per-cycle shape.
 
-        # The `not routed` arm is what preserves the empty startup cycle. Not
-        # `if direct or not values`: a batch that is entirely routed must not
-        # also trigger a bare solve of its own, because the hook's own write
-        # to the model already performs one.
-        if direct or not routed:
+        Raises:
+            ValueError: the new stuck set names an address outside
+                ``known_setpoints``; the message names every such address.
+        """
+        stuck = None
+        if STUCK_SETPOINTS_VARIABLE in values:
+            stuck = parse_stuck_setpoints(values[STUCK_SETPOINTS_VARIABLE])
+            unknown = sorted(stuck - self._known)
+            if unknown:
+                raise ValueError(f"cannot mark {', '.join(unknown)} stuck: not a served setpoint")
+
+        hook = self._on_setpoint
+        rest = {name: value for name, value in values.items() if name != STUCK_SETPOINTS_VARIABLE}
+        routed = (
+            {name: rest[name] for name in rest if name in self._routed} if hook is not None else {}
+        )
+        direct = {name: rest[name] for name in rest if name not in routed}
+
+        # A bare solve is owed to an empty batch alone -- the run loop's
+        # startup cycle, which the wrapped model treats as "re-solve and
+        # refresh". A batch whose every value went elsewhere must not add one:
+        # the hook's own write to the model already solves, and the stuck set
+        # moves no physics.
+        if direct or not values:
             self._model.set(direct)
 
-        for address, value in routed.items():
-            self._on_setpoint(address, value)
+        if hook is not None:
+            for address, value in routed.items():
+                hook(address, value)
+
+        if stuck is not None:
+            self._on_stuck_change(stuck)
+            self._stuck = stuck
 
     def reset(self) -> None:
-        """Reset the wrapped model."""
+        """Restore the boot stuck set, then reset the wrapped model.
+
+        The boot set is handed to ``on_stuck_change`` before the model
+        resets, so the reset leaves no fault standing that it did not boot
+        with.
+        """
+        self._on_stuck_change(self._boot_stuck)
+        self._stuck = self._boot_stuck
         self._model.reset()
 
 
@@ -422,7 +558,8 @@ def _readback_of(address: str, variables: Mapping[str, Any]) -> Callable[[Any], 
             "but the model has no variable of that address able to compute one; the readback "
             "of such a binding cannot be the value that was written"
         )
-    return readback
+    conversion: Callable[[Any], Any] = readback
+    return conversion
 
 
 def _is_a_number(value: Any) -> bool:
@@ -503,12 +640,14 @@ class CohostWritePath:
                 to, and is dropped with a log line rather than refused: which
                 channels a deployment serves is the manifest's business, and
                 ``serving/pvdb.py`` is where that mismatch is reported.
-            stuck_setpoints: apply-fault addresses. A stuck setpoint still
-                records the value written to it, but neither the physics hook
-                nor the readback echo fires, so that device's readback simply
-                never moves -- identically for every reader, which is what
-                makes the fault a property of the substrate rather than of
-                one client's view.
+            stuck_setpoints: the apply-fault addresses stuck at boot, until
+                :meth:`set_stuck_setpoints` replaces them. A stuck setpoint
+                still records the value written to it, but neither the physics
+                hook nor the readback echo fires, so that device's readback
+                simply never moves -- identically for every reader, which is
+                what makes the fault a property of the substrate rather than
+                of one client's view. An address this path does not route is
+                carried and inert.
             drive_limits: ``{address: (low, high)}``, the band each written
                 value is clamped into. The served database publishes the same
                 band as display limits; nothing else enforces it.
@@ -524,14 +663,16 @@ class CohostWritePath:
                 Access alone.
 
         Raises:
-            ValueError: a setpoint that routes through the model is not
+            ValueError: a setpoint that can route through the model is not
                 declared an asynchronous write. Its client would then be told
                 the write completed before the solve had even started, and
-                would read the pre-write value back.
+                would read the pre-write value back. A setpoint stuck at boot
+                is checked too: the fault can be cleared at runtime.
         """
         self._enqueue = enqueue
         self._refusal_alarm = refusal_alarm
         self._pva_post = pva_post if pva_post is not None else discard_pva_post
+        self._stuck = frozenset(stuck_setpoints)
         self._routes: dict[str, SetpointRoute] = {}
 
         limits = dict(drive_limits or {})
@@ -548,35 +689,32 @@ class CohostWritePath:
                 unserved[:5],
             )
         for address in sorted(served):
-            rule: str | None = None
-            readback_value: Callable[[Any], Any] | None = None
-            if address in stuck_setpoints:
-                mode, readback = MODE_LATCH, None
-            elif address in coupled:
-                if enqueue is None:
-                    mode, readback = MODE_LATCH, None
-                else:
-                    mode = MODE_PHYSICS
-                    readback, rule, readback_value = self._coupled_readback(
-                        records, address, bound.get(address)
-                    )
+            is_coupled = address in coupled
+            if is_coupled:
+                readback, rule, readback_value = self._coupled_readback(
+                    records, address, bound.get(address)
+                )
             else:
-                mode, readback = MODE_ECHO, records.setpoint_readbacks[address]
+                readback, rule, readback_value = records.setpoint_readbacks[address], None, None
 
             self._routes[address] = SetpointRoute(
                 address=address,
-                readback=readback,
                 limits=limits.get(address),
-                mode=mode,
                 asyn=bool(records.pvdb[address].get("asyn", False)),
+                coupled=is_coupled,
+                paired_readback=readback,
                 readback_rule=rule,
                 readback_value=readback_value,
             )
 
+        # With no run loop a coupled setpoint only ever latches, so no client
+        # of it is ever waiting on a solve. A setpoint stuck at boot is
+        # checked like any other: the fault can be cleared at runtime, and
+        # the write that follows is the one that would block.
         unblocking = sorted(
             route.address
             for route in self._routes.values()
-            if route.mode == MODE_PHYSICS and not route.asyn
+            if enqueue is not None and route.coupled and not route.asyn
         )
         if unblocking:
             raise ValueError(
@@ -619,9 +757,45 @@ class CohostWritePath:
         return None, entry.rule, None
 
     @property
-    def routes(self) -> dict[str, SetpointRoute]:
-        """The route table, keyed by setpoint address."""
-        return dict(self._routes)
+    def routes(self) -> dict[str, RouteDecision]:
+        """What a write to each setpoint would do now, keyed by address."""
+        return {address: self._decide(route) for address, route in self._routes.items()}
+
+    @property
+    def setpoints(self) -> frozenset[str]:
+        """Every address this path routes -- what a stuck set may name."""
+        return frozenset(self._routes)
+
+    def stuck_setpoints(self) -> frozenset[str]:
+        """The addresses stuck right now.
+
+        A reader rather than a property, because it is handed to whatever has
+        to ask the question later -- the physics bridge, which must not
+        re-command a magnet whose setpoint is stuck. What comes back is the
+        set in force at the call, never a copy taken earlier.
+        """
+        return self._stuck
+
+    def set_stuck_setpoints(self, stuck: frozenset[str]) -> None:
+        """Replace the stuck set whole; the next write to arrive follows it.
+
+        Called from the run loop's thread while the server threads read the
+        set, which is why it is swapped rather than edited: a reader sees the
+        old set or the new one, never a mixture. A write already handed to
+        the model finishes as it was decided on arrival -- it is queued ahead
+        of this change, so it predates the fault.
+        """
+        self._stuck = frozenset(stuck)
+
+    def _decide(self, route: SetpointRoute) -> RouteDecision:
+        """What a write to ``route`` does under the stuck set in force now."""
+        if route.address in self._stuck:
+            return RouteDecision(route=route, mode=MODE_LATCH, readback=None)
+        if route.coupled:
+            if self._enqueue is None:
+                return RouteDecision(route=route, mode=MODE_LATCH, readback=None)
+            return RouteDecision(route=route, mode=MODE_PHYSICS, readback=route.paired_readback)
+        return RouteDecision(route=route, mode=MODE_ECHO, readback=route.paired_readback)
 
     def write(self, driver: WriteDriver, reason: str, value: Any) -> bool:
         """Handle a Channel Access write to ``reason``.
@@ -702,31 +876,33 @@ class CohostWritePath:
 
         The whole of what a write *means* is here, and both transports enter
         it, which is what makes them agree: ``signal`` is the only thing
-        either one contributes of its own.
+        either one contributes of its own. What it means is decided once, on
+        arrival, and that decision is what the write completes with.
         """
+        decision = self._decide(route)
         value = clamp_into(value, route.limits)
 
         # The `is not None` is an invariant, not a fallback: MODE_PHYSICS is
-        # only ever assigned when there is a run loop to enqueue onto. It is
+        # only ever decided when there is a run loop to enqueue onto. It is
         # written into the condition so the narrowing is checkable.
-        if route.mode == MODE_PHYSICS and self._enqueue is not None:
+        if decision.mode == MODE_PHYSICS and self._enqueue is not None:
             # Hand the model the *clamped* value and return. Nothing is
             # published yet: the setpoint and its echo may only carry a value
             # the model has accepted, and whether it does is not known on
             # this thread.
             self._enqueue(
                 {route.address: {"value": value, "ts": time.monotonic()}},
-                done=partial(self.complete, driver, route, value, signal),
+                done=partial(self.complete, driver, decision, value, signal),
             )
             return
 
-        self._publish(driver, route, value)
+        self._publish(driver, decision, value)
         signal(None)
 
     def complete(
         self,
         driver: WriteDriver,
-        route: SetpointRoute,
+        decision: RouteDecision,
         value: Any,
         signal: Callable[[str | None], None],
         error: str | None,
@@ -737,20 +913,21 @@ class CohostWritePath:
         has finished, whichever transport the write arrived on. ``error`` is
         None when the model took the value.
         """
+        address = decision.route.address
         if error is None:
-            self._publish(driver, route, value)
+            self._publish(driver, decision, value)
         else:
-            LOG.info("model refused write of %s to %s: %s", value, route.address, error)
+            LOG.info("model refused write of %s to %s: %s", value, address, error)
             if self._refusal_alarm is not None:
                 alarm, severity = self._refusal_alarm
-                driver.setParamStatus(route.address, alarm, severity)
+                driver.setParamStatus(address, alarm, severity)
                 # Posts the alarm transition alone: the value is deliberately
                 # untouched, so a monitoring client sees the refusal without
                 # seeing movement.
-                driver.updatePV(route.address)
+                driver.updatePV(address)
         signal(error)
 
-    def _publish(self, driver: WriteDriver, route: SetpointRoute, value: Any) -> None:
+    def _publish(self, driver: WriteDriver, decision: RouteDecision, value: Any) -> None:
         """Commit ``value`` on the setpoint and its readback, on every view.
 
         Posting is per address rather than a database-wide sweep: the served
@@ -763,8 +940,9 @@ class CohostWritePath:
         binding says it is worth, which is that same value for an ``identity``
         readback and every echo.
         """
+        route = decision.route
         self._commit(driver, route.address, value)
-        if route.readback is None:
+        if decision.readback is None:
             return
         try:
             readback = self._readback(route, value)
@@ -781,7 +959,7 @@ class CohostWritePath:
                 value,
             )
             return
-        self._commit(driver, route.readback, readback)
+        self._commit(driver, decision.readback, readback)
 
     def _readback(self, route: SetpointRoute, value: Any) -> Any:
         """What ``route``'s readback address carries for a written ``value``.
@@ -846,13 +1024,17 @@ __all__ = [
     "READBACK_INVERSE",
     "READBACK_SAME_AS_SETPOINT",
     "RUNNER_CONFIG_POLICY",
+    "STUCK_SETPOINTS_VARIABLE",
     "BoundSetpoint",
     "CohostWritePath",
+    "RouteDecision",
     "SetpointRoute",
     "SetpointRoutedModel",
     "WriteDriver",
     "bound_setpoints",
     "clamp_into",
     "discard_pva_post",
+    "format_stuck_setpoints",
+    "parse_stuck_setpoints",
     "physics_setpoint_addresses",
 ]

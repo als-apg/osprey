@@ -117,6 +117,27 @@ from osprey.services.virtual_accelerator.manifest.paths import (
     MANIFEST_OUTPUT,
     ManifestPaths,
 )
+
+# The bound table the model enforces, so a seed that boots is a value the
+# model accepts. The module is lattice-free and imports nothing.
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    BPM_ERROR_FIELD_BOUNDS as _BPM_ERROR_FIELD_BOUNDS,
+)
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    BPM_ERROR_FIELDS as _BPM_ERROR_FIELDS,
+)
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    BPM_NOISE_FIELDS as _BPM_NOISE_FIELDS,
+)
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    BPM_POLARITY_FIELDS as _BPM_POLARITY_FIELDS,
+)
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    BPM_POLARITY_OPTIONS as _BPM_POLARITY_OPTIONS,
+)
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    MAX_CORR_GAIN_FACTOR,
+)
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb
 from osprey.simulation.engine import SimulationEngine
 
@@ -142,50 +163,11 @@ def _ready_line(channel_count: int) -> str:
 LATTICE_NONE = "none"
 
 # Fault-seed bounds, checked at parse so an impossible instrument is refused
-# before construction. Each one states what a monitor or a corrector can BE --
-# a gain outside this window or a roll beyond this angle describes no device
-# the model could stand in for. A magnitude an operator deliberately asked the
-# simulator for is not bounded at all -- see the comment on
-# _BPM_ERROR_FIELD_BOUNDS for why a displacement and a noise amplitude carry no
-# bound.
-MIN_BPM_GAIN = 0.1
-MAX_BPM_GAIN = 10.0
-MAX_BPM_ROLL_RAD = 0.1
-MAX_CORR_GAIN_FACTOR = 5.0  # |factor|=1 is polarity flip; beyond 5x is absurd
-
-# Every field VA_BPM_ERRORS knows, in the order a rendered field list spells
-# them. A field named in an entry and missing here is refused as unknown.
-_BPM_ERROR_FIELDS = (
-    "offset_x",
-    "offset_y",
-    "gain_x",
-    "gain_y",
-    "polarity_x",
-    "polarity_y",
-    "roll",
-    "noise_x",
-    "noise_y",
-)
-
-# VA_BPM_ERRORS field -> (min, max) bound, checked at parse. Only the fields
-# describing what a monitor IS appear here; a field the map does not name is
-# bounded by nothing.
-#
-# A displacement and a noise amplitude are among those. Neither is a property
-# of any monitor: they are the magnitudes an operator asked the simulator to
-# seed, in whatever unit that monitor publishes, and a seeded fault is whatever
-# was asked for. What still refuses them is well-formedness and not size -- a
-# value that is not a finite number names no magnitude, and a negative noise
-# amplitude names no distribution, since it is a standard deviation.
-_BPM_ERROR_FIELD_BOUNDS: dict[str, tuple[float, float]] = {
-    "gain_x": (MIN_BPM_GAIN, MAX_BPM_GAIN),
-    "gain_y": (MIN_BPM_GAIN, MAX_BPM_GAIN),
-    "roll": (-MAX_BPM_ROLL_RAD, MAX_BPM_ROLL_RAD),
-}
-# A polarity is a direction rather than a range: it must land exactly on +1 or
-# -1, which is checked in _parse_bpm_errors rather than read off a bound.
-_BPM_POLARITY_FIELDS = frozenset({"polarity_x", "polarity_y"})
-_BPM_NOISE_FIELDS = frozenset({"noise_x", "noise_y"})
+# before construction. The table is the model's own
+# (`model.fault_bounds`, which reaches no lattice and imports nothing), so a
+# seed that boots is a value the model accepts -- and a bound stated twice
+# could not drift apart. See that module for what is bounded and what is not.
+_BPM_POLARITY_LOW, _BPM_POLARITY_HIGH = _BPM_POLARITY_OPTIONS
 
 
 def _parse_device_float_map(env_var: str, *, bound: float) -> dict[str, float]:
@@ -265,9 +247,12 @@ def _parse_bpm_errors(env_var: str = "VA_BPM_ERRORS") -> dict[str, dict[str, flo
                     "not a finite number"
                 )
             if field in _BPM_POLARITY_FIELDS:
-                if value not in (-1.0, 1.0):
+                # A polarity is a sign: only the two values themselves,
+                # nothing between them.
+                if value not in _BPM_POLARITY_OPTIONS:
                     raise SystemExit(
-                        f"FATAL: {env_var} entry {entry!r} field {field!r}={value} must be +1 or -1"
+                        f"FATAL: {env_var} entry {entry!r} field {field!r}={value} must be "
+                        f"exactly {_BPM_POLARITY_HIGH:+g} or {_BPM_POLARITY_LOW:+g}"
                     )
             elif field in _BPM_NOISE_FIELDS:
                 if value < 0.0:
@@ -400,6 +385,25 @@ def _resolve_lattice(data_dir: Path) -> Path | None:
             f"physics, or mount a tree that carries that lattice."
         )
     return path
+
+
+def _resolve_model_write_token() -> str | None:
+    """Resolve ``VA_MODEL_WRITE_TOKEN`` into the secret a model RPC write must
+    present, or ``None``.
+
+    ``None`` refuses every model write, and unset resolves to it: the model
+    RPC reaches past the served namespace into the physics itself, so it is
+    armed by a deployment that says so and by nothing else. Empty counts as
+    unset because the compose passthrough sends ``""`` when the host var is
+    absent, and an empty token is one an empty credential would match.
+
+    Whitespace alone is unset for the same reason. Anything else is the token
+    exactly as given, surrounding spaces included: it is matched byte for byte
+    against what a client presents, so rewriting it here would refuse the very
+    credential the deployment configured.
+    """
+    raw = os.environ.get("VA_MODEL_WRITE_TOKEN", "")
+    return raw if raw.strip() else None
 
 
 def _load_drive_limits(path: Path, *, setpoints: Container[str]) -> dict[str, tuple[float, float]]:
@@ -626,21 +630,36 @@ def main() -> None:
     )
     boot_values = _load_boot_values(machine_path)
 
-    stuck_setpoints = frozenset(
-        addr.strip() for addr in os.environ.get("VA_STUCK_SETPOINTS", "").split(",") if addr.strip()
-    )
+    # The same grammar the model RPC writes the stuck set in, so the boot seed
+    # and a runtime write spell one set of addresses the same way.
+    from osprey.services.virtual_accelerator.serving.write_path import parse_stuck_setpoints
+
+    stuck_setpoints = parse_stuck_setpoints(os.environ.get("VA_STUCK_SETPOINTS", ""))
     if stuck_setpoints:
         print(f"VA apply-fault active: {sorted(stuck_setpoints)}", flush=True)
 
     bpm_errors = _parse_bpm_errors("VA_BPM_ERRORS")
-    # VA_CORR_GAIN feeds PhysicsBridge's magnet_cal, which is family-agnostic
-    # (any magnet, not just correctors) despite the "CORR" name here.
+    # VA_CORR_GAIN seeds the model's magnet calibration, which is
+    # family-agnostic (any magnet, not just correctors) despite the "CORR"
+    # name here. One number per device, and it is the multiplicative factor.
     corr_gain = _parse_device_float_map("VA_CORR_GAIN", bound=MAX_CORR_GAIN_FACTOR)
     corrector_gains = {device: {"factor": factor} for device, factor in corr_gain.items()}
     if bpm_errors:
         print(f"VA apply-fault active: bpm_errors={bpm_errors}", flush=True)
     if corrector_gains:
         print(f"VA apply-fault active: corrector_gains={corrector_gains}", flush=True)
+
+    # Whether the model RPC will accept a write is operational state, and an
+    # operator reads it out of these lines. The token behind it is a secret
+    # and never joins them: a secret printed once is leaked for as long as the
+    # logs are kept.
+    model_write_token = _resolve_model_write_token()
+    print(
+        "Model writes armed: VA_MODEL_WRITE_TOKEN set"
+        if model_write_token
+        else "Model writes disabled: VA_MODEL_WRITE_TOKEN unset",
+        flush=True,
+    )
 
     # The physics the runner serves: the ring in a lattice-backed boot, the
     # empty stub otherwise. One or the other, never both, and never none --
@@ -660,10 +679,14 @@ def main() -> None:
             PhysicsBridge,
         )
         from osprey.services.virtual_accelerator.lattice.errors import (
-            BpmErrorSeedError,
-            resolve_bpm_errors,
+            DeviceSeedError,
+            resolve_device_seeds,
         )
-        from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+        from osprey.services.virtual_accelerator.model.pyat import (
+            MAGNET_KINDS,
+            PyATRingModel,
+            UnknownDeviceError,
+        )
         from osprey.services.virtual_accelerator.serving.write_path import bound_setpoints
 
         paths = _served_tree(data_dir, lattice_path)
@@ -698,8 +721,73 @@ def main() -> None:
         # decision, which is why the model itself never does it -- and an
         # unhandled traceback out of a container's PID 1 is the one shape of
         # boot failure nobody can read.
+        #
+        # A seeded fault names its device the way whoever seeded it knows the
+        # device: by an address the control system carries, or by the element
+        # the deck carries it at. The model holds its faults by element,
+        # because a device is one device whatever its addresses, so the
+        # document -- the one thing that carries both spellings -- is what
+        # turns the seeds into that key. Both kinds are resolved the same way,
+        # because an operator reads a magnet's address off the same screen as
+        # a monitor's. A spelling the document knows neither way ends the boot
+        # here: a machine serving unperturbed readings while looking
+        # configured is the failure a fault seed exists to make visible.
+        monitors = {
+            binding.setpoint_address: binding.element
+            for binding in document.bindings
+            if binding.kind == "monitor" and binding.element is not None
+        }
+        magnets = {
+            binding.setpoint_address: binding.element
+            for binding in document.bindings
+            if binding.kind in MAGNET_KINDS and binding.element is not None
+        }
         try:
-            model = PyATRingModel(paths.data_root, channels)
+            bpm_errors = resolve_device_seeds(
+                bpm_errors, monitors, device="monitor", seeds="readout errors"
+            )
+        except DeviceSeedError as exc:
+            raise SystemExit(f"FATAL: VA_BPM_ERRORS: {exc}") from exc
+        try:
+            corrector_gains = resolve_device_seeds(
+                corrector_gains, magnets, device="magnet", seeds="calibrations"
+            )
+        except DeviceSeedError as exc:
+            raise SystemExit(f"FATAL: VA_CORR_GAIN: {exc}") from exc
+        # The second half of the pair printed above: what was asked for, and
+        # the devices it resolved to. An operator reading the log of a
+        # container that serves addresses needs both to see that the device
+        # they meant is the device that was perturbed.
+        if bpm_errors:
+            print(f"VA apply-fault active: bpm_errors at elements {bpm_errors}", flush=True)
+        if corrector_gains:
+            print(
+                f"VA apply-fault active: corrector_gains at elements {corrector_gains}", flush=True
+            )
+
+        try:
+            # The seeds go to the model, not to the bridge: each becomes a
+            # model variable, so a fault is readable, writable and resettable
+            # through the same surface as the physics it perturbs, and the
+            # bridge reads it back at the moment it serves a reading rather
+            # than holding a second copy a runtime write could not move.
+            model = PyATRingModel(
+                paths.data_root,
+                channels,
+                bpm_errors=bpm_errors or None,
+                corrector_gains=corrector_gains or None,
+            )
+        except UnknownDeviceError as exc:
+            # Three things raise this one class: a binding naming an element
+            # the lattice lacks, a misalignment naming one, and a fault seed
+            # naming a device the tree serves none of. The headline names the
+            # condition they share rather than guessing which of them it was --
+            # the message the model raised says that, and naming the wrong one
+            # sends an operator to the wrong file.
+            raise SystemExit(
+                f"FATAL: the tree at {paths.data_root} was asked for an element or a device "
+                f"it does not carry: {exc}"
+            ) from exc
         except OrbitSolveError as exc:
             raise SystemExit(
                 f"FATAL: the served lattice has no stable closed orbit at boot ({exc})"
@@ -748,35 +836,7 @@ def main() -> None:
                 f"cannot produce: {exc}"
             ) from exc
 
-        # A seeded readout error names its device the way whoever seeded it
-        # knows the device: by the address the reading is published on, or by
-        # the element the deck carries it at. The bridge holds its state by
-        # element, because a reading is a pair of planes at one monitor, so
-        # the document -- the one thing that carries both spellings -- is what
-        # turns the seeds into that key. A spelling it knows neither way ends
-        # the boot here: a machine serving unperturbed readings while looking
-        # configured is the failure a fault seed exists to make visible.
-        monitors = {
-            binding.setpoint_address: binding.element
-            for binding in document.bindings
-            if binding.kind == "monitor" and binding.element is not None
-        }
-        try:
-            bpm_errors = resolve_bpm_errors(bpm_errors, monitors)
-        except BpmErrorSeedError as exc:
-            raise SystemExit(f"FATAL: VA_BPM_ERRORS: {exc}") from exc
-        if bpm_errors:
-            # The second half of the pair printed above: what was asked for,
-            # and the monitors it resolved to. An operator reading the log of
-            # a container that serves addresses needs both to see that the
-            # device they meant is the device that was perturbed.
-            print(f"VA apply-fault active: bpm_errors at elements {bpm_errors}", flush=True)
-
-        bridge = PhysicsBridge(
-            model=model,
-            bpm_errors=bpm_errors or None,
-            corrector_gains=corrector_gains or None,
-        )
+        bridge = PhysicsBridge(model=model)
         on_pyat_setpoint = bridge.on_setpoint
     else:
         if bpm_errors or corrector_gains:
@@ -813,7 +873,7 @@ def main() -> None:
         # Pushes the boot BPM readings into the database's specs. Before the
         # runner exists, and it has to be: these are the values the Channel
         # Access server comes up serving.
-        bridge.bind(records.pyat_coupled)
+        bridge.bind(records.pyat_coupled, physics_setpoints=records.physics_setpoints)
 
     print(f"Loading simulation engine from {machine_path} ...", flush=True)
     engine = SimulationEngine.from_file(machine_path, state_dir=state_dir)
@@ -856,10 +916,30 @@ def main() -> None:
         model,
         records,
         on_setpoint=on_pyat_setpoint,
+        # A model RPC write reaches the model and no setpoint, so the bridge is
+        # told afterwards which variables moved and re-serves what they feed;
+        # without this hook a written fault is held but never read. With no
+        # bridge nothing derives a reading from a model variable, so there is
+        # nothing to recompute and the runner's inert default stands.
+        **({"refresh": bridge.refresh} if bridge is not None else {}),
         drive_limits=drive_limits,
         bound_setpoints=bound,
         stuck_setpoints=stuck_setpoints,
+        model_write_token=model_write_token,
+        # What the model RPC's ``status`` answers with. Both are boot facts
+        # nothing downstream can recover: the backend is whichever model was
+        # just built, and the lattice source is the file this boot resolved
+        # rather than the raw env var behind it.
+        backend_name=type(model).__name__,
+        lattice_source=str(lattice_path) if lattice_path is not None else LATTICE_NONE,
     )
+
+    if bridge is not None:
+        # Which setpoints are stuck is the write path's state and changes at
+        # runtime, so the bridge is handed the reader rather than the set. It
+        # can only be handed over now: the write path is built with the server,
+        # and the bridge had to exist before that to seed the record specs.
+        bridge.follow_stuck_setpoints(runner.write_path.stuck_setpoints)
 
     # Telemetry starts only once the driver is attached, so its first tick
     # posts monitor events to the server rather than editing boot specs

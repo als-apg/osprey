@@ -1,15 +1,15 @@
-"""What ``PhysicsBridge`` resolves through the bindings, and what it warns about.
+"""What the fault lookup resolves through the bindings, and what it refuses.
 
 Two things, both about the lookup rather than about any physics:
 
-* the boot warning for a seeded monitor name the served lattice has none of.
-  ``_push_bpm_readbacks`` merges seeded errors per *served* monitor, so a
-  ``bpm_errors`` key naming a monitor the document binds none of perturbs
-  nothing at all. On the live stand-in (whose whole difference from the
+* the refusal for a seeded monitor or magnet name the served tree has none
+  of. A seed naming a device the document binds nothing at would perturb
+  nothing at all, and on the live stand-in (whose whole difference from the
   sandbox VA is a shipped monitor offset) that silent drop would make the two
-  targets identical while looking configured, so the bridge says so once, at
-  construction.
-* that the bridge reads no facility fact out of an address. Which addresses
+  targets identical while looking configured -- so the model refuses the
+  seed, naming every offender, before the ring is touched.
+* that neither the model nor the bridge reads a facility fact out of an
+  address. Which addresses
   carry a monitor reading, which element each sits at, which transverse axis
   it reads and which element a setpoint drives all come from the model's
   variable catalog -- the served ``va_bindings.json`` resolved by address.
@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import math
 from pathlib import Path
 from typing import Any
@@ -47,8 +46,6 @@ from osprey.services.virtual_accelerator.manifest import (
 )
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel, UnknownDeviceError
-
-_BRIDGE_LOGGER = "osprey.services.virtual_accelerator.ioc.physics_bridge"
 
 C_LIGHT = 299792458.0
 
@@ -298,96 +295,58 @@ def model(data_dir: Path) -> PyATRingModel:
     return PyATRingModel(data_dir, _manifest())
 
 
-def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
-    """The bridge's own WARNING messages, rendered, in emission order.
+class TestASeedNamingNoSuchDeviceIsRefused:
+    """FR10: a fault seed the tree has no device for ends the boot.
 
-    Filtered by logger name: PyAT and numpy warn on this path too, and the
-    assertions here are about how many warnings *this module* emitted.
+    Refused where the faults live -- in the model, which declares one per
+    served device -- and before the ring is touched, so a machine never comes
+    up serving unperturbed readings while looking configured.
     """
-    return [
-        record.getMessage()
-        for record in caplog.records
-        if record.name == _BRIDGE_LOGGER and record.levelno == logging.WARNING
-    ]
 
+    def test_a_monitor_the_tree_has_none_of_names_itself(self, data_dir):
+        with pytest.raises(UnknownDeviceError) as excinfo:
+            PyATRingModel(data_dir, _manifest(), bpm_errors={"MON9": {"offset_x": 0.1}})
 
-class TestUnknownBpmErrorId:
-    """FR10: a `bpm_errors` id the lattice has no monitor at is diagnosable in
-    the container log instead of silently applying to nothing."""
+        assert "MON9" in str(excinfo.value)
 
-    def test_unknown_bpm_id_warns_once_naming_the_id_and_the_env_var(self, model, caplog):
-        with caplog.at_level(logging.WARNING, logger=_BRIDGE_LOGGER):
-            PhysicsBridge(model, bpm_errors={"MON9": {"offset_x": 0.1}})
+    def test_a_monitor_the_tree_carries_is_accepted(self, data_dir):
+        model = PyATRingModel(data_dir, _manifest(), bpm_errors={"MON1": {"offset_x": 0.1}})
 
-        messages = _warnings(caplog)
-        assert len(messages) == 1
-        assert "MON9" in messages[0]
-        assert "VA_BPM_ERRORS" in messages[0]
+        assert model.get("MON1.offset_x") == pytest.approx(0.1)
 
-    def test_known_id_emits_no_unknown_bpm_warning(self, model, caplog):
-        with caplog.at_level(logging.WARNING, logger=_BRIDGE_LOGGER):
-            PhysicsBridge(model, bpm_errors={"MON1": {"offset_x": 0.1}})
-
-        assert _warnings(caplog) == []
-
-    def test_no_seeded_errors_emit_no_unknown_bpm_warning(self, model, caplog):
-        with caplog.at_level(logging.WARNING, logger=_BRIDGE_LOGGER):
-            PhysicsBridge(model)
-
-        assert _warnings(caplog) == []
-
-    def test_two_unknown_bpm_ids_warn_once_each(self, model, caplog):
-        with caplog.at_level(logging.WARNING, logger=_BRIDGE_LOGGER):
-            PhysicsBridge(
-                model,
+    def test_two_unknown_names_are_named_together(self, data_dir):
+        """One refusal, both offenders, sorted -- so a run of typos is fixed
+        in one pass instead of one boot each."""
+        with pytest.raises(UnknownDeviceError) as excinfo:
+            PyATRingModel(
+                data_dir,
+                _manifest(),
                 bpm_errors={"MON8": {"gain_x": 1.5}, "MON9": {"offset_x": 0.1}},
             )
 
-        messages = _warnings(caplog)
-        assert len(messages) == 2
-        # Sorted emission, so the pairing is positional, not a search.
-        assert "MON8" in messages[0]
-        assert "MON9" in messages[1]
+        assert "MON8" in str(excinfo.value)
+        assert "MON9" in str(excinfo.value)
 
-    def test_a_name_reassembled_from_the_address_is_one_of_the_unknown_ones(self, model, caplog):
+    def test_a_name_reassembled_from_the_address_is_one_of_the_unknown_ones(self, data_dir):
         """The document's element name is the key, and nothing else is.
 
         ``PSM_A01`` is what a family-plus-device reconstruction of this
         monitor's address would produce, and the tree binds no monitor by that
-        name -- so it warns and perturbs nothing, exactly like a typo.
+        name -- so it is refused, exactly like a typo.
         """
-        record = FakeRecord()
-        with caplog.at_level(logging.WARNING, logger=_BRIDGE_LOGGER):
-            bridge = PhysicsBridge(model, bpm_errors={"PSM_A01": {"offset_x": 0.1}})
-        address = monitor_address("MON1", "x")
-        bridge.bind({address: record})
-        bridge.on_setpoint(CORR_SP, 5.0)
+        with pytest.raises(UnknownDeviceError) as excinfo:
+            PyATRingModel(data_dir, _manifest(), bpm_errors={"PSM_A01": {"offset_x": 0.1}})
 
-        assert len(_warnings(caplog)) == 1
-        true_position = bridge.bpm_positions()[address]
-        assert true_position != 0.0
-        assert record.value == pytest.approx(true_position, abs=1e-15)
+        assert "PSM_A01" in str(excinfo.value)
 
-    def test_known_offset_still_applies_beside_an_unknown_bpm_id(self, model, caplog):
-        # The known half of a mixed seed must behave exactly as it does
-        # without the typo: the warning is diagnostics, not a fallback.
-        record = FakeRecord()
-        address = monitor_address("MON1", "x")
-        with caplog.at_level(logging.WARNING, logger=_BRIDGE_LOGGER):
-            bridge = PhysicsBridge(
-                model,
+    def test_a_known_name_beside_an_unknown_one_does_not_rescue_the_boot(self, data_dir):
+        """The refusal is not a fallback: a mixed seed is still refused."""
+        with pytest.raises(UnknownDeviceError):
+            PyATRingModel(
+                data_dir,
+                _manifest(),
                 bpm_errors={"MON1": {"offset_x": 0.05}, "MON9": {"offset_x": 0.1}},
             )
-        bridge.bind({address: record})
-        bridge.on_setpoint(CORR_SP, 5.0)
-
-        messages = _warnings(caplog)
-        assert len(messages) == 1
-        assert "MON9" in messages[0]
-
-        true_position = bridge.bpm_positions()[address]
-        assert true_position != 0.0
-        assert record.value == pytest.approx(true_position - 0.05, abs=1e-12)
 
 
 class TestResolvesThroughTheBindings:
@@ -424,8 +383,9 @@ class TestResolvesThroughTheBindings:
 
         assert bridge.bpm_positions() == pytest.approx(dict(model.get(addresses)))
 
-    def test_a_seeded_gain_multiplies_the_published_reading(self, model):
-        bridge = PhysicsBridge(model, bpm_errors={"MON1": {"gain_x": 2.0}})
+    def test_a_seeded_gain_multiplies_the_published_reading(self, data_dir):
+        model = PyATRingModel(data_dir, _manifest(), bpm_errors={"MON1": {"gain_x": 2.0}})
+        bridge = PhysicsBridge(model)
         record = FakeRecord()
         address = monitor_address("MON1", "x")
         bridge.bind({address: record})
@@ -445,25 +405,19 @@ class TestResolvesThroughTheBindings:
         plain.on_setpoint(CORR_SP, 1.0)
 
         seeded = PhysicsBridge(
-            PyATRingModel(data_dir, _manifest()),
-            corrector_gains={CORR_ELEMENT: {"factor": 2.0}},
+            PyATRingModel(data_dir, _manifest(), corrector_gains={CORR_ELEMENT: {"factor": 2.0}})
         )
         seeded.on_setpoint(CORR_SP, 0.5)
 
         assert seeded.bpm_positions() == pytest.approx(plain.bpm_positions())
 
-    def test_a_corrector_gain_keyed_by_an_address_derived_name_does_nothing(self, data_dir):
-        """The reassembled ``CORR_A03`` is not the element, so it is ignored."""
-        plain = PhysicsBridge(PyATRingModel(data_dir, _manifest()))
-        plain.on_setpoint(CORR_SP, 1.0)
+    def test_a_corrector_gain_keyed_by_an_address_derived_name_is_refused(self, data_dir):
+        """The reassembled ``CORR_A03`` is not the element, so it names no
+        magnet this tree drives and the boot says so."""
+        with pytest.raises(UnknownDeviceError) as excinfo:
+            PyATRingModel(data_dir, _manifest(), corrector_gains={"CORR_A03": {"factor": 2.0}})
 
-        seeded = PhysicsBridge(
-            PyATRingModel(data_dir, _manifest()),
-            corrector_gains={"CORR_A03": {"factor": 2.0}},
-        )
-        seeded.on_setpoint(CORR_SP, 1.0)
-
-        assert seeded.bpm_positions() == pytest.approx(plain.bpm_positions())
+        assert "CORR_A03" in str(excinfo.value)
 
     def test_a_setpoint_the_model_does_not_drive_is_refused(self, model):
         """The static-noisy channel is served, but no binding drives it."""
@@ -501,9 +455,11 @@ class TestAMonitorBoundOnOnePlane:
         return _tree(tmp_path_factory.mktemp("horizontal") / "data", axes=("x",))
 
     def test_the_bound_plane_is_served_and_the_other_is_not(self, horizontal_only):
-        model = PyATRingModel(horizontal_only, _manifest(axes=("x",)))
+        model = PyATRingModel(
+            horizontal_only, _manifest(axes=("x",)), bpm_errors={"MON1": {"offset_x": 0.05}}
+        )
         record = FakeRecord()
-        bridge = PhysicsBridge(model, bpm_errors={"MON1": {"offset_x": 0.05}})
+        bridge = PhysicsBridge(model)
         bridge.bind({monitor_address("MON1", "x"): record})
         bridge.on_setpoint(CORR_SP, 5.0)
 

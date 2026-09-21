@@ -35,7 +35,9 @@ from osprey.services.virtual_accelerator.manifest import (
     PARTITION_STATIC_NOISY,
 )
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
+from osprey.services.virtual_accelerator.model.fault_bounds import BPM_ERROR_FIELDS
 from osprey.services.virtual_accelerator.model.pyat import (
+    OPTICS_NAMES,
     OrbitSolveError,
     PyATRingModel,
     UnknownDeviceError,
@@ -385,14 +387,11 @@ class TestBootsOnTheServedTree:
 
         The setpoint echo is the serving layer's mirror of a write, not model
         state, and the channel no lattice backs is not the model's at all.
+        Everything else the model declares is named for an element rather than
+        an address -- the faults and the optics -- and is checked below.
         """
-        assert set(booted.supported_variables) == {
-            QUAD_SP,
-            CORR_SP,
-            CAVITY_SP,
-            BPM_X,
-            BEND_SP,
-        }
+        addressed = set(booted.supported_variables) - booted.derived_names
+        assert addressed == {QUAD_SP, CORR_SP, CAVITY_SP, BPM_X, BEND_SP}
 
     def test_each_binding_becomes_the_class_that_implements_its_kind(
         self, booted: PyATRingModel
@@ -627,6 +626,274 @@ class TestSeededMisalignments:
 
         assert "QF1" in str(excinfo.value)
         assert "0.4" in str(excinfo.value)
+
+
+class TestTheFaultRosterIsTheServedOne:
+    """Which devices carry a fault, and what each fault is worth at boot."""
+
+    def test_a_monitor_carries_every_reading_error_field(self, booted: PyATRingModel) -> None:
+        declared = set(booted.supported_variables)
+
+        assert {f"{MONITOR_ELEMENT}.{field}" for field in BPM_ERROR_FIELDS} <= declared
+
+    def test_a_magnet_carries_its_calibration(self, booted: PyATRingModel) -> None:
+        declared = set(booted.supported_variables)
+
+        assert {f"{QUAD_ELEMENT}.cal_factor", f"{QUAD_ELEMENT}.cal_offset"} <= declared
+        assert {f"{CORR_ELEMENTS[0]}.cal_factor", f"{CORR_ELEMENTS[0]}.cal_offset"} <= declared
+
+    def test_a_cavity_carries_no_calibration(self, booted: PyATRingModel) -> None:
+        """A frequency is commanded like a magnet current and is not one."""
+        faults = {name for name in booted.supported_variables if name.startswith(CAVITY_ELEMENT)}
+
+        assert faults == set()
+
+    def test_a_split_device_carries_one_calibration_at_the_element_it_reads(
+        self, booted: PyATRingModel
+    ) -> None:
+        """The kick is shared over two elements; the fault is the device's."""
+        assert f"{CORR_ELEMENTS[1]}.cal_factor" not in booted.supported_variables
+
+    def test_the_whole_declared_roster_is_the_addresses_plus_these(
+        self, booted: PyATRingModel
+    ) -> None:
+        """Nothing else is declared: the model-only half is exactly the faults
+        and the optics, which is what the served partition rests on."""
+        faults = {f"{MONITOR_ELEMENT}.{field}" for field in BPM_ERROR_FIELDS} | {
+            f"{element}.{field}"
+            for element in (QUAD_ELEMENT, CORR_ELEMENTS[0])
+            for field in ("cal_factor", "cal_offset")
+        }
+        addresses = {QUAD_SP, CORR_SP, CAVITY_SP, BPM_X, BEND_SP}
+
+        assert set(booted.supported_variables) == addresses | faults | OPTICS_NAMES
+
+    def test_an_unseeded_fault_reads_identity(self, booted: PyATRingModel) -> None:
+        assert booted.get(f"{MONITOR_ELEMENT}.gain_x") == 1.0
+        assert booted.get(f"{MONITOR_ELEMENT}.offset_x") == 0.0
+        assert booted.get(f"{QUAD_ELEMENT}.cal_factor") == 1.0
+
+    def test_a_seed_is_what_the_fault_reads(self, data_dir: Path) -> None:
+        seeded = PyATRingModel(
+            data_dir, _manifest(), bpm_errors={MONITOR_ELEMENT: {"offset_x": 0.25}}
+        )
+
+        assert seeded.get(f"{MONITOR_ELEMENT}.offset_x") == pytest.approx(0.25)
+
+    def test_a_seed_survives_a_reset(self, data_dir: Path) -> None:
+        """``reset`` returns a fault to its seed, never to identity."""
+        seeded = PyATRingModel(
+            data_dir, _manifest(), bpm_errors={MONITOR_ELEMENT: {"offset_x": 0.25}}
+        )
+        seeded.set({f"{MONITOR_ELEMENT}.offset_x": -0.1})
+        seeded.reset()
+
+        assert seeded.get(f"{MONITOR_ELEMENT}.offset_x") == pytest.approx(0.25)
+
+    def test_a_calibration_seed_is_named_in_the_grammar_the_boot_uses(self, data_dir: Path) -> None:
+        seeded = PyATRingModel(
+            data_dir, _manifest(), corrector_gains={QUAD_ELEMENT: {"factor": -1.0}}
+        )
+
+        assert seeded.get(f"{QUAD_ELEMENT}.cal_factor") == -1.0
+
+    def test_a_fault_moves_no_orbit(self, model: PyATRingModel) -> None:
+        """The attribute a fault lands on is read by no pass method."""
+        before = model.get(BPM_X)
+        model.set({f"{MONITOR_ELEMENT}.offset_x": 0.5, f"{QUAD_ELEMENT}.cal_factor": -1.0})
+
+        assert model.get(BPM_X) == pytest.approx(before)
+
+    def test_a_displacement_of_any_size_is_accepted(self, model: PyATRingModel) -> None:
+        """A seeded magnitude is what was asked for, in the monitor's unit."""
+        model.set({f"{MONITOR_ELEMENT}.offset_x": 5.0e3})
+
+        assert model.get(f"{MONITOR_ELEMENT}.offset_x") == pytest.approx(5.0e3)
+
+    def test_a_gain_outside_its_window_is_refused(self, model: PyATRingModel) -> None:
+        with pytest.raises(ValueError, match="gain_x"):
+            model.set({f"{MONITOR_ELEMENT}.gain_x": 50.0})
+
+    def test_a_polarity_between_its_two_values_is_refused(self, model: PyATRingModel) -> None:
+        with pytest.raises(ValueError, match="polarity_x"):
+            model.set({f"{MONITOR_ELEMENT}.polarity_x": 0.5})
+
+    def test_a_negative_noise_amplitude_is_refused(self, model: PyATRingModel) -> None:
+        """A noise amplitude is a standard deviation. Below zero it describes
+        no distribution, and the model would hold a value every later reading
+        raises on -- so the floor is the model's as well as the parser's."""
+        with pytest.raises(ValueError, match="noise_x"):
+            model.set({f"{MONITOR_ELEMENT}.noise_x": -1.0})
+
+    def test_a_noise_amplitude_of_zero_or_any_size_is_accepted(self, model: PyATRingModel) -> None:
+        """Only the floor is a bound: how wide an operator asks the noise to
+        be is what was asked for, in the unit the monitor publishes."""
+        model.set({f"{MONITOR_ELEMENT}.noise_x": 0.0})
+        assert model.get(f"{MONITOR_ELEMENT}.noise_x") == 0.0
+
+        model.set({f"{MONITOR_ELEMENT}.noise_x": 1.0e9})
+        assert model.get(f"{MONITOR_ELEMENT}.noise_x") == pytest.approx(1.0e9)
+
+    def test_a_polarity_flip_is_accepted(self, model: PyATRingModel) -> None:
+        model.set({f"{MONITOR_ELEMENT}.polarity_x": -1.0})
+
+        assert model.get(f"{MONITOR_ELEMENT}.polarity_x") == -1.0
+
+    def test_a_dimensioned_fault_states_the_unit_of_what_it_perturbs(
+        self, booted: PyATRingModel
+    ) -> None:
+        """Not a unit this package chose: the monitor publishes millimetres
+        and the magnet is commanded in amps, so the fault says so too."""
+        variables = booted.supported_variables
+
+        assert variables[f"{MONITOR_ELEMENT}.offset_x"].unit == "mm"
+        assert variables[f"{MONITOR_ELEMENT}.noise_x"].unit == "mm"
+        assert variables[f"{QUAD_ELEMENT}.cal_offset"].unit == "A"
+        assert variables[f"{MONITOR_ELEMENT}.gain_x"].unit is None
+
+    def test_a_seed_naming_no_monitor_is_refused_before_the_ring_is_touched(
+        self, data_dir: Path
+    ) -> None:
+        with pytest.raises(UnknownDeviceError, match="QF1"):
+            PyATRingModel(data_dir, _manifest(), bpm_errors={QUAD_ELEMENT: {"offset_x": 0.1}})
+
+    def test_a_seed_naming_no_magnet_is_refused(self, data_dir: Path) -> None:
+        with pytest.raises(UnknownDeviceError, match=MONITOR_ELEMENT):
+            PyATRingModel(data_dir, _manifest(), corrector_gains={MONITOR_ELEMENT: {"factor": 2.0}})
+
+    def test_a_seed_naming_an_unknown_field_is_refused(self, data_dir: Path) -> None:
+        with pytest.raises(ValueError, match="offset_z"):
+            PyATRingModel(data_dir, _manifest(), bpm_errors={MONITOR_ELEMENT: {"offset_z": 0.1}})
+
+    def test_a_seed_outside_its_bound_is_refused(self, data_dir: Path) -> None:
+        with pytest.raises(ValueError, match="gain_x"):
+            PyATRingModel(data_dir, _manifest(), bpm_errors={MONITOR_ELEMENT: {"gain_x": 50.0}})
+
+    def test_two_setpoints_on_one_element_disagreeing_on_a_unit_refuse_the_boot(
+        self, tmp_path: Path
+    ) -> None:
+        """One element carries one calibration, and its offset shifts whatever
+        arrives on any address bound to it. Two setpoints commanded in
+        different units leave that magnitude undefined, so the tree is refused
+        rather than served with an offset that means one of the two."""
+        second = "R1:PWR:QUAD_B:07:CUR:SP"
+        # A second setpoint on the quad's element, writing a different
+        # component so the document's own field check admits it.
+        bindings = [
+            _strength(),
+            _kick(),
+            _monitor(),
+            _rf(),
+            _energy(),
+            _strength(
+                family="quad_b",
+                setpoint_address=second,
+                readback_address=None,
+                readback="same_as_setpoint",
+                attribute="PolynomA",
+                index=1,
+                owner="quad_b",
+                monitor_inverse=None,
+                nominal=0.0,
+            ),
+        ]
+        machine = {**_machine(), second: {"value": 0.0, "units": "mA"}}
+        data_dir = _tree(tmp_path / "data", bindings=bindings, machine=machine, limits=_limits())
+        manifest = [*_manifest(), _channel(second)]
+
+        with pytest.raises(ValueError, match="one calibration"):
+            PyATRingModel(data_dir, manifest)
+
+    def test_two_setpoints_on_one_element_agreeing_on_a_unit_boot(self, tmp_path: Path) -> None:
+        """The case the refusal above has to leave alone: one calibration
+        serves both, and its offset is in the unit they share."""
+        second = "R1:PWR:QUAD_B:07:CUR:SP"
+        bindings = [
+            _strength(),
+            _kick(),
+            _monitor(),
+            _rf(),
+            _energy(),
+            _strength(
+                family="quad_b",
+                setpoint_address=second,
+                readback_address=None,
+                readback="same_as_setpoint",
+                attribute="PolynomA",
+                index=1,
+                owner="quad_b",
+                monitor_inverse=None,
+                nominal=0.0,
+            ),
+        ]
+        machine = {**_machine(), second: {"value": 0.0, "units": "A"}}
+        data_dir = _tree(tmp_path / "data", bindings=bindings, machine=machine, limits=_limits())
+
+        booted = PyATRingModel(data_dir, [*_manifest(), _channel(second)])
+
+        assert booted.supported_variables[f"{QUAD_ELEMENT}.cal_offset"].unit == "A"
+
+    def test_a_served_address_spelled_like_a_fault_refuses_the_boot(self, data_dir: Path) -> None:
+        """The served / model-only line is drawn by name alone, so a namespace
+        that already carries a fault's name would have it served -- and a
+        client would write physics state through a channel."""
+        collision = f"{MONITOR_ELEMENT}.offset_x"
+        manifest = [
+            *_manifest(),
+            {
+                "address": collision,
+                "ring": "R1",
+                "system": "VAC",
+                "family": "GAU_A",
+                "device": "02",
+                "field": "PRES",
+                "subfield": "RB",
+                "partition": PARTITION_STATIC_NOISY,
+                "record_type": "ai",
+                "noise": False,
+            },
+        ]
+
+        with pytest.raises(ValueError, match=collision):
+            PyATRingModel(data_dir, manifest)
+
+
+class TestTheOpticsArrays:
+    """Quantities of the whole solved ring, computed when one is read."""
+
+    def test_the_tunes_are_a_pair(self, booted: PyATRingModel) -> None:
+        tunes = booted.get("tunes")
+
+        assert tunes.shape == (2,)
+
+    def test_a_per_monitor_array_has_one_row_per_monitor(self, booted: PyATRingModel) -> None:
+        assert booted.get("beta_at_monitors").shape == (1, 2)
+        assert booted.get("orbit_at_monitors").shape == (1, 2)
+
+    def test_the_orbit_array_is_the_true_position(self, booted: PyATRingModel) -> None:
+        """Metres on the ring; the reading variable publishes millimetres."""
+        orbit = booted.get("orbit_at_monitors")
+
+        assert float(orbit[0][0]) == pytest.approx(booted.get(BPM_X) * 1.0e-3, abs=1.0e-12)
+
+    def test_a_returned_array_is_a_copy(self, booted: PyATRingModel) -> None:
+        first = booted.get("tunes")
+        first[0] = 99.0
+
+        assert booted.get("tunes")[0] != 99.0
+
+    def test_the_arrays_move_with_the_ring(self, model: PyATRingModel) -> None:
+        before = model.get("tunes").copy()
+        model.set({QUAD_SP: QUAD_NOMINAL_AMPS * 1.05})
+
+        assert model.get("tunes")[0] != pytest.approx(before[0])
+
+    def test_an_optics_array_is_not_read_back_after_a_solve(self, model: PyATRingModel) -> None:
+        """The hot path pays nothing for them: a write refreshes the readings
+        and leaves the arrays to the next read of one."""
+        outputs = model._read_outputs()
+
+        assert OPTICS_NAMES.isdisjoint(outputs)
 
 
 class TestTheModelReachesNoOtherTree:

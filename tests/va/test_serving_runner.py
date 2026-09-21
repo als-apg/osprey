@@ -1739,7 +1739,7 @@ def _runner_wiring(
         on_setpoint=on_setpoint,
         routed=physics_setpoints,
         stuck_setpoints=stuck,
-        known_setpoints=frozenset(records.setpoint_readbacks) | physics_setpoints,
+        known_setpoints=path.setpoints,
         on_stuck_change=path.set_stuck_setpoints,
     )
     return wrapped, path
@@ -2172,9 +2172,9 @@ class TestRunnerShape:
         keywords = {kw.arg: ast.unparse(kw.value) for kw in wrap.keywords}
         assert keywords == {
             "on_setpoint": "on_setpoint",
-            "routed": "physics_setpoints",
+            "routed": "routed",
             "stuck_setpoints": "stuck_setpoints",
-            "known_setpoints": "frozenset(records.setpoint_readbacks) | physics_setpoints",
+            "known_setpoints": "self.write_path.setpoints",
             "on_stuck_change": "self.write_path.set_stuck_setpoints",
         }
 

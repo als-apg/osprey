@@ -19,16 +19,25 @@ owns the lattice, the hardware->physics calibration each binding declares (see
 :mod:`~osprey.services.virtual_accelerator.model.variables` for the conversion
 each variable kind applies), the atomic apply-and-solve, and its rollback.
 
-This bridge is the *serving* half: the seeded readout and calibration faults,
-and the served record wiring. **It resolves nothing from an address.** Which
-element a write drives, which monitor an address reads and on which transverse
-axis all come from the model's variable catalog -- the served
-``va_bindings.json`` resolved by address, one variable per binding -- so a
-facility whose addresses are not six colon-separated levels, whose monitors
-are not called ``BPM`` and whose currents are not spelled ``CURRENT`` needs no
-case of its own here. Everything the model owns is reached through its public
-``set()``/``get()``, so a different backend (a surrogate, Cheetah, Bmad) can
-be injected through ``model=`` without this module changing.
+This bridge is the *serving* half: applying the model's fault state (magnet
+calibration on the way in, monitor readout errors on the way out), the
+readout-noise draws, and the served record wiring. **It resolves nothing from
+an address.** Which element a write drives, which monitor an address reads and
+on which transverse axis all come from the model's variable catalog -- the
+served ``va_bindings.json`` resolved by address, one variable per binding --
+so a facility whose addresses are not six colon-separated levels, whose
+monitors are not called ``BPM`` and whose currents are not spelled ``CURRENT``
+needs no case of its own here. Everything the model owns is reached through
+its public ``set()``/``get()``, so a different backend (a surrogate, Cheetah,
+Bmad) can be injected through ``model=`` without this module changing.
+
+The bridge keeps no fault state of its own. Fault seeds live in the model as
+writable variables and are read back each time the bridge serves, so a fault
+written to the model applies on the next write or push. That read is the one
+place the bridge expects more of a backend than the ``LUMEModel`` contract: it
+looks the faults up under the names the served model declares
+(``<element>.<field>``), so a backend that declares them under other names, or
+not at all, serves an unfaulted machine.
 """
 
 from __future__ import annotations
@@ -37,12 +46,21 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+from lume.variables import NDVariable
 
 from osprey.services.virtual_accelerator.lattice.errors import bpm_read, magnet_cal
 from osprey.services.virtual_accelerator.lattice.solve import OrbitSolveError
-from osprey.services.virtual_accelerator.model.pyat import UnknownDeviceError
+from osprey.services.virtual_accelerator.model.fault_bounds import (
+    BPM_ERROR_FIELDS,
+    BPM_ERROR_IDENTITY,
+    CORRECTOR_GAIN_FIELDS,
+    MAGNET_CAL_IDENTITY,
+)
+from osprey.services.virtual_accelerator.model.pyat import FAULT_SEPARATOR, UnknownDeviceError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
+    from collections.abc import Callable, Iterable
+
     from lume.model import LUMEModel
 
 # The serving layer's convention (see serving/pvdb.py, serving/write_path.py):
@@ -63,22 +81,32 @@ _AXIS_Y = "y"
 _AXES = (_AXIS_X, _AXIS_Y)
 
 # `bpm_read`'s full keyword-argument set at identity (no-op) values -- a
-# monitor with no seeded error reads the true orbit position exactly. Fault
-# dicts passed into PhysicsBridge only need to name the fields they perturb;
-# the rest fall back to this identity.
-_IDENTITY_BPM_ERROR: dict[str, float] = {
-    "offset_x": 0.0,
-    "offset_y": 0.0,
-    "gain_x": 1.0,
-    "gain_y": 1.0,
-    "polarity_x": 1.0,
-    "polarity_y": 1.0,
-    "roll": 0.0,
-    "cal_x": 0.0,
-    "cal_y": 0.0,
-    "noise_x": 0.0,
-    "noise_y": 0.0,
+# monitor with no fault reads the true orbit position exactly. The model
+# supplies the fields it declares a variable for, as `<element>.<field>`; a
+# field it declares none for keeps this identity, and `cal_x`/`cal_y` are
+# carried by no model variable, so they always do.
+_IDENTITY_BPM_ERROR: dict[str, float] = {**BPM_ERROR_IDENTITY, "cal_x": 0.0, "cal_y": 0.0}
+
+# `magnet_cal`'s keyword -> the `<element>.<field>` model variable carrying
+# it, and the identity a magnet whose model declares no such variable keeps.
+_MAGNET_CAL_FIELDS: dict[str, str] = dict(CORRECTOR_GAIN_FIELDS)
+_IDENTITY_MAGNET_CAL: dict[str, float] = {
+    keyword: MAGNET_CAL_IDENTITY[field] for keyword, field in _MAGNET_CAL_FIELDS.items()
 }
+
+# The `<element>.<field>` suffixes that make a changed model variable a magnet
+# calibration -- the only names `refresh()` has to re-apply a setpoint for.
+_MAGNET_CAL_VARIABLES: frozenset[str] = frozenset(_MAGNET_CAL_FIELDS.values())
+
+
+def _nothing_is_stuck() -> frozenset[str]:
+    """No setpoint is stuck: what a bridge with no serving path around it sees."""
+    return frozenset()
+
+
+def _fault_name(element: str, field: str) -> str:
+    """The model variable one device's one fault field is declared under."""
+    return f"{element}{FAULT_SEPARATOR}{field}"
 
 
 def _bound_element(variable: Any) -> str | None:
@@ -90,7 +118,7 @@ def _bound_element(variable: Any) -> str | None:
     (``bindings``, the element read back first). A lattice-level knob -- the
     ring energy -- binds no element at all and answers ``None``.
 
-    The seeded faults are keyed by this name, which is the deck's own
+    The model's faults are keyed by this name, which is the deck's own
     ``FamName`` as the bindings document carries it and as ``VA_BPM_ERRORS``
     and ``VA_CORR_GAIN`` name their devices. Nothing here reassembles a device
     name out of an address.
@@ -123,11 +151,17 @@ class PhysicsBridge:
         self,
         model: LUMEModel,
         *,
-        bpm_errors: dict[str, dict[str, float]] | None = None,
-        corrector_gains: dict[str, dict[str, float]] | None = None,
         rng_seed: int | None = None,
     ) -> None:
-        """Attach a physics model and, optionally, seed FR3/FR4 serving faults.
+        """Attach a physics model and seed the readout-noise generator.
+
+        Monitor readout errors and magnet calibration are not arguments here:
+        they are the model's own state (`PyATRingModel(bpm_errors=...,
+        corrector_gains=...)`), read back from it each time the bridge serves.
+        Offsets and noise are therefore in the unit the monitor publishes, not
+        in metres: a reading reaches this bridge already mapped through the
+        binding's `monitor_inverse`, which is where a facility's
+        metre-to-millimetre step lives.
 
         Args:
             model: the physics backend to serve, already built from the served
@@ -136,28 +170,14 @@ class PhysicsBridge:
                 resolve -- which is also what keeps the backend pluggable,
                 since a surrogate, Cheetah or Bmad model implementing the same
                 `LUMEModel` contract serves through this bridge unchanged.
-            bpm_errors: monitor element name, as the deck spells it and as the
-                bindings document carries it -> a partial override of
-                `errors.bpm_read`'s keyword args; missing fields fall back to
-                identity (see
-                `_IDENTITY_BPM_ERROR`). A monitor absent from this dict reads
-                with identity error (i.e. exactly its true position). Offsets
-                and noise are in the unit the monitor publishes, not in
-                metres: a reading reaches this bridge already mapped through
-                the binding's `monitor_inverse`, which is where a facility's
-                metre-to-millimetre step lives. An element name the lattice
-                carries no monitor at is not fatal -- it perturbs nothing, and
-                warns once at construction so the typo is visible.
-            corrector_gains: setpoint element name, spelled the same way -> a
-                partial override of `errors.magnet_cal`'s `factor`/`offset`;
-                missing fields default to `factor=1.0, offset=0.0` (identity).
             rng_seed: seed for the `numpy.random.Generator` monitor readout
-                noise is drawn from. `None` seeds from OS entropy
+                noise is drawn from; the noise width is the model's own
+                `<element>.noise_x`/`noise_y`. `None` seeds from OS entropy
                 (non-reproducible), matching `numpy.random.default_rng`'s own
                 default.
 
         Raises:
-            ValueError: the model publishes a read-only variable that states
+            ValueError: the model publishes a read-only scalar that states
                 no element or no transverse axis, or two that read the same
                 axis at one element. Either way its reading could not be
                 served -- the first has no monitor to key an error model or a
@@ -167,18 +187,21 @@ class PhysicsBridge:
         """
         self._bpm_positions: dict[str, float] = {}
         self._bpm_readback_records: dict[str, Any] = {}
+        self._setpoint_records: dict[str, Any] = {}
+        self._setpoint_addresses: dict[str, list[str]] = {}
+        self._stuck = _nothing_is_stuck
         self._rng = np.random.default_rng(rng_seed)
-        self._bpm_error_state: dict[str, dict[str, float]] = dict(bpm_errors or {})
-        self._magnet_cal_state: dict[str, dict[str, float]] = dict(corrector_gains or {})
         self._model = model
 
-        # The model's read-only variables are exactly the monitor readings the
-        # bindings document publishes. Grouped per element, because a reading
-        # is a pair: `bpm_read` mixes the planes through the monitor's roll,
-        # and a seeded error is one device's, not one axis's.
+        # The model's read-only *scalar* variables are exactly the monitor
+        # readings the bindings document publishes. Its read-only arrays --
+        # the optics -- are model-only and never served, so shape tells the
+        # two apart and no name is read to do it. Grouped per element, because
+        # a reading is a pair: `bpm_read` mixes the planes through the
+        # monitor's roll, and a fault is one device's, not one axis's.
         self._monitors: dict[str, dict[str, str]] = {}
         for address, variable in sorted(model.supported_variables.items()):
-            if not variable.read_only:
+            if not variable.read_only or isinstance(variable, NDVariable):
                 continue
             element = _bound_element(variable)
             axis = getattr(variable, "axis", None)
@@ -201,25 +224,72 @@ class PhysicsBridge:
         self._bpm_output_addresses: list[str] = sorted(
             address for axes in self._monitors.values() for address in axes.values()
         )
-        self._warn_unknown_bpm_error_ids()
+        # Per served monitor, `bpm_read` keyword -> the model variable holding
+        # it, for the fault fields this model declares; the rest stay
+        # identity. Flattened once, so each push reads every fault in one
+        # `get()`.
+        self._bpm_fault_names: dict[str, dict[str, str]] = {
+            element: {
+                field: name
+                for field in BPM_ERROR_FIELDS
+                if (name := _fault_name(element, field)) in model.supported_variables
+            }
+            for element in self._monitors
+        }
+        self._bpm_fault_reads: list[str] = [
+            name for fields in self._bpm_fault_names.values() for name in fields.values()
+        ]
         self._refresh_bpm_positions()
 
-    def bind(self, pyat_coupled_records: dict[str, Any]) -> None:
-        """Wire the monitor readback records this bridge should push into.
+    def bind(
+        self,
+        pyat_coupled_records: dict[str, Any],
+        *,
+        physics_setpoints: frozenset[str] = frozenset(),
+    ) -> None:
+        """Wire the served records: push into the readbacks, retain the setpoints.
+
+        Replaces any earlier binding and pushes the current readings at once,
+        so a freshly bound record never serves its boot value.
+
+        Which record is which is decided by membership, never by reading the
+        address text: a record is a reading when the model publishes one on
+        its address, and a setpoint when the manifest declared it one. Every
+        other record is ignored.
 
         Args:
             pyat_coupled_records: the `ServingRecords.pyat_coupled` dict from
                 `serving.pvdb.build_serving_pvdb()` -- contains every coupled
                 record (both the setpoint writables and the monitor readbacks)
-                keyed by address. Only the records on an address the bindings
-                document publishes a monitor reading on are retained; setpoint
-                records are driven by the serving write path directly, not by
-                this bridge.
+                keyed by address.
+            physics_setpoints: `ServingRecords.physics_setpoints` -- the
+                addresses the manifest declared as setpoints inside that
+                partition. Those records are retained, keyed by address, as
+                the source of the currently commanded values; the bridge never
+                writes them -- the serving write path drives them. Empty (the
+                default) retains none, which is enough for a caller that only
+                needs the readings pushed.
         """
         served = frozenset(self._bpm_output_addresses)
         self._bpm_readback_records = {
             address: rec for address, rec in pyat_coupled_records.items() if address in served
         }
+        self._setpoint_records = {
+            address: rec
+            for address, rec in pyat_coupled_records.items()
+            if address in physics_setpoints
+        }
+        # Element -> the retained setpoints driving it, so `refresh()` can
+        # re-command a magnet whose calibration moved. Built from the model's
+        # own bindings rather than from the address text, and in sorted order
+        # so a re-applied batch is the same batch on every boot.
+        self._setpoint_addresses = {}
+        variables = self._model.supported_variables
+        for address in sorted(self._setpoint_records):
+            variable = variables.get(address)
+            element = None if variable is None else _bound_element(variable)
+            if element is not None:
+                self._setpoint_addresses.setdefault(element, []).append(address)
         self._push_bpm_readbacks()
 
     def on_setpoint(self, address: str, value: float) -> None:
@@ -256,23 +326,97 @@ class PhysicsBridge:
                 "document binds no writable variable to it"
             )
 
-        # A seeded calibration error (gain/polarity/offset) acts on the
-        # commanded value before the model converts it to physical strength --
-        # a miscalibrated magnet's *field* differs from its setpoint, not the
-        # other way around. This is the seeded FR4 fault, not the facility's
-        # own calibration: that one belongs to the variable and is applied
-        # inside the model, which is why the value here stays in the hardware
-        # unit the client wrote and the bridge never touches the binding's
-        # curve. Identity (factor=1, offset=0) if unseeded.
+        # A calibration error (gain/polarity/offset) acts on the commanded
+        # value before the model converts it to physical strength -- a
+        # miscalibrated magnet's *field* differs from its setpoint, not the
+        # other way around. This is the fault, not the facility's own
+        # calibration: that one belongs to the variable and is applied inside
+        # the model, which is why the value here stays in the hardware unit
+        # the client wrote and the bridge never touches the binding's curve.
+        # Read from the model at every write, so a calibration written to the
+        # model applies to the next setpoint. Identity where the model
+        # declares no calibration for this element -- a cavity, say.
         element = _bound_element(variable)
-        cal = self._magnet_cal_state.get(element, {}) if element is not None else {}
-        value = magnet_cal(value, factor=cal.get("factor", 1.0), offset=cal.get("offset", 0.0))
+        value = magnet_cal(value, **self._magnet_calibration(element))
 
         # Public set(), not _set(): lume's own read-only and type validation
         # stays on the write path. The model applies, solves once, and rolls
         # the element back itself if the orbit is lost, re-raising
         # OrbitSolveError -- so a rejected write is still a complete no-op here.
         self._model.set({address: value})
+        self._refresh_bpm_positions()
+        self._push_bpm_readbacks()
+
+    def follow_stuck_setpoints(self, stuck: Callable[[], frozenset[str]]) -> None:
+        """Read the stuck set from ``stuck`` whenever :meth:`refresh` runs.
+
+        Which setpoints are stuck is the serving write path's state, not this
+        bridge's: the path decides what a write to one does and replaces the
+        set whole when it changes. So the set is read at the moment it is
+        needed rather than copied here, and a bridge nobody wires up sees none
+        stuck -- which is right for one serving no write path at all.
+
+        Wired after the write path exists, which is after this bridge does:
+        the bridge has to be bound before the server copies its record specs,
+        and the write path is built with the server.
+
+        Args:
+            stuck: returns the addresses stuck right now. Called on the run
+                loop's thread, from :meth:`refresh` alone.
+        """
+        self._stuck = stuck
+
+    def refresh(self, changed: Iterable[str]) -> None:
+        """Re-serve the ring after a model-only write of `changed` variables.
+
+        The model surface writes fault variables straight into the model,
+        never through a served setpoint, so nothing on the write path re-runs
+        afterwards. A magnet whose calibration changed is now delivering the
+        wrong value for what it was last commanded, and every monitor reading
+        is stale -- this puts both right, and is the whole of what a model
+        write has to do to become visible.
+
+        Called on the run loop's thread, after the write has landed.
+
+        The commanded values are re-applied in a single `set()` -- one
+        closed-orbit solve however many magnets a calibration change
+        touches -- and the readings are refreshed and pushed exactly once,
+        which keeps a seeded run's readout-noise draw sequence fixed. The
+        setpoint records are read, never written: they carry what an operator
+        commanded, and a calibration change is not a magnet move. A setpoint
+        stuck right now is left alone -- see `follow_stuck_setpoints`.
+
+        Args:
+            changed: the model variable names just written. Names this bridge
+                serves nothing for are ignored; an empty `changed` still
+                refreshes and pushes the readings, because a reset restores
+                state this bridge does not track.
+
+        Raises:
+            OrbitSolveError: the re-applied values leave the ring without a
+                stable closed orbit. The model rolls the whole batch back
+                before re-raising, so the ring keeps the strengths it had.
+        """
+        # Read once, so every address in this batch is judged against one set
+        # and a swap part-way through cannot split the batch between two.
+        stuck = self._stuck()
+        batch: dict[str, float] = {}
+        for element in self._recalibrated_elements(changed):
+            calibration = self._magnet_calibration(element)
+            for address in self._setpoint_addresses.get(element, ()):
+                if address in stuck:
+                    # A stuck setpoint records what was written to it and
+                    # hands the model nothing, so its record holds a value the
+                    # ring never took. Re-commanding from it would move the
+                    # magnet to a value that was refused, which is the one
+                    # thing being stuck means it cannot do.
+                    continue
+                # Nothing commanded through a served record has no value to
+                # re-apply: the new calibration takes effect on the next write.
+                batch[address] = magnet_cal(self._setpoint_records[address].get(), **calibration)
+
+        if batch:
+            self._model.set(batch)
         self._refresh_bpm_positions()
         self._push_bpm_readbacks()
 
@@ -289,23 +433,54 @@ class PhysicsBridge:
 
     # -- internals ---------------------------------------------------------
 
-    def _warn_unknown_bpm_error_ids(self) -> None:
-        """Warn once per seeded element name this lattice has no monitor at.
+    def _recalibrated_elements(self, changed: Iterable[str]) -> list[str]:
+        """The elements among `changed` whose magnet calibration was written.
 
-        `_push_bpm_readbacks` merges the seeded state per *served* monitor, so
-        a name the document binds no monitor to is dropped by that `.get()`
-        and perturbs nothing. Silently: a typo'd device would serve a
-        perfectly unperturbed machine while looking configured, which is
-        exactly the failure a stand-in target must not have. Sorted, so the
-        boot log reads the same on every start.
+        Sorted, so a batch built from them is the same batch whatever order
+        the surface reports its writes in.
         """
-        for element in sorted(set(self._bpm_error_state) - set(self._monitors)):
-            LOG.warning(
-                "VA_BPM_ERRORS names %s, which this lattice has no monitor at; "
-                "its readout errors apply to nothing (on the live stand-in the "
-                "same value arrives through VA_STANDIN_BPM_ERRORS)",
-                element,
-            )
+        elements = {
+            element
+            for element, _dot, field in (name.rpartition(FAULT_SEPARATOR) for name in changed)
+            if element and field in _MAGNET_CAL_VARIABLES
+        }
+        return sorted(elements)
+
+    def _magnet_calibration(self, element: str | None) -> dict[str, float]:
+        """`magnet_cal`'s `factor`/`offset` for `element`, as the model holds them now.
+
+        One `get()` for the calibration variables the model declares for this
+        element; a field it declares none for is identity, and so is a
+        variable that binds no element at all.
+        """
+        if element is None:
+            return dict(_IDENTITY_MAGNET_CAL)
+        declared = self._model.supported_variables
+        names = {
+            keyword: name
+            for keyword, field in _MAGNET_CAL_FIELDS.items()
+            if (name := _fault_name(element, field)) in declared
+        }
+        values = self._model.get(list(names.values())) if names else {}
+        return {
+            **_IDENTITY_MAGNET_CAL,
+            **{keyword: values[name] for keyword, name in names.items()},
+        }
+
+    def _bpm_read_faults(self) -> dict[str, dict[str, float]]:
+        """Each served monitor's `bpm_read` fault keywords, as the model holds them now.
+
+        One `get()` for every reading-error variable the model declares,
+        merged over identity per monitor, keyed by element.
+        """
+        values = self._model.get(self._bpm_fault_reads) if self._bpm_fault_reads else {}
+        return {
+            element: {
+                **_IDENTITY_BPM_ERROR,
+                **{field: values[name] for field, name in fields.items()},
+            }
+            for element, fields in self._bpm_fault_names.items()
+        }
 
     def _refresh_bpm_positions(self) -> None:
         """Re-read the model's monitor truth into `_bpm_positions`.
@@ -318,27 +493,31 @@ class PhysicsBridge:
         self._bpm_positions = dict(self._model.get(self._bpm_output_addresses))
 
     def _push_bpm_readbacks(self) -> None:
-        """Push each monitor's seeded-error *reading* into its bound RB record.
+        """Push each monitor's faulted *reading* into its bound RB record.
 
         `_bpm_positions` (the physics truth `bpm_positions()` exposes) is
         never touched here -- only the values pushed into IOC records run
         through `bpm_read`, per FR3's "errors apply on the reading, not the
         truth" contract. Both are in the monitor's published unit, so a seeded
         offset is in the unit the facility's own device database states it in.
+        The fault fields are the model's current values. Every served monitor
+        gets exactly one `bpm_read`, in sorted element order, whether or not
+        it is bound or faulted: each call draws both axes, so this keeps a
+        seeded run's draw sequence fixed.
 
         A monitor the document binds on one plane only reads that plane as
         though the other were exactly on axis: the unbound plane has no served
         truth to mix in, so a roll seeded on such a monitor rotates against
         zero.
         """
+        faults = self._bpm_read_faults()
         for element in sorted(self._monitors):
             axes = self._monitors[element]
             x_address = axes.get(_AXIS_X)
             y_address = axes.get(_AXIS_Y)
             true_x = self._bpm_positions[x_address] if x_address is not None else 0.0
             true_y = self._bpm_positions[y_address] if y_address is not None else 0.0
-            state = {**_IDENTITY_BPM_ERROR, **self._bpm_error_state.get(element, {})}
-            reading_x, reading_y = bpm_read(true_x, true_y, rng=self._rng, **state)
+            reading_x, reading_y = bpm_read(true_x, true_y, rng=self._rng, **faults[element])
 
             for address, reading in ((x_address, reading_x), (y_address, reading_y)):
                 if address is None:

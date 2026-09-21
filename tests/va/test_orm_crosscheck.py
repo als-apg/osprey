@@ -138,8 +138,12 @@ def _oracle(model: PyATRingModel, document: BindingsDocument) -> dict[str, np.nd
 def _bridge(
     channels: list[dict], document: BindingsDocument, **kwargs
 ) -> tuple[PhysicsBridge, dict]:
-    """A bridge on its own model, reading through bound records."""
-    bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels), **kwargs)
+    """A bridge on its own model, reading through bound records.
+
+    Any keyword is the model's: a fault is model state, and the bridge reads
+    it back from there at the moment it serves.
+    """
+    bridge = PhysicsBridge(PyATRingModel(PACKAGE_PATHS.data_root, channels, **kwargs))
     records = {monitor.setpoint_address: FakeRecord() for monitor in _monitors(document)}
     bridge.bind(records)
     return bridge, records

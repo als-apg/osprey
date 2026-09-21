@@ -20,4 +20,10 @@ Middle Layer instead of from physics written into OSPREY, demo ring included.
   directory, or `none`. `VA_LATTICE=builtin` is gone and `osprey-connectors`
   defaults to `none`: a deployment that set `builtin` names its lattice file
   or sets `none`, and `osprey build` derives the value from the built tree.
+- The model RPC's model-only variables are the served tree's own: a monitor
+  the bindings publish a reading for carries the nine reading-error fields, a
+  magnet they drive carries a calibration factor and offset, and each is named
+  `<element>.<field>` for the element the deck spells it at. `VA_BPM_ERRORS`
+  accepts either spelling of a device — the address its reading goes out on or
+  the element it sits at — and refuses a name the tree knows under neither.
 - OSPREY requires `lume-pyat` 0.2.0 for sliced magnets and the energy knob.

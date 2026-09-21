@@ -4555,7 +4555,7 @@ def _served_monitor_readings(project_dir: Path):
         preferred over its source tree — the containers mount the render.
     :returns: ``(monitors, readings)``, where *monitors* maps every published
         monitor address to the element it sits at (the lookup
-        ``lattice.errors.resolve_bpm_errors`` performs inside the container)
+        ``lattice.errors.resolve_device_seeds`` performs inside the container)
         and *readings* maps ``(element, axis)`` to the address the reading is
         published on. ``(None, None)`` when the served tree carries no bindings
         document, or one that cannot be read — in which case nothing here can

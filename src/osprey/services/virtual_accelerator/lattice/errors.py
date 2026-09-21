@@ -13,18 +13,19 @@ Provenance:
   - `magnet_cal` ports pySC's `pySC.core.control.LinearConv.transform`.
 
 Both formulas are per device and stateless: the caller holds the per-device
-parameters and keys them by the monitor the bindings document names. A monitor
-has two spellings there -- the element it sits at (the deck's own `FamName`,
-which is what the serving bridge and a facility's device database use) and the
-address each of its planes is published on (what an operator seeding
-`VA_BPM_ERRORS` reads off the control system) -- and `resolve_bpm_errors` is
-the one place the second becomes the first. It refuses a spelling the document
-knows neither way, so a typo'd device is a boot refusal rather than a machine
-that serves unperturbed while looking configured.
+parameters and keys them by the element the bindings document names. Every
+device has two spellings there -- the element it sits at or is driven at (the
+deck's own `FamName`, which is what the model and a facility's device database
+use) and the address it publishes or is commanded on (what an operator seeding
+a fault reads off the control system) -- and `resolve_device_seeds` is the one
+place the second becomes the first, for a monitor's readout errors and a
+magnet's calibration alike. It refuses a spelling the document knows neither
+way, so a typo'd device is a boot refusal rather than a machine that serves
+unperturbed while looking configured.
 
 Nothing here parses either spelling: an address is an opaque token the document
 supplied, and no family, subfield or unit is read out of it. Units are the
-monitor's own throughout (see `bpm_read`), and a seeded value passes through
+device's own throughout (see `bpm_read`), and a seeded value passes through
 resolution unchanged -- it is bounded where it is parsed, never here and never
 by clamping.
 
@@ -45,70 +46,78 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Mapping
 
 __all__ = [
-    "BpmErrorSeedError",
+    "DeviceSeedError",
     "apply_misalignment",
     "bpm_read",
     "magnet_cal",
-    "resolve_bpm_errors",
+    "resolve_device_seeds",
 ]
 
 
-class BpmErrorSeedError(ValueError):
-    """Raised when seeded readout errors name a monitor the document has not.
+class DeviceSeedError(ValueError):
+    """Raised when a seeded fault names a device the document has not.
 
-    Either the device is not one the bindings publish a reading for, or two
-    spellings of one device seed the same field. Both are configuration a
-    caller can only refuse: the first perturbs nothing, and the second has no
-    answer that is not a guess.
+    Either the device is not one the bindings carry, or two spellings of one
+    device seed the same field. Both are configuration a caller can only
+    refuse: the first perturbs nothing, and the second has no answer that is
+    not a guess.
     """
 
 
-def resolve_bpm_errors(
+def resolve_device_seeds(
     seeded: Mapping[str, Mapping[str, float]],
-    monitors: Mapping[str, str],
+    devices: Mapping[str, str],
+    *,
+    device: str,
+    seeds: str,
 ) -> dict[str, dict[str, float]]:
-    """Key seeded readout errors by the element their monitor sits at.
+    """Key seeded per-device faults by the element the document names.
 
-    The lookup the `VA_BPM_ERRORS` grammar needs and the serving bridge does
-    not do: its own state is keyed by element, because a reading is a pair --
-    `bpm_read` mixes the two planes through the monitor's roll -- while the
-    grammar's `DEV` token is whatever the person seeding the fault knows the
-    device by. Both spellings the document carries are accepted, and the two
-    addresses of one monitor therefore seed one error model between them.
+    The lookup the seed grammars need and the model does not do: the model's
+    faults are keyed by element, because a device is one device whatever its
+    addresses -- a monitor reading is a pair of planes, a magnet may be
+    commanded on more than one channel -- while the grammar's `DEV` token is
+    whatever the person seeding the fault knows the device by. Both spellings
+    the document carries are accepted, and two addresses of one device
+    therefore seed one fault between them.
 
     Args:
-        seeded: Device token -> the `bpm_read` fields seeded on it, as
-            `entrypoint._parse_bpm_errors` returns them (already bounded).
-            A token is either a published monitor address or the element name
-            a monitor binding states; the address is looked up first.
-        monitors: Published monitor address -> the element that monitor sits
-            at, one entry per monitor binding of the served document.
+        seeded: Device token -> the fields seeded on it, already bounded by
+            whatever parsed them. A token is either an address the document
+            carries or the element name one of its bindings states; the
+            address is looked up first.
+        devices: Address -> the element it reaches, one entry per binding of
+            the kind being resolved.
+        device: What one of them is, for the refusal to name -- `"monitor"`
+            or `"magnet"`.
+        seeds: What is being seeded on it, for the same reason -- `"readout
+            errors"` or `"calibrations"`.
 
     Returns:
         Element name -> the seeded fields, merged across every token that
-        named that element. A partial override of `bpm_read`'s keyword
-        arguments, so a field nobody seeded is absent rather than restated at
-        identity, and a fresh mapping the caller may keep.
+        named that element. A partial map, so a field nobody seeded is absent
+        rather than restated at identity, and a fresh mapping the caller may
+        keep.
 
     Raises:
-        BpmErrorSeedError: a token is neither a published monitor address nor
-            an element a monitor sits at, or two tokens seed one field on one
-            monitor.
+        DeviceSeedError: a token is neither an address the document carries
+            nor an element one of its bindings reaches, or two tokens seed one
+            field on one device.
     """
-    elements = frozenset(monitors.values())
+    elements = frozenset(devices.values())
     resolved: dict[str, dict[str, float]] = {}
     claimed_by: dict[tuple[str, str], str] = {}
 
     for token, fields in seeded.items():
-        element = monitors.get(token)
+        element = devices.get(token)
         if element is None:
             if token not in elements:
-                raise BpmErrorSeedError(
-                    f"the seeded readout errors name {token!r}, which is neither an "
-                    f"address the served bindings publish a monitor reading on nor an "
-                    f"element one sits at; the document binds {len(monitors)} monitor "
-                    f"readings at {len(elements)} elements, and a device is named by "
-                    f"one of those two spellings exactly"
+                raise DeviceSeedError(
+                    f"the seeded {seeds} name {token!r}, which is neither an address the "
+                    f"served bindings reach a {device} on nor an element one is at; the "
+                    f"document binds {len(devices)} {device} addresses at "
+                    f"{len(elements)} elements, and a device is named by one of those "
+                    f"two spellings exactly"
                 )
             element = token
 
@@ -116,10 +125,10 @@ def resolve_bpm_errors(
         for field, value in fields.items():
             claimant = claimed_by.get((element, field))
             if claimant is not None:
-                raise BpmErrorSeedError(
-                    f"{claimant!r} and {token!r} are both the monitor at element "
-                    f"{element!r} and both seed {field!r}; one device's readout error "
-                    f"is one value, and which of the two was meant could only be guessed"
+                raise DeviceSeedError(
+                    f"{claimant!r} and {token!r} are both the {device} at element "
+                    f"{element!r} and both seed {field!r}; one device's fault is one "
+                    f"value, and which of the two was meant could only be guessed"
                 )
             claimed_by[element, field] = token
             target[field] = float(value)

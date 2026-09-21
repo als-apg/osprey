@@ -56,13 +56,19 @@ os.environ.setdefault("EPICS_CA_SERVER_PORT", _free_port())
 os.environ.setdefault("EPICS_CAS_SERVER_PORT", os.environ["EPICS_CA_SERVER_PORT"])
 os.environ.setdefault("EPICS_CA_REPEATER_PORT", _free_port())
 
+from osprey.services.virtual_accelerator.bindings import (  # noqa: E402
+    Binding,
+    BindingsDocument,
+    load_bindings,
+)
 from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge  # noqa: E402
-from osprey.services.virtual_accelerator.lattice import orbit_response  # noqa: E402
 from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
     RECORD_TYPE_ANALOG,
+    build_manifest,
 )
+from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS  # noqa: E402
 from osprey.services.virtual_accelerator.model.pyat import PyATRingModel  # noqa: E402
 from osprey.services.virtual_accelerator.serving.pvdb import build_serving_pvdb  # noqa: E402
 from osprey.services.virtual_accelerator.serving.write_path import (  # noqa: E402
@@ -79,6 +85,12 @@ MIN_COLLECTED_TESTS = 22
 
 CA_TIMEOUT_S = 10.0
 SETTLE_TIMEOUT_S = 10.0
+
+#: What the model-held fault tests move an actuator by, and the readout offset
+#: they seed, in the hardware units the served tree states. Nothing derives
+#: either from the machine: they are the command and the fault being injected.
+_MODEL_STEP = 1.0
+_MODEL_OFFSET = 0.25
 
 RING = "ZZAF"
 
@@ -411,15 +423,15 @@ class TestFaultRouting:
         assert STUCK_SP in path.routes
 
 
-# The real ring's addresses, because the model-held faults are shown on
-# `PyATRingModel`. Nothing here is served over a wire, so they cannot collide
-# with any live server's names.
-FAULT_BPM_X = "SR:DIAG:BPM:01:POSITION:X"
-FAULT_CORRECTOR_SP = "SR:MAG:HCM:01:CURRENT:SP"
+# The served tree the model-held faults are shown on: the packaged demo tree,
+# read the way every other model test reads it. Nothing below is served over a
+# wire, so it cannot collide with any live server's names -- and no address is
+# written down here at all: the bindings document names the monitor and the
+# actuator, and these tests only ask it which.
 
 
 class _ReadingRecord:
-    """A BPM readback record reduced to the one method the bridge calls."""
+    """A monitor readback record reduced to the one method the bridge calls."""
 
     def __init__(self) -> None:
         self.value: float | None = None
@@ -428,66 +440,168 @@ class _ReadingRecord:
         self.value = value
 
 
-def _served(model: PyATRingModel) -> tuple[PhysicsBridge, _ReadingRecord]:
-    """A bridge over ``model`` with one bound BPM reading."""
-    bridge = PhysicsBridge(model=model)
-    reading = _ReadingRecord()
-    bridge.bind({FAULT_BPM_X: reading})
-    return bridge, reading
+class _CommandedRecord(_ReadingRecord):
+    """A setpoint record the bridge reads a standing command out of."""
+
+    def __init__(self, value: float) -> None:
+        super().__init__()
+        self.value = value
+
+    def get(self) -> float | None:
+        return self.value
+
+
+def _faulted_model(**seeds: Any) -> PyATRingModel:
+    """The packaged tree's model, seeded with ``seeds``."""
+    return PyATRingModel(PACKAGE_PATHS.data_root, build_manifest()["channels"], **seeds)
+
+
+def _document() -> BindingsDocument:
+    return load_bindings(PACKAGE_PATHS.va_bindings)
+
+
+def _a_monitor(document: BindingsDocument) -> Binding:
+    """The first monitor reading the document publishes."""
+    return next(binding for binding in document.bindings if binding.kind == "monitor")
+
+
+def _an_actuator(document: BindingsDocument) -> Binding:
+    """The first device the document says kicks the beam."""
+    return next(binding for binding in document.bindings if binding.kind == "kick")
+
+
+def _served(model: PyATRingModel, reading: str) -> tuple[PhysicsBridge, _ReadingRecord]:
+    """A bridge over ``model`` with one bound monitor reading."""
+    bridge = PhysicsBridge(model)
+    record = _ReadingRecord()
+    bridge.bind({reading: record})
+    return bridge, record
 
 
 class TestApplyFaultsLiveInTheModel:
-    """The BPM-reading and magnet-calibration apply faults, without a server.
+    """The readout and calibration apply faults, without a server.
 
     Seeded through ``PyATRingModel``, writable through its public ``set()``
     like any other variable, and read back by the bridge each time it serves
     -- so the value the model holds now is the only one a client ever sees.
     """
 
-    def test_a_seeded_bpm_fault_reaches_the_served_reading(self) -> None:
-        bridge, reading = _served(PyATRingModel(bpm_errors={"BPM01": {"offset_x": 50e-6}}))
-        bridge.on_setpoint(FAULT_CORRECTOR_SP, 5.0)
+    def test_a_seeded_readout_fault_reaches_the_served_reading(self) -> None:
+        document = _document()
+        monitor, actuator = _a_monitor(document), _an_actuator(document)
+        model = _faulted_model(bpm_errors={monitor.element: {"offset_x": _MODEL_OFFSET}})
+        bridge, record = _served(model, monitor.setpoint_address)
 
-        true_position = bridge.bpm_positions()[FAULT_BPM_X]
-        assert reading.value == pytest.approx(true_position - 50e-6, abs=1e-12)
+        bridge.on_setpoint(actuator.setpoint_address, _MODEL_STEP)
 
-    def test_a_bpm_fault_written_to_the_model_is_served_on_the_next_push(self) -> None:
-        model = PyATRingModel()
-        bridge, reading = _served(model)
+        truth = bridge.bpm_positions()[monitor.setpoint_address]
+        assert record.value == pytest.approx(truth - _MODEL_OFFSET, abs=1e-12)
 
-        model.set({"BPM01.gain_x": 2.0})
-        bridge.on_setpoint(FAULT_CORRECTOR_SP, 10.0)
+    def test_a_readout_fault_written_to_the_model_is_served_on_the_next_push(self) -> None:
+        document = _document()
+        monitor, actuator = _a_monitor(document), _an_actuator(document)
+        model = _faulted_model()
+        bridge, record = _served(model, monitor.setpoint_address)
 
-        true_position = bridge.bpm_positions()[FAULT_BPM_X]
-        assert reading.value == pytest.approx(2.0 * true_position, abs=1e-12)
+        model.set({f"{monitor.element}.gain_x": 2.0})
+        bridge.on_setpoint(actuator.setpoint_address, _MODEL_STEP)
+
+        truth = bridge.bpm_positions()[monitor.setpoint_address]
+        assert record.value == pytest.approx(2.0 * truth, abs=1e-12)
 
     def test_a_calibration_written_to_the_model_scales_the_next_setpoint(self) -> None:
-        # The effective current a polarity-flipped magnet delivers is the
-        # exact oracle: magnet_cal(10.0, factor=-1.0) == -10.0.
-        model = PyATRingModel()
-        bridge, _reading = _served(model)
+        """A polarity flip is the exact oracle: the ring has to end where the
+        opposite command would have left it."""
+        document = _document()
+        monitor, actuator = _a_monitor(document), _an_actuator(document)
+        flipped = _faulted_model()
+        bridge, _record = _served(flipped, monitor.setpoint_address)
+        flipped.set({f"{actuator.element}.cal_factor": -1.0})
+        bridge.on_setpoint(actuator.setpoint_address, _MODEL_STEP)
 
-        model.set({"HCM01.cal_factor": -1.0})
-        bridge.on_setpoint(FAULT_CORRECTOR_SP, 10.0)
+        plain, _plain_record = _served(_faulted_model(), monitor.setpoint_address)
+        plain.on_setpoint(actuator.setpoint_address, -_MODEL_STEP)
 
-        expected = orbit_response("HCM01", -10.0)["BPM01"][0]
-        assert bridge.bpm_positions()[FAULT_BPM_X] == pytest.approx(expected, abs=1e-12)
+        assert bridge.bpm_positions() == pytest.approx(plain.bpm_positions())
 
     def test_a_model_reset_restores_the_seeded_fault(self) -> None:
-        model = PyATRingModel(bpm_errors={"BPM01": {"offset_x": 50e-6}})
-        bridge, reading = _served(model)
+        document = _document()
+        monitor, actuator = _a_monitor(document), _an_actuator(document)
+        model = _faulted_model(bpm_errors={monitor.element: {"offset_x": _MODEL_OFFSET}})
+        bridge, record = _served(model, monitor.setpoint_address)
 
-        model.set({"BPM01.offset_x": -30e-6})
+        model.set({f"{monitor.element}.offset_x": -_MODEL_OFFSET})
         model.reset()
-        bridge.on_setpoint(FAULT_CORRECTOR_SP, 5.0)
+        bridge.on_setpoint(actuator.setpoint_address, _MODEL_STEP)
 
-        true_position = bridge.bpm_positions()[FAULT_BPM_X]
-        assert reading.value == pytest.approx(true_position - 50e-6, abs=1e-12)
+        truth = bridge.bpm_positions()[monitor.setpoint_address]
+        assert record.value == pytest.approx(truth - _MODEL_OFFSET, abs=1e-12)
+
+    def test_a_calibration_change_re_commands_what_the_operator_asked_for(self) -> None:
+        """What ``refresh`` is for: a model write reaches no setpoint, so the
+        magnet would go on delivering the wrong value for its standing command
+        until the bridge re-applies it."""
+        actuator = _an_actuator(_document())
+        address = actuator.setpoint_address
+        model = _faulted_model()
+        bridge = PhysicsBridge(model)
+        command = _CommandedRecord(_MODEL_STEP)
+        bridge.bind({address: command}, physics_setpoints=frozenset({address}))
+        bridge.on_setpoint(address, _MODEL_STEP)
+
+        model.set({f"{actuator.element}.cal_factor": -1.0})
+        bridge.refresh([f"{actuator.element}.cal_factor"])
+
+        plain = PhysicsBridge(_faulted_model())
+        plain.on_setpoint(address, -_MODEL_STEP)
+        assert bridge.bpm_positions() == pytest.approx(plain.bpm_positions())
+        assert command.value == _MODEL_STEP, "the operator's command is read, never rewritten"
+
+    def test_a_calibration_change_leaves_a_stuck_setpoint_where_it_is(self) -> None:
+        """A stuck setpoint records what was written to it and hands the model
+        nothing, so its record carries a value the ring never took. Re-applying
+        that on a calibration change would move the magnet to a value it
+        refused -- which is the one thing being stuck means it cannot do."""
+        actuator = _an_actuator(_document())
+        address = actuator.setpoint_address
+        model = _faulted_model()
+        bridge = PhysicsBridge(model)
+        bridge.follow_stuck_setpoints(lambda: frozenset({address}))
+        # What a latched write leaves behind: the record moved, the model did not.
+        bridge.bind(
+            {address: _CommandedRecord(_MODEL_STEP)}, physics_setpoints=frozenset({address})
+        )
+        before = bridge.bpm_positions()
+
+        model.set({f"{actuator.element}.cal_factor": -1.0})
+        bridge.refresh([f"{actuator.element}.cal_factor"])
+
+        assert model.get(address) == 0.0, "the stuck magnet took the latched command"
+        assert bridge.bpm_positions() == pytest.approx(before)
+
+    def test_clearing_the_stuck_fault_lets_the_next_calibration_change_through(self) -> None:
+        """The set is read when ``refresh`` runs, not copied when the bridge
+        was wired, so clearing the fault at runtime is enough."""
+        actuator = _an_actuator(_document())
+        address = actuator.setpoint_address
+        model = _faulted_model()
+        bridge = PhysicsBridge(model)
+        stuck = {address}
+        bridge.follow_stuck_setpoints(lambda: frozenset(stuck))
+        bridge.bind(
+            {address: _CommandedRecord(_MODEL_STEP)}, physics_setpoints=frozenset({address})
+        )
+
+        stuck.clear()
+        model.set({f"{actuator.element}.cal_factor": 1.0})
+        bridge.refresh([f"{actuator.element}.cal_factor"])
+
+        assert model.get(address) == pytest.approx(_MODEL_STEP)
 
     @pytest.mark.parametrize("seed_kwarg", ["bpm_errors", "corrector_gains"])
     def test_the_bridge_takes_no_fault_seed_of_its_own(self, seed_kwarg: str) -> None:
         with pytest.raises(TypeError, match=seed_kwarg):
-            PhysicsBridge(model=PyATRingModel(), **{seed_kwarg: {}})
+            PhysicsBridge(model=_faulted_model(), **{seed_kwarg: {}})
 
 
 class TestLiveStuckEchoPair:

@@ -26,6 +26,16 @@ the first slice's reading by the first weight. A supply feeding several
 magnets in series is the third reading of it, each magnet weighing the fixed
 factor its own strength stands in to the string's.
 
+Two kinds sit beside them, bound to no channel and declared by the model
+rather than by a binding. :class:`PyATWritableEnumVariable` is the enum twin
+of :class:`~lume_pyat.actions.PyATWritableScalarVariable`: the same binding
+and the same raw, unconverted read and write, whose value is checked against
+a list of options instead of a range -- because a sign is not a range, and
+nothing between its two values means a smaller sign.
+:class:`PyATReadOnlyNDVariable` declares a quantity of the whole solved
+lattice, which belongs to no one element and comes out as an array; it
+declares the value and leaves computing it to the model that owns it.
+
 **Beam rigidity is the coupling between them.** A calibration states its
 physics value at the energy the lattice deck was built for. A family the
 control system scales with the rigidity (``energy_scaling: brho``) is worth
@@ -59,12 +69,16 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Any, Literal
 
+from lume.actions import ReadOnlyActionMixin, WritableActionMixin
+from lume.variables import EnumVariable, NDVariable
 from lume_pyat.actions import (
+    ElementBinding,
     PyATLatticeScalarVariable,
     PyATReadOnlyScalarVariable,
     PyATWritableScalarVariable,
 )
-from pydantic import ConfigDict, PrivateAttr, model_validator
+from lume_pyat.simulator import PyATSimulator
+from pydantic import ConfigDict, Field, PrivateAttr, model_validator
 
 from osprey.services.virtual_accelerator.bindings import Calibration, Table
 from osprey.services.virtual_accelerator.lattice.calibration import (
@@ -78,7 +92,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
     import at
     from lume_pyat.actions import SnapshotTarget
-    from lume_pyat.simulator import PyATSimulator
 
 #: pyAT holds the ring energy in electron-volts; a calibration's energies, and
 #: the rigidity expression, are in GeV.
@@ -444,11 +457,152 @@ class EnergyVariable(PyATLatticeScalarVariable):
         return self.deck_energy_gev * float(to_physics(self.energy_table, value)) / reference
 
 
+class PyATWritableEnumVariable(WritableActionMixin[PyATSimulator], EnumVariable):
+    """A settable discrete value bound to one attribute of one lattice element.
+
+    Binds, reads, writes and snapshots exactly as
+    :class:`~lume_pyat.actions.PyATWritableScalarVariable` does, and takes the
+    same single-element shorthand; only the validation differs, and that is
+    inherited from ``EnumVariable``: a value not in ``options`` is refused by
+    ``LUMEModel.set`` before any write, and a ``default_value`` not in
+    ``options`` fails at definition.
+
+    Options must be numeric. ``LUMEPyATModel`` retains every writable's
+    default as ``float(default_value)``, so a non-numeric option could be
+    declared but never booted.
+
+    Attributes:
+        bindings: The elements this variable drives, in order. At least one;
+            the first is the one a read comes from. A weight scales what the
+            element receives, exactly as it does for the scalar kind.
+    """
+
+    bindings: list[ElementBinding] = Field(min_length=1)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _expand_the_single_element_form(cls, data: Any) -> Any:
+        """Turn ``element_name``/``attribute``/``index`` into one binding."""
+        if not isinstance(data, dict) or "element_name" not in data:
+            return data
+        if "bindings" in data:
+            raise ValueError(
+                "give either bindings= or the single-element form "
+                "(element_name=, attribute=, index=), not both"
+            )
+        data = dict(data)
+        binding = {
+            "element_name": data.pop("element_name"),
+            "attribute": data.pop("attribute", None),
+            "index": data.pop("index", None),
+        }
+        data["bindings"] = [ElementBinding.model_validate(binding)]
+        return data
+
+    @model_validator(mode="after")
+    def _require_a_default_value(self) -> PyATWritableEnumVariable:
+        """Reject a writable with no default, at definition time.
+
+        ``reset()`` writes every writable's ``default_value`` back to the
+        lattice, so a variable without one would push ``None`` there.
+        """
+        if self.default_value is None:
+            raise ValueError(
+                f"writable variable {self.name!r} needs a default_value: "
+                "it is what reset() writes back to the lattice"
+            )
+        return self
+
+    def snapshot_targets(self, simulator: PyATSimulator) -> list[SnapshotTarget]:
+        """Every ``(element index, attribute)`` a write of this variable touches.
+
+        Raises:
+            UnknownElementError: a binding names an element the lattice does
+                not have.
+        """
+        return [
+            (simulator.element_index(binding.element_name), binding.attribute)
+            for binding in self.bindings
+        ]
+
+    def _get(self, simulator: PyATSimulator) -> float:
+        """Read the first binding's element, unconverted.
+
+        Raises:
+            UnknownElementError: the lattice has no such element.
+        """
+        first = self.bindings[0]
+        value = getattr(simulator.element(first.element_name), first.attribute)
+        if first.index is not None:
+            value = value[first.index]
+        return float(value) / first.weight
+
+    def _set(self, simulator: PyATSimulator, value: Any) -> None:
+        """Write ``value`` to every bound element, unconverted.
+
+        Every element is checked before any is written, so a bad binding
+        leaves the lattice untouched.
+
+        Raises:
+            UnknownElementError: the lattice has no such element.
+            AttributeError: an element has no such attribute. pyAT elements
+                accept arbitrary attribute assignment, so the write would
+                otherwise land on a dead attribute and read back intact.
+                Through ``LUMEPyATModel`` this cannot be reached: the model
+                checks the same condition when it adopts the variable.
+        """
+        elements = [simulator.element(binding.element_name) for binding in self.bindings]
+        for binding, element in zip(self.bindings, elements, strict=True):
+            if not hasattr(element, binding.attribute):
+                raise AttributeError(
+                    f"element {binding.element_name!r} has no attribute "
+                    f"{binding.attribute!r} to write"
+                )
+        for binding, element in zip(self.bindings, elements, strict=True):
+            scaled = value * binding.weight
+            if binding.index is None:
+                setattr(element, binding.attribute, scaled)
+            else:
+                getattr(element, binding.attribute)[binding.index] = scaled
+
+
+class PyATReadOnlyNDVariable(ReadOnlyActionMixin[PyATSimulator], NDVariable):
+    """A read-only array derived from the whole solved lattice.
+
+    Declares a name, a shape and a ``float64`` dtype, which
+    ``LUMEModel.get`` checks every returned value against exactly, and
+    nothing more. The value is computed by the model that declares the
+    variable, never by the variable: what makes such a quantity affordable is
+    *when* it is computed (on read, at most once per solve), and that is model
+    state rather than variable state.
+
+    Attributes:
+        element_name: Always ``None``. No single element carries the value,
+            so a model's per-element binding check has nothing to resolve.
+    """
+
+    element_name: None = None
+    read_only: bool = True
+
+    def _get(self, simulator: PyATSimulator) -> Any:
+        """Refuse. The owning model computes the value, not the variable.
+
+        Raises:
+            NotImplementedError: always.
+        """
+        raise NotImplementedError(
+            f"{self.name!r} is derived from the whole solved lattice; "
+            "read it through the model that declares it"
+        )
+
+
 __all__ = [
     "EV_PER_GEV",
     "EnergyVariable",
     "KickVariable",
     "MonitorVariable",
+    "PyATReadOnlyNDVariable",
+    "PyATWritableEnumVariable",
     "RFVariable",
     "StrengthVariable",
 ]

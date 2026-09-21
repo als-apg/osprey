@@ -255,7 +255,7 @@ class TestTheSeededReadoutErrorIsOnTheReadingNotTheTruth:
         """
         monitor = next(binding for binding in document.bindings if binding.kind == "monitor")
         bridge = PhysicsBridge(
-            PyATRingModel(PACKAGE_PATHS.data_root, channels), bpm_errors={monitor.element: error}
+            PyATRingModel(PACKAGE_PATHS.data_root, channels, bpm_errors={monitor.element: error})
         )
         records = {address: FakeRecord() for address in _readings(document)}
         bridge.bind(records)
@@ -322,8 +322,11 @@ class TestSeededNoiseIsReproducible:
         runs = []
         for _ in range(2):
             bridge = PhysicsBridge(
-                PyATRingModel(PACKAGE_PATHS.data_root, channels),
-                bpm_errors={monitor.element: {"noise_x": _OFFSET}},
+                PyATRingModel(
+                    PACKAGE_PATHS.data_root,
+                    channels,
+                    bpm_errors={monitor.element: {"noise_x": _OFFSET}},
+                ),
                 rng_seed=20260917,
             )
             records = {address: FakeRecord() for address in _readings(document)}

@@ -43,14 +43,34 @@ write is enqueued and completed later from the loop -- and the physics hook
 is reached through the model wrapper, so it too runs there.
 
 *The runner claims no name of its own.* Control PVs are off: nothing is
-served that the facility's channel manifest does not describe.
+served on Channel Access that the facility's channel manifest does not
+describe. The names this process answers to beyond the manifest are
+PVAccess-only and describe the model rather than the machine: the base
+class's ``model_info``, and the model RPC channel the model surface is
+questioned -- and, with the write token, written -- through.
 
-The model's variables are served on **both** transports -- co-hosted on CA,
-natively on PVA -- and keeping those two views of one address in step is the
-write path's job, not a model read's: every setpoint PV's put handler is
-replaced with one that routes into the same write path the CA driver uses,
-and every value that path publishes is committed on both views. So a write
-arriving on either transport moves both, and a refused write moves neither.
+A model variable the manifest serves -- see
+:mod:`~osprey.services.virtual_accelerator.serving.model_surface` for where
+that line is drawn -- is served on **both** transports: co-hosted on CA,
+natively on PVA. A model-only variable is served on **neither**. It is
+dropped from the configuration before the base constructor reads it, so no
+PVA channel is built for it and the run loop does not read it back after a
+cycle; the model RPC is the only way to reach it. Every other co-hosted
+address -- most of the namespace, every magnet's paired ``:RB`` included --
+has no model variable to build a PVA channel from, and is served on Channel
+Access alone.
+
+The model is always served through the write path's wrapper, a model with
+no variables of its own included. So one model-only variable is always
+there: the wrapper's stuck set, through which a stuck fault is set and
+cleared at runtime -- the one fault a server with no lattice behind it can
+take.
+
+Keeping the two views of a served address in step is the write path's job,
+not a model read's: every setpoint PV's put handler is replaced with one that
+routes into the same write path the CA driver uses, and every value that path
+publishes is committed on both views. So a write arriving on either transport
+moves both, and a refused write moves neither.
 
 The one place the two transports differ is how a client is told its write
 finished, and there they differ for good reason: Channel Access completion
@@ -70,6 +90,10 @@ the other -- not a setpoint, not its echo, and not a reading.
 
 from __future__ import annotations
 
+import os
+import socket
+import threading
+import time
 from collections.abc import Callable, Mapping
 from functools import partial
 from typing import TYPE_CHECKING, Any
@@ -77,7 +101,23 @@ from typing import TYPE_CHECKING, Any
 import pcaspy
 from lume_pva_apg.runner import Runner
 from p4p import Value
+from p4p.server.thread import SharedPV
 
+from osprey.services.virtual_accelerator.serving.model_rpc import (
+    ERR_NOT_READY,
+    ERR_TIMEOUT,
+    REPLY_TYPE,
+    RPC_PV,
+    RPC_TIMEOUT_S,
+    ModelRpcError,
+    error_reply,
+    ok_reply,
+    parse_request,
+)
+from osprey.services.virtual_accelerator.serving.model_surface import (
+    ModelSurface,
+    partition_variables,
+)
 from osprey.services.virtual_accelerator.serving.write_path import (
     RUNNER_CONFIG_POLICY,
     CohostWritePath,
@@ -88,8 +128,8 @@ from osprey.services.virtual_accelerator.serving.write_path import (
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from lume.model import LUMEModel, Variable
     from p4p.server import ServerOperation
-    from p4p.server.thread import SharedPV
 
+    from osprey.services.virtual_accelerator.serving.model_rpc import RpcRequest
     from osprey.services.virtual_accelerator.serving.pvdb import ServingRecords
     from osprey.services.virtual_accelerator.serving.write_path import BoundSetpoint
 
@@ -106,8 +146,76 @@ REFUSAL_ALARM = (pcaspy.Alarm.WRITE_ALARM, pcaspy.Severity.INVALID_ALARM)
 #: Reported to a PVA client that puts before the Channel Access driver
 #: exists. The window is the tail of the base constructor: the PVA server is
 #: listening from the moment it is created, and the driver every published
-#: value is committed through is built after it.
-NOT_READY = "the server is still starting"
+#: value is committed through is built after it. It is the model RPC's
+#: refusal for the same window, not a second sentence that reads like it: a
+#: client meets one window and should be told about it once.
+NOT_READY = ERR_NOT_READY
+
+#: The pvAccess port a model RPC client reaches this server on when the
+#: environment names none. p4p's own default, and therefore the port the
+#: server binds in that case too.
+DEFAULT_PVA_PORT = "5075"
+
+#: The verbs that write. Only a refused *write* is what ``status`` reports as
+#: the last refusal, so a refused read is answered and not recorded.
+MODEL_WRITE_VERBS = frozenset({"set", "reset"})
+
+
+def _instance_name() -> str:
+    """This server's instance name: the host it answers as.
+
+    Deployed, that is the container's hostname, which compose takes from the
+    service key -- ``virtual-accelerator`` for the instance the model surface
+    belongs to, and its own key for a second machine standing beside it. So a
+    client holding a reply can tell which server produced it without either
+    server being configured with a name for itself.
+    """
+    return socket.gethostname()
+
+
+def _pva_endpoint() -> str:
+    """Where a client reaches this server's model RPC: host and pvAccess port.
+
+    The port is read from the same environment variable the pvAccess server
+    binds from, so this reports the address in use rather than a second,
+    separately configured copy of it that could disagree with it.
+    """
+    port = os.environ.get("EPICS_PVAS_SERVER_PORT", "").strip() or DEFAULT_PVA_PORT
+    return f"{_instance_name()}:{port}"
+
+
+def _refresh_nothing(changed: list[str]) -> None:
+    """Propagate a landed model write no further.
+
+    What a server with no physics behind it does: nothing derives a reading
+    from the variables a model write moves, so there is nothing to recompute
+    and nothing to push.
+    """
+
+
+class _RpcCall:
+    """One model RPC operation, answered exactly once.
+
+    Two threads race to answer: the run loop, once the job it was handed has
+    dispatched the verb, and the timer that stops waiting for the run loop.
+    p4p completes an operation once -- a second completion is an error its
+    client never sees -- so the first reply here wins and the other is
+    dropped.
+    """
+
+    def __init__(self, op: ServerOperation) -> None:
+        self._op = op
+        self._lock = threading.Lock()
+        self._answered = False
+
+    def complete(self, reply: Value) -> bool:
+        """Answer with ``reply``; ``False`` if the call was already answered."""
+        with self._lock:
+            if self._answered:
+                return False
+            self._answered = True
+        self._op.done(reply)
+        return True
 
 
 def _unwrap_put(value: Any) -> Any:
@@ -156,9 +264,11 @@ class CohostDriver(Runner.CaDriver):
 class CohostRunner(Runner):
     """Serves a model's variables and the facility's whole channel manifest.
 
-    See the module docstring for the four decisions this makes, for how the
-    two views of a doubly-served address are kept in step, and for the one
-    thing that is still served on Channel Access alone.
+    See the module docstring for the four decisions this makes, for which
+    variables are served on both transports, on Channel Access alone and on
+    neither, for how the two views of a doubly-served address are kept in
+    step, and for the one place the two transports still differ: how a client
+    is told its write finished.
     """
 
     ca_driver_cls = CohostDriver
@@ -174,9 +284,13 @@ class CohostRunner(Runner):
         records: ServingRecords,
         *,
         on_setpoint: Callable[[str, float], None] | None = None,
+        refresh: Callable[[list[str]], None] = _refresh_nothing,
         drive_limits: Mapping[str, tuple[float, float]] | None = None,
         bound_setpoints: Mapping[str, BoundSetpoint] | None = None,
         stuck_setpoints: frozenset[str] = frozenset(),
+        model_write_token: str | None,
+        backend_name: str,
+        lattice_source: str,
         prefix: str = "",
         protocol: tuple[str, ...] = DEFAULT_PROTOCOLS,
     ) -> None:
@@ -194,7 +308,10 @@ class CohostRunner(Runner):
             model: the physics model. Its variables are served on PVA; its
                 writable ones are what ``on_setpoint`` ultimately writes to.
                 A model with no variables (no lattice in this process) is
-                valid and serves the co-hosted namespace alone.
+                valid and serves the co-hosted namespace alone. Either way it
+                is served wrapped in
+                :class:`~osprey.services.virtual_accelerator.serving.write_path.SetpointRoutedModel`,
+                which adds the stuck set as a model-only variable.
             records: the built serving database, from
                 ``build_serving_pvdb``. Its records are pointed at the live
                 driver here, once that driver exists.
@@ -203,6 +320,13 @@ class CohostRunner(Runner):
                 each pyat-coupled setpoint write. ``None`` serves those
                 setpoints as plain latches: they record what was written and
                 propagate nothing, there being no physics to propagate into.
+            refresh: called on the run loop's thread after a model RPC
+                write lands, with the names it wrote -- the physics bridge's
+                ``refresh``, which recomputes the readings those variables
+                feed and pushes them. A model write reaches no setpoint, so
+                nothing else in this process would notice it. The default
+                propagates nothing, which is what a server with no physics
+                behind it needs.
             drive_limits: ``{address: (low, high)}``; each written value is
                 clamped into its band before anything else happens to it.
             bound_setpoints: what the served bindings document says each
@@ -214,8 +338,18 @@ class CohostRunner(Runner):
                 (the default) is the lattice-free behaviour: every coupled
                 readback echoes the value written, which is all a deployment
                 with no document can say.
-            stuck_setpoints: apply-fault addresses whose readbacks must never
-                move again.
+            stuck_setpoints: the apply-fault addresses stuck at boot, whose
+                readbacks do not move. The write path and the wrapper both
+                start from this set; a write to the wrapper's
+                ``stuck_setpoints`` variable replaces it at runtime, and a
+                reset of the wrapper restores it.
+            model_write_token: the secret a model RPC write must present, or
+                ``None`` to refuse every model write. Kept for the endpoint
+                and never logged.
+            backend_name: the model's backend, as the model RPC's ``status``
+                verb reports it.
+            lattice_source: where the model's lattice came from, as
+                ``status`` reports it.
             prefix: prepended to every served name. Empty for a facility
                 whose manifest addresses are already absolute.
             protocol: the protocols to serve.
@@ -235,6 +369,12 @@ class CohostRunner(Runner):
             )
 
         self._records = records
+        # Kept for the model RPC endpoint. The token is what gates a model
+        # write, so it is handed to the endpoint and never reaches a log.
+        self._model_write_token = model_write_token
+        self._backend_name = backend_name
+        self._lattice_source = lattice_source
+        self._refresh = refresh
         # The same set reached from the two ends of one tree: the manifest's
         # coupled partition, and the document's writable bindings. Their union
         # is what routes through the model, so a setpoint either end knows
@@ -260,12 +400,35 @@ class CohostRunner(Runner):
             pva_post=self._post_pva,
         )
 
-        if on_setpoint is not None:
-            model = SetpointRoutedModel(model, on_setpoint=on_setpoint, routed=routed)
+        # Wrapped whether or not there is a physics hook, a model with no
+        # lattice behind it included: the wrapper carries the stuck set and
+        # hands each new one to the write path, which is what decides the
+        # next write to a setpoint. With no hook it routes nothing.
+        model = SetpointRoutedModel(
+            model,
+            on_setpoint=on_setpoint,
+            routed=routed,
+            stuck_setpoints=stuck_setpoints,
+            # What the write path actually routes, so the refusal a runtime
+            # write meets names an address this server has no setpoint for
+            # and nothing else.
+            known_setpoints=self.write_path.setpoints,
+            on_stuck_change=self.write_path.set_stuck_setpoints,
+        )
 
         config = Runner.generate_config(model, prefix=prefix)
         config["protocol"] = list(protocol)
         config.update(RUNNER_CONFIG_POLICY)
+
+        # A model-only variable is served on neither transport. The base
+        # constructor builds a channel for every configured name, rejecting
+        # names the model lacks but never names the configuration omits, so
+        # leaving them out of the configuration is the whole of it. The
+        # partition is of the model the base class is handed, wrapper
+        # included, so a variable the wrapper declares lands on a side too.
+        self.partition = partition_variables(model, records)
+        for name in self.partition.model_only:
+            del config["variables"][name]
 
         super().__init__(model=model, config=config)
 
@@ -281,6 +444,139 @@ class CohostRunner(Runner):
         # path above -- a value source pushes a reading once, and both views
         # of that address have to carry it.
         records.attach_driver(self.ca_driver, pva_post=self._post_pva)
+
+    def _create_model_info(self) -> None:
+        """Serve the model surface's RPC channel beside the base class's model info.
+
+        This hook is the seam the RPC channel has to be built on. It runs
+        late enough that everything the surface answers for exists -- the
+        model, the partition, and every model variable's own PVA channel --
+        and early enough that ``self.providers`` is still a dictionary the
+        server has not been handed: a provider added after the base
+        constructor creates the server is never served at all.
+
+        The surface is built here rather than in the constructor for the
+        same reason, and kept for the handler alone: nothing else in this
+        runner reads the model.
+        """
+        super()._create_model_info()
+
+        self._surface = ModelSurface(
+            self.model,
+            self.partition,
+            self._records,
+            backend_name=self._backend_name,
+            lattice_source=self._lattice_source,
+            instance=_instance_name(),
+            endpoint=_pva_endpoint(),
+            update_rate=self.update_rate,
+            model_write_token=self._model_write_token,
+            refresh=self._refresh,
+        )
+
+        # Open, because a closed channel refuses every operation, and holding
+        # a resting value nobody reads: a reply is returned to the caller
+        # that asked for it, never posted here for everyone.
+        channel = SharedPV(initial=REPLY_TYPE.wrap(""))
+        channel.rpc(self._rpc)
+        self.providers[f"{self.config['prefix']}{RPC_PV}"] = channel
+
+    def _rpc(self, channel: SharedPV, op: ServerOperation) -> None:
+        """Take one model RPC call, and hand the run loop the work.
+
+        Runs on a p4p worker thread, which is no more allowed to touch the
+        model than a put is: the verb is dispatched by a job the run loop
+        runs, and this returns without waiting for it. Two refusals are
+        answered here instead, because neither needs the model: a request
+        that is not a request, and one that arrives before the driver the
+        server commits values through exists.
+
+        The call is answered by whichever gets there first -- the job, or
+        the timer that stops waiting for it -- so a run loop that never
+        reaches the job still answers its client, with the reason, instead
+        of leaving it on its own timeout.
+        """
+        try:
+            request = parse_request(op.value())
+        except ModelRpcError as exc:
+            # Nothing was dispatched: this is not the model refusing a call,
+            # it is the call not being one.
+            op.done(error=str(exc))
+            return
+
+        driver = self.ca_driver
+        if driver is None:
+            op.done(error=ERR_NOT_READY)
+            return
+
+        call = _RpcCall(op)
+        timeout = threading.Timer(RPC_TIMEOUT_S, call.complete, (error_reply(ERR_TIMEOUT),))
+        # Daemon, so a call still being waited on never holds up a shutdown.
+        timeout.daemon = True
+        timeout.start()
+        self._enqueue({}, jobs=[partial(self._answer, request, driver, call, timeout)])
+
+    def _answer(
+        self,
+        request: RpcRequest,
+        driver: CohostDriver,
+        call: _RpcCall,
+        timeout: threading.Timer,
+    ) -> None:
+        """Dispatch one call's verb and answer it, on the run loop's thread.
+
+        Dispatch is the one place a model RPC reaches the model, and it is
+        reached from here alone. Every path replies: the
+        run loop logs a job that raises and moves on to the next item, so a
+        job that returned without answering would leave its client waiting
+        out its own timeout with nothing to show for it.
+
+        The reply goes out before the timer is cancelled, and not after,
+        because an answer this method cannot produce is better delivered
+        late by the timer than not at all.
+        """
+        surface = self._surface
+        started = time.monotonic()
+        try:
+            surface.record_queue_depth(self.queue.qsize())
+            reply = ok_reply(self._dispatch(request, surface, driver))
+        except ModelRpcError as exc:
+            # A refused write is recorded by the surface that refused it --
+            # see ``ModelSurface._refusal`` -- so it is not recorded again
+            # here, where a refused read would be recorded as a write.
+            reply = error_reply(str(exc))
+        except Exception as exc:  # noqa: BLE001 - the client is owed an answer, whatever failed
+            text = f"the model surface failed on {request.verb}: {str(exc) or type(exc).__name__}"
+            if request.verb in MODEL_WRITE_VERBS:
+                surface.record_refusal(text)
+            reply = error_reply(text)
+        finally:
+            surface.record_cycle((time.monotonic() - started) * 1000.0)
+            call.complete(reply)
+            timeout.cancel()
+
+    def _dispatch(self, request: RpcRequest, surface: ModelSurface, driver: CohostDriver) -> Any:
+        """Run ``request``'s verb on ``surface``, and return what it answered.
+
+        Every verb the contract admits is dispatched here and nowhere else;
+        ``parse_request`` has already refused anything that is not one of
+        them, which is why the last verb needs no test of its own.
+        """
+        verb = request.verb
+        if verb == "info":
+            return surface.info()
+        if verb == "get":
+            return surface.get(request.names)
+        if verb == "diff":
+            # What the control system serves for an address, read from the
+            # driver that serves it -- the same driver whose existence was
+            # checked before this job was enqueued.
+            return surface.diff(driver.getParam)
+        if verb == "status":
+            return surface.status()
+        if verb == "set":
+            return surface.set(request.values, request.token)
+        return surface.reset(request.token)
 
     def _extend_pvdb(self) -> dict[str, dict[str, Any]]:
         """Contribute the whole co-hosted database.
@@ -360,8 +656,9 @@ class CohostRunner(Runner):
     def _post_outputs(self, out_values: dict[str, Any], ts: float) -> None:
         """Publish nothing.
 
-        The run loop reads every variable back at the end of a cycle and
-        offers them here to be published. Nothing is: a served reading comes
+        The run loop reads the served variables back at the end of a cycle
+        (see :meth:`_cycle_output_names`) and offers them here to be
+        published. Nothing is: a served reading comes
         from the physics bridge, which applies each BPM's seeded readout
         error on the way out, and publishing the model's own view alongside
         it would overwrite that reading with the truth it exists to differ
@@ -369,6 +666,18 @@ class CohostRunner(Runner):
         client wrote and the model accepted, which is likewise not a value
         read back out of the model.
         """
+
+    def _cycle_output_names(self) -> list[str]:
+        """The variables the run loop reads back after a cycle: the served ones.
+
+        The base class reads back the model's whole roster. A model-only
+        variable has no channel on either transport, so reading it back
+        after every cycle would be a model read with nowhere to go. The
+        served ones are read and then published nowhere either -- see
+        :meth:`_post_outputs` -- but that is the output pass's decision, not
+        the roster's.
+        """
+        return list(self.partition.served)
 
     def _reset_to_cached_state(self) -> None:
         """Roll nothing back.

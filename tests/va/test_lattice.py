@@ -82,9 +82,8 @@ class TestTheEmittedTreeBootsAModel:
     def test_every_binding_of_the_document_became_a_variable(
         self, booted: PyATRingModel, document: BindingsDocument
     ) -> None:
-        assert set(booted.supported_variables) == {
-            binding.setpoint_address for binding in document.bindings
-        }
+        addressed = set(booted.supported_variables) - booted.derived_names
+        assert addressed == {binding.setpoint_address for binding in document.bindings}
 
     def test_the_generated_namespace_serves_every_bound_address(
         self, channels: list[dict], document: BindingsDocument

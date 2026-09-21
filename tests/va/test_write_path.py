@@ -600,7 +600,9 @@ class TestTheReadbackIsTheDocumentsOwn:
     """Each rule of the document, served as the document states it."""
 
     def test_the_route_records_the_rule_each_readback_follows(self, served: Served) -> None:
-        rules = {address: served.path.routes[address].readback_rule for address in served.bound}
+        rules = {
+            address: served.path.routes[address].route.readback_rule for address in served.bound
+        }
 
         assert rules == {
             QUAD_SP: READBACK_INVERSE,

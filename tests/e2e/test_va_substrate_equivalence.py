@@ -172,15 +172,19 @@ MODEL_WRITE_TOKEN = "e2e-substrate-equivalence-model-write-token"
 MODEL_NO_TOKEN_REFUSAL = "model write refused: no write token was presented"
 
 # How far the served reading may sit from the model's truth and still count as
-# agreeing with it. The offset P6 writes is ~5e-4 m, so this is some five orders
-# of magnitude below the effect being measured and far above float noise on it.
+# agreeing with it. Orders of magnitude below the displacement P6 writes (see
+# MODEL_OFFSET_FLOOR) and far above float noise on it.
 MODEL_DIFF_TOL = 1e-9
 # The floor for "this other address moved too". Deliberately looser than the
 # tolerance above: re-solving the closed orbit for the write reproduces every
 # other reading, but to the solver's convergence rather than to the bit. Still
-# ~5000x below the written offset, so a second address genuinely carrying it
+# far below the written displacement, so a second address genuinely carrying it
 # could not hide under here.
 MODEL_QUIET_TOL = 1e-7
+# The smallest displacement P6 will write when the served readings are too
+# close to the axis to scale one from. Four orders of magnitude above the
+# quiet floor above, so the shift it produces cannot be mistaken for one.
+MODEL_OFFSET_FLOOR = 1e-3
 
 # Identifies this suite as the draft's writer on every PATCH /draft frame. The
 # draft is a single shared document, so a client id that names the writer is
@@ -1191,32 +1195,23 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
 
     try:
         info = call("info")
-        # A writable model-only BPM offset: model-only because the surface
+        # A writable model-only monitor offset: model-only because the surface
         # refuses a write to a served address on principle, so this is what a
-        # write it can accept looks like; and one carrying a declared range, so
-        # the magnitude below is the model's own number rather than this test's.
+        # write it can accept looks like at all.
         faults = [
             var
             for var in info["variables"]
             if var["surface"] == SURFACE_MODEL_ONLY
             and not var["read_only"]
             and var["name"].endswith(".offset_x")
-            and var["value_range"]
         ]
         assert faults, (
             f"the deployed model declares no writable model-only '.offset_x' variable, so "
             f"there is no fault to write (backend={info['backend']!r}, "
             f"lattice_source={info['lattice_source']!r} — the reading errors exist only on a "
-            f"lattice-backed boot, which is what VA_LATTICE=builtin in the repo's .env buys)"
+            f"lattice-backed boot, which is what naming a lattice file in the repo's .env buys)"
         )
         fault = faults[0]["name"]
-        _lo, hi = (float(v) for v in faults[0]["value_range"])
-        # A twentieth of the offset the model itself says is the most a BPM can
-        # plausibly be out by: unmistakable against every reading in this stack,
-        # and comfortably inside the band, so what is under test is the write
-        # path rather than the bound check on the far side of it.
-        offset = 0.05 * hi
-        assert offset > MODEL_QUIET_TOL, f"{fault} declares a range too small to write into: {hi}"
 
         before = call("diff")
         assert before, (
@@ -1227,6 +1222,15 @@ def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
             address: float(entry["served"]) - float(entry["truth"])
             for address, entry in before.items()
         }
+        # A seeded displacement carries no declared bound -- it is whatever
+        # magnitude was asked for, in whatever unit this facility publishes its
+        # monitors in -- so the size to write is derived from what the
+        # deployment actually serves rather than assumed: ten times the largest
+        # reading on the machine, floored far above the solver's own
+        # repeatability. Unmistakable on the one channel it moves, in any unit.
+        scale = max(abs(float(entry["truth"])) for entry in before.values())
+        offset = max(10.0 * scale, MODEL_OFFSET_FLOOR)
+        assert offset > MODEL_QUIET_TOL, f"{fault} would be written a magnitude of {offset}"
 
         held_before = call("get", names=[fault])[fault]
 

@@ -24,14 +24,20 @@ family, element, attribute or axis is named in this package's code.
 only restate ``LUMEModel``'s, and the rules worth pinning are about which
 side of the boundary a fact lives on.
 
-1. *Variable names are the facility's control addresses.* Every model
-   variable is keyed and named by its full six-level channel address, so
-   nothing between the manifest, the IOC and the model translates addresses.
-   That grammar stops here: ``bindings`` looks each address up in the served
-   bindings document and hands the backend the element locator it finds
-   there -- element names, attribute and component, one per slice, or a
+1. *Variable names are the facility's control addresses.* Every variable the
+   catalog builds is keyed and named by the channel address its binding
+   claims, so nothing between the manifest, the IOC and the model translates
+   addresses. That grammar stops here: ``bindings`` looks each address up in
+   the served bindings document and hands the backend the element locator it
+   finds there -- element names, attribute and component, one per slice, or a
    monitor and a transverse axis -- plus declarative fields in native pyAT
    units. Nothing parses an address, here or below.
+
+   What the model declares *beside* the catalog is named for elements
+   instead: the per-device faults and the optics of the whole ring, which no
+   channel addresses. The two namings cannot collide -- the model refuses a
+   boot where they would -- and that is what lets the serving layer tell a
+   served variable from a model-only one by name alone.
 
 2. *The serving layer depends on ``LUMEModel`` alone.* ``PhysicsBridge``
    reaches the ring through the model's public ``set()``/``get()`` and

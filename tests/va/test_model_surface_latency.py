@@ -1,7 +1,7 @@
 """Cost guard: declaring the optics arrays costs a setpoint write nothing.
 
 ``PyATRingModel`` declares three read-only ND optics arrays (the tunes, and
-beta and the true orbit at the BPMs) that the model computes on demand and
+beta and the true orbit at the monitors) that the model computes on demand and
 memoises per solve. The whole design rests on one claim: a routed setpoint
 write -- the hot path, one per client put -- never pays for them. This module
 holds that claim to account structurally, never by the clock.
@@ -44,23 +44,31 @@ from typing import Any
 import at
 import pytest
 
+from osprey.services.virtual_accelerator.bindings import load_bindings
 from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
 from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
     build_manifest,
     pyat_coupled_setpoint_addresses,
 )
+from osprey.services.virtual_accelerator.manifest.paths import PACKAGE_PATHS
 from osprey.services.virtual_accelerator.model import pyat as pyat_module
-from osprey.services.virtual_accelerator.model.pyat import PyATRingModel
+from osprey.services.virtual_accelerator.model.pyat import OPTICS_NAMES, PyATRingModel
 from osprey.services.virtual_accelerator.model.variables import PyATReadOnlyNDVariable
 
-# The three read-only arrays whose cost this module denies.
-OPTICS_NAMES = frozenset({"tunes", "beta_at_bpms", "orbit_at_bpms"})
 
-# The routed setpoint every write goes through. One corrector, so every write
-# does the same work: one calibration read, one solve, one BPM truth read, one
-# fault read, and 72 `bpm_read` draws.
-A_CORRECTOR = "SR:MAG:HCM:01:CURRENT:SP"
+def _an_actuator() -> str:
+    """The routed setpoint every write goes through.
+
+    The first device the served document says kicks the beam -- one of them,
+    so every write does the same work: one calibration read, one solve, one
+    monitor truth read, one fault read, and one readout draw per monitor.
+    """
+    document = load_bindings(PACKAGE_PATHS.va_bindings)
+    return next(binding.setpoint_address for binding in document.bindings if binding.kind == "kick")
+
+
+A_CORRECTOR = _an_actuator()
 
 # Corrector currents in Amps, cycled over the writes. Small kicks well inside
 # the ring's stable range, and a cycle rather than a ramp so a long run never
@@ -110,16 +118,16 @@ class RingModelWithoutOpticsVariables(PyATRingModel):
     `build_ring`. The attribute is restored in a `finally`, so a failed
     construction cannot leave the module patched for the rest of the session.
 
-    Everything else -- the 348 setpoints, the 144 BPM outputs, the 1,344 fault
-    variables -- is identical, which is what makes the pair a controlled
-    comparison rather than two different models.
+    Everything else -- every setpoint, every monitor output and every fault
+    variable of the served tree -- is identical, which is what makes the pair
+    a controlled comparison rather than two different models.
     """
 
     def __init__(self) -> None:
         declared = pyat_module._optics_variables
-        pyat_module._optics_variables = list
+        pyat_module._optics_variables = lambda _count: []
         try:
-            super().__init__()
+            super().__init__(PACKAGE_PATHS.data_root, build_manifest()["channels"])
         finally:
             pyat_module._optics_variables = declared
 
@@ -137,7 +145,7 @@ def _bound_bridge(model: PyATRingModel, records: dict[str, Any]) -> PhysicsBridg
     """A bridge serving `model` through `records`, warmed and ready to measure.
 
     Bound to the whole pyat-coupled partition, as `entrypoint` binds it, so a
-    measured write pushes into all 144 BPM readback records exactly as a
+    measured write pushes into every monitor readback record exactly as a
     served write does. Seeded RNG: the reading noise must not vary between the
     two models, or the comparison is measuring the draws. The warm-up writes
     settle everything a first write pays once -- lazy imports, caches, the
@@ -216,7 +224,9 @@ def bridges(records) -> tuple[PhysicsBridge, PhysicsBridge]:
     in, and a write means the same amount of physics on each.
     """
     return (
-        _bound_bridge(PyATRingModel(), records),
+        _bound_bridge(
+            PyATRingModel(PACKAGE_PATHS.data_root, build_manifest()["channels"]), records
+        ),
         _bound_bridge(RingModelWithoutOpticsVariables(), records),
     )
 

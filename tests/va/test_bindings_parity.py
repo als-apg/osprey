@@ -61,9 +61,8 @@ class TestOneBindingIsOneVariable:
     ) -> None:
         """Neither side has a member the other does not. Stated as a set
         comparison so a failure names the strays rather than two numbers."""
-        assert set(booted.supported_variables) == {
-            binding.setpoint_address for binding in document.bindings
-        }
+        addressed = set(booted.supported_variables) - booted.derived_names
+        assert addressed == {binding.setpoint_address for binding in document.bindings}
 
     def test_no_address_is_bound_twice(self, document: BindingsDocument) -> None:
         """Two bindings on one address would give one channel two meanings and
@@ -79,6 +78,7 @@ class TestOneBindingIsOneVariable:
         assert {
             address: not variable.read_only
             for address, variable in booted.supported_variables.items()
+            if address not in booted.derived_names
         } == {binding.setpoint_address: binding.is_writable for binding in document.bindings}
 
     def test_the_key_is_the_control_address_itself(self, booted: PyATRingModel) -> None:
