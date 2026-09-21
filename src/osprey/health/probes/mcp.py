@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from osprey.health.probes import ProbeContext
 
 
-async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
+async def run(spec: Mapping[str, Any], _ctx: ProbeContext) -> CheckResult:
     """Probe an MCP endpoint by handshaking and listing its tools.
 
     Args:
@@ -51,7 +51,7 @@ async def run(spec: Mapping[str, Any], ctx: ProbeContext) -> CheckResult:
             * ``timeout_s`` (float): handshake timeout in seconds (default ``10``).
             * ``timeout_status`` (``"error"`` | ``"warning"``): status for a
               handshake timeout (default ``"error"``).
-        ctx: Shared per-run context. Unused by this probe (MCP needs no
+        _ctx: Shared per-run context. Unused by this probe (MCP needs no
             control-system connector) but part of the uniform probe interface.
 
     Returns:

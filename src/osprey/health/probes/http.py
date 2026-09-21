@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
 async def run(
     spec: Mapping[str, Any],
-    ctx: ProbeContext,
+    _ctx: ProbeContext,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> CheckResult:
@@ -51,7 +51,7 @@ async def run(
             * ``timeout_s`` (float): request timeout in seconds (default ``5.0``).
             * ``timeout_status`` (``"error"`` | ``"warning"``): status for a
               timed-out request (default ``"error"``).
-        ctx: Shared per-run context. Unused by this probe (HTTP needs no
+        _ctx: Shared per-run context. Unused by this probe (HTTP needs no
             control-system connector) but part of the uniform probe interface.
         transport: Optional httpx transport for dependency injection in tests
             (e.g. :class:`httpx.MockTransport`); ``None`` uses httpx's default.

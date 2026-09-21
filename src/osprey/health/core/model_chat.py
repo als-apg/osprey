@@ -42,7 +42,7 @@ _MAX_TOKENS = 50
 
 def model_chat(
     config: Mapping[str, Any] | None = None,
-    context: HealthRuntime | None = None,
+    context: HealthRuntime | None = None,  # noqa: ARG001 - health category factory signature; categories that probe a runtime read the context
 ) -> CategoryCallable:
     """Build the ``model_chat`` category callable.
 

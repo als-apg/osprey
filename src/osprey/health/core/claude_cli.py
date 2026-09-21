@@ -64,7 +64,10 @@ async def _run_version_command(argv: list[str], timeout_s: float) -> tuple[int |
     )
 
 
-def claude_cli(config: dict[str, Any] | None, context: Any = None) -> Any:
+def claude_cli(
+    config: dict[str, Any] | None,  # noqa: ARG001 - health category factory signature; most categories read the config state
+    context: Any = None,  # noqa: ARG001 - health category factory signature; categories that probe a runtime read the context
+) -> Any:
     """Build the poll-class ``claude_cli`` category callable.
 
     Args:
@@ -134,7 +137,10 @@ async def _check_claude_cli() -> list[CheckResult]:
     ]
 
 
-def claude_cli_pinned(config: dict[str, Any] | None, context: Any = None) -> Any:
+def claude_cli_pinned(
+    config: dict[str, Any] | None,
+    context: Any = None,  # noqa: ARG001 - health category factory signature; categories that probe a runtime read the context
+) -> Any:
     """Build the on_demand ``claude_cli_pinned`` category callable.
 
     Args:

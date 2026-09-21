@@ -135,7 +135,7 @@ _DIGEST_PREFIX_LEN = _GRAPHDB_DIGEST_PREFIX_LEN
 
 def channel_finder(
     config: Mapping[str, Any] | None = None,
-    context: HealthRuntime | None = None,
+    context: HealthRuntime | None = None,  # noqa: ARG001 - health category factory signature; categories that probe a runtime read the context
     *,
     cwd: Path | None = None,
 ) -> CategoryCallable:

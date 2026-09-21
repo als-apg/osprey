@@ -54,7 +54,7 @@ _CATEGORY = "file_system"
 
 def file_system(
     config: dict[str, Any] | None,
-    context: Any = None,
+    context: Any = None,  # noqa: ARG001 - health category factory signature; categories that probe a runtime read the context
     *,
     cwd: Path | None = None,
 ) -> Callable[[], list[CheckResult]]:
@@ -159,7 +159,7 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     results: list[CheckResult] = []
 
     # Check project paths from config.
-    results.extend(_check_project_paths(config, cwd))
+    results.extend(_check_project_paths(config))
 
     # Check .env file.
     env_file = cwd / ".env"
@@ -250,7 +250,7 @@ def _check_file_system(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
     return results
 
 
-def _check_project_paths(config: dict[str, Any], cwd: Path) -> list[CheckResult]:
+def _check_project_paths(config: dict[str, Any]) -> list[CheckResult]:
     """Check that project_root and the agent-data directory are valid/accessible.
 
     A missing ``project_root`` yields a single ``project_paths`` warning; any
