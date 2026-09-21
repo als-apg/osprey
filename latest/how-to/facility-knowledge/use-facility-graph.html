@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 20, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 21, 2026"/>
   </head>
   
   
@@ -673,6 +673,15 @@ whether a store exists. Useful for testing the wiring, not for anything else.</p
 </section>
 <section id="generating-a-corpus">
 <h2>Generating a Corpus<a class="headerlink" href="#generating-a-corpus" title="Link to this heading">#</a></h2>
+<p>Two routes write a corpus, and both end at the same file and the same seeding
+command. A facility that runs a MATLAB Middle Layer gets one without a separate
+step: <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">mml</span> <span class="pre">emit</span></code> writes <code class="docutils literal notranslate"><span class="pre">data/&lt;facility</span> <span class="pre">token&gt;.ttl</span></code> beside the
+middle-layer channel database, from the same reviewed mapping, so the graph and
+the database describe the same machine by construction. That route is the
+install flow in <a class="reference internal" href="../use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>; point
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> at the file it names and skip to the
+<code class="docutils literal notranslate"><span class="pre">seed-graph</span></code> step at the end of this section. Everyone else derives a corpus
+from the project’s channel databases, which is the rest of it.</p>
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">build-ttl</span></code> derives a NARAD-convention Turtle corpus from a
 project’s own channel databases, so the graph describes the same machine the
 channel finder does. Inside a rendered project:</p>

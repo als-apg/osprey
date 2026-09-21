@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 20, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 21, 2026"/>
   </head>
   
   
@@ -703,12 +703,254 @@ flagged, naming the key, so the agent narrows the query instead of presenting a
 partial list. The cap is on the agent’s context, not on the database, which is
 why it is set per deployment.</p>
 <p>The database follows MATLAB Middle Layer (MML) functional organization
-(System -&gt; Family -&gt; Field -&gt; ChannelNames). Convert from MML exports:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.services.channel_finder.utils.mml_converter<span class="w"> </span><span class="se">\</span>
-<span class="w">   </span>--input<span class="w"> </span>path/to/mml_exports.py:MML_ao_SR<span class="w"> </span><span class="se">\</span>
-<span class="w">   </span>--output<span class="w"> </span>data/channel_databases/middle_layer.json
+(system, then family, then field, then the channel names). A facility that runs
+a Middle Layer already has that structure, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">mml</span></code> installs from it.</p>
+<section id="installing-from-a-middle-layer">
+<h3>Installing from a Middle Layer<a class="headerlink" href="#installing-from-a-middle-layer" title="Link to this heading">#</a></h3>
+<p>Three verbs, run in the deployment repository: <code class="docutils literal notranslate"><span class="pre">import</span></code> reads the export,
+<code class="docutils literal notranslate"><span class="pre">map</span></code> records what it means, <code class="docutils literal notranslate"><span class="pre">emit</span></code> writes the deployment’s files. Each one
+reads what the one before it wrote, so the order is the whole workflow. An
+export that also carries the facility’s lattice adds a fourth, <code class="docutils literal notranslate"><span class="pre">verify</span></code>, and
+a virtual accelerator to check — see <a class="reference internal" href="#from-an-export-to-a-virtual-accelerator">From an Export to a Virtual
+Accelerator</a> below.</p>
+<p><strong>Import.</strong> First export the Middle Layer as JSON on the MATLAB machine. The
+exporter ships with OSPREY — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">pull</span>
+<span class="pre">control-assistant:data/mml/mml_export.m</span></code> puts it in <code class="docutils literal notranslate"><span class="pre">data/mml/</span></code>, and the
+README beside it covers the MATLAB half. Run it once per sub-machine, then read
+the exports in:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>mml<span class="w"> </span>import<span class="w"> </span>mymachine.storagering.ao.json<span class="w"> </span>mymachine.booster.ao.json
 </pre></div>
 </div>
+<p>They become <code class="docutils literal notranslate"><span class="pre">data/mml/ao.json</span></code>, <code class="docutils literal notranslate"><span class="pre">data/mml/ad.json</span></code> and <code class="docutils literal notranslate"><span class="pre">PROFILE.md</span></code>, a
+census of what arrived: systems, families, distinct addresses, and how many
+signals it could not tell a readback from a setpoint by. The location is fixed
+rather than a flag, because the later verbs read the same directory. An export
+that does not name its own sub-machine is given a system name with <code class="docutils literal notranslate"><span class="pre">--system</span>
+<span class="pre">TOKEN</span></code>.</p>
+<p>An export written by <code class="docutils literal notranslate"><span class="pre">mml_export.m</span></code> 2.0 has three more files beside its
+<code class="docutils literal notranslate"><span class="pre">ao.json</span></code>, and naming the <code class="docutils literal notranslate"><span class="pre">ao.json</span></code> brings them in too; they land as
+<code class="docutils literal notranslate"><span class="pre">data/mml/lattice/&lt;system&gt;.mat</span></code>, <code class="docutils literal notranslate"><span class="pre">data/mml/va.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">data/mml/response.json</span></code>. <a class="reference internal" href="#from-an-export-to-a-virtual-accelerator">From an Export to a Virtual Accelerator</a> is what
+they are for.</p>
+<p><strong>Map.</strong> Nothing about your facility is guessed at silently. <code class="docutils literal notranslate"><span class="pre">mml</span> <span class="pre">map</span> <span class="pre">--init</span></code>
+writes <code class="docutils literal notranslate"><span class="pre">data/mml/mapping.yaml</span></code>, a skeleton with a slot for every decision:
+what each raw family is called in the deployment, what kind of device it is,
+which section of the machine it sits in, and whether each signal is read or
+written.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>mml<span class="w"> </span>map<span class="w"> </span>--init
+</pre></div>
+</div>
+<p>Fill the empty slots and review the ones the skeleton guessed — the OSPREY
+agent can propose all of them, but the wording is yours to confirm, because
+this file is what the agent will later read your machine through.</p>
+<p>A few slots are questions rather than wording. Where the export leaves the
+shape of a family genuinely ambiguous, the skeleton writes a <code class="docutils literal notranslate"><span class="pre">judgments:</span></code>
+block with one null slot per question, and <code class="docutils literal notranslate"><span class="pre">PROFILE.md</span></code> lists them family by
+family, naming the devices and PVs each one concerns. There are three kinds:</p>
+<ul class="simple">
+<li><p><strong>Rows beyond the devices.</strong> A field carries more channel rows than the
+family has devices — a DCCT whose monitor lists an average current, a
+lifetime and a total. Each extra row is answered <code class="docutils literal notranslate"><span class="pre">drop</span></code> to leave it out,
+<code class="docutils literal notranslate"><span class="pre">device</span></code> to make it one more device of the family, or <code class="docutils literal notranslate"><span class="pre">field:</span> <span class="pre">Lifetime</span></code>
+to give it a field of its own. <code class="docutils literal notranslate"><span class="pre">device</span></code> adds a device to the family, which
+every broadcast field also reaches.</p></li>
+<li><p><strong>A device bound by no channel.</strong> The export lists the device, but no channel
+names it — a third tune reading the machine does not measure. Answer
+<code class="docutils literal notranslate"><span class="pre">drop</span></code> to leave it out, or <code class="docutils literal notranslate"><span class="pre">keep</span></code> to keep it as a device with no channel.</p></li>
+<li><p><strong>A PV shared across devices.</strong> One PV stands for a whole group, typically
+magnets fed from one supply. Answer <code class="docutils literal notranslate"><span class="pre">keep_all</span></code> to keep the PV on every
+member, or name the single device that owns it, as
+<code class="docutils literal notranslate"><span class="pre">{&lt;lowest</span> <span class="pre">ordinal&gt;:</span> <span class="pre">&lt;owning</span> <span class="pre">ordinal&gt;}</span></code> the way <code class="docutils literal notranslate"><span class="pre">PROFILE.md</span></code> spells the
+slot. Naming an owner can leave a member with no channel of its own; that
+member stays a device, like a kept unbound one, and <code class="docutils literal notranslate"><span class="pre">PROFILE.md</span></code> says how
+many members that is before you answer.</p></li>
+</ul>
+<p>Then check the file back against the export:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>mml<span class="w"> </span>map<span class="w"> </span>--check
+</pre></div>
+</div>
+<p>The check names every problem it finds and exits non-zero while any remain — a
+judgment left null, or answered in a way the export cannot carry, is one of
+them. It also says how many guessed slots are still unreviewed. Adding
+<code class="docutils literal notranslate"><span class="pre">--no-derived</span></code> turns each of those into a problem of its own — the stricter
+run to pass before you go live.</p>
+<p><strong>Emit.</strong> The last verb writes the deployment’s files from the export and the
+checked mapping:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>mml<span class="w"> </span>emit<span class="w"> </span>--duckdb
+</pre></div>
+</div>
+<p>That is the middle-layer database at
+<code class="docutils literal notranslate"><span class="pre">data/channel_databases/middle_layer.json</span></code>, the facility ontology, the
+knowledge pages under <code class="docutils literal notranslate"><span class="pre">data/facility_knowledge/</span></code>, and a Turtle corpus named
+for your facility. <code class="docutils literal notranslate"><span class="pre">--duckdb</span></code> also writes the DuckDB copy that the
+<code class="docutils literal notranslate"><span class="pre">run_sql</span></code> tool reads. That copy holds one row per process variable, so two
+slots naming the same PV — a shared setpoint, or one row broadcast to every
+device in a family — become a single row; emit names each of them as it
+writes, and the middle-layer database and the corpus keep every binding. Emit
+refuses before writing anything while a judgment is unanswered or impossible,
+naming each one and sending you back to <code class="docutils literal notranslate"><span class="pre">map</span> <span class="pre">--check</span></code>. A project still
+carrying the demo facility’s databases
+or knowledge pages is refused before anything is written, with one <code class="docutils literal notranslate"><span class="pre">rm</span></code> line
+naming exactly what to remove; run it and emit again. Finally <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>
+copies the emitted files into the deployment — the running stack keeps its
+old copy until then.</p>
+<p><strong>One export, either paradigm.</strong> Emit writes the middle-layer database <em>and</em>
+the corpus every time, because both describe the same machine. Which one the
+channel finder uses is the <code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code> field: leave it at
+<code class="docutils literal notranslate"><span class="pre">middle_layer</span></code> to query the database, or set it to <code class="docutils literal notranslate"><span class="pre">graph</span></code> and point
+<code class="docutils literal notranslate"><span class="pre">services.graphdb.ttl_path</span></code> at the corpus
+(<a class="reference internal" href="facility-knowledge/use-facility-graph.html"><span class="doc">Search the Facility Graph</span></a>). The unchosen file stays
+in the repository, so trying the other paradigm later is a configuration
+change, not a second install.</p>
+</section>
+<section id="from-an-export-to-a-virtual-accelerator">
+<h3>From an Export to a Virtual Accelerator<a class="headerlink" href="#from-an-export-to-a-virtual-accelerator" title="Link to this heading">#</a></h3>
+<p>Version 2.0 of the exporter saves more than the channel names. It also saves
+the lattice deck the Middle Layer models the ring with, the conversion between
+each family’s hardware units and physics, the settings the machine sits at, and
+an orbit response matrix for the ring, measured on the machine or computed
+from a model, as the export records. With those four things the same workflow
+also builds your deployment a <strong>virtual accelerator</strong>: a simulated ring that
+answers your facility’s own channel names, so the OSPREY agent can be exercised
+against your addresses without beam.</p>
+<p>None of that physics is written into OSPREY. Every family the model drives, it
+drives because your export said so and you agreed. Two documents are what you
+read to agree: the <strong>VA MAP card</strong>, which the OSPREY agent draws while you are
+deciding, and <code class="docutils literal notranslate"><span class="pre">VA-REPORT.md</span></code>, which <code class="docutils literal notranslate"><span class="pre">verify</span></code> writes once the model exists.</p>
+<p><strong>Import brings the lattice in.</strong> Run <code class="docutils literal notranslate"><span class="pre">mml_export.m</span></code> 2.0 once per sub-machine
+as before. It now writes five files rather than two, and naming the <code class="docutils literal notranslate"><span class="pre">ao.json</span></code>
+imports all five:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>mml<span class="w"> </span>import<span class="w"> </span>mymachine.storagering.ao.json
+</pre></div>
+</div>
+<p>Two rules keep the directory honest. A deck is filed only when it is the ring
+the export states it was sampled over — the export records its energy, its
+element count, a digest of its element names and where its ring parameters sit,
+and a deck that disagrees on any of those is refused, naming the fact that
+disagreed, rather than being modelled quietly. And an import replaces the last
+one whole: the decks and files left by the export you are replacing are
+removed, and the report names each one. <code class="docutils literal notranslate"><span class="pre">data/mml/</span></code> is the last import and
+nothing else.</p>
+<p><strong>Map decides what the model drives.</strong> <code class="docutils literal notranslate"><span class="pre">map</span> <span class="pre">--init</span></code> writes one more block,
+<code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code>, with a verdict for every family: <code class="docutils literal notranslate"><span class="pre">couple</span></code>, naming
+what it drives and how its units convert, or <code class="docutils literal notranslate"><span class="pre">latch</span></code>, naming why it drives
+nothing. Most families decide themselves — a quadrupole drives a gradient, a
+corrector drives a kick, a beam monitor reads an orbit — and a family that
+drives nothing says why:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">BEND</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">verdict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">couple</span>
+<span class="w">  </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">energy</span>
+<span class="w">  </span><span class="nt">calibration</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">table</span>
+<span class="w">  </span><span class="nt">nominal_source</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Setpoint</span>
+<span class="nt">DCCT</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">verdict</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">latch</span>
+<span class="w">  </span><span class="nt">reason</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">no lattice element</span>
+</pre></div>
+</div>
+<p>Where no rule can decide, the family carries one slot: the question written
+out, an empty answer, and the words that answer it. There are three kinds.</p>
+<ul class="simple">
+<li><p><strong>A lattice type the table does not know</strong> (<code class="docutils literal notranslate"><span class="pre">attype</span></code>) — the export names
+a type OSPREY has no branch for, such as a septum. Answer <code class="docutils literal notranslate"><span class="pre">latch</span></code> to leave
+the family out of the model, or say what it drives:
+<code class="docutils literal notranslate"><span class="pre">strength:&lt;PolynomB|PolynomA&gt;[&lt;i&gt;]</span></code>, <code class="docutils literal notranslate"><span class="pre">kick:&lt;0|1&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">energy</span></code>, <code class="docutils literal notranslate"><span class="pre">rf</span></code> or
+<code class="docutils literal notranslate"><span class="pre">monitor:&lt;x|y&gt;</span></code>.</p></li>
+<li><p><strong>A field two families both drive</strong> (<code class="docutils literal notranslate"><span class="pre">shared_field</span></code>) — both bind the same
+field of the same element, and only one of them can own it. Answer
+<code class="docutils literal notranslate"><span class="pre">owner:&lt;family&gt;</span></code> naming the one that does, or <code class="docutils literal notranslate"><span class="pre">latch</span></code> for neither.</p></li>
+<li><p><strong>A family the Middle Layer reaches through code of its own</strong>
+(<code class="docutils literal notranslate"><span class="pre">escape_hatch</span></code>) — the export says a special function or a parameter
+group stands between the family and the lattice, so what it really does is
+not readable from the export. Answer <code class="docutils literal notranslate"><span class="pre">latch</span></code> to leave it out, or
+<code class="docutils literal notranslate"><span class="pre">ignore_hook</span></code> to bind it the ordinary way anyway.</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">map</span> <span class="pre">--check</span></code> refuses while any slot is still empty, exactly as it does for
+an unanswered judgment, so nothing is emitted from a question nobody answered.</p>
+<p>You do not have to read the block to answer it. During a guided install the
+OSPREY agent draws the whole thing as one <strong>VA MAP card</strong>: what the export
+brought and which families MATLAB itself refused, then the open questions one
+row each with the question and its answer words verbatim, then the families it
+would couple, then the families it would latch grouped by the reason they
+share. It asks you to confirm the map before anything is emitted, and redraws
+it after every answer (<a class="reference internal" href="../getting-started/osprey-install.html"><span class="doc">Install and Set Up</span></a>). Re-running
+<code class="docutils literal notranslate"><span class="pre">map</span> <span class="pre">--init</span></code> on a tree that already has the block stops rather than
+overwriting your answers: it names the file and tells you to pass
+<code class="docutils literal notranslate"><span class="pre">--force-va</span></code>, which replaces the block.</p>
+<p><strong>Emit writes the model.</strong> The same <code class="docutils literal notranslate"><span class="pre">mml</span> <span class="pre">emit</span></code> run that writes the channel
+database also writes five files for the virtual accelerator: the deck it runs
+(<code class="docutils literal notranslate"><span class="pre">data/simulation/lattice.json</span></code>), which channel drives which element and how
+(<code class="docutils literal notranslate"><span class="pre">data/simulation/va_bindings.json</span></code>), the machine it stands for
+(<code class="docutils literal notranslate"><span class="pre">data/simulation/machine.json</span></code>), the channels carrying its state
+(<code class="docutils literal notranslate"><span class="pre">data/machine_state_channels.json</span></code>), and the write band of every coupled
+setpoint, in the deployment’s shared <code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>. Emit stamps
+each band it writes there, leaves every other entry byte-for-byte, and refuses
+an address that file already bands differently without that stamp. That
+collision can only be known once all five documents have been prepared, so when
+it happens the five virtual-accelerator files are withheld while the channel
+database, ontology and knowledge pages of the same run are already on the tree
+— the corpus, which emit writes last, is not; fix or remove the entries it
+named and run emit again.</p>
+<p>For a beam position monitor the bindings also carry the calibration your
+control system states for that reading — its gain, offset, roll and crunch,
+one set per device, and only the ones your facility states. Nothing in the
+simulation applies them: they are carried, not modelled, and a reading served
+today is the same number with them as without.</p>
+<p>An export still at 1.0 is not an error. Emit says <code class="docutils literal notranslate"><span class="pre">VA</span> <span class="pre">lane</span> <span class="pre">skipped:</span>
+<span class="pre">data/mml/va.json</span> <span class="pre">is</span> <span class="pre">not</span> <span class="pre">in</span> <span class="pre">the</span> <span class="pre">tree;</span> <span class="pre">re-export</span> <span class="pre">with</span> <span class="pre">mml_export</span> <span class="pre">2.0</span> <span class="pre">to</span> <span class="pre">enable</span>
+<span class="pre">it</span></code>, and says <code class="docutils literal notranslate"><span class="pre">carries</span> <span class="pre">no</span> <span class="pre">virtual</span> <span class="pre">accelerator</span> <span class="pre">for</span> <span class="pre">an</span> <span class="pre">imported</span> <span class="pre">system</span></code> in
+place of that middle clause when the file is there but keys no imported system.
+Either way it writes everything else as it always did — and takes any ring
+the tree was serving with it. A harvest onto a deployment that ships its own
+demo model removes <code class="docutils literal notranslate"><span class="pre">data/simulation/lattice.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">data/simulation/va_bindings.json</span></code>, and says so: the export describes no
+machine, so there is none to serve, and the demo’s ring left in place would be
+served over your own channel names. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> then reports
+<code class="docutils literal notranslate"><span class="pre">VA_LATTICE=none</span></code>. A demo deployment you never harvested onto keeps its ring
+and goes on serving it.</p>
+<p>Scenarios are held against the machine that resolves them. A scenario under
+<code class="docutils literal notranslate"><span class="pre">data/simulation/scenarios/</span></code> names channels in its overrides and its archiver
+events, and the simulation will not boot on one naming a channel
+<code class="docutils literal notranslate"><span class="pre">data/simulation/machine.json</span></code> does not carry. Emit asks that question of the
+machine your deployment will serve: the one this run writes, when the export
+carries a virtual accelerator, and otherwise the one already on the tree. So a
+2.0 harvest refuses the demo’s scenarios — your machine has replaced the
+demo’s and their channels are gone with it — while a 1.0 harvest leaves them
+alone, because the machine they were written for is still the one being served.
+Refused scenarios are named with the channels they ask for, in one <code class="docutils literal notranslate"><span class="pre">rm</span></code> line,
+and so is a bundle the simulation could not read at all. Your own scenarios are
+left alone as long as the served machine can resolve them.</p>
+<p><strong>Verify checks the model against the machine.</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>mml<span class="w"> </span>verify
+</pre></div>
+</div>
+<p>Verify steers the model’s correctors the way the facility steered its own,
+reads the orbit that comes back, and compares it with the matrix the export
+carries. An entry agrees when <code class="docutils literal notranslate"><span class="pre">|R_model</span> <span class="pre">-</span> <span class="pre">R_file|</span> <span class="pre">&lt;=</span> <span class="pre">0.05</span> <span class="pre">*</span> <span class="pre">max(|R_file|,</span> <span class="pre">0.1</span>
+<span class="pre">*</span> <span class="pre">rms(column))</span></code> — within five per cent of the exported value, or of a tenth
+of that corrector column’s own scale, whichever is the larger, so an entry near
+zero is judged on size alone. Above that floor the sign has to agree too: a
+corrector that moves the beam the wrong way is wrong however small the number
+is.</p>
+<p>It writes <code class="docutils literal notranslate"><span class="pre">data/mml/VA-REPORT.md</span></code>, and that report is the second thing to
+read. It opens with the verdict — how many entries are inside the band and
+how many agree in sign — then where and at what energy the matrix was
+measured, the worst disagreements for each monitor-and-corrector pair, the rows
+it could not compare, the write bands the model needed widened, and the
+nominals the model does not hold. Rows are matched to the export’s device list
+by sector and device rather than by position, and a row the export marks down
+is dropped and named, so a disagreement in the report is a disagreement about
+physics and not about bookkeeping.</p>
+<p><strong>Build serves it.</strong> Nothing the four verbs wrote is running yet:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build
+</pre></div>
+</div>
+<p>The build copies the emitted tree into the deployment and writes <code class="docutils literal notranslate"><span class="pre">VA_LATTICE</span></code>
+into the project <code class="docutils literal notranslate"><span class="pre">.env</span></code> for it: the name of the lattice file in the built
+tree, or <code class="docutils literal notranslate"><span class="pre">none</span></code> for a deployment that serves no model. The value is a file
+name or that one word, so the service either runs the deck your export brought
+or runs none (<a class="reference internal" href="deploy-project/env-chain.html"><span class="doc">Environment Variables (the .env chain)</span></a>). See
+<a class="reference internal" href="control-systems/use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a> for running it.</p>
+</section>
 </section>
 <section id="graph-pipeline">
 <h2>Graph Pipeline<a class="headerlink" href="#graph-pipeline" title="Link to this heading">#</a></h2>
@@ -865,7 +1107,11 @@ the agent, are in <a class="reference internal" href="../reference/contracts/cha
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-a-pipeline">Choosing a Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#in-context-pipeline">In-Context Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hierarchical-pipeline">Hierarchical Pipeline</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#middle-layer-pipeline">Middle Layer Pipeline</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#middle-layer-pipeline">Middle Layer Pipeline</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#installing-from-a-middle-layer">Installing from a Middle Layer</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#from-an-export-to-a-virtual-accelerator">From an Export to a Virtual Accelerator</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#graph-pipeline">Graph Pipeline</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-interface">Web Interface</a></li>
 </ul>

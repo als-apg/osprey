@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 20, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 21, 2026"/>
   </head>
   
   
@@ -517,13 +517,15 @@ addresses follow, with the tree itself underneath:</p>
 <span id="channel-finder-db-middle-layer"></span><h3>Middle-layer<a class="headerlink" href="#middle-layer" title="Link to this heading">#</a></h3>
 <p>MATLAB Middle Layer (MML) style organization: channels grouped by functional
 hierarchy — system, family, field, optional subfield — rather than by naming
-pattern, with the PV addresses listed under <code class="docutils literal notranslate"><span class="pre">ChannelNames</span></code> and the family’s
-device roster in its <code class="docutils literal notranslate"><span class="pre">setup</span></code> block:</p>
+pattern, with the addresses listed under a channel key and the family’s device
+roster in its <code class="docutils literal notranslate"><span class="pre">setup</span></code> block:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;_provenance&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;exporter=1.2.0 ao_sha256=1f4b… mapping_sha256=9c07…&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;SR&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">    </span><span class="nt">&quot;BPM&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">      </span><span class="nt">&quot;Monitor&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">        </span><span class="nt">&quot;ChannelNames&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;SR01C:BPM1:X&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;SR01C:BPM1:Y&quot;</span><span class="p">]</span>
+<span class="w">        </span><span class="nt">&quot;ChannelNames&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;SR01C:BPM1:X&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;SR01C:BPM1:Y&quot;</span><span class="p">],</span>
+<span class="w">        </span><span class="nt">&quot;TangoNames&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;sr/bpm/1/X&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;sr/bpm/1/Y&quot;</span><span class="p">]</span>
 <span class="w">      </span><span class="p">},</span>
 <span class="w">      </span><span class="nt">&quot;Setpoint&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
 <span class="w">        </span><span class="nt">&quot;X&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">&quot;ChannelNames&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;SR01C:BPM1:XSet&quot;</span><span class="p">]},</span>
@@ -542,6 +544,20 @@ device roster in its <code class="docutils literal notranslate"><span class="pre
 An existing MML export keeps its metadata keys (<code class="docutils literal notranslate"><span class="pre">Units</span></code>, <code class="docutils literal notranslate"><span class="pre">DataType</span></code>,
 <code class="docutils literal notranslate"><span class="pre">Description</span></code>, …) — the pipeline skips them during navigation rather than
 requiring their removal.</p>
+<p><strong>Two channel keys, one per protocol.</strong> A field lists its addresses under
+<code class="docutils literal notranslate"><span class="pre">ChannelNames</span></code> (Channel Access) or <code class="docutils literal notranslate"><span class="pre">TangoNames</span></code> (Tango device attributes),
+or under both when the same signal is reachable either way. Each channel the
+pipeline loads carries a <code class="docutils literal notranslate"><span class="pre">protocol</span></code> of <code class="docutils literal notranslate"><span class="pre">ca</span></code> or <code class="docutils literal notranslate"><span class="pre">tango</span></code> accordingly, so a
+database can describe a facility that runs both. The <code class="docutils literal notranslate"><span class="pre">list_channels</span></code> tool
+takes a <code class="docutils literal notranslate"><span class="pre">protocol</span></code> argument to pick between them; without one it returns the
+<code class="docutils literal notranslate"><span class="pre">ChannelNames</span></code> list, and asking for a protocol the field does not carry is an
+error naming the keys it does.</p>
+<p><strong>Provenance.</strong> A database written by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">mml</span> <span class="pre">emit</span></code> carries one top-level
+<code class="docutils literal notranslate"><span class="pre">_provenance</span></code> string naming the exporter version and the checksums of the two
+files it was built from — the export and the reviewed mapping. It is a string,
+not a nested object, so the pipeline’s system listing passes over it like any
+other underscore key. See <a class="reference internal" href="../../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> for the install
+flow that writes it.</p>
 </section>
 <section id="graph">
 <span id="channel-finder-db-graph"></span><h3>Graph<a class="headerlink" href="#graph" title="Link to this heading">#</a></h3>

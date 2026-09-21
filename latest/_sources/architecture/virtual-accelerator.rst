@@ -144,12 +144,19 @@ up under :ref:`extending-lume-model`.
 Served and model-only variables
 -------------------------------
 
-A model usually declares more variables than the facility serves as channels.
-The line between the two is drawn once, at boot, and by name alone: a variable
-is **served** when its name is an address the channel manifest already serves,
+A model declares more variables than the facility serves as channels. The line
+between the two is drawn once, at boot, and by name alone: a variable is
+**served** when its name is an address the channel manifest already serves,
 and **model-only** when it is not. Served variables are read and written like
 any other channel, on either transport. Model-only variables sit on no channel
 at all; the model RPC is the only way to reach them.
+
+Where the line falls here is not a judgement call. Every variable the model
+builds from the served tree is named for the channel address its binding
+claims, so the served half is exactly the machine's own pyat-coupled
+addresses. Everything on the model-only half is something the model or the
+serving layer added beside them: the simulated imperfections, the optics of
+the whole solved ring, and the set of setpoints currently stuck.
 
 That RPC is one pvAccess channel, ``model_rpc``, and it takes six verbs.
 ``info`` lists the model's variables and says which side of the line each one
@@ -165,14 +172,33 @@ against it; a call carrying no token, or a token that does not match, is
 refused before any model is touched, and a container started without the
 variable set refuses model writes outright. The read verbs are not gated.
 
-For the bundled demo lattice the model-only roster is the simulated imperfections:
-nine reading-error fields on every BPM, and a calibration factor and offset on
-every magnet — 1,344 writables. Their names use a dot grammar
-(``BPM01.offset_x``, ``QF07.cal_factor``), so no fault name parses as a channel
-address. Writing one changes what the model holds, and the served BPM
-readings derived from it are recomputed as the write lands — so ``diff`` is
-where the fault becomes visible, as a served reading that has parted from the
-model's own value.
+The model-only roster is the served tree's own. Every monitor the bindings
+publish a reading for carries nine reading-error fields, and every magnet they
+drive a calibration factor and offset; a device the tree does not serve
+carries neither. Each is named for the element the deck spells it at, with a
+dot between element and field (``<element>.offset_x``,
+``<element>.cal_factor``), so no fault name parses as a channel address. A
+seed names its device either way the facility knows it — by an address the
+control system carries, or by the element it sits at — and a name the served
+bindings know under neither ends the boot rather than perturbing nothing.
+Where one element is driven by two setpoints, one calibration scales both,
+which is what a miscalibrated magnet does.
+
+Three read-only arrays sit beside them: the transverse tunes, and beta and the
+true orbit at each monitor, one row per monitor in ring order. They are
+computed when one of them is read and served from memory until the next solve,
+so a setpoint write never pays for them.
+
+The last model-only variable is the serving layer's, not the model's:
+``stuck_setpoints``, the addresses whose readbacks are frozen, written as text
+and settable at runtime. It is the one fault a deployment with no lattice
+behind it can still take.
+
+Writing a fault changes what the model holds, and the served readings derived
+from it are recomputed as the write lands — a magnet whose calibration moved is
+re-commanded with the value its operator last asked for, so the ring ends where
+the new calibration puts it. ``diff`` is where a readout fault becomes visible,
+as a served reading that has parted from the model's own value.
 
 .. seealso::
 

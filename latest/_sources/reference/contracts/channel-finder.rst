@@ -68,16 +68,18 @@ Middle-layer
 
 MATLAB Middle Layer (MML) style organization: channels grouped by functional
 hierarchy — system, family, field, optional subfield — rather than by naming
-pattern, with the PV addresses listed under ``ChannelNames`` and the family's
-device roster in its ``setup`` block:
+pattern, with the addresses listed under a channel key and the family's device
+roster in its ``setup`` block:
 
 .. code-block:: json
 
    {
+     "_provenance": "exporter=1.2.0 ao_sha256=1f4b… mapping_sha256=9c07…",
      "SR": {
        "BPM": {
          "Monitor": {
-           "ChannelNames": ["SR01C:BPM1:X", "SR01C:BPM1:Y"]
+           "ChannelNames": ["SR01C:BPM1:X", "SR01C:BPM1:Y"],
+           "TangoNames": ["sr/bpm/1/X", "sr/bpm/1/Y"]
          },
          "Setpoint": {
            "X": {"ChannelNames": ["SR01C:BPM1:XSet"]},
@@ -95,6 +97,22 @@ device roster in its ``setup`` block:
 An existing MML export keeps its metadata keys (``Units``, ``DataType``,
 ``Description``, …) — the pipeline skips them during navigation rather than
 requiring their removal.
+
+**Two channel keys, one per protocol.** A field lists its addresses under
+``ChannelNames`` (Channel Access) or ``TangoNames`` (Tango device attributes),
+or under both when the same signal is reachable either way. Each channel the
+pipeline loads carries a ``protocol`` of ``ca`` or ``tango`` accordingly, so a
+database can describe a facility that runs both. The ``list_channels`` tool
+takes a ``protocol`` argument to pick between them; without one it returns the
+``ChannelNames`` list, and asking for a protocol the field does not carry is an
+error naming the keys it does.
+
+**Provenance.** A database written by ``osprey mml emit`` carries one top-level
+``_provenance`` string naming the exporter version and the checksums of the two
+files it was built from — the export and the reviewed mapping. It is a string,
+not a nested object, so the pipeline's system listing passes over it like any
+other underscore key. See :doc:`/how-to/use-channel-finder` for the install
+flow that writes it.
 
 .. _channel-finder-db-graph:
 
