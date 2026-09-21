@@ -1020,28 +1020,24 @@ def _anchor(
     return anchored, ("zero" if (missing & ~usable).any() else "range_midpoint")
 
 
-def _range_holds_nominal(band: np.ndarray | None, nominal: np.ndarray) -> bool:
-    """Whether a Range is a band the calibration can be sampled over."""
-    if band is None or band.size == 0 or band.shape[0] != nominal.size:
-        return False
-    return bool(
-        np.all(_finite_band(band, nominal.size))
-        and np.all(nominal >= band[:, 0])
-        and np.all(nominal <= band[:, 1])
-    )
-
-
 def _hardware_grid(
     band: np.ndarray | None, nominal: np.ndarray | None, devices: int
 ) -> tuple[np.ndarray, str, str]:
-    """The hardware values a field is sampled at, one row per device."""
+    """The hardware values a field is sampled at, one row per device.
+
+    A device is sampled over its own band, stretched just far enough to hold
+    its anchor where the band the facility states does not reach it, and a
+    device with no band at all over the wide symmetric span. The word names
+    the weakest grid the field used.
+    """
     anchored, anchor = _anchor(nominal, band, devices)
-    if _range_holds_nominal(band, anchored):
-        low, high, source = band[:, 0], band[:, 1], "range"
-    else:
-        low = -np.maximum(2.0 * np.abs(anchored), 1.0)
-        high = -low
-        source = "fallback"
+    banded = _finite_band(band, devices)
+    low = -np.maximum(2.0 * np.abs(anchored), 1.0)
+    high = -low
+    if band is not None and banded.any():
+        low[banded] = np.minimum(band[banded, 0], anchored[banded])
+        high[banded] = np.maximum(band[banded, 1], anchored[banded])
+    source = "range" if banded.all() else "fallback"
     steps = np.arange(GRID_POINTS, dtype=float) / (GRID_POINTS - 1)
     return low[:, None] + (high - low)[:, None] * steps[None, :], source, anchor
 

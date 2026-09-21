@@ -817,7 +817,10 @@ class TestJudgedVaBlock:
         assert judged["Setpoint"]["calibration"]["gain"] == [0.0001, 0.0001, 0.0001]
         assert judged["Setpoint"]["calibration"]["offset"] == [0, 0, 0]
         assert judged["Monitor"]["monitor_inverse"]["gain"] == [10000, 10000, 10000]
-        assert judged["Monitor"]["monitor_inverse"]["offset"] == [-4.44089209850063e-16, 0, 0]
+        # The offsets are zero. Whether a particular one arrives as exactly
+        # zero or as the last bit of the fit that produced it is a property of
+        # the sampling grid, not of the device this dropped.
+        assert judged["Monitor"]["monitor_inverse"]["offset"] == pytest.approx([0, 0, 0], abs=1e-12)
         assert va == before
 
     def test_the_va_block_drops_the_rows_of_a_sampled_conversion(self):

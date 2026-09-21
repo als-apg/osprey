@@ -761,12 +761,18 @@ class TestVaFamilyFacts:
         assert (soft.at_devices, soft.at_elements) == (0, 0)
 
     def test_calibration_kind_and_grid_source_per_field(self):
-        """Each sampled field states the kind it was sampled as and the grid it used."""
+        """Each sampled field states the kind it was sampled as and the grid it used.
+
+        ``HC``'s setpoint states a ``Range`` too narrow for its own nominal.
+        The grid is that range stretched far enough to hold the anchor, so its
+        source is still the range; the symmetric fallback is for a field
+        stating no finite band at all.
+        """
         census = _synthetic_census()
         assert [
             (f.name, f.calibration_kind, f.grid_source)
             for f in _va_family_census(census, "HC").fields
-        ] == [("Setpoint", "linear", "fallback"), ("Monitor", "linear", "range")]
+        ] == [("Setpoint", "linear", "range"), ("Monitor", "linear", "range")]
         assert [(f.name, f.calibration_kind) for f in _va_family_census(census, "BEND").fields] == [
             ("Setpoint", "table"),
             ("Monitor", "table"),

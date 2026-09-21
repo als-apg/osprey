@@ -809,13 +809,19 @@ class TestSyntheticExport:
         assert alone and beside
         assert any("nominals" in families[name] for name in beside)
 
-    def test_the_synthetic_nominal_outside_its_range_falls_back(self):
-        """A family the deck sits outside its own band for is sampled about its nominal."""
+    def test_the_synthetic_nominal_outside_its_range_stretches_the_band(self):
+        """A family whose nominal sits outside its own band keeps that band, widened.
+
+        ``Range`` is the band the facility runs the family in, and it stays
+        the band the conversion is sampled over: a nominal beyond it stretches
+        the sampling far enough to reach the nominal rather than throwing the
+        band away for a symmetric guess around it.
+        """
         va = _synthetic_va()
         band = _synthetic("quokka.sr.ao.json")["HC"]["Setpoint"]["Range"]
         nominal = va["families"]["HC"]["nominals"]["Setpoint"]["values"]
         assert max(abs(value) for value in nominal) > band[1]
-        assert va["families"]["HC"]["Setpoint"]["calibration"]["grid_source"] == "fallback"
+        assert va["families"]["HC"]["Setpoint"]["calibration"]["grid_source"] == "range"
 
     def test_the_synthetic_escape_hatch_carries_both_spellings(self):
         """The escape-hatch family names a replacement write path and a parameter group."""

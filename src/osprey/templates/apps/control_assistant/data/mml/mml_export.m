@@ -746,9 +746,10 @@ function inverse = local_sample_inverse(family, DeviceList, AO, sampled, energy)
 %
 % Its grid is in physics units and is the physics image of the family's own
 % hardware grid: the Setpoint grid where the family has a setpoint, which is
-% exactly the span a write can reach, and the Monitor Range's image for a
-% monitor-only family. A monitor-only family whose Monitor carries no Range
-% is sampled over a beam position span instead.
+% exactly the span a write can reach, and for a monitor-only family the
+% image of its Monitor Range, stretched where it must be to hold the
+% anchor. A monitor-only family whose Monitor carries no Range is sampled
+% over a beam position span instead.
 if isfield(sampled, 'Setpoint')
     grid = sampled.Setpoint.values;
     source = 'setpoint';
@@ -1268,21 +1269,36 @@ end
 function [grid, source, anchor] = local_hardware_grid(range, nominal, nDev)
 % The hardware values a field is sampled at, one row per device.
 %
-% A field's own Range is used only when every device has a finite band that
-% holds its anchor: the export names one grid source per field, so the
-% consumer reads one word rather than a per-device story. Otherwise the grid
-% spans +-max(2|anchor|, 1) about zero, which holds the anchor and still
-% leaves a lever arm when the anchor is zero.
+% A device is sampled over its own Range, stretched just far enough to hold
+% its anchor where the band the facility states does not reach it. A
+% conversion is written for the span the facility runs the device over and
+% turns over outside it, so the narrowest grid that still holds the anchor is
+% the one that stays a conversion the whole way across. A device with no band
+% at all has nothing to stretch and spans +-max(2|anchor|, 1) about zero,
+% which holds the anchor and still leaves a lever arm when the anchor is zero.
+%
+% The word names the weakest grid the field used, the way the anchor word
+% names the weakest anchor: a field is on its Range when every device had a
+% band to lay a grid over, whether or not a band had to be stretched, and
+% falls back as soon as one device had none. A table states the rows it was
+% sampled at, and the grid behind a line is the Range and the nominals the
+% export states beside it.
 points = local_grid_points();
 [nominal, anchor] = local_anchor(nominal, range, nDev);
 
-if local_range_holds_nominal(range, nominal)
-    low = range(:, 1);
-    high = range(:, 2);
+banded = local_finite_band(range, nDev);
+low = -max(2 * abs(nominal), 1);
+high = -low;
+if any(banded)
+    % Only a device with a band has one to stretch, and MATLAB checks the
+    % column subscript of an empty range even when no row is selected.
+    low(banded) = min(range(banded, 1), nominal(banded));
+    high(banded) = max(range(banded, 2), nominal(banded));
+end
+
+if all(banded)
     source = 'range';
 else
-    low = -max(2 * abs(nominal), 1);
-    high = -low;
     source = 'fallback';
 end
 
@@ -1314,15 +1330,6 @@ function tol = local_linear_tolerance()
 % precision; a polynomial or a measured curve misses it by orders of
 % magnitude more than this.
 tol = 1e-9;
-end
-
-
-function usable = local_range_holds_nominal(range, nominal)
-% Whether a field's Range is a band the calibration can be sampled over: one
-% finite band per device, every one of them holding that device's anchor.
-usable = ~isempty(range) && size(range, 1) == numel(nominal) ...
-    && all(local_finite_band(range, numel(nominal))) ...
-    && all(nominal >= range(:, 1)) && all(nominal <= range(:, 2));
 end
 
 
@@ -1364,7 +1371,11 @@ if ~any(missing)
 end
 
 usable = missing & local_finite_band(range, nDev);
-anchored(usable) = (range(usable, 1) + range(usable, 2)) / 2;
+% A field with no band hands over an empty range, and MATLAB checks the column
+% subscript of an empty array even when no row is selected.
+if any(usable)
+    anchored(usable) = (range(usable, 1) + range(usable, 2)) / 2;
+end
 anchored(missing & ~usable) = 0;
 if any(missing & ~usable)
     anchor = 'zero';
@@ -1456,9 +1467,15 @@ end
 
 
 function value = local_subfield(AO, family, field, name)
+% One key of one field of one family, or nothing where the family does not
+% carry it.
+%
+% The field has to be one struct: a struct array there answers with one value
+% per element, which is no value to hand back, and a facility that holds a
+% field that way states nothing this export can read.
 value = [];
 if isfield(AO, family) && isfield(AO.(family), field) && isstruct(AO.(family).(field)) ...
-        && isfield(AO.(family).(field), name)
+        && isscalar(AO.(family).(field)) && isfield(AO.(family).(field), name)
     value = AO.(family).(field).(name);
 end
 end
@@ -1828,8 +1845,17 @@ end
 function text = local_document(export, body)
 % One JSON object: the "_export" block first, then the body's own keys.
 % "_export" is not a legal MATLAB field name, so the block is spliced in as text.
+%
+% The splice takes the body's own opening brace off, so a body that encoded as
+% anything but an object would be joined into text that is not JSON. It
+% is refused by name here rather than written out.
 head = ['{"_export":' local_encode(export)];
 encoded = local_encode(body);
+if isempty(encoded) || encoded(1) ~= '{'
+    error('mml_export:document', ...
+        'The body of a JSON file encoded as %s rather than as an object.', ...
+        mat2str(encoded(1:min(numel(encoded), 20))));
+end
 if strcmp(encoded, '{}')
     text = [head '}'];
 else

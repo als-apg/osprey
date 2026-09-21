@@ -201,6 +201,17 @@ def test_every_jsonencode_call_keeps_non_finite_out_of_null(exporter_source: str
         assert re.search(r"'ConvertInfAndNaN'\s*,\s*false", call), call
 
 
+def test_a_body_that_did_not_encode_as_an_object_is_refused_by_name(
+    exporter_source: str,
+) -> None:
+    """The splice drops the body's opening brace, so a non-object body is not JSON."""
+    body = _code(_function_body(exporter_source, "local_document"))
+
+    assert "mml_export:document" in body
+    assert "encoded(1) ~= '{'" in body
+    assert body.index("mml_export:document") < body.index("encoded(2:end)")
+
+
 def test_script_applies_the_normalisation_rules(exporter_source: str) -> None:
     assert "func2str(" in exporter_source
     assert "deblank(" in exporter_source
@@ -453,19 +464,47 @@ def test_the_monitor_calibration_inverse_is_sampled_over_the_setpoint_image(
     assert "hw2physics" not in _code(body)
 
 
-def test_the_grid_rule_is_the_range_only_when_it_is_finite_and_holds_the_anchor(
+def test_a_band_that_does_not_hold_its_anchor_is_stretched_rather_than_abandoned(
     exporter_source: str,
 ) -> None:
-    """A Range is a band to sample over only when every device has a usable one."""
-    holds = _code(_function_body(exporter_source, "local_range_holds_nominal"))
+    """A conversion turns over outside the span the facility runs the device over.
+
+    So a device whose stated band misses its anchor is sampled over that band
+    widened to the anchor and no further, per device, and only a device with
+    no band at all gets the wide symmetric span.
+    """
+    grid = _code(_function_body(exporter_source, "local_hardware_grid"))
     band = _code(_function_body(exporter_source, "local_finite_band"))
+
+    assert "banded = local_finite_band(range, nDev);" in grid
+    assert "low(banded) = min(range(banded, 1), nominal(banded));" in grid
+    assert "high(banded) = max(range(banded, 2), nominal(banded));" in grid
+    assert "max(2 * abs(nominal), 1)" in grid
+    assert "isfinite(range)" in band
+    assert "range(:, 1) < range(:, 2)" in band
+    assert "local_range_holds_nominal" not in exporter_source
+
+
+def test_a_stretched_band_is_not_indexed_on_a_field_that_has_none(
+    exporter_source: str,
+) -> None:
+    """MATLAB checks the column subscript of an empty array even when no row is selected."""
     grid = _code(_function_body(exporter_source, "local_hardware_grid"))
 
-    assert "local_finite_band(" in holds
-    assert "nominal >= range(:, 1)" in holds
-    assert "nominal <= range(:, 2)" in holds
-    assert "isfinite(range)" in band
-    assert "max(2 * abs(nominal), 1)" in grid
+    guard = grid.index("if any(banded)")
+    assert guard < grid.index("low(banded) =")
+    assert grid.index("high(banded) =") < grid.index("end", guard)
+    assert grid.index("low = -max(") < guard, "every device starts on the symmetric span"
+
+
+def test_the_grid_source_word_is_the_weakest_grid_the_field_used(
+    exporter_source: str,
+) -> None:
+    """One word per field, and a field is only on its Range when every device had a band."""
+    grid = _code(_function_body(exporter_source, "local_hardware_grid"))
+
+    assert re.search(r"if all\(banded\)\s*\n\s*source = 'range';", grid)
+    assert re.search(r"else\s*\n\s*source = 'fallback';", grid)
 
 
 def test_a_linear_calibration_is_the_line_held_against_every_sample(
@@ -522,6 +561,22 @@ def test_a_nominal_the_middle_layer_could_not_give_is_recorded_not_re_anchored(
     }
     assert "(range(usable, 1) + range(usable, 2)) / 2" in body
     assert "calibration.anchor = anchor;" in _code(exporter_source)
+
+
+def test_a_field_with_no_band_is_anchored_without_indexing_its_empty_range(
+    exporter_source: str,
+) -> None:
+    """MATLAB checks the column subscript of an empty array even when no row is selected.
+
+    The Monitor field of a magnet family has neither a nominal nor a Range, so
+    every device is missing and none is usable; the midpoint line must not run.
+    """
+    body = _code(_function_body(exporter_source, "local_anchor"))
+
+    guard = body.index("if any(usable)")
+    assert guard < body.index("range(usable, 1)")
+    assert body.index("range(usable, 1)") < body.index("end", guard), "inside the guard"
+    assert body.index("anchored(missing & ~usable) = 0;") > body.index("end", guard)
 
 
 def test_a_conversion_that_answers_in_another_shape_is_refused_by_name(
@@ -636,6 +691,22 @@ def test_the_energy_table_and_the_scaling_refuse_an_unusable_model_energy(
 
     table = _code(_function_body(exporter_source, "local_energy_table"))
     assert table.index("local_require_energy(") < table.index("bend2gev(")
+
+
+def test_a_field_held_as_a_struct_array_states_nothing_rather_than_throwing(
+    exporter_source: str,
+) -> None:
+    """A struct array answers one value per element, which is no value to hand back.
+
+    Without the check the read throws where no caller catches it, and the
+    family collapses to a refusal with nothing else in its block.
+    """
+    body = _code(_function_body(exporter_source, "local_subfield"))
+    names = _code(_function_body(exporter_source, "local_field_names"))
+
+    assert "isscalar(AO.(family).(field))" in body
+    assert body.index("isscalar(") < body.index("value = AO.(family).(field).(name)")
+    assert "isscalar(value)" in names, "the same rule names the fields of a family"
 
 
 def test_a_table_row_with_no_finite_sample_is_refused_by_name(

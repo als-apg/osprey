@@ -67,8 +67,8 @@ comes from.
 | `QD` | 4 | A second strength family whose readback conversion has a curve in it, so its `monitor_inverse` is a table. |
 | `SF` | 4 | A sextupole family, Setpoint only. |
 | `SQ` | 4 | A skew quadrupole on the same elements as `SF`: one element, two lattice fields. |
-| `HC` | 4 | The sliced kick family. Its `at_index` is 4×2 with one `"NaN"` — cell 4 has one element where the others have two, so that device has one slice and the rest have two. Its nominal sits outside its `Range`, so the grid is sized by the nominal and `grid_source` is `fallback`. |
-| `VC` | 4 | The vertical plane on the same corrector elements, with a `Range` that does hold its nominal (`grid_source` `range`). |
+| `HC` | 4 | The sliced kick family. Its `at_index` is 4×2 with one `"NaN"` — cell 4 has one element where the others have two, so that device has one slice and the rest have two. Its first device is set above its `Range`, so that device is sampled over its band stretched up to its nominal while the other three are sampled over the band itself: one field whose rows are not all the same span. `grid_source` is still `range`, because every device had a band to stretch. |
+| `VC` | 4 | The vertical plane on the same corrector elements, with a `Range` that holds every one of its nominals, so no band is stretched (`grid_source` `range`). |
 | `BPMx` | 4 | A monitor-only family with a `Range`, so its `monitor_inverse` is sampled over the Monitor's own image (`grid_source` `range`). |
 | `BPMy` | 4 | A monitor-only family with no `Range`: the calibration falls back to a grid about the nominal, and the inverse to the ±10 mm beam-position span (`grid_source` `fallback`). |
 | `BEND` | 4 | The energy candidate with a knob. Its conversion is a measured ramp that stops at 500 A, so the Setpoint calibration is a **table** with a `"NaN"` tail and a `finite_span` shorter than its grid, and so is the energy table. |
