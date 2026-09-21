@@ -61,7 +61,7 @@ def record_env_delta(before: Mapping[str, str]) -> None:
 
 
 @pytest.hookimpl(wrapper=True)
-def pytest_fixture_setup(fixturedef, request):
+def pytest_fixture_setup(fixturedef):
     """Measure the environment across the setup of a longer-lived fixture.
 
     A pluggy *wrapper*: it does not produce the fixture value, it brackets
