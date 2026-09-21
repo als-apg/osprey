@@ -246,7 +246,7 @@ def test_down_is_correct_from_a_subdirectory(lifecycle_repo, runtime, monkeypatc
 
 
 @pytest.mark.usefixtures("runtime", "no_web")
-def test_the_working_directory_survives_a_down(lifecycle_repo, tmp_path):
+def test_the_working_directory_survives_a_down(lifecycle_repo):
     """``down`` chdirs into the repo and does not execvpe away; it must restore."""
     render_build(lifecycle_repo)
     before = Path.cwd()

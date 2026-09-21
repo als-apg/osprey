@@ -3877,7 +3877,7 @@ class _StoreRuntime:
 
 
 @pytest.fixture
-def store_preflight(monkeypatch, tmp_path):
+def store_preflight(monkeypatch):
     """One store, one surviving volume whose container holds a different value.
 
     The mismatch is the setup, not the assertion: whether the preflight *sees*

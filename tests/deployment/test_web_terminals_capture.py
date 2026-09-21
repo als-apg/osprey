@@ -76,7 +76,7 @@ def reporter():
 
 
 @pytest.fixture
-def terminal_reporter(monkeypatch):
+def terminal_reporter():
     """The real reporter, printing to the captured stdout, one phase open."""
     rep = PhaseReporter(color=False)
     previous = install_reporter(rep)
@@ -714,7 +714,7 @@ def test_verify_script_is_captured_from_the_project_root(monkeypatch, tmp_path, 
 
 
 @pytest.mark.usefixtures("terminal_reporter")
-def test_verify_script_output_never_reaches_the_terminal(monkeypatch, tmp_path, capfd):
+def test_verify_script_output_never_reaches_the_terminal(tmp_path, capfd):
     """Real script, real capture: a chatty health report belongs in the spool,
     with only the step line on the operator's terminal."""
     _write_verify_script(tmp_path, body="\n".join(f"echo '{line}'" for line in BUILDKIT_OUTPUT))
@@ -730,7 +730,7 @@ def test_verify_script_output_never_reaches_the_terminal(monkeypatch, tmp_path, 
 
 
 @pytest.mark.usefixtures("terminal_reporter")
-def test_failing_verify_script_names_its_spool_and_does_not_raise(monkeypatch, tmp_path, caplog):
+def test_failing_verify_script_names_its_spool_and_does_not_raise(tmp_path, caplog):
     """A non-zero exit stays advisory — and now that nothing streamed, the
     warning has to name the file holding the report."""
     _write_verify_script(tmp_path, body="echo 'probe failed'\nexit 3")
@@ -743,7 +743,7 @@ def test_failing_verify_script_names_its_spool_and_does_not_raise(monkeypatch, t
     assert str(spool) in caplog.text
 
 
-def test_failing_verify_script_names_its_spool_with_no_phase_open(monkeypatch, tmp_path, caplog):
+def test_failing_verify_script_names_its_spool_with_no_phase_open(tmp_path, caplog):
     """The hook has callers outside the lifecycle verbs (no reporter phase, so
     nothing recorded a spool path for them). The path comes off the completed
     process, so those callers get it too rather than being pointed at output
@@ -834,7 +834,7 @@ def test_a_bounce_that_worked_reports_the_endpoint_as_reachable(monkeypatch, tmp
     ]
 
 
-def test_host_port_probe_that_answers_runs_nothing(monkeypatch, tmp_path, reporter):
+def test_host_port_probe_that_answers_runs_nothing(monkeypatch, reporter):
     """A reachable port is the common case: no restart, no spool, no step."""
     monkeypatch.setattr(postup_hooks, "_host_port_answers", lambda url, attempts, delay: True)
     recorder = RunRecorder()

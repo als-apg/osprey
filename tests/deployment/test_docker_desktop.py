@@ -161,7 +161,7 @@ class TestTheBackendApiSource:
         assert docker_desktop.host_networking_enabled() is None
 
     @pytest.mark.usefixtures("no_settings_store")
-    def test_no_socket_at_all_tells_us_nothing(self, monkeypatch, tmp_path):
+    def test_no_socket_at_all_tells_us_nothing(self, monkeypatch):
         monkeypatch.setattr(docker_desktop, "backend_socket_path", lambda: None)
 
         assert docker_desktop.host_networking_enabled() is None

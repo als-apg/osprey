@@ -98,7 +98,7 @@ def _env(tmp_path):
     return parse_dotenv_file(path) if path.is_file() else {}
 
 
-def test_refuses_when_a_minted_credential_meets_a_surviving_volume(deploy, tmp_path):
+def test_refuses_when_a_minted_credential_meets_a_surviving_volume(deploy):
     """The whole point: stop before the image build, not after a probe timeout."""
     up = deploy(FakeRuntime(volumes=[f"{PROJECT}_archiver_mongodb_data"]))
 
@@ -200,7 +200,7 @@ class TestRecoverability:
     tell those two apart, because they offer the operator different choices.
     """
 
-    def test_a_surviving_container_is_reported_as_recoverable(self, deploy, tmp_path):
+    def test_a_surviving_container_is_reported_as_recoverable(self, deploy):
         up = deploy(
             FakeRuntime(
                 volumes=[f"{PROJECT}_archiver_mongodb_data"],
@@ -219,7 +219,7 @@ class TestRecoverability:
         # Never the value itself, in keeping with every other secret this path logs.
         assert "theoriginal" not in message
 
-    def test_an_absent_container_is_reported_as_unrecoverable(self, deploy, tmp_path):
+    def test_an_absent_container_is_reported_as_unrecoverable(self, deploy):
         """The shape the failed run leaves behind: volume alive, container gone."""
         up = deploy(FakeRuntime(volumes=[f"{PROJECT}_archiver_mongodb_data"], container_env={}))
 
@@ -251,7 +251,7 @@ class TestReuseStores:
 
         assert _env(tmp_path)["MONGO_ROOT_PASSWORD"] == "theoriginal"
 
-    def test_it_refuses_when_the_original_cannot_be_read(self, deploy, tmp_path):
+    def test_it_refuses_when_the_original_cannot_be_read(self, deploy):
         """Reuse must not half-succeed: a store it cannot reopen is a hard stop.
 
         Proceeding would start the recoverable stores on adopted credentials
@@ -348,7 +348,7 @@ class TestRestartChecksBeforeItStops:
         assert stopped == [True, False]  # stopped, then started
 
 
-def test_the_volume_probe_is_label_filtered_to_this_project(deploy, tmp_path):
+def test_the_volume_probe_is_label_filtered_to_this_project(deploy):
     """A host-wide listing would let another project's volume block this deploy."""
     fake = FakeRuntime(volumes=[])
     up = deploy(fake)
@@ -438,7 +438,7 @@ class TestBothPostgresIdentities:
         assert env["ARIEL_DB_PASSWORD"] == "preexistingvalue"
         assert len(env["ARIEL_DB_READONLY_PASSWORD"]) == 64
 
-    def test_a_stale_owner_password_still_refuses(self, deploy_postgres, tmp_path):
+    def test_a_stale_owner_password_still_refuses(self, deploy_postgres):
         """The blocking half is unchanged by the non-blocking one beside it."""
         up = deploy_postgres(FakeRuntime(volumes=[f"{PROJECT}_ariel_postgres_data"]))
 

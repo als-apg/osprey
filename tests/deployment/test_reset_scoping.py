@@ -1394,7 +1394,7 @@ def test_a_persona_image_belonging_to_another_deployment_survives(repo):
 
 
 @pytest.mark.usefixtures("no_down")
-def test_an_unreadable_roster_leaves_the_project_image_removable(repo, caplog):
+def test_an_unreadable_roster_leaves_the_project_image_removable(repo):
     """A broken persona catalog degrades reset's image half; it never blocks the reset."""
     import yaml
 

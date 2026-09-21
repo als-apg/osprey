@@ -394,7 +394,7 @@ def test_sidecar_recreate_itself_is_never_blocked_by_the_scan(tmp_path, monkeypa
     assert called, "a credential removal must still be put into force"
 
 
-def test_password_rotation_is_refused_before_it_writes(tmp_path, monkeypatch) -> None:
+def test_password_rotation_is_refused_before_it_writes(tmp_path) -> None:
     """The one removal-free verb, so refusing up front costs nothing.
 
     An operator who has just pasted an IdP client secret into ``.env.auth`` and

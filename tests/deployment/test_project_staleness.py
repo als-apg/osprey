@@ -151,7 +151,7 @@ def test_removed_preset_is_silent_on_content_check(tmp_path, monkeypatch):
     assert staleness.staleness_reasons(tmp_path) == []
 
 
-def test_an_edited_profile_reports_the_render_stale(tmp_path, monkeypatch):
+def test_an_edited_profile_reports_the_render_stale(tmp_path):
     """The edit the advisory most needs to see, on a real deployment repo.
 
     A build renders ``build/`` from the repo's ``profile.yml``, so editing that
