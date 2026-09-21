@@ -29,14 +29,23 @@ What each lane asserts, and why it is not vacuous:
   monitors. Nothing else in this file could distinguish a served model from a
   well-formed echo.
 
-The trees. NSLS-II and SPEAR3 commit 1.0 exports and no virtual accelerator, so
-there is no machine of theirs to boot yet and their lanes skip with that as the
-reason. The synthetic Quokka tree commits a 2.0 export and boots. Which is
-which is DISCOVERED -- a directory carrying a ``*.va.json`` sibling is a 2.0
-tree -- so a re-export committed later joins every lane below with no edit
-here. The facilities themselves are named in one tuple, because what pytest
-parametrises over is read at collection time and a directory scan there would
-fail this whole directory rather than one lane.
+The trees. Naming a facility in ``CRITERION_TREES`` is the claim that its
+export reaches a served machine, so a tree named there that commits no 2.0
+export fails rather than stands aside. Whether it carries one is still
+DISCOVERED -- a directory holding a ``*.va.json`` sibling is a 2.0 tree -- so
+the claim is checked against the tree on disk rather than restated here. The
+facilities are named in one tuple because what pytest parametrises over is read
+at collection time, and a directory scan there would fail this whole directory
+rather than one lane.
+
+Nothing below skips. A facility exports the knobs it has, and the lanes differ
+in which of them they drive, so a lane can find no device of its kind -- but
+which kinds a tree couples is the reviewed mapping's answer, and that makes an
+absence a fact to ASSERT against the mapping rather than a reason to stop
+measuring. ``_agrees_with_the_mapping`` is where that is done, and it is the
+last thing a lane does before ending empty-handed. In a report a skip and a
+clean pass are told apart only by reading the reason; an assertion needs no
+such reading.
 
 Sequencing. One container at a time: the harvest and the boot are module-scoped
 and parametrised over the trees, so pytest tears the previous tree's container
@@ -120,6 +129,7 @@ if __name__ == "__main__" and len(sys.argv) > 2 and sys.argv[1] == "--worker":
     raise SystemExit(0)
 
 import pytest  # noqa: E402
+import yaml  # noqa: E402
 from click.testing import CliRunner  # noqa: E402
 
 from osprey.services.virtual_accelerator.bindings import (  # noqa: E402
@@ -144,6 +154,12 @@ pytestmark = [
     pytest.mark.xdist_group("mml-trees-boot"),
 ]
 
+# Floor for this module's own test count -- a guard against a refactor that
+# leaves the file importable but empty, which would otherwise pass silently.
+# Seven lanes over three trees; the guard test itself is the twenty-second
+# item, so a floor of 21 reds on the loss of a single lane.
+MIN_COLLECTED_TESTS = 21
+
 #: The image under test -- the same one the rest of this directory serves from.
 IMAGE = e2e_conftest.IMAGE
 
@@ -157,10 +173,9 @@ BOOT_TIMEOUT_S = 240.0
 #: The facilities success criterion 1 names, and the trees this module opens a
 #: lane for. A literal tuple, because parametrisation is read at COLLECTION: a
 #: directory scan here fails the whole ``tests/va/e2e`` directory rather than
-#: one lane. Which of them actually boots is still discovered -- ``served``
-#: skips a tree that commits no ``*.va.json`` -- so a 2.0 re-export gives a
-#: facility named here its lane with no edit, and a facility not named here
-#: joins by being added to this tuple.
+#: one lane. Every tree named here is CLAIMED to reach a served machine, and
+#: ``served`` fails one that commits no ``*.va.json``; a facility not named
+#: here joins by being added to this tuple.
 CRITERION_TREES = ("nsls2", "spear3", "synthetic")
 
 
@@ -191,6 +206,10 @@ WRITE_FRACTION = 1e-3
 #: wrong by orders of magnitude, not by parts in a billion.
 READBACK_RTOL = 1e-9
 
+#: The three answers a served binding can give the client that writes to it.
+#: A document naming anything else describes a machine the model cannot serve.
+READBACK_RULES = ("same_as_setpoint", "identity", "inverse")
+
 
 # ===================================================================
 # The harvest
@@ -207,6 +226,7 @@ class BuiltTree:
         env: The deployment ``.env`` the build appended its derived keys to.
         document: The bindings the build published into the served directory.
         limits: The write bands of that same directory.
+        declared_kinds: The coupling kinds the reviewed mapping declares.
     """
 
     name: str
@@ -214,6 +234,7 @@ class BuiltTree:
     env: dict[str, str]
     document: BindingsDocument
     limits: dict[str, Any]
+    declared_kinds: frozenset[str]
 
     @property
     def served_dir(self) -> Path:
@@ -287,6 +308,27 @@ def harvest_and_build(name: str, destination: Path) -> BuiltTree:
         limits=json.loads(
             (paths.machine_json.parent / "channel_limits.json").read_text(encoding="utf-8")
         ),
+        declared_kinds=_declared_kinds(repo / "data" / "mml" / "mapping.yaml"),
+    )
+
+
+def _declared_kinds(mapping: Path) -> frozenset[str]:
+    """The coupling kinds the reviewed mapping declares for the served system.
+
+    Read from the copy the install left in the deployment rather than from the
+    fixture beside the export, so this is the same document ``mml emit`` bound
+    from.
+
+    Only a family whose verdict is ``couple`` contributes its ``kind``. A
+    latched family carries a ``slot.kind`` too, but that names the QUESTION
+    that was asked about the family -- an unknown ATType, an escape hatch --
+    and a question binds nothing.
+    """
+    block = yaml.safe_load(mapping.read_text(encoding="utf-8"))["virtual_accelerator"]
+    return frozenset(
+        str(family["kind"])
+        for family in block["families"].values()
+        if isinstance(family, dict) and family.get("verdict") == "couple" and "kind" in family
     )
 
 
@@ -437,7 +479,7 @@ def _wait_until_ready(container: str, served: ServedTree) -> None:
 
 @pytest.fixture(scope="module", params=CRITERION_TREES)
 def served(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFactory):
-    """One tree, harvested, built and served -- or skipped with the reason.
+    """One tree, harvested, built and served.
 
     Module-scoped and parametrised, which is what keeps the boots sequential
     within a worker: the previous tree's container is torn down before the next
@@ -445,16 +487,19 @@ def served(request: pytest.FixtureRequest, tmp_path_factory: pytest.TempPathFact
     ``xdist_group`` mark that keeps every lane on one of them, so no two boots
     of this module run at once.
 
-    Which trees carry a machine is read off the CLI recipe's own discovery, so
-    the boot lane and the recipe lane can never disagree about it.
+    Whether a tree carries a machine is read off the CLI recipe's own
+    discovery, so the boot lane and the recipe lane can never disagree about
+    it -- and a tree named here that carries none FAILS. Naming a facility in
+    ``CRITERION_TREES`` is the claim that its export reaches a served machine;
+    a tree that stops meeting that claim has lost something this suite exists
+    to notice.
     """
     name = str(request.param)
-    if name not in _recipes().TWO_ZERO_TREES:
-        pytest.skip(
-            f"{name} commits no 2.0 export (no *.va.json beside its Accelerator Objects), "
-            f"so it carries no machine to serve; re-export it with mml_export 2.0 and this "
-            f"lane runs with no edit here"
-        )
+    assert name in _recipes().TWO_ZERO_TREES, (
+        f"{name} commits no 2.0 export (no *.va.json beside its Accelerator Objects), so it "
+        f"carries no machine to serve; re-export it with mml_export 2.0, or drop it from "
+        f"CRITERION_TREES if this facility is no longer claimed to boot"
+    )
     tree = harvest_and_build(name, tmp_path_factory.mktemp(f"mml-tree-{name}"))
     with _serving(tree) as running:
         yield running
@@ -474,11 +519,68 @@ def _of_kind(tree: BuiltTree, kind: str, readback: str | None = None) -> tuple[B
     )
 
 
-def _require(bindings: tuple[Binding, ...], what: str, tree: BuiltTree) -> Binding:
-    """The first of ``bindings``, or a skip naming what this tree does not bind."""
-    if not bindings:
-        pytest.skip(f"{tree.name} binds no {what}, so there is none of its own to drive")
-    return bindings[0]
+def _agrees_with_the_mapping(tree: BuiltTree, kinds: tuple[str, ...]) -> None:
+    """The served tree binds each of ``kinds`` exactly when its mapping declares it.
+
+    What every absence below rests on. Which families couple, and as what, is
+    the reviewed mapping's answer; ``mml emit`` turns exactly those answers
+    into bindings. So a facility that exports no energy knob is a FACT about
+    that facility, provable against its own mapping, rather than a lane that
+    stops measuring -- and the reverse, a mapping that couples a family whose
+    bindings never reached the served tree, fails here rather than reading as
+    a facility that simply has no such knob.
+    """
+    for kind in kinds:
+        bound = bool(_of_kind(tree, kind))
+        declared = kind in tree.declared_kinds
+        assert bound == declared, (
+            f"{tree.name}: the served tree binds {'a' if bound else 'no'} {kind} while its "
+            f"reviewed mapping declares {'one' if declared else 'none'}; the mapping decides "
+            f"what couples, so the two cannot disagree about a whole kind"
+        )
+
+
+def _rules_are_coherent(tree: BuiltTree, kinds: tuple[str, ...]) -> None:
+    """Every binding of ``kinds`` serves a known rule, on the address it names.
+
+    Two facts in one walk. A rule outside the three is a document no model
+    could serve. And ``same_as_setpoint`` is the one rule that answers on the
+    address it was written to, so it is also the one rule that owes no second
+    address: a binding that carries one anyway serves its readback where no
+    rule reaches, and one that carries none under another rule names nowhere
+    to read.
+
+    Written for the driven kinds only. A monitor reads a physics quantity and
+    is served through its inverse on the address it was written to, so it is
+    the one kind for which the second half does not hold.
+    """
+    for binding in tree.document.bindings:
+        if binding.kind not in kinds:
+            continue
+        assert binding.readback in READBACK_RULES, (
+            f"{tree.name}: {binding.setpoint_address} serves {binding.readback!r}, which is "
+            f"none of the three rules a client can be written against ({READBACK_RULES})"
+        )
+        owes_an_address = binding.readback != "same_as_setpoint"
+        assert (binding.readback_address is not None) == owes_an_address, (
+            f"{tree.name}: {binding.setpoint_address} serves {binding.readback!r} and "
+            f"{'names no' if owes_an_address else 'also names a'} readback address"
+        )
+
+
+def _bound_or_absent(
+    bindings: tuple[Binding, ...], tree: BuiltTree, kinds: tuple[str, ...]
+) -> Binding | None:
+    """The first of ``bindings``, or ``None`` once the absence is accounted for.
+
+    Either way the tree is first held to its mapping over ``kinds``, so a lane
+    that ends in ``None`` ends having proved something about the facility. The
+    alternative -- stopping the lane -- reads in a report exactly like a lane
+    that ran and found nothing wrong, which is the one thing a report of this
+    suite must never be ambiguous about.
+    """
+    _agrees_with_the_mapping(tree, kinds)
+    return bindings[0] if bindings else None
 
 
 def _expected_inverse(binding: Binding, written: float) -> float:
@@ -529,13 +631,23 @@ class TestTheServedTree:
         The rule a read-modify-write client depends on -- a setpoint that
         answered with anything but the value it took would drift such a client
         one write at a time.
+
+        Which rule a device serves is not the mapping's to state: it follows
+        from the export's own channels and curves, so the emitted document is
+        the source of truth for it. A tree serving this rule nowhere therefore
+        ends on what can be held against something independent -- its driven
+        kinds against the mapping, and its rules against the three a client can
+        be written for.
         """
-        binding = _require(
+        _rules_are_coherent(served.tree, ("strength", "kick"))
+        binding = _bound_or_absent(
             _of_kind(served.tree, "strength", "same_as_setpoint")
             or _of_kind(served.tree, "kick", "same_as_setpoint"),
-            "device serving its readback on the setpoint address",
             served.tree,
+            ("strength", "kick"),
         )
+        if binding is None:
+            return
         target = served.tree.target(binding)
 
         values = served.write_then_read(
@@ -553,12 +665,16 @@ class TestTheServedTree:
         the expected value is computed through the facility's own calibration
         and its own ``monitor_inverse``, which for a real export land nowhere
         near the number that was written.
+
+        A tree whose strengths all collapse to another rule ends at the same
+        two checks as the lane above, for the same reason.
         """
-        binding = _require(
-            _of_kind(served.tree, "strength", "inverse"),
-            "strength serving its readback through an inverse",
-            served.tree,
+        _rules_are_coherent(served.tree, ("strength",))
+        binding = _bound_or_absent(
+            _of_kind(served.tree, "strength", "inverse"), served.tree, ("strength",)
         )
+        if binding is None:
+            return
         assert binding.readback_address is not None
         target = served.tree.target(binding)
 
@@ -581,7 +697,9 @@ class TestTheServedTree:
         else rather than assumed to be an echo: which rule a facility's
         correctors use is the export's answer, not this file's.
         """
-        binding = _require(_of_kind(served.tree, "kick"), "corrector", served.tree)
+        binding = _bound_or_absent(_of_kind(served.tree, "kick"), served.tree, ("kick",))
+        if binding is None:
+            return
         target = served.tree.target(binding)
         addresses = [binding.setpoint_address]
         if binding.readback_address is not None:
@@ -602,16 +720,16 @@ class TestTheServedTree:
         leaves every monitor exactly where it was, which is the one thing no
         other lane in this file can tell apart from a machine.
         """
+        _agrees_with_the_mapping(served.tree, ("monitor", "kick"))
         monitors = _of_kind(served.tree, "monitor")
-        if not monitors:
-            pytest.skip(f"{served.tree.name} binds no monitor, so nothing reads the orbit")
         correctors = _of_kind(served.tree, "kick")
-        if len(correctors) < 2:
-            pytest.skip(
-                f"{served.tree.name} binds {len(correctors)} correctors; this lane needs one "
-                f"of its own, off the device the readback lanes drive"
-            )
-        binding = correctors[1]
+        if not monitors or not correctors:
+            return
+        # The second corrector where the tree has one, so this lane and the
+        # kick-readback lane above drive different devices. A tree with a
+        # single corrector has none to spare, and measuring its orbit against
+        # that one device is worth more than not measuring it at all.
+        binding = correctors[1] if len(correctors) > 1 else correctors[0]
         addresses = [monitor.setpoint_address for monitor in monitors]
 
         before = served.read(*addresses)
@@ -628,11 +746,13 @@ class TestTheServedTree:
     def test_the_rf_frequency_is_written_and_read_back(self, served: ServedTree) -> None:
         """The cavity knob, where the facility exports one.
 
-        A tree binding no ``rf`` skips: which knobs a facility has is its
-        export's answer, and a lane that demanded one everywhere would fail a
-        facility for a machine it does not run.
+        A tree binding no ``rf`` ends at the mapping check: which knobs a
+        facility has is its export's answer, and a lane that demanded one
+        everywhere would fail a facility for a machine it does not run.
         """
-        binding = _require(_of_kind(served.tree, "rf"), "RF frequency", served.tree)
+        binding = _bound_or_absent(_of_kind(served.tree, "rf"), served.tree, ("rf",))
+        if binding is None:
+            return
         target = served.tree.target(binding)
         served_at = binding.readback_address or binding.setpoint_address
 
@@ -653,7 +773,9 @@ class TestTheServedTree:
         a written hardware value and would survive it, but the ordering keeps
         the machine each of them ran against the one it booted in.
         """
-        binding = _require(_of_kind(served.tree, "energy"), "energy knob", served.tree)
+        binding = _bound_or_absent(_of_kind(served.tree, "energy"), served.tree, ("energy",))
+        if binding is None:
+            return
         target = served.tree.target(binding)
         served_at = binding.readback_address or binding.setpoint_address
 
@@ -664,3 +786,14 @@ class TestTheServedTree:
         expected = _expected_inverse(binding, target) if binding.readback == "inverse" else target
         assert values[binding.setpoint_address] == pytest.approx(target, rel=READBACK_RTOL)
         assert values[served_at] == pytest.approx(expected, rel=READBACK_RTOL)
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_mml_trees_boot.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS
