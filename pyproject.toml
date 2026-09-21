@@ -682,25 +682,6 @@ ignore-variadic-names = true
 # Unused arguments in the test tree: swept per directory, and an entry leaves
 # with the directory's sweep. A root-level file needs its exact path, because
 # a `*` in these globs spans `/`.
-"tests/utils/*" = ["ARG001", "ARG002"]
-"tests/registry/*" = ["ARG001", "ARG002"]
-"tests/docs/*" = ["ARG001", "ARG002"]
-"tests/infrastructure/*" = ["ARG001", "ARG002"]
-"tests/pty/*" = ["ARG001", "ARG002"]
-"tests/documentation/*" = ["ARG001", "ARG002"]
-"tests/scripts/*" = ["ARG001", "ARG002"]
-"tests/stores/*" = ["ARG001", "ARG002"]
-"tests/agent_runner/*" = ["ARG001", "ARG002"]
-"tests/templates/*" = ["ARG001", "ARG002"]
-"tests/screenshots/*" = ["ARG001", "ARG002"]
-"tests/fixtures/*" = ["ARG001", "ARG002"]
-"tests/conftest.py" = ["ARG001", "ARG002"]
-"tests/test_port_base_resolvers.py" = ["ARG001", "ARG002"]
-"tests/_env_scope_guard.py" = ["ARG001", "ARG002"]
-"tests/test_container_support.py" = ["ARG001", "ARG002"]
-"tests/test_e2e_provider_gate.py" = ["ARG001", "ARG002"]
-"tests/test_mongo_container.py" = ["ARG001", "ARG002"]
-
 "tests/deployment/*" = ["ARG001", "ARG002"]
 "tests/mcp_server/*" = ["ARG001", "ARG002"]
 "tests/interfaces/*" = ["ARG001", "ARG002"]
