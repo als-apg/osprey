@@ -198,8 +198,7 @@ DENIED: tuple[Denied, ...] = (
         sample="# \u2500\u2500 The ALS-U Accumulator Ring instance \u2500\u2500",
         roots=REPO_ROOTS,
         # The demo ring ships as the simulation and virtual-accelerator
-        # packages' own subject, plus the two manifests and the preset data
-        # file that name the lattice those packages load.
+        # packages' own subject.
         allow=frozenset(
             {
                 "src/osprey/services/channel_finder/naming.py",
@@ -209,28 +208,15 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/simulation/lattice/__init__.py",
                 "src/osprey/simulation/lattice/artifact.py",
                 "src/osprey/simulation/lattice/ring.py",
-                "src/osprey/templates/apps/control_assistant/data/channel_limits.json",
-                # The suites that exercise those packages, and the two scripts that
-                # derive data from the same lattice: the ring is what they are a
-                # test of.
-                "scripts/va/derive_bands.py",
-                "scripts/va/pyat_model_demo.py",
+                # The suites that exercise those packages: the ring is what they
+                # are a test of.
                 "tests/simulation/matlab_reference.py",
                 "tests/simulation/test_artifact.py",
                 "tests/simulation/test_facility_spec.py",
                 "tests/simulation/test_fidelity.py",
                 "tests/simulation/test_lattice.py",
                 "tests/simulation/test_orbit_closure.py",
-                "tests/templates/test_channel_limits_va.py",
-                "tests/templates/test_machine_json_lattice.py",
                 "tests/va/e2e/test_orbit_response.py",
-                "tests/va/test_bindings_parity.py",
-                "tests/va/test_errors.py",
-                "tests/va/test_lattice.py",
-                "tests/va/test_model_variables.py",
-                "tests/va/test_physics_bridge.py",
-                "tests/va/test_physics_bridge_unknown_bpm.py",
-                "tests/va/test_pyat_ring_model.py",
             }
         ),
     ),
@@ -274,24 +260,13 @@ DENIED: tuple[Denied, ...] = (
                 "src/osprey/services/channel_finder/benchmarks/evaluation.py",
                 # The suites that exercise the bundled demo ring, whose name carries
                 # the abbreviation.
-                "scripts/va/derive_bands.py",
-                "scripts/va/pyat_model_demo.py",
                 "tests/simulation/matlab_reference.py",
                 "tests/simulation/test_artifact.py",
                 "tests/simulation/test_facility_spec.py",
                 "tests/simulation/test_fidelity.py",
                 "tests/simulation/test_lattice.py",
                 "tests/simulation/test_orbit_closure.py",
-                "tests/templates/test_channel_limits_va.py",
-                "tests/templates/test_machine_json_lattice.py",
                 "tests/va/e2e/test_orbit_response.py",
-                "tests/va/test_bindings_parity.py",
-                "tests/va/test_errors.py",
-                "tests/va/test_lattice.py",
-                "tests/va/test_model_variables.py",
-                "tests/va/test_physics_bridge.py",
-                "tests/va/test_physics_bridge_unknown_bpm.py",
-                "tests/va/test_pyat_ring_model.py",
                 # The suites for the shipped reference ingestion adapter, which
                 # returns "ALS eLog": an expectation spelled any other way would
                 # assert a value no adapter produces.
@@ -304,8 +279,12 @@ DENIED: tuple[Denied, ...] = (
                 # description.
                 "tests/models/test_providers_litellm_delegating.py",
                 # Cases that assert the literal's absence, and so have to spell it.
+                # The third holds the roster of real facility names an invented
+                # export may not carry, which is that assertion written as a
+                # pattern.
                 "tests/dispatch/test_dashboard_config_injection.py",
                 "tests/registry/test_pyat_specialist_agent.py",
+                "tests/services/mml/test_fixtures_wellformed.py",
                 # A byte-faithful copy of the shipped plugin manifest, whose author
                 # field is the project's own.
                 "tests/scripts/test_plugin_version.py",

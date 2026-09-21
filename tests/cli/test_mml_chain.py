@@ -29,10 +29,10 @@ drives that machine through addresses the same run kept, and holds it against
 the exported response matrix. The 1.0 fixtures pin the other side of that:
 their emit says the lane was skipped and writes not one of its files.
 
-Two facility-scale numbers ride on the ALS export, which never enters the repo:
-with ``OSPREY_ALS_MML_EXPORT`` and ``OSPREY_ALS_MML_MAPPING`` set, the same
-chain runs on it and the binding and channel counts of success criterion 5 are
-pinned. Unset, that lane skips with the reason.
+Two facility-scale numbers ride on a real facility's export, which never enters
+the repo: with ``OSPREY_ALS_MML_EXPORT`` and ``OSPREY_ALS_MML_MAPPING`` set, the
+same chain runs on it and the binding and channel counts of success criterion 5
+are pinned. Unset, that lane skips with the reason.
 """
 
 from __future__ import annotations
@@ -98,7 +98,7 @@ ALLOWED_FIELD_KEYS = frozenset({*CHANNEL_KEYS, "Description", *FIELD_METADATA_KE
 ALS_EXPORT_ENV = "OSPREY_ALS_MML_EXPORT"
 ALS_MAPPING_ENV = "OSPREY_ALS_MML_MAPPING"
 
-#: Success criterion 5's pinned ALS totals, after broadcast expansion.
+#: Success criterion 5's pinned real-facility totals, after broadcast expansion.
 ALS_BINDINGS = 13674
 ALS_DISTINCT_PVS = 11209
 
@@ -1371,7 +1371,7 @@ class TestTheSourceSpelling:
 
 
 # ===================================================================
-# Criterion 5 — the ALS lane, which never enters the repo
+# Criterion 5 — the real-facility lane, whose export never enters the repo
 # ===================================================================
 
 
@@ -1379,7 +1379,7 @@ class TestTheSourceSpelling:
     not (os.environ.get(ALS_EXPORT_ENV) and os.environ.get(ALS_MAPPING_ENV)),
     reason=(
         f"{ALS_EXPORT_ENV} and {ALS_MAPPING_ENV} are not both set; "
-        "the ALS full-chain lane needs the real export and its reviewed mapping"
+        "the full-chain lane needs the facility's real export and its reviewed mapping"
     ),
 )
 def test_the_als_export_chains_to_its_pinned_counts(tmp_path: Path) -> None:

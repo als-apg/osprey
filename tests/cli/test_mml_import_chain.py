@@ -1,4 +1,4 @@
-"""``osprey mml import`` on every committed export form, and the ALS parity lanes.
+"""``osprey mml import`` on every committed export form, and the real-facility lanes.
 
 Each synthetic fixture under ``tests/fixtures/mml/`` is imported through the real
 command under ``CliRunner``, in the way its form requires: the paired exporter
@@ -11,9 +11,9 @@ that ``PROFILE.md`` lists every ``MemberOf`` tag of the source verbatim.
 
 Two lanes run against a facility's real data, which never enters the repo:
 
-* ``OSPREY_ALS_MML_EXPORT`` names the ALS JSON export; the import-walk census
+* ``OSPREY_ALS_MML_EXPORT`` names the facility's JSON export; the import-walk census
   totals are pinned to the numbers of success criterion 5.
-* ``OSPREY_ALS_MML_MAT`` names the ALS ``.mat``; it imports as ``SR`` and the
+* ``OSPREY_ALS_MML_MAT`` names the facility's ``.mat``; it imports as ``SR`` and the
   loader assertions of success criterion 1 hold on the written ``ao.json``.
 
 Each lane skips with the reason when its variable is unset.
@@ -447,7 +447,7 @@ class TestRefusals:
 
 @pytest.mark.skipif(
     not os.environ.get(ALS_EXPORT_ENV),
-    reason=f"{ALS_EXPORT_ENV} is not set; the ALS export census lane needs the real JSON export",
+    reason=f"{ALS_EXPORT_ENV} is not set; the census lane needs the facility's real JSON export",
 )
 def test_als_export_import_walk_census(repo: Path) -> None:
     from osprey.services.mml.canonical import read_canonical
@@ -494,7 +494,7 @@ def test_als_export_import_walk_census(repo: Path) -> None:
 
 @pytest.mark.skipif(
     not os.environ.get(ALS_MAT_ENV),
-    reason=f"{ALS_MAT_ENV} is not set; the ALS .mat import lane needs the real MAT-file",
+    reason=f"{ALS_MAT_ENV} is not set; the .mat import lane needs the facility's real MAT-file",
 )
 def test_als_mat_imports_as_one_system_with_loader_assertions(repo: Path) -> None:
     mat = Path(os.environ[ALS_MAT_ENV]).expanduser().resolve()

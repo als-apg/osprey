@@ -221,7 +221,7 @@ class TestHandlesAndTypoKeys:
         assert "HW2PhysicsFcn" in KNOWN_HANDLE_KEYS
 
     def test_handle_under_unknown_key_is_also_a_typo(self):
-        """The ALS HW2PhysicSDcn record is listed as a handle and as a typo key."""
+        """A real export's HW2PhysicSDcn record is listed as a handle and as a typo key."""
         body = _bpm()
         body["X"]["HW2PhysicSDcn"] = {"$fn": "amp2k", "file": ""}
         hazards = _system(take_census({"SR": {"BPM": body}}, None), "SR").hazards

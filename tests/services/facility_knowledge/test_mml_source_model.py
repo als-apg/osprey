@@ -274,7 +274,7 @@ class TestUnitsAndDataType:
 
     @pytest.mark.parametrize("key", ["HWUnits", "DataType"])
     def test_empty_list_emits_nothing(self, key):
-        """``[]`` (678 ALS fields) gives no property and no refusal."""
+        """``[]`` (678 fields of one real export) gives no property and no refusal."""
         field = {"ChannelNames": ["A", "B"], key: []}
         bindings, _ = bindings_for_family(_view(_two_devices(field)), _mapping())
         assert all(key not in _extras(b) for b in bindings)

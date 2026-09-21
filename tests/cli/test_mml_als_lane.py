@@ -1,4 +1,4 @@
-"""The ALS lane: the whole install, over the one facility that never enters the repo.
+"""The real-facility lane: the whole install, over the export that never enters the repo.
 
 Every other lane in this suite runs on a committed fixture. A fixture is a
 machine somebody invented to exercise a rule, so a fixture that passes says the
@@ -90,12 +90,11 @@ from tests.cli.test_mml_chain import (  # noqa: E402
 )
 from tests.cli.test_mml_verify import SECTIONS  # noqa: E402
 
-#: Where the facility's own profiles are checked out. The one path this file
-#: knows: a discovery root on the machine that has the export, not anything
-#: about the facility, and an installation that keeps it elsewhere says so
-#: rather than editing this file.
+#: Names where the facility's own profiles are checked out. The lane learns
+#: that discovery root from the environment and from nowhere else: a path
+#: written here would be one machine's own directory standing in for every
+#: other machine's, and the lane skips rather than guess.
 ALS_PROFILES_ENV = "OSPREY_ALS_PROFILES"
-DEFAULT_ALS_PROFILES = Path("/Users/thellert/code/als-profiles")
 
 #: The MATLAB that produces the export. The lane does not run it --- the
 #: re-export is a session a person sits through --- but a machine with no
@@ -192,11 +191,17 @@ def _resolve() -> Lane | str:
             mapping=mapping,
         )
 
-    root = Path(os.environ.get(ALS_PROFILES_ENV, DEFAULT_ALS_PROFILES)).expanduser()
+    named = os.environ.get(ALS_PROFILES_ENV)
+    if not named:
+        return (
+            f"{ALS_PROFILES_ENV} is not set; the lane reads the facility's own "
+            "profiles from the checkout it names"
+        )
+    root = Path(named).expanduser()
     if not root.is_dir():
         return (
-            f"{root} is not a checkout; the lane reads the facility's own profiles "
-            f"there, or wherever {ALS_PROFILES_ENV} names"
+            f"{ALS_PROFILES_ENV} names {root}, which is not a checkout; the lane "
+            "reads the facility's own profiles there"
         )
     if not (os.environ.get(MATLAB_ENV) or shutil.which("matlab")):
         return (

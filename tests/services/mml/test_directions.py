@@ -30,8 +30,8 @@ def _ao(**systems: dict) -> dict:
     return dict(systems)
 
 
-class TestAlsShapedCases:
-    """The ALS field shapes vote as the MML convention reads them."""
+class TestRealFacilityShapedCases:
+    """A real facility's field shapes vote as the MML convention reads them."""
 
     @pytest.mark.parametrize(
         ("field", "member_of", "direction", "source"),
@@ -45,7 +45,7 @@ class TestAlsShapedCases:
         ],
     )
     def test_case(self, field, member_of, direction, source):
-        """Each ALS-shaped field gets the expected direction and source."""
+        """Each field shaped like a real facility's gets the expected direction and source."""
         ao = _ao(SR={"PS": {"DeviceList": [[1, 1]], field: _field(member_of)}})
         vote = vote_directions(ao)[("PS", field)]
         assert vote == Vote(direction=direction, per_system={"SR": direction}, source=source)

@@ -9,13 +9,11 @@ The lattice these tests solve on is built here, in this module, and is no
 facility's: the formulas are pure per-device arithmetic on an AT element, so
 what they need is a ring that solves a closed orbit and carries a quadrupole
 and a bend, and nothing they assert is a property of any particular
-accelerator. It used to be the ALS-U AR deck, reached through a no-argument
-``build_ring()``; that function now loads the lattice and bindings of a
-*served tree*, which is a deployment's artifact rather than a fixture, and
-carrying a whole served tree here would only pin one facility's optics into a
-test of two formulas. The magnitudes below are therefore re-measured on this
-ring (recorded per assertion), while every sign and decoupling assertion --
-the part that catches a bad port -- is unchanged.
+accelerator. A served tree would be the wrong fixture as well as a heavy one:
+it is a deployment's artifact, and carrying one here would pin a facility's
+optics into a test of two formulas. So every magnitude below is measured on
+this ring and recorded per assertion, while the sign and decoupling
+assertions -- the part that catches a bad port -- hold for any ring at all.
 """
 
 from __future__ import annotations
@@ -28,11 +26,11 @@ import numpy as np
 import pytest
 
 from osprey.services.virtual_accelerator.lattice.errors import (
-    BpmErrorSeedError,
+    DeviceSeedError,
     apply_misalignment,
     bpm_read,
     magnet_cal,
-    resolve_bpm_errors,
+    resolve_device_seeds,
 )
 
 #: The fixture ring's beam energy, in GeV, and its focusing strength.
@@ -394,9 +392,21 @@ class TestMagnetCal:
         assert magnet_cal(0.0, offset=-0.05) == pytest.approx(-0.05)
 
 
+def _resolve(
+    seeded: dict[str, dict[str, float]], monitors: dict[str, str]
+) -> dict[str, dict[str, float]]:
+    """The monitor-flavoured resolution, spelled as the boot spells it.
+
+    The resolver serves magnets on the same terms, and the nouns it is given
+    are what its refusals read as; the magnet side is exercised where the boot
+    wires it, in ``test_serving_entrypoint.py``.
+    """
+    return resolve_device_seeds(seeded, monitors, device="monitor", seeds="readout errors")
+
+
 class TestResolveBpmErrors:
-    """resolve_bpm_errors turns the seeded ``DEV:field=value`` map into the
-    element-keyed one the serving bridge applies, against the monitors the
+    """The resolution turns the seeded ``DEV:field=value`` map into the
+    element-keyed one the model holds its faults by, against the monitors the
     bindings document actually publishes.
 
     Two spellings resolve, because two are in use: an operator seeding a fault
@@ -415,20 +425,18 @@ class TestResolveBpmErrors:
     }
 
     def test_an_address_resolves_to_the_element_its_monitor_sits_at(self):
-        resolved = resolve_bpm_errors(
-            {"SR:DIAG:BPM:12:POSITION:X": {"offset_x": 50e-6}}, self.MONITORS
-        )
+        resolved = _resolve({"SR:DIAG:BPM:12:POSITION:X": {"offset_x": 50e-6}}, self.MONITORS)
         assert resolved == {"bpm_12_1": {"offset_x": pytest.approx(50e-6)}}
 
     def test_an_element_name_resolves_to_itself(self):
-        resolved = resolve_bpm_errors({"bpm_13_1": {"gain_x": 1.05}}, self.MONITORS)
+        resolved = _resolve({"bpm_13_1": {"gain_x": 1.05}}, self.MONITORS)
         assert resolved == {"bpm_13_1": {"gain_x": pytest.approx(1.05)}}
 
     def test_both_planes_of_one_monitor_seed_one_error_model(self):
         # A reading is a pair -- bpm_read mixes the planes through the
         # monitor's roll -- so the two addresses of one device resolve to one
         # entry rather than to two half-configured ones.
-        resolved = resolve_bpm_errors(
+        resolved = _resolve(
             {
                 "SR:DIAG:BPM:12:POSITION:X": {"offset_x": 50e-6},
                 "SR:DIAG:BPM:12:POSITION:Y": {"offset_y": 30e-6, "roll": 0.01},
@@ -447,21 +455,19 @@ class TestResolveBpmErrors:
         # The address says which device, never which plane: the plane is the
         # field's own name. Seeding a vertical offset through the horizontal
         # address is therefore the device's vertical offset, not a refusal.
-        resolved = resolve_bpm_errors(
-            {"SR:DIAG:BPM:12:POSITION:X": {"offset_y": 30e-6}}, self.MONITORS
-        )
+        resolved = _resolve({"SR:DIAG:BPM:12:POSITION:X": {"offset_y": 30e-6}}, self.MONITORS)
         assert resolved == {"bpm_12_1": {"offset_y": pytest.approx(30e-6)}}
 
     def test_an_unknown_device_is_refused_and_named(self):
-        with pytest.raises(BpmErrorSeedError, match="BPM99"):
-            resolve_bpm_errors({"BPM99": {"offset_x": 50e-6}}, self.MONITORS)
+        with pytest.raises(DeviceSeedError, match="BPM99"):
+            _resolve({"BPM99": {"offset_x": 50e-6}}, self.MONITORS)
 
     def test_one_field_seeded_through_two_spellings_is_refused(self):
         # The address and the element are one device, so two tokens setting one
         # field is a configuration the operator cannot have meant; picking
         # either by dict order would be a guess.
-        with pytest.raises(BpmErrorSeedError, match="offset_x"):
-            resolve_bpm_errors(
+        with pytest.raises(DeviceSeedError, match="offset_x"):
+            _resolve(
                 {
                     "SR:DIAG:BPM:12:POSITION:X": {"offset_x": 50e-6},
                     "bpm_12_1": {"offset_x": 10e-6},
@@ -470,7 +476,7 @@ class TestResolveBpmErrors:
             )
 
     def test_different_fields_through_two_spellings_merge(self):
-        resolved = resolve_bpm_errors(
+        resolved = _resolve(
             {
                 "SR:DIAG:BPM:12:POSITION:X": {"offset_x": 50e-6},
                 "bpm_12_1": {"gain_y": 0.9},
@@ -485,26 +491,26 @@ class TestResolveBpmErrors:
         # Resolution moves the key and nothing else: whatever the parse step
         # accepted arrives here as written, and a value is never converted or
         # clamped on the way through.
-        resolved = resolve_bpm_errors({"bpm_13_1": {"offset_x": 1.0e3}}, self.MONITORS)
+        resolved = _resolve({"bpm_13_1": {"offset_x": 1.0e3}}, self.MONITORS)
         assert resolved == {"bpm_13_1": {"offset_x": pytest.approx(1.0e3)}}
 
     def test_only_the_seeded_fields_are_returned(self):
         # A partial override, not a full error model: the unseeded fields fall
         # back to identity where the model is applied, so nothing here has to
         # restate what an unperturbed monitor reads.
-        resolved = resolve_bpm_errors({"bpm_13_1": {"gain_x": 1.05}}, self.MONITORS)
+        resolved = _resolve({"bpm_13_1": {"gain_x": 1.05}}, self.MONITORS)
         assert list(resolved["bpm_13_1"]) == ["gain_x"]
 
     def test_nothing_seeded_resolves_to_nothing(self):
-        assert resolve_bpm_errors({}, self.MONITORS) == {}
-        assert resolve_bpm_errors({}, {}) == {}
+        assert _resolve({}, self.MONITORS) == {}
+        assert _resolve({}, {}) == {}
 
     def test_a_seed_against_a_document_with_no_monitors_is_refused(self):
-        with pytest.raises(BpmErrorSeedError, match="bpm_13_1"):
-            resolve_bpm_errors({"bpm_13_1": {"gain_x": 1.05}}, {})
+        with pytest.raises(DeviceSeedError, match="bpm_13_1"):
+            _resolve({"bpm_13_1": {"gain_x": 1.05}}, {})
 
     def test_the_result_does_not_alias_the_seeded_mapping(self):
         seeded = {"bpm_13_1": {"gain_x": 1.05}}
-        resolved = resolve_bpm_errors(seeded, self.MONITORS)
+        resolved = _resolve(seeded, self.MONITORS)
         resolved["bpm_13_1"]["gain_x"] = 2.0
         assert seeded == {"bpm_13_1": {"gain_x": 1.05}}
