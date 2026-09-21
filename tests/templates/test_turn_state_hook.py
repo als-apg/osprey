@@ -293,7 +293,8 @@ def record_calls(monkeypatch, *, raises=None):
     """Stub the hook's ``urlopen`` and hand back the requests it was given."""
     seen = []
 
-    def _fake(target, timeout=None):
+    # The hook under test passes the timeout by keyword to urlopen.
+    def _fake(target, timeout=None):  # noqa: ARG001
         seen.append(target)
         if raises is not None:
             raise raises

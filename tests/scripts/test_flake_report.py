@@ -331,7 +331,8 @@ class TestGhApiFailureModes:
         return types.SimpleNamespace(returncode=returncode, stdout=stdout, stderr=stderr)
 
     def test_timeout_is_none_not_empty(self, monkeypatch):
-        def run(cmd, capture_output, timeout):
+        # The module under test runs the subprocess with capture requested by keyword.
+        def run(cmd, capture_output, timeout):  # noqa: ARG001
             raise subprocess.TimeoutExpired(cmd, timeout)
 
         self._patch(monkeypatch, run)
@@ -414,7 +415,8 @@ class TestUnknownTallyInReport:
             "runs/1/attempts/2/jobs": [{"id": 11, "name": "E2E", "conclusion": "success"}],
         }
 
-        def fake(path, paginate=False):
+        # The module under test asks for pagination by keyword.
+        def fake(path, paginate=False):  # noqa: ARG001
             if "/workflows/" in path:
                 return runs_page
             for fragment, payload in jobs.items():

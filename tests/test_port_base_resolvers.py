@@ -127,7 +127,7 @@ class Case:
     slots: tuple[str, ...] = field(default=())
 
 
-def _ariel_dsn(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _ariel_dsn(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``resolve_ariel_dsn`` with no ``services.postgresql.port_host``."""
     from osprey.services.ariel_search.config import resolve_ariel_dsn
 
@@ -180,7 +180,7 @@ def _pin_config_values(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(osprey.utils.config, "get_config_value", _config_value_reader())
 
 
-def _ariel_cli_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _ariel_cli_config(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``cli_operations._ariel_config`` — the shared builder behind most commands."""
     from osprey.services.ariel_search import cli_operations
 
@@ -213,7 +213,7 @@ def _ariel_cli_vocabulary(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tu
     return [config.database.uri for config in built], [_derived_dsn(PORT_BASE)]
 
 
-def _ariel_store_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _ariel_store_config(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``container_lifecycle._ariel_store_config`` — the DSN the deploy migrates with."""
     from osprey.deployment.container_lifecycle import _ariel_store_config as store_config
 
@@ -237,7 +237,7 @@ def _ariel_mcp_context(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple
     return context.config.database.uri, _derived_dsn(PORT_BASE)
 
 
-def _ariel_capability_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _ariel_capability_service(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``services.ariel_search.capability`` — the config the search capability runs on."""
     import osprey.services.ariel_search.service as ariel_service
     from osprey.services.ariel_search import capability
@@ -263,7 +263,7 @@ def _ariel_capability_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     return [config.database.uri for config in built], [_derived_dsn(PORT_BASE)]
 
 
-def _ariel_panel_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _ariel_panel_config(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``interfaces.ariel.app.load_ariel_config_with_path`` — the panel's own read."""
     from osprey.interfaces.ariel.app import load_ariel_config_with_path
 
@@ -275,7 +275,9 @@ def _ariel_panel_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tupl
     return ariel_config["database"]["uri"], _derived_dsn(PORT_BASE)
 
 
-def _mongodb_archiver_connector(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _mongodb_archiver_connector(
+    _tmp_path: Path, _monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any]:
     """The archiver connector refuses a missing port rather than guessing one.
 
     The one B-row that does *not* end in a 20xxx number, and deliberately:
@@ -308,7 +310,7 @@ def _mongodb_archiver_connector(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     return tuple(token for token in named if token in message), named
 
 
-def _simulation_archiver_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _simulation_archiver_store(tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``simulation.apply.archiver_store_config`` dials the store it publishes."""
     from osprey.simulation.apply import archiver_store_config
 
@@ -318,14 +320,14 @@ def _simulation_archiver_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     return store["port"], default_port("mongo", base=PORT_BASE)
 
 
-def _openobserve_published(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _openobserve_published(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``openobserve_published_port`` with no ``services.openobserve.port``."""
     from osprey.build.claude_code_telemetry import openobserve_published_port
 
     return openobserve_published_port(CONFIG), default_port("openobserve", base=PORT_BASE)
 
 
-def _openobserve_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _openobserve_runtime(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``resolve_openobserve_port`` with no env override and no config key."""
     from osprey.build.claude_code_telemetry import resolve_openobserve_port
 
@@ -335,7 +337,7 @@ def _openobserve_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
 def _web_server_address(key: str) -> Callable[[Path, pytest.MonkeyPatch], tuple[Any, Any]]:
     """Build the ``resolve_web_server_address`` case for one companion server."""
 
-    def run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+    def run(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
         from osprey.registry.web import resolve_web_server_address
 
         definition = FRAMEWORK_WEB_SERVERS[key]
@@ -346,7 +348,7 @@ def _web_server_address(key: str) -> Callable[[Path, pytest.MonkeyPatch], tuple[
     return run
 
 
-def _web_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _web_port(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``resolve_web_port`` with neither ``--port`` nor ``web_terminal.port``."""
     from osprey.cli.web_cmd import resolve_web_port
 
@@ -354,14 +356,14 @@ def _web_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any
     return actual, default_port("web", 0, base=PORT_BASE)
 
 
-def _nginx_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _nginx_port(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``resolve_nginx_port`` with no ``modules.web_terminals.nginx_port``."""
     from osprey.deployment.web_terminals.ports import resolve_nginx_port
 
     return resolve_nginx_port(CONFIG), default_port("nginx", base=PORT_BASE)
 
 
-def _base_ports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _base_ports(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``base_ports_from_config`` with a stanza carrying no ``*_base_port`` key."""
     from osprey.deployment.web_terminals.ports import FAMILY_BASE_FIELDS, base_ports_from_config
 
@@ -373,7 +375,7 @@ def _base_ports(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, A
     return actual, expected
 
 
-def _mcp_web_terminal_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _mcp_web_terminal_url(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``mcp_server.http.web_terminal_url`` with no ``web_terminal.port``."""
     from osprey.mcp_server.http import web_terminal_url
 
@@ -381,7 +383,9 @@ def _mcp_web_terminal_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tu
     return web_terminal_url(), f"http://127.0.0.1:{default_port('web', 0, base=PORT_BASE)}"
 
 
-def _scaffold_openobserve_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _scaffold_openobserve_probe(
+    _tmp_path: Path, _monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any]:
     """The deploy scaffold probes the telemetry store inside the profile's block."""
     from osprey.cli.deploy_scaffold_templates import _service_probes
 
@@ -395,7 +399,9 @@ def _scaffold_openobserve_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     return ports, [default_port("openobserve", base=PORT_BASE)]
 
 
-def _scaffold_dispatcher_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _scaffold_dispatcher_probe(
+    _tmp_path: Path, _monkeypatch: pytest.MonkeyPatch
+) -> tuple[Any, Any]:
     """The deploy scaffold probes the dispatcher inside the profile's block."""
     from osprey.cli.deploy_scaffold_templates import _dispatch_probes
 
@@ -407,7 +413,7 @@ def _scaffold_dispatcher_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
     return ports, [default_port("dispatcher", base=PORT_BASE)]
 
 
-def _scaffold_web_probes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _scaffold_web_probes(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """The scaffold's landing page and user 0's terminal, both at the profile's base."""
     from osprey.cli.deploy_scaffold_templates import _web_probes
 
@@ -424,7 +430,7 @@ def _scaffold_web_probes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tup
     return ports, expected
 
 
-def _health_ariel_dsn_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _health_ariel_dsn_check(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """The health cross-check names the port an empty postgresql block implies.
 
     ``services.postgresql: {}`` sets no ``port_host``, which is not an unknown
@@ -448,7 +454,7 @@ def _health_ariel_dsn_check(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     return int(match.group(1)), default_port("postgres", base=PORT_BASE)
 
 
-def _graphdb_connection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _graphdb_connection(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``resolve_graphdb_connection`` with no ``services.graphdb.port_host``."""
     from osprey.deployment.graphdb_service import resolve_graphdb_connection
 
@@ -456,7 +462,7 @@ def _graphdb_connection(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tupl
     return connection.uri, f"bolt://localhost:{default_port('graphdb_bolt', base=PORT_BASE)}"
 
 
-def _qmd_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _qmd_service(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``resolve_qmd_service_config`` with a ``services.qmd`` block naming no port."""
     from osprey.deployment.qmd_service import resolve_qmd_service_config
 
@@ -465,7 +471,7 @@ def _qmd_service(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, 
     return resolved.port, default_port("qmd", base=PORT_BASE)
 
 
-def _bluesky_bridge_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _bluesky_bridge_url(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """``bridge_url_from_config`` with no ``services.bluesky.port``."""
     from osprey.bluesky_bridge_connection import bridge_url_from_config
 
@@ -475,7 +481,7 @@ def _bluesky_bridge_url(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tupl
     )
 
 
-def _auth_sidecar_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _auth_sidecar_port(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """The web-terminal auth sidecar with no ``modules.web_terminals.auth.port``."""
     from osprey.deployment.web_terminals.render import _auth_tls_context
 
@@ -483,7 +489,7 @@ def _auth_sidecar_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple
     return context["auth_port"], default_port("auth", base=PORT_BASE)
 
 
-def _dispatcher_worker_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _dispatcher_worker_target(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """The dispatcher's fallback ``DISPATCH_TARGET`` is worker 1 in its own block."""
     from osprey.dispatch.server import _default_worker_port
 
@@ -491,7 +497,7 @@ def _dispatcher_worker_target(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -
     return _default_worker_port(), default_port("worker", 1, base=PORT_BASE)
 
 
-def _worker_entrypoint_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _worker_entrypoint_port(_tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """A hand-started worker binds worker 1 of its own block, not the default one."""
     import osprey.mcp_server.dispatch_worker.__main__ as worker_main
 
@@ -505,7 +511,7 @@ def _worker_entrypoint_port(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     return bound.get("port"), default_port("worker", 1, base=PORT_BASE)
 
 
-def _panel_cli_port_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
+def _panel_cli_port_defaults(_tmp_path: Path, _monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any]:
     """No panel command freezes a port in its ``--port`` default.
 
     A click default is evaluated at import time, before any config is in hand,

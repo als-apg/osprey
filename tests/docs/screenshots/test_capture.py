@@ -128,7 +128,8 @@ def test_tutorial_stack_provider_skips(monkeypatch) -> None:
     from contextlib import contextmanager
 
     @contextmanager
-    def _skip_stack(*, artifact_port):
+    # The seam this stands in for takes the artifact port by keyword.
+    def _skip_stack(*, artifact_port):  # noqa: ARG001
         raise ScreenshotSkip("container runtime unavailable")
         yield  # pragma: no cover - unreachable; marks this a generator
 

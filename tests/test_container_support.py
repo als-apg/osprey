@@ -348,7 +348,8 @@ class FakeStartedContainer:
     def reload(self) -> None:
         self.reads += 1
 
-    def logs(self, tail: int = 0) -> bytes:
+    # The docker-py surface this stands in for is asked for a tail size by keyword.
+    def logs(self, tail: int = 0) -> bytes:  # noqa: ARG002
         if self.log_lines:
             self.last_tail = self.log_lines.pop(0)
         return self.last_tail
