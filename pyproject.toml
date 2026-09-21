@@ -657,12 +657,19 @@ select = [
     "B",  # flake8-bugbear
     "C4", # flake8-comprehensions
     "UP", # pyupgrade
+    "ARG001",  # unused function argument
+    "ARG002",  # unused method argument
 ]
 ignore = [
     "E501",  # line too long, handled by formatter
     "B008",  # do not perform function calls in argument defaults
     "C901",  # too complex
 ]
+
+[tool.ruff.lint.flake8-unused-arguments]
+# A variadic collects what a caller sends and names nothing in particular, so
+# its name is never a claim that something is read.
+ignore-variadic-names = true
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports in __init__.py
@@ -671,6 +678,51 @@ ignore = [
 "tests/documentation/test_workflow_autodoc.py" = ["E402"]  # Late imports after path manipulation
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
+
+# Unused arguments in the test tree: swept per directory, and an entry leaves
+# with the directory's sweep. A root-level file needs its exact path, because
+# a `*` in these globs spans `/`.
+"tests/utils/*" = ["ARG001", "ARG002"]
+"tests/registry/*" = ["ARG001", "ARG002"]
+"tests/docs/*" = ["ARG001", "ARG002"]
+"tests/infrastructure/*" = ["ARG001", "ARG002"]
+"tests/pty/*" = ["ARG001", "ARG002"]
+"tests/documentation/*" = ["ARG001", "ARG002"]
+"tests/scripts/*" = ["ARG001", "ARG002"]
+"tests/stores/*" = ["ARG001", "ARG002"]
+"tests/agent_runner/*" = ["ARG001", "ARG002"]
+"tests/templates/*" = ["ARG001", "ARG002"]
+"tests/screenshots/*" = ["ARG001", "ARG002"]
+"tests/fixtures/*" = ["ARG001", "ARG002"]
+"tests/conftest.py" = ["ARG001", "ARG002"]
+"tests/test_port_base_resolvers.py" = ["ARG001", "ARG002"]
+"tests/_env_scope_guard.py" = ["ARG001", "ARG002"]
+"tests/test_container_support.py" = ["ARG001", "ARG002"]
+"tests/test_e2e_provider_gate.py" = ["ARG001", "ARG002"]
+"tests/test_mongo_container.py" = ["ARG001", "ARG002"]
+
+"tests/deployment/*" = ["ARG001", "ARG002"]
+"tests/mcp_server/*" = ["ARG001", "ARG002"]
+"tests/interfaces/*" = ["ARG001", "ARG002"]
+"tests/cli/*" = ["ARG001", "ARG002"]
+"tests/services/*" = ["ARG001", "ARG002"]
+
+"tests/runtime/*" = ["ARG001", "ARG002"]
+"tests/dispatch/*" = ["ARG001", "ARG002"]
+"tests/hooks/*" = ["ARG001", "ARG002"]
+"tests/audit/*" = ["ARG001", "ARG002"]
+
+"tests/connectors/*" = ["ARG001", "ARG002"]
+"tests/bridges/*" = ["ARG001", "ARG002"]
+"tests/health/*" = ["ARG001", "ARG002"]
+"tests/models/*" = ["ARG001", "ARG002"]
+"tests/simulation/*" = ["ARG001", "ARG002"]
+
+"tests/e2e/*" = ["ARG001", "ARG002"]
+"tests/va/*" = ["ARG001", "ARG002"]
+"tests/dispatch_worker/*" = ["ARG001", "ARG002"]
+"tests/integration/*" = ["ARG001", "ARG002"]
+"tests/benchmark/*" = ["ARG001", "ARG002"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]
