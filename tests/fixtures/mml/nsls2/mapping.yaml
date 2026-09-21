@@ -991,3 +991,139 @@ judgments:
   TUNE:
     unbound_devices:
       3: drop
+virtual_accelerator:
+  system: StorageRing
+  families:
+    BEND:
+      verdict: latch
+      reason: bend2gev is constant at this facility
+    BPMx:
+      verdict: couple
+      kind: monitor
+      element_field: x
+      calibration: linear
+      nominal_source: Monitor
+    BPMy:
+      verdict: couple
+      kind: monitor
+      element_field: y
+      calibration: linear
+      nominal_source: Monitor
+    DCCT:
+      verdict: latch
+      reason: no lattice element
+    HCM:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[0]
+      calibration: linear
+      nominal_source: Setpoint
+    QH1:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QH2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QH3:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QL1:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QL2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QL3:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QM1:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QM2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    RF:
+      verdict: couple
+      kind: rf
+      calibration: linear
+      nominal_source: Setpoint
+      values:
+        voltage:
+          question: the deck holds no cavity and one is built from the export, which states no voltage
+            for it; the voltage sets the synchrotron tune and never the orbit. What does this cavity run
+            at?
+          units: volts
+          answer: 3000000.0
+    SH1:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SH3:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 30 devices
+    SH4:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 30 devices
+    SL1:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 30 devices
+    SL2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SL3:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 30 devices
+    SM1:
+      verdict: latch
+      reason: the export states no hardware nominal for any of its 60 devices
+    SM2:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SQ:
+      verdict: couple
+      kind: strength
+      element_field: PolynomA[1]
+      calibration: linear
+      nominal_source: Setpoint
+      reason: Setpoint states rad where Monitor states its units
+    TUNE:
+      verdict: latch
+      reason: The length of ValPhysics must match the number of devices
+    VCM:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[1]
+      calibration: linear
+      nominal_source: Setpoint

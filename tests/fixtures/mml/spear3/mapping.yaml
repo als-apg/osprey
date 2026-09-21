@@ -1112,3 +1112,208 @@ judgments:
     shared_pvs: keep_all
   SkewQuad:
     shared_pvs: keep_all
+virtual_accelerator:
+  system: StorageRing
+  families:
+    BDM:
+      verdict: latch
+      reason: element BDM (BendLinearPass) takes no KickAngle
+    BEND:
+      verdict: couple
+      kind: energy
+      calibration: table
+      nominal_source: Setpoint
+    BLErr:
+      verdict: latch
+      reason: no lattice element
+    BLOpen:
+      verdict: latch
+      reason: no lattice element
+    BLSum:
+      verdict: latch
+      reason: no lattice element
+    BPLD:
+      verdict: latch
+      reason: no lattice element
+    BPMx:
+      verdict: couple
+      kind: monitor
+      element_field: x
+      calibration: linear
+      nominal_source: Monitor
+    BPMy:
+      verdict: couple
+      kind: monitor
+      element_field: y
+      calibration: linear
+      nominal_source: Monitor
+    BTSBPMx:
+      verdict: latch
+      reason: no lattice element
+    BTSBPMy:
+      verdict: latch
+      reason: no lattice element
+    CD:
+      verdict: latch
+      reason: element CD (BendLinearPass) takes no KickAngle
+    DCCT:
+      verdict: latch
+      reason: no lattice element
+    HCM:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[0]
+      calibration: linear
+      nominal_source: Setpoint
+    HCMCurrReference:
+      verdict: latch
+      reason: Index exceeds the number of array elements. Index must not exceed 1.
+    IonGauge:
+      verdict: latch
+      reason: no lattice element
+    IonPump:
+      verdict: latch
+      reason: no lattice element
+    KickerAmp:
+      verdict: latch
+      reason: injection elements not in the stored-beam model
+      slot:
+        kind: attype
+        question: ATType KickerAmp is not one the table knows; what does this family drive?
+        answer: latch
+    KickerDelay:
+      verdict: latch
+      reason: injection elements not in the stored-beam model
+      slot:
+        kind: attype
+        question: ATType Kicker is not one the table knows; what does this family drive?
+        answer: latch
+    LTBBPMx:
+      verdict: latch
+      reason: no lattice element
+    LTBBPMy:
+      verdict: latch
+      reason: no lattice element
+    MachineParameters:
+      verdict: latch
+      reason: Index exceeds array bounds.
+    Q9S:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QD:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QDX:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QDY:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QDZ:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QF:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QFC:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QFX:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QFY:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    QFZ:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[1]
+      calibration: table
+      nominal_source: Setpoint
+    RF:
+      verdict: couple
+      kind: rf
+      calibration: linear
+      nominal_source: Setpoint
+    SD:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SDM:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SF:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    SFM:
+      verdict: couple
+      kind: strength
+      element_field: PolynomB[2]
+      calibration: table
+      nominal_source: Setpoint
+    Septum:
+      verdict: latch
+      reason: injection elements not in the stored-beam model
+      slot:
+        kind: attype
+        question: ATType Septum is not one the table knows; what does this family drive?
+        answer: latch
+    ShuntCurrent:
+      verdict: latch
+      reason: no lattice element
+    ShuntRelay:
+      verdict: latch
+      reason: no lattice element
+    SkewQuad:
+      verdict: couple
+      kind: strength
+      element_field: PolynomA[1]
+      calibration: linear
+      nominal_source: Setpoint
+    TUNE:
+      verdict: latch
+      reason: The length of ValPhysics must match the number of devices
+    VCM:
+      verdict: couple
+      kind: kick
+      element_field: KickAngle[1]
+      calibration: linear
+      nominal_source: Setpoint
+    VCMCurrReference:
+      verdict: latch
+      reason: Index exceeds the number of array elements. Index must not exceed 1.
