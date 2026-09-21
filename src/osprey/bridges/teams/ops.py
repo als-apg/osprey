@@ -595,7 +595,11 @@ class TeamsOps:
                 for half in chunk_text(text, ANSWER_CHUNK_CHARS // 2):
                     self._post_text(entry, half)
 
-    def post_queued(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
+    def post_queued(
+        self,
+        entry: Mapping[str, Any],
+        result: Mapping[str, Any],  # noqa: ARG002 - channel-ops seam signature; channels that surface a parked delivery read the result
+    ) -> None:
         """Post the first-park "your question is waiting" notice. May raise.
 
         The engine parks the entry BEFORE calling this and logs the raise, so a
@@ -644,7 +648,10 @@ class TeamsOps:
 
     # --- inbound file downloads --------------------------------------------
 
-    def download_inputs(self, entry: Mapping[str, Any]) -> InputDownload:
+    def download_inputs(
+        self,
+        entry: Mapping[str, Any],  # noqa: ARG002 - channel-ops seam signature; channels carrying attachment references read the entry
+    ) -> InputDownload:
         """No inbound files: the empty download, always. Never raises.
 
         A bot reads a Teams message's attachments only with resource-specific
