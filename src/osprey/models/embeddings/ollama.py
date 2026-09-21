@@ -131,7 +131,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
         self,
         texts: list[str],
         model_id: str,
-        api_key: str | None = None,
+        api_key: str | None = None,  # noqa: ARG002 - embedding provider contract; providers that authenticate read the key
         base_url: str | None = None,
         dimensions: int | None = None,
         timeout: float = 600.0,
@@ -203,7 +203,7 @@ class OllamaEmbeddingProvider(BaseEmbeddingProvider):
 
     def check_health(
         self,
-        api_key: str | None,
+        api_key: str | None,  # noqa: ARG002 - embedding provider contract; providers that authenticate read the key
         base_url: str | None,
         model_id: str | None = None,
         timeout: float = 10.0,

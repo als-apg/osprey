@@ -21,7 +21,7 @@ logger = get_logger(name="registry.export", color="sky_blue2")
 
 def export_registry_to_json(
     config: RegistryConfig,
-    registries: dict[str, dict[str, Any]],
+    registries: dict[str, dict[str, Any]],  # noqa: ARG001 - the export is built from the registry config
     output_dir: str | None = None,
 ) -> dict[str, Any]:
     """Export registry metadata for external tools and plan editors.
