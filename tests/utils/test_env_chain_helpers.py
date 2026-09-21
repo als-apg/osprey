@@ -145,7 +145,7 @@ class TestFormatEnvLine:
         line = format_env_line("KEY", value)
         assert parse_dotenv_text(line) == {"KEY": value}
 
-    def test_plain_value_is_written_unquoted(self, tmp_path):
+    def test_plain_value_is_written_unquoted(self):
         assert format_env_line("KEY", "plain") == "KEY=plain"
 
     def test_newline_value_is_refused(self):

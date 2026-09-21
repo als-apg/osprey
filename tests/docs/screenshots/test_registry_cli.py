@@ -191,7 +191,7 @@ def test_select_only_disabled_returns_empty():
 # ---------------------------------------------------------------------------
 
 
-def test_cli_list_returns_zero(capsys):
+def test_cli_list_returns_zero():
     assert main(["list"]) == 0
 
 

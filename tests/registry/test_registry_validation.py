@@ -16,7 +16,7 @@ from osprey.registry.manager import RegistryError, RegistryManager, resolve_regi
 class TestFileLoadingErrors:
     """Test error handling for file loading issues."""
 
-    def test_load_missing_file_raises_error(self, tmp_path):
+    def test_load_missing_file_raises_error(self):
         """Test that missing registry file raises clear error."""
         # Error is raised during __init__ when config is built
         with pytest.raises(RegistryError, match="Registry file not found"):
@@ -42,7 +42,7 @@ class TestFileLoadingErrors:
         with pytest.raises(RegistryError, match="not a file"):
             _ = RegistryManager(registry_path=str(registry_dir))
 
-    def test_missing_file_error_message_includes_path(self, tmp_path):
+    def test_missing_file_error_message_includes_path(self):
         """Test error message includes the problematic path."""
         missing_path = "./does_not_exist.py"
 
@@ -297,21 +297,21 @@ class TestResolveRegistryPath:
     that had loaded.
     """
 
-    def test_top_level_spelling(self, tmp_path):
+    def test_top_level_spelling(self):
         assert resolve_registry_path({"registry_path": "app/registry.py"}) == "app/registry.py"
 
-    def test_nested_spelling_is_an_accepted_alias(self, tmp_path):
+    def test_nested_spelling_is_an_accepted_alias(self):
         config = {"application": {"registry_path": "app/registry.py"}}
         assert resolve_registry_path(config) == "app/registry.py"
 
-    def test_top_level_wins_over_nested(self, tmp_path):
+    def test_top_level_wins_over_nested(self):
         config = {
             "registry_path": "canonical.py",
             "application": {"registry_path": "alias.py"},
         }
         assert resolve_registry_path(config) == "canonical.py"
 
-    def test_env_var_outranks_both(self, tmp_path, monkeypatch):
+    def test_env_var_outranks_both(self, monkeypatch):
         monkeypatch.setenv("REGISTRY_PATH", "/app/from_env.py")
         config = {
             "registry_path": "canonical.py",
@@ -319,7 +319,7 @@ class TestResolveRegistryPath:
         }
         assert resolve_registry_path(config) == "/app/from_env.py"
 
-    def test_no_spelling_resolves_to_none(self, tmp_path):
+    def test_no_spelling_resolves_to_none(self):
         assert resolve_registry_path({}) is None
 
     def test_relative_path_resolves_against_base_path(self, tmp_path):
@@ -330,7 +330,7 @@ class TestResolveRegistryPath:
         absolute = str(tmp_path / "registry.py")
         assert resolve_registry_path({"registry_path": absolute}, base_path=tmp_path) == absolute
 
-    def test_env_vars_in_the_value_are_expanded(self, tmp_path, monkeypatch):
+    def test_env_vars_in_the_value_are_expanded(self, monkeypatch):
         monkeypatch.setenv("APP_DIR", "myapp")
         resolved = resolve_registry_path({"registry_path": "${APP_DIR}/registry.py"})
         assert resolved == "myapp/registry.py"

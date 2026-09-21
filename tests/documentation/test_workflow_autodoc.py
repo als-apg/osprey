@@ -168,7 +168,7 @@ class TestWorkflowSummaryDirective:
 
         return directive
 
-    def test_workflow_summary_basic(self, mock_directive, tmp_path, monkeypatch):
+    def test_workflow_summary_basic(self, mock_directive, tmp_path):
         """Test basic workflow summary generation."""
         # Create a test workflow file structure that matches expected paths
         fake_docs = tmp_path / "fake" / "docs"
@@ -238,7 +238,7 @@ class TestWorkflowListDirective:
         # Should return a warning node
         assert len(nodes) > 0
 
-    def test_workflow_list_with_workflows(self, mock_directive, tmp_path, monkeypatch):
+    def test_workflow_list_with_workflows(self, mock_directive, tmp_path):
         """Test workflow list generation with actual workflow files."""
         # Create test workflow files
         workflows_dir = tmp_path / "workflows"
@@ -285,7 +285,7 @@ Description two.
         # Should return nodes for the workflows (excluding README.md)
         assert len(nodes) > 0
 
-    def test_workflow_list_filtered_by_category(self, mock_directive, tmp_path):
+    def test_workflow_list_filtered_by_category(self, mock_directive):
         """Test workflow list filtering by category."""
         mock_directive.options["category"] = "code-quality"
 
