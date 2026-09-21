@@ -1074,7 +1074,7 @@ def _no_companion_server_launches(request, monkeypatch):
 
     from osprey.infrastructure.server_launcher import ServerLauncher
 
-    def _no_launch(self, host: str, port: int) -> None:
+    def _no_launch(_self, _host: str, _port: int) -> None:
         return None
 
     monkeypatch.setattr(ServerLauncher, "_launch_in_thread", _no_launch)

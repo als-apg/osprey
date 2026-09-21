@@ -313,7 +313,8 @@ class _FakePage:
         self.ready = ready
         self.scripts: list[str] = []
 
-    def wait_for_function(self, expression: str, timeout: int | None = None) -> None:
+    # The reader under test passes the wait budget by keyword.
+    def wait_for_function(self, expression: str, timeout: int | None = None) -> None:  # noqa: ARG002
         self.scripts.append(expression)
         if not self.ready:
             raise TimeoutError("the seam never reported a fitted size")

@@ -97,7 +97,8 @@ class _BringUp:
         monkeypatch.setattr(_mongo_container, "wait_until_ready", self._wait)
         monkeypatch.setattr(_mongo_container, "stop_quietly", self.stopped.append)
 
-    def _start(self, _factory: object, *, label: str) -> _FakeMongo:
+    # The container helper this stands in for is asked for its label by keyword.
+    def _start(self, _factory: object, *, label: str) -> _FakeMongo:  # noqa: ARG002
         container = _FakeMongo(len(self.started) + 1)
         self.started.append(container)
         return container

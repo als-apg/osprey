@@ -51,12 +51,16 @@ def _install_fake_stream_client(monkeypatch, *, stream_resp=None, post_behavior=
         async def aclose(self):
             return None
 
-        def stream(self, method, url, json=None, headers=None):
+        # The httpx client this stands in for is called with the body and the headers
+        # by keyword.
+        def stream(self, _method, url, json=None, headers=None):  # noqa: ARG002
             captured["stream_url"] = url
             captured["stream_json"] = json
             return stream_resp
 
-        async def post(self, url, json=None, headers=None):
+        # The httpx client this stands in for is called with the body and the headers
+        # by keyword.
+        async def post(self, url, json=None, headers=None):  # noqa: ARG002
             captured["post_url"] = url
             return post_behavior()
 

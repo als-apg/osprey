@@ -146,7 +146,7 @@ class TestPartialSaveStrandsNothing:
     def test_index_write_failure_removes_both_files(self, store, monkeypatch):
         """Failure after both writes: neither file nor entry may remain."""
 
-        def failing_save_index(self) -> None:
+        def failing_save_index(_self) -> None:
             raise OSError("index is read-only")
 
         monkeypatch.setattr(ArtifactStore, "_save_index", failing_save_index)
@@ -162,7 +162,7 @@ class TestPartialSaveStrandsNothing:
     def test_a_failed_save_does_not_disturb_earlier_entries(self, store, monkeypatch):
         kept = _save(store, title="Kept frame")
 
-        def failing_save_index(self) -> None:
+        def failing_save_index(_self) -> None:
             raise OSError("index is read-only")
 
         monkeypatch.setattr(ArtifactStore, "_save_index", failing_save_index)
