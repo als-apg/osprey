@@ -40,26 +40,19 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context, posture_store
 from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from tests._control_context_fixtures import owner, write_control_context
-from tests.mcp_server import test_switch_lifecycle as switch_suite
+from tests.mcp_server._switch_harness import (
+    LIVE_PROBE,
+    VA_PROBE,
+    narrow,
+    started_on,
+)
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 from tests.mcp_server.test_control_target_set import config_with_gateways, install_context
 
-LIVE_PROBE = switch_suite.LIVE_PROBE
-VA_PROBE = switch_suite.VA_PROBE
-raw_config = switch_suite.raw_config
-started_on = switch_suite.started_on
 
-# Fixtures shared with the switch-lifecycle suite; see the note in
-# test_control_target_set.py for why they are rebound rather than imported.
-child_environment = switch_suite.child_environment
-fixture_dir = switch_suite.fixture_dir
-live_type = switch_suite.live_type
-make_manager = switch_suite.make_manager
-state_root = switch_suite.state_root
-# The agent-data root the endpoint cases narrow under, stamped and cleared the way
-# the lifecycle suite's republication cases need it.
-posture_root = switch_suite.posture_root
-narrow = switch_suite.narrow
+@pytest.fixture(autouse=True)
+def _child_harness(child_environment, state_root):
+    """Every test here runs a child against a scratch state root."""
 
 
 def deployment_record(root, monkeypatch, target: str):

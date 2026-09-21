@@ -768,10 +768,10 @@ def test_name_override_replaces_the_directory_derived_name(
 ) -> None:
     target = tmp_path / "my-facility"
 
-    assert _new(runner, target, "hello-world", "--set", "name=ALS Control").exit_code == 0
+    assert _new(runner, target, "hello-world", "--set", "name=Example Control").exit_code == 0
 
     resolved, _dir = resolve_build_profile((target / "profile.yml").resolve(), None)
-    assert resolved.name == "ALS Control"
+    assert resolved.name == "Example Control"
 
 
 def test_baked_override_survives_into_the_built_project(runner: CliRunner, tmp_path: Path) -> None:

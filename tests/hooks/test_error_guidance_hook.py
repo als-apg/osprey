@@ -50,7 +50,6 @@ def _make_error_response(error_type, message, suggestions=None):
 # -- Positive detection tests --
 
 
-@pytest.mark.unit
 def test_connection_error_injects_guidance(hook_runner, make_config):
     """Connection error triggers additionalContext with guidance."""
     config = make_config({})
@@ -72,7 +71,6 @@ def test_connection_error_injects_guidance(hook_runner, make_config):
     assert "error-handling" in ctx.lower() or "error-handling.md" in ctx
 
 
-@pytest.mark.unit
 def test_timeout_error_injects_guidance(hook_runner, make_config):
     """Timeout error is classified as Connection class."""
     config = make_config({})
@@ -93,7 +91,6 @@ def test_timeout_error_injects_guidance(hook_runner, make_config):
     assert "Connection" in ctx
 
 
-@pytest.mark.unit
 def test_validation_error_injects_guidance(hook_runner, make_config):
     """Validation errors produce Validation class guidance."""
     config = make_config({})
@@ -114,7 +111,6 @@ def test_validation_error_injects_guidance(hook_runner, make_config):
     assert "Validation" in ctx
 
 
-@pytest.mark.unit
 def test_internal_error_injects_guidance(hook_runner, make_config):
     """Internal server errors produce Internal class guidance."""
     config = make_config({})
@@ -135,7 +131,6 @@ def test_internal_error_injects_guidance(hook_runner, make_config):
     assert "Internal" in ctx
 
 
-@pytest.mark.unit
 def test_safety_error_injects_guidance(hook_runner, make_config):
     """safety_error is classified as Safety class (sandbox guard tripped)."""
     config = make_config({})
@@ -157,7 +152,6 @@ def test_safety_error_injects_guidance(hook_runner, make_config):
     assert "error-handling" in ctx.lower() or "error-handling.md" in ctx
 
 
-@pytest.mark.unit
 def test_lattice_error_injects_guidance(hook_runner, make_config):
     """lattice_error is classified as Execution class."""
     config = make_config({})
@@ -178,7 +172,6 @@ def test_lattice_error_injects_guidance(hook_runner, make_config):
     assert "Execution" in ctx
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("error_type", "expected_class"),
     [
@@ -216,7 +209,6 @@ def test_switch_and_refusal_types_do_not_fall_through_to_internal(
     assert "Internal" not in ctx
 
 
-@pytest.mark.unit
 def test_service_unavailable_injects_guidance(hook_runner, make_config):
     """service_unavailable is classified as Connection class."""
     config = make_config({})
@@ -237,7 +229,6 @@ def test_service_unavailable_injects_guidance(hook_runner, make_config):
     assert "Connection" in ctx
 
 
-@pytest.mark.unit
 def test_file_not_found_injects_guidance(hook_runner, make_config):
     """file_not_found is classified as Data class."""
     config = make_config({})
@@ -258,7 +249,6 @@ def test_file_not_found_injects_guidance(hook_runner, make_config):
     assert "Data" in ctx
 
 
-@pytest.mark.unit
 def test_ariel_error_detected(hook_runner, make_config):
     """ARIEL MCP tool errors are also detected."""
     config = make_config({})
@@ -282,7 +272,6 @@ def test_ariel_error_detected(hook_runner, make_config):
 # -- Negative detection tests (no error -> silent exit) --
 
 
-@pytest.mark.unit
 def test_success_response_no_output(hook_runner, make_config):
     """Successful tool responses produce no output (silent pass-through)."""
     config = make_config({})
@@ -298,7 +287,6 @@ def test_success_response_no_output(hook_runner, make_config):
     assert result is None
 
 
-@pytest.mark.unit
 def test_non_osprey_tool_no_output(hook_runner, make_config):
     """Non-OSPREY tools are ignored completely."""
     config = make_config({})
@@ -314,7 +302,6 @@ def test_non_osprey_tool_no_output(hook_runner, make_config):
     assert result is None
 
 
-@pytest.mark.unit
 def test_no_tool_response_no_output(hook_runner, make_config):
     """Missing tool_response field produces no output."""
     config = make_config({})
@@ -330,7 +317,6 @@ def test_no_tool_response_no_output(hook_runner, make_config):
     assert result is None
 
 
-@pytest.mark.unit
 def test_non_json_success_no_output(hook_runner, make_config):
     """Non-JSON success strings don't trigger false positives."""
     config = make_config({})
@@ -349,7 +335,6 @@ def test_non_json_success_no_output(hook_runner, make_config):
 # -- Edge cases --
 
 
-@pytest.mark.unit
 def test_isError_without_envelope_falls_back_to_internal(hook_runner, make_config):
     """A CallToolResult with isError=True but no parseable envelope still
     triggers Internal-class guidance (defensive fallback in _detect_error)."""
@@ -371,7 +356,6 @@ def test_isError_without_envelope_falls_back_to_internal(hook_runner, make_confi
     assert "Internal" in ctx  # Fallback classification
 
 
-@pytest.mark.unit
 def test_unknown_error_type_defaults_to_internal(hook_runner, make_config):
     """Unknown error_type values default to Internal class."""
     config = make_config({})
@@ -392,7 +376,6 @@ def test_unknown_error_type_defaults_to_internal(hook_runner, make_config):
     assert "Internal" in ctx
 
 
-@pytest.mark.unit
 def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
     """Injected guidance includes key anti-pattern reminders."""
     config = make_config({})
@@ -416,7 +399,6 @@ def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
     assert "infrastructure" in ctx.lower() or "debug" in ctx.lower()
 
 
-@pytest.mark.unit
 def test_dict_tool_response_detected(hook_runner, make_config):
     """Error detection on a CallToolResult-shaped dict with isError=True."""
     config = make_config({})
@@ -452,7 +434,6 @@ def test_dict_tool_response_detected(hook_runner, make_config):
 # -- Missing error classes (gap fill) --
 
 
-@pytest.mark.unit
 def test_permission_error_injects_guidance(hook_runner, make_config):
     """Permission-denied errors from hooks are classified as Execution class.
 
@@ -479,7 +460,6 @@ def test_permission_error_injects_guidance(hook_runner, make_config):
     assert "error-handling" in ctx.lower()
 
 
-@pytest.mark.unit
 def test_execution_error_injects_guidance(hook_runner, make_config):
     """Execution errors (python code failures) produce Execution class guidance."""
     config = make_config({})
@@ -501,7 +481,6 @@ def test_execution_error_injects_guidance(hook_runner, make_config):
     assert "error-handling" in ctx.lower()
 
 
-@pytest.mark.unit
 def test_data_not_found_injects_guidance(hook_runner, make_config):
     """Data not-found errors produce Data class guidance."""
     config = make_config({})
@@ -523,7 +502,6 @@ def test_data_not_found_injects_guidance(hook_runner, make_config):
     assert "error-handling" in ctx.lower()
 
 
-@pytest.mark.unit
 def test_data_no_results_injects_guidance(hook_runner, make_config):
     """No-results data errors produce Data class guidance."""
     config = make_config({})
@@ -545,7 +523,6 @@ def test_data_no_results_injects_guidance(hook_runner, make_config):
     assert "error-handling" in ctx.lower()
 
 
-@pytest.mark.unit
 def test_limits_violation_error_injects_guidance(hook_runner, make_config):
     """Limits violation errors produce Validation class guidance."""
     config = make_config({})
@@ -572,7 +549,6 @@ def test_limits_violation_error_injects_guidance(hook_runner, make_config):
 # ============================================================================
 
 
-@pytest.mark.unit
 def test_custom_server_prefix_triggers_guidance(hook_runner, make_config):
     """Custom server prefix in hook_config triggers error guidance."""
     config = make_config({})
@@ -600,7 +576,6 @@ def test_custom_server_prefix_triggers_guidance(hook_runner, make_config):
     assert "error-handling" in ctx.lower()
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "stdin",
     ["", "{nope", "[]", "[1,2,3]"],
@@ -695,6 +670,7 @@ EXPECTED_ERROR_CLASSES = {
     "session_plan_not_in_namespace": "Validation",
     "manager_not_idle": "Validation",
     "queue_request_rejected": "Validation",
+    "invalid_item": "Validation",
     # Data
     "not_found": "Data",
     "no_results": "Data",
@@ -727,6 +703,7 @@ EXPECTED_ERROR_CLASSES = {
     "unsupported_connector": "Safety",
     "not_supported": "Safety",
     "interrupted_item_in_queue": "Safety",
+    "queue_changed_since_approval": "Safety",
     # Internal
     "internal_error": "Internal",
     "platform_error": "Internal",
@@ -755,13 +732,11 @@ DOCUMENTED_ERROR_CLASSES = frozenset(
 )
 
 
-@pytest.mark.unit
 def test_error_class_map_matches_expected_table(error_guidance):
     """The shipped map is exactly the table above — no silent additions."""
     assert error_guidance.ERROR_CLASS_MAP == EXPECTED_ERROR_CLASSES
 
 
-@pytest.mark.unit
 def test_error_class_map_values_are_documented_classes(error_guidance):
     """Every class the map can produce is one the protocol doc explains.
 
@@ -771,7 +746,6 @@ def test_error_class_map_values_are_documented_classes(error_guidance):
     assert set(error_guidance.ERROR_CLASS_MAP.values()) <= DOCUMENTED_ERROR_CLASSES
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("error_type", "expected_class"),
     sorted(EXPECTED_ERROR_CLASSES.items()),
@@ -783,7 +757,6 @@ def test_detect_error_classifies_each_mapped_type(error_guidance, error_type, ex
     assert error_guidance._detect_error(response) == (expected_class, "the failure message")
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "error_type",
     ["some_new_error_type", "permission_error", ""],
@@ -796,7 +769,6 @@ def test_detect_error_unmapped_type_falls_back_to_internal(error_guidance, error
     assert error_guidance._detect_error(response) == ("Internal", "unrecognised failure")
 
 
-@pytest.mark.unit
 def test_detect_error_missing_error_type_falls_back_to_internal(error_guidance):
     """An envelope with no error_type at all classifies as Internal."""
     response = {
@@ -807,7 +779,6 @@ def test_detect_error_missing_error_type_falls_back_to_internal(error_guidance):
     assert error_guidance._detect_error(response) == ("Internal", "boom")
 
 
-@pytest.mark.unit
 def test_detect_error_without_message_reports_the_whole_envelope(error_guidance):
     """With no error_message field, the raw envelope stands in as the message.
 
@@ -823,7 +794,6 @@ def test_detect_error_without_message_reports_the_whole_envelope(error_guidance)
     assert "connection_error" in message
 
 
-@pytest.mark.unit
 def test_detect_error_scans_past_blocks_that_are_not_the_envelope(error_guidance):
     """The envelope is found wherever it sits in the content list.
 
@@ -851,7 +821,6 @@ def test_detect_error_scans_past_blocks_that_are_not_the_envelope(error_guidance
     assert error_guidance._detect_error(response) == ("Data", "nothing matched")
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "content",
     [
@@ -875,13 +844,11 @@ def test_detect_error_without_envelope_still_reports_internal(error_guidance, co
     assert error_guidance._detect_error(response) == ("Internal", "Tool returned an error")
 
 
-@pytest.mark.unit
 def test_detect_error_without_content_key_reports_internal(error_guidance):
     """A missing content list is the same case as an empty one."""
     assert error_guidance._detect_error({"isError": True}) == ("Internal", "Tool returned an error")
 
 
-@pytest.mark.unit
 def test_detect_error_ignores_a_serialised_envelope(error_guidance):
     """A JSON string carrying the envelope is not an error to this helper.
 
@@ -897,7 +864,6 @@ def test_detect_error_ignores_a_serialised_envelope(error_guidance):
     assert error_guidance._detect_error(serialised) == (None, None)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "tool_response",
     [

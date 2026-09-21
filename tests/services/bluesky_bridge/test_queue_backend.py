@@ -28,6 +28,7 @@ from osprey.services.bluesky_bridge.queue_backend import (
     QueueRequestRejectedError,
     QueueUnavailableError,
 )
+from osprey_connectors.posture_store import RESERVED_OWNER_KWARG
 
 
 class FakeManager:
@@ -319,7 +320,16 @@ async def test_abort_pauses_immediately_then_aborts(fast_abort_backend) -> None:
 
     result = await fast_abort_backend(manager).abort()
 
-    assert manager.method_names() == ["status", "re_pause", "status", "re_abort", "status"]
+    # `queue_get` names the plan being stopped, and sits AFTER the pause: by
+    # then the hardware is held, so the read delays the unwind and not the stop.
+    assert manager.method_names() == [
+        "status",
+        "re_pause",
+        "status",
+        "queue_get",
+        "re_abort",
+        "status",
+    ]
     assert manager.kwargs_for("re_pause") == [{"option": "immediate"}]
     assert result["aborted"] is True
     assert result["paused_first"] is True
@@ -352,7 +362,7 @@ async def test_abort_skips_the_pause_when_the_engine_is_already_paused(
 
     result = await fast_abort_backend(manager).abort()
 
-    assert manager.method_names() == ["status", "re_abort", "status"]
+    assert manager.method_names() == ["status", "queue_get", "re_abort", "status"]
     assert result["paused_first"] is False
 
 
@@ -380,10 +390,50 @@ async def test_abort_retries_the_pause_across_the_starting_queue_window(
         "status",
         "re_pause",  # retried once it is executing
         "status",
+        "queue_get",  # names the paused plan, once the pause has landed
         "re_abort",
         "status",
     ]
     assert result["aborted"] is True
+
+
+async def test_abort_returns_the_plan_it_stopped(fast_abort_backend) -> None:
+    """``stopped_item`` is what lets a caller say WHICH plan was halted. It is
+    the manager's own object, arguments and all, so it is the caller's to shape
+    before it reaches anybody."""
+    running = {"item_uid": "u1", "name": "count_scan", "kwargs": {"detectors": ["det1"]}}
+    manager = FakeManager(
+        status=[status_doc(manager_state="paused"), status_doc(manager_state="idle")],
+        queue_get={"success": True, "items": [], "running_item": running},
+    )
+
+    result = await fast_abort_backend(manager).abort()
+
+    assert result["stopped_item"] == running
+
+
+@pytest.mark.parametrize(
+    "queue_get",
+    [
+        {"success": True, "items": [], "running_item": {}},
+        RequestFailedError("manager said no", {}),
+    ],
+    ids=["nothing-running-in-the-answer", "refused"],
+)
+async def test_an_unnamed_plan_never_holds_up_the_abort(fast_abort_backend, queue_get: Any) -> None:
+    """Whatever the read answers, the discard follows it: the read exists to
+    name the plan, and a stop that depended on naming it would be a stop with
+    one more failure mode."""
+    manager = FakeManager(
+        status=[status_doc(manager_state="paused"), status_doc(manager_state="idle")],
+        queue_get=queue_get,
+    )
+
+    result = await fast_abort_backend(manager).abort()
+
+    assert result["aborted"] is True
+    assert result["stopped_item"] is None
+    assert "re_abort" in manager.method_names()
 
 
 async def test_abort_refuses_when_nothing_is_running(fast_abort_backend) -> None:
@@ -752,6 +802,79 @@ def test_run_id_of_tolerates_items_without_osprey_metadata() -> None:
     assert qb.run_id_of({}) is None
 
 
+def test_owner_meta_key_is_the_stamp_queueserver_carries() -> None:
+    """The metadata spelling crosses into the manager's history, so it is pinned."""
+    assert qb.OWNER_META_KEY == "osprey_owner"
+
+
+def test_split_owner_lifts_the_reserved_kwarg_off_the_item() -> None:
+    item = {"name": "scan", "kwargs": {"detectors": ["d1"], RESERVED_OWNER_KWARG: "alice"}}
+
+    stripped, owner = qb.split_owner(item)
+
+    assert owner == "alice"
+    assert stripped == {"name": "scan", "kwargs": {"detectors": ["d1"]}}
+
+
+def test_split_owner_lifts_the_owner_from_the_metadata_stamp() -> None:
+    item = {"name": "scan", "kwargs": {"detectors": ["d1"]}, "meta": {qb.OWNER_META_KEY: "bob"}}
+
+    stripped, owner = qb.split_owner(item)
+
+    assert owner == "bob"
+    assert stripped == item
+
+
+def test_split_owner_prefers_the_kwarg_over_the_metadata_stamp() -> None:
+    """The kwarg is what the worker will bind, so it is the owner of record."""
+    item = {
+        "name": "scan",
+        "kwargs": {RESERVED_OWNER_KWARG: "alice"},
+        "meta": {qb.OWNER_META_KEY: "bob"},
+    }
+
+    stripped, owner = qb.split_owner(item)
+
+    assert owner == "alice"
+    assert stripped == {"name": "scan", "kwargs": {}, "meta": {qb.OWNER_META_KEY: "bob"}}
+
+
+def test_split_owner_yields_no_owner_when_the_item_carries_neither() -> None:
+    assert qb.split_owner({"name": "scan", "kwargs": {"detectors": ["d1"]}}) == (
+        {"name": "scan", "kwargs": {"detectors": ["d1"]}},
+        None,
+    )
+    assert qb.split_owner({"name": "scan"}) == ({"name": "scan"}, None)
+
+
+@pytest.mark.parametrize("unusable", [None, "", 7, ["alice"]])
+def test_split_owner_reads_an_unusable_owner_as_no_owner(unusable: Any) -> None:
+    """Both reads are shape-tolerant: `kwargs` and `meta` are the enqueuer's own."""
+    kwarg_item = {"kwargs": {RESERVED_OWNER_KWARG: unusable}}
+    assert qb.split_owner(kwarg_item) == ({"kwargs": {}}, None)
+    assert qb.split_owner({"meta": {qb.OWNER_META_KEY: unusable}})[1] is None
+
+
+def test_split_owner_tolerates_items_whose_kwargs_are_not_a_mapping() -> None:
+    assert qb.split_owner({"kwargs": None}) == ({"kwargs": None}, None)
+    assert qb.split_owner({"meta": None}) == ({"meta": None}, None)
+
+
+def test_split_owner_never_mutates_the_item_it_was_handed() -> None:
+    """Callers read items they do not own — the queue's own dicts included."""
+    item = {
+        "name": "scan",
+        "kwargs": {"detectors": ["d1"], RESERVED_OWNER_KWARG: "alice"},
+        "meta": {qb.OWNER_META_KEY: "bob", qb.RUN_ID_META_KEY: "run-3"},
+    }
+    snapshot = json.loads(json.dumps(item))
+
+    stripped, _ = qb.split_owner(item)
+
+    assert item == snapshot
+    assert stripped["kwargs"] is not item["kwargs"]
+
+
 # --------------------------------------------------------------- construction
 
 
@@ -855,23 +978,23 @@ async def test_external_plan_catalog_is_the_managers_own(connector, fast_backend
         plans_allowed={
             "success": True,
             "plans_allowed": {
-                "geecs_scan_request_plan": {
-                    "name": "geecs_scan_request_plan",
+                "scan_request_plan": {
+                    "name": "scan_request_plan",
                     "description": "Run one validated ScanRequest.",
                     "parameters": [
                         {"name": "request", "description": "The ScanRequest document."},
                         {"name": "dry_run", "default": "False"},
                     ],
                 },
-                "geecs_run_action_plan": "not-a-mapping",
+                "run_action_plan": "not-a-mapping",
             },
         }
     )
     catalog = await fast_backend(manager, external_worker=True).external_plan_catalog()
 
     assert [entry["name"] for entry in catalog] == [
-        "geecs_run_action_plan",
-        "geecs_scan_request_plan",
+        "run_action_plan",
+        "scan_request_plan",
     ]
     scan = catalog[1]
     assert scan["provenance"] == "facility"
@@ -898,13 +1021,13 @@ async def test_external_catalog_grafts_a_facility_published_parameter_schema(
     schema_file.write_text(json.dumps(artifact))
     monkeypatch.setenv(
         qb.EXTERNAL_PARAM_SCHEMAS_ENV,
-        json.dumps({"geecs_scan_request_plan.request": str(schema_file)}),
+        json.dumps({"scan_request_plan.request": str(schema_file)}),
     )
     manager = FakeManager(
         plans_allowed={
             "success": True,
             "plans_allowed": {
-                "geecs_scan_request_plan": {
+                "scan_request_plan": {
                     "description": "Run one validated ScanRequest.",
                     "parameters": [{"name": "request", "description": "The queue's JSON shape."}],
                 }
@@ -930,12 +1053,12 @@ async def test_external_catalog_survives_an_unreadable_graft_file(
     connector("epics")
     monkeypatch.setenv(
         qb.EXTERNAL_PARAM_SCHEMAS_ENV,
-        json.dumps({"geecs_scan_request_plan.request": "/nonexistent/schema.json"}),
+        json.dumps({"scan_request_plan.request": "/nonexistent/schema.json"}),
     )
     manager = FakeManager(
         plans_allowed={
             "success": True,
-            "plans_allowed": {"geecs_scan_request_plan": {"parameters": [{"name": "request"}]}},
+            "plans_allowed": {"scan_request_plan": {"parameters": [{"name": "request"}]}},
         }
     )
     (entry,) = await fast_backend(manager, external_worker=True).external_plan_catalog()

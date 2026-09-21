@@ -344,6 +344,53 @@ async def test_workspace_sandbox_subprocess_sees_no_sensitive_credential(
 
 
 # --------------------------------------------------------------------------- #
+# The one OSPREY_ name that must survive every scrub
+# --------------------------------------------------------------------------- #
+
+
+def test_audit_identity_env_is_on_no_scrub_list() -> None:
+    """``OSPREY_AUDIT_IDENTITY`` is on none of the four lists that drop a name.
+
+    It reads like a neighbour of the terminal prefix — same ``OSPREY_`` family,
+    severed from a sandbox child alongside that prefix in every other respect —
+    and any of the four lists would take it without complaint. It must be on
+    none of them, because inside a container it is the only rung left that
+    names the person: the ``OSPREY_TERMINAL_`` family is dropped from a sandbox
+    child by design, and the process account there names ``osprey`` or
+    ``root``.
+
+    Dropping it does not fail loudly. The child keeps running and files its
+    audit records — and reads the narrowing its writes are checked against —
+    under a name no reader looks for, which is visible only at a write, long
+    after the edit. Hence a pin on the lists themselves rather than on a
+    symptom.
+
+    Exact-membership against the two name lists, and ``startswith`` /
+    ``endswith`` against the two pattern lists: a pattern this name merely
+    matched would drop it just as effectively as an entry naming it.
+    """
+    from osprey.mcp_server.sandbox_env import (
+        SANDBOX_CHILD_ENV_DROP_NAMES,
+        SANDBOX_CHILD_ENV_DROP_PREFIXES,
+    )
+    from osprey_connectors.identity import AUDIT_IDENTITY_ENV
+
+    assert AUDIT_IDENTITY_ENV not in SENSITIVE_ENV_EXACT, (
+        f"{AUDIT_IDENTITY_ENV} is not a credential and must not be scrubbed as one"
+    )
+    assert not AUDIT_IDENTITY_ENV.endswith(SENSITIVE_ENV_SUFFIXES), (
+        f"{AUDIT_IDENTITY_ENV} matches a sensitive suffix, so the credential scrub drops it"
+    )
+    assert AUDIT_IDENTITY_ENV not in SANDBOX_CHILD_ENV_DROP_NAMES, (
+        f"{AUDIT_IDENTITY_ENV} is the rung that names the person inside a container "
+        "and must reach a sandbox child"
+    )
+    assert not AUDIT_IDENTITY_ENV.startswith(SANDBOX_CHILD_ENV_DROP_PREFIXES), (
+        f"{AUDIT_IDENTITY_ENV} matches a sandbox drop prefix, so the child never sees it"
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Spawn path: the Bluesky plan-validation dry run (real subprocess)
 # --------------------------------------------------------------------------- #
 

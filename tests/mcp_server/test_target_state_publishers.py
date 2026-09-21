@@ -21,7 +21,8 @@ rather than the prompt line:
     is synchronous, and an ``applying`` block carries the ``expires_at`` only
     the publishing server can compute
   - ``publish_targets``, which re-renders the display metadata a narrowed
-    session outgrew, on the same merge terms
+    session outgrew: the same merge terms as its siblings, except that the
+    ``targets`` block itself is replaced whole rather than merged
   - the in-flight marker reader in its new home, still importable from
     ``tools/control_target.py`` under its old name
 
@@ -45,9 +46,12 @@ import pytest
 from osprey.mcp_server.control_system import target_state
 from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context
+from osprey_connectors.identity import acting_identity
+from tests._control_context_fixtures import state_dir_under
+from tests.mcp_server._report_root import state_root as state_root  # noqa: F401
 
 TARGETS_META = {
-    "live": {"label": "ALS storage ring", "endpoint": "gw:5064", "real_machine": True},
+    "live": {"label": "Example storage ring", "endpoint": "gw:5064", "real_machine": True},
     "va": {"label": "Virtual accelerator", "endpoint": "localhost:5074", "real_machine": False},
     "standin": {"label": "Live stand-in", "endpoint": "localhost:5084", "real_machine": False},
 }
@@ -67,22 +71,6 @@ REPORT_FIELDS = {
     "targets",
     "updated_at",
 }
-
-
-@pytest.fixture(autouse=True)
-def state_root(tmp_path, monkeypatch):
-    """Anchor the state directory in tmp_path instead of a real deployment.
-
-    The environment stamp is cleared as well as the config derivation patched,
-    so this fixture pins the directory whichever of the two resolution rules
-    ``state_dir`` is applying. ``OSPREY_POSTURE_SESSION`` is cleared too: the
-    session a report carries is read from the environment, and a test that
-    inherited the runner's would assert against the machine it ran on.
-    """
-    monkeypatch.delenv("OSPREY_AGENT_DATA_ROOT", raising=False)
-    monkeypatch.delenv("OSPREY_POSTURE_SESSION", raising=False)
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    return tmp_path
 
 
 @pytest.fixture
@@ -126,7 +114,10 @@ class TestRequestFileContract:
 
     def test_path_is_named_for_the_requester(self, state_root):
         assert target_state.request_file_path(4321) == (
-            state_root / target_state.STATE_DIR_NAME / "switch_request_4321.json"
+            state_root
+            / target_state.STATE_DIR_NAME
+            / acting_identity()
+            / "switch_request_4321.json"
         )
 
     def test_path_defaults_to_this_process(self, state_root):
@@ -135,7 +126,7 @@ class TestRequestFileContract:
     def test_glob_matches_the_file_the_writer_produces(self, state_root):
         target_state.write_request({"request_id": "r1", "target": "live", "requested_by_pid": 4321})
 
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         assert [p.name for p in directory.glob(target_state.REQUEST_FILE_GLOB)] == [
             "switch_request_4321.json"
         ]
@@ -147,7 +138,7 @@ class TestRequestFileContract:
     def test_report_glob_never_matches_a_request_file(self, state_root):
         target_state.write_request({"request_id": "r1", "target": "live", "requested_by_pid": 4321})
 
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         assert list(directory.glob(target_state.REPORT_FILE_GLOB)) == []
 
 
@@ -183,11 +174,11 @@ class TestWriteRequest:
         datetime.fromisoformat(record["requested_at"])  # parseable, not just present
 
     def test_creates_the_state_directory(self, state_root):
-        assert not (state_root / target_state.STATE_DIR_NAME).exists()
+        assert not state_dir_under(state_root).exists()
 
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
 
-        assert (state_root / target_state.STATE_DIR_NAME).is_dir()
+        assert state_dir_under(state_root).is_dir()
 
     def test_a_second_request_replaces_the_first(self, state_root):
         target_state.write_request({"request_id": "one", "target": "va", "requested_by_pid": 4321})
@@ -217,7 +208,7 @@ class TestWriteRequest:
             target_state.write_request({"request_id": "r", "target": "va", "server_pid": 4321})
 
     def test_a_failed_write_leaves_no_temp_file(self, state_root, monkeypatch):
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True, exist_ok=True)
 
         def fail(*args, **kwargs):
@@ -278,7 +269,7 @@ class TestReadAndRemoveRequest:
         assert target_state.read_file(target_state.request_file_path(4321)) is None
 
     def test_corrupt_request_reads_as_none(self, state_root):
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "switch_request_4321.json").write_text("{not json", encoding="utf-8")
 
@@ -380,7 +371,7 @@ class TestRequestSweep:
         assert target_state.read_file(target_state.request_file_path(4321))["request_id"] == "r"
 
     def test_sweep_removes_a_request_whose_name_encodes_no_pid(self, state_root):
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True, exist_ok=True)
         junk = directory / "switch_request_nonsense.json"
         junk.write_text("{}", encoding="utf-8")
@@ -399,7 +390,7 @@ class TestRequestSweep:
         assert target_state.sweep_stale(server_pid=os.getpid()) == []
 
     def test_sweep_does_not_touch_execution_markers(self, state_root, monkeypatch):
-        directory = state_root / target_state.STATE_DIR_NAME
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True, exist_ok=True)
         marker = directory / f"{target_state.INFLIGHT_FILE_PREFIX}4321_abc.json"
         marker.write_text(json.dumps({"pid": 4321}), encoding="utf-8")
@@ -435,15 +426,15 @@ class TestReportFileContract:
 
     def test_path_is_named_for_the_reporting_server(self, state_root):
         assert target_state.report_file_path(4321) == (
-            state_root / target_state.STATE_DIR_NAME / "server_4321.json"
+            state_root / target_state.STATE_DIR_NAME / acting_identity() / "server_4321.json"
         )
 
     def test_path_defaults_to_this_process(self, state_root):
         assert target_state.report_file_path().name == f"server_{os.getpid()}.json"
 
-    def test_the_writer_and_the_library_name_the_same_file(self, started):
+    def test_the_writer_and_the_library_name_the_same_file(self, state_root, started):
         assert target_state.report_file_path(started) == control_context.report_path_under(
-            target_state.state_dir().parent, started
+            state_root, started
         )
 
     def test_glob_matches_the_file_the_writer_produces(self, started):
@@ -525,11 +516,11 @@ class TestWriteServerRecord:
         assert (datetime.now(UTC) - datetime.fromisoformat(stamp)).total_seconds() < 60
 
     def test_creates_the_state_directory(self, state_root):
-        assert not (state_root / target_state.STATE_DIR_NAME).exists()
+        assert not state_dir_under(state_root).exists()
 
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
-        assert (state_root / target_state.STATE_DIR_NAME).is_dir()
+        assert state_dir_under(state_root).is_dir()
 
 
 class TestPublishSwitch:
@@ -839,11 +830,18 @@ class TestPublishPostureRealign:
 
 
 class TestPublishTargets:
-    """Display metadata is re-rendered by the writer, never by a reader."""
+    """Display metadata is re-rendered by the writer, never by a reader.
+
+    The ``targets`` block is replaced whole rather than merged, so a slot the
+    caller leaves out is written empty: a half-updated block would let one
+    target name its old gateway beside another naming its new one. Everything
+    else in the report — the binding, the children, the sibling publication
+    blocks, the report's own identity — is another writer's, and survives.
+    """
 
     NARROWED = {
         "live": {
-            "label": "ALS storage ring",
+            "label": "Example storage ring",
             "endpoint": "gw:5065",
             "real_machine": True,
             "selected_role": "read_only",
@@ -859,6 +857,15 @@ class TestPublishTargets:
         assert targets["live"]["endpoint"] == "gw:5065"
         assert targets["live"]["selected_role"] == "read_only"
 
+    def test_an_omitted_slot_is_written_empty_not_dropped(self, started):
+        """A slot the caller does not name still exists, emptied of the old render."""
+        target_state.publish_targets({"live": {"label": "Live", "endpoint": "gw:5065"}})
+
+        targets = target_state.read()["targets"]
+        assert set(targets) == set(target_state.TARGET_NAMES)
+        assert targets["va"] == {"label": "", "endpoint": "", "real_machine": False}
+        assert targets["standin"] == {"label": "", "endpoint": "", "real_machine": False}
+
     def test_the_sibling_blocks_survive(self, started):
         target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_APPLIED})
         target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
@@ -873,8 +880,8 @@ class TestPublishTargets:
         assert report["last_posture_realign"]["state"] == "done"
         assert report["children"] == [901]
 
-    def test_the_binding_is_untouched(self, started):
-        """This publisher says what a target IS, never which one a child reached."""
+    def test_the_binding_and_the_reporting_pid_are_untouched(self, started):
+        """This publisher says what a target IS, never who reported it or what a child reached."""
         target_state.publish_switch("live", 4)
 
         target_state.publish_targets(self.NARROWED)
@@ -882,6 +889,7 @@ class TestPublishTargets:
         report = target_state.read()
         assert report["applied_target"] == "live"
         assert report["applied_generation"] == 4
+        assert report["server_pid"] == started
 
     def test_an_empty_selected_role_is_dropped(self, started):
         target_state.publish_targets({"live": {"label": "Live", "selected_role": ""}})

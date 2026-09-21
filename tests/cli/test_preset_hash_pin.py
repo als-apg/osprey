@@ -94,30 +94,39 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # rebuilt project behaves identically. Every other preset stands still:
     # control-assistant's own additions in this change are commented examples,
     # which the hash does not see.
+    # The tenth move, and control-assistant's family alone: the root preset
+    # gained `dispatch.network: host`. Its dispatched jobs reach the control
+    # system and the plan queue at this machine's own loopback, which a worker
+    # on the compose network reads as its own container, so the pair now runs
+    # in the host's network namespace beside the web tier that was already
+    # there. A rebuilt project deploys its dispatcher and workers differently,
+    # so the staleness advisory firing on already-deployed projects is the
+    # correct signal. The six `extends` children inherit it; every preset that
+    # declares no `dispatch:` block stands still.
     "ariel-standalone": ("sha256:389fad6bd826efc4b53ea263800110585867aab31c92d9931206897c75548643"),
     "channel-finder-standalone": (
         "sha256:2dfc06f64433fcb1d8393931dccf76550e75ac76dc12f5011029010e02aa9448"
     ),
     "control-assistant": (
-        "sha256:ab96027bc359a067f44aa04028ebbac34358e675fca503a1d1cc4bcd790c18aa"
+        "sha256:4d0535dedc232b7789bccc7c8dd3b5a69b75f14c12e1298238c20389697f4079"
     ),
     "control-assistant-admin": (
-        "sha256:cef4c0b2de1d152ef4b88d8b8cd1e31f900f4719d99c171ebecc08de3347d769"
+        "sha256:1db4d29c24d03ed8a23a4c3a64c880d56efa063ff3e651b7b51139eea1c41e58"
     ),
     "control-assistant-knowledge": (
-        "sha256:98cdd6a4930cf92ceaa9bc6c3e741ac51e90ca56cf86d40551e84c00e9179c20"
+        "sha256:d1ae41025ee01bc4b869601e597eeabd4e9ab89faa6244d0aad271385b00c609"
     ),
     "control-assistant-logbook": (
-        "sha256:38483b2115bc153440dfce862c6d337b5ad6beb2addf3c1e4dc6c57f1efdf2ce"
+        "sha256:4ac79e2c234e9507f20bdf734f6b9ca3414f4d7de47b52de4d74ddeaea97df0e"
     ),
     "control-assistant-readonly": (
-        "sha256:c89b22d754632805e7cdb8b3026bdaf7f7d4401628904083480f4681b4a71a0f"
+        "sha256:f0e722d9ed690a96b851694fa6107c3587c341954808f580b346ee176c1fd72a"
     ),
     "control-assistant-readwrite": (
-        "sha256:a4a695bbc044975ba2258a9cd58c46e283b832e2d4b9efd1720b9e1860502ba8"
+        "sha256:b89110ccb97fe18e5a89a1aae7c5e541cac04ca6d43826b067a7538eb4b05087"
     ),
     "control-assistant-va-readwrite": (
-        "sha256:862dd6a5c5df3843c066ebdc26806c9283f75c9a658145fba1856b47d6e14ce1"
+        "sha256:6f78bbc4db54c0bfb3b4855f84a0b2444ce4d960367d9e868ed6f1ae72247129"
     ),
     "hello-world": ("sha256:3ce9623f1874a11a5500eb0a2b5a29bbfc324cf0e6ed95678ea13feadfefecb4"),
 }

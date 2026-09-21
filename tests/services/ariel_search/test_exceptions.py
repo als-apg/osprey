@@ -184,18 +184,18 @@ class TestIngestionError:
 
     def test_basic_creation(self) -> None:
         """Test basic exception creation."""
-        exc = IngestionError("Ingestion failed", source_system="ALS eLog")
+        exc = IngestionError("Ingestion failed", source_system="Example eLog")
         assert exc.message == "Ingestion failed"
         assert exc.category == ErrorCategory.INGESTION
         assert exc.is_retriable is False
-        assert exc.source_system == "ALS eLog"
+        assert exc.source_system == "Example eLog"
         assert exc.entries_affected == 0
 
     def test_with_entries_affected(self) -> None:
         """Test exception with entries affected count."""
         exc = IngestionError(
             "Ingestion failed",
-            source_system="ALS eLog",
+            source_system="Example eLog",
             entries_affected=42,
         )
         assert exc.entries_affected == 42
@@ -211,13 +211,13 @@ class TestAuthenticationRequiredError:
 
         exc = AuthenticationRequiredError(
             "Credentials required to publish",
-            source_system="ALS eLog",
+            source_system="Example eLog",
         )
         assert exc.message == "Credentials required to publish"
         assert exc.category == ErrorCategory.INGESTION
         assert exc.is_retriable is False
-        assert exc.source_system == "ALS eLog"
-        assert exc.technical_details["source_system"] == "ALS eLog"
+        assert exc.source_system == "Example eLog"
+        assert exc.technical_details["source_system"] == "Example eLog"
 
     def test_is_not_an_ingestion_error(self) -> None:
         """Must NOT subclass IngestionError, so routes can distinguish the two.
@@ -228,7 +228,7 @@ class TestAuthenticationRequiredError:
         """
         from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
 
-        exc = AuthenticationRequiredError("creds", source_system="ALS eLog")
+        exc = AuthenticationRequiredError("creds", source_system="Example eLog")
         assert isinstance(exc, ARIELException)
         assert not isinstance(exc, IngestionError)
 

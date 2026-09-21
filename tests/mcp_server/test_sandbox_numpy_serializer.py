@@ -19,8 +19,6 @@ import pytest
 
 from osprey.mcp_server.workspace.execution.sandbox_executor import execute_sandbox_code
 
-pytestmark = pytest.mark.unit
-
 NPY_MIME = "application/octet-stream"
 NPY_TYPE = "file"
 

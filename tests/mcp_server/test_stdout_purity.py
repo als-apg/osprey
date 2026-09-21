@@ -61,7 +61,6 @@ def server_probe(tmp_path_factory) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.mark.unit
 def test_stdout_carries_only_jsonrpc_frames(server_probe) -> None:
     """Every stdout line parses as a JSON-RPC object — no log bytes anywhere."""
     lines = [line for line in server_probe.stdout.splitlines() if line.strip()]
@@ -76,7 +75,6 @@ def test_stdout_carries_only_jsonrpc_frames(server_probe) -> None:
         assert payload.get("jsonrpc") == "2.0", f"non-JSON-RPC frame on stdout: {line[:200]}"
 
 
-@pytest.mark.unit
 def test_logging_was_active_and_went_to_stderr(server_probe) -> None:
     """The companion assertion: logs were produced, and they landed on stderr.
 

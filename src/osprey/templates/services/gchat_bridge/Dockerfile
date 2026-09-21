@@ -80,6 +80,11 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
 # staged, so this cache only busts when the manifest content changes.
 ARG OSPREY_VERSION=""
 ARG OSPREY_DEV=""
+# OSPREY_PIP_PRE=1 says the pin is a pre-release. The framework and its
+# connectors ship as a pair from one tag, and pip never picks a pre-release
+# for a requirement that names none (the framework's own connectors
+# requirement), so the deps layer then resolves as a whole with --pre.
+ARG OSPREY_PIP_PRE=""
 # The three pip ARGs are the rest of the site build settings the compose build
 # hands this image (the same producer that passes OSPREY_SITE_CA above).
 # Declaring them is what makes them arrive: Docker drops a --build-arg no
@@ -106,7 +111,7 @@ RUN export http_proxy="${http_proxy:-${HTTP_PROXY:-}}" https_proxy="${https_prox
     && export PIP_CONSTRAINT=/tmp/deps-ctx/pip-constraints.txt \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
-    && { pip install --no-cache-dir "osprey-framework[gchat]==$OSPREY_VERSION" \
+    && { pip install --no-cache-dir ${OSPREY_PIP_PRE:+--pre} "osprey-framework[gchat]==$OSPREY_VERSION" \
          || if [ "$OSPREY_DEV" = "1" ]; then \
                 echo "WARNING: pin unreleased, priming with latest" \
                 && pip install --no-cache-dir "osprey-framework[gchat]" ; \

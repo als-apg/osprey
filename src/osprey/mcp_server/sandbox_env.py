@@ -95,6 +95,16 @@ SANDBOX_CHILD_ENV_DROP_NAMES: tuple[str, ...] = (
 #: code change here - the same reasoning as SENSITIVE_ENV_SUFFIXES.
 SANDBOX_CHILD_ENV_DROP_PREFIXES: tuple[str, ...] = ("OSPREY_TERMINAL_",)
 
+# ``OSPREY_AUDIT_IDENTITY`` is the one ``OSPREY_``-family name that must never
+# join either list above, however much it reads like a neighbour of the
+# terminal prefix. The child resolves its own record directory through it (see
+# ``osprey_connectors.identity``), and inside a container it is the only rung
+# that survives this severing - the terminal prefix is dropped by design and
+# the process account names ``osprey`` or ``root``. Dropped, the child does not
+# fail: it files its records under a name no reader looks for. A plain comment,
+# not a ``#:`` block: it documents a rule about the two lists above rather than
+# the next definition below, which is what a ``#:`` block would attach it to.
+
 
 def scrub_sensitive_env(env: Mapping[str, str]) -> dict[str, str]:
     """Return a copy of *env* with agent-forbidden credentials removed.

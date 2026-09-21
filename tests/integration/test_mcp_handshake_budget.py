@@ -12,9 +12,8 @@ startup allowance; once it reports ``total_startup`` the answer budget begins.
 A server that announces nothing is indistinguishable from one that is stuck and
 keeps the literal budget. These tests pin both halves — a slow server that
 reports its phases is waited for, a mute one is not — with stub servers rather
-than the real ones, so they cost seconds. That is why they are marked ``unit``
-despite living beside the container-backed integration modules: they start two
-bare interpreters and no service.
+than the real ones, so they cost seconds: they start two bare interpreters and
+no service, unlike the container-backed modules beside them.
 """
 
 from __future__ import annotations
@@ -26,8 +25,6 @@ from pathlib import Path
 import pytest
 
 from tests.integration._mcp_handshake import MCPHandshakeError, list_mcp_tools
-
-pytestmark = pytest.mark.unit
 
 #: A stub MCP server. With ``phases`` above zero it reports that many startup
 #: phases to stderr in the framework's own ``[STARTUP-TIMING]`` shape, one every

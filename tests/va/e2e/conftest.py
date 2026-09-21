@@ -62,6 +62,7 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
+import yaml
 
 from osprey.services.virtual_accelerator.manifest.paths import ManifestPaths
 
@@ -371,9 +372,10 @@ async def _disconnect_va_connectors() -> Any:
 
 @dataclass
 class VaProject:
-    """A scratch project directory: ``config.yml``, the build-owned
-    ``data/simulation/`` model, and the runtime ``_agent_data/simulation/``
-    state dir -- just enough for ``osprey sim apply`` to run against it."""
+    """A scratch deployment repo: a ``profile.yml`` root, a render under
+    ``build/`` whose ``config.yml`` names the build-owned ``data/simulation/``
+    model, and the mutable state dir under ``var/agent_data/`` -- the three
+    zones ``osprey sim apply`` resolves, and nothing more."""
 
     project_dir: Path
     data_dir: Path
@@ -389,17 +391,28 @@ class VaProject:
         )
 
 
-@pytest.fixture(scope="session")
-def va_project(tmp_path_factory: pytest.TempPathFactory) -> VaProject:
-    """Build the scratch project this session's container serves.
+def stage_va_project(root: Path) -> VaProject:
+    """Materialize, under *root*, the deployment repo this suite's container serves.
 
-    A copy of the Control Assistant preset's ``data/simulation`` (never the
-    repo's own copy -- this fixture writes into it via ``osprey sim apply``
-    and adds a synthetic scenario), plus a minimal ``config.yml`` so the
-    ``sim`` CLI's type-aware lookup resolves ``control_system.type:
-    virtual_accelerator`` to this directory's ``machine.json``.
+    The exemplar repo supplies the root ``profile.yml`` that ``osprey sim
+    apply`` discovers by walking up from its working directory, and the state
+    zone it writes ``active_scenarios`` into; a stubbed render supplies the
+    ``build/config.yml`` every repo-scoped verb reads. The exemplar's own
+    simulation tree is replaced by a copy of the Control Assistant preset's
+    ``data/simulation`` in the layout the IOC mounts (see
+    ``stage_demo_data_dir``) plus one synthetic scenario, so the ``sim`` CLI's
+    type-aware lookup resolves ``control_system.type: virtual_accelerator`` to
+    that directory's ``machine.json`` while the container reads the same files.
+
+    A plain function rather than the fixture body so a caller can stage the
+    repo and drive ``osprey sim apply`` at it without a pytest session.
     """
-    project_dir = tmp_path_factory.mktemp("va_e2e_project")
+    from osprey.simulation.engine import resolve_state_dir
+    from tests.cli._lifecycle_build import stub_build
+    from tests.fixtures.lifecycle_repo import build_exemplar_repo
+
+    project_dir = build_exemplar_repo(root / "va-e2e")
+    shutil.rmtree(project_dir / "data" / "simulation")
     data_dir = stage_demo_data_dir(project_dir / "data")
 
     burst_dir = data_dir / "scenarios" / BURST_SCENARIO_NAME
@@ -415,20 +428,29 @@ def va_project(tmp_path_factory: pytest.TempPathFactory) -> VaProject:
             }
         )
     )
-    state_dir = project_dir / "_agent_data" / "simulation"
-    state_dir.mkdir(parents=True)
+
+    config = {
+        "control_system": {
+            "type": "virtual_accelerator",
+            "writes_enabled": True,
+            "connector": {
+                "virtual_accelerator": {"simulation_file": "data/simulation/machine.json"}
+            },
+        },
+    }
+    stub_build(project_dir, config=yaml.safe_dump(config))
+
+    state_dir = resolve_state_dir(config, project_dir)
+    state_dir.mkdir(parents=True, exist_ok=True)
     (state_dir / "active_scenarios").write_text("nominal\n")
 
-    (project_dir / "config.yml").write_text(
-        "control_system:\n"
-        "  type: virtual_accelerator\n"
-        "  writes_enabled: true\n"
-        "  connector:\n"
-        "    virtual_accelerator:\n"
-        "      simulation_file: data/simulation/machine.json\n"
-    )
-
     return VaProject(project_dir=project_dir, data_dir=data_dir, state_dir=state_dir)
+
+
+@pytest.fixture(scope="session")
+def va_project(tmp_path_factory: pytest.TempPathFactory) -> VaProject:
+    """The scratch deployment repo this session's container serves."""
+    return stage_va_project(tmp_path_factory.mktemp("va_e2e_project"))
 
 
 def _docker_rm(name: str) -> None:
@@ -444,6 +466,17 @@ def _readiness_pv_served() -> bool:
     So the readiness check must never touch pyepics in-process -- run it
     out-of-process, exactly as the probe's caget check does. Returns True once
     the readiness PV is served.
+
+    The probe leaves through ``os._exit`` rather than returning. This child
+    calls ``epics.caget`` directly and builds no connector, so nothing takes
+    pyepics' ``finalize_libca`` off its exit hooks the way
+    ``EPICSConnector.connect`` does for the processes that go through it. That
+    finalizer's recorded hang follows Channel Access use on a worker thread --
+    what the connector's executor does -- rather than the one main-thread
+    ``caget`` this child makes, which has not been seen to hang. The forced
+    exit is kept as a bound that costs nothing: a probe that will not die is
+    read here as a container that is not serving, and the word is written and
+    flushed before the exit.
     """
     code = (
         "import sys, epics\n"

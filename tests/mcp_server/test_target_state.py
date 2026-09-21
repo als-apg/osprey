@@ -3,7 +3,7 @@
 Covers:
   - the path contract a stdlib-only hook has to be able to restate
   - write_server_record: reset at start, PID capture, display metadata
-  - publish_switch / publish_targets / record_child_pids merges
+  - publish_switch / record_child_pids merges
   - the optional display keys (probe_channel, selected_role): preserved when
     real, absent when the caller has none
   - fail-closed reads (absent, corrupt, non-object)
@@ -22,10 +22,13 @@ import pytest
 
 from osprey.mcp_server.control_system import server, server_context, target_state
 from osprey_connectors import control_context
+from osprey_connectors.identity import acting_identity
+from tests._control_context_fixtures import state_dir_under
+from tests.mcp_server._report_root import state_root as state_root  # noqa: F401
 
 TARGETS_META = {
     "live": {
-        "label": "ALS storage ring",
+        "label": "Example storage ring",
         "endpoint": "gateway.example.com:5064",
         "real_machine": True,
         "probe_channel": "SR:BeamCurrent",
@@ -45,16 +48,9 @@ TARGETS_META = {
 }
 
 
-@pytest.fixture(autouse=True)
-def state_root(tmp_path, monkeypatch):
-    """Anchor the state directory in tmp_path instead of a real deployment."""
-    monkeypatch.setattr(target_state, "resolve_shared_data_root", lambda: tmp_path)
-    return tmp_path
-
-
 def _write_foreign(state_root, pid, *, children=None, target="live"):
     """Drop a report that looks like another server's, bypassing the API."""
-    directory = state_root / target_state.STATE_DIR_NAME
+    directory = state_dir_under(state_root)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{target_state.REPORT_FILE_PREFIX}{pid}{target_state.REPORT_FILE_SUFFIX}"
     path.write_text(
@@ -79,14 +75,14 @@ def _write_foreign(state_root, pid, *, children=None, target="live"):
 
 
 class TestPathContract:
-    """The spelling a stdlib-only hook mirrors: root / control_target / PID file."""
+    """The spelling a stdlib-only hook mirrors: root / control_target / identity / PID file."""
 
     def test_state_dir_is_fixed_subdir_of_shared_root(self, state_root):
-        assert target_state.state_dir() == state_root / "control_target"
+        assert target_state.state_dir() == state_root / "control_target" / acting_identity()
 
     def test_report_is_named_for_the_server_pid(self, state_root):
         assert target_state.report_file_path(4321) == (
-            state_root / "control_target" / "server_4321.json"
+            state_root / "control_target" / acting_identity() / "server_4321.json"
         )
 
     def test_report_defaults_to_this_process(self, state_root):
@@ -161,9 +157,9 @@ class TestWriteServerRecord:
         assert targets["standin"] == {"label": "", "endpoint": "", "real_machine": False}
 
     def test_creates_the_state_directory(self, state_root):
-        assert not (state_root / "control_target").exists()
+        assert not state_dir_under(state_root).exists()
         target_state.write_server_record(TARGETS_META, server_pid=1234)
-        assert (state_root / "control_target").is_dir()
+        assert state_dir_under(state_root).is_dir()
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +215,7 @@ class TestSelectedRole:
 
     ROLED_META = {
         "live": {
-            "label": "ALS storage ring",
+            "label": "Example storage ring",
             "endpoint": "gateway.example.com:5064",
             "real_machine": True,
             "selected_role": "read_only",
@@ -283,60 +279,6 @@ class TestSelectedRole:
         )
 
         assert "selected_role" not in target_state.read(1234)["targets"]["live"]
-
-
-# ---------------------------------------------------------------------------
-# publish_targets
-# ---------------------------------------------------------------------------
-
-
-class TestPublishTargets:
-    """The one publisher that moves the display metadata written at start."""
-
-    NARROWED = {
-        "live": {
-            "label": "ALS storage ring",
-            "endpoint": "gateway.example.com:5065",
-            "real_machine": True,
-            "probe_channel": "SR:BeamCurrent",
-            "selected_role": "read_only",
-        },
-    }
-
-    def test_republishing_replaces_the_block(self, state_root):
-        target_state.write_server_record(TARGETS_META, server_pid=1234)
-
-        assert target_state.publish_targets(self.NARROWED, server_pid=1234) is True
-
-        targets = target_state.read(1234)["targets"]
-        assert targets["live"]["endpoint"] == "gateway.example.com:5065"
-        assert targets["live"]["selected_role"] == "read_only"
-
-    def test_an_omitted_slot_is_written_empty_not_dropped(self, state_root):
-        target_state.write_server_record(TARGETS_META, server_pid=1234)
-
-        target_state.publish_targets(self.NARROWED, server_pid=1234)
-
-        targets = target_state.read(1234)["targets"]
-        assert set(targets) == set(target_state.TARGET_NAMES)
-        assert targets["va"] == {"label": "", "endpoint": "", "real_machine": False}
-        assert targets["standin"] == {"label": "", "endpoint": "", "real_machine": False}
-
-    def test_identity_and_pids_are_untouched(self, state_root):
-        target_state.write_server_record(TARGETS_META, server_pid=1234)
-        target_state.publish_switch("va", 2, children=[5001], server_pid=1234)
-
-        target_state.publish_targets(self.NARROWED, server_pid=1234)
-
-        record = target_state.read(1234)
-        assert record["applied_target"] == "va"
-        assert record["applied_generation"] == 2
-        assert record["children"] == [5001]
-        assert record["server_pid"] == 1234
-
-    def test_without_a_record_writes_nothing(self, state_root):
-        assert target_state.publish_targets(TARGETS_META, server_pid=1234) is False
-        assert target_state.read(1234) is None
 
 
 # ---------------------------------------------------------------------------
@@ -436,7 +378,7 @@ class TestRead:
         assert target_state.read(1234) is None
 
     def test_unreadable_file_reads_as_none(self, state_root):
-        directory = state_root / "control_target"
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True)
         # A directory where a file is expected: OSError, not a crash.
         (directory / "server_1234.json").mkdir()
@@ -502,7 +444,7 @@ class TestSweep:
         assert not dead.exists()
 
     def test_file_with_unparseable_pid_is_swept(self, state_root):
-        directory = state_root / "control_target"
+        directory = state_dir_under(state_root)
         directory.mkdir(parents=True)
         junk = directory / "server_notapid.json"
         junk.write_text("{}", encoding="utf-8")
@@ -599,7 +541,7 @@ class TestAtomicWrite:
         target_state.write_server_record(TARGETS_META, server_pid=1234)
         target_state.publish_switch("va", 1, server_pid=1234)
 
-        directory = state_root / "control_target"
+        directory = state_dir_under(state_root)
         assert [p.name for p in directory.iterdir()] == ["server_1234.json"]
         assert json.loads((directory / "server_1234.json").read_text(encoding="utf-8"))
 
@@ -612,7 +554,7 @@ class TestAtomicWrite:
         with pytest.raises(RuntimeError):
             target_state.write_server_record(TARGETS_META, server_pid=1234)
 
-        assert list((state_root / "control_target").iterdir()) == []
+        assert list(state_dir_under(state_root).iterdir()) == []
 
     def test_failed_dump_does_not_corrupt_the_previous_record(self, state_root, monkeypatch):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
@@ -628,7 +570,7 @@ class TestAtomicWrite:
         record = target_state.read(1234)
         assert record["applied_target"] is None
         assert record["targets"] == TARGETS_META
-        assert [p.name for p in (state_root / "control_target").iterdir()] == ["server_1234.json"]
+        assert [p.name for p in state_dir_under(state_root).iterdir()] == ["server_1234.json"]
 
 
 # ---------------------------------------------------------------------------

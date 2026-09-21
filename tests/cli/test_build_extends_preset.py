@@ -91,7 +91,7 @@ def test_extends_by_path_still_works(tmp_path: Path) -> None:
 
 def test_extends_path_shaped_value_resolves_via_filesystem(tmp_path: Path) -> None:
     """Backward-compat: an extends value with a ``.yml`` suffix is treated as a path,
-    not a preset. Mirrors ALS's ``extends: als-base.yml`` pattern.
+    not a preset — the shape a profile inheriting from a sibling file already uses.
     """
     base = tmp_path / "als-base.yml"
     base.write_text(

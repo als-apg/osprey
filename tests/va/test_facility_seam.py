@@ -238,7 +238,7 @@ _SEAM_CHANNELS = [
 
 
 class TestTheTutorialMachineIsNamedNotAssumed:
-    """ALS half: the built-in namespace and lattice, asked for rather than
+    """Built-in half: the bundled namespace and lattice, asked for rather than
     fallen into."""
 
     def test_no_channel_source_is_refused(self, monkeypatch, tmp_path):

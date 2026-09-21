@@ -28,7 +28,7 @@ providers:
     judge: { via: cborg, model: google/claude-haiku-4-5 }
 
   als-apg:
-    # Native als-apg endpoint (the ALS-APG gateway, NO /v1 — the Anthropic SDK
+    # Native als-apg endpoint (NO /v1 — the Anthropic SDK
     # appends /v1/messages). Same base_url backs both SUT routing and the judge.
     # The gateway is a deployment's own host and has no default: set
     # ALS_APG_BASE_URL, or write the endpoint here.
@@ -45,7 +45,7 @@ providers:
   # lock) as the _ds4 launchd daemon — do NOT start your own ds4-server, it will
   # collide. Just point at the localhost endpoint below; any/empty key works.
   # Health check:  curl http://127.0.0.1:8000/v1/models   (see
-  # /Users/Shared/ds4-setup-for-thellert.md on the Studio). Context is 32768.
+  # /Users/Shared/ds4-setup.md on the Studio). Context is 32768.
   ds4:
     base_url: http://127.0.0.1:8000/v1
     keyless: true

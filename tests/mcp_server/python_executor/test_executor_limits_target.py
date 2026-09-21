@@ -25,8 +25,6 @@ from osprey_connectors import control_context
 from osprey_connectors.control_system import limits_validator
 from osprey_connectors.control_system.limits_validator import LimitsValidator
 
-pytestmark = pytest.mark.unit
-
 
 def _record(target: str) -> control_context.ControlContext:
     """The deployment's control-context record, naming *target*."""

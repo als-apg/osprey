@@ -26,16 +26,26 @@ __all__ = [
     "UnknownDeviceError",
 ]
 
-# The physics-bridge names are re-exported lazily (PEP 562); see the module
-# docstring for why importing this package must not pull PyAT in. Attribute
-# access is unchanged for callers: ``from ...ioc import PhysicsBridge`` still
-# works, it just pays the PyAT import only when actually used.
-_PHYSICS_BRIDGE_NAMES = frozenset({"PhysicsBridge", "OrbitSolveError", "UnknownDeviceError"})
+#: Public name -> the submodule of this package that defines it. Entries are
+#: resolved on first attribute access, never at import.
+_LAZY_EXPORTS: dict[str, str] = {
+    "PhysicsBridge": ".physics_bridge",
+    "OrbitSolveError": ".physics_bridge",
+    "UnknownDeviceError": ".physics_bridge",
+}
 
 
 def __getattr__(name: str) -> Any:
-    if name in _PHYSICS_BRIDGE_NAMES:
-        from . import physics_bridge
+    """Resolve a public name from its defining module on first access."""
+    module_name = _LAZY_EXPORTS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from importlib import import_module
 
-        return getattr(physics_bridge, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted({*globals(), *_LAZY_EXPORTS})

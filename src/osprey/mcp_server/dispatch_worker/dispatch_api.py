@@ -57,6 +57,7 @@ from osprey.mcp_server.dispatch_worker.input_files_policy import (
     sanitize_filename,
     validate_input_files,
 )
+from osprey.utils.bearer import credential_bytes
 from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
@@ -308,6 +309,11 @@ DENIED_TOOLS: set[str] = {
     "BashOutput",
     "KillShell",
     "KillBash",
+    # A job may not fire jobs. ``trigger_config`` already refuses the whole
+    # ``mcp__event_dispatcher__`` prefix when the triggers file is loaded; this
+    # entry is the run-time floor, which holds whatever a dispatch request asks
+    # for and whether or not the dispatcher is wired into the render at all.
+    "mcp__event_dispatcher__manual_fire",
 }
 
 
@@ -424,8 +430,11 @@ def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sc
             detail="DISPATCH_WORKER_TOKEN is not configured",
         )
     # Constant-time comparison to avoid leaking the token via timing, matching
-    # the dispatcher's _check_auth / WebhookSource._handle.
-    if not hmac.compare_digest(credentials.credentials, expected):
+    # the dispatcher's _check_auth / WebhookSource._handle — over bytes, so a
+    # bearer carrying anything outside ASCII is refused rather than raised on.
+    if not hmac.compare_digest(
+        credential_bytes(credentials.credentials), credential_bytes(expected)
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid bearer token",
@@ -476,6 +485,15 @@ class DispatchRequest(BaseModel):
     ``max_turns`` defaults to :data:`DISPATCH_MAX_TURNS`, this deployment's own
     ceiling, so a caller that names none gets the facility's number rather than
     a framework literal.
+
+    ``owner`` is the person the dispatcher attributed the fire to, read there
+    from the owner header — never a claim the job makes about itself. It is
+    additive and defaults to ``None``: a body from a dispatcher naming no owner
+    validates and its run is held to the deployment ceiling, as a cron fire is.
+    Worker and dispatcher are separately deployed images, so the field must be
+    declared here to survive at all — an undeclared key is dropped silently, and
+    the run would be judged against nobody's narrowing while the fire was
+    attributed to a person.
     """
 
     prompt: str
@@ -484,6 +502,7 @@ class DispatchRequest(BaseModel):
     surface_prompt: str | None = None
     surface_tools: list[str] | None = None
     input_files: list[InputFile] | None = None
+    owner: str | None = None
 
 
 class DispatchResponse(BaseModel):
@@ -652,6 +671,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 run_id=run_id,
                 surface_prompt=request.surface_prompt,
                 surface_tools=request.surface_tools,
+                owner=request.owner,
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )

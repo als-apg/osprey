@@ -317,6 +317,15 @@ def _served(port: int) -> bool:
     synchronous pyepics in a thread-pool executor whose CA context is
     per-thread, so a main-thread pyepics call in *this* process would deadlock
     the children these tests spend their time talking to.
+
+    It leaves through ``os._exit`` for that file's other reason: a bare
+    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
+    still on its exit hooks. That finalizer's recorded hang follows Channel
+    Access use on a worker thread -- what the connector's executor does --
+    rather than the one main-thread ``caget`` this child makes, which has
+    not been seen to hang. The forced exit is kept as a bound that costs
+    nothing: a probe that will not die is read here as a container that is
+    not serving, and the word is written and flushed before the exit.
     """
     code = (
         "import sys, epics\n"

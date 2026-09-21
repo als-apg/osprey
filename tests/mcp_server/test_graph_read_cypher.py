@@ -33,8 +33,6 @@ from tests.mcp_server.conftest import (
     registered_tool_names,
 )
 
-pytestmark = pytest.mark.unit
-
 read_cypher_fn = get_tool_fn(mod.read_cypher)
 
 #: The config key the truncation guidance must name. Spelled as a literal so the

@@ -40,7 +40,11 @@ Stages, in order, each an independently-reportable test:
 3. ``test_3_start_*``            -- ``POST /queue/start`` is token-gated
    (``launch_token_required``), the queue drains STRICTLY SERIALLY, live rows
    accumulate at the poller's ~1 s cadence while a plan runs, and the started
-   run publishes the point count its plan DECLARED.
+   run publishes the point count its plan DECLARED. Two of the stage's starts
+   come from the MCP queue TOOL rather than from this module's own client,
+   recorded through a loopback hop: the queue an approval prompt bound rides
+   on the wire as ``expected_plan_queue_uid`` and the bridge judges the start
+   on it, while a start nothing bound names no queue at all.
 4. ``test_4_results_*``          -- both runs' data reads back off the live
    buffer (``run_uid: null``, the live path), each carrying the six-key
    analysis block keyed on the plan's declared movable channel.
@@ -111,10 +115,13 @@ build+deploy; run it by name --
 
 from __future__ import annotations
 
+import contextlib
+import http.server
 import json
 import os
 import shutil
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -516,10 +523,29 @@ def _grid_args(stack: QueueStack, num_points: int) -> dict[str, Any]:
     The sweep band is the middle half of the corrector's OWN
     ``channel_limits.json`` entry, so this never hardcodes a facility channel
     and never asks the reference monitor for a value outside its band.
+
+    The corrector NAMES come from the device file the build staged, derived
+    from the facility channel roster; the band VALUES come from the limits
+    projection, which gates a subset of those channels and enumerates none of
+    them. The two are not the same set, so the axis is the first staged
+    corrector the limits file actually BOUNDS — indexing the projection by the
+    first staged name raises inside a fixture the stages cannot report from.
     """
-    axis_name = next(iter(stack.correctors))
-    sp_address, _rb = stack.correctors[axis_name]
-    entry = stack.limits[sp_address]
+    axis = next(
+        (
+            (name, entry)
+            for name, (sp_address, _rb) in stack.correctors.items()
+            if isinstance(entry := stack.limits.get(sp_address), dict)
+            and "min_value" in entry
+            and "max_value" in entry
+        ),
+        None,
+    )
+    assert axis is not None, (
+        "no staged corrector carries a channel_limits band, so this plan has no "
+        f"axis to sweep (staged correctors: {sorted(stack.correctors)})"
+    )
+    axis_name, entry = axis
     lo, hi = float(entry["min_value"]), float(entry["max_value"])
     start = lo + 0.375 * (hi - lo)
     stop = lo + 0.625 * (hi - lo)
@@ -1222,6 +1248,326 @@ def test_3_start_requires_the_launch_token(stack: QueueStack) -> None:
     assert status in (403, 503), f"an unarmed start must be refused: {status} {body}"
     assert _code_of(body) == "launch_token_required", (
         f"wrong refusal code on an unarmed start: {body}"
+    )
+
+    # Negative control: the refusal changed nothing.
+    queue = _queue_snapshot()
+    assert queue["status"]["manager_state"] != "executing_queue", (
+        f"the queue started despite the refusal: {queue['status']}"
+    )
+    assert queue["status"]["items_in_queue"] == 2, (
+        f"the refused start disturbed the queue: {queue['status']}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stage 3's other start: the one the MCP queue TOOL issues.
+#
+# The queue tools run inside the MCP server a persona's web terminal hosts,
+# and this module deploys no web terminals (`_profile_edits`), so the tool is
+# driven in-process here against the deployed bridge. That still leaves the
+# half no mock can stand in for on the far side of a socket: the bytes the
+# tool puts on the wire, and the running manager's answer to them. What the
+# tool reads LOCALLY -- its write posture, its launch token, the approval
+# stamp -- is staged the way the unit rows stage it
+# (`tests/mcp_server/bluesky/test_queue_tools.py`), and the osprey imports
+# that needs are function-local, so collecting this module stays independent
+# of the MCP server's own import graph.
+# ---------------------------------------------------------------------------
+
+#: The audit session the approval stamp below is written under. Any string
+#: does: the tool hashes it into the stamp's file name and never reads it.
+_MCP_SESSION = "kernel:queue-e2e"
+
+#: A queue token no manager can have minted, so a start quoting it names a
+#: queue that is definitively not the one the manager holds. The subject here
+#: is the FIELD -- that it leaves the tool and that the bridge compares it --
+#: not the many ways a real queue moves between an approval and a start.
+_UID_NO_MANAGER_MINTED = "queue-uid-no-manager-ever-minted"
+
+
+@dataclass
+class _WireRequest:
+    """One request the recording hop relayed, as the client sent it."""
+
+    path: str
+    headers: dict[str, str]
+    raw: bytes
+
+
+class _RecordingBridgeHop(http.server.ThreadingHTTPServer):
+    """A loopback hop in front of the real bridge that keeps what it relayed.
+
+    The bridge keeps no request log, so the only way to see what a client put
+    ON THE WIRE -- rather than what it meant to -- is to stand between the two.
+    Bound on an ephemeral port: nothing else addresses this listener, so it
+    needs no entry in the port block above and a rerun cannot inherit a
+    stranded one.
+    """
+
+    daemon_threads = True
+
+    def __init__(self, handler: type[http.server.BaseHTTPRequestHandler]) -> None:
+        super().__init__(("127.0.0.1", 0), handler)
+        self.relayed: list[_WireRequest] = []
+
+    @property
+    def url(self) -> str:
+        """Where a client addresses this hop, in the shape a bridge URL takes."""
+        return f"http://127.0.0.1:{self.server_address[1]}"
+
+
+class _BridgeHopHandler(http.server.BaseHTTPRequestHandler):
+    """Relay one POST to the bridge and answer with the bridge's own reply."""
+
+    def do_POST(self) -> None:  # noqa: N802 - the stdlib handler's own spelling
+        hop = self.server
+        assert isinstance(hop, _RecordingBridgeHop)
+        raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        # The content type and every `X-` header -- what a client
+        # authenticates and attributes itself with. The rest belong to the
+        # client's own transport (`Host`, `Content-Length`, `Accept-Encoding`),
+        # and forwarding those would make this hop answer for a transport it
+        # does not implement: a gzipped reply it never decodes, above all.
+        forwarded = {
+            name: value
+            for name, value in self.headers.items()
+            if name.lower() == "content-type" or name.lower().startswith("x-")
+        }
+        hop.relayed.append(_WireRequest(path=self.path, headers=forwarded, raw=raw))
+
+        request = urllib.request.Request(  # noqa: S310 - localhost only
+            f"{BRIDGE_URL}{self.path}", data=raw, method="POST", headers=forwarded
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=60.0) as resp:  # noqa: S310
+                status, payload = resp.status, resp.read()
+        except urllib.error.HTTPError as exc:
+            # A refusal is the ordinary answer here, not an error to raise:
+            # both stages below are written against one.
+            status, payload = exc.code, exc.read()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def log_message(self, format: str, *args: Any) -> None:
+        """Keep the stdlib's per-request stderr line out of the run log."""
+
+
+@contextlib.contextmanager
+def _recording_bridge_hop() -> Iterator[_RecordingBridgeHop]:
+    """Serve the recording hop for one block, then close it."""
+    hop = _RecordingBridgeHop(_BridgeHopHandler)
+    serving = threading.Thread(target=hop.serve_forever, daemon=True)
+    serving.start()
+    try:
+        yield hop
+    finally:
+        hop.shutdown()
+        hop.server_close()
+        serving.join(timeout=10.0)
+
+
+def _stage_the_queue_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, bridge_url: str, *, token: str | None
+) -> None:
+    """Put this process in the posture the MCP server's queue tools run in.
+
+    The armed deployment posture the tools re-read before every start, the
+    bridge they address (the recording hop), the launch token they hold -- the
+    deployment's own, or none at all -- and a control-state directory this test
+    owns, so the approval stamp written into it is the only one they can find.
+    """
+    from osprey.audit.posture import POSTURE_SESSION_ENV_VAR
+    from osprey.bluesky_bridge_connection import LANE_ONE, lane_env_prefix
+    from osprey.mcp_server.bluesky.server_context import initialize_server_context
+    from osprey.utils.workspace import reset_config_cache
+    from osprey_connectors.posture_store import CONTROL_CONTEXT_DIR_ENV_VAR
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "config.yml").write_text(
+        "control_system:\n  writes_enabled: true\n", encoding="utf-8"
+    )
+    # The builder caches the config it loaded, and the tools load theirs on the
+    # first gate they run -- clear it so the posture they read is the one this
+    # line just wrote.
+    reset_config_cache()
+
+    prefix = lane_env_prefix(LANE_ONE)
+    monkeypatch.setenv(f"{prefix}_BRIDGE_URL", bridge_url)
+    if token is None:
+        monkeypatch.delenv(f"{prefix}_LAUNCH_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv(f"{prefix}_LAUNCH_TOKEN", token)
+    monkeypatch.setenv(POSTURE_SESSION_ENV_VAR, _MCP_SESSION)
+    monkeypatch.setenv(CONTROL_CONTEXT_DIR_ENV_VAR, str(tmp_path / "control_target"))
+    initialize_server_context()
+
+
+def _write_start_approval_stamp(uid: str) -> Path:
+    """Leave the stamp a queue-start approval prompt leaves, in the HOOK's own hand.
+
+    The file name is the hook's, called rather than restated: the approval hook
+    runs outside OSPREY's venv and can import nothing from it, so the hook and
+    the queue tool derive this name from two separate copies of one rule, and a
+    stamp the tool cannot find leaves every start on a real deployment silently
+    unbound. A third copy here would pin the tool against the test instead, and
+    hook-side drift would pass. Reaching the shipped hook needs no path
+    juggling -- the hooks import by dotted path, and this one's module body only
+    defines things (`tests/hooks/conftest.py`).
+
+    The DIRECTORY is the tool's own answer, so the stamp cannot land somewhere
+    the tool does not look. Between the two, a start that reaches the bridge
+    quoting this uid is a hook, a tool and a directory that agree.
+    """
+    from osprey.bluesky_bridge_connection import LANE_ONE
+    from osprey.mcp_server.control_system import target_state
+    from osprey.templates.claude_code.claude.hooks import osprey_approval
+
+    directory = target_state.state_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / osprey_approval.queue_start_approval_filename(_MCP_SESSION, LANE_ONE)
+    path.write_text(
+        json.dumps({"lane": LANE_ONE, "plan_queue_uid": uid, "ts": time.time()}),
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.fixture
+def queue_tools_context_reset() -> Iterator[None]:
+    """Drop what the two stages below leave loaded in this process.
+
+    The MCP server singleton holds the recording hop's address, which stops
+    existing the moment the block serving it ends. The config cache holds the
+    staged posture, read from a directory that goes away with the test. Both
+    are process-wide, nothing later in this module goes near either, and a
+    singleton pointing at a closed port -- or a posture read out of a deleted
+    tmp dir -- is a confusing thing to leave behind for whatever does.
+    """
+    yield
+
+    from osprey.mcp_server.bluesky.server_context import reset_server_context
+    from osprey.utils.workspace import reset_config_cache
+
+    reset_server_context()
+    reset_config_cache()
+
+
+async def test_3_the_queue_tool_names_its_approved_queue_on_the_wire(
+    stack: QueueStack,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    queue_tools_context_reset: None,
+) -> None:
+    """A start an approval bound quotes that queue to the bridge, and is judged on it.
+
+    Read off the wire rather than inferred: the request the queue tool relayed
+    through the recording hop carries ``expected_plan_queue_uid``, and the
+    bridge -- comparing it against the queue the manager actually holds --
+    refuses the start as ``queue_changed_since_approval`` and names both uids.
+    The tool composes that body the same way whatever the answer is, so one
+    refused start shows both halves at once: the field leaves the tool, and the
+    far side reads it. A refusal is also what leaves the queue standing for the
+    drain below.
+    """
+    if _S.run_live is None:
+        pytest.skip("stage 2 never enqueued anything to start")
+
+    from osprey.mcp_server.bluesky.tools import queue as queue_tools
+    from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+
+    held = _queue_snapshot()["status"]
+    current_uid = held.get("plan_queue_uid")
+    assert isinstance(current_uid, str) and current_uid, (
+        f"the manager reports no plan_queue_uid for a start to be bound to: {held}"
+    )
+
+    with _recording_bridge_hop() as hop:
+        _stage_the_queue_tools(tmp_path, monkeypatch, hop.url, token=stack.token)
+        _write_start_approval_stamp(_UID_NO_MANAGER_MINTED)
+        try:
+            with assert_raises_error(error_type="queue_changed_since_approval") as ctx:
+                await get_tool_fn(queue_tools.queue_start)()
+        finally:
+            # A refusal that failed to refuse leaves the queue ARMED, and it
+            # would drain into stages 4-8 as a cascade of failures about
+            # something else entirely. Stopping it here keeps a regression to
+            # the one red row that found it.
+            if _queue_snapshot()["status"].get("queue_autostart_enabled"):
+                _disarm()
+
+    assert [request.path for request in hop.relayed] == ["/queue/start"], (
+        f"the tool addressed something other than exactly one start: {hop.relayed}"
+    )
+    sent = json.loads(hop.relayed[0].raw)
+    assert sent.get("expected_plan_queue_uid") == _UID_NO_MANAGER_MINTED, (
+        f"the approved queue never reached the bridge: {sent}"
+    )
+
+    details = ctx["envelope"]["details"]
+    assert details["expected_plan_queue_uid"] == _UID_NO_MANAGER_MINTED, (
+        f"the refusal quotes a different approved queue: {details}"
+    )
+    assert details["plan_queue_uid"] == current_uid, (
+        f"the bridge compared against a queue the manager does not hold: {details}"
+    )
+
+    # Negative control: the refusal changed nothing.
+    queue = _queue_snapshot()
+    assert queue["status"]["manager_state"] != "executing_queue", (
+        f"the queue started despite the refusal: {queue['status']}"
+    )
+    assert queue["status"]["items_in_queue"] == 2, (
+        f"the refused start disturbed the queue: {queue['status']}"
+    )
+
+
+async def test_3_an_unbound_queue_tool_start_names_no_queue_at_all(
+    stack: QueueStack,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    queue_tools_context_reset: None,
+) -> None:
+    """A start no approval bound carries no ``expected_plan_queue_uid`` key.
+
+    The ABSENT key is the unbound start: the body every deployment rendered
+    before the binding existed sent, and the one the token-only starts in
+    ``tests/e2e/_queue_drive.py`` still send. A missing stamp is only one of
+    the ways a start goes unbound, and all of them have to leave the request
+    exactly as it was -- an empty string or a null would be a queue nobody
+    approved, quoted back.
+
+    Proved with the launch token withheld, because that refusal is the one the
+    bridge reaches before it touches the queue at all: an unbound start
+    carrying the token would arm the queue the drain below is written against.
+    """
+    if _S.run_live is None:
+        pytest.skip("stage 2 never enqueued anything to start")
+
+    from osprey.mcp_server.bluesky.tools import queue as queue_tools
+    from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
+
+    with _recording_bridge_hop() as hop:
+        _stage_the_queue_tools(tmp_path, monkeypatch, hop.url, token=None)
+        try:
+            with assert_raises_error(error_type="launch_token_required"):
+                await get_tool_fn(queue_tools.queue_start)()
+        finally:
+            # Same blast radius as the row above: an unbound start that was not
+            # refused arms the queue the later stages are written against.
+            if _queue_snapshot()["status"].get("queue_autostart_enabled"):
+                _disarm()
+
+    assert [request.path for request in hop.relayed] == ["/queue/start"], (
+        f"the tool addressed something other than exactly one start: {hop.relayed}"
+    )
+    sent = json.loads(hop.relayed[0].raw)
+    assert sent == {}, f"an unbound start named a queue on the wire: {sent}"
+    assert _LAUNCH_TOKEN_HEADER not in hop.relayed[0].headers, (
+        f"a tool holding no token still sent one: {hop.relayed[0].headers}"
     )
 
     # Negative control: the refusal changed nothing.

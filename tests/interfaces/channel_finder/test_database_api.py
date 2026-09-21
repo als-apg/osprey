@@ -38,14 +38,14 @@ class TestStatisticsEndpoint:
         mock_db.chunk_database.return_value = [[]] * 5
         with (
             patch(_DB_PATCH, return_value=mock_db),
-            patch(_FACILITY_PATCH, return_value="ALS"),
+            patch(_FACILITY_PATCH, return_value="ERF"),
         ):
             resp = client.get("/api/statistics")
         assert resp.status_code == 200
         data = resp.json()
         assert data["total_channels"] == 250
         assert data["total_chunks_at_50"] == 5
-        assert data["facility_name"] == "ALS"
+        assert data["facility_name"] == "ERF"
 
     def test_statistics_error_returns_500(self, client):
         mock_db = MagicMock()

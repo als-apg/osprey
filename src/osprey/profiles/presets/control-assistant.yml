@@ -364,8 +364,10 @@ config:
   # TANGO connector: one coordinate of its own, the device database, spelled
   # `host:port`. Leave `tango_host` unset and PyTango reads the TANGO_HOST the
   # environment already carries; write it to name a database that environment
-  # does not. The port is the database's own, not one of this deployment's.
-  # control_system.connector.tango.tango_host: your-tango-db.example.com:<db-port>
+  # does not.
+  # Not a deployment port: 10000 is TANGO's own convention for the device
+  # database, not a port this deployment publishes.
+  # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
   # control_system.connector.tango.timeout: 5.0
   # The same four leaves as every other connector type, for the TANGO machine.
@@ -405,6 +407,9 @@ config:
   # `archiver.type: epics_archiver`.
   # archiver.epics_archiver.url: https://your-archiver.example.com:8443
   # archiver.epics_archiver.timeout: 60
+  # Only when a reverse proxy in front of the appliance publishes its
+  # `/retrieval` servlet under another prefix; the bare appliance needs no line.
+  # archiver.epics_archiver.retrieval_path: /retrieval
   # MongoDB archiver pointed at a store this deployment does NOT run. The
   # coordinates above are derived from `va_archiver:`; spell them here instead
   # to read an archive someone else keeps, and drop the `va_archiver:` block so
@@ -555,6 +560,8 @@ config:
   # acronym, noise for an ordinary word ("calibration" → "cal").
   ariel.vocabulary.canonical_to_acronym: true
   ariel.vocabulary.canonical_to_shorthand: false
+  # `kind: synonym` concepts ignore both switches: every member reaches every
+  # other member --- phrasings of one event have no noisy direction to gate.
   # No `ariel.vocabulary.expand_modes`: unset, every enabled search module
   # expands. Set `[keyword, semantic]` to drop `hybrid` alone if the reranked
   # ordering degrades under expansion.
@@ -1013,10 +1020,15 @@ config:
       # publishes the identity claim under `profile` or `email`; add whatever
       # scope yours publishes it under. `openid` cannot be dropped: without it
       # the provider issues no ID token and the sidecar refuses every login.
+      # If every login fails with "no usable claim" although the scope was
+      # requested, the provider serves scope claims from UserInfo rather than
+      # in the ID token (OIDC Core §5.4); `claims_in_id_token: true` asks for
+      # them in the token instead.
       #   oidc:
       #     issuer: https://idp.example.org
       #     claim: preferred_username
       #     scopes: [openid, profile, email]
+      #     claims_in_id_token: false
     # Which tier a user lands on is pinned per entry below. Single sign-on can
     # pick it instead by mapping provider groups onto declared roles — see
     # "Let single sign-on pick the tier" in the multi-user login guide.
@@ -1142,6 +1154,13 @@ config:
 # ship need no control system, so a single `curl` after `osprey up` exercises
 # it. Delete this block to turn it off.
 dispatch:
+  # The host's network namespace, which the web tier above already runs in. A
+  # dispatched job runs the same agent a terminal does, so it reaches the
+  # control system and the plan queue at the same addresses — and those are
+  # this machine's own loopback, which inside a container on the compose
+  # network names the container instead. One knob moves the dispatcher and its
+  # workers together; see the networking how-to.
+  network: host
   triggers: tutorial_triggers.yml   # a path in this repo, or a bundled name
   worker_count: 1
   workspace_mode: isolated

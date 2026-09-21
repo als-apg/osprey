@@ -22,23 +22,18 @@ def _clean_singleton():
 class TestOllamaEmbeddingProviderAttributes:
     """Verify OllamaEmbeddingProvider class attributes."""
 
-    @pytest.mark.unit
     def test_name(self):
         assert OllamaEmbeddingProvider.name == "ollama"
 
-    @pytest.mark.unit
     def test_requires_api_key(self):
         assert OllamaEmbeddingProvider.requires_api_key is False
 
-    @pytest.mark.unit
     def test_requires_base_url(self):
         assert OllamaEmbeddingProvider.requires_base_url is True
 
-    @pytest.mark.unit
     def test_litellm_prefix(self):
         assert OllamaEmbeddingProvider.litellm_prefix == "ollama"
 
-    @pytest.mark.unit
     def test_is_base_subclass(self):
         assert issubclass(OllamaEmbeddingProvider, BaseEmbeddingProvider)
 
@@ -46,35 +41,27 @@ class TestOllamaEmbeddingProviderAttributes:
 class TestOpenAIEmbeddingProviderAttributes:
     """Verify OpenAIEmbeddingProvider class attributes."""
 
-    @pytest.mark.unit
     def test_name(self):
         assert OpenAIEmbeddingProvider.name == "openai"
 
-    @pytest.mark.unit
     def test_requires_api_key(self):
         assert OpenAIEmbeddingProvider.requires_api_key is True
 
-    @pytest.mark.unit
     def test_requires_base_url(self):
         assert OpenAIEmbeddingProvider.requires_base_url is False
 
-    @pytest.mark.unit
     def test_litellm_prefix(self):
         assert OpenAIEmbeddingProvider.litellm_prefix == ""
 
-    @pytest.mark.unit
     def test_default_model_id(self):
         assert OpenAIEmbeddingProvider.default_model_id == "text-embedding-3-small"
 
-    @pytest.mark.unit
     def test_is_openai_compatible(self):
         assert OpenAIEmbeddingProvider.is_openai_compatible is True
 
-    @pytest.mark.unit
     def test_default_base_url_is_none(self):
         assert OpenAIEmbeddingProvider.default_base_url is None
 
-    @pytest.mark.unit
     def test_is_base_subclass(self):
         assert issubclass(OpenAIEmbeddingProvider, BaseEmbeddingProvider)
 
@@ -82,7 +69,6 @@ class TestOpenAIEmbeddingProviderAttributes:
 class TestOpenAIEmbeddingBehavior:
     """Exercise OpenAIEmbeddingProvider behavior, not just class attributes."""
 
-    @pytest.mark.unit
     def test_empty_texts_short_circuits(self):
         """Empty input returns [] without invoking litellm."""
         with patch("litellm.embedding") as mock_embed:
@@ -92,7 +78,6 @@ class TestOpenAIEmbeddingBehavior:
         assert result == []
         mock_embed.assert_not_called()
 
-    @pytest.mark.unit
     def test_execute_embedding_forwards_optional_kwargs(self):
         """api_key/api_base/dimensions are conditionally forwarded and the
         response vectors are extracted from response.data."""
@@ -113,7 +98,6 @@ class TestOpenAIEmbeddingBehavior:
         assert kwargs["api_base"] == "https://azure.example/v1"
         assert kwargs["dimensions"] == 256
 
-    @pytest.mark.unit
     def test_execute_embedding_omits_unset_kwargs(self):
         """Without api_key/base_url/dimensions, those keys are not forwarded."""
         with patch("litellm.embedding") as mock_embed:
@@ -126,7 +110,6 @@ class TestOpenAIEmbeddingBehavior:
         assert "api_base" not in kwargs
         assert "dimensions" not in kwargs
 
-    @pytest.mark.unit
     def test_check_health_requires_api_key(self):
         """Missing api_key is reported without any network call."""
         assert OpenAIEmbeddingProvider().check_health(api_key=None, base_url=None) == (
@@ -134,7 +117,6 @@ class TestOpenAIEmbeddingBehavior:
             "OpenAI API key is required",
         )
 
-    @pytest.mark.unit
     def test_check_health_healthy(self):
         """A successful embed call reports healthy with the model name."""
         provider = OpenAIEmbeddingProvider()
@@ -143,7 +125,6 @@ class TestOpenAIEmbeddingBehavior:
         assert ok is True
         assert "text-embedding-3-small" in msg
 
-    @pytest.mark.unit
     def test_check_health_failure_is_wrapped(self):
         """An embed failure is caught and reported, not propagated."""
         provider = OpenAIEmbeddingProvider()
@@ -156,7 +137,6 @@ class TestOpenAIEmbeddingBehavior:
 class TestOllamaEmbeddingBehavior:
     """Exercise OllamaEmbeddingProvider's fallback/resolve/health logic."""
 
-    @pytest.mark.unit
     @pytest.mark.parametrize(
         "base_url,expected",
         [
@@ -197,7 +177,6 @@ class TestOllamaEmbeddingBehavior:
         """Each host-shape branch yields its exact ordered fallback list."""
         assert OllamaEmbeddingProvider._get_fallback_urls(base_url) == expected
 
-    @pytest.mark.unit
     def test_empty_texts_short_circuits(self):
         """Empty input returns [] before any connection attempt."""
         with patch.object(OllamaEmbeddingProvider, "_test_connection") as mock_conn:
@@ -207,14 +186,12 @@ class TestOllamaEmbeddingBehavior:
         assert result == []
         mock_conn.assert_not_called()
 
-    @pytest.mark.unit
     def test_resolve_base_url_uses_primary_when_reachable(self, monkeypatch):
         monkeypatch.delenv("OLLAMA_HOST", raising=False)
         with patch.object(OllamaEmbeddingProvider, "_test_connection", return_value=True):
             resolved = OllamaEmbeddingProvider()._resolve_base_url("http://localhost:11434")
         assert resolved == "http://localhost:11434"
 
-    @pytest.mark.unit
     def test_resolve_base_url_falls_back(self, monkeypatch):
         """Primary unreachable -> first reachable fallback is returned."""
         monkeypatch.delenv("OLLAMA_HOST", raising=False)
@@ -223,14 +200,12 @@ class TestOllamaEmbeddingBehavior:
             resolved = OllamaEmbeddingProvider()._resolve_base_url("http://localhost:11434")
         assert resolved == "http://host.docker.internal:11434"
 
-    @pytest.mark.unit
     def test_resolve_base_url_raises_when_all_fail(self, monkeypatch):
         monkeypatch.delenv("OLLAMA_HOST", raising=False)
         with patch.object(OllamaEmbeddingProvider, "_test_connection", return_value=False):
             with pytest.raises(RuntimeError, match="Failed to connect to Ollama"):
                 OllamaEmbeddingProvider()._resolve_base_url("http://localhost:11434")
 
-    @pytest.mark.unit
     def test_execute_embedding_builds_litellm_model(self, monkeypatch):
         """Model string is 'ollama/<model>', resolved url is forwarded as
         api_base, and vectors are extracted from response.data."""
@@ -248,7 +223,6 @@ class TestOllamaEmbeddingBehavior:
         assert kwargs["model"] == "ollama/nomic-embed-text"
         assert kwargs["api_base"] == "http://localhost:11434"
 
-    @pytest.mark.unit
     def test_check_health_cannot_connect(self, monkeypatch):
         monkeypatch.delenv("OLLAMA_HOST", raising=False)
         with patch.object(OllamaEmbeddingProvider, "_test_connection", return_value=False):
@@ -258,7 +232,6 @@ class TestOllamaEmbeddingBehavior:
         assert ok is False
         assert msg == "Cannot connect to Ollama at http://localhost:11434"
 
-    @pytest.mark.unit
     def test_check_health_model_not_found(self, monkeypatch):
         """Connected but the requested model isn't pulled -> not healthy."""
         monkeypatch.delenv("OLLAMA_HOST", raising=False)
@@ -274,7 +247,6 @@ class TestOllamaEmbeddingBehavior:
         assert ok is False
         assert "not found" in msg
 
-    @pytest.mark.unit
     def test_check_health_healthy(self, monkeypatch):
         monkeypatch.delenv("OLLAMA_HOST", raising=False)
         resp = MagicMock(status_code=200)
@@ -293,22 +265,18 @@ class TestOllamaEmbeddingBehavior:
 class TestGetEmbeddingProvider:
     """Tests for the get_embedding_provider factory function."""
 
-    @pytest.mark.unit
     def test_get_ollama(self):
         provider = get_embedding_provider("ollama")
         assert isinstance(provider, OllamaEmbeddingProvider)
 
-    @pytest.mark.unit
     def test_get_openai(self):
         provider = get_embedding_provider("openai")
         assert isinstance(provider, OpenAIEmbeddingProvider)
 
-    @pytest.mark.unit
     def test_unknown_raises_valueerror(self):
         with pytest.raises(ValueError, match="Unknown embedding provider: 'nonexistent'"):
             get_embedding_provider("nonexistent")
 
-    @pytest.mark.unit
     def test_returns_new_instance_each_call(self):
         """Each call returns a fresh provider instance."""
         a = get_embedding_provider("ollama")

@@ -161,10 +161,11 @@ def use_process_web_credentials(app: Any) -> None:
 # ``MagicMock`` answered every later config read in the worker — which is how
 # an unrelated store suite ended up resolving its repo root one directory short.
 #
-# ``_isolate_audit_zone`` below does request ``monkeypatch``, so that early
-# creation is now the normal order under this tree. What keeps it harmless is
-# the invariant on the other side: a fixture and a test body that repoint the
-# SAME seam must both go through ``monkeypatch`` (see ``_patch_config`` in
+# The suite-wide ``_isolate_audit_zone`` (``tests/conftest.py``) does request
+# ``monkeypatch``, so that early creation is the normal order everywhere. What
+# keeps it harmless is the invariant on the other side: a fixture and a test
+# body that repoint the SAME seam must both go through ``monkeypatch`` (see
+# ``_patch_config`` in
 # ``channel_finder/conftest.py``), so their undos stack in one list and unwind
 # LIFO. Never wrap a fixture-level ``mock.patch`` around a target a test body
 # monkeypatches.
@@ -408,6 +409,13 @@ def launch_graph_channel_finder(
 #: and its scoped variants needs neither the scope nor an ordering, and the
 #: bare key is written too so a page that enumerates storage still sees it.
 #:
+#: This is the only seed in the tree. A suite that also writes the bare key
+#: in an init script of its own adds nothing — the wrapper above already
+#: answers for it, scoped or not — and states the narrower of the two
+#: behaviours next to code that needs the wider one, which is how the next
+#: copy comes to be written. ``test_shared_tour_seam_contract.py`` is what
+#: keeps the count at one.
+#:
 #: A browser test that wants the invite opts out in its own page-level init
 #: script, which runs after the context's, by putting back the reader this one
 #: parked on ``Storage.prototype.getItem.osprey_real``. Clearing the key is not
@@ -503,21 +511,31 @@ def chromium_browser() -> Iterator[Browser]:
         pw.stop()
 
 
-@pytest.fixture(autouse=True)
-def _isolate_audit_zone(tmp_path, monkeypatch):
-    """Keep every record an interface-app test fires out of the live ledger.
+@pytest.fixture(autouse=True, scope="module")
+def _isolate_module_audit_zone(tmp_path_factory):
+    """Hold the ledger's seam redirected for a whole test module.
 
-    ``writer.audit_dir`` is the ledger's one seam — the HTTP middleware, the
-    protected-set funnel and the hook emitters all resolve the zone through
-    it — so redirecting it here contains a whole app test. Interfaces-wide
-    (this directory and every subdirectory) because the modules that need it
-    are exactly the ones whose authors would not think to ask: the auth
-    middleware, token-exchange and ARIEL display-menu suites were filing real
-    ``web_auth`` / ``http_mutation`` records into ``var/audit/<you>/`` on every
-    run. A test that fires no recorder pays nothing. Named privately so the
-    ``audit_zone`` fixtures some modules define still win — an explicitly
-    requested fixture is set up after the autouse one and re-points the seam.
+    ``tests/conftest.py::_isolate_audit_zone`` does this per test, which covers
+    every app built in a test body. It cannot cover an app built by a
+    MODULE-scoped fixture: pytest sets every higher-scoped fixture up first, so
+    such an app enters its lifespan, serves requests and is torn down while the
+    per-test redirection has not been made. ``web_terminal``'s notebook-panel
+    module is that shape, and every record it fires — ``http_mutation`` per
+    state-changing request, ``web_auth`` per authenticated one — is filed in
+    that window.
+
+    Module-scoped rather than session-scoped on purpose. A session-scoped
+    redirection made anywhere under this directory could not be undone at the
+    directory's edge: it would still be installed for every test that runs
+    after this tree in the same worker, including the suites in
+    ``tests/audit`` that call the real ``writer.audit_dir()`` and assert what
+    it resolves to. A module-scoped one is torn down with the module that
+    needed it.
+
+    ``pytest.MonkeyPatch.context()`` rather than the ``monkeypatch`` fixture,
+    which is function-scoped and cannot be requested here.
     """
-    zone = tmp_path / "audit-zone" / "var" / "audit"
-    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
-    return zone
+    zone = tmp_path_factory.mktemp("module-audit-zone") / "var" / "audit"
+    with pytest.MonkeyPatch.context() as patched:
+        patched.setattr(writer, "audit_dir", lambda: zone)
+        yield zone

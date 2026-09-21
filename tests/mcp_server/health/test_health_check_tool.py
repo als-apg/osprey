@@ -25,8 +25,6 @@ from tests.mcp_server.conftest import (
     get_tool_fn,
 )
 
-pytestmark = pytest.mark.unit
-
 health_check_fn = get_tool_fn(hc.health_check)
 
 

@@ -25,8 +25,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 from osprey.mcp_server.channel_finder_graph import server as cf_graph_server
 from osprey.mcp_server.channel_finder_graph.tools import get_schema as cf_get_schema
 from osprey.mcp_server.channel_finder_graph.tools import read_cypher as cf_read_cypher
@@ -44,19 +42,16 @@ def _tool_names(mcp) -> set[str]:
     return {t.name for t in tools}
 
 
-@pytest.mark.unit
 def test_read_cypher_is_the_graph_servers_callable():
     """Not a copy, not a wrapper — the same function object."""
     assert cf_read_cypher.read_cypher is graph_read_cypher.read_cypher
 
 
-@pytest.mark.unit
 def test_get_schema_is_the_graph_servers_callable():
     """Not a copy, not a wrapper — the same function object."""
     assert cf_get_schema.get_schema is graph_get_schema.get_schema
 
 
-@pytest.mark.unit
 def test_both_tools_land_on_the_channel_finder_server():
     """Importing the modules registers the tools on this paradigm's own instance."""
     registered = _tool_names(cf_graph_server.mcp)
@@ -64,7 +59,6 @@ def test_both_tools_land_on_the_channel_finder_server():
     assert {"read_cypher", "get_schema"} <= registered
 
 
-@pytest.mark.unit
 def test_importing_the_tool_modules_does_not_initialise_the_graph_context():
     """Import is inert: the context singleton stays unset until ``create_server()``.
 

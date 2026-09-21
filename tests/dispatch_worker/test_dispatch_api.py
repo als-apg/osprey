@@ -1,0 +1,846 @@
+"""Unit tests for the dispatch-worker FastAPI app.
+
+Exercises the HTTP surface of ``osprey.mcp_server.dispatch_worker.dispatch_api``
+with a sync ``TestClient`` (lifespan runs inside the ``with`` block). The real
+``sdk_runner.run_dispatch`` calls the Claude Agent SDK, so it is monkeypatched
+with a fast canned coroutine — the background task then completes without the
+SDK and tests never assert a timing-dependent terminal status.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from typing import Any
+from unittest.mock import MagicMock
+
+import pytest
+from fastapi.testclient import TestClient
+
+from osprey.mcp_server.dispatch_worker import dispatch_api
+
+_TOKEN = "test-secret-token"
+
+_CANNED_RESULT: dict[str, Any] = {
+    "status": "completed",
+    "text_output": "ok",
+    "tool_calls": [],
+    "error": None,
+    "duration_sec": 0.01,
+    "cost_usd": 0.0,
+    "num_turns": 1,
+}
+
+
+@pytest.fixture
+def client(monkeypatch):
+    """A TestClient with auth configured and run_dispatch stubbed out.
+
+    Resets the module-level in-memory stores so tests do not leak state into
+    each other, and patches ``sdk_runner.run_dispatch`` with a fast async stub.
+    """
+    monkeypatch.setenv("DISPATCH_WORKER_TOKEN", _TOKEN)
+
+    # Isolate global state between tests.
+    monkeypatch.setattr(dispatch_api, "_runs", {})
+    monkeypatch.setattr(dispatch_api, "_queues", {})
+    monkeypatch.setattr(dispatch_api, "_tasks", {})
+
+    async def _fake_run_dispatch(
+        *,
+        prompt,
+        allowed_tools,
+        max_turns,
+        event_queue,
+        denied_tools=(),
+        run_id=None,
+        surface_prompt=None,
+        surface_tools=None,
+        owner=None,
+    ):
+        if event_queue is not None:
+            await event_queue.put({"type": "done"})
+        return dict(_CANNED_RESULT)
+
+    monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _fake_run_dispatch)
+    # Avoid touching disk during the background task.
+    monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
+
+    with TestClient(dispatch_api.app) as c:
+        yield c
+
+
+def _auth() -> dict[str, str]:
+    return {"Authorization": f"Bearer {_TOKEN}"}
+
+
+def _wait_for_terminal(client: TestClient, run_id: str, timeout: float = 5.0) -> dict:
+    """Poll a run until it leaves the ``pending`` state (or time out)."""
+    deadline = time.time() + timeout
+    last: dict = {}
+    while time.time() < deadline:
+        resp = client.get(f"/dispatch/{run_id}", headers=_auth())
+        assert resp.status_code == 200
+        last = resp.json()
+        if last.get("status") != "pending":
+            return last
+        time.sleep(0.02)
+    return last
+
+
+# ---------------------------------------------------------------------------
+# /health
+# ---------------------------------------------------------------------------
+
+
+def test_health_no_auth(client):
+    resp = client.get("/health")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    for key in ("pending_runs", "completed_runs", "error_runs", "total_runs"):
+        assert key in body
+        assert isinstance(body[key], int)
+
+
+# ---------------------------------------------------------------------------
+# POST /dispatch
+# ---------------------------------------------------------------------------
+
+
+def test_dispatch_accepts_benign_tools(client):
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    body = resp.json()
+    assert body["status"] == "accepted"
+    assert isinstance(body["run_id"], str)
+    assert body["run_id"]
+
+
+def test_dispatch_rejects_denied_tool(client):
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "fetch", "allowed_tools": ["Read", "WebFetch"]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 403
+    assert "WebFetch" in resp.json()["detail"]
+
+
+def test_dispatch_rejects_wildcard_denied_tool(client):
+    """Denylist '*'-suffix entries block by prefix (e.g. all playwright tools)."""
+    tool = "mcp__plugin_playwright_playwright__browser_click"
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "click", "allowed_tools": [tool]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 403
+    assert tool in resp.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "expected"),
+    [
+        ("WebFetch", True),
+        ("WebSearch", True),
+        ("Bash", True),
+        ("BashOutput", True),
+        ("KillShell", True),
+        ("KillBash", True),
+        ("mcp__plugin_playwright_playwright__browser_click", True),
+        ("mcp__plugin_playwright_playwright__", True),  # bare prefix still matches
+        ("Read", False),
+        ("Write", False),
+        ("mcp__osprey_workspace__write_channel", False),
+        ("WebFetcher", False),  # not an exact match, not a wildcard entry
+        ("", False),
+    ],
+)
+def test_is_denied_matrix(tool, expected):
+    """The server-side denylist matcher: exact entries + '*'-suffix prefixes."""
+    assert dispatch_api._is_denied(tool) is expected
+
+
+def test_dispatch_denied_tool_schedules_no_run(client):
+    """A denied tool 403s AND never creates a run (nothing enters the store)."""
+    monkey_before = len(dispatch_api._runs)
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "shell out", "allowed_tools": ["Read", "Bash"]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 403
+    assert "Bash" in resp.json()["detail"]
+    # No run was created and no task was scheduled.
+    assert len(dispatch_api._runs) == monkey_before
+    assert dispatch_api._tasks == {}
+
+
+def test_dispatch_wrong_token(client):
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers={"Authorization": "Bearer wrong"},
+    )
+    assert resp.status_code == 401
+
+
+def test_dispatch_with_a_non_ascii_bearer_still_answers_401(client):
+    """A header byte outside ASCII is a wrong credential, not a server fault.
+
+    ``compare_digest`` refuses two ``str`` arguments unless both are ASCII-only,
+    and Starlette decodes the header as latin-1, so comparing the decoded
+    strings would turn a wrong bearer into a 500. The header goes on the wire as
+    raw bytes because that is the only way to send one.
+    """
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers={"Authorization": "Bearer tökén-ünicode".encode("latin-1")},
+    )
+    assert resp.status_code == 401
+
+
+def test_dispatch_no_auth_header(client):
+    # HTTPBearer auto-error rejects a missing Authorization header. The exact
+    # code depends on the FastAPI version (older: 403, current: 401); accept
+    # either so the test tracks behavior without pinning a version-specific code.
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+    )
+    assert resp.status_code in (401, 403)
+
+
+# ---------------------------------------------------------------------------
+# GET /dispatch/{run_id}
+# ---------------------------------------------------------------------------
+
+
+def test_get_dispatch_unknown_id_404(client):
+    resp = client.get("/dispatch/does-not-exist", headers=_auth())
+    assert resp.status_code == 404
+
+
+def test_get_dispatch_returns_status(client):
+    post = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers=_auth(),
+    )
+    run_id = post.json()["run_id"]
+
+    result = _wait_for_terminal(client, run_id)
+    assert result.get("status") in ("pending", "completed", "error")
+    # With the fast stub the run should reach completion.
+    assert result["status"] == "completed"
+    assert result["text_output"] == "ok"
+
+
+# ---------------------------------------------------------------------------
+# DELETE /dispatch/{run_id}
+# ---------------------------------------------------------------------------
+
+
+def test_cancel_unknown_id_404(client):
+    resp = client.delete("/dispatch/does-not-exist", headers=_auth())
+    assert resp.status_code == 404
+
+
+def test_cancel_finished_run(client):
+    post = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers=_auth(),
+    )
+    run_id = post.json()["run_id"]
+    # Let the stub finish so the run is no longer pending.
+    _wait_for_terminal(client, run_id)
+
+    resp = client.delete(f"/dispatch/{run_id}", headers=_auth())
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "cancelled" in body
+    # A finished run cannot be cancelled.
+    assert body["cancelled"] is False
+
+
+# ---------------------------------------------------------------------------
+# DELETE /dispatch/runs — clear finished history
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def log_dir(tmp_path, monkeypatch):
+    """Point the worker's persisted-record directory at a tmp dir."""
+    d = tmp_path / "dispatch"
+    d.mkdir()
+    monkeypatch.setattr(dispatch_api, "_log_dir", lambda: str(d))
+    return d
+
+
+def _write_record(log_dir, run_id: str, **fields: Any) -> None:
+    """Write a persisted record the way ``_persist_run`` would."""
+    record = {"run_id": run_id, "status": "completed", "completed_at": time.time()}
+    record.update(fields)
+    (log_dir / f"{run_id}.json").write_text(json.dumps(record))
+
+
+def test_clear_runs_requires_auth(client, log_dir):
+    resp = client.delete("/dispatch/runs")
+    assert resp.status_code in (401, 403)
+
+
+def test_clear_runs_deletes_records_and_memory(client, log_dir):
+    """Both layers go: the persisted file AND the in-memory entry."""
+    _write_record(log_dir, "on-disk-only")
+    dispatch_api._runs["in-ram-only"] = {"status": "error", "completed_at": time.time()}
+    _write_record(log_dir, "both")
+    dispatch_api._runs["both"] = {"status": "completed", "completed_at": time.time()}
+
+    resp = client.delete("/dispatch/runs", headers=_auth())
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["cleared"] == 3
+    assert body["records_deleted"] == 2
+    assert list(log_dir.glob("*.json")) == []
+    assert dispatch_api._runs == {}
+
+
+def test_clear_runs_route_is_not_swallowed_by_the_cancel_route(client, log_dir):
+    """``/dispatch/runs`` must not be read as a cancel of run id "runs".
+
+    Starlette matches in registration order, so this only holds while the
+    literal route is declared above ``DELETE /dispatch/{run_id}``.
+    """
+    resp = client.delete("/dispatch/runs", headers=_auth())
+    assert resp.status_code == 200
+    assert "cancelled" not in resp.json()
+
+
+def test_clear_runs_keeps_in_flight_runs(client, log_dir):
+    """A pending run survives — in memory and on disk — however the record reads."""
+    dispatch_api._runs["running"] = {"status": "pending", "created_at": time.time()}
+    # A stale record claiming the run finished must still be protected by the
+    # worker's live pending set.
+    _write_record(log_dir, "running")
+    _write_record(log_dir, "done")
+
+    resp = client.delete("/dispatch/runs", headers=_auth())
+
+    assert resp.json()["cleared"] == 1
+    assert (log_dir / "running.json").exists()
+    assert not (log_dir / "done.json").exists()
+    assert "running" in dispatch_api._runs
+
+
+def test_clear_runs_honours_older_than_days(client, log_dir):
+    """With an age floor, only runs past the horizon go — the sweep on demand."""
+    day = 86400.0
+    now = time.time()
+    _write_record(log_dir, "recent", completed_at=now - day)
+    _write_record(log_dir, "ancient", completed_at=now - 30 * day)
+    dispatch_api._runs["recent"] = {"status": "completed", "completed_at": now - day}
+    dispatch_api._runs["ancient"] = {"status": "completed", "completed_at": now - 30 * day}
+
+    # ``TestClient.delete`` takes no body (httpx's API); the age floor rides in
+    # one, as it does from the dispatcher's proxy.
+    resp = client.request("DELETE", "/dispatch/runs", headers=_auth(), json={"older_than_days": 7})
+
+    assert resp.json() == {"cleared": 1, "records_deleted": 1, "older_than_days": 7}
+    assert (log_dir / "recent.json").exists()
+    assert not (log_dir / "ancient.json").exists()
+    assert set(dispatch_api._runs) == {"recent"}
+
+
+def test_clear_runs_rejects_a_negative_horizon(client, log_dir):
+    """A negative floor is a typo, not a request to delete everything."""
+    _write_record(log_dir, "done")
+
+    resp = client.request("DELETE", "/dispatch/runs", headers=_auth(), json={"older_than_days": -1})
+
+    assert resp.status_code == 422
+    assert (log_dir / "done.json").exists()
+
+
+def test_clear_runs_drops_the_stream_queue(client, log_dir):
+    """A cleared run's SSE queue goes with it rather than leaking."""
+    dispatch_api._runs["done"] = {"status": "completed", "completed_at": time.time()}
+    dispatch_api._queues["done"] = MagicMock()
+
+    client.delete("/dispatch/runs", headers=_auth())
+
+    assert "done" not in dispatch_api._queues
+
+
+# ---------------------------------------------------------------------------
+# GET /dashboard/runs
+# ---------------------------------------------------------------------------
+
+
+def test_dashboard_runs_requires_auth(client):
+    # The runs feed leaks full text_output/error, so it is token-gated like the
+    # other worker endpoints. HTTPBearer auto-error rejects a missing header
+    # (401 current FastAPI, 403 older) — accept either.
+    resp = client.get("/dashboard/runs")
+    assert resp.status_code in (401, 403)
+
+
+def test_dashboard_runs_with_auth(client):
+    # Seed one run via the API.
+    client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers=_auth(),
+    )
+    resp = client.get("/dashboard/runs", headers=_auth())
+    assert resp.status_code == 200
+    runs = resp.json()
+    assert isinstance(runs, list)
+    assert len(runs) >= 1
+    assert "run_id" in runs[0]
+    assert "status" in runs[0]
+
+
+def test_dashboard_runs_carries_the_telemetry_session_id(client, monkeypatch):
+    """The feed projects session_id, so a consumer can locate the run's telemetry.
+
+    This endpoint is a hand-written projection, not a dump of the stored run --
+    a field absent from the projection is silently unavailable downstream even
+    though the worker recorded it. The dispatcher's dashboard uses this id to
+    link a run to its own OTEL records, so its presence is a contract.
+    """
+    from osprey.mcp_server.dispatch_worker import dispatch_api
+
+    monkeypatch.setitem(
+        dispatch_api._runs,
+        "seeded-run",
+        {
+            "status": "completed",
+            "created_at": 1785744790.0,
+            "session_id": "3f8a1c02-0000-4000-8000-abcdefabcdef",
+            "text_output": "done",
+            "tool_calls": [],
+        },
+    )
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    assert resp.status_code == 200
+    seeded = next(r for r in resp.json() if r["run_id"] == "seeded-run")
+    assert seeded["session_id"] == "3f8a1c02-0000-4000-8000-abcdefabcdef"
+
+
+def test_dashboard_runs_session_id_is_none_when_unrecorded(client, monkeypatch):
+    """A run without a recorded session id projects None rather than omitting the key.
+
+    A missing key and a null value read differently downstream; the dashboard
+    hides its telemetry link on a falsy value, so the key must always be present.
+    """
+    from osprey.mcp_server.dispatch_worker import dispatch_api
+
+    monkeypatch.setitem(
+        dispatch_api._runs,
+        "legacy-run",
+        {"status": "completed", "created_at": 1785744790.0, "tool_calls": []},
+    )
+
+    resp = client.get("/dashboard/runs", headers=_auth())
+    legacy = next(r for r in resp.json() if r["run_id"] == "legacy-run")
+    assert "session_id" in legacy
+    assert legacy["session_id"] is None
+
+
+# ---------------------------------------------------------------------------
+# Startup lifecycle: provider-env injection, no artifact regeneration
+# ---------------------------------------------------------------------------
+#
+# The project image bakes .claude/ and data/ at build time (the render `osprey
+# build` produces is COPYed in), so the worker does not regenerate those
+# artifacts at runtime. Provider auth/model env injection still has to happen at
+# process startup, since it depends on the mounted config.yml/environment.
+
+
+@pytest.mark.asyncio
+async def test_lifespan_injects_provider_env_once(monkeypatch):
+    """Entering the lifespan calls provider-env injection exactly once."""
+    import asyncio
+
+    calls = {"n": 0}
+
+    def _spy():
+        calls["n"] += 1
+
+    monkeypatch.setattr(dispatch_api, "_inject_provider_env_once", _spy)
+    monkeypatch.setattr(dispatch_api, "_load_persisted_runs", lambda: None)
+
+    async with dispatch_api._lifespan(dispatch_api.app):
+        pass
+    await asyncio.sleep(0)  # let the cancelled cleanup task settle
+
+    assert calls["n"] == 1
+
+
+def test_no_artifact_regeneration_path():
+    """The config.yml-only artifact-regen path has been removed (Task 1.5).
+
+    Encodes the removal so a future change cannot silently reintroduce it.
+    """
+    assert not hasattr(dispatch_api, "_provision_claude_artifacts_once")
+
+
+# ---------------------------------------------------------------------------
+# Stale-run sweep cancels orphaned tasks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sweep_marks_stale_run_error_and_cancels_task(monkeypatch):
+    """A run pending past the cutoff is marked error AND its task is cancelled."""
+    import asyncio
+
+    monkeypatch.setattr(dispatch_api, "_runs", {})
+    monkeypatch.setattr(dispatch_api, "_tasks", {})
+    monkeypatch.setattr(dispatch_api, "_queues", {})
+
+    async def _long_runner():
+        await asyncio.sleep(30)
+
+    task = asyncio.create_task(_long_runner())
+    run_id = "stale-1"
+    stale_cutoff = dispatch_api.DISPATCH_TIMEOUT_SEC + 30
+    dispatch_api._runs[run_id] = {
+        "status": "pending",
+        "created_at": time.time() - (stale_cutoff + 60),
+    }
+    dispatch_api._tasks[run_id] = task
+
+    dispatch_api._sweep_stale_runs()
+
+    assert dispatch_api._runs[run_id]["status"] == "error"
+    assert "Timed out" in dispatch_api._runs[run_id]["error"]
+    # Let the cancellation propagate.
+    await asyncio.sleep(0)
+    assert task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_sweep_leaves_fresh_pending_run_alone(monkeypatch):
+    monkeypatch.setattr(dispatch_api, "_runs", {})
+    monkeypatch.setattr(dispatch_api, "_tasks", {})
+    monkeypatch.setattr(dispatch_api, "_queues", {})
+
+    dispatch_api._runs["fresh"] = {"status": "pending", "created_at": time.time()}
+    dispatch_api._sweep_stale_runs()
+    assert dispatch_api._runs["fresh"]["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# Worker auth on the remaining gated endpoints
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/dispatch/some-id"),
+        ("get", "/dispatch/some-id/stream"),
+        ("delete", "/dispatch/some-id"),
+        ("get", "/dashboard/runs"),
+    ],
+)
+def test_gated_endpoint_missing_auth_rejected(client, method, path):
+    """Missing Authorization header is rejected (401 current FastAPI, 403 older)."""
+    resp = getattr(client, method)(path)
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/dispatch/some-id"),
+        ("delete", "/dispatch/some-id"),
+        ("get", "/dashboard/runs"),
+    ],
+)
+def test_gated_endpoint_wrong_token_401(client, method, path):
+    resp = getattr(client, method)(path, headers={"Authorization": "Bearer wrong"})
+    assert resp.status_code == 401
+
+
+def test_unconfigured_worker_token_fails_closed_500(monkeypatch):
+    """With DISPATCH_WORKER_TOKEN unset, the worker fails closed (500) on a token check."""
+    monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
+    monkeypatch.setattr(dispatch_api, "_runs", {})
+    monkeypatch.setattr(dispatch_api, "_queues", {})
+    monkeypatch.setattr(dispatch_api, "_tasks", {})
+    with TestClient(dispatch_api.app) as c:
+        resp = c.get("/dispatch/some-id", headers={"Authorization": "Bearer anything"})
+    assert resp.status_code == 500
+    assert "DISPATCH_WORKER_TOKEN" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# _inject_provider_env_once: ${VAR} expansion + proxy-start for the worker (#307)
+# ---------------------------------------------------------------------------
+
+_ARGO_CONFIG = """\
+api:
+  providers:
+    argo:
+      base_url: ${ARGO_PROD_URL}
+      models:
+        haiku: claudehaiku45
+        sonnet: claudesonnet45
+        opus: claudeopus41
+claude_code:
+  provider: argo
+"""
+
+_CBORG_CONFIG = """\
+claude_code:
+  provider: cborg
+"""
+
+# Telemetry enabled but misconfigured (openobserve backend, password missing) —
+# resolve() raises TelemetryConfigError. The worker must degrade telemetry, not
+# lose provider auth.
+_TELEMETRY_BROKEN_CONFIG = """\
+claude_code:
+  provider: anthropic
+  telemetry:
+    enabled: true
+    backend: openobserve
+    openobserve:
+      user: root@example.com
+"""
+
+
+def _isolated_environ(monkeypatch, tmp_path, **extra):
+    """Swap os.environ for a throwaway dict so the function's mutations don't leak.
+
+    Also strips any ambient telemetry vars: CI exports OTEL_*/
+    CLAUDE_CODE_ENABLE_TELEMETRY for its own agent runs, and these tests assert on
+    the telemetry env THIS function does (or does not) inject, so the baseline
+    must start free of inherited telemetry state.
+    """
+    from osprey.build.claude_code_telemetry import TELEMETRY_ENV_VARS
+
+    fake = dict(os.environ)
+    # The repo root, with the render's config one level down — how the
+    # dispatch-worker compose service wires the deployed worker.
+    fake["OSPREY_PROJECT_DIR"] = str(tmp_path)
+    fake["CONFIG_FILE"] = str(tmp_path / "build" / "config.yml")
+    fake.pop("OSPREY_CONFIG", None)
+    fake.pop("ANTHROPIC_BASE_URL", None)
+    for _var in TELEMETRY_ENV_VARS:
+        fake.pop(_var, None)
+    fake.update(extra)
+    monkeypatch.setattr(os, "environ", fake)
+    return fake
+
+
+def _render_config(tmp_path, body: str) -> None:
+    """Write the rendered config where a three-zone deployment keeps it."""
+    render = tmp_path / "build"
+    render.mkdir(exist_ok=True)
+    (render / "config.yml").write_text(body)
+
+
+def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
+    """Custom provider: ${VAR} base_url is expanded, proxy started, base URL repointed."""
+    _render_config(tmp_path, _ARGO_CONFIG)
+    (tmp_path / ".env").write_text("ARGO_PROD_URL=https://argo.example/v1\nARGO_API_KEY=sk-argo\n")
+    fake = _isolated_environ(monkeypatch, tmp_path)
+    proxy = MagicMock(return_value=7777)
+    monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy)
+
+    dispatch_api._inject_provider_env_once()
+
+    proxy.assert_called_once()
+    upstream, api_key = proxy.call_args[0]
+    assert upstream == "https://argo.example/v1"
+    assert api_key == "sk-argo"
+    assert fake["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:7777"
+
+
+def test_inject_provider_env_no_proxy_for_native(tmp_path, monkeypatch):
+    """Native provider (cborg): env injected but no translation proxy started."""
+    _render_config(tmp_path, _CBORG_CONFIG)
+    _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    proxy = MagicMock(return_value=1)
+    monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy)
+
+    dispatch_api._inject_provider_env_once()
+
+    proxy.assert_not_called()
+
+
+def test_inject_provider_env_degrades_on_telemetry_misconfig(tmp_path, monkeypatch, caplog):
+    """A broken telemetry block must NOT cost the worker its provider auth.
+
+    Telemetry is an observability add-on; a misconfig degrades it (logged loud)
+    while provider auth/model injection still happens (F4 regression guard).
+    """
+    import logging
+
+    _render_config(tmp_path, _TELEMETRY_BROKEN_CONFIG)
+    fake = _isolated_environ(monkeypatch, tmp_path, ANTHROPIC_API_KEY="sk-ant")
+
+    with caplog.at_level(logging.ERROR):
+        dispatch_api._inject_provider_env_once()
+
+    # Provider env WAS injected despite the telemetry fault.
+    assert fake.get("ANTHROPIC_MODEL"), "provider env must survive a telemetry misconfig"
+    # Telemetry was dropped rather than shipped from a broken config.
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in fake
+    assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in fake
+    # ...and the fault was surfaced loudly, not swallowed silently.
+    assert any(
+        "telemetry" in r.getMessage().lower() for r in caplog.records if r.levelno >= logging.ERROR
+    )
+
+
+def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkeypatch):
+    """A managed-policy env override aborts worker startup rather than starting
+    the agent against a backend the project did not configure (#355).
+
+    The refusal must propagate — it is raised before the broad ``except`` that
+    otherwise swallows provider-injection errors."""
+    _render_config(tmp_path, _CBORG_CONFIG)
+    _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    monkeypatch.setattr(
+        "osprey.build.claude_code_resolver.detect_managed_policy_conflicts",
+        lambda: {"ANTHROPIC_BASE_URL": ("https://evil.example", "/etc/.../managed-settings.json")},
+    )
+
+    with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
+        dispatch_api._inject_provider_env_once()
+
+
+# ---------------------------------------------------------------------------
+# Run records land inside the mounted volume
+# ---------------------------------------------------------------------------
+
+
+def test_persisted_runs_land_under_the_agent_data_root(tmp_path, monkeypatch):
+    """A completed run is written where the workspace volume is mounted.
+
+    The compose generator renders the worker's mount target from the config's
+    ``agent_data.base_dir`` under the project root; a writer that anchored
+    anywhere else would put every run record on the container's writable layer,
+    where a restart drops it.
+    """
+    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+
+    dispatch_api._persist_run("run-7", {"status": "completed"})
+
+    written = tmp_path / "var" / "agent_data" / "dispatch" / "run-7.json"
+    assert written.is_file()
+
+
+def test_persisted_runs_follow_a_relocated_agent_data_root(tmp_path, monkeypatch):
+    """...and follow the config key the mount target is rendered from."""
+    (tmp_path / "build").mkdir()
+    (tmp_path / "build" / "config.yml").write_text("agent_data:\n  base_dir: state/data\n")
+    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
+    monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
+    monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+
+    dispatch_api._persist_run("run-8", {"status": "completed"})
+
+    assert (tmp_path / "state" / "data" / "dispatch" / "run-8.json").is_file()
+
+
+def test_dispatch_request_max_turns_defaults_to_the_deployments_ceiling() -> None:
+    """A request naming no ceiling takes DISPATCH_MAX_TURNS, this deployment's own.
+
+    The env is read at import, so the assertion is against the module attribute
+    rather than a literal — what matters is that the request model and the
+    deployment's configured ceiling are one number.
+    """
+    request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[])
+
+    assert request.max_turns == dispatch_api.DISPATCH_MAX_TURNS
+
+
+def test_dispatch_request_max_turns_is_taken_from_the_body_when_given() -> None:
+    """A trigger that names its own ceiling overrides the deployment's."""
+    request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[], max_turns=60)
+
+    assert request.max_turns == 60
+
+
+# ---------------------------------------------------------------------------
+# Owner on the wire
+# ---------------------------------------------------------------------------
+
+
+def _capture_run_dispatch(monkeypatch) -> dict[str, Any]:
+    """Replace the runner with a stub that records the keywords it was called with."""
+    captured: dict[str, Any] = {}
+
+    async def _capturing_run_dispatch(**kwargs):
+        captured.update(kwargs)
+        queue = kwargs.get("event_queue")
+        if queue is not None:
+            await queue.put({"type": "done"})
+        return dict(_CANNED_RESULT)
+
+    monkeypatch.setattr(dispatch_api.sdk_runner, "run_dispatch", _capturing_run_dispatch)
+    return captured
+
+
+def test_dispatch_body_owner_reaches_the_runner(client, monkeypatch):
+    """The owner the dispatcher put on the wire is carried into the run.
+
+    The request model is the only thing standing between the dispatcher's
+    payload and the runner: a field the model does not declare is dropped
+    silently, and the run would be judged against no one's narrowing while the
+    fire itself was attributed to a person.
+    """
+    captured = _capture_run_dispatch(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"], "owner": "alice"},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    _wait_for_terminal(client, resp.json()["run_id"])
+
+    assert captured["owner"] == "alice"
+
+
+def test_dispatch_body_without_an_owner_runs_owner_less(client, monkeypatch):
+    """A fire nobody is attributed to — cron — reaches the runner with no owner."""
+    captured = _capture_run_dispatch(monkeypatch)
+
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "do it", "allowed_tools": ["Read"]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 202
+    _wait_for_terminal(client, resp.json()["run_id"])
+
+    assert captured["owner"] is None
+
+
+def test_dispatch_request_owner_is_additive() -> None:
+    """A body naming no owner validates, so a dispatcher predating the field works.
+
+    Worker and dispatcher are separately deployed images; a required field here
+    would turn every fire from an older dispatcher into a 422.
+    """
+    request = dispatch_api.DispatchRequest(prompt="hi", allowed_tools=[])
+
+    assert request.owner is None

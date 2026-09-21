@@ -43,7 +43,11 @@ import os
 import pytest
 
 from osprey.port_layout import default_port
-from tests._control_context_fixtures import write_control_context, write_server_report
+from tests._control_context_fixtures import (
+    state_dir_under,
+    write_control_context,
+    write_server_report,
+)
 
 LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
@@ -108,15 +112,17 @@ def reader(approval):
 def state_dir(tmp_path, reader, monkeypatch):
     """Point the real reader at an empty temp agent-data root.
 
-    Returns the ROOT the shared writers take. The two files land one hop below
-    it, in ``control_target/``, which is what the reader's single path seam is
-    aimed at here. Every report PID is treated as running, since the reports the
-    tests write name servers that do not exist.
+    Returns the ROOT the shared writers take. The two files land in the acting
+    identity's directory below it, which is what the reader's single path seam
+    is aimed at here — asked of
+    :func:`~tests._control_context_fixtures.state_dir_under` so the seam and the
+    writers cannot be pointed at two different directories. Every report PID is
+    treated as running, since the reports the tests write name servers that do
+    not exist.
     """
-    (tmp_path / "control_target").mkdir()
-    monkeypatch.setattr(
-        reader, "resolve_state_dir", lambda hook_input=None: str(tmp_path / "control_target")
-    )
+    state_dir = state_dir_under(tmp_path)
+    state_dir.mkdir(parents=True)
+    monkeypatch.setattr(reader, "resolve_state_dir", lambda hook_input=None: str(state_dir))
     monkeypatch.setattr(reader, "_is_process_alive", lambda pid: True)
     return tmp_path
 
@@ -214,7 +220,6 @@ def text(lines) -> str:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_single_lane_queue_start_renders_exactly_what_it_always_did(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -231,7 +236,6 @@ def test_single_lane_queue_start_renders_exactly_what_it_always_did(
     assert {url for url, _ in bridge_calls} == {LANE_ONE_URL}
 
 
-@pytest.mark.unit
 def test_single_lane_start_is_identical_with_and_without_a_services_block(
     approval, fake_bridge, state_dir
 ):
@@ -248,7 +252,6 @@ def test_single_lane_start_is_identical_with_and_without_a_services_block(
     assert with_block == without_block
 
 
-@pytest.mark.unit
 def test_single_lane_queue_add_renders_no_lane_line_even_for_a_switched_session(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -265,7 +268,6 @@ def test_single_lane_queue_add_renders_no_lane_line_even_for_a_switched_session(
     assert {url for url, _ in bridge_calls} == {LANE_ONE_URL}
 
 
-@pytest.mark.unit
 def test_a_lane_argument_on_a_single_lane_deployment_changes_nothing(
     approval, fake_bridge, state_dir
 ):
@@ -280,7 +282,6 @@ def test_a_lane_argument_on_a_single_lane_deployment_changes_nothing(
     assert named == unnamed
 
 
-@pytest.mark.unit
 def test_a_single_lane_describer_never_reads_the_state_file(approval, fake_bridge, monkeypatch):
     """Not merely "renders no lane line" — does not look. A deployment with one
     lane has no lane to resolve, and the prompt's one read of the state file
@@ -296,7 +297,6 @@ def test_a_single_lane_describer_never_reads_the_state_file(approval, fake_bridg
     approval._describe_queue_add({"draft_revision": 3}, single_lane_config(), None)
 
 
-@pytest.mark.unit
 def test_one_prompt_describes_one_read_of_the_state_file(
     approval, fake_bridge, state_dir, monkeypatch
 ):
@@ -333,7 +333,6 @@ def test_one_prompt_describes_one_read_of_the_state_file(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_two_lane_queue_add_names_the_simulation_lane_and_asks_its_bridge(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -352,7 +351,6 @@ def test_two_lane_queue_add_names_the_simulation_lane_and_asks_its_bridge(
     assert "Plan: orbit_scan" in lines
 
 
-@pytest.mark.unit
 def test_two_lane_queue_add_names_the_live_lane_with_its_endpoint(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -367,7 +365,6 @@ def test_two_lane_queue_add_names_the_live_lane_with_its_endpoint(
     assert {url for url, _ in bridge_calls} == {LANE_ONE_URL}
 
 
-@pytest.mark.unit
 def test_two_lane_queue_add_without_state_says_the_lane_is_unresolved(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -386,7 +383,6 @@ def test_two_lane_queue_add_without_state_says_the_lane_is_unresolved(
     assert bridge_calls == []
 
 
-@pytest.mark.unit
 def test_two_lane_queue_add_says_so_when_no_lane_serves_the_control_target(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -408,7 +404,6 @@ def test_two_lane_queue_add_says_so_when_no_lane_serves_the_control_target(
     assert bridge_calls == []
 
 
-@pytest.mark.unit
 def test_a_second_lane_with_no_published_port_shows_no_queue_rather_than_lane_ones(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -425,7 +420,6 @@ def test_a_second_lane_with_no_published_port_shows_no_queue_rather_than_lane_on
     assert bridge_calls == []
 
 
-@pytest.mark.unit
 def test_a_lane_target_no_server_publishes_is_called_unpublished(approval, fake_bridge, state_dir):
     """Silence in the reports must not read as "simulation". A lane whose target
     carries no `real_machine` claim is named with its target string and an
@@ -446,7 +440,6 @@ def test_a_lane_target_no_server_publishes_is_called_unpublished(approval, fake_
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_queue_start_renders_the_bound_lane_and_lists_its_queue(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -466,7 +459,6 @@ def test_queue_start_renders_the_bound_lane_and_lists_its_queue(
     assert {url for url, _ in bridge_calls} == {LANE_TWO_URL}
 
 
-@pytest.mark.unit
 def test_queue_start_on_a_lane_the_session_left_renders_the_mismatch(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -496,7 +488,6 @@ def test_queue_start_on_a_lane_the_session_left_renders_the_mismatch(
     assert {url for url, _ in bridge_calls} == {LANE_TWO_URL}
 
 
-@pytest.mark.unit
 def test_queue_start_naming_no_lane_on_a_two_lane_deployment_shows_no_queue(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -519,7 +510,6 @@ def test_queue_start_naming_no_lane_on_a_two_lane_deployment_shows_no_queue(
     assert bridge_calls == []
 
 
-@pytest.mark.unit
 def test_queue_start_naming_a_lane_this_deployment_does_not_render(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -537,7 +527,6 @@ def test_queue_start_naming_a_lane_this_deployment_does_not_render(
     assert bridge_calls == []
 
 
-@pytest.mark.unit
 def test_queue_start_without_state_names_the_lane_but_claims_no_mismatch(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -555,7 +544,6 @@ def test_queue_start_without_state_names_the_lane_but_claims_no_mismatch(
     assert {url for url, _ in bridge_calls} == {LANE_TWO_URL}
 
 
-@pytest.mark.unit
 def test_the_per_lane_bridge_url_override_wins_over_the_published_port(
     approval, fake_bridge, bridge_calls, state_dir, monkeypatch
 ):
@@ -570,7 +558,6 @@ def test_the_per_lane_bridge_url_override_wins_over_the_published_port(
     assert {url for url, _ in bridge_calls} == {"http://va-bridge.test:9999"}
 
 
-@pytest.mark.unit
 def test_a_lane_block_with_no_declared_target_serves_the_deployment_baseline(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -597,7 +584,6 @@ def test_a_lane_block_with_no_declared_target_serves_the_deployment_baseline(
     assert {url for url, _ in bridge_calls} == {LANE_ONE_URL}
 
 
-@pytest.mark.unit
 def test_the_baseline_a_lane_falls_back_to_follows_the_control_system_type(approval):
     """The baseline is read from the key the framework reads, and every other
     control-system type is the live machine — the direction a wrong answer must
@@ -608,7 +594,6 @@ def test_the_baseline_a_lane_falls_back_to_follows_the_control_system_type(appro
     assert approval._baseline_target({"control_system": "not-a-mapping"}) == "live"
 
 
-@pytest.mark.unit
 def test_a_start_on_an_unaddressable_lane_says_so_rather_than_unreachable(
     approval, fake_bridge, bridge_calls, state_dir
 ):
@@ -633,7 +618,6 @@ def test_a_start_on_an_unaddressable_lane_says_so_rather_than_unreachable(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_lane_ids_and_declared_targets_are_escaped_onto_one_line(approval, fake_bridge, state_dir):
     """A lane id reaches this prompt from a tool call and a declared target from
     a file; an embedded newline in either would forge an enrichment line (a
@@ -655,7 +639,6 @@ def test_lane_ids_and_declared_targets_are_escaped_onto_one_line(approval, fake_
     assert "\nTarget: virtual accelerator (simulation)" not in rendered
 
 
-@pytest.mark.unit
 def test_a_non_string_lane_argument_is_treated_as_no_lane_at_all(approval, fake_bridge, state_dir):
     """Tool arguments are agent-authored and unvalidated for type here. A lane
     that is not a string names nothing, which is the unaddressed-start case."""
@@ -667,7 +650,6 @@ def test_a_non_string_lane_argument_is_treated_as_no_lane_at_all(approval, fake_
     assert "NO LANE NAMED" in text(lines)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "config",
     [
@@ -690,7 +672,6 @@ def test_a_config_of_the_wrong_shape_still_renders_a_prompt(
     assert approval._describe_queue_add({"draft_revision": 1}, config, None)
 
 
-@pytest.mark.unit
 def test_a_render_without_the_state_reader_still_names_the_lanes(
     approval, fake_bridge, monkeypatch
 ):
@@ -747,7 +728,6 @@ def _reason(result):
     return output["permissionDecisionReason"]
 
 
-@pytest.mark.unit
 def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, make_config):
     """The whole path — real config, real state file, real subprocess, no bridge
     listening anywhere — still puts the mismatch in front of the approver."""
@@ -775,7 +755,6 @@ def test_end_to_end_a_mismatched_start_reaches_the_human(tmp_path, hook_runner, 
     assert f"Target: {VA_PHRASE}" in reason
 
 
-@pytest.mark.unit
 def test_end_to_end_a_single_lane_start_says_nothing_about_lanes(
     tmp_path, hook_runner, make_config
 ):
@@ -798,7 +777,6 @@ def test_end_to_end_a_single_lane_start_says_nothing_about_lanes(
     assert "lane" not in reason.lower()
 
 
-@pytest.mark.unit
 def test_end_to_end_the_hook_survives_garbage_everywhere(tmp_path, hook_runner, make_config):
     """A malformed config, a malformed lane argument and no bridge at all: the
     hook still exits 0 with an ask. `hook_runner` asserts the exit code, so this

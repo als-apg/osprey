@@ -43,7 +43,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from osprey.connectors.types import (
+# The one nested-tree walker, borrowed rather than repeated for the same reason
+# the path-tree builder below is.
+from osprey.deployment.reach import dotted_get
+from osprey_connectors.types import (
     _SIMULATED_TYPES,
     EPICS,
     LIVE_STANDIN,
@@ -51,10 +54,6 @@ from osprey.connectors.types import (
     VIRTUAL_ACCELERATOR,
     resolve_control_system_type,
 )
-
-# The one nested-tree walker, borrowed rather than repeated for the same reason
-# the path-tree builder below is.
-from osprey.deployment.reach import dotted_get
 
 # The one path-tree builder in this package, borrowed rather than repeated: a
 # `config:` block addresses the same leaf through a dotted key or a nested

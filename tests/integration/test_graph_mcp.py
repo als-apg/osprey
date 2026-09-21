@@ -50,12 +50,11 @@ from osprey.services.channel_finder.graph_queries import (
     GRAPH_CHANNEL_COUNT_CYPHER,
     GRAPH_DEVICE_CYPHER,
 )
-from tests._container_support import start_or_skip, stop_quietly
 from tests._graphdb_container import (
     GRAPHDB_TEST_DATABASE,
     GRAPHDB_TEST_PASSWORD,
     GRAPHDB_TEST_USERNAME,
-    NEO4J_IMAGE,
+    graphdb_store,
 )
 from tests.integration._graph_oracles import (
     GRAPH_DEVICE_COUNT_CYPHER,
@@ -76,7 +75,7 @@ logger = logging.getLogger(__name__)
 
 # xdist_group("docker"): this module starts real containers, and the docker
 # group is what keeps every such file on one xdist worker.
-pytestmark = [pytest.mark.integration, pytest.mark.xdist_group("docker")]
+pytestmark = [pytest.mark.xdist_group("docker")]
 
 
 # --- Verified counts for the shipped demo_machine.ttl -----------------------
@@ -139,22 +138,7 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
     ``_OspreySeed`` bookkeeping node in the store that ``get_schema`` then has
     to hide.
     """
-    try:
-        from testcontainers.community.neo4j import Neo4jContainer
-    except ImportError:  # pragma: no cover - depends on the installed extras
-        pytest.skip("testcontainers' neo4j module is not installed")
-
-    def _build() -> Neo4jContainer:
-        container = Neo4jContainer(image=NEO4J_IMAGE, password=GRAPHDB_TEST_PASSWORD)
-        container.with_volume_mapping(str(plugin_dir), "/plugins", "rw")
-        container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*,n10s.*")
-        container.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*,n10s.*")
-        return container
-
-    container = start_or_skip(_build, label=f"graphdb for {label}")
-    try:
-        uri = container.get_connection_url()
-
+    with graphdb_store(plugin_dir, label=f"graphdb for {label}") as uri:
         from osprey.services.facility_knowledge.seeder import graph_seeder
 
         with graph_seeder.open_session(
@@ -177,8 +161,6 @@ def _seeded_store(plugin_dir: Path, ttl_text: str, label: str) -> Iterator[str]:
                 f"{graph_seeder.resource_count(session)} Resource nodes"
             )
         yield uri
-    finally:
-        stop_quietly(container)
 
 
 def _demo_ttl_text() -> str:
@@ -209,15 +191,24 @@ def demo_store(graph_mcp_plugin_dir: Path) -> Iterator[str]:
 # ---------------------------------------------------------------------------
 
 
-#: Query budget for the store these tests talk to, replacing the product default.
-#: That default sizes a query against the turn an agent has to act within, which
-#: is a statement about a deployed store on a machine of its own. The store here
-#: is a container sharing a host with the rest of the suite, where the same
-#: traversal costs an order of magnitude more, so the product number would make
-#: host contention read as a store that timed out. What these tests assert is
-#: what a query answers, never how quickly: the case that covers the timeout path
-#: sets its own budget low enough to trip on purpose, and keeps it.
-_INTEGRATION_QUERY_TIMEOUT_S = 60
+#: The store these tests talk to runs its queries on no clock. The product
+#: default sizes a query against the turn an agent has to act within, which is
+#: a statement about a deployed store on a machine of its own; this store is a
+#: container sharing a host with the rest of the suite, where the same
+#: traversal costs an order of magnitude more and how much more is a fact
+#: about the host's load rather than about the store. What these tests assert
+#: is what a query answers, never how quickly, so there is nothing here for a
+#: budget to protect and nothing it could decide except on a loaded host. Zero
+#: is how the driver spells "no transaction timeout": it is sent as
+#: ``tx_timeout: 0``, which the server reads as unbounded. The case that
+#: covers the timeout path sets its own budget, low enough to trip on purpose,
+#: and keeps it — that case is where the clock belongs. A query that would
+#: never return is ended by the suite's own per-test cap.
+#:
+#: A deployment cannot reach this posture: ``services.graphdb.query_timeout_s``
+#: is read through ``positive_int``, which refuses zero and falls back to the
+#: product default.
+_INTEGRATION_QUERY_TIMEOUT_S = 0
 
 
 @contextmanager

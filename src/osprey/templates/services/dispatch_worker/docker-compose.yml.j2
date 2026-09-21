@@ -1,3 +1,11 @@
+{#- This file's RENDER is pinned byte for byte by the suites below. Any
+    edit — a reworded comment included — reddens their goldens until they
+    are regenerated in the same change. One command per suite that pins
+    THIS template:
+
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_defaults_golden.py
+      PYTHONPATH=src ./.venv/bin/python tests/templates/test_render_axis_shapes.py
+-#}
 {#- The network axis — this service's network membership and the file-level
     `networks:` stanza that matches it — is rendered by the shared macro rather
     than spelled out here, so every service template states the same topology
@@ -150,6 +158,24 @@ services:
       # finds nothing else to do — no special case needed for it.
       OSPREY_AUDIT_IDENTITY: dispatch-worker-{{ i }}
       OSPREY_AUDIT_DIR: {{ osprey_container_audit_dir }}/dispatch-worker-{{ i }}
+
+      # WHERE this worker reads the control-context tree, mounted read-only
+      # below. A dispatch run writes as the OWNER on its job — a person, whose
+      # terminal may have narrowed them to another machine since the trigger was
+      # authored — and this is the only place that narrowing is visible from
+      # inside this container. Naming the directory is what arms the read: a
+      # worker without this variable judges on the target's ceiling alone.
+      #
+      # Unconditional, unlike the Bluesky lane's copy of this pair. A lane is
+      # bound to one control target at render time, so its write posture is
+      # known here; this worker runs the whole agent and can move between
+      # targets at runtime, so whether it will write is not a render-time fact.
+      #
+      # Like OSPREY_AUDIT_DIR above, this is also the contract offered to the
+      # image's entrypoint: its root phase joins the group of each directory
+      # named here and probes it for READ (the tree is read-only, so a write
+      # probe would report a loss nothing in this container was going to write).
+      OSPREY_CONTROL_CONTEXT_TREE: {{ osprey_container_control_tree_dir }}
       # The worker process reads OSPREY config directly (e.g. get_facility_timezone
       # while building the agent's system prompt), and spawns a CLI subprocess with
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
@@ -194,6 +220,34 @@ services:
       # which is right from the host and wrong from here.
       OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
       OSPREY_OTEL_OPENOBSERVE_PORT: "5080"
+{%- if 'bluesky' in (deployed_services | default([])) %}
+      # The plan queue's bridge, by its in-network compose service key — the
+      # same address the Bluesky sidecar is handed. Without it the agent this
+      # worker runs falls back to the loopback URL of the bridge's PUBLISHED
+      # port, which from this network namespace is this container's own, and
+      # every queue call is refused on connect.
+      #
+      # A LITERAL address, so it is gated on this project deploying the bridge
+      # for the same reason the archiver link below is: a deployment whose
+      # queue is a bridge someone else runs has a config block that is already
+      # right from anywhere, and `bluesky-bridge` would resolve to nothing.
+      #
+      # Bridge arm only. On the host namespace the published port is reachable
+      # on loopback, which is what the config block already says, and a compose
+      # DNS name rendered into a host-mode service is refused by the build's
+      # cross-boundary check.
+      BLUESKY_BRIDGE_URL: http://bluesky-bridge:{{ services.bluesky.port | default(osprey_ports.bluesky, true) }}
+{%- endif %}
+{%- for lane_key in ['bluesky_va', 'bluesky_live'] %}
+{%- if lane_key in (deployed_services | default([])) %}
+      # The SECOND plan lane, when this deployment renders one: its own bridge
+      # by its own in-network service key, spelled under the lane's env prefix
+      # (bluesky_bridge_connection.lane_env_prefix) — the same per-lane contract
+      # the sidecar and the shared resolvers already speak, so the worker's
+      # agent needs no new parser to find it.
+      {{ lane_key | upper }}_BRIDGE_URL: http://{{ lane_key | replace('_', '-') }}-bridge:{{ services[lane_key].port }}
+{%- endif %}
+{%- endfor %}
 {%- endif %}
 {#- Address of the archiver store, for the same reason and by the same
     convention as OSPREY_OTEL_OPENOBSERVE_HOST above: whichever address is the
@@ -270,6 +324,23 @@ services:
       # creates the source root-owned and the dropped `osprey` process inside
       # can write nothing to it.
       - {{ osprey_audit_mount_source }}/dispatch-worker-{{ i }}:{{ osprey_container_audit_dir }}/dispatch-worker-{{ i }}
+
+      # The control-context tree, READ-ONLY and WHOLE — the opposite shape to
+      # the audit bind above, for the opposite reason. Audit isolation is the
+      # mount: a worker may see only the records it wrote. The tree is a thing
+      # this worker READS about other people: the owner of a dispatch job
+      # arrives with the request, so a mount narrowed to one identity would
+      # answer for nobody. Read-only keeps the asymmetry honest — every record
+      # under here belongs to the terminal that wrote it, and nothing in this
+      # container may edit the narrowing that judges its own writes.
+      #
+      # The target sits outside `/app/<project>` and so outside this
+      # container's `var/` state zone: the entrypoint's `hand_back_state_zone`
+      # chowns that zone on every start, and a chown across a read-only bind
+      # fails with EROFS and warns every time. Both halves are computed by
+      # compose_generator from the same `agent_data.base_dir` the writer
+      # resolves its own record path against.
+      - {{ osprey_control_tree_mount_source }}:{{ osprey_container_control_tree_dir }}:ro
 {{- net.network(services.dispatch_worker) }}
 {#- The probe runs INSIDE this container, so `localhost` is right in both modes
     -- its own loopback on the compose bridge, the host's under `host` -- and

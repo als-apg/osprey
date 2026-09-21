@@ -265,16 +265,7 @@ would only hide from the agent the channels it is allowed to *read*, and push
 you back to hand-written device files that nothing keeps in step with the
 facility.
 
-Two things stand behind that decision, and both are worth knowing:
-
-**The build refuses an armed lane with no limits.** When a lane's device set is
-derived, and a *deployed* lane's control target has writes armed while limits
-checking is not switched on for the same target, ``osprey build`` stops and
-names both keys. A lane the profile does not deploy is not examined. Limits checking that is off builds no validator at all, so every derived
-device would take whatever value a plan asked for with no database consulted.
-Authored device files are exempt — that set is your own list. The refusal is
-per lane and per target: a virtual-accelerator lane with limits on does not
-excuse a live lane without them.
+One more thing stands behind that decision, and it is worth knowing:
 
 **A run is refused before it moves anything.** A device file names channels; it
 cannot promise the IOC serving them is up, and an unreachable channel used to

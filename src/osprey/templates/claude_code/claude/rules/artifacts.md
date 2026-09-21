@@ -66,7 +66,10 @@ and can be viewed with rendered HTML formatting.
 
 - **Auto-created:** Every execution is saved as a `.ipynb` notebook artifact
 - **Pre-execution review:** When approval is required, a pre-execution notebook
-  is created and linked in the approval prompt for code review
+  is created and linked from the approval prompt so the operator can read the
+  exact code before deciding. The approval itself is the terminal permission
+  prompt; the gallery has no approve control, so never direct the operator to
+  look for one there
 - **Editable:** Use `NotebookEdit` to modify notebook cells in the `artifacts/`
   directory under the agent-data root (`agent_data.base_dir` in config.yml) —
   the gallery re-renders automatically

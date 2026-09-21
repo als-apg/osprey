@@ -38,6 +38,7 @@ from osprey.mcp_server.python_executor import executor
 from osprey.runtime import ControlTargetChangedError, SwitchInProgressError
 from osprey_connectors import posture_store
 from osprey_connectors.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
+from tests._control_context_fixtures import state_dir_under
 
 #: The id Jupyter put in this kernel's connection-file name.
 KERNEL_ID = "4f1c2a7e0000400080000000000002"
@@ -891,7 +892,7 @@ class TestTheCellStamp:
 
 def write_marker(root, name, kernel_id):
     """One in-flight marker under *root*, carrying *kernel_id*."""
-    directory = root / posture_store.STATE_DIR_NAME
+    directory = state_dir_under(root)
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"{target_state.INFLIGHT_FILE_PREFIX}{name}.json"
     path.write_text(
@@ -976,7 +977,7 @@ def test_the_runtime_spells_the_cell_contract_the_same_way():
 
 def cell_markers(root):
     """Every in-flight marker under *root*, read straight off disk."""
-    directory = root / posture_store.STATE_DIR_NAME
+    directory = state_dir_under(root)
     return [
         json.loads(path.read_text(encoding="utf-8"))
         for path in sorted(directory.glob(target_state.INFLIGHT_FILE_GLOB))

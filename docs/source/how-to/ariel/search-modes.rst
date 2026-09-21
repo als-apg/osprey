@@ -2,7 +2,7 @@
 Search Modes
 ============
 
-ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and ``hybrid``, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the Osprey agent layer, which calls these search modules through ARIEL's MCP tools.
+ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy over the logbook. The framework ships three: keyword full-text search, embedding-based semantic similarity, and ``hybrid``, a merge of the two answered by a separate search sidecar container (qmd). All three produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the OSPREY agent layer, which calls these search modules through ARIEL's MCP tools.
 
 **Dispatch is registry-driven.** A search request names a mode as a plain string --- ``"keyword"``, ``"semantic"``, ``"hybrid"``. The ``ARIELSearchService`` looks that name up in Osprey's central registry and calls the module's own ``execute``; it carries no per-mode branch of its own. The registry is the only source of routable modes, so the service, the web interface's capabilities API and the agent's MCP tools cannot disagree about which modes exist, and adding a module needs no change to the service.
 
@@ -33,7 +33,7 @@ The ``--mode`` choices are read from the registry when the command runs, so a fa
 Search Modules
 ==============
 
-Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a ``get_tool_descriptor()`` function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL's capabilities API; each built-in module is exposed to the Osprey agent through its own ARIEL MCP tool (``keyword_search``, ``semantic_search``, ``hybrid_search``). The framework ships with the following built-in search modules:
+Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a ``get_tool_descriptor()`` function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL's capabilities API; each built-in module is exposed to the OSPREY agent through its own ARIEL MCP tool (``keyword_search``, ``semantic_search``, ``hybrid_search``). The framework ships with the following built-in search modules:
 
 .. tab-set::
 
@@ -225,7 +225,7 @@ To add your own search module, create a Python module that exports ``get_tool_de
        ],
    )
 
-Once registered and enabled in ``config.yml`` (``search_modules.my_search.enabled: true``), the module is routable by name --- through ``osprey ariel search --mode my_search`` and through the web interface's capabilities API --- with no change to ``ARIELSearchService``. Making it callable by the Osprey agent additionally requires a matching ARIEL MCP tool (contributions welcome). The ``get_tool_descriptor()`` function must return a ``SearchToolDescriptor``, whose ``search_mode`` field is simply the registered module name:
+Once registered and enabled in ``config.yml`` (``search_modules.my_search.enabled: true``), the module is routable by name --- through ``osprey ariel search --mode my_search`` and through the web interface's capabilities API --- with no change to ``ARIELSearchService``. Making it callable by the OSPREY agent additionally requires a matching ARIEL MCP tool (contributions welcome). The ``get_tool_descriptor()`` function must return a ``SearchToolDescriptor``, whose ``search_mode`` field is simply the registered module name:
 
 :class:`~osprey.services.ariel_search.search.base.SearchToolDescriptor` — a frozen dataclass whose key fields are ``execute`` (the async search function), ``format_result`` (formats results for agent consumption), and ``args_schema`` (a Pydantic model for input validation). See the class definition in the source for the full field list.
 
@@ -277,12 +277,16 @@ required keys and no others:
 
    concepts:
      - canonical: beam position monitor   # the words logbook prose uses
-       kind: acronym                      # acronym | shorthand
+       kind: acronym                      # acronym | shorthand | synonym
        forms: [bpm, bpms]                 # what operators type instead
 
      - canonical: troubleshoot
        kind: shorthand
        forms: [ts, t/s]
+
+     - canonical: beam loss               # one event, three phrasings
+       kind: synonym
+       forms: [lost beam, beam dump]
 
 ``canonical``
    Write it exactly as it appears in entry text. It is what a matched form is
@@ -290,7 +294,9 @@ required keys and no others:
 
 ``kind``
    ``acronym`` for a genuine initialism, ``shorthand`` for a clipped or slang
-   spelling of an ordinary word. It selects a direction gate (below).
+   spelling of an ordinary word, ``synonym`` for a different phrasing of the
+   same thing. The first two select a direction gate (below); ``synonym`` is
+   ungated and always bidirectional.
 
 ``forms``
    One or more spellings operators type. A form may not repeat its own
@@ -328,11 +334,30 @@ short form --- is what ``kind`` gates:
    * - ``ariel.vocabulary.canonical_to_shorthand``
      - ``kind: shorthand`` concepts
      - ``false``
+   * - *(none --- always on)*
+     - ``kind: synonym`` concepts
+     - ---
 
-The defaults are deliberately asymmetric. An initialism means one thing, so a
-search for "beam position monitor" should also reach the entries that wrote
+The two defaults are deliberately asymmetric. An initialism means one thing, so
+a search for "beam position monitor" should also reach the entries that wrote
 "BPM". An ordinary word is not so lucky: expanding "calibration" into ``cal``
 pulls in every entry that abbreviated something else that way.
+
+**The third kind: synonym.** ``kind: synonym`` is not gated by either switch,
+and it is the one kind where every member reaches *every other member* --- the
+canonical reaches every form, each form reaches the canonical, and each form
+also reaches its sibling forms. Given the ``beam loss`` concept above, a search
+for ``beam dump`` finds entries that wrote "beam loss" and entries that wrote
+"lost beam", and so does a search for either of the other two, whatever
+``canonical_to_acronym`` and ``canonical_to_shorthand`` are set to.
+
+Use it for different **phrasings** of one thing. Do not use it when one
+spelling is simply the other written short: a clipped or slang word is
+``shorthand``, an initialism is ``acronym``. Those two are one thing written two
+ways, which is why their gates are asymmetric; a synonym is one thing *said* two
+ways, with no short side and nothing to gate. Put the phrasing your prose uses
+most often in ``canonical``, since that is what a matched form is rewritten
+into.
 
 **Forms that mean two things.** Binding one form to two concepts is legal, and a
 query containing it expands to *both* canonicals rather than picking a winner.
@@ -392,7 +417,7 @@ argument on the ``keyword_search``, ``semantic_search`` and ``hybrid_search``
 MCP tools. Leave it unset and it follows ``ariel.vocabulary.expand_by_default``;
 pass ``false`` and that one search runs on exactly the words you typed, with no
 expansions reported. It is the switch to reach for when you want to see what a
-query finds on its own, and the Osprey agent can use it the same way when a
+query finds on its own, and the OSPREY agent can use it the same way when a
 rewrite looks like it widened a search too far. With the vocabulary disabled the
 toggle is not advertised at all and the argument does nothing.
 
@@ -541,7 +566,7 @@ everything else running:
 * Browsing entries, status and publishing keep working, and so does the settings
   editor --- which is the point: you can set ``ariel.vocabulary.enabled: false``
   or repoint ``ariel.vocabulary.path`` from the panel itself, then restart.
-* The MCP server refuses to start, naming the same key, so the Osprey agent
+* The MCP server refuses to start, naming the same key, so the OSPREY agent
   never gets a half-working search.
 
 If the broken file is baked into a deployed image, the panel's editor cannot
@@ -608,7 +633,7 @@ mode.
 
 
 Need behavior beyond these search modules --- multi-step reasoning, answer
-synthesis, custom prompting? That lives in the Osprey agent layer; see
+synthesis, custom prompting? That lives in the OSPREY agent layer; see
 :doc:`/reference/contracts/ariel` under "Extending the integration."
 
 

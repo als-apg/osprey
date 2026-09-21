@@ -133,7 +133,6 @@ def emitted() -> dict[str, list[str]]:
     return emitted_error_types()
 
 
-@pytest.mark.unit
 def test_scan_finds_the_known_emitters(emitted):
     """A scanner that silently finds nothing would pass the check below.
 
@@ -149,7 +148,6 @@ def test_scan_finds_the_known_emitters(emitted):
     assert emitted["control_target_mismatch"]  # a constant used as a _REFUSAL_HINTS key
 
 
-@pytest.mark.unit
 def test_every_emitted_error_type_is_a_hook_class_key(emitted):
     """No tool emits an ``error_type`` the guidance hook would class as Internal by default."""
     known = hook_error_class_map()

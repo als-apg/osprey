@@ -77,19 +77,26 @@ PORT_BASE = 21100
 DISPATCHER_URL = f"http://localhost:{default_port('dispatcher', base=PORT_BASE)}"
 TOKEN = "dev-token"  # matches the .env tokens written below
 
-# Container image build (Node + Claude CLI install) is slow on a cold cache.
-DEPLOY_UP_TIMEOUT_SEC = 900
+# Container image builds (Node + Claude CLI install; the project image and the
+# qmd sidecar, several GB each) run cold on every CI runner: about a quarter of
+# an hour on four cores before the first container exists. Same budget as the
+# identical command in test_dispatch_deploy.py.
+DEPLOY_UP_TIMEOUT_SEC = 1800
 HEALTH_TIMEOUT_SEC = 180.0
 RUN_TIMEOUT_SEC = 300.0
 
 # The unified worker runs the PROJECT image, which bakes the whole deployment
-# repo in at ``/app/<project>`` — so the render is at ``/app/proj/build`` and the
-# durable state zone at ``/app/proj/var``, exactly the shape the repo has on the
-# host. The compose template renders the worker container_name as
+# repo in at ``/app/<project>`` — so the render is at ``/app/<project>/build``
+# and the durable state zone at ``/app/<project>/var``, exactly the shape the
+# repo has on the host. The compose template renders the worker container_name as
 # ``<project>-dispatch-worker-1`` (services/dispatch_worker/docker-compose.yml.j2),
 # so derive both it and the in-container paths from the one project name rather
 # than hardcode a host-global name that breaks once the template is namespaced.
-PROJECT_NAME = "proj"
+#
+# The name itself is this module's alone. A compose project is addressed BY
+# NAME: two modules sharing one name adopt each other's containers, and a
+# teardown from either side removes the other module's running stack.
+PROJECT_NAME = "osprey-e2e-overlay"
 WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
 WORKER_PROJECT_DIR = f"/app/{PROJECT_NAME}"
 WORKER_RENDER_DIR = f"{WORKER_PROJECT_DIR}/build"
@@ -450,7 +457,8 @@ def _worker_artifact_files() -> list[str]:
     """List ``.md`` artifact files the worker persisted to its workspace volume.
 
     Read directly from the worker container (the unified project image), whose
-    artifact dir is namespaced under the project name (``/app/proj/var/...``).
+    artifact dir is namespaced under the project name
+    (``/app/<project>/var/...``).
     """
     proc = subprocess.run(
         ["docker", "exec", WORKER_CONTAINER, "ls", WORKER_ARTIFACT_DIR],

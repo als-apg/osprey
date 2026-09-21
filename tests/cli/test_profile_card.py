@@ -220,8 +220,8 @@ def test_a_card_admitting_a_domain_says_shared() -> None:
     entry through the same predicate the deployment does, so a principal list
     carries the marker too — it used to compare the raw key against `"any"` and
     show a domain-admitting card as though it were the operator's own."""
-    assert "password · shared" in line_with(_roster_card(["domain:lbl.gov"]), "ops")
-    assert "password · shared" in line_with(_roster_card(["user:alice@lbl.gov"]), "ops")
+    assert "password · shared" in line_with(_roster_card(["domain:example.com"]), "ops")
+    assert "password · shared" in line_with(_roster_card(["user:alice@example.com"]), "ops")
     assert "password · shared" in line_with(_roster_card("any"), "ops")
 
 

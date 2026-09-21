@@ -40,8 +40,10 @@ fi
 echo ""
 
 echo "→ Running mypy (type checking)..."
-if ! uv run mypy --no-error-summary; then
-    echo "⚠️  Mypy found type issues (not blocking)"
+if ! uv run python scripts/mypy_gate.py; then
+    FAILED_CHECKS+=("mypy")
+    echo "❌ Mypy found errors the baseline does not carry"
+    echo "💡 Fix them, or record them with 'uv run python scripts/mypy_gate.py --update'"
 else
     echo "✅ Mypy passed"
 fi
@@ -199,7 +201,13 @@ echo "📦 Step 4/4: Package Build"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
+# dist/ is gitignored, so it outlives a branch switch and accumulates the
+# artifacts of other commits; `uv build` adds to the directory rather than
+# replacing it. The twine check below globs dist/, so anything left there is
+# reported as this tree's. CI's package job is handed an empty dist/ by a
+# fresh checkout; here it has to be made one.
 echo "→ Building package..."
+rm -rf dist
 if ! uv build --quiet; then
     FAILED_CHECKS+=("package-build")
     echo "❌ Package build failed"
@@ -208,8 +216,12 @@ else
 fi
 echo ""
 
+# twine prints one verdict line per artifact and exits non-zero when any of
+# them failed, so its status is the check and is read directly. Funnelled
+# through a grep for the happy word, a run goes green as soon as ONE artifact
+# passes, and the grep swallows the message explaining the one that did not.
 echo "→ Checking package with twine..."
-if ! uvx twine check dist/* 2>&1 | grep -q "PASSED"; then
+if ! uvx twine check dist/*; then
     FAILED_CHECKS+=("twine-check")
     echo "❌ Twine check failed"
 else

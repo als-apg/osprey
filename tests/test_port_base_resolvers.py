@@ -688,7 +688,6 @@ CASES: tuple[Case, ...] = (
 )
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("case", CASES, ids=[case.id for case in CASES])
 def test_resolver_derives_its_port_from_the_configured_base(
     case: Case, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -708,7 +707,6 @@ def test_resolver_derives_its_port_from_the_configured_base(
     )
 
 
-@pytest.mark.unit
 def test_the_configured_base_is_not_the_layout_default() -> None:
     """The premise of every case above: 20000 and the default base differ.
 
@@ -719,7 +717,6 @@ def test_the_configured_base_is_not_the_layout_default() -> None:
     assert PORT_BASE != DEFAULT_PORT_BASE
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "case", [case for case in CASES if case.slots], ids=[c.id for c in CASES if c.slots]
 )

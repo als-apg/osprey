@@ -38,7 +38,6 @@ def _params(cls, method: str) -> list[str]:
     return list(inspect.signature(getattr(cls, method)).parameters)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("cls", ARCHIVERS, ids=lambda c: c.__name__)
 @pytest.mark.parametrize(
     ("method", "expected"),
@@ -57,7 +56,6 @@ def test_archiver_contract_speaks_channels(cls, method, expected):
     )
 
 
-@pytest.mark.unit
 def test_archiver_metadata_identifies_a_channel():
     """ArchiverMetadata names what it describes the same way get_data does."""
     fields = ArchiverMetadata.__dataclass_fields__
@@ -65,7 +63,6 @@ def test_archiver_metadata_identifies_a_channel():
     assert "pv_name" not in fields
 
 
-@pytest.mark.unit
 def test_simulation_engine_and_taxonomy_speak_channels():
     """The simulation helpers are wrapped by channel-named callers one line deep."""
     from osprey.connectors.channel_taxonomy import classify_channel
@@ -75,13 +72,11 @@ def test_simulation_engine_and_taxonomy_speak_channels():
     assert list(inspect.signature(classify_channel).parameters) == ["channel"]
 
 
-@pytest.mark.unit
 def test_write_failure_reasons_are_protocol_neutral():
     """A DOOCS write failure must not be reported as a Channel Access failure."""
     assert ChannelWriteFailedError._VALID_REASONS == ("FAILED", "MISMATCH", "UNCONFIRMED")
 
 
-@pytest.mark.unit
 def test_channel_metadata_display_range_is_not_named_like_a_write_bound():
     """ChannelMetadata reports what the control system displays.
 

@@ -20,8 +20,6 @@ import yaml
 
 from osprey.mcp_server.python_executor.executor import execute_code
 
-pytestmark = pytest.mark.unit
-
 
 @pytest.fixture(autouse=True)
 def _reset_all_config_caches(monkeypatch):

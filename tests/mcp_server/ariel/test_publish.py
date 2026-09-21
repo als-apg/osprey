@@ -3,8 +3,6 @@
 import json
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
 from tests.mcp_server.ariel.conftest import get_tool_fn
@@ -25,7 +23,6 @@ def _setup_registry(tmp_path, monkeypatch):
     initialize_ariel_context()
 
 
-@pytest.mark.unit
 async def test_entry_publish_success(tmp_path, monkeypatch):
     """Publish an existing entry returns facility-assigned result."""
     _setup_registry(tmp_path, monkeypatch)
@@ -33,7 +30,7 @@ async def test_entry_publish_success(tmp_path, monkeypatch):
     mock_service = AsyncMock()
     mock_service.publish_entry.return_value = FacilityEntryCreateResult(
         entry_id="published-001",
-        source_system="ALS eLog",
+        source_system="Example eLog",
         sync_status=SyncStatus.SYNCED,
         message="Published successfully",
     )
@@ -47,13 +44,12 @@ async def test_entry_publish_success(tmp_path, monkeypatch):
 
     data = json.loads(result)
     assert data["entry_id"] == "published-001"
-    assert data["source_system"] == "ALS eLog"
+    assert data["source_system"] == "Example eLog"
     assert data["sync_status"] == "synced"
     assert data["message"] == "Published successfully"
     assert "error" not in data
 
 
-@pytest.mark.unit
 async def test_entry_publish_empty_id():
     """Empty entry_id returns validation error."""
     fn = _get_entry_publish()
@@ -63,7 +59,6 @@ async def test_entry_publish_empty_id():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_entry_publish_not_found(tmp_path, monkeypatch):
     """Nonexistent entry_id returns not_found error."""
     _setup_registry(tmp_path, monkeypatch)
@@ -82,7 +77,6 @@ async def test_entry_publish_not_found(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_entry_publish_writes_not_supported(tmp_path, monkeypatch):
     """Adapter without write support returns not_supported error."""
     _setup_registry(tmp_path, monkeypatch)
@@ -103,7 +97,6 @@ async def test_entry_publish_writes_not_supported(tmp_path, monkeypatch):
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_entry_publish_auth_required(tmp_path, monkeypatch):
     """Missing logbook credentials return a distinct auth_required error.
 
@@ -116,7 +109,7 @@ async def test_entry_publish_auth_required(tmp_path, monkeypatch):
 
     mock_service = AsyncMock()
     mock_service.publish_entry.side_effect = AuthenticationRequiredError(
-        "OLOG publishing requires credentials.", source_system="ALS eLog"
+        "OLOG publishing requires credentials.", source_system="Example eLog"
     )
 
     with patch(

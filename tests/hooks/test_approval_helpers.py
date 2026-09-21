@@ -18,19 +18,30 @@ bridge URL and paths the callers ask for.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from osprey.port_layout import default_port
 
 
 @pytest.fixture
-def approval(hook_module):
+def approval(hook_module, monkeypatch):
     """The `osprey_approval` module, imported through the test seam.
 
     Imported in a fixture rather than at module scope: the hook prepends its own
     directory to `sys.path` on import, and `import_hook` is what undoes that.
+
+    Every test starts with the prompt's pre-flight budget unspent. The hook
+    stamps its entry instant at import, which in the process that serves one
+    prompt is when that prompt began; a test worker keeps the module for its
+    whole life, so without this a row's budget would depend on how long the
+    worker had been running and a slow suite would render trajectories
+    differently from a fast one.
     """
-    return hook_module("osprey_approval")
+    module = hook_module("osprey_approval")
+    monkeypatch.setattr(module, "_HOOK_ENTERED_AT", time.monotonic())
+    return module
 
 
 @pytest.fixture
@@ -64,7 +75,6 @@ def fake_bridge(approval, bridge_calls, monkeypatch):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("raw", "escaped"),
     [
@@ -93,7 +103,6 @@ def test_sanitize_label_escapes_line_breaking_code_points(approval, raw, escaped
     assert result == f"before{escaped}after"
 
 
-@pytest.mark.unit
 def test_sanitize_label_passes_ordinary_text_through(approval):
     """Printable text — including non-ASCII — is returned byte for byte.
 
@@ -105,7 +114,6 @@ def test_sanitize_label_passes_ordinary_text_through(approval):
     assert approval._sanitize_label(label) == label
 
 
-@pytest.mark.unit
 def test_sanitize_label_stringifies_non_string_input(approval):
     """Non-string metadata is coerced rather than raising.
 
@@ -121,7 +129,6 @@ def test_sanitize_label_stringifies_non_string_input(approval):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_revision_match_line_states_a_match_plainly(approval):
     """Equal pinned and current revisions get the quiet wording."""
     line = approval._revision_match_line(7, 7)
@@ -130,7 +137,6 @@ def test_revision_match_line_states_a_match_plainly(approval):
     assert "⚠️" not in line
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("pinned", "current"),
     [(7, 8), (None, 8), (8, None)],
@@ -155,7 +161,6 @@ def test_revision_match_line_is_loud_on_any_mismatch(approval, pinned, current):
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_build_approval_output_emits_an_ask_envelope(approval):
     """The ask envelope carries the event name, the decision, and the detail."""
     output = approval.build_approval_output("Tool: execute\nPolicy: always")
@@ -170,7 +175,6 @@ def test_build_approval_output_emits_an_ask_envelope(approval):
     assert reason.endswith("Review the operation above and approve to proceed.")
 
 
-@pytest.mark.unit
 def test_build_allow_output_is_silent_in_a_dispatch_run(approval, monkeypatch):
     """Under `OSPREY_DISPATCH_RUN=1` the hook emits no decision at all.
 
@@ -184,7 +188,6 @@ def test_build_allow_output_is_silent_in_a_dispatch_run(approval, monkeypatch):
     assert approval.build_allow_output() == {}
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "dispatch_run",
     [None, "", "0", "true", "2"],
@@ -215,7 +218,6 @@ def test_build_allow_output_is_explicit_outside_a_dispatch_run(approval, monkeyp
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_resolve_bridge_url_prefers_the_environment(approval, monkeypatch):
     """`BLUESKY_BRIDGE_URL` wins outright, even with config.yml set."""
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", "http://bridge.env:9000/")
@@ -225,7 +227,6 @@ def test_resolve_bridge_url_prefers_the_environment(approval, monkeypatch):
     assert url == "http://bridge.env:9000"
 
 
-@pytest.mark.unit
 def test_resolve_bridge_url_falls_back_to_config(approval, monkeypatch):
     """With no env override, `bluesky.bridge_url` from config.yml is used."""
     monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
@@ -235,7 +236,6 @@ def test_resolve_bridge_url_falls_back_to_config(approval, monkeypatch):
     assert url == "http://bridge.config:8000"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "config",
     [{}, {"bluesky": {}}, {"services": {}}, {"services": {"bluesky": {}}}],
@@ -252,7 +252,6 @@ def test_resolve_bridge_url_falls_back_to_the_layout_slot(approval, monkeypatch,
     assert approval._resolve_bridge_url(config) == f"http://127.0.0.1:{default_port('bluesky')}"
 
 
-@pytest.mark.unit
 def test_resolve_bridge_url_follows_a_moved_port_base(approval, monkeypatch):
     """A deployment that moved its block moved its bridge with it.
 
@@ -267,7 +266,6 @@ def test_resolve_bridge_url_follows_a_moved_port_base(approval, monkeypatch):
     assert url == f"http://127.0.0.1:{default_port('bluesky', base=20000)}"
 
 
-@pytest.mark.unit
 def test_resolve_bridge_url_dials_the_port_the_deployment_publishes(approval, monkeypatch):
     """With no env and no `bluesky.bridge_url`, `services.bluesky.port` — the port
     the build wrote for the bridge it deploys, or projected into an attached
@@ -280,7 +278,6 @@ def test_resolve_bridge_url_dials_the_port_the_deployment_publishes(approval, mo
     assert url == "http://127.0.0.1:18090"
 
 
-@pytest.mark.unit
 def test_resolve_bridge_url_config_url_beats_the_published_port(approval, monkeypatch):
     monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
 
@@ -294,7 +291,6 @@ def test_resolve_bridge_url_config_url_beats_the_published_port(approval, monkey
     assert url == "http://bridge.config:8000"
 
 
-@pytest.mark.unit
 def test_resolve_bridge_url_ignores_an_empty_environment_value(approval, monkeypatch):
     """An empty `BLUESKY_BRIDGE_URL` is no override, not an empty base URL.
 
@@ -313,7 +309,6 @@ def test_resolve_bridge_url_ignores_an_empty_environment_value(approval, monkeyp
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_describe_plan_provenance_renders_authoring_metadata(approval, fake_bridge):
     """A plan with metadata gets a hazard verdict off its `writes` declaration."""
     fake_bridge(
@@ -340,7 +335,6 @@ def test_describe_plan_provenance_renders_authoring_metadata(approval, fake_brid
     assert "Hazard: writes to hardware" in lines
 
 
-@pytest.mark.unit
 def test_describe_plan_provenance_marks_a_read_only_plan(approval, fake_bridge):
     """`writes: False` renders as read-only."""
     fake_bridge(
@@ -360,7 +354,6 @@ def test_describe_plan_provenance_marks_a_read_only_plan(approval, fake_bridge):
     assert "Hazard: read-only (no hardware writes declared)" in lines
 
 
-@pytest.mark.unit
 def test_describe_plan_provenance_reads_only_the_writes_declaration(approval, fake_bridge):
     """`writes` is the whole of the authoring metadata this block reports.
 
@@ -399,7 +392,6 @@ def test_describe_plan_provenance_reads_only_the_writes_declaration(approval, fa
     assert not any("\n" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_plan_provenance_handles_a_plan_without_metadata(approval, fake_bridge):
     """A built-in plan carries no authoring metadata; the line says so."""
     fake_bridge({"/plans": [{"name": "grid_scan"}], "/plans/grid_scan/source": {}})
@@ -409,7 +401,6 @@ def test_describe_plan_provenance_handles_a_plan_without_metadata(approval, fake
     assert "Hazard: unavailable (no authoring metadata — built-in plan)" in lines
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("provenance", ["session", "unreviewed"], ids=["session", "unreviewed"])
 def test_describe_plan_provenance_shouts_about_agent_authored_plans(
     approval, fake_bridge, provenance
@@ -433,7 +424,6 @@ def test_describe_plan_provenance_shouts_about_agent_authored_plans(
     assert "Validation status: PASSED (content hash matches a recorded validation run)" in lines
 
 
-@pytest.mark.unit
 def test_describe_plan_provenance_flags_an_unvalidated_session_plan(approval, fake_bridge):
     """No passing validation record is stated as a launch-time refusal."""
     fake_bridge(
@@ -448,7 +438,6 @@ def test_describe_plan_provenance_flags_an_unvalidated_session_plan(approval, fa
     assert "Validation status: NO PASSING RECORD — would be refused at enqueue" in lines
 
 
-@pytest.mark.unit
 def test_describe_plan_provenance_reports_an_operator_supplied_plan(approval, fake_bridge):
     """A reviewed tier is named plainly, and validation does not apply to it."""
     fake_bridge(
@@ -464,7 +453,6 @@ def test_describe_plan_provenance_reports_an_operator_supplied_plan(approval, fa
     assert "Validation status: not applicable (operator-supplied plan)" in lines
 
 
-@pytest.mark.unit
 def test_describe_plan_provenance_falls_back_to_the_registry_provenance(approval, fake_bridge):
     """When `/source` is silent on provenance, the `/plans` entry supplies it."""
     fake_bridge(
@@ -479,7 +467,6 @@ def test_describe_plan_provenance_falls_back_to_the_registry_provenance(approval
     assert "Provenance: SESSION — AGENT-AUTHORED, NOT REVIEWED BY A HUMAN" in lines
 
 
-@pytest.mark.unit
 def test_describe_plan_provenance_degrades_when_the_bridge_is_silent(approval, fake_bridge):
     """Both endpoints failing yields short lines, not an exception.
 
@@ -496,7 +483,6 @@ def test_describe_plan_provenance_degrades_when_the_bridge_is_silent(approval, f
     assert not any(line.startswith("\nPlan source") for line in lines)
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     ("truncated", "note"), [(True, " (truncated)"), (False, "")], ids=["truncated", "complete"]
 )
@@ -526,11 +512,67 @@ def test_describe_plan_provenance_appends_the_plan_source_verbatim(
 
 
 # --------------------------------------------------------------------------
+# _describe_manual_fire: which trigger a fire would start
+# --------------------------------------------------------------------------
+
+
+def test_the_manual_fire_describer_is_registered_under_its_short_tool_name(approval):
+    """Registration is what puts the trigger name on the prompt."""
+    assert approval._CALL_DESCRIBERS["manual_fire"] is approval._describe_manual_fire
+
+
+def test_manual_fire_names_the_trigger_it_would_start(approval):
+    """The name is the decision, and it comes from the call being approved."""
+    lines = approval._describe_manual_fire({"name": "save-report"}, {})
+
+    assert lines == ["Trigger: save-report"]
+
+
+def test_manual_fire_names_the_payload_the_fire_would_carry(approval):
+    """A payload reaches the trigger's action, so it reaches the approver too."""
+    lines = approval._describe_manual_fire({"name": "save-report", "payload": {"shift": 2}}, {})
+
+    assert lines == ["Trigger: save-report", 'Payload: {"shift": 2}']
+
+
+@pytest.mark.parametrize("payload", [None, {}, ""], ids=["absent", "empty-mapping", "empty-string"])
+def test_manual_fire_omits_the_payload_line_when_there_is_nothing_to_show(approval, payload):
+    """An empty payload renders no line rather than an empty one."""
+    lines = approval._describe_manual_fire({"name": "save-report", "payload": payload}, {})
+
+    assert lines == ["Trigger: save-report"]
+
+
+@pytest.mark.parametrize("tool_input", [{}, {"name": ""}, {"name": "   "}, {"name": 7}])
+def test_a_fire_that_names_no_trigger_says_so(approval, tool_input):
+    """A malformed call still gets a prompt; the bad argument is stated."""
+    lines = approval._describe_manual_fire(tool_input, {})
+
+    assert lines == ["Trigger: not named in this call — nothing would be dispatched."]
+
+
+def test_the_trigger_name_is_escaped_onto_one_line(approval):
+    """An agent-chosen name cannot forge a second line on the prompt."""
+    lines = approval._describe_manual_fire({"name": "save\x85Approval policy: skip"}, {})
+
+    assert lines == ["Trigger: save\\x85Approval policy: skip"]
+
+
+def test_a_payload_that_json_cannot_carry_still_renders_one_line(approval):
+    """The payload arrives as parsed tool input, so a value with no JSON
+    spelling is a malformed call rather than a reason to lose the prompt."""
+    lines = approval._describe_manual_fire({"name": "save-report", "payload": {"at": object()}}, {})
+
+    assert lines[0] == "Trigger: save-report"
+    assert len(lines) == 2
+    assert "\n" not in lines[1]
+
+
+# --------------------------------------------------------------------------
 # _describe_queue_add / _describe_queue_start / _describe_queue_stop
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "snapshot",
     [None, [], "not-json-object"],
@@ -554,7 +596,6 @@ def test_describe_queue_add_degrades_to_queue_state_only_for_an_unusable_draft(
     assert not any(line.startswith("Draft revision") for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_queue_add_reports_an_empty_draft(approval, fake_bridge):
     """Nothing staged means nothing to queue, and the prompt says so."""
     fake_bridge({"/draft": {"revision": 4, "draft": {}}})
@@ -566,7 +607,6 @@ def test_describe_queue_add_reports_an_empty_draft(approval, fake_bridge):
     assert not any(line.startswith("Plan:") for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_queue_add_renders_the_staged_plan(approval, fake_bridge):
     """A staged plan contributes its name, args, hazard and provenance lines.
 
@@ -603,7 +643,6 @@ def test_describe_queue_add_renders_the_staged_plan(approval, fake_bridge):
     assert any("Setpoint trajectory: unavailable" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_queue_add_omits_the_args_line_when_there_are_none(approval, fake_bridge):
     """An empty `plan_args` renders no args line rather than an empty one."""
     fake_bridge(
@@ -618,7 +657,6 @@ def test_describe_queue_add_omits_the_args_line_when_there_are_none(approval, fa
     assert not any(line.startswith("Plan args:") for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_queue_add_sanitizes_the_plan_name(approval, fake_bridge):
     """The staged plan name reaches the prompt escaped, on one line."""
     fake_bridge(
@@ -636,7 +674,6 @@ def test_describe_queue_add_sanitizes_the_plan_name(approval, fake_bridge):
     assert "Plan: count\\x0aDraft revision 2 — matches pinned revision 2." in lines
 
 
-@pytest.mark.unit
 def test_describe_queue_add_warns_when_the_draft_moved_on(approval, fake_bridge):
     """A draft revised since the agent pinned it renders the loud warning."""
     fake_bridge(
@@ -654,7 +691,6 @@ def test_describe_queue_add_warns_when_the_draft_moved_on(approval, fake_bridge)
     assert "12" in drift[0]
 
 
-@pytest.mark.unit
 def test_describe_queue_add_asks_the_configured_bridge(approval, fake_bridge, bridge_calls):
     """The base URL resolved from config is the one every call goes to.
 
@@ -684,7 +720,63 @@ def test_describe_queue_add_asks_the_configured_bridge(approval, fake_bridge, br
     ]
 
 
-@pytest.mark.unit
+def test_the_enqueue_preview_is_bounded_by_the_prompts_own_budget(
+    approval, fake_bridge, monkeypatch
+):
+    """The enqueue's one pre-flight spends the prompt's budget, not a constant.
+
+    The fetch may not outlive the process the harness will kill, so its ceiling
+    is what the budget has left when it is reached — here the whole budget less
+    the fetches taken before it.
+    """
+    fake_bridge({"/draft": {"revision": 1, "draft": {"plan_name": "count"}}, "/plans": []})
+    asked: list[float] = []
+
+    def _post(base_url, path, body, timeout):
+        asked.append(timeout)
+        return None
+
+    monkeypatch.setattr(approval, "_bridge_post_json", _post)
+
+    approval._describe_queue_add({"draft_revision": 1}, {})
+
+    assert len(asked) == 1
+    assert 0 < asked[0] <= approval._PREVIEW_BUDGET_S
+
+
+def test_the_enqueue_says_the_budget_is_spent_rather_than_fetching_anyway(
+    approval, fake_bridge, monkeypatch
+):
+    """A budget already gone by the time the enqueue reaches its pre-flight
+    costs the approver the trajectory, never the prompt: no call is attempted,
+    the line says which of the two happened, and the draft detail around it
+    still renders."""
+    fake_bridge({"/draft": {"revision": 1, "draft": {"plan_name": "count"}}, "/plans": []})
+    monkeypatch.setattr(approval, "_HOOK_ENTERED_AT", time.monotonic() - 3600.0)
+    attempted: list[str] = []
+
+    def _post(base_url, path, body, timeout):
+        attempted.append(path)
+        return None
+
+    monkeypatch.setattr(approval, "_bridge_post_json", _post)
+
+    lines = approval._describe_queue_add({"draft_revision": 1}, {})
+
+    assert attempted == []
+    assert approval._BUDGET_SPENT_TRAJECTORY_LINE in lines
+    assert "Plan: count" in lines
+
+
+def test_the_budget_spent_line_carries_no_indent_of_its_own(approval):
+    """One sentence, indented by whoever nests it. A start's items each own a
+    trajectory and indent it; an enqueue has one and does not."""
+    assert approval._BUDGET_SPENT_TRAJECTORY_LINE == (
+        "Setpoint trajectory: unavailable — the pre-flight budget for this "
+        "prompt is spent. Approval is not blocked."
+    )
+
+
 def test_queue_activity_lines_classify_from_what_was_observed(approval):
     """A running item and an autostart flag each earn their own loud headline.
 
@@ -713,7 +805,6 @@ def test_queue_activity_lines_classify_from_what_was_observed(approval):
     assert idle[0] == "No plan is currently running (manager state: idle)."
 
 
-@pytest.mark.unit
 def test_queue_activity_lines_report_a_pending_stop(approval):
     """A pending stop changes what a start or a withdrawal actually means."""
     lines = approval._queue_activity_lines(
@@ -722,7 +813,6 @@ def test_queue_activity_lines_report_a_pending_stop(approval):
     assert any("A stop is PENDING" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_queue_start_lists_the_whole_queue_and_flags_untrusted_plans(
     approval, fake_bridge
 ):
@@ -752,7 +842,6 @@ def test_describe_queue_start_lists_the_whole_queue_and_flags_untrusted_plans(
     assert any("AGENT-AUTHORED" in line and "sneaky_plan" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_queue_start_does_not_flag_a_fully_trusted_queue(approval, fake_bridge):
     """Negative control: no untrusted plan queued means no untrusted warning."""
     fake_bridge(
@@ -771,7 +860,6 @@ def test_describe_queue_start_does_not_flag_a_fully_trusted_queue(approval, fake
     assert not any("AGENT-AUTHORED" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_queue_start_caps_the_listed_items(approval, fake_bridge):
     """A long queue is summarised so the warning lines stay on screen."""
     count = approval._MAX_LISTED_QUEUE_ITEMS + 3
@@ -793,7 +881,6 @@ def test_describe_queue_start_caps_the_listed_items(approval, fake_bridge):
     assert any("and 3 more" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_queue_start_says_when_the_queue_cannot_be_read(approval, monkeypatch):
     """Fail-open, but never silently: an unseen queue is itself the warning."""
     monkeypatch.setattr(approval, "_bridge_get_json", lambda *args, **kwargs: None)
@@ -803,7 +890,6 @@ def test_describe_queue_start_says_when_the_queue_cannot_be_read(approval, monke
     assert any("nobody here can see" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_describe_queue_stop_distinguishes_halting_from_un_halting(approval, fake_bridge):
     """The two directions of one tool must never read alike."""
     fake_bridge({"/queue": {"status": {"manager_state": "executing_queue"}, "running_item": None}})
@@ -817,7 +903,6 @@ def test_describe_queue_stop_distinguishes_halting_from_un_halting(approval, fak
     assert "does not halt anything" in withdraw[0]
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "state",
     ["starting_queue", "executing_queue", "executing_task", "paused", "some_future_state"],
@@ -840,7 +925,6 @@ def test_queue_activity_middle_tier_warns_on_any_non_idle_state(approval, state)
     assert state in lines[0]
 
 
-@pytest.mark.unit
 def test_queue_activity_missing_manager_state_is_treated_as_not_idle(approval):
     """An unknown state must never render inside the confident calm sentence."""
     lines = approval._queue_activity_lines({"status": {}, "running_item": None})
@@ -849,7 +933,6 @@ def test_queue_activity_missing_manager_state_is_treated_as_not_idle(approval):
     assert "No plan is currently running" not in lines[0]
 
 
-@pytest.mark.unit
 def test_queue_activity_calm_headline_requires_the_idle_token(approval):
     """Negative control for the tier above: only "idle" earns the calm line.
 
@@ -862,7 +945,6 @@ def test_queue_activity_calm_headline_requires_the_idle_token(approval):
     assert lines[0] == "No plan is currently running (manager state: idle)."
 
 
-@pytest.mark.unit
 def test_queue_activity_precise_headlines_win_over_the_middle_tier(approval):
     """Tier order: a running item or autostart keeps its specific sentence.
 
@@ -887,7 +969,6 @@ def test_queue_activity_precise_headlines_win_over_the_middle_tier(approval):
     assert "THE QUEUE IS STARTED" in autostart[0]
 
 
-@pytest.mark.unit
 def test_stop_describers_state_the_limit_and_name_the_tool_that_has_none(approval, fake_bridge):
     """The stop prompt is read by someone deciding whether a queue-halt is
     enough, at the moment delay costs most.
@@ -912,7 +993,6 @@ def test_stop_describers_state_the_limit_and_name_the_tool_that_has_none(approva
     assert not any("stop_run" in line for line in withdraw)
 
 
-@pytest.mark.unit
 def test_stop_run_describer_states_what_an_abort_costs(approval, fake_bridge):
     """The abort's own approval prompt. It has to be honest in both
     directions: not a routine stop (the plan's remainder is discarded and the
@@ -936,7 +1016,6 @@ def test_stop_run_describer_states_what_an_abort_costs(approval, fake_bridge):
     assert any("A PLAN IS ALREADY RUNNING" in line for line in lines)
 
 
-@pytest.mark.unit
 def test_stop_run_is_wired_into_the_describer_table(approval):
     """A describer nobody dispatches to is a prompt that never renders. The
     abort is the most consequential Bluesky approval there is, so its entry is

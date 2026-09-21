@@ -1,0 +1,1913 @@
+{
+  "total": 394,
+  "errors": [
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/archiver/doocs_archiver_connector.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"values\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/archiver/mock_archiver_connector.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"SimulationEngine | None\" has no attribute \"synthesize_series\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/archiver/mongodb_archiver_connector.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, bool]\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/config.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"Path\" has incompatible type \"str | None\"; expected \"str | PathLike[str]\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/config.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"Path\", variable has type \"str | None\")",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/config.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any]\"",
+      "count": 6
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/control_context.py",
+      "code": "arg-type",
+      "message": "Argument \"generation\" to \"replace\" of \"ControlContext\" has incompatible type \"int | None\"; expected \"int\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/control_system/doocs_connector.py",
+      "code": "misc",
+      "message": "Value expression in dictionary comprehension has incompatible type \"ChannelValue | BaseException\"; expected type \"ChannelValue\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/control_system/epics_connector.py",
+      "code": "misc",
+      "message": "Value expression in dictionary comprehension has incompatible type \"ChannelValue | BaseException\"; expected type \"ChannelValue\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/control_system/mock_connector.py",
+      "code": "misc",
+      "message": "Value expression in dictionary comprehension has incompatible type \"ChannelValue | BaseException\"; expected type \"ChannelValue\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/control_system/mock_connector.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"SimulationEngine | None\" has no attribute \"read\"",
+      "count": 2
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/control_system/mock_connector.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"SimulationEngine | None\" has no attribute \"write\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/control_system/tango_connector.py",
+      "code": "misc",
+      "message": "Value expression in dictionary comprehension has incompatible type \"ChannelValue | BaseException\"; expected type \"ChannelValue\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/dotenv.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"str | None\", variable has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/factory.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"config\" (default has type \"None\", argument has type \"dict[str, Any]\")",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/ipc/frames.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"ndarray[tuple[Any, ...], dtype[Any]]\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/ipc/proxy.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"ChannelValue\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/ipc/proxy.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"ChannelWriteResult\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/ipc/proxy.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, ChannelValue]\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/ipc/proxy.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"list[ChannelWriteResult]\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/logger.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"color\" (default has type \"None\", argument has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/logger.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"component_name\" (default has type \"None\", argument has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/logger.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"name\" (default has type \"None\", argument has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/simulation/expressions.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"float\" has incompatible type \"str | bytes | int | float | complex | EllipsisType | None\"; expected \"str | Buffer | SupportsFloat | SupportsIndex\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/simulation/expressions.py",
+      "code": "attr-defined",
+      "message": "\"expr\" has no attribute \"value\"",
+      "count": 1
+    },
+    {
+      "path": "packages/osprey-connectors/src/osprey_connectors/simulation/machine.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"fromisoformat\" of \"time\" has incompatible type \"Any | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/agent_runner/artifact_resolve.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/audit/writer.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"str | None\", variable has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/build/claude_code_resolver.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/channel_roster/graph.py",
+      "code": "attr-defined",
+      "message": "\"object\" has no attribute \"subject_objects\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/channel_roster/graph.py",
+      "code": "attr-defined",
+      "message": "\"object\" has no attribute \"value\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/ariel.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/build_cmd.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/build_cmd.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"dict[str, list[str]] | None\" has no attribute \"get\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/cli/build_injectors.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Any | None\" has no attribute \"get\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/build_profile_archiver.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/build_profile_model.py",
+      "code": "arg-type",
+      "message": "Argument 2 to \"allocate_ports\" has incompatible type \"Any | None\"; expected \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/build_profile_resolve.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"claimed\" (default has type \"tuple[()]\", argument has type \"list[tuple[str, ...]]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/build_profile_resolve.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"list[tuple[tuple[str, ...], Any]]\", variable has type \"list[tuple[tuple[str, str], Any]]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/channel_finder_cmd.py",
+      "code": "abstract",
+      "message": "Cannot instantiate abstract class \"BaseDatabase\" with abstract attributes \"_serialize\", \"get_all_channels\", ... and \"validate_channel\" (3 methods suppressed)",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/channel_finder_cmd.py",
+      "code": "arg-type",
+      "message": "Argument \"db_path\" to \"preview_database\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/channel_finder_cmd.py",
+      "code": "arg-type",
+      "message": "Argument \"focus\" to \"preview_database\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/config_cmd.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, dict[Any, Any]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/eject_cmd.py",
+      "code": "attr-defined",
+      "message": "Module has no attribute \"util\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/feedback_cmd.py",
+      "code": "arg-type",
+      "message": "Argument 2 to \"pop\" of \"dict\" has incompatible type \"None\"; expected \"dict[str, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/feedback_cmd.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"dict[str, Any] | None\", variable has type \"dict[str, Any]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/feedback_cmd.py",
+      "code": "misc",
+      "message": "Incompatible types in \"yield\" (actual type \"Callable[[str], int]\", expected type \"Callable[[str], None]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/health_cmd.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_load_project_env\" has incompatible type \"Path\"; expected \"list[Path]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/health_cmd.py",
+      "code": "return-value",
+      "message": "Incompatible return value type (got \"tuple[Path, Path, list[Path]]\", expected \"tuple[Path, Path, Path]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/profile_cmd.py",
+      "code": "arg-type",
+      "message": "Argument 5 to \"_MaterializedProfile\" has incompatible type \"str | None\"; expected \"BuildProfile\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/profile_cmd.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"BuildProfile\", variable has type \"str | None\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/profile_cmd.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"str | None\" has no attribute \"deploy\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/profile_cmd.py",
+      "code": "union-attr",
+      "message": "Item \"str\" of \"str | None\" has no attribute \"deploy\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/profile_conventions.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Any | None\" has no attribute \"get\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/profile_expand.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"persona_catalog\" has incompatible type \"Any | dict[Any, Any] | None\"; expected \"Mapping[str, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/profile_expand.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"CommentedMap\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/styles.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"ColorTheme | None\", variable has type \"ColorTheme\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/styles.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"None\", variable has type \"type[Style]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/styles.py",
+      "code": "misc",
+      "message": "Cannot assign to a type",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/cli/templates/manager.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, list[str]] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/deployment/container_lifecycle.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"list[str]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/deployment/container_lifecycle.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/deployment/container_lifecycle.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/deployment/reach.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"Path | None\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/deployment/web_terminals/env_production.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"str | None\", variable has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/deployment/web_terminals/personas.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, str]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/deployment/web_terminals/provision.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"list[str]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/health/loader.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"tuple[tuple[int, int] | None, ...]\", variable has type \"tuple[tuple[int, int], ...] | None\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/infrastructure/proxy/lifecycle.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"int\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/infrastructure/server_launcher.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"run\" has incompatible type \"object\"; expected \"type[ASGI2Protocol] | Callable[[HTTPScope | WebSocketScope | LifespanScope, Callable[[], Awaitable[HTTPRequestEvent | HTTPDisconnectEvent | WebSocketConnectEvent | _WebSocketReceiveEventBytes | _WebSocketReceiveEventText | WebSocketDisconnectEvent | LifespanStartupEvent | LifespanShutdownEvent]], Callable[[HTTPResponseStartEvent | HTTPResponseBodyEvent | HTTPResponseTrailersEvent | HTTPServerPushEvent | HTTPDisconnectEvent | <9 more items>], Awaitable[None]]], Awaitable[None]] | Callable[..., Any] | str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/infrastructure/server_launcher.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"bool\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/_serving.py",
+      "code": "arg-type",
+      "message": "Argument \"timeout_graceful_shutdown\" to \"Config\" has incompatible type \"float\"; expected \"int | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/ariel/api/drafts.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/ariel/api/routes.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_entry_to_response\" has incompatible type \"EnhancedLogbookEntry\"; expected \"dict[Any, Any]\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/interfaces/ariel/api/routes.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"upsert_entry\" of \"ARIELRepository\" has incompatible type \"dict[str, Any]\"; expected \"EnhancedLogbookEntry\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/ariel/api/routes.py",
+      "code": "misc",
+      "message": "List comprehension has incompatible type List[dict[str, str | int | None]]; expected List[EmbeddingTableStatus]",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/ariel/api/routes.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"ARIELSearchService\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/ariel/api/routes.py",
+      "code": "typeddict-item",
+      "message": "Value of \"attachments\" has incompatible type \"list[dict[str, Any]]\"; expected \"list[AttachmentInfo]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/artifacts/app.py",
+      "code": "arg-type",
+      "message": "Argument \"workspace_root\" to \"StoreIndexWatcher\" has incompatible type \"Path | None\"; expected \"Path\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/artifacts/app.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"bool\", target has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/artifacts/app.py",
+      "code": "operator",
+      "message": "Unsupported left operand type for / (\"None\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/bluesky_web/draft_relay.py",
+      "code": "arg-type",
+      "message": "Argument \"params\" to \"request\" of \"AsyncClient\" has incompatible type \"list[tuple[str, str]]\"; expected \"QueryParams | Mapping[str, str | int | float | bool | None | Sequence[str | int | float | bool | None]] | list[tuple[str, str | int | float | bool | None]] | tuple[tuple[str, str | int | float | bool | None], ...] | str | bytes | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/bluesky_web/queue_relay.py",
+      "code": "arg-type",
+      "message": "Argument \"params\" to \"request\" of \"AsyncClient\" has incompatible type \"list[tuple[str, str]]\"; expected \"QueryParams | Mapping[str, str | int | float | bool | None | Sequence[str | int | float | bool | None]] | list[tuple[str, str | int | float | bool | None]] | tuple[tuple[str, str | int | float | bool | None], ...] | str | bytes | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/bluesky_web/read_proxy.py",
+      "code": "arg-type",
+      "message": "Argument \"params\" to \"get\" of \"AsyncClient\" has incompatible type \"list[tuple[str, str]]\"; expected \"QueryParams | Mapping[str, str | int | float | bool | None | Sequence[str | int | float | bool | None]] | list[tuple[str, str | int | float | bool | None]] | tuple[tuple[str, str | int | float | bool | None], ...] | str | bytes | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/channel_finder/app.py",
+      "code": "attr-defined",
+      "message": "\"object\" has no attribute \"database\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/channel_finder/app.py",
+      "code": "attr-defined",
+      "message": "\"object\" has no attribute \"facility_name\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/channel_finder/app.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"RosterSource | None\" has no attribute \"describe\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/channel_finder/database_api.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 3
+    },
+    {
+      "path": "src/osprey/interfaces/design_system/generator/emit_css.py",
+      "code": "arg-type",
+      "message": "Argument 3 to \"source_mode\" has incompatible type \"dict[str, ResolvedToken]\"; expected \"dict[str, object]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/design_system/generator/emit_js.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/design_system/generator/validate.py",
+      "code": "arg-type",
+      "message": "Argument \"source_file\" to \"TokenFinding\" has incompatible type \"str\"; expected \"Path\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/design_system/generator/validate.py",
+      "code": "arg-type",
+      "message": "Argument 2 to \"setdefault\" of \"MutableMapping\" has incompatible type \"Path\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/lattice_dashboard/state.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/lattice_dashboard/state.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any]\"",
+      "count": 3
+    },
+    {
+      "path": "src/osprey/interfaces/lattice_dashboard/workers/_base.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any]\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/interfaces/lattice_dashboard/workers/_base.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"ndarray[tuple[Any, ...], dtype[Any]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/lattice_dashboard/workers/da.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"builtins.bool\", variable has type \"numpy.bool[builtins.bool]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/lattice_dashboard/workers/lma.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"builtins.bool\", variable has type \"numpy.bool[builtins.bool]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/vendor.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/vendor.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/app.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"inject_provider_env\" has incompatible type \"_Environ[str]\"; expected \"dict[str, str]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/app.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"Path | None\", variable has type \"Path\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/app.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/chat_session_pool.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"discard\" of \"set\" has incompatible type \"Future[OperatorSession] | None\"; expected \"Future[OperatorSession]\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/chat_session_pool.py",
+      "code": "misc",
+      "message": "Incompatible types in \"await\" (actual type \"Future[OperatorSession] | None\", expected type \"Awaitable[Any]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/chat_session_pool.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Future[OperatorSession] | None\" has no attribute \"cancelled\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/chat_session_pool.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Future[OperatorSession] | None\" has no attribute \"done\"",
+      "count": 5
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/chat_session_pool.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Future[OperatorSession] | None\" has no attribute \"exception\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/chat_session_pool.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Future[OperatorSession] | None\" has no attribute \"set_exception\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/chat_session_pool.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Future[OperatorSession] | None\" has no attribute \"set_result\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/feedback_destination.py",
+      "code": "call-overload",
+      "message": "No overload variant of \"int\" matches argument type \"object\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/feedback_destination.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/jupyter_sidecar.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_reap_stragglers\" has incompatible type \"Path\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/operator_session.py",
+      "code": "arg-type",
+      "message": "Argument \"env\" to \"ClaudeAgentOptions\" has incompatible type \"dict[str, str] | None\"; expected \"dict[str, str]\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/operator_session.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"ClaudeSDKClient | None\" has no attribute \"receive_response\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/ownership.py",
+      "code": "func-returns-value",
+      "message": "\"_refuse_body\" of \"OwnershipStore\" does not return a value (it only ever returns None)",
+      "count": 3
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/ownership.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"Path | None\"",
+      "count": 3
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/routes/files.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"list[dict[Any, Any]]\", target has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/routes/panels.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_normalize_ip\" has incompatible type \"str | int\"; expected \"str\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/routes/proxy.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_resolve_panel_url\" has incompatible type \"WebSocket[State]\"; expected \"Request[State]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/routes/proxy.py",
+      "code": "method-assign",
+      "message": "Cannot assign to a method",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/routes/websocket.py",
+      "code": "attr-defined",
+      "message": "\"Iterable[list[bytes]]\" has no attribute \"get\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/routes/websocket.py",
+      "code": "attr-defined",
+      "message": "\"SupportsKeysAndGetItem[str, Any]\" has no attribute \"get\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/routes/websocket.py",
+      "code": "call-overload",
+      "message": "No overload variant of \"int\" matches argument type \"object\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/routes/websocket.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"int | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/routes/websocket.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/scaffold_gallery_service.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_render_framework\" of \"ScaffoldGalleryService\" has incompatible type \"BuildArtifact | None\"; expected \"BuildArtifact\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/scaffold_gallery_service.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/scaffold_gallery_service.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/interfaces/web_terminal/scaffold_gallery_service.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"BuildArtifact | None\" has no attribute \"output_path\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/ariel/server.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/ariel/tools/browse.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"serialize_entry\" has incompatible type \"EnhancedLogbookEntry\"; expected \"dict[Any, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/ariel/tools/entry.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"serialize_entry\" has incompatible type \"EnhancedLogbookEntry\"; expected \"dict[Any, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/ariel/tools/entry.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"upsert_entry\" of \"ARIELRepository\" has incompatible type \"dict[str, object]\"; expected \"EnhancedLogbookEntry\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/mcp_server/ariel/tools/hybrid_search.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"object | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/bluesky/tools/queue.py",
+      "code": "misc",
+      "message": "Cannot infer type of lambda",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/mcp_server/bluesky/tools/queue.py",
+      "code": "misc",
+      "message": "Return statement in function which does not return",
+      "count": 6
+    },
+    {
+      "path": "src/osprey/mcp_server/bluesky/tools/read_tools.py",
+      "code": "call-overload",
+      "message": "No overload variant of \"__getitem__\" of \"list\" matches argument type \"str\"",
+      "count": 4
+    },
+    {
+      "path": "src/osprey/mcp_server/channel_finder_in_context/server_context.py",
+      "code": "assignment",
+      "message": "Incompatible import of \"ChannelDatabase\" (imported name has type \"type[osprey.services.channel_finder.databases.flat.ChannelDatabase]\", local name has type \"type[osprey.services.channel_finder.databases.template.ChannelDatabase]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/channel_finder_in_context/tools/ask_channels.py",
+      "code": "arg-type",
+      "message": "Argument 2 to \"_safe_token_count\" has incompatible type \"str | BaseModel | list[Any]\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/channel_finder_in_context/tools/ask_channels.py",
+      "code": "typeddict-item",
+      "message": "Incompatible types (expression has type \"str | BaseModel | list[Any]\", TypedDict item \"text\" has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/connector_host_manager.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"bytes\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/connector_host_manager.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Endpoint | None\" has no attribute \"host\"",
+      "count": 4
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/connector_host_manager.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Endpoint | None\" has no attribute \"port\"",
+      "count": 4
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/server_context.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"ArchiverConnector\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/server_context.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"ControlSystemConnector | ConnectorHostProxy\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/server_context.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"bool\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/server_context.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any]\"",
+      "count": 4
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/tools/channel_read.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/tools/channel_write.py",
+      "code": "attr-defined",
+      "message": "\"Exception\" has no attribute \"current_value\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/tools/channel_write.py",
+      "code": "attr-defined",
+      "message": "\"Exception\" has no attribute \"max_step\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/tools/channel_write.py",
+      "code": "attr-defined",
+      "message": "\"Exception\" has no attribute \"max_value\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/control_system/tools/channel_write.py",
+      "code": "attr-defined",
+      "message": "\"Exception\" has no attribute \"min_value\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/dispatch_worker/dispatch_api.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"inject_provider_env\" has incompatible type \"_Environ[str]\"; expected \"dict[str, str]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/dispatch_worker/dispatch_api.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"queue\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/dispatch_worker/retention.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"float\" has incompatible type \"Any | None\"; expected \"str | Buffer | SupportsFloat | SupportsIndex\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/dispatch_worker/sdk_runner.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"int | None\", variable has type \"int\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/python_executor/executor.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"Any | None\", variable has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/python_executor/tools/_response_builder.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"int\", target has type \"dict[Any, Any] | bool | str | None\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/python_executor/tools/_response_builder.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"list[str]\", target has type \"dict[Any, Any] | bool | str | None\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/python_executor/tools/python_execute.py",
+      "code": "return-value",
+      "message": "Incompatible return value type (got \"CallToolResult\", expected \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/python_executor/tools/python_execute_file.py",
+      "code": "return-value",
+      "message": "Incompatible return value type (got \"CallToolResult\", expected \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/execution/sandbox_executor.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/artifact_register.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"str | None\" has no attribute \"encode\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/lattice_tools.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/screen_capture.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"capture_window\" of \"ScreenCaptureBackend\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/screen_capture.py",
+      "code": "arg-type",
+      "message": "Argument 2 to \"move_window\" of \"ScreenCaptureBackend\" has incompatible type \"int | None\"; expected \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/screen_capture.py",
+      "code": "arg-type",
+      "message": "Argument 2 to \"resize_window\" of \"ScreenCaptureBackend\" has incompatible type \"int | None\"; expected \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/screen_capture.py",
+      "code": "arg-type",
+      "message": "Argument 3 to \"move_window\" of \"ScreenCaptureBackend\" has incompatible type \"int | None\"; expected \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/screen_capture.py",
+      "code": "arg-type",
+      "message": "Argument 3 to \"resize_window\" of \"ScreenCaptureBackend\" has incompatible type \"int | None\"; expected \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/screen_capture.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"str | None\" has no attribute \"split\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/screen_capture_backends/macos.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"list[dict[Any, Any]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/session_summary.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"channels\" (hint: \"channels: list[<type>] = ...\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/setup.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any] | list[Any] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/mcp_server/workspace/tools/submit_response.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"ArtifactEntry | None\", variable has type \"ArtifactEntry\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/completion.py",
+      "code": "arg-type",
+      "message": "Argument \"model_id\" to \"execute_completion\" of \"BaseProvider\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/completion.py",
+      "code": "arg-type",
+      "message": "Argument \"model_id\" to \"log_api_call\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/completion.py",
+      "code": "arg-type",
+      "message": "Argument \"provider\" to \"log_api_call\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/completion.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"get_provider\" of \"ProviderRegistry\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/completion.py",
+      "code": "arg-type",
+      "message": "Argument 7 to \"execute_completion\" of \"BaseProvider\" has incompatible type \"**dict[str, int | type[BaseModel] | ChatCompletionRequest | list[dict[Any, Any]] | str | dict[Any, Any] | None]\"; expected \"dict[Any, Any] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/completion.py",
+      "code": "arg-type",
+      "message": "Argument 7 to \"execute_completion\" of \"BaseProvider\" has incompatible type \"**dict[str, int | type[BaseModel] | ChatCompletionRequest | list[dict[Any, Any]] | str | dict[Any, Any] | None]\"; expected \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/completion.py",
+      "code": "call-overload",
+      "message": "No overload variant of \"create_model\" matches argument types \"str\", \"dict[Any, tuple[Any, Any]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/completion.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"type[BaseModel]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/completion.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"ChatCompletionRequest | None\" has no attribute \"to_single_string\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/config.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any]\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/models/embedding_registry.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"type[BaseEmbeddingProvider] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/provider_registry.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"type[BaseProvider] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/providers/asksage.py",
+      "code": "arg-type",
+      "message": "Argument \"messages\" to \"create\" of \"Completions\" has incompatible type \"list[dict[str, str]]\"; expected \"Iterable[ChatCompletionDeveloperMessageParam | ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam | ChatCompletionAssistantMessageParam | ChatCompletionToolMessageParam | ChatCompletionFunctionMessageParam]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/providers/asksage.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_clean_json_response\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/providers/litellm_adapter.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"bool\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/providers/litellm_adapter.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/providers/litellm_adapter.py",
+      "code": "return-value",
+      "message": "Incompatible return value type (got \"BaseModel | dict[Any, Any]\", expected \"str | BaseModel | list[Any]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/models/tiers.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/registry/helpers.py",
+      "code": "arg-type",
+      "message": "Argument \"framework_exclusions\" to \"ExtendedRegistryConfig\" has incompatible type \"dict[str, list[str]] | None\"; expected \"dict[str, list[str]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/registry/manager.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"output_dir\" (default has type \"None\", argument has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/registry/manager.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"_registries\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/registry/mcp.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/ariel_search/cli_operations.py",
+      "code": "arg-type",
+      "message": "Argument 6 to \"_embed_batch\" has incompatible type \"Any | str | None\"; expected \"str\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/ariel_search/cli_operations.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"IngestionConfig | None\" has no attribute \"source_url\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/ariel_search/ingestion/adapters/als.py",
+      "code": "arg-type",
+      "message": "Argument \"author\" to \"_build_xml_payload\" of \"ALSLogbookAdapter\" has incompatible type \"str | Any | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/ariel_search/ingestion/adapters/als.py",
+      "code": "arg-type",
+      "message": "Argument \"password\" to \"_build_xml_payload\" of \"ALSLogbookAdapter\" has incompatible type \"str | Any | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/auth_sidecar/routes/login.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"tuple[tuple[None, str, str], tuple[str, str, str]]\", variable has type \"tuple[tuple[None, str, str]]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/app.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/app.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"list[Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/bump_analysis.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"ndarray[tuple[Any, ...], dtype[Any]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/devices/connector.py",
+      "code": "override",
+      "message": "Return type \"Coroutine[Any, Any, dict[str, dict[str, Any]]]\" of \"describe\" incompatible with return type \"Coroutine[Any, Any, dict[str, DataKey]]\" in supertype \"ophyd_async.core._protocol.AsyncReadable\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/devices/connector.py",
+      "code": "override",
+      "message": "Return type \"Coroutine[Any, Any, dict[str, dict[str, Any]]]\" of \"describe\" incompatible with return type \"Coroutine[Any, Any, dict[str, DataKey]]\" in supertype \"ophyd_async.core._readable.StandardReadable\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/devices/connector.py",
+      "code": "override",
+      "message": "Return type \"Coroutine[Any, Any, dict[str, dict[str, Any]]]\" of \"read\" incompatible with return type \"Coroutine[Any, Any, dict[str, Reading[Any]]]\" in supertype \"ophyd_async.core._protocol.AsyncReadable\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/devices/connector.py",
+      "code": "override",
+      "message": "Return type \"Coroutine[Any, Any, dict[str, dict[str, Any]]]\" of \"read\" incompatible with return type \"Coroutine[Any, Any, dict[str, Reading[Any]]]\" in supertype \"ophyd_async.core._readable.StandardReadable\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/qserver_startup.py",
+      "code": "arg-type",
+      "message": "Argument \"secret_path\" to \"ClientCurve\" has incompatible type \"str\"; expected \"Path\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/qserver_startup.py",
+      "code": "arg-type",
+      "message": "Argument \"server_public_key\" to \"ClientCurve\" has incompatible type \"str\"; expected \"Path\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/qserver_startup.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/queue.py",
+      "code": "index",
+      "message": "Unsupported target for indexed assignment (\"str\")",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/queue.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"QueueBackend\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/queue_backend.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/runs.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"get\" of \"dict\" has incompatible type \"Any | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/bluesky_bridge/session_upload.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/build_artifacts/ownership.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"list[str]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/benchmarks/backends/__init__.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/benchmarks/harness.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/_hierarchical_base.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/_hierarchical_base.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"list[str]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/_hierarchical_naming.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/_hierarchical_preview.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"str | None\" has no attribute \"upper\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/flat.py",
+      "code": "valid-type",
+      "message": "Function \"builtins.any\" is not valid as a type",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/google_sheets.py",
+      "code": "override",
+      "message": "Signature of \"add_channel\" incompatible with supertype \"osprey.services.channel_finder.databases.flat.ChannelDatabase\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/middle_layer.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any]\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/middle_layer.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"channels\" (hint: \"channels: dict[<type>, <type>] = ...\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/middle_layer.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"empty\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/template.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any] | list[Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/template.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Match[str] | None\" has no attribute \"group\"",
+      "count": 3
+    },
+    {
+      "path": "src/osprey/services/channel_finder/databases/template.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"grouped\" (hint: \"grouped: dict[<type>, <type>] = ...\")",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/feedback/pending_store.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/graph_index/builder.py",
+      "code": "arg-type",
+      "message": "Argument \"direct_devices\" to \"ClassRow\" has incompatible type \"object\"; expected \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/build_database.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"create_namer_from_config\" has incompatible type \"Path | None\"; expected \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/build_database.py",
+      "code": "attr-defined",
+      "message": "\"Collection[str]\" has no attribute \"append\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/build_database.py",
+      "code": "attr-defined",
+      "message": "\"Collection[str]\" has no attribute \"extend\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/build_database.py",
+      "code": "index",
+      "message": "Unsupported target for indexed assignment (\"Collection[str]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/build_database.py",
+      "code": "index",
+      "message": "Value of type \"Collection[str]\" is not indexable",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/generate_from_spec.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/llm_channel_namer.py",
+      "code": "union-attr",
+      "message": "Item \"BaseModel\" of \"str | BaseModel | list[Any]\" has no attribute \"names\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/llm_channel_namer.py",
+      "code": "union-attr",
+      "message": "Item \"list[Any]\" of \"str | BaseModel | list[Any]\" has no attribute \"names\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/llm_channel_namer.py",
+      "code": "union-attr",
+      "message": "Item \"str\" of \"str | BaseModel | list[Any]\" has no attribute \"names\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/preview_database.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"Tree\" has incompatible type \"str | None\"; expected \"ConsoleRenderable | RichCast | str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/preview_database.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"db_path\" (default has type \"None\", argument has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/preview_database.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"focus\" (default has type \"None\", argument has type \"str\")",
+      "count": 3
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/preview_database.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"sections\" (default has type \"None\", argument has type \"list[Any]\")",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/preview_database.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"Any | None\", variable has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/preview_database.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"dict[Any, Any] | None\", variable has type \"dict[Any, Any]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/preview_database.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"str | None\", variable has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/preview_database.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"db_config\" (hint: \"db_config: dict[<type>, <type>] = ...\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/validate_database.py",
+      "code": "arg-type",
+      "message": "Argument \"pipeline_type\" to \"print_validation_results\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/validate_database.py",
+      "code": "arg-type",
+      "message": "Argument 2 to \"validate_database_loading\" has incompatible type \"str | None\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/validate_database.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"pipeline_type\" (default has type \"None\", argument has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/validate_database.py",
+      "code": "assignment",
+      "message": "Incompatible default for argument \"stats\" (default has type \"None\", argument has type \"dict[Any, Any]\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/validate_database.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"ChannelDatabase\", variable has type \"HierarchicalChannelDatabase\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/validate_database.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"MiddleLayerDatabase\", variable has type \"HierarchicalChannelDatabase\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/validate_database.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"dict[Any, Any] | None\" has no attribute \"get\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/validate_database.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"str | None\" has no attribute \"replace\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/tools/validate_database.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"warnings\" (hint: \"warnings: list[<type>] = ...\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"module_from_spec\" has incompatible type \"ModuleSpec | None\"; expected \"ModuleSpec\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
+      "code": "func-returns-value",
+      "message": "\"main\" does not return a value (it only ever returns None)",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
+      "code": "return-value",
+      "message": "No return value expected",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"Loader | Any | None\" has no attribute \"exec_module\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
+      "code": "union-attr",
+      "message": "Item \"None\" of \"ModuleSpec | None\" has no attribute \"loader\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/services/channel_finder/utils/mml_converter.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"data\" (hint: \"data: dict[<type>, <type>] = ...\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/direction.py",
+      "code": "no-redef",
+      "message": "Name \"directions\" already defined on line 239",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/emitter.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"add\" of \"Graph\" has incompatible type \"tuple[URIRef, URIRef, object]\"; expected \"tuple[Node, Node, Node]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_lookup_description\" has incompatible type \"Mapping[str, str] | None\"; expected \"Mapping[object, object] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_lookup_description\" has incompatible type \"Mapping[tuple[str, str, str, str, str], str] | None\"; expected \"Mapping[object, object] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_lookup_description\" has incompatible type \"Mapping[tuple[str, str, str, str], str] | None\"; expected \"Mapping[object, object] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_lookup_description\" has incompatible type \"Mapping[tuple[str, str, str], str] | None\"; expected \"Mapping[object, object] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_lookup_description\" has incompatible type \"Mapping[tuple[str, str], str] | None\"; expected \"Mapping[object, object] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"_lookup_description\" has incompatible type \"Mapping[tuple[str], str] | None\"; expected \"Mapping[object, object] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"sorted\" has incompatible type \"dict_items[tuple[str, ...], str]\"; expected \"Iterable[tuple[tuple[str, str, str, str, str], str]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"sorted\" has incompatible type \"dict_items[tuple[str, ...], str]\"; expected \"Iterable[tuple[tuple[str, str, str, str], str]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"sorted\" has incompatible type \"dict_items[tuple[str, ...], str]\"; expected \"Iterable[tuple[tuple[str, str, str], str]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"sorted\" has incompatible type \"dict_items[tuple[str, ...], str]\"; expected \"Iterable[tuple[tuple[str, str], str]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/facility_knowledge/ttl_generator/model.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"sorted\" has incompatible type \"dict_items[tuple[str, ...], str]\"; expected \"Iterable[tuple[tuple[str], str]]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/migration/engine.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any] | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/entrypoint.py",
+      "code": "arg-type",
+      "message": "Argument 4 to \"CohostRunner\" has incompatible type \"**dict[str, Callable[[Iterable[str]], None]]\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/entrypoint.py",
+      "code": "arg-type",
+      "message": "Argument 4 to \"CohostRunner\" has incompatible type \"**dict[str, Callable[[Iterable[str]], None]]\"; expected \"tuple[str, ...]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/ioc/engine_source.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"float | bool | str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/manifest/build.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"str | None\", variable has type \"str\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/manifest/build.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/manifest/build.py",
+      "code": "var-annotated",
+      "message": "Need type annotation for \"claimed\" (hint: \"claimed: dict[<type>, <type>] = ...\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/bindings.py",
+      "code": "arg-type",
+      "message": "Argument \"axis\" to \"PyATReadOnlyScalarVariable\" has incompatible type \"str | None\"; expected \"Literal['x', 'y']\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument \"default_validation_config\" to \"PyATWritableScalarVariable\" has incompatible type \"str\"; expected \"ConfigEnum\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"PyATWritableEnumVariable\" has incompatible type \"**dict[str, object]\"; expected \"ConfigEnum\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"PyATWritableEnumVariable\" has incompatible type \"**dict[str, object]\"; expected \"bool\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"PyATWritableEnumVariable\" has incompatible type \"**dict[str, object]\"; expected \"int | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"PyATWritableEnumVariable\" has incompatible type \"**dict[str, object]\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"ConfigEnum\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"bool\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"float | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"int | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"PyATWritableScalarVariable\" has incompatible type \"**dict[str, object]\"; expected \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"float\" has incompatible type \"float | Any | None\"; expected \"str | Buffer | SupportsFloat | SupportsIndex\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "list-item",
+      "message": "List item 0 has incompatible type \"dict_values[str, ScalarVariable[Any]]\"; expected \"ReadOnlyActionVariable[PyATSimulator] | WritableActionVariable[PyATSimulator]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "list-item",
+      "message": "List item 1 has incompatible type \"list[PyATWritableScalarVariable | PyATWritableEnumVariable]\"; expected \"ReadOnlyActionVariable[PyATSimulator] | WritableActionVariable[PyATSimulator]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/model/pyat.py",
+      "code": "list-item",
+      "message": "List item 2 has incompatible type \"list[PyATReadOnlyNDVariable]\"; expected \"ReadOnlyActionVariable[PyATSimulator] | WritableActionVariable[PyATSimulator]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/services/virtual_accelerator/serving/model_surface.py",
+      "code": "attr-defined",
+      "message": "\"Variable\" has no attribute \"default_value\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/simulation/apply.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"int\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/stores/artifact_store.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[str, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/stores/base_store.py",
+      "code": "attr-defined",
+      "message": "\"T\" has no attribute \"id\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/stores/notebook_renderer.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"NotebookNode\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"bool\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/hooks/osprey_approval.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/hooks/osprey_cf_feedback_capture.py",
+      "code": "arg-type",
+      "message": "Argument 1 to \"len\" has incompatible type \"object\"; expected \"Sized\"",
+      "count": 2
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/hooks/osprey_cf_feedback_capture.py",
+      "code": "assignment",
+      "message": "Incompatible types in assignment (expression has type \"Any | None\", variable has type \"int\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/hooks/osprey_cf_feedback_capture.py",
+      "code": "attr-defined",
+      "message": "\"object\" has no attribute \"__delitem__\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/hooks/osprey_cf_feedback_capture.py",
+      "code": "attr-defined",
+      "message": "\"object\" has no attribute \"keys\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/hooks/osprey_cf_feedback_capture.py",
+      "code": "index",
+      "message": "Unsupported target for indexed assignment (\"object\")",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/hooks/osprey_cf_feedback_capture.py",
+      "code": "index",
+      "message": "Value of type \"object\" is not indexable",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/templates/claude_code/claude/statusline.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/utils/config_writer.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"dict[Any, Any]\"",
+      "count": 1
+    },
+    {
+      "path": "src/osprey/utils/config_writer.py",
+      "code": "no-any-return",
+      "message": "Returning Any from function declared to return \"str | None\"",
+      "count": 3
+    }
+  ]
+}

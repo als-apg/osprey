@@ -41,6 +41,31 @@ export const QUEUE_ACTIVE_MANAGER_STATES = Object.freeze([
   'paused',
 ]);
 
+/**
+ * Manager states that affirmatively mean REST. Doubt is read from this list
+ * and the active one together, never from the active one alone: a state this
+ * bundle cannot name is a state whose meaning the browser does not know, and
+ * the only safe reading of one is that the queue may be busy.
+ * @type {readonly string[]}
+ */
+export const QUEUE_IDLE_MANAGER_STATES = Object.freeze(['idle']);
+
+/**
+ * Whether the manager's state is one this bundle can act on.
+ *
+ * False for a summary that reports no state at all and for any state string
+ * outside the active and idle lists. It says nothing about whether the
+ * summary could be read — `available` answers that, and answers it first.
+ *
+ * @param {QueueStatus|null} status
+ * @returns {boolean}
+ */
+export function managerStateKnown(status) {
+  const raw = typeof status?.manager_state === 'string' ? status.manager_state : null;
+  if (raw === null) return false;
+  return QUEUE_ACTIVE_MANAGER_STATES.includes(raw) || QUEUE_IDLE_MANAGER_STATES.includes(raw);
+}
+
 /** Run statuses a run record can no longer leave (`runs.py`). */
 export const TERMINAL_RUN_STATUSES = Object.freeze(['completed', 'stopped', 'error']);
 
@@ -158,8 +183,112 @@ export function historyChanged(prev, next) {
     prev.running_item_uid !== next.running_item_uid ||
     // The bridge's own key: a run removed from the OSPREY view moves none of
     // the manager's uids, so this is the only sign another panel did it.
-    prev.runs_removed !== next.runs_removed
+    prev.runs_removed !== next.runs_removed ||
+    // Also the bridge's: a pending item withdrawn moves the queue's uid and
+    // not the history's, and the withdrawal is listed with the history.
+    prev.queue_removals !== next.queue_removals
   );
+}
+
+/**
+ * Two digits, for a clock or calendar field built by hand.
+ *
+ * @param {number} value
+ * @returns {string}
+ */
+function pad2(value) {
+  return String(value).padStart(2, '0');
+}
+
+/**
+ * When a record was written, in the reader's own zone.
+ *
+ * The record's ``at`` is UTC with an explicit offset; a panel reads it where it
+ * is opened, so it is rendered local. Anything unparseable yields an empty
+ * string rather than ``Invalid Date`` — the sentence beside it still says what
+ * happened, and a wrong time is worse than none.
+ *
+ * The log keeps hundreds of records and outlives the day it started, so a bare
+ * ``HH:MM`` would report last week's withdrawal as this afternoon's. Today's
+ * records show the clock alone; every older one carries ``MM-DD`` in front of
+ * it. Built from the date's own local fields rather than a locale formatter,
+ * so what this returns is the same string on every machine that renders it.
+ *
+ * @param {unknown} at
+ * @param {Date} [now] The moment to read "today" from.
+ * @returns {string}
+ */
+function recordTime(at, now = new Date()) {
+  if (typeof at !== 'string' || at === '') return '';
+  const when = new Date(at);
+  if (Number.isNaN(when.getTime())) return '';
+  const clock = `${pad2(when.getHours())}:${pad2(when.getMinutes())}`;
+  const sameDay =
+    when.getFullYear() === now.getFullYear() &&
+    when.getMonth() === now.getMonth() &&
+    when.getDate() === now.getDate();
+  if (sameDay) return clock;
+  return `${pad2(when.getMonth() + 1)}-${pad2(when.getDate())} ${clock}`;
+}
+
+/**
+ * What one withdrawal reads as, without the owner in front of it.
+ *
+ * A plan that could not be named falls back to what the action itself says: a
+ * clear emptied the queue, an abort stopped whatever was running, and a single
+ * removal took one row. None of the three invents a plan name it does not have.
+ *
+ * @param {string} action
+ * @param {string|null} name
+ * @returns {string}
+ */
+function removalPhrase(action, name) {
+  if (action === 'abort') return `aborted ${name || 'the running plan'}`;
+  if (name) return `removed ${name}`;
+  return action === 'clear' ? 'cleared the queue' : 'removed a queued plan';
+}
+
+/** The actions `GET /queue/removals` records. A record naming any other is skipped. */
+const REMOVAL_ACTIONS = ['remove', 'clear', 'abort'];
+
+/**
+ * The withdrawn queue work to list, from `GET /queue/removals`.
+ *
+ * The manager keeps no record of a removal, so this log is the only answer to
+ * "where did that row go, and who took it". Records arrive newest first and
+ * stay in that order. Read defensively like `historyRecords`: the shape is the
+ * bridge's, and a record whose action this panel cannot describe is skipped
+ * rather than rendered as a guess.
+ *
+ * An owner-less record is a legitimate one — a caller that authorised without
+ * naming anybody — and reads as the bare sentence, never as an "unknown" that
+ * would suggest something went missing.
+ *
+ * ``now`` is a parameter so that what "today" means is the caller's to state:
+ * the view passes nothing and gets the wall clock, and a test pins both time
+ * shapes without waiting for midnight.
+ *
+ * @param {unknown} removals
+ * @param {Date} [now]
+ * @returns {Array<{at: string, time: string, text: string}>}
+ */
+export function removalRecords(removals, now = new Date()) {
+  if (!Array.isArray(removals)) return [];
+  const records = [];
+  for (const removal of removals) {
+    if (!removal || typeof removal !== 'object') continue;
+    const action = typeof removal.action === 'string' ? removal.action : '';
+    if (!REMOVAL_ACTIONS.includes(action)) continue;
+    const name = typeof removal.name === 'string' && removal.name !== '' ? removal.name : null;
+    const owner = typeof removal.owner === 'string' && removal.owner !== '' ? removal.owner : null;
+    const phrase = removalPhrase(action, name);
+    records.push({
+      at: typeof removal.at === 'string' ? removal.at : '',
+      time: recordTime(removal.at, now),
+      text: owner ? `${owner} ${phrase}` : phrase,
+    });
+  }
+  return records;
 }
 
 /**
@@ -281,6 +410,19 @@ export function describeQueueStatus(status) {
  * }} StopControlState */
 
 /**
+ * How an unreadable state is named to the operator: the manager's own word
+ * when there is one, and the absence of one when there is not.
+ *
+ * @param {string|null} managerState
+ * @returns {string}
+ */
+function unfamiliarStateReason(managerState) {
+  return managerState === null
+    ? 'The queue manager reported no state.'
+    : `The queue manager reported an unfamiliar state (${managerState}).`;
+}
+
+/**
  * Which queue controls are live, and why not when they aren't.
  *
  * Deliberately NOT a local copy of the bridge's arming policy: nothing here
@@ -318,17 +460,29 @@ export function queueControls(state) {
   // Start ARMS the queue: it drains what is queued now and whatever arrives
   // later, so an empty stopped queue is a legitimate thing to start. It is
   // dead only when there is nothing to arm — already armed, already draining,
-  // or a manager that cannot be read.
+  // a manager that cannot be read, or a state this panel cannot name and so
+  // cannot rule out motion from.
   /** @type {ControlState} */
   let start;
   if (!available) {
     start = { disabled: true, reason: 'The queue manager could not be read.' };
   } else if (active) {
     start = { disabled: true, reason: 'The queue is already running.' };
+  } else if (!managerStateKnown(status)) {
+    start = { disabled: true, reason: unfamiliarStateReason(managerState) };
   } else if (queueArmed(status)) {
     start = { disabled: true, reason: 'The queue is already started.' };
   } else {
     start = { disabled: false, reason: null };
+  }
+
+  let stopNote = null;
+  if (!available) {
+    stopNote = 'The queue manager summary could not be read; the stop is still sent.';
+  } else if (!managerStateKnown(status)) {
+    stopNote = `${unfamiliarStateReason(managerState)} The stop is still sent.`;
+  } else if (!active) {
+    stopNote = 'The queue is not running; a stop is still accepted.';
   }
 
   /** @type {StopControlState} */
@@ -338,15 +492,7 @@ export function queueControls(state) {
         arming: true,
         note: 'The queue will keep draining after the current item.',
       }
-    : {
-        body: { cancel: false },
-        arming: false,
-        note: !available
-          ? 'The queue manager summary could not be read; the stop is still sent.'
-          : active
-            ? null
-            : 'The queue is not running; a stop is still accepted.',
-      };
+    : { body: { cancel: false }, arming: false, note: stopNote };
 
   return { start, stop };
 }
@@ -506,8 +652,11 @@ export function stripControls(state, view) {
  *
  * Adding to an ARMED idle queue runs the plan — so the button says `Run`. In
  * every other state the item waits its turn, and the note says for what: the
- * running plan, or a start the operator has to give from the Queue tab. An
- * unreadable manager promises nothing (the capability banner speaks there).
+ * running plan, or a start the operator has to give from the Queue tab.
+ * Neither an unreadable manager nor a state this bundle cannot name promises
+ * anything about when the item runs: the first has no summary to read at all
+ * (the capability banner speaks there), and the second has one whose meaning
+ * the browser does not know.
  *
  * @param {QueueStatus|null} status
  * @returns {{label: string, note: string}}
@@ -517,6 +666,8 @@ export function enqueuePresentation(status) {
   const managerState = typeof status.manager_state === 'string' ? status.manager_state : null;
   const active = managerState !== null && QUEUE_ACTIVE_MANAGER_STATES.includes(managerState);
   if (active) return { label: 'Add to queue', note: 'Runs after the current plan.' };
+  if (!managerStateKnown(status))
+    return { label: 'Add to queue', note: 'The queue state is unfamiliar; the item waits its turn.' };
   if (queueArmed(status)) return { label: 'Run', note: 'Runs now.' };
   return { label: 'Add to queue', note: 'The queue is stopped. Start it from the Queue tab.' };
 }
@@ -644,18 +795,47 @@ export function historyEmptyState(records, loaded) {
 }
 
 /**
- * The history Clear control: drop every completed run from the list. A
- * usability gate only, like the queue's Clear — dead when the list is
- * provably empty or was never read. Two-step in the view.
+ * The history Clear control: empty the History card. A usability gate only,
+ * like the queue's Clear — dead when there is provably nothing listed. Two-step
+ * in the view.
+ *
+ * It answers for BOTH halves of the card, because the one write behind it does:
+ * `DELETE /history` drops the manager's completed runs and the bridge's record
+ * of withdrawn work together. A button that read only the runs would sit dead
+ * over a card full of withdrawal rows that this is the way to clear.
+ *
+ * `loaded` is the runs half alone, and it only decides the empty case: rows on
+ * screen are rows this control can remove, however the other fetch fared.
  *
  * @param {ReturnType<typeof historyRecords>} records
+ * @param {ReturnType<typeof removalRecords>} removals
  * @param {boolean} loaded
  * @returns {ControlState}
  */
-export function historyClearControl(records, loaded) {
+export function historyClearControl(records, removals, loaded) {
+  if (records.length > 0 || removals.length > 0) return { disabled: false, reason: null };
   if (!loaded) return { disabled: true, reason: 'Completed runs could not be loaded.' };
-  if (records.length === 0) return { disabled: true, reason: 'No completed runs.' };
-  return { disabled: false, reason: null };
+  return { disabled: true, reason: 'Nothing listed.' };
+}
+
+/**
+ * The sentence the armed history Clear shows: what the second click removes.
+ *
+ * Names the halves that are actually there, so the operator reads what will go
+ * rather than a fixed sentence about runs over a card that holds withdrawals.
+ *
+ * @param {number} runs
+ * @param {number} removals
+ * @returns {string|null} `null` when there is nothing to say.
+ */
+export function historyClearConfirmNote(runs, removals) {
+  const parts = [];
+  if (runs > 0) parts.push(runs === 1 ? 'the completed run' : `all ${runs} completed runs`);
+  if (removals > 0) {
+    parts.push(removals === 1 ? 'the removed-plan row' : `the ${removals} removed-plan rows`);
+  }
+  if (parts.length === 0) return null;
+  return `Click again to remove ${parts.join(' and ')} from the list.`;
 }
 
 /**

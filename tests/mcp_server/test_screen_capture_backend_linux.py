@@ -193,7 +193,6 @@ def mock_linux_env(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_capture_full(mock_linux_env, tmp_path):
     """capture_full captures all monitors combined."""
     backend = mock_linux_env
@@ -206,7 +205,6 @@ async def test_capture_full(mock_linux_env, tmp_path):
     assert info.size_bytes > 0
 
 
-@pytest.mark.unit
 async def test_capture_display_valid(mock_linux_env, tmp_path):
     """capture_display captures a specific monitor."""
     backend = mock_linux_env
@@ -221,7 +219,6 @@ async def test_capture_display_valid(mock_linux_env, tmp_path):
     assert info.height == 1080
 
 
-@pytest.mark.unit
 async def test_capture_display_invalid(mock_linux_env, tmp_path):
     """capture_display raises ValueError for out-of-range display."""
     backend = mock_linux_env
@@ -233,7 +230,6 @@ async def test_capture_display_invalid(mock_linux_env, tmp_path):
             await backend.capture_display("99", filepath)
 
 
-@pytest.mark.unit
 async def test_capture_region(mock_linux_env, tmp_path):
     """capture_region captures a specific rectangle."""
     backend = mock_linux_env
@@ -249,7 +245,6 @@ async def test_capture_region(mock_linux_env, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_list_windows_basic(mock_linux_env):
     """list_windows returns WindowInfo objects from EWMH."""
     backend = mock_linux_env
@@ -262,7 +257,6 @@ async def test_list_windows_basic(mock_linux_env):
     assert windows[0].height == 600
 
 
-@pytest.mark.unit
 async def test_list_windows_filter(mock_linux_env):
     """list_windows filters by app name."""
     backend = mock_linux_env
@@ -281,7 +275,6 @@ async def test_list_windows_filter(mock_linux_env):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_capture_window_not_found(mock_linux_env, tmp_path):
     """capture_window raises WindowNotFoundError for unknown app."""
     backend = mock_linux_env
@@ -296,7 +289,6 @@ async def test_capture_window_not_found(mock_linux_env, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 async def test_bring_to_front(mock_linux_env):
     """bring_to_front sends _NET_ACTIVE_WINDOW event."""
     backend = mock_linux_env
@@ -304,21 +296,18 @@ async def test_bring_to_front(mock_linux_env):
     await backend.bring_to_front("TestApp")
 
 
-@pytest.mark.unit
 async def test_move_window(mock_linux_env):
     """move_window configures window position."""
     backend = mock_linux_env
     await backend.move_window("TestApp", 100, 200)
 
 
-@pytest.mark.unit
 async def test_resize_window(mock_linux_env):
     """resize_window configures window size."""
     backend = mock_linux_env
     await backend.resize_window("TestApp", 1024, 768)
 
 
-@pytest.mark.unit
 async def test_window_not_found_management(mock_linux_env):
     """Window management raises WindowNotFoundError for unknown app."""
     backend = mock_linux_env

@@ -26,8 +26,6 @@ from osprey.cli.build_environment import _create_project_venv
 from osprey.cli.build_profile import BuildProfile, EnvironmentConfig
 from osprey.errors import BuildProfileError
 
-pytestmark = pytest.mark.unit
-
 OSPREY_SPEC = "osprey-framework==1.2.3"
 
 

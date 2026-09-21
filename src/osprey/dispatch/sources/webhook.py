@@ -17,6 +17,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from osprey.dispatch.pool import QueueFullError
+from osprey.utils.bearer import credential_bytes
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -110,8 +111,13 @@ class WebhookSource:
             logger.error("EVENT_DISPATCHER_TOKEN is not configured; rejecting webhook")
             return {"detail": "Server misconfigured"}, 503
 
-        # Constant-time comparison to avoid leaking the token via timing.
-        if not hmac.compare_digest(auth_header, f"Bearer {expected_token}"):
+        # Constant-time comparison to avoid leaking the token via timing, over
+        # bytes so that neither operand can make the comparison raise — an
+        # Authorization header is whatever a caller chose to send, and a refusal
+        # is the answer a wrong one is owed.
+        if not hmac.compare_digest(
+            credential_bytes(auth_header), credential_bytes(f"Bearer {expected_token}")
+        ):
             return {"detail": "Unauthorized"}, 401
 
         if self._fire_callback is None:

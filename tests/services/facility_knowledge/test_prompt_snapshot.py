@@ -33,8 +33,6 @@ import pytest
 from osprey.services.facility_knowledge.seeder import prompt_snapshot as mod
 from osprey.utils.workspace import BUILD_DIR_NAME, IMAGE_DIR_NAME
 
-pytestmark = pytest.mark.unit
-
 # ---------------------------------------------------------------------------
 # A recording Cypher seam
 # ---------------------------------------------------------------------------

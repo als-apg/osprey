@@ -85,7 +85,6 @@ def _cfg(preset: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_documented_defaults_are_the_module_constants():
     """The defaults the templates document are the ones the code falls back to."""
     assert channel_read.DEFAULT_READ_INLINE_MAX_ELEMENTS == 2000
@@ -93,7 +92,6 @@ def test_documented_defaults_are_the_module_constants():
     assert channel_read.AGGREGATE_BUDGET_FACTOR == 4
 
 
-@pytest.mark.unit
 def test_accessors_return_defaults_when_keys_absent():
     """An unconfigured deployment gets the documented defaults."""
     with patch(CONFIG_TARGET, _fake_config({})):
@@ -102,7 +100,6 @@ def test_accessors_return_defaults_when_keys_absent():
         assert channel_read.get_read_aggregate_max_elements() == 8000
 
 
-@pytest.mark.unit
 def test_accessors_return_defaults_when_config_unavailable():
     """No config.yml at all degrades to the defaults, it does not raise.
 
@@ -120,7 +117,6 @@ def test_accessors_return_defaults_when_config_unavailable():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_accessors_honor_configured_values():
     """config.yml overrides both knobs."""
     with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: 500, RETENTION_KEY: 3})):
@@ -128,21 +124,18 @@ def test_accessors_honor_configured_values():
         assert channel_read.get_channel_read_artifact_retention() == 3
 
 
-@pytest.mark.unit
 def test_aggregate_budget_follows_the_configured_threshold():
     """The per-call budget is 4x whatever the per-value threshold is set to."""
     with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: 500})):
         assert channel_read.get_read_aggregate_max_elements() == 2000
 
 
-@pytest.mark.unit
 def test_retention_zero_is_honored_not_treated_as_unset():
     """0 means "keep everything" — it must not fall back to the default of 20."""
     with patch(CONFIG_TARGET, _fake_config({RETENTION_KEY: 0})):
         assert channel_read.get_channel_read_artifact_retention() == 0
 
 
-@pytest.mark.unit
 def test_string_values_are_coerced():
     """YAML/env round-trips can hand these through as strings."""
     with patch(CONFIG_TARGET, _fake_config({INLINE_KEY: "128", RETENTION_KEY: "5"})):
@@ -150,7 +143,6 @@ def test_string_values_are_coerced():
         assert channel_read.get_channel_read_artifact_retention() == 5
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("bad", ["not-a-number", None, -1, [2000], True, False])
 def test_unusable_values_degrade_to_defaults(bad):
     """A mistyped knob is ignored, not fatal, and not silently negative."""
@@ -164,7 +156,6 @@ def test_unusable_values_degrade_to_defaults(bad):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("preset", _PRESETS)
 def test_presets_carry_both_keys_nested_under_control_system(preset):
     """Every control-system preset writes both knobs at their documented defaults."""
@@ -180,7 +171,6 @@ def test_presets_carry_both_keys_nested_under_control_system(preset):
     )
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("preset", _PRESETS)
 def test_keys_are_nested_never_dotted(preset):
     """A dotted key that survives into config.yml is INERT — guard the expansion.
@@ -195,7 +185,6 @@ def test_keys_are_nested_never_dotted(preset):
     assert not dotted, f"{preset}: dotted top-level keys are inert: {dotted}"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("preset", _PRESETS)
 def test_default_comment_documents_the_aggregate_call_budget(preset):
     """The preset comment names the 4x per-call budget beside the per-value one."""
@@ -204,7 +193,6 @@ def test_default_comment_documents_the_aggregate_call_budget(preset):
     assert "4x" in text, f"{preset}: aggregate budget not documented"
 
 
-@pytest.mark.unit
 def test_the_default_is_the_repo_wide_inline_budget():
     """2000 is traced to the shared plotting budget, not stated as a magic number.
 
@@ -225,7 +213,6 @@ def test_the_default_is_the_repo_wide_inline_budget():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("preset", _EPICS_PRESETS)
 def test_epics_presets_document_pva_routing(preset):
     """The EPICS-carrying presets document pva_channels and pva_gateway."""
@@ -235,7 +222,6 @@ def test_epics_presets_document_pva_routing(preset):
     assert "EPICS_PVA_" in text, f"{preset}: gateway containment note missing"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("preset", _EPICS_PRESETS)
 def test_pva_routing_is_off_by_default(preset):
     """Both PVA keys ship commented out, so a scaffolded project stays pure CA.

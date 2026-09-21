@@ -24,6 +24,7 @@ const SERVER_COLORS = {
   osprey_facility_knowledge: 'srv-facility-knowledge', graph: 'srv-graph',
   phoebus: 'srv-phoebus',
   bluesky: 'srv-bluesky', health: 'srv-health',
+  event_dispatcher: 'srv-event-dispatcher',
 };
 
 /**

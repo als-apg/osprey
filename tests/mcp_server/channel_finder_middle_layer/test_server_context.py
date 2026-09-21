@@ -13,7 +13,6 @@ from osprey.mcp_server.channel_finder_middle_layer.server_context import (
 )
 
 
-@pytest.mark.unit
 def test_registry_database_not_configured(tmp_path, monkeypatch):
     """Registry raises when no database path configured."""
     monkeypatch.chdir(tmp_path)
@@ -24,7 +23,6 @@ def test_registry_database_not_configured(tmp_path, monkeypatch):
         _ = reg.database
 
 
-@pytest.mark.unit
 def test_registry_facility_name_default(tmp_path, monkeypatch):
     """Facility name defaults to 'control system' when not in config."""
     monkeypatch.chdir(tmp_path)
@@ -33,16 +31,14 @@ def test_registry_facility_name_default(tmp_path, monkeypatch):
     assert get_cf_ml_context().facility_name == "control system"
 
 
-@pytest.mark.unit
 def test_registry_facility_name_from_config(tmp_path, monkeypatch):
     """Facility name loaded from config."""
     monkeypatch.chdir(tmp_path)
-    (tmp_path / "config.yml").write_text('facility:\n  name: "ALS"')
+    (tmp_path / "config.yml").write_text('facility:\n  name: "ERF"')
     initialize_cf_ml_context()
-    assert get_cf_ml_context().facility_name == "ALS"
+    assert get_cf_ml_context().facility_name == "ERF"
 
 
-@pytest.mark.unit
 def test_registry_loads_database(tmp_path, monkeypatch):
     """Registry initializes database when path is valid."""
     monkeypatch.chdir(tmp_path)
@@ -63,7 +59,6 @@ def test_registry_loads_database(tmp_path, monkeypatch):
     assert reg.database is not None
 
 
-@pytest.mark.unit
 def test_query_max_rows_defaults_when_unset(tmp_path, monkeypatch):
     """A config naming no cap gets the shipped one."""
     monkeypatch.chdir(tmp_path)
@@ -73,7 +68,6 @@ def test_query_max_rows_defaults_when_unset(tmp_path, monkeypatch):
     assert get_cf_ml_context().query_max_rows == DEFAULT_QUERY_MAX_ROWS
 
 
-@pytest.mark.unit
 def test_query_max_rows_is_read_from_the_top_level_block(tmp_path, monkeypatch):
     """The key sits on `channel_finder`, outside the derived `pipelines` prefix."""
     monkeypatch.chdir(tmp_path)
@@ -83,7 +77,6 @@ def test_query_max_rows_is_read_from_the_top_level_block(tmp_path, monkeypatch):
     assert get_cf_ml_context().query_max_rows == 50
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("bad", ["50", 0, -1, True, 1.5])
 def test_an_unusable_cap_warns_and_keeps_the_default(tmp_path, monkeypatch, caplog, bad):
     """A typo must not leave the agent with no channel tools, so it warns."""

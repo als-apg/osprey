@@ -18,13 +18,15 @@ import re
 from dataclasses import dataclass
 from typing import Literal
 
-#: The two concept kinds. ``kind`` selects which direction gate
-#: (``canonical_to_acronym`` / ``canonical_to_shorthand``) enables expanding a
-#: canonical *into* this concept's forms. Form-to-canonical is always enabled.
-ConceptKind = Literal["acronym", "shorthand"]
+#: The three concept kinds. For ``acronym`` and ``shorthand``, ``kind`` selects
+#: which direction gate (``canonical_to_acronym`` / ``canonical_to_shorthand``)
+#: enables expanding a canonical *into* this concept's forms; form-to-canonical
+#: is always enabled. Kind ``synonym`` is bidirectional and ungated: every
+#: member reaches every other member, independent of the direction gates.
+ConceptKind = Literal["acronym", "shorthand", "synonym"]
 
 #: Kinds accepted by the loader, in the order they are named in error messages.
-CONCEPT_KINDS: tuple[ConceptKind, ...] = ("acronym", "shorthand")
+CONCEPT_KINDS: tuple[ConceptKind, ...] = ("acronym", "shorthand", "synonym")
 
 _WHITESPACE = re.compile(r"\s+")
 

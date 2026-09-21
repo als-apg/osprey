@@ -64,7 +64,7 @@ from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, 
 #: writes in a human-readable group name. That last sequence is the one that
 #: makes a YAML plain scalar parse as a mapping instead of a string, which is
 #: what the quoting in the template is for.
-_DN_GROUP = "cn=ALS Operators: Day Shift, ou=Groups, dc=dls, dc=example, dc=org"
+_DN_GROUP = "cn=Facility Operators: Day Shift, ou=Groups, dc=dls, dc=example, dc=org"
 
 
 def _config(
@@ -577,11 +577,11 @@ class TestTheSharedCardMarkerReachesTheSidecar:
     @pytest.mark.parametrize(
         ("authored", "wire", "resolved"),
         [
-            (["domain:lbl.gov"], '["domain:lbl.gov"]', {"domain:lbl.gov"}),
+            (["domain:example.com"], '["domain:example.com"]', {"domain:example.com"}),
             (
-                ["self", "user:carol@lbl.gov"],
-                '["self","user:carol@lbl.gov"]',
-                {"self", "user:carol@lbl.gov"},
+                ["self", "user:carol@example.com"],
+                '["self","user:carol@example.com"]',
+                {"self", "user:carol@example.com"},
             ),
             # A `roster` member beside another is NOT collapsed to the `any`
             # token on the way out, and comes back as both members: the render

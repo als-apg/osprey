@@ -58,7 +58,6 @@ from tests.integration._qmd_ariel_support import open_migrated_repository, qmd_a
 
 pytestmark = [
     pytest.mark.dockerbuild,
-    pytest.mark.integration,
     pytest.mark.asyncio,
     pytest.mark.xdist_group("docker"),
 ]
@@ -138,7 +137,7 @@ def _row(entry_id: str, *, raw_text: str, author: str = "Ada Lovelace") -> dict[
     """A minimal ``enhanced_entries`` row."""
     return {
         "entry_id": entry_id,
-        "source_system": "ALS OLOG",
+        "source_system": "Example OLOG",
         "timestamp": datetime(2005, 6, 1, 12, 0, tzinfo=UTC),
         "author": author,
         "raw_text": raw_text,
@@ -435,7 +434,7 @@ class TestEntryCreateUpsertPaths:
         """
         refetched = "Canonical text as the facility logbook stored it."
         service = _service_with_adapter(
-            lane, _WriteAdapter("ALS OLOG", refetch=refetched), monkeypatch
+            lane, _WriteAdapter("Example OLOG", refetch=refetched), monkeypatch
         )
 
         result = await service.create_entry(

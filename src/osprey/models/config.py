@@ -37,7 +37,7 @@ def get_model_config(model_name: str, config_path: str | None = None) -> dict[st
             provider: anthropic
             model_id: claude-haiku-4-5-20251001
     """
-    from osprey.utils.config import _get_configurable
+    from osprey_connectors.config import _get_configurable
 
     configurable = _get_configurable(config_path)
     model_configs = configurable.get("model_configs", {})
@@ -54,7 +54,7 @@ def get_provider_config(provider_name: str, config_path: str | None = None) -> d
     Returns:
         Dictionary with provider configuration
     """
-    from osprey.utils.config import _get_configurable
+    from osprey_connectors.config import _get_configurable
 
     configurable = _get_configurable(config_path)
     provider_configs = configurable.get("provider_configs", {})

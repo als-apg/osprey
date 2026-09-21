@@ -1525,3 +1525,295 @@ def test_preflight_stays_quiet_when_dangerously_allow_bash_waives_nothing(
         provision.preflight_web_terminals(config)
 
     assert "dangerously_allow_bash" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# The control-context tree, provisioned on the web-stack `up` path
+# ---------------------------------------------------------------------------
+
+#: Where the tree lands under a stock project root: `agent_data.base_dir`
+#: (`var/agent_data`) plus the writer's own state-directory name. Spelled out
+#: rather than derived from the helper under test -- a test that asked the
+#: production code where it wrote would agree with whatever it answered, and
+#: this path is also a compose bind source the overlay spells independently.
+_CONTROL_TREE_RELPATH = Path("var") / "agent_data" / "control_target"
+
+
+def _dir_mode(path: Path) -> int:
+    """The permission bits of *path*, setgid included."""
+    import stat as stat_module
+
+    return stat_module.S_IMODE(path.stat().st_mode)
+
+
+def _up_with_roster(monkeypatch, tmp_path, roster=("alice", "bob"), config=None):
+    """Run the web-stack `up` from `tmp_path` with `roster` as the resolved roster.
+
+    Every collaborator is stubbed by `_stub_web_stack`, which also resolves an
+    EMPTY roster -- so the persona resolve is re-patched here, after it, to the
+    names this deployment renders a terminal for.
+    """
+    _stub_web_stack(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        provision, "resolve_personas", lambda *a, **kw: [{"name": name} for name in roster]
+    )
+    provision.deploy_up_web_terminals(config or _sidecar_config("local"), [], False, {}, [])
+
+
+def _relocated_config(base_dir: str) -> dict:
+    """A web-stack config whose agent-data root is `base_dir`."""
+    config = _sidecar_config("local")
+    config["agent_data"] = {"base_dir": base_dir}
+    return config
+
+
+def _host_dir_for_mount_source(repo_root: Path, source: str) -> Path:
+    """The host directory a compose bind `source` names, seen from `repo_root`.
+
+    A relative source is anchored at the project the compose file sits in, which
+    is what the runtime does with it; an absolute one names itself.
+    """
+    path = Path(source)
+    return path if path.is_absolute() else (repo_root / source)
+
+
+def test_web_stack_up_provisions_a_control_target_dir_for_every_roster_user(monkeypatch, tmp_path):
+    """Each terminal's record directory is a bind source, so the deploy makes it.
+
+    Left missing, the container runtime creates it instead -- root-owned under a
+    rootful daemon -- and the terminal's dropped `osprey` process can then never
+    write the record every lane and the dispatch worker read to decide whether an
+    owned write is narrowed. 2770 is what the reader across uids needs: setgid so
+    the record takes the directory's group, and no `other` triad so the identity
+    names are not world-listable.
+    """
+    _up_with_roster(monkeypatch, tmp_path)
+
+    tree = tmp_path / _CONTROL_TREE_RELPATH
+    assert _dir_mode(tree) == 0o2770
+    for user in ("alice", "bob"):
+        assert (tree / user).is_dir(), sorted(p.name for p in tree.iterdir())
+        assert _dir_mode(tree / user) == 0o2770
+
+
+def test_web_stack_up_narrows_a_pre_upgrade_control_target_root_to_2770(monkeypatch, tmp_path):
+    """A root that already exists is SET to 2770, not widened from what it had.
+
+    A control_target root found on disk may carry whatever mode an umasked
+    `mkdir(parents=True)` left -- typically 0755. It is the framework's, not an
+    operator's, so its mode carries no intent to preserve, and merely ADDING the
+    sharing bits would settle at 2775, leaving `other` able to list every
+    identity in the deployment.
+    """
+    tree = tmp_path / _CONTROL_TREE_RELPATH
+    tree.mkdir(parents=True)
+    os.chmod(tree, 0o755)
+
+    _up_with_roster(monkeypatch, tmp_path)
+
+    assert _dir_mode(tree) == 0o2770
+
+
+def test_web_stack_up_narrows_a_pre_existing_control_target_user_dir_to_2770(monkeypatch, tmp_path):
+    """The same holds one level down: an existing 0755 dir is SET to 2770.
+
+    An identity directory the record writer created for itself carries the
+    deploying account's umask, and a 0755 one lets no other uid reach through it
+    to the 0640 record inside -- so the deploy sets the mode rather than assuming
+    whatever made the directory chose it deliberately.
+    """
+    alice = tmp_path / _CONTROL_TREE_RELPATH / "alice"
+    alice.mkdir(parents=True)
+    os.chmod(alice, 0o755)
+
+    _up_with_roster(monkeypatch, tmp_path, roster=("alice",))
+
+    assert _dir_mode(alice) == 0o2770
+
+
+def test_web_stack_up_creates_no_control_target_dir_for_the_audit_only_sidecar(
+    monkeypatch, tmp_path
+):
+    """The sidecar records audit but owns no control context.
+
+    It is an audit identity, not a roster user: it runs no terminal, writes no
+    control-context record, and the overlay binds it no record directory. A dir
+    provisioned for it would be one nothing ever writes -- and the giveaway that
+    this loop was driven by the audit identities instead of the roster.
+    """
+    _up_with_roster(monkeypatch, tmp_path, roster=("alice",))
+
+    tree = tmp_path / _CONTROL_TREE_RELPATH
+    sidecar = provision.AUTH_SIDECAR_AUDIT_IDENTITY
+    assert (tmp_path / "var" / "audit" / sidecar).is_dir()
+    assert not (tree / sidecar).exists()
+
+
+def test_web_stack_up_provisions_no_control_target_dir_outside_the_tree(
+    monkeypatch, tmp_path, caplog
+):
+    """A roster name that is not a username is skipped, never joined onto the tree.
+
+    This loop turns a name into a path SEGMENT, so an unvalidated `../escape`
+    would drive `mkdir` outside the control tree entirely -- and it would do so
+    on the deploy path, before the render's own roster gates get to refuse the
+    deployment. Skipped rather than raised, exactly as the audit-dir seam does:
+    the refusal that can explain a bad username is the render's.
+    """
+    import logging
+
+    with caplog.at_level(logging.WARNING):
+        _up_with_roster(monkeypatch, tmp_path, roster=("../escape",))
+
+    assert not (tmp_path / "var" / "agent_data" / "escape").exists()
+    assert not (tmp_path / "var" / "escape").exists()
+    # The control-context seam's OWN warning, not the audit seam's -- both run
+    # over this roster and both skip it, so a message-free assertion here would
+    # be satisfied by the wrong one.
+    refusals = [
+        record.getMessage()
+        for record in caplog.records
+        if "escape" in record.getMessage() and "control-context" in record.getMessage()
+    ]
+    assert refusals, caplog.text
+
+
+def test_second_web_stack_up_leaves_the_control_target_modes_untouched(
+    monkeypatch, tmp_path, caplog
+):
+    """Every subsequent `osprey up` re-runs this, so it has to be a no-op.
+
+    The pass that finds 2770 already in place must neither widen it nor report a
+    permission change: an operator reading the deploy output cannot tell a real
+    narrowing from a line printed on every run, and a mode that drifted upward on
+    re-entry would hand `other` the tree back without saying so.
+    """
+    import logging
+
+    _up_with_roster(monkeypatch, tmp_path)
+
+    with caplog.at_level(logging.INFO):
+        _up_with_roster(monkeypatch, tmp_path)
+
+    tree = tmp_path / _CONTROL_TREE_RELPATH
+    assert _dir_mode(tree) == 0o2770
+    assert _dir_mode(tree / "alice") == 0o2770
+    changes = [
+        record.getMessage()
+        for record in caplog.records
+        if "control-context" in record.getMessage().lower() and "->" in record.getMessage()
+    ]
+    assert not changes, changes
+
+
+def test_web_stack_up_provisions_nothing_through_a_symlinked_control_target_root(
+    monkeypatch, tmp_path, caplog
+):
+    """A root that is a planted link stops the roster loop, as it stops the build.
+
+    2770 is what the cross-uid read needs and also what lets another member of
+    the shared group create an entry under the tree's name. `is_dir()` follows
+    links, so a loop gated on that alone would create one setgid, group-writable
+    directory per roster user inside whatever the link leads to -- outside the
+    tree, carrying no marker, so every reader refuses while this deploy reports
+    success.
+    """
+    import logging
+
+    victim = tmp_path / "operator-dir"
+    victim.mkdir(mode=0o700)
+    os.chmod(victim, 0o700)
+    tree = tmp_path / _CONTROL_TREE_RELPATH
+    tree.parent.mkdir(parents=True)
+    tree.symlink_to(victim)
+
+    with caplog.at_level(logging.WARNING):
+        _up_with_roster(monkeypatch, tmp_path)
+
+    assert _dir_mode(victim) == 0o700
+    assert list(victim.iterdir()) == []
+    assert tree.is_symlink(), "the planted entry is reported, not replaced"
+    refusals = [
+        record.getMessage()
+        for record in caplog.records
+        if "symlink" in record.getMessage() and str(tree) in record.getMessage()
+    ]
+    assert len(refusals) == 1, caplog.text
+
+
+def test_web_stack_up_follows_a_relocated_agent_data_root_for_control_target(monkeypatch, tmp_path):
+    """`agent_data.base_dir` moves the tree, because it moves the bind source.
+
+    A project that relocated its agent-data root has the overlay bind
+    `<base_dir>/control_target/<user>`, so provisioning the stock
+    `var/agent_data` path there would create a directory nothing mounts and leave
+    the real bind source to the container runtime -- root-owned, and reported as
+    a successful provisioning.
+    """
+    _up_with_roster(monkeypatch, tmp_path, roster=("alice",), config=_relocated_config("srv/data"))
+
+    assert _dir_mode(tmp_path / "srv" / "data" / "control_target" / "alice") == 0o2770
+    assert not (tmp_path / _CONTROL_TREE_RELPATH).exists()
+
+
+def test_web_stack_up_expands_a_home_relative_agent_data_root_for_control_target(
+    monkeypatch, tmp_path
+):
+    """A `~` root is expanded, not joined onto the project.
+
+    Every other side of the same bind expands it -- the render's mount source and
+    the record writer's own resolver both do -- so a deploy that joined it would
+    provision a literal `~` directory beside the project while the container
+    mounted the one in the account's home.
+    """
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+
+    _up_with_roster(
+        monkeypatch, tmp_path, roster=("alice",), config=_relocated_config("~/osprey_data")
+    )
+
+    assert _dir_mode(home / "osprey_data" / "control_target" / "alice") == 0o2770
+    assert not (tmp_path / "~").exists()
+
+
+@pytest.mark.parametrize(
+    "spell_base_dir",
+    [
+        pytest.param(lambda tmp_path: None, id="stock"),
+        pytest.param(lambda tmp_path: "srv/data", id="under-the-project"),
+        pytest.param(lambda tmp_path: "~/osprey_data", id="home-relative"),
+        pytest.param(lambda tmp_path: str(tmp_path / "elsewhere"), id="absolute"),
+    ],
+)
+def test_provisioned_control_target_dir_is_the_source_the_render_binds(
+    monkeypatch, tmp_path, spell_base_dir
+):
+    """The provisioned directory and the bind source are two spellings of one path.
+
+    They are written independently -- the deploy resolves a host path, the render
+    emits a compose source with no filesystem to resolve against -- and nothing
+    reports a disagreement: the deploy provisions one directory, the runtime
+    creates the other root-owned, and the chip then fails closed on a deployment
+    that changed nothing about control.
+
+    Over every shape `agent_data.base_dir` can take, because each is anchored by
+    a different rule on each side: the project-relative one is joined onto two
+    different roots, the home-relative one is expanded against the account
+    running the deploy, and the absolute one is carried through untouched.
+    """
+    from osprey.deployment.web_terminals import render
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    base_dir = spell_base_dir(tmp_path)
+    config = _sidecar_config("local") if base_dir is None else _relocated_config(base_dir)
+
+    _up_with_roster(monkeypatch, tmp_path, roster=("alice",), config=config)
+
+    bound = _host_dir_for_mount_source(
+        tmp_path, render._control_context_mount_source(config, "alice")
+    )
+    assert _dir_mode(bound) == 0o2770

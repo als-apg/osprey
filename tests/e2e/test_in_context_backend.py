@@ -68,9 +68,10 @@ _TEST_CHANNELS = [
     },
 ]
 
-# Provider preference: als-apg first (the ALS-APG gateway — IP-unrestricted, works
-# in CI and off-VPN), then CBORG (LBLnet-gated, faster locally), then anthropic
-# direct. Matches the CI auth choice in commit 5d0dcd72.
+# Provider preference: als-apg first, because its gateway is IP-unrestricted and so
+# resolves the same way in CI and off-VPN. CBORG follows -- faster from inside the
+# network that gates it, unreachable from outside. Direct anthropic is the last
+# fallback.
 _ALS_APG_KEY = os.environ.get("ALS_APG_API_KEY", "")
 # The gateway has no built-in endpoint; without one it is not a usable route.
 _ALS_APG_BASE_URL = os.environ.get("ALS_APG_BASE_URL", "")
@@ -90,7 +91,10 @@ elif _CBORG_KEY:
     _PROVIDER = "cborg"
     _PROVIDER_API_KEY = _CBORG_KEY
     _SUBAGENT_MODEL = "anthropic/claude-haiku"  # CBORG model name
-    _PROVIDER_BASE_URL = "https://api.cborg.lbl.gov/v1"
+    # An override, not the address: the packaged catalog already names this
+    # gateway, so an unset variable leaves that endpoint standing and a set
+    # one redirects the lane at whichever host this runner can reach.
+    _PROVIDER_BASE_URL = os.environ.get("CBORG_BASE_URL", "")
     _BACKEND_MODEL = "cborg/claude-haiku-4-5"
     _EXPECTED_WIRE = "claude-haiku-4-5"
 else:
@@ -161,7 +165,6 @@ def _make_test_project(tmp_path: Path, subagent_model: str = _SUBAGENT_MODEL) ->
     return render
 
 
-@pytest.mark.integration
 async def test_in_context_backend_basic(tmp_path):
     """InContextBackend runs a real query end-to-end and returns a WorkflowOutput."""
     render = _make_test_project(tmp_path)
@@ -188,7 +191,6 @@ async def test_in_context_backend_basic(tmp_path):
     assert trace_input.get("_inner_model_id") == _EXPECTED_WIRE
 
 
-@pytest.mark.integration
 async def test_in_context_backend_records_wire_id(tmp_path):
     """Backend records the wire id half of its provider/wire_id model string."""
     render = _make_test_project(tmp_path)

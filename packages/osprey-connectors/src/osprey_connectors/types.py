@@ -454,8 +454,9 @@ def type_writes_enabled(section: Any, connector_type: str) -> bool:
         section that is not a mapping is a deployment that has said nothing,
         and a deployment that has said nothing is not armed.
     """
-    block = _type_writes_block(section, connector_type)
-    if block is None:
+    connector = section.get("connector") if isinstance(section, dict) else None
+    block = connector.get(connector_type) if isinstance(connector, dict) else None
+    if not isinstance(block, dict) or TYPE_WRITES_ENABLED_LEAF not in block:
         return _global_writes_enabled(section)
     return block[TYPE_WRITES_ENABLED_LEAF] is True
 
@@ -509,23 +510,7 @@ def writes_enabled_key(connector_type: str | None) -> str:
     return f"control_system.connector.{connector_type}.{TYPE_WRITES_ENABLED_LEAF}"
 
 
-def writes_enabled_answering_key(section: Any, connector_type: str | None) -> str:
-    """The config key whose value refused a write for *connector_type*.
-
-    The per-type key when that block carries the leaf, and
-    :data:`WRITES_ENABLED_KEY` when it does not — the key a type inherits when
-    it says nothing about itself. This is the key a refusal names as the REASON,
-    and it is not always :func:`writes_enabled_key`, which names the line an
-    operator edits to arm one type and leave the others alone. The two differ
-    exactly when a deployment states its posture once for everything, which is
-    the shape a deployment has before anyone splits it per machine.
-    """
-    if _type_writes_block(section, connector_type) is None:
-        return WRITES_ENABLED_KEY
-    return writes_enabled_key(connector_type)
-
-
-def writes_enabled_remedy(connector_type: str | None, *, one_line: bool = False) -> str:
+def writes_enabled_remedy(connector_type: str | None) -> str:
     """The edit that arms writes for one connector *type*, as an operator makes it.
 
     :func:`writes_enabled_key` names the key; this names the CHANGE, and for a
@@ -541,22 +526,7 @@ def writes_enabled_remedy(connector_type: str | None, *, one_line: bool = False)
     applies verbatim: ``control_system.connector:`` with the type as one key
     under it. A registered name has no dots to be split on, and keeps the
     one-line form.
-
-    *one_line* asks for that mapping in YAML's flow spelling, which a profile
-    accepts as readily as the block one. A caller wants it when the remedy
-    shares a message with something else: a message a reader takes one line of
-    at a time loses whatever a block form pushes onto the lines below.
     """
-    if connector_type and "." in connector_type and one_line:
-        return (
-            "Arm this connector in the build profile (profile.yml on the host) by its "
-            "own key, which is the connector type in full - a dotted type is one "
-            "mapping key and is never split on its dots, as "
-            f"control_system.connector: {{{connector_type}: "
-            f"{{{TYPE_WRITES_ENABLED_LEAF}: true}}}} "
-            f"— ({WRITES_ENABLED_KEY} is what a type inherits when it says nothing "
-            "about itself.)"
-        )
     if connector_type and "." in connector_type:
         return (
             "Arm this connector in the build profile (profile.yml on the host) by its "
@@ -957,6 +927,54 @@ def most_restrictive_limits_posture(section: Any) -> LimitsPosture:
     )
 
 
+def any_armed_target_checks_limits(section: Any) -> bool:
+    """Whether some target that arms writes also has limits checking on.
+
+    The question a deployment-level caller asks before it demands a channel-
+    limits database: only a target that both writes and checks limits opens
+    that file, so only such a target makes its absence matter.
+
+    The pairing is per target, and that is the whole point — the two leaves have
+    to be read off the SAME machine. A deployment can arm its simulator while
+    only its read-only live block checks limits, and separate
+    :func:`any_target_writes_enabled` and
+    :func:`most_restrictive_limits_posture` folds would answer "armed" and
+    "checked" from those two different blocks and report a pairing no target
+    has.
+
+    The reachable set is :func:`session_posture`'s, read the same way: every
+    :func:`configured_targets` when the deployment renders the switch
+    (:func:`switch_capable`), and otherwise the single connector
+    ``control_system.type`` builds, asked by *type* so a block belonging to a
+    machine no session here reaches cannot vote.
+
+    ``enabled`` alone decides the limits half, because that is the leaf that
+    decides whether a validator exists at all —
+    :meth:`~osprey_connectors.control_system.limits_validator.LimitsValidator._from_posture`
+    builds none for anything else, and a target with no validator consults no
+    database. ``allow_unlisted_channels`` governs what a built validator does
+    with a channel the database omits, which is a different question.
+
+    Args:
+        section: The ``control_system:`` config section, in the same shape
+            :func:`resolve_control_system_type` takes.
+
+    Returns:
+        ``True`` when at least one reachable target arms writes and states
+        ``limits_checking.enabled: true``. Never raises.
+    """
+    if switch_capable(section):
+        return any(
+            target_writes_enabled(section, target)
+            and target_limits_posture(section, target).enabled is True
+            for target in configured_targets(section)
+        )
+    built = resolve_control_system_type(section)
+    return (
+        type_writes_enabled(section, built) and type_limits_posture(section, built).enabled is True
+    )
+
+
 def incomplete_limits_blocks(section: Any) -> list[str]:
     """Every half-written per-type limits block in a rendered section, named.
 
@@ -1040,23 +1058,6 @@ def incomplete_limits_blocks(section: Any) -> list[str]:
                     f"both {LIMITS_LEAVES[0]} and {LIMITS_LEAVES[1]}"
                 )
     return errors
-
-
-def _type_writes_block(section: Any, connector_type: str | None) -> dict[str, Any] | None:
-    """The connector block that answers the write posture for *connector_type*.
-
-    ``None`` when no block answers — no connector table, no block for this type,
-    a block that is not a mapping, or a mapping without the leaf — which is the
-    deployment saying nothing about this type. The type is one key and is never
-    split on its dots.
-    """
-    if not connector_type:
-        return None
-    connector = section.get("connector") if isinstance(section, dict) else None
-    block = connector.get(connector_type) if isinstance(connector, dict) else None
-    if not isinstance(block, dict) or TYPE_WRITES_ENABLED_LEAF not in block:
-        return None
-    return block
 
 
 def _global_writes_enabled(section: Any) -> bool:

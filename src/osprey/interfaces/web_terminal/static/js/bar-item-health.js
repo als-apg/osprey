@@ -11,6 +11,7 @@
  */
 
 import { fmtName } from '/design-system/js/check-name.js';
+import { worstStatus } from '/design-system/js/check-status.js';
 
 import { withPrefix } from './api.js';
 import { registerBarPopover } from './bar-host.js';
@@ -35,14 +36,6 @@ const HEALTH_DEFAULT_INTERVAL_S = 60;
 const HEALTH_WARMING_INTERVAL_S = 3;
 /** Floor on the cadence, so a misconfigured interval cannot turn into a busy loop. */
 const HEALTH_MIN_INTERVAL_S = 5;
-
-/**
- * Severity order of a check's status, worst last. The same table the SYSTEM
- * dashboard keeps beside itself (`helpers.js`), restated here because that
- * bundle is served through the panel proxy, not to this page.
- * @type {Readonly<Record<string, number>>}
- */
-const STATUS_RANK = Object.freeze({ ok: 0, skip: 1, warning: 2, error: 3 });
 
 /**
  * One check as the envelope carries it.
@@ -191,19 +184,6 @@ function subscribeHealth(listener) {
     healthListeners.delete(listener);
     if (healthListeners.size === 0) stopHealthPolling();
   };
-}
-
-/**
- * The worst status in a list of checks, `ok` for none.
- * @param {readonly HealthCheck[]} checks
- * @returns {string}
- */
-function worstOf(checks) {
-  let worst = 'ok';
-  for (const check of checks) {
-    if ((STATUS_RANK[check.status] ?? 0) > (STATUS_RANK[worst] ?? 0)) worst = check.status;
-  }
-  return worst;
 }
 
 /**
@@ -408,7 +388,7 @@ function buildSystemHealth(ctx) {
         for (const [category, checks] of byCategory(snap.results)) {
           const counted = checks.filter((c) => c.status !== 'skip');
           const passed = counted.filter((c) => c.status === 'ok').length;
-          const worst = worstOf(checks);
+          const worst = worstStatus(checks);
           const loudest = checks.find((c) => c.status === worst && worst !== 'ok');
           rows.appendChild(
             row(

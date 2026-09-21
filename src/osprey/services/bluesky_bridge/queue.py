@@ -19,7 +19,10 @@ operations arm hardware motion and are gated on the launch token
   arrives, until a halt disarms it) and kicks a ``queue_start`` for anything
   already waiting. The bridge applies the deployment's configured posture
   (``bluesky.queue_autostart``) at startup, so a deployment whose queue is
-  meant to be running by default comes up armed.
+  meant to be running by default comes up armed. A caller may additionally
+  bind the start to the queue it approved by sending that queue's
+  ``expected_plan_queue_uid``; a queue that has moved since earns a 409
+  instead of an arm (`_refuse_queue_changed`).
 - ``POST /queue/items`` while the manager is running, starting, or armed
   (`_requires_arming` — autostart is read off the manager, never assumed) —
   an item added to an armed queue will execute without any further human
@@ -38,11 +41,13 @@ somehow has a plan running is a deployment that must be able to stop it,
 whatever its capability record says.
 
 The gate is race-free by construction, twice over. First, ``_arming_lock``
-serializes the enqueue critical section {status-check + add + re-check} and
-the start critical section {idle-check + interruption-gate + session-gate +
-start}, so a bridge-side start can
-never land between an unarmed caller's status check and its add (environment
-open runs before the lock — it starts nothing and can take tens of seconds).
+serializes the enqueue critical section {status-check + add + re-check}, the
+start critical section {uid compare + idle-check + interruption-gate +
+session-gate + start}, and each of the routes that move, remove or clear
+items, so a bridge-side start can never land between an unarmed caller's
+status check and its add, and no mutation can land inside a start's critical
+section (environment open runs before the lock — it starts nothing and can
+take tens of seconds).
 Second — defense in depth against anything that starts the queue outside this
 process — an unarmed add re-checks the manager state *after* the add with
 ``status(reload=True)`` (the client caches status for ~0.5 s; a stale read
@@ -67,6 +72,17 @@ a failed run.
 A deployment whose capability record says it cannot execute (mock connector,
 unreadable config, no manager) refuses enqueue outright — a browse-only
 deployment must never hold queue items it can never run.
+
+**Who a write is for.** ``X-Osprey-Owner`` names the person a request is made
+for, read through `owner_from_header` and never from a body field. The add
+stamps it onto the item, so the plan runs under that person's narrowing. The
+three routes that take work off the queue — the single removal, the clear and
+the abort — record it instead, in `queue_removals.py`, and `GET
+/queue/removals` serves that log: the manager keeps no record of a removal at
+all, so without this a withdrawn row simply stops existing. Recording happens
+only after the manager has acted, and can never fail the write. The header
+gates nothing anywhere: attribution is not authorization, and no route here
+does more, less, or anything different because a request named somebody.
 """
 
 from __future__ import annotations
@@ -84,6 +100,8 @@ from fastapi import APIRouter, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
+
 from . import document_plane, draft, runs
 from .history_removals import removed_runs
 from .plan_fields import MOVABLE_ROLE, READABLE_ROLE, collect_channels
@@ -98,11 +116,14 @@ from .queue_backend import (
     NothingRunningError,
     QueueBackend,
     QueueBackendError,
+    QueueItemInvalidError,
     QueueRequestRejectedError,
     QueueUnavailableError,
     is_queue_active,
     run_id_of,
+    split_owner,
 )
+from .queue_removals import ACTION_ABORT, ACTION_CLEAR, ACTION_REMOVE, removal_log
 from .security import verify_launch_token
 from .session_upload import (
     SessionPlanNotReadyError,
@@ -213,8 +234,13 @@ def _http_error(exc: QueueBackendError) -> HTTPException:
       would only be one more thing to learn.
     - `QueueRequestRejectedError` / `NothingRunningError` are 409 — the manager
       answered and the request does not apply.
+    - `QueueItemInvalidError` is 400 — the request itself is malformed, and the
+      fix is in the caller's hands, the same reading `_refuse_unknown_devices`
+      gives an item naming a device that does not exist.
     """
     detail: dict[str, Any] = {"code": exc.reason, "detail": str(exc)}
+    if isinstance(exc, QueueItemInvalidError):
+        return HTTPException(status_code=400, detail=detail)
     if isinstance(exc, ExecutionUnavailableError):
         detail["capability"] = exc.capability.to_dict()
         retryable = exc.reason in (REASON_MANAGER_UNREACHABLE, REASON_MANAGER_NOT_CONFIGURED)
@@ -398,6 +424,46 @@ def _refuse_manager_not_idle(running_item: dict[str, Any]) -> NoReturn:
             ),
             "item_uid": uid,
             "plan": name,
+        },
+    )
+
+
+def _refuse_queue_changed(expected_uid: str, current_uid: Any) -> NoReturn:
+    """Raise the 409 that refuses a start bound to a queue that has since moved.
+
+    A start is approved against a LIST: the human (or the hook that rendered
+    the prompt for them) read the queue, decided that those plans in that order
+    should run, and said yes. Between that decision and the start arriving, the
+    queue can be re-ordered, added to, or emptied — and nothing in the start
+    itself carries any trace of which queue was approved, so the arm would
+    simply drain whatever happens to be there.
+
+    Quoting the manager's ``plan_queue_uid`` back closes that. The manager
+    moves that uid on every queue mutation, so "the uid I was shown still
+    stands" is exactly "no item has been added, removed or re-ordered since I
+    looked". When it no longer stands, the approval no longer describes
+    anything and the start is refused rather than re-bound to the new queue:
+    re-binding would be the bridge deciding, on the operator's behalf, that
+    they would have approved the queue they were never shown.
+
+    The refusal carries the CURRENT uid, so the one way out is a single cheap
+    round trip — re-read the queue, look at what it now holds, and start again
+    quoting that uid. 409, not 503: nothing is broken and an unchanged retry
+    would be refused identically; a human has to look again.
+    """
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "queue_changed_since_approval",
+            "detail": (
+                "the queue has changed since it was approved: the start named queue "
+                f"{expected_uid!r}, but the manager now holds {current_uid!r}. An item "
+                "has been added, removed or re-ordered in between, so the approved list "
+                "is not the list this start would run. Re-read GET /queue, check what it "
+                "now holds, and start again with the plan_queue_uid it reports."
+            ),
+            "plan_queue_uid": current_uid,
+            "expected_plan_queue_uid": expected_uid,
         },
     )
 
@@ -730,15 +796,22 @@ async def _check_devices_exist(
 def _status_summary(status: dict[str, Any]) -> dict[str, Any]:
     """The bounded, diffable projection of a manager status document.
 
-    ``runs_removed`` is the one key that is the bridge's, not the manager's:
-    how many history runs `DELETE /runs/{id}` has hidden from the OSPREY view.
-    It is in the summary so a removal moves the diff and every subscriber
-    re-reads history — the manager's own uids do not move for it.
+    Two keys are the bridge's, not the manager's, and both are here for the
+    same reason: a change the manager's own uids do not move still has to reach
+    every subscriber, and the summary diff is what wakes them.
+
+    - ``runs_removed`` — how many history runs `DELETE /runs/{id}` has hidden
+      from the OSPREY view.
+    - ``queue_removals`` — how many withdrawals the removal log holds. A queue
+      removal does move the manager's queue uid, but a panel listing those
+      withdrawals beside the completed runs watches the HISTORY keys, which a
+      removal from the pending queue leaves exactly where they were.
     """
     summary: dict[str, Any] = {"available": True}
     for key in _SUMMARY_KEYS:
         summary[key] = status.get(key)
     summary["runs_removed"] = len(removed_runs())
+    summary["queue_removals"] = len(removal_log())
     return summary
 
 
@@ -748,6 +821,7 @@ def _unavailable_summary(reason: str) -> dict[str, Any]:
     for key in _SUMMARY_KEYS:
         summary[key] = None
     summary["runs_removed"] = None
+    summary["queue_removals"] = None
     return summary
 
 
@@ -780,7 +854,7 @@ def _with_progress(running_item: Any) -> Any:
 
 
 def _public_item(item: Any) -> Any:
-    """One queue item as the bridge relays it: the plan-identity stamp removed.
+    """One queue item as the bridge relays it: two strips, and a name lifted out.
 
     The enqueue path stamps the plan's own name and kwargs into the item's
     metadata (`queue_backend.PLAN_META_KEY`) so that a run's figure can be
@@ -790,17 +864,32 @@ def _public_item(item: Any) -> Any:
     panels both poll and stream continuously, so it is dropped here rather
     than doubling every item's params on every frame.
 
-    Only that key goes. ``RUN_ID_META_KEY`` stays, because it is what joins a
-    queue row to its run (`itemRunId()` in `queue-client.js` reads it), and
-    any other metadata is somebody else's — an item enqueued out of band
-    passes through untouched.
+    The person who enqueued the item rides as the reserved kwarg on a lane this
+    deployment deploys — the only path by which the plan wrapper learns an
+    owner — and as the metadata stamp on an external-worker lane, whose
+    facility manager validates every add against the plan's own signature and
+    would refuse a kwarg the plan does not declare.
+    `queue_backend.split_owner` reads both shapes; the reserved kwarg is not a
+    plan argument, so it never reaches a client, and the name it carried is
+    lifted to ``owner``. That key is present only for an item that named
+    somebody: the queue port is the facility's, so a plan can reach it from
+    outside OSPREY, and such an item is attributed to nobody.
+
+    ``RUN_ID_META_KEY`` stays, because it is what joins a queue row to its run
+    (`itemRunId()` in `queue-client.js` reads it), and any other metadata is
+    somebody else's — an item enqueued out of band keeps it.
     """
     if not isinstance(item, dict):
         return item
-    meta = item.get("meta")
-    if not isinstance(meta, dict) or PLAN_META_KEY not in meta:
-        return item
-    return {**item, "meta": {key: value for key, value in meta.items() if key != PLAN_META_KEY}}
+    public, owner = split_owner(item)
+    if owner is not None:
+        public["owner"] = owner
+    meta = public.get("meta")
+    if isinstance(meta, dict) and PLAN_META_KEY in meta:
+        public["meta"] = {key: value for key, value in meta.items() if key != PLAN_META_KEY}
+    # An item with neither strip nor owner is relayed as the manager's own
+    # object, not as a copy of it.
+    return item if public == item else public
 
 
 async def _frame_from(summary: dict[str, Any], frame_type: str) -> dict[str, Any]:
@@ -940,6 +1029,20 @@ class QueueStopRequest(BaseModel):
     cancel: bool = False
 
 
+class QueueStartRequest(BaseModel):
+    """Body for `POST /queue/start`: optionally bind the start to a queue.
+
+    ``expected_plan_queue_uid`` is the manager's own ``plan_queue_uid`` as the
+    caller last read it — off `GET /queue`'s status summary, or off the last
+    SSE status frame. It is the queue the approver actually looked at, quoted
+    back, and sending it turns a start into "start THIS queue". The field is
+    optional: omitting it means "start whatever is queued now", so a caller
+    with no queue to name is not forced to invent one.
+    """
+
+    expected_plan_queue_uid: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -950,12 +1053,20 @@ async def get_queue() -> dict[str, Any]:
     """The queue as the manager holds it: pending items, running item, status summary.
 
     Items are relayed through `_public_item`, which drops the enqueue path's
-    plan-identity stamp — it duplicates the item's own name and kwargs, and
-    the run id panels join on rides through untouched.
+    plan-identity stamp — it duplicates the item's own name and kwargs — and
+    the reserved owner kwarg, lifting the name it carried to ``owner``. The
+    run id panels join on rides through untouched.
+
+    The summary is read fresh and BEFORE the items, so the ``plan_queue_uid``
+    it carries names a queue no newer than the list beside it. That is what
+    makes the uid quotable back to `POST /queue/start` as the queue an approver
+    was shown.
     """
     backend = _get_backend()
     try:
-        status = await backend.status()
+        # reload=True: this uid is the token a bound start is compared against,
+        # so a cached one would refuse a queue that never moved.
+        status = await backend.status(reload=True)
         queue_state = await backend.items()
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
@@ -968,7 +1079,9 @@ async def get_queue() -> dict[str, Any]:
 
 @router.post("/queue/items")
 async def add_queue_item(
-    body: QueueAddRequest, x_launch_token: str = Header(default="")
+    body: QueueAddRequest,
+    x_launch_token: str = Header(default=""),
+    x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
 ) -> dict[str, Any]:
     """Enqueue the shared draft at a pinned revision.
 
@@ -1010,6 +1123,15 @@ async def add_queue_item(
        will actually produce is the plan's to state and not this route's to
        infer from the enqueued parameters.
 
+    Who the item belongs to is read from the ``X-Osprey-Owner`` header and
+    from nowhere else — never a body field, and a missing header is an
+    owner-less add. The value goes through `owner_from_header`, the single
+    allowlist for this name, so a claim that reader refuses costs the
+    attribution rather than the enqueue. The header is not a credential and
+    gates nothing: what an add may do is decided by the launch token and the
+    manager's state, so naming an owner neither earns a caller anything nor
+    costs it anything.
+
     The response's ``armed`` says whether this add sent the plan toward
     hardware: true when the status the arming pre-check was decided on had
     the queue draining or autostart on (the item runs with no further
@@ -1028,6 +1150,7 @@ async def add_queue_item(
         raise _http_error(ExecutionUnavailableError(capability))
 
     armed = _token_is_valid(x_launch_token)
+    owner = owner_from_header(x_osprey_owner)
 
     checked = await draft.check_launchable(body.draft_revision)
     if isinstance(checked, draft.LaunchRejected):
@@ -1077,7 +1200,7 @@ async def add_queue_item(
                 except SessionPlanNotReadyError as exc:
                     raise _session_refusal(exc) from exc
 
-                result = await backend.add_item(item, run_id=run_id)
+                result = await backend.add_item(item, run_id=run_id, owner=owner)
 
                 if not armed:
                     added_uid = _added_item_uid(result)
@@ -1122,7 +1245,7 @@ async def add_queue_item(
     return {
         "run_id": run_id,
         "revision": checked.revision,
-        "item": returned_item if isinstance(returned_item, dict) else None,
+        "item": _public_item(returned_item) if isinstance(returned_item, dict) else None,
         "armed": arming_add,
     }
 
@@ -1136,6 +1259,11 @@ def _added_item_uid(add_result: dict[str, Any]) -> str | None:
 
 async def _remove_item_best_effort(backend: QueueBackend, uid: str | None) -> bool:
     """Undo an unarmed add the re-check refused. Never raises.
+
+    Not an operator withdrawing work, so it appends nothing to the removal log:
+    the item it drops is one this same request added moments earlier and the
+    caller is told the enqueue was refused. A record of it would report a
+    removal nobody made, of work nobody ever had.
 
     Returns True only when the item is verifiably gone. False means an
     unarmed item may remain in an armed queue — the lock guarantees no
@@ -1157,36 +1285,114 @@ async def _remove_item_best_effort(backend: QueueBackend, uid: str | None) -> bo
     return True
 
 
+def _record_removal(action: str, owner: str | None, item: Any = None) -> None:
+    """Append one withdrawal to the removal log. Never raises.
+
+    Recording is what the deployment learns from a removal, not part of
+    performing it: the manager has already dropped the item by the time this
+    runs, and a log that could turn a delivered removal into an HTTP failure
+    would be worse than a log with a gap in it. A failure is therefore a
+    warning and the route answers success.
+    """
+    try:
+        removal_log().append(action, owner, item)
+    except Exception as exc:  # noqa: BLE001 - a record must not fail the write
+        logger.warning("could not record a %s on the queue removal log: %s", action, exc)
+
+
+async def _pending_items_best_effort(backend: QueueBackend) -> list[Any] | None:
+    """The pending items as the manager holds them, or ``None`` if it did not say.
+
+    Read for the removal log alone, so every failure answers ``None`` rather
+    than raising: a clear that the manager will perform must not be refused
+    because the list it is about to drop could not be listed first.
+    """
+    try:
+        state = await backend.items()
+    except QueueBackendError as exc:
+        logger.warning("queue read before a clear failed, so the clear is recorded bare: %s", exc)
+        return None
+    items = state.get("items")
+    return list(items) if isinstance(items, list) else None
+
+
+@router.get("/queue/removals")
+async def list_queue_removals() -> list[dict[str, Any]]:
+    """The queue work that has been withdrawn, newest first.
+
+    Reads the bridge's own log (`queue_removals.py`) and nothing else — the
+    manager keeps no record of a removal, which is the whole reason this
+    surface exists. Bounded by the log itself, so the response size does not
+    grow with the deployment's age, and served without touching the manager,
+    so it answers while the manager is down.
+    """
+    return removal_log().records()
+
+
 @router.post("/queue/items/{uid}/move")
 async def move_queue_item(uid: str, body: QueueMoveRequest) -> dict[str, Any]:
-    """Move one queued item. Ungated: reordering pending work arms nothing."""
+    """Move one queued item. Ungated: reordering pending work arms nothing.
+
+    Held under ``_arming_lock`` all the same. Reordering arms nothing, but it
+    does change the list a start is about to drain, and a start bound to a uid
+    is only as good as the list staying put between its compare and its start.
+    So the reorder waits for an arming decision in flight to finish, and a
+    start that began after it sees it.
+    """
     backend = _get_backend()
     try:
-        result = await backend.reorder(
-            uid, pos_dest=body.pos_dest, before_uid=body.before_uid, after_uid=body.after_uid
-        )
+        async with _arming_lock:
+            result = await backend.reorder(
+                uid, pos_dest=body.pos_dest, before_uid=body.before_uid, after_uid=body.after_uid
+            )
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
     _notify_change()
     moved_item = result.get("item")
-    return {"moved": True, "item": moved_item if isinstance(moved_item, dict) else None}
+    return {
+        "moved": True,
+        "item": _public_item(moved_item) if isinstance(moved_item, dict) else None,
+    }
 
 
 @router.delete("/queue/items/{uid}")
-async def remove_queue_item(uid: str) -> dict[str, Any]:
-    """Drop one queued item. Ungated: removing pending work arms nothing."""
+async def remove_queue_item(
+    uid: str,
+    x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
+) -> dict[str, Any]:
+    """Drop one queued item. Ungated: removing pending work arms nothing.
+
+    Held under ``_arming_lock`` for the reason a move is: a removal changes the
+    list a bound start named, so it may not land inside that start's critical
+    section.
+
+    Who asked is read from ``X-Osprey-Owner``, through `owner_from_header` and
+    from nowhere else, exactly as an enqueue reads it — a name refused there
+    costs the attribution and not the removal, and a missing header is the
+    ordinary owner-less call. The record is appended after the manager has
+    answered, so a refused or failed removal records nothing: this log says
+    what happened to the queue, and a removal that did not happen is not it.
+    """
+    owner = owner_from_header(x_osprey_owner)
     backend = _get_backend()
     try:
-        result = await backend.remove(uid)
+        async with _arming_lock:
+            result = await backend.remove(uid)
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
-    _notify_change()
     removed_item = result.get("item")
-    return {"removed": True, "item": removed_item if isinstance(removed_item, dict) else None}
+    _record_removal(ACTION_REMOVE, owner, removed_item)
+    _notify_change()
+    return {
+        "removed": True,
+        "item": _public_item(removed_item) if isinstance(removed_item, dict) else None,
+    }
 
 
 @router.post("/queue/start")
-async def start_queue(x_launch_token: str = Header(default="")) -> dict[str, Any]:
+async def start_queue(
+    body: QueueStartRequest | None = None, x_launch_token: str = Header(default="")
+) -> dict[str, Any]:
     """Start draining the queue. Token-gated — this is the arming action.
 
     `verify_launch_token` runs before ANY state is touched (503 unarmed, 403
@@ -1221,12 +1427,46 @@ async def start_queue(x_launch_token: str = Header(default="")) -> dict[str, Any
     landing after that is refused as "RE Manager is busy". If the environment
     closes again in the gap, the manager refuses the start (409/503) —
     fail-closed either way.
+
+    A caller may also bind the start to the queue it approved, by sending that
+    queue's ``expected_plan_queue_uid`` (see `_refuse_queue_changed`). The uid
+    is compared inside the same critical section, against a fresh
+    ``status(reload=True)`` taken beside the ``items()`` read — and first, so a
+    start naming a queue the manager no longer holds is refused before it costs
+    a session-plan round trip. A start that names no queue makes no status read
+    and is unbound: it arms whatever is queued now.
+
+    What a matching uid certifies is the client's read ordering. Both read
+    orders that hand a client a uid take the summary BEFORE the items
+    (`get_queue` awaits ``status(reload=True)`` then ``items()``; `_frame_from`
+    is handed the poller's summary and then reads items), so the uid a client
+    holds is never NEWER than the list it rendered — only ever older. A uid
+    that still matches therefore covers the list the approver looked at, and a
+    uid that moved only between those two reads costs a 409 on a queue nobody
+    changed — answered by re-reading and starting again.
+
+    The compare is atomic against every other way this bridge changes the
+    queue: starts, arming adds, and the move, remove and clear routes all take
+    this same lock. So a start bound to a uid cannot interleave with a
+    mutation — the list the compare accepted is the list ``backend.start()``
+    drains, and a mutation arriving mid-start lands after it, against the
+    queue the start produced.
     """
     _require_arming_token(x_launch_token, "starting the queue")
     backend = _get_backend()
     try:
         await backend.ensure_environment_for_execute()
         async with _arming_lock:
+            # The approved queue, if the caller named one, before anything
+            # else: `reload=True` because a ~0.5 s cached uid could match a
+            # queue that has already moved, which is the one direction of
+            # staleness this check must not have.
+            expected_uid = body.expected_plan_queue_uid if body is not None else None
+            if expected_uid is not None:
+                current_uid = (await backend.status(reload=True)).get("plan_queue_uid")
+                if current_uid != expected_uid:
+                    _refuse_queue_changed(expected_uid, current_uid)
+
             queue_state = await backend.items()
 
             # Nothing may already be in motion (see `_refuse_manager_not_idle`).
@@ -1321,7 +1561,9 @@ async def stop_queue(
 
 
 @router.post("/queue/abort")
-async def abort_running_plan() -> dict[str, Any]:
+async def abort_running_plan(
+    x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
+) -> dict[str, Any]:
     """Abort the plan running RIGHT NOW. Completely ungated.
 
     The emergency halt, and the only OSPREY surface that stops a plan already
@@ -1367,7 +1609,21 @@ async def abort_running_plan() -> dict[str, Any]:
     The SSE poller is nudged as usual; an abort moves ``manager_state``,
     ``running_item_uid`` and the history keys, so the change reaches panels
     within one tick either way.
+
+    WHO STOPPED IT is read from ``X-Osprey-Owner`` like every other queue
+    write, and recorded once the manager has accepted the abort — a refused
+    abort stopped nothing and records nothing. WHAT was stopped comes back as
+    ``stopped_item``, which `QueueBackend.abort` reads between the pause and
+    the discard, where the hardware is already held and nothing can be delayed
+    but the unwind. Nothing on this route precedes the pause.
+
+    ``stopped_item`` is the manager's own object and still carries the plan's
+    arguments and the reserved owner kwarg, so it is popped off before the
+    result becomes the response body: it feeds the record and reaches no
+    client. The response shape is the one `queue_relay` and the panels already
+    read, unchanged.
     """
+    owner = owner_from_header(x_osprey_owner)
     backend = _get_backend()
     try:
         result = await backend.abort()
@@ -1376,6 +1632,7 @@ async def abort_running_plan() -> dict[str, Any]:
         # pause can land before the plan ends); let the poller re-read.
         _notify_change()
         raise _http_error(exc) from exc
+    _record_removal(ACTION_ABORT, owner, result.pop("stopped_item", None))
     # The manager disarms itself when a plan is aborted; this is the same
     # disarm said explicitly, so the requeued copy of the aborted plan cannot
     # be picked up by an autostart the manager had not yet cleared. Best
@@ -1389,16 +1646,39 @@ async def abort_running_plan() -> dict[str, Any]:
 
 
 @router.delete("/queue/items")
-async def clear_queue_items() -> dict[str, Any]:
+async def clear_queue_items(
+    x_osprey_owner: str | None = Header(default=None, alias=OWNER_HEADER),
+) -> dict[str, Any]:
     """Drop every PENDING item. Ungated: removing pending work arms nothing.
 
     The running item, if any, is untouched — halting it is `POST /queue/abort`.
+
+    Held under ``_arming_lock`` for the reason a move and a removal are: an
+    emptied queue is the largest change a bound start's named list can undergo,
+    and it may not land inside that start's critical section.
+
+    The manager's own reply to a clear names nothing it dropped, so the items
+    are read INSIDE the lock, immediately before the clear, and the removal log
+    gets one record per item — a clear reads as the several withdrawals it is,
+    not as one event whose contents an operator has to reconstruct. The lock is
+    what makes that read honest: every bridge-side add, move, remove and start
+    waits behind it, so nothing this bridge does can change the list between
+    the read and the clear. A read the manager refuses costs the detail and not
+    the clear: one record is then written naming the action alone.
     """
+    owner = owner_from_header(x_osprey_owner)
     backend = _get_backend()
     try:
-        result = await backend.clear()
+        async with _arming_lock:
+            dropped = await _pending_items_best_effort(backend)
+            result = await backend.clear()
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
+    if dropped is None:
+        _record_removal(ACTION_CLEAR, owner)
+    else:
+        for item in dropped:
+            _record_removal(ACTION_CLEAR, owner, item)
     _notify_change()
     return {"cleared": True, "msg": str(result.get("msg") or "")}
 
@@ -1410,7 +1690,10 @@ async def clear_history() -> dict[str, Any]:
     The running item and the pending queue are untouched. The runs' data stays
     in Tiled — this forgets the manager's record of them, nothing more. The
     OSPREY-side removals (`DELETE /runs/{id}`) are emptied with it, since the
-    entries they masked are gone.
+    entries they masked are gone. So is the queue removal log, for the reason
+    that makes this route worth pressing: it empties the history an operator is
+    looking at, and a panel that listed withdrawn work beside the completed runs
+    would go on listing it after the list was cleared.
     """
     backend = _get_backend()
     try:
@@ -1418,6 +1701,7 @@ async def clear_history() -> dict[str, Any]:
     except QueueBackendError as exc:
         raise _http_error(exc) from exc
     removed_runs().clear()
+    removal_log().clear()
     _notify_change()
     return {"cleared": True, "msg": str(result.get("msg") or "")}
 

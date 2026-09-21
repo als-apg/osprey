@@ -673,6 +673,80 @@ def test_env_production_a_generated_file_without_the_endpoint_is_re_rendered(tmp
     assert generated["ALS_APG_BASE_URL"] == "https://gw.test/v1"
 
 
+# A required variable the chain never had. Different from the re-render case
+# above, where the chain HAS the endpoint and only the file is behind: here the
+# file and the chain agree with each other and both lack it, which is exactly
+# the state a deployment rendered before its provider gained a required
+# endpoint is left in. Comparing the file with the chain finds nothing; the
+# containers still restart forever. So the requirement is asked of the chain on
+# EVERY deploy, not only on the one that generates the file.
+
+
+def _existing_users_file_without_the_endpoint(tmp_path, *, generated: bool):
+    """A chain and a ``.env.users`` that agree, and both lack the endpoint."""
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
+    config = _gateway_persona_config(tmp_path)
+    values = {"ALS_APG_API_KEY": "persona-secret", "TZ": "UTC"}
+    if generated:
+        text = env_production.render_env_users(values)
+    else:
+        text = "".join(f"{k}={v}\n" for k, v in values.items())
+    (tmp_path / ".env.users").write_text(text, encoding="utf-8")
+    return config, text
+
+
+@pytest.mark.parametrize("generated", [True, False], ids=["osprey-rendered", "authored"])
+def test_env_production_existing_file_is_refused_when_the_chain_lacks_a_required_endpoint(
+    tmp_path, generated
+):
+    """An existing file is no reason to skip the question a fresh render asks:
+    the endpoint is required, the chain does not set it, and the deploy is
+    refused with the same sentence -- naming the variable, its provider and
+    the persona -- whoever rendered the file. The file is left alone."""
+    config, text = _existing_users_file_without_the_endpoint(tmp_path, generated=generated)
+
+    with pytest.raises(RuntimeError, match="ALS_APG_BASE_URL") as excinfo:
+        env_production.ensure_env_production(config, tmp_path)
+
+    message = str(excinfo.value)
+    assert "als-apg" in message
+    assert "operator" in message
+    assert "persona-secret" not in message
+    assert (tmp_path / ".env.users").read_text(encoding="utf-8") == text
+
+
+def test_env_production_existing_file_with_the_endpoint_in_the_chain_is_not_refused(tmp_path):
+    """The complement: once the chain sets it, an existing file is re-rendered
+    (OSPREY's) or kept (an operator's), never refused for this."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
+    )
+    config = _gateway_persona_config(tmp_path)
+    (tmp_path / ".env.users").write_text(
+        "ALS_APG_API_KEY=persona-secret\nALS_APG_BASE_URL=https://gw.test/v1\nTZ=UTC\n",
+        encoding="utf-8",
+    )
+
+    written = env_production.ensure_env_production(config, tmp_path)
+
+    assert env_production.parse_dotenv_file(written)["ALS_APG_BASE_URL"] == "https://gw.test/v1"
+
+
+def test_the_preflight_report_carries_the_missing_endpoint_of_an_existing_file(tmp_path):
+    """The collect-all pass reports what the gate raises on, for an existing
+    file as much as for a render it would refuse to generate."""
+    from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
+
+    config, _text = _existing_users_file_without_the_endpoint(tmp_path, generated=True)
+
+    blocking, _advisories = web_terminal_preflight_report(config, repo_root=tmp_path)
+
+    problems = [problem for problem, _remedy in blocking]
+    assert any("ALS_APG_BASE_URL" in problem for problem in problems), problems
+    assert all("persona-secret" not in problem for problem in problems)
+
+
 def test_env_production_stale_existing_file_without_credentials_warns(tmp_path, caplog):
     """The never-clobber rule keeps a stale pre-provider-change file in
     service; the deploy must at least say so, naming the missing var."""

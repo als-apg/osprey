@@ -12,7 +12,7 @@ credentials are stripped), not inside an isolated machine. Code it runs can
 write anywhere the executor process can, apart from the deployment's own
 sources and render --- see :ref:`python-executor-protected-paths`, which also
 says plainly how far that protection goes.
-The Osprey agent uses it via the ``execute`` MCP tool to perform data analysis,
+The OSPREY agent uses it via the ``execute`` MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.
 
 What It Does
@@ -424,12 +424,12 @@ and the operator alert are what is missing.
 
 .. note::
 
-   There is no in-framework code-generation pipeline. The Osprey agent generates
+   There is no in-framework code-generation pipeline. The OSPREY agent generates
    Python code itself and invokes the ``execute`` MCP tool directly.
 
 .. note::
 
-   Write approval is handled by the ``execution_mode`` parameter. The Osprey agent
+   Write approval is handled by the ``execution_mode`` parameter. The OSPREY agent
    requests user confirmation before calling ``execute`` with
    ``execution_mode="readwrite"``---there is no separate approval API.
 

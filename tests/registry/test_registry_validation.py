@@ -335,6 +335,58 @@ class TestResolveRegistryPath:
         resolved = resolve_registry_path({"registry_path": "${APP_DIR}/registry.py"})
         assert resolved == "myapp/registry.py"
 
+    def test_project_root_anchors_a_relative_path_with_no_base_path(self, tmp_path):
+        """The anchor a relative spelling means, for a caller that has none.
+
+        Every runtime reader reaches the registry through ``get_registry()``
+        with no config path, so it offers no ``base_path``; anchoring on the
+        working directory instead found the file only from the repo root.
+        """
+        (tmp_path / "project").mkdir()
+        config = {"project_root": str(tmp_path), "registry_path": "project/registry.py"}
+
+        resolved = resolve_registry_path(config)
+
+        assert resolved == str(tmp_path / "project" / "registry.py")
+
+    def test_an_explicit_base_path_still_wins_over_project_root(self, tmp_path):
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        config = {"project_root": str(tmp_path), "registry_path": "registry.py"}
+
+        resolved = resolve_registry_path(config, base_path=elsewhere)
+
+        assert resolved == str(elsewhere / "registry.py")
+
+    def test_a_project_root_that_is_not_here_leaves_the_path_relative(self, tmp_path):
+        """A rendered config read on another machine must not anchor.
+
+        A service's config bind-mounted into a container carries the
+        ``project_root`` of the machine that rendered it. Anchoring on a path
+        that does not exist here would be confidently wrong.
+        """
+        config = {
+            "project_root": str(tmp_path / "not-on-this-machine"),
+            "registry_path": "project/registry.py",
+        }
+
+        assert resolve_registry_path(config) == "project/registry.py"
+
+    def test_project_root_does_not_touch_an_absolute_path(self, tmp_path):
+        absolute = str(tmp_path / "registry.py")
+        config = {"project_root": str(tmp_path), "registry_path": absolute}
+
+        assert resolve_registry_path(config) == absolute
+
+    def test_env_vars_in_project_root_are_expanded(self, tmp_path, monkeypatch):
+        (tmp_path / "project").mkdir()
+        monkeypatch.setenv("DEPLOY_ROOT", str(tmp_path))
+        config = {"project_root": "${DEPLOY_ROOT}", "registry_path": "project/registry.py"}
+
+        resolved = resolve_registry_path(config)
+
+        assert resolved == str(tmp_path / "project" / "registry.py")
+
 
 class TestConfigurationErrorMessages:
     """Test configuration-related error messages."""

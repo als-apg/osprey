@@ -300,7 +300,7 @@ web:
   default_panel: okf
   docs_url: https://als-apg.github.io/osprey
   feedback:
-    email: thellert@lbl.gov
+    email: alice@example.com
     github_repo: als-apg/osprey
     max_store_bytes: 268435456
   panels:

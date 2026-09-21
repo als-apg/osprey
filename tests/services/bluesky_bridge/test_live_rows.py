@@ -79,7 +79,7 @@ def test_stop_doc_flips_partial_to_false() -> None:
 
 
 def test_completed_run_stays_readable_after_stop() -> None:
-    """RETAINS completed runs — the whole point of this module vs. BELLA's demo-day eviction."""
+    """A completed run's buffer stays readable: this recorder retains, it does not evict."""
     recorder = LiveRowRecorder()
     recorder("start", _start_doc("run-1"))
     recorder("event", _event_doc({"x": 1.0}))

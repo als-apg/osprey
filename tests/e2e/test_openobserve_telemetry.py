@@ -78,14 +78,21 @@ OO_BASE_URL = f"http://localhost:{OO_HOST_PORT}"
 # container_name as ``<project>-openobserve``, per the per-project namespacing
 # convention). Mirrors the deploy-e2e pattern of deriving container targets from
 # the deployment rather than hardcoding a host-global literal.
-OO_PROJECT = "proj"
-OO_CONTAINER = f"{OO_PROJECT}-openobserve"  # matches the rendered container_name
+#
+# The name itself is this module's alone. A compose project is addressed BY
+# NAME: two modules sharing one name adopt each other's containers, and a
+# teardown from either side removes the other module's running stack. Spelled
+# ``PROJECT_NAME``, as every sibling deploy e2e spells it, so the guard that
+# reads these constants out of the suite's source sees this one too
+# (``tests/deployment/test_e2e_project_names.py``).
+PROJECT_NAME = "osprey-e2e-openobserve"
+OO_CONTAINER = f"{PROJECT_NAME}-openobserve"  # matches the rendered container_name
 
 # The named volume OpenObserve pins its root credentials into on FIRST init.
 # Its name is ``<COMPOSE_PROJECT_NAME>_openobserve_data``; ``osprey up``
 # pins ``COMPOSE_PROJECT_NAME`` to the project name (see
 # ``runtime_helper.runtime_env``), so this test's volume is
-# ``proj_openobserve_data``. Because OpenObserve ignores new root creds once a
+# ``<project>_openobserve_data``. Because OpenObserve ignores new root creds once a
 # volume is initialized, a surviving volume from an earlier attempt (the
 # fixture's own reruns included — ``osprey down`` keeps volumes) would pin
 # whatever creds that attempt initialized with. The fixture removes it before
@@ -167,7 +174,7 @@ def _remove_oo_data_volumes() -> None:
     is removed by exact name for dev machines that predate project-pinned compose
     namespacing — it carries no project label, so the shared sweep cannot see it.
     """
-    remove_project_volumes(OO_PROJECT)
+    remove_project_volumes(PROJECT_NAME)
     subprocess.run(
         ["docker", "volume", "rm", OO_LEGACY_DATA_VOLUME],
         capture_output=True,
@@ -235,7 +242,7 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
     """Init + build + ``osprey up`` an openobserve-enabled repo; tear down after."""
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("openobserve_e2e")
-    repo = base / OO_PROJECT
+    repo = base / PROJECT_NAME
 
     init = _run(
         [

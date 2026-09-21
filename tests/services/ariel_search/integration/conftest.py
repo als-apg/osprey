@@ -13,12 +13,14 @@ The pieces are:
 * **vocabulary files** written to a tmp directory, so the tests exercise the
   real loader rather than a hand-built ``Vocabulary``.
 * **seed fixtures** for the three row groups the vocabulary/pattern criteria
-  need. Each seeds once per package -- the package-scoped
-  :func:`seeded_prefixes` ledger memoizes what is already in the database --
-  and every ``entry_id`` carries a distinctive prefix, so the ledger's
-  finalizer deletes exactly these rows and no others. Teardown is a fixture
-  finalizer rather than a trailing test, so it also runs when a test fails, a
-  selection deselects part of the file, or the session is interrupted.
+  need. Each seeds once per package, and every ``entry_id`` carries a
+  distinctive prefix, so exactly these rows are identifiable and no others.
+* the :func:`seeded_prefixes` **ledger**, the teardown owner for every prefix
+  any module in this package seeds. Being a fixture finalizer rather than a
+  trailing test is what makes it run when a test fails, when a selection
+  deselects part of a file, or when the session is interrupted. Recording a
+  prefix before inserting is what a seed owes the ledger; memoizing on it is
+  optional, and pays only for a seed too expensive to repeat.
 """
 
 from __future__ import annotations
@@ -381,10 +383,15 @@ async def _seed_rows(repository: Any, factory: Any, rows: tuple[tuple[str, str],
 def seeded_prefixes(database_url: str):
     """Ledger of the entry-id prefixes seeded so far, cleaned up at teardown.
 
-    Doubles as the seed memo and the teardown owner. Every seed fixture below
-    records its prefix here *before* inserting, so a run interrupted halfway
-    through a seed still has its partial rows deleted, and the finalizer issues
-    one ``DELETE ... LIKE '<prefix>%'`` per recorded prefix.
+    Doubles as the seed memo and the teardown owner. Every seed fixture that
+    writes rows to this package's database -- whether it lives in this file or
+    in a test module -- records its prefix here *before* inserting, so a run
+    interrupted halfway through a seed still has its partial rows deleted, and
+    the finalizer issues one ``DELETE ... LIKE '<prefix>%'`` per recorded
+    prefix. It needs no counterpart for the per-model embedding tables or for
+    ``attachment_files``: both declare their ``entry_id`` foreign key
+    ``ON DELETE CASCADE``, so one delete from ``enhanced_entries`` removes the
+    dependent rows.
 
     It is a plain (synchronous) fixture on purpose: the pool fixtures it would
     otherwise reuse are function-scoped, and an async fixture of package scope

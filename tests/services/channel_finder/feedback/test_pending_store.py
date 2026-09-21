@@ -23,7 +23,7 @@ def store(tmp_path):
 
 
 def test_capture_returns_uuid(store):
-    item_id = store.capture({"query": "show me magnets", "facility": "ALS"})
+    item_id = store.capture({"query": "show me magnets", "facility": "ERF"})
     assert isinstance(item_id, str)
     assert len(item_id) == 36  # UUID format
 
@@ -32,7 +32,7 @@ def test_capture_and_get(store):
     item_id = store.capture(
         {
             "query": "show me magnets",
-            "facility": "ALS",
+            "facility": "ERF",
             "tool_name": "mcp__channel-finder__build_channels",
             "channel_count": 42,
             "selections": {"system": "MAG"},
@@ -43,7 +43,7 @@ def test_capture_and_get(store):
     assert item is not None
     assert item["id"] == item_id
     assert item["query"] == "show me magnets"
-    assert item["facility"] == "ALS"
+    assert item["facility"] == "ERF"
     assert item["tool_name"] == "mcp__channel-finder__build_channels"
     assert item["channel_count"] == 42
     assert item["selections"] == {"system": "MAG"}
@@ -62,7 +62,7 @@ def test_get_missing_returns_none(store):
 def test_list_items_sorted_newest_first(store):
     ids = []
     for i in range(5):
-        item_id = store.capture({"query": f"query_{i}", "facility": "ALS"})
+        item_id = store.capture({"query": f"query_{i}", "facility": "ERF"})
         ids.append(item_id)
 
     items = store.list_items()
@@ -82,7 +82,7 @@ def test_list_empty_store(store):
 
 
 def test_delete_existing_item(store):
-    item_id = store.capture({"query": "magnets", "facility": "ALS"})
+    item_id = store.capture({"query": "magnets", "facility": "ERF"})
     assert store.delete(item_id) is True
     assert store.get_item(item_id) is None
 
@@ -98,7 +98,7 @@ def test_delete_missing_returns_false(store):
 
 def test_clear_removes_all(store):
     for i in range(3):
-        store.capture({"query": f"q{i}", "facility": "ALS"})
+        store.capture({"query": f"q{i}", "facility": "ERF"})
 
     store.clear()
     assert store.list_items() == []
@@ -117,7 +117,7 @@ def test_clear_removes_all(store):
 def test_eviction_at_cap(store):
     """Items beyond MAX_ITEMS are evicted (oldest first)."""
     for i in range(MAX_ITEMS + 10):
-        store.capture({"query": f"q{i}", "facility": "ALS"})
+        store.capture({"query": f"q{i}", "facility": "ERF"})
 
     items = store.list_items()
     assert len(items) == MAX_ITEMS
@@ -139,7 +139,7 @@ def test_file_persistence(tmp_path):
     path = tmp_path / "pending.json"
 
     store1 = PendingReviewStore(path)
-    item_id = store1.capture({"query": "magnets", "facility": "ALS", "channel_count": 42})
+    item_id = store1.capture({"query": "magnets", "facility": "ERF", "channel_count": 42})
     del store1
 
     store2 = PendingReviewStore(path)
@@ -149,7 +149,7 @@ def test_file_persistence(tmp_path):
 
 
 def test_file_format_on_disk(store):
-    store.capture({"query": "magnets", "facility": "ALS", "channel_count": 7})
+    store.capture({"query": "magnets", "facility": "ERF", "channel_count": 7})
 
     raw = json.loads(store._path.read_text())
     assert raw["version"] == 1
@@ -175,7 +175,7 @@ def test_concurrent_captures(tmp_path):
         try:
             s = PendingReviewStore(path)
             for i in range(count):
-                s.capture({"query": f"t{thread_id}_q{i}", "facility": "ALS"})
+                s.capture({"query": f"t{thread_id}_q{i}", "facility": "ERF"})
         except Exception as e:
             errors.append(e)
 
@@ -199,7 +199,7 @@ def test_concurrent_captures(tmp_path):
 
 def test_atomic_write_no_partial_file(store):
     """After a capture, the file should be valid JSON."""
-    store.capture({"query": "magnets", "facility": "ALS"})
+    store.capture({"query": "magnets", "facility": "ERF"})
     raw = json.loads(store._path.read_text())
     assert "items" in raw
 
@@ -213,7 +213,7 @@ def test_missing_file_bootstrap(tmp_path):
     """Store on a non-existent path creates it on first write."""
     path = tmp_path / "a" / "b" / "pending.json"
     store = PendingReviewStore(path)
-    store.capture({"query": "test", "facility": "ALS"})
+    store.capture({"query": "test", "facility": "ERF"})
 
     assert path.exists()
     items = store.list_items()

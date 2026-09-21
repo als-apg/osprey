@@ -48,7 +48,11 @@
     },
     {
       "path": "tests/e2e/test_dispatch_deploy.py",
-      "reason": "Docker-dependent deploy smoke; skips on bench box (no Docker). No LLM call."
+      "reason": "Docker-dependent deploy of the dispatch stack; skips on bench box (no Docker). Its owner rows fire real dispatch jobs through the deployed worker, but what they judge is the owner wire and the narrowing verdict, not the model-under-test."
+    },
+    {
+      "path": "tests/e2e/test_single_user_narrowing_e2e.py",
+      "reason": "Docker-dependent deploy of a single-user stack; skips on bench box (no Docker). Its rows fire real dispatch jobs, but judge the build account's record mode and the narrowing verdict on an owned write, not the model-under-test."
     },
     {
       "path": "tests/e2e/claude_code/test_proxy_full_chain_e2e.py",

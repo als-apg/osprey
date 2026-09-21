@@ -1,7 +1,7 @@
 <div class="osprey-diagram">
 <svg viewBox="0 0 960 380" role="img" aria-labelledby="provider-routing-title provider-routing-desc">
   <title id="provider-routing-title">How requests reach a provider</title>
-  <desc id="provider-routing-desc">The Osprey agent speaks the Anthropic Messages API. Providers that already speak it are reached directly; providers that offer only an OpenAI-compatible endpoint are reached through a local translation proxy that OSPREY starts at launch. MCP tool servers are a separate client stack — they use LiteLLM and do not travel the agent's path.</desc>
+  <desc id="provider-routing-desc">The OSPREY agent speaks the Anthropic Messages API. Providers that already speak it are reached directly; providers that offer only an OpenAI-compatible endpoint are reached through a local translation proxy that OSPREY starts at launch. MCP tool servers are a separate client stack — they use LiteLLM and do not travel the agent's path.</desc>
   <defs>
     <marker id="provider-routing-arr" viewBox="0 0 8 6" refX="7" refY="3" markerWidth="8" markerHeight="6" orient="auto-start-reverse">
       <polygon points="0,0 8,3 0,6" fill="context-stroke"/>
@@ -17,7 +17,7 @@
 
   <!-- clients -->
   <rect class="nb-in" x="16" y="100" width="200" height="60" rx="6"/>
-  <text class="tn" x="116" y="126" text-anchor="middle">Osprey agent</text>
+  <text class="tn" x="116" y="126" text-anchor="middle">OSPREY agent</text>
   <text class="ts" x="116" y="144" text-anchor="middle">Anthropic Messages API</text>
 
   <rect class="nb-in" x="16" y="250" width="200" height="60" rx="6"/>

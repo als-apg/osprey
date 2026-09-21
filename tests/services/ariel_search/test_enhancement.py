@@ -512,7 +512,7 @@ class TestTextEmbeddingModuleEnhance:
 
         return {
             "entry_id": "entry-001",
-            "source_system": "ALS eLog",
+            "source_system": "Example eLog",
             "timestamp": datetime(2024, 1, 15, tzinfo=UTC),
             "author": "jsmith",
             "raw_text": "Beam current at 500mA.",

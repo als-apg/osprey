@@ -284,7 +284,13 @@ class TestSharedCardPrivileged:
 
     @pytest.mark.parametrize(
         "access",
-        ["any", ["roster"], ["domain:lbl.gov"], ["user:carol@lbl.gov"], ["self", "user:x@y.gov"]],
+        [
+            "any",
+            ["roster"],
+            ["domain:example.com"],
+            ["user:carol@example.com"],
+            ["self", "user:x@y.gov"],
+        ],
     )
     def test_every_shared_spelling_reaches_the_rule(self, access):
         """The rule is "admits somebody beyond its own user", not "says any".
@@ -305,11 +311,11 @@ class TestSharedCardPrivileged:
         """rich eats `[...]`, so the members are spelled out — and the phrase
         says they are members, which is the list-vs-scalar cue the brackets
         used to carry. A shorthand keeps `access: <word>`."""
-        carol = dict(self.CAROL, access=["self", "domain:lbl.gov"])
+        carol = dict(self.CAROL, access=["self", "domain:example.com"])
 
         problems = shared_card_privileged_problems([carol], self.PRIVILEGES)
 
-        assert "access members 'self', 'domain:lbl.gov'" in problems[0]
+        assert "access members 'self', 'domain:example.com'" in problems[0]
         assert "['self'" not in problems[0]
 
     @pytest.mark.parametrize("access", ["own", ["self"], ["self", "self"]])

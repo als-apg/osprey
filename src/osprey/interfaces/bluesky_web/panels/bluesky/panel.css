@@ -1473,6 +1473,25 @@ code {
   text-align: right;
 }
 
+/* A withdrawal listed under the completed runs: when it happened, and what
+   somebody did. It is not a run — there is no badge, no action and nothing to
+   open — so it is muted whole, which is what tells the two apart at a glance
+   before anyone reads either. */
+.queue-row.removal .queue-name {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+/* Floored at the widest form the column holds ("MM-DD HH:MM"), in mono
+   characters, so a list mixing today's rows with older ones still lines its
+   sentences up on one left edge. */
+.queue-time {
+  flex: none;
+  min-width: 11ch;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
 /* The selectable half of a row is a real <button> (see panel.js), stripped
    back to a text block: that keeps the queue keyboard-reachable and
    screen-reader announceable without a roving-tabindex of our own. A row with

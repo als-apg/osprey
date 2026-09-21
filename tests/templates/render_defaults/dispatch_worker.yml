@@ -107,6 +107,24 @@ services:
       # finds nothing else to do — no special case needed for it.
       OSPREY_AUDIT_IDENTITY: dispatch-worker-1
       OSPREY_AUDIT_DIR: /app/golden-project/var/audit/dispatch-worker-1
+
+      # WHERE this worker reads the control-context tree, mounted read-only
+      # below. A dispatch run writes as the OWNER on its job — a person, whose
+      # terminal may have narrowed them to another machine since the trigger was
+      # authored — and this is the only place that narrowing is visible from
+      # inside this container. Naming the directory is what arms the read: a
+      # worker without this variable judges on the target's ceiling alone.
+      #
+      # Unconditional, unlike the Bluesky lane's copy of this pair. A lane is
+      # bound to one control target at render time, so its write posture is
+      # known here; this worker runs the whole agent and can move between
+      # targets at runtime, so whether it will write is not a render-time fact.
+      #
+      # Like OSPREY_AUDIT_DIR above, this is also the contract offered to the
+      # image's entrypoint: its root phase joins the group of each directory
+      # named here and probes it for READ (the tree is read-only, so a write
+      # probe would report a loss nothing in this container was going to write).
+      OSPREY_CONTROL_CONTEXT_TREE: /osprey/control_tree
       # The worker process reads OSPREY config directly (e.g. get_facility_timezone
       # while building the agent's system prompt), and spawns a CLI subprocess with
       # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
@@ -173,6 +191,23 @@ services:
       # creates the source root-owned and the dropped `osprey` process inside
       # can write nothing to it.
       - ./var/audit/dispatch-worker-1:/app/golden-project/var/audit/dispatch-worker-1
+
+      # The control-context tree, READ-ONLY and WHOLE — the opposite shape to
+      # the audit bind above, for the opposite reason. Audit isolation is the
+      # mount: a worker may see only the records it wrote. The tree is a thing
+      # this worker READS about other people: the owner of a dispatch job
+      # arrives with the request, so a mount narrowed to one identity would
+      # answer for nobody. Read-only keeps the asymmetry honest — every record
+      # under here belongs to the terminal that wrote it, and nothing in this
+      # container may edit the narrowing that judges its own writes.
+      #
+      # The target sits outside `/app/<project>` and so outside this
+      # container's `var/` state zone: the entrypoint's `hand_back_state_zone`
+      # chowns that zone on every start, and a chown across a read-only bind
+      # fails with EROFS and warns every time. Both halves are computed by
+      # compose_generator from the same `agent_data.base_dir` the writer
+      # resolves its own record path against.
+      - ./var/agent_data/control_target:/osprey/control_tree:ro
     networks:
       - osprey-network
     healthcheck:

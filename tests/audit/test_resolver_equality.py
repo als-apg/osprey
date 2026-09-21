@@ -35,8 +35,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from osprey.audit import writer
 from osprey.cli.templates.manager import TemplateManager
 from osprey.deployment.reset import ResetPlan
@@ -86,9 +84,6 @@ def _create_project(manager: TemplateManager, **kwargs) -> Path:
     # `.claude/` from a config.yml that did not yet carry the preset's block.
     manager.regenerate_claude_code(project)
     return project
-
-
-pytestmark = pytest.mark.unit
 
 
 def _render_two_zone_project(tmp_path: Path) -> tuple[Path, Path]:

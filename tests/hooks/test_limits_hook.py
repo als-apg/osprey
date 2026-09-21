@@ -19,7 +19,7 @@ import pytest
 import yaml
 
 from osprey_connectors.types import most_restrictive_limits_posture, target_limits_posture
-from tests._control_context_fixtures import write_control_context
+from tests._control_context_fixtures import state_dir_under, write_control_context
 
 
 def _make_limits_config(tmp_path, channels_db, enabled=True, allow_unlisted=False):
@@ -45,7 +45,6 @@ def _make_limits_config(tmp_path, channels_db, enabled=True, allow_unlisted=Fals
     )
 
 
-@pytest.mark.unit
 def test_limits_violation_blocks_write(tmp_path, hook_runner):
     """Write exceeding channel limits is blocked."""
     config = _make_limits_config(
@@ -65,7 +64,6 @@ def test_limits_violation_blocks_write(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_max_step_is_left_to_the_writer(tmp_path, hook_runner):
     """A step this hook cannot measure is not a refusal here.
 
@@ -91,7 +89,6 @@ def test_max_step_is_left_to_the_writer(tmp_path, hook_runner):
     assert result is None or result["hookSpecificOutput"]["permissionDecision"] != "deny"
 
 
-@pytest.mark.unit
 def test_max_step_channel_still_gets_every_other_check(tmp_path, hook_runner):
     """Deferring the step check defers nothing else: bounds still deny here."""
     config = _make_limits_config(
@@ -111,7 +108,6 @@ def test_max_step_channel_still_gets_every_other_check(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_valid_value_passes(tmp_path, hook_runner):
     """Write within channel limits passes through."""
     config = _make_limits_config(
@@ -131,7 +127,6 @@ def test_valid_value_passes(tmp_path, hook_runner):
     assert result is None  # Allowed through
 
 
-@pytest.mark.unit
 def test_limits_disabled_passes_through(tmp_path, hook_runner):
     """When limits_checking.enabled is false, all writes pass."""
     config = _make_limits_config(
@@ -151,7 +146,6 @@ def test_limits_disabled_passes_through(tmp_path, hook_runner):
     assert result is None  # Allowed through (limits disabled)
 
 
-@pytest.mark.unit
 def test_non_write_tools_pass(tmp_path, hook_runner):
     """Non-write tools (channel_read, etc.) are not checked by limits hook."""
     config = _make_limits_config(
@@ -170,7 +164,6 @@ def test_non_write_tools_pass(tmp_path, hook_runner):
     assert result is None  # Read tools pass through
 
 
-@pytest.mark.unit
 def test_clone_channel_write_is_validated(tmp_path, hook_runner):
     """An `extends: controls` clone's channel_write is limits-checked too.
 
@@ -197,7 +190,6 @@ def test_clone_channel_write_is_validated(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_clone_channel_read_still_passes(tmp_path, hook_runner):
     """Short-name keying must not start denying a clone's reads."""
     config = _make_limits_config(
@@ -217,7 +209,6 @@ def test_clone_channel_read_still_passes(tmp_path, hook_runner):
     assert result is None
 
 
-@pytest.mark.unit
 def test_clone_is_validated_without_a_hook_config(tmp_path, hook_runner):
     """No prefixes to read still resolves a short name from the tool's shape.
 
@@ -242,7 +233,6 @@ def test_clone_is_validated_without_a_hook_config(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_unlisted_channel_blocked_by_default(tmp_path, hook_runner):
     """Unlisted channels are blocked when allow_unlisted_channels is false (default)."""
     config = _make_limits_config(
@@ -263,7 +253,6 @@ def test_unlisted_channel_blocked_by_default(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_non_writable_channel_blocked(tmp_path, hook_runner):
     """Channel marked writable=false is blocked."""
     config = _make_limits_config(
@@ -283,7 +272,6 @@ def test_non_writable_channel_blocked(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_multiple_operations_any_violation_blocks(tmp_path, hook_runner):
     """If any operation in a batch violates limits, the entire batch is blocked."""
     config = _make_limits_config(
@@ -314,7 +302,6 @@ def test_multiple_operations_any_violation_blocks(tmp_path, hook_runner):
 # -- Edge cases (gap fill) --
 
 
-@pytest.mark.unit
 def test_value_at_exact_maximum_passes(tmp_path, hook_runner):
     """Value exactly equal to max_value should pass validation."""
     config = _make_limits_config(
@@ -333,7 +320,6 @@ def test_value_at_exact_maximum_passes(tmp_path, hook_runner):
     assert result is None  # Exact boundary should pass
 
 
-@pytest.mark.unit
 def test_value_at_exact_minimum_passes(tmp_path, hook_runner):
     """Value exactly equal to min_value should pass validation."""
     config = _make_limits_config(
@@ -352,7 +338,6 @@ def test_value_at_exact_minimum_passes(tmp_path, hook_runner):
     assert result is None  # Exact boundary should pass
 
 
-@pytest.mark.unit
 def test_single_write_form_supported(tmp_path, hook_runner):
     """Single-write form (channel + value, not operations array) is validated."""
     config = _make_limits_config(
@@ -373,7 +358,6 @@ def test_single_write_form_supported(tmp_path, hook_runner):
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_single_write_form_valid_passes(tmp_path, hook_runner):
     """Single-write form with valid value passes through."""
     config = _make_limits_config(
@@ -392,7 +376,6 @@ def test_single_write_form_valid_passes(tmp_path, hook_runner):
     assert result is None  # Valid single-write passes
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(
     "stdin",
     ["", "{nope", "[]", "[1,2,3]"],
@@ -607,7 +590,6 @@ def _expected_allowed(posture):
     return posture.allow_unlisted is True
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize(("section", "target"), POSTURE_SHAPES, ids=POSTURE_SHAPE_IDS)
 def test_hook_decision_matches_the_framework_resolver(tmp_path, hook_runner, section, target):
     """The hook and the package resolvers answer one deployment identically.
@@ -639,7 +621,6 @@ def test_hook_decision_matches_the_framework_resolver(tmp_path, hook_runner, sec
     assert allowed is _expected_allowed(posture)
 
 
-@pytest.mark.unit
 def test_no_state_file_refuses_when_the_only_limits_line_cannot_be_read(tmp_path, hook_runner):
     """The baseline branch every unswitched session takes must not fail open.
 
@@ -662,7 +643,6 @@ def test_no_state_file_refuses_when_the_only_limits_line_cannot_be_read(tmp_path
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_live_refusal_names_the_deployment_wide_key(tmp_path, hook_runner):
     """On `live`, a deployment that relaxed only its simulator still refuses.
 
@@ -687,7 +667,6 @@ def test_live_refusal_names_the_deployment_wide_key(tmp_path, hook_runner):
     )
 
 
-@pytest.mark.unit
 def test_va_passes_where_the_same_deployment_refuses_on_live(tmp_path, hook_runner):
     """The same config, one target over: the simulator takes the unlisted write.
 
@@ -706,7 +685,6 @@ def test_va_passes_where_the_same_deployment_refuses_on_live(tmp_path, hook_runn
     assert result is None
 
 
-@pytest.mark.unit
 def test_per_type_refusal_names_the_connector_block(tmp_path, hook_runner):
     """A refusal read from a connector block names that block, not the global key.
 
@@ -728,7 +706,6 @@ def test_per_type_refusal_names_the_connector_block(tmp_path, hook_runner):
     assert "control_system.connector.epics.limits_checking.allow_unlisted_channels" in reason
 
 
-@pytest.mark.unit
 def test_removed_state_directory_takes_the_most_restrictive_posture(tmp_path, hook_runner):
     """A deployment whose target cannot be read is refused what any target refuses.
 
@@ -742,7 +719,7 @@ def test_removed_state_directory_takes_the_most_restrictive_posture(tmp_path, ho
     # Arrange
     config = _limits_config(tmp_path, VA_PERMISSIVE)
     _write_session_state(tmp_path, "va")
-    state_dir = tmp_path / "var" / "agent_data" / "control_target"
+    state_dir = state_dir_under(tmp_path / "var" / "agent_data")
     for path in state_dir.iterdir():
         path.unlink()
     state_dir.rmdir()
@@ -760,7 +737,6 @@ def test_removed_state_directory_takes_the_most_restrictive_posture(tmp_path, ho
     )
 
 
-@pytest.mark.unit
 def test_stray_connector_block_does_not_answer_for_a_targetless_call(tmp_path, hook_runner):
     """A mock deployment answers the deployment-wide posture, stray block and all.
 
@@ -782,7 +758,6 @@ def test_stray_connector_block_does_not_answer_for_a_targetless_call(tmp_path, h
     assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_osprey_unimportable_allows_the_write(tmp_path, hook_module, monkeypatch, capsys):
     """With `osprey` off the interpreter's path the hook exits 0 and decides nothing.
 
@@ -938,7 +913,6 @@ def _run_in_process(hook, monkeypatch, capsys, tmp_path, validator_cls):
     return exit_info.value.code, (json.loads(stdout) if stdout else None), captured.err
 
 
-@pytest.mark.unit
 def test_a_render_without_the_state_reader_takes_the_most_restrictive_posture(
     tmp_path, hook_module, monkeypatch, capsys
 ):
@@ -967,7 +941,6 @@ def test_a_render_without_the_state_reader_takes_the_most_restrictive_posture(
     assert DEPLOYMENT_WIDE_KEY in decision["hookSpecificOutput"]["permissionDecisionReason"]
 
 
-@pytest.mark.unit
 def test_a_raising_state_reader_takes_the_most_restrictive_posture(
     tmp_path, hook_module, monkeypatch, capsys
 ):
@@ -999,7 +972,6 @@ def test_a_raising_state_reader_takes_the_most_restrictive_posture(
     assert "Traceback" not in stderr
 
 
-@pytest.mark.unit
 def test_an_older_framework_falls_back_to_the_deployment_wide_block(
     tmp_path, hook_module, monkeypatch, capsys
 ):
@@ -1029,7 +1001,6 @@ def test_an_older_framework_falls_back_to_the_deployment_wide_block(
     assert "Traceback" not in stderr
 
 
-@pytest.mark.unit
 def test_the_hook_leaves_the_step_check_to_the_writer(tmp_path, hook_module, monkeypatch, capsys):
     """Against a current framework the hook asks for every check but `max_step`.
 
@@ -1059,7 +1030,6 @@ def test_the_hook_leaves_the_step_check_to_the_writer(tmp_path, hook_module, mon
     assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
-@pytest.mark.unit
 def test_a_framework_without_the_step_free_check_still_gets_checked(
     tmp_path, hook_module, monkeypatch, capsys
 ):

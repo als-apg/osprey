@@ -16,9 +16,11 @@ Three of the four paradigms read a database file the build renders beside the
 config, so a lane is one ``init_project`` call. The fourth, ``graph``, searches
 a Neo4j store, so its lane stands one up: a throwaway container on a random
 port, the render pointed at it, and the shipped corpus seeded through ``osprey
-knowledge seed-graph``. The recipe is ``tests/e2e/test_graph_mcp_smoke.py``'s,
-imported rather than copied. That lane therefore skips — loudly, with its
-reason — on a host with no Docker daemon, while the other three run.
+knowledge seed-graph``. The store recipe is the shared one in
+``tests/_graphdb_container.py``; the pair of helpers that point a build at a
+store and seed it comes from ``tests/e2e/test_graph_mcp_smoke.py``. That lane
+therefore skips — loudly, with its reason — on a host with no Docker daemon,
+while the other three run.
 
 Skip-gating mirrors the safety/SDK suite in this directory: ``pytestmark`` is
 module-local in pytest, so conftest's gates do not cascade — each test file
@@ -41,22 +43,13 @@ import yaml
 from osprey.agent_runner import expected_mcp_servers
 from osprey.services.channel_finder.benchmarks.models import BenchmarkRun, QueryResult
 from osprey.services.channel_finder.benchmarks.runner import BenchmarkRunner
-from tests._container_support import (
-    is_docker_available,
-    is_image_present,
-    start_or_fail,
-    stop_quietly,
-)
 
-# The container recipe (image, jar version, throwaway password, plugin
-# helpers) is the shared one in tests/_graphdb_container.py; the two patches
-# that point a build at the store stay the graph MCP acceptance test's —
-# imported, not re-spelled, so there is exactly one spelling of each.
+# The container and its plugins come from tests/_graphdb_container.py; the two
+# patches that point a build at a store come from the graph MCP acceptance
+# test — imported, not re-spelled, so there is exactly one spelling of each.
 from tests._graphdb_container import (
     GRAPHDB_TEST_PASSWORD,
-    NEO4J_IMAGE,
-    _copy_bundled_apoc,
-    _fetch_n10s_jar,
+    graphdb_store_published_port,
 )
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
@@ -64,7 +57,6 @@ from tests.e2e.sdk_helpers import (
     render_dir,
 )
 from tests.e2e.test_graph_mcp_smoke import (
-    BOLT_PORT,
     _point_project_at_the_store,
     _seed_demo_corpus,
 )
@@ -282,40 +274,17 @@ def _assert_graph_pipeline_is_rendered(repo: Path) -> None:
 
 
 @pytest.fixture(scope="module")
-def graph_bench_plugin_dir(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    """n10s + APOC for the lane's store, resolved once.
+def graph_bench_plugin_dir(graphdb_plugin_dir: Path) -> Path:
+    """n10s + APOC, from the session-wide resolver (tests/_graphdb_container).
 
-    The lane's Docker gate lives here — first thing the store depends on — so
-    an unreachable daemon is reported once with its reason instead of as an
-    unexplained skip on the benchmark itself. The other three lanes need no
-    container and are unaffected, which is why this gate is per-fixture rather
-    than module-level ``pytestmark``.
+    The lane's gate lives in that resolver, because the plugins are the first
+    thing its store depends on: a missing extra, an unreachable daemon, a
+    missing image or an unreachable release is reported once, with its reason,
+    instead of as an unexplained skip on the benchmark itself. The other three
+    paradigms need no container and are unaffected, which is why this gate is
+    per-fixture rather than module-level ``pytestmark``.
     """
-    if not is_docker_available():
-        pytest.skip(
-            "docker daemon is not reachable — the graph benchmark lane can only "
-            "be scored against a real Neo4j + neosemantics store"
-        )
-
-    if not is_image_present(NEO4J_IMAGE):
-        # Pull explicitly: the APOC copy reads the image directly and, unlike
-        # ``containers.run``, ``containers.create`` does not pull for us.
-        import docker
-
-        logger.info(f"pulling {NEO4J_IMAGE} (not present locally)")
-        try:
-            docker.from_env().images.pull(NEO4J_IMAGE)
-        except Exception as exc:
-            pytest.skip(f"could not pull {NEO4J_IMAGE}: {exc}")
-
-    plugin_dir = tmp_path_factory.mktemp("cf-bench-graph-plugins")
-    _fetch_n10s_jar(plugin_dir)
-    _copy_bundled_apoc(plugin_dir)
-    # The server runs as a non-root user and only ever reads these.
-    for jar in plugin_dir.glob("*.jar"):
-        jar.chmod(0o644)
-    plugin_dir.chmod(0o755)
-    return plugin_dir
+    return graphdb_plugin_dir
 
 
 @pytest.fixture(scope="module")
@@ -326,26 +295,10 @@ def graph_bench_store_port(graph_bench_plugin_dir: Path) -> Iterator[int]:
     ``graphdb`` service deployed on the same host, nor with the graph MCP
     acceptance test's own store if both modules run in one session.
     """
-    try:
-        from testcontainers.community.neo4j import Neo4jContainer
-    except ImportError:  # pragma: no cover - depends on the installed extras
-        pytest.skip("testcontainers' neo4j module is not installed")
-
-    def _build() -> Neo4jContainer:
-        container = Neo4jContainer(image=NEO4J_IMAGE, password=GRAPHDB_TEST_PASSWORD)
-        container.with_volume_mapping(str(graph_bench_plugin_dir), "/plugins", "rw")
-        # n10s calls into APOC, so both need the unrestricted grant; without
-        # the allowlist every n10s.* call fails with "not on the allowlist".
-        container.with_env("NEO4J_dbms_security_procedures_unrestricted", "apoc.*,n10s.*")
-        container.with_env("NEO4J_dbms_security_procedures_allowlist", "apoc.*,n10s.*")
-        return container
-
-    container, port = start_or_fail(_build, "graphdb (neo4j + n10s)", BOLT_PORT)
-    logger.info(f"graph benchmark store published bolt on host port {port}")
-    try:
+    with graphdb_store_published_port(
+        graph_bench_plugin_dir, label="graph benchmark store"
+    ) as port:
         yield port
-    finally:
-        stop_quietly(container)
 
 
 @pytest.fixture(scope="module")

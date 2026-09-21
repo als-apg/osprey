@@ -66,6 +66,14 @@ const warnedManagerStates = new Set();
 const QUEUE_RECONNECT_MAX_MS = 30000;
 
 /**
+ * The bridge's refusal for a start bound to a queue that has moved since the
+ * approver read it (`_refuse_queue_changed`). The one refusal this item acts
+ * on rather than merely reporting: it says, in the bridge's own words, that
+ * the list under the button is no longer the list the click would run.
+ */
+const QUEUE_CHANGED_CODE = 'queue_changed_since_approval';
+
+/**
  * The queue as the last frame described it. `status` is the bridge's bounded
  * summary (`available`, `manager_state`, `items_in_queue`,
  * `queue_stop_pending`, …); `items` the pending plans; `runningItem` the one
@@ -104,8 +112,16 @@ function notifyQueue() {
   }
 }
 
-/** @param {unknown} raw */
-function applyQueueFrame(raw) {
+/**
+ * Take one reading of the queue — a frame off the stream, or the body of a
+ * `GET /queue`, which the bridge relays in the same three-key shape.
+ * @param {unknown} raw
+ * @param {boolean} [connected] whether the stream is open. A frame that came
+ *   down the socket is itself the proof that it is; a read that did not tells
+ *   nothing about the socket, so it carries forward what the item already
+ *   knew rather than painting a live chip over a dead stream.
+ */
+function applyQueueFrame(raw, connected = true) {
   if (!raw || typeof raw !== 'object') return;
   const frame = /** @type {Record<string, any>} */ (raw);
   queueSnapshot = {
@@ -113,7 +129,7 @@ function applyQueueFrame(raw) {
     items: Array.isArray(frame.items) ? frame.items : [],
     runningItem:
       frame.running_item && typeof frame.running_item === 'object' ? frame.running_item : null,
-    connected: true,
+    connected,
     seen: true,
   };
   notifyQueue();
@@ -279,9 +295,13 @@ function readQueue(snap) {
  * Post one queue write through the panel's proxy and report the outcome in
  * the bridge's own words. Nothing here decides whether a write is allowed:
  * the bridge answers, and its refusal is shown verbatim.
+ *
+ * `code` is the refusal's machine-readable branch key, for the caller that
+ * has something to DO about a particular one; the message is what the
+ * operator reads either way.
  * @param {string} path
  * @param {Record<string, unknown>} body
- * @returns {Promise<{ok: boolean, message: string}>}
+ * @returns {Promise<{ok: boolean, message: string, code: string}>}
  */
 async function queueWrite(path, body) {
   /** @type {Response} */
@@ -293,7 +313,7 @@ async function queueWrite(path, body) {
       body: JSON.stringify(body),
     });
   } catch {
-    return { ok: false, message: 'The Bluesky panel could not be reached.' };
+    return { ok: false, message: 'The Bluesky panel could not be reached.', code: '' };
   }
   /** @type {any} */
   let parsed = null;
@@ -302,13 +322,74 @@ async function queueWrite(path, body) {
   } catch {
     parsed = null;
   }
-  if (response.ok) return { ok: true, message: '' };
+  if (response.ok) return { ok: true, message: '', code: '' };
   const detail = parsed && typeof parsed === 'object' ? parsed.detail : null;
+  // Every queue refusal answers with a dict detail whose `code` names the
+  // branch it took; a refusal raised elsewhere in the stack answers with a
+  // bare string and has no code, which reads here as '' — the item then has
+  // nothing to act on and only reports.
+  const code =
+    detail && typeof detail === 'object' && typeof detail.code === 'string' ? detail.code : '';
   if (detail && typeof detail === 'object' && typeof detail.detail === 'string') {
-    return { ok: false, message: detail.detail };
+    return { ok: false, message: detail.detail, code };
   }
-  if (typeof detail === 'string' && detail.trim() !== '') return { ok: false, message: detail };
-  return { ok: false, message: `The bridge refused the request (HTTP ${response.status}).` };
+  if (typeof detail === 'string' && detail.trim() !== '') {
+    return { ok: false, message: detail, code };
+  }
+  return {
+    ok: false,
+    message: `The bridge refused the request (HTTP ${response.status}).`,
+    code,
+  };
+}
+
+/**
+ * Read the queue now instead of waiting for the next frame.
+ *
+ * One caller, one reason: a start was refused because the queue moved after
+ * the popover rendered it. The list on screen is then known to be out of
+ * date, and the operator is being asked to look again before deciding — so
+ * the item fetches what the bridge holds now rather than leaving the stale
+ * list sitting under the refusal for up to a frame's worth of a second.
+ *
+ * A refresh that fails says nothing: the refusal is the news, the stream is
+ * still coming, and a second message about a failed background read would
+ * only crowd out the first.
+ */
+async function refreshQueue() {
+  /** @type {Response} */
+  let response;
+  try {
+    response = await fetch(withPrefix(`${QUEUE_API}/queue`), {
+      headers: { accept: 'application/json' },
+    });
+  } catch {
+    return;
+  }
+  if (!response.ok) return;
+  try {
+    applyQueueFrame(await response.json(), queueSnapshot.connected);
+  } catch {
+    // Not a body this build can read; the next frame will do.
+  }
+}
+
+/**
+ * The body of a start: the queue the item is showing, quoted back to the
+ * bridge.
+ *
+ * The manager moves `plan_queue_uid` on every queue mutation, so naming the
+ * uid of the last frame is what makes the click mean "start THIS list" — the
+ * one whose rows are on screen above the button — rather than whatever
+ * happens to be queued by the time the bridge arms. A frame carrying no uid
+ * (an unavailable bridge, or one older than the field) names no queue, and
+ * the start binds to nothing exactly as it did before.
+ * @param {QueueSnapshot} snap
+ * @returns {Record<string, unknown>}
+ */
+function startBody(snap) {
+  const uid = snap.status ? snap.status.plan_queue_uid : null;
+  return typeof uid === 'string' && uid !== '' ? { expected_plan_queue_uid: uid } : {};
 }
 
 /**
@@ -406,6 +487,13 @@ function buildPlanQueue(ctx) {
     void queueWrite(path, payload).then((outcome) => {
       note = outcome.ok ? '' : outcome.message;
       renderPop();
+      // The one refusal with its remedy on screen: the start named the queue
+      // the popover was showing, and that queue has moved. The item re-reads
+      // the list so the operator decides against what is actually queued, and
+      // leaves the refusal above it. It never resends — the next click is the
+      // operator approving the queue they can now see.
+      if (outcome.code === QUEUE_CHANGED_CODE) return refreshQueue();
+      return undefined;
     });
   };
 
@@ -468,7 +556,9 @@ function buildPlanQueue(ctx) {
       })
     );
     if (controls === 'full') {
-      const start = button('bar-btn', 'Start', () => write('/queue/start', {}));
+      const start = button('bar-btn', 'Start', () =>
+        write('/queue/start', startBody(queueSnapshot))
+      );
       start.disabled = reading.active || pending.length === 0 || reading.tone === 'err';
       foot.appendChild(start);
     }

@@ -18,6 +18,7 @@ import json
 import pytest
 
 import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
+from tests._control_context_fixtures import pin_identity, state_dir_under
 
 # ---------------------------------------------------------------------------
 # fixtures / helpers
@@ -26,9 +27,15 @@ import osprey.templates.claude_code.claude.hooks.osprey_target_state as reader
 
 @pytest.fixture
 def state_dir(tmp_path, monkeypatch):
-    """Point the reader at an empty temp state directory."""
-    directory = tmp_path / "control_target"
-    directory.mkdir()
+    """Point the reader at an empty temp state directory.
+
+    Shaped like the real one — one identity's directory under
+    ``control_target`` — rather than at the parent of it, so a test that lists
+    the directory or glob-matches reports in it sees what a deployment holds.
+    """
+    pin_identity(monkeypatch)
+    directory = state_dir_under(tmp_path)
+    directory.mkdir(parents=True)
     monkeypatch.setattr(reader, "resolve_state_dir", lambda hook_input=None: str(directory))
     return directory
 
@@ -69,7 +76,7 @@ def write_report(directory, server_pid, **overrides):
         "applied_target": "va",
         "applied_generation": 3,
         "targets": {
-            "live": {"label": "ALS storage ring", "endpoint": "epics://", "real_machine": True},
+            "live": {"label": "Example storage ring", "endpoint": "epics://", "real_machine": True},
             "va": {
                 "label": "Virtual accelerator",
                 "endpoint": "pva://vasrv",
@@ -491,15 +498,39 @@ def test_an_unidentified_target_is_answered_by_every_reachable_one(state_dir):
 
 
 def test_paths_anchor_on_repo_root_and_agent_data(monkeypatch, tmp_path):
-    monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
-    monkeypatch.setattr(reader, "get_repo_root", lambda hook_input=None: str(tmp_path))
+    """Root, state directory, identity, filename — the whole derivation, spelled out.
 
-    expected = tmp_path / reader._AGENT_DATA_BASE_DIR / "control_target"
+    The identity is pinned because this is the test that spells the hops
+    literally: unpinned, the last one is whatever account runs pytest, which
+    states nothing about the layout.
+    """
+    monkeypatch.delenv(reader.AGENT_DATA_ROOT_ENV_VAR, raising=False)
+    monkeypatch.delenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, raising=False)
+    monkeypatch.setattr(reader, "get_repo_root", lambda hook_input=None: str(tmp_path))
+    identity = pin_identity(monkeypatch)
+
+    expected = tmp_path / reader._AGENT_DATA_BASE_DIR / "control_target" / identity
     assert reader.resolve_state_dir() == str(expected)
     assert reader.record_path() == str(expected / "control_context.json")
     assert reader.STATE_DIR_NAME == "control_target"
     assert reader.RECORD_FILENAME == "control_context.json"
     assert reader.REPORT_FILE_GLOB == "server_*.json"
+
+
+def test_the_container_bind_replaces_the_derivation_whole(monkeypatch, tmp_path):
+    """A bound directory is already one identity's; nothing is appended to it.
+
+    The bind is what a multi-user container carries, and the hop it replaces is
+    the one it has already made: appending the identity again would put the hook
+    one directory below the record its own web terminal wrote.
+    """
+    bind = tmp_path / "bound"
+    monkeypatch.setenv(reader.CONTROL_CONTEXT_DIR_ENV_VAR, str(bind))
+    monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path / "ignored"))
+    pin_identity(monkeypatch)
+
+    assert reader.resolve_state_dir() == str(bind)
+    assert reader.record_path() == str(bind / "control_context.json")
 
 
 def test_the_stamped_root_wins_over_the_derivation(monkeypatch, tmp_path):

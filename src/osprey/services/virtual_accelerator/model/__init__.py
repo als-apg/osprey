@@ -70,8 +70,9 @@ siblings and must never pay for -- or hard-depend on -- any of it.
 
 from typing import Any
 
-# name -> submodule it lives in. Extend here when adding an export.
-_LAZY_EXPORTS = {
+#: Public name -> the submodule of this package that defines it. Entries are
+#: resolved on first attribute access, never at import.
+_LAZY_EXPORTS: dict[str, str] = {
     "build_action_variables": ".bindings",
     "build_variable_catalog": ".catalog",
     "couple_energy_knob": ".bindings",
@@ -83,13 +84,16 @@ __all__ = list(_LAZY_EXPORTS)
 
 
 def __getattr__(name: str) -> Any:
+    """Resolve a public name from its defining module on first access."""
     module_name = _LAZY_EXPORTS.get(name)
     if module_name is None:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     from importlib import import_module
 
-    return getattr(import_module(module_name, __name__), name)
+    value = getattr(import_module(module_name, __name__), name)
+    globals()[name] = value
+    return value
 
 
 def __dir__() -> list[str]:
-    return sorted([*globals(), *_LAZY_EXPORTS])
+    return sorted({*globals(), *_LAZY_EXPORTS})

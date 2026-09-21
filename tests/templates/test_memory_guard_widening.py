@@ -175,7 +175,6 @@ def memory_dir_for(hook_home, project):
 # -- Frontmatter is the matcher --
 
 
-@pytest.mark.unit
 def test_frontmatter_declares_every_write_tool():
     """``tools:`` names all three write tools.
 
@@ -188,7 +187,6 @@ def test_frontmatter_declares_every_write_tool():
     assert declared == WRITE_TOOLS
 
 
-@pytest.mark.unit
 def test_frontmatter_uses_alternation_not_commas():
     """The matcher is a regex, so the tools must be pipe-separated.
 
@@ -199,7 +197,6 @@ def test_frontmatter_uses_alternation_not_commas():
     assert _frontmatter()["tools"] == "Write|MultiEdit|NotebookEdit"
 
 
-@pytest.mark.unit
 def test_guard_stays_the_outermost_pretooluse_gate():
     """Widening must not disturb the hook's ordering or wiring."""
     meta = _frontmatter()
@@ -212,7 +209,6 @@ def test_guard_stays_the_outermost_pretooluse_gate():
 # -- Agreement with the rendered allow rule --
 
 
-@pytest.mark.unit
 def test_settings_template_scopes_notebookedit_to_the_agent_data_subdirs():
     """``settings.json.j2`` grants file edits under those two trees and no other.
 
@@ -223,7 +219,6 @@ def test_settings_template_scopes_notebookedit_to_the_agent_data_subdirs():
     assert _template_notebook_subdirs() == NOTEBOOK_SUBDIRS
 
 
-@pytest.mark.unit
 def test_settings_template_renders_no_notebookedit_path_rules():
     """The allow rules are spelled ``Edit(path)``, never ``NotebookEdit(path)``.
 
@@ -234,7 +229,6 @@ def test_settings_template_renders_no_notebookedit_path_rules():
     assert not _TEMPLATE_NOTEBOOKEDIT_RULE_RE.search(SETTINGS_TEMPLATE.read_text(encoding="utf-8"))
 
 
-@pytest.mark.unit
 def test_hook_scopes_notebookedit_to_the_same_subdirectories():
     """The guard names exactly the subdirectories the allow rules do."""
     assert _hook_notebook_subdirs() == NOTEBOOK_SUBDIRS
@@ -244,7 +238,6 @@ def test_hook_scopes_notebookedit_to_the_same_subdirectories():
 # -- MultiEdit is gated like Write --
 
 
-@pytest.mark.unit
 def test_multiedit_outside_memory_dir_is_denied(run_guard, project):
     """``MultiEdit`` to an arbitrary file is refused, as ``Write`` always was."""
     target = str(project / "evil.py")
@@ -254,7 +247,6 @@ def test_multiedit_outside_memory_dir_is_denied(run_guard, project):
     assert _decision(result) == "deny"
 
 
-@pytest.mark.unit
 def test_multiedit_to_memory_file_is_allowed(run_guard, project, hook_home):
     """``MultiEdit`` on a memory ``.md`` file is allowed, like ``Write``."""
     target = str(memory_dir_for(hook_home, project) / "channels.md")
@@ -264,7 +256,6 @@ def test_multiedit_to_memory_file_is_allowed(run_guard, project, hook_home):
     assert _decision(result) == "allow"
 
 
-@pytest.mark.unit
 def test_multiedit_deny_message_names_the_memory_directory(run_guard, project):
     """The refusal tells the agent where it may write instead."""
     result = run_guard("MultiEdit", {"file_path": str(project / "evil.py"), "edits": []})
@@ -277,7 +268,6 @@ def test_multiedit_deny_message_names_the_memory_directory(run_guard, project):
 # -- NotebookEdit is scoped to the agent-data artifacts and notebooks trees --
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
 def test_notebookedit_inside_an_allowed_subdir_is_allowed(run_guard, project, write_config, subdir):
     """A notebook under either agent-data tree is the agent's own."""
@@ -290,7 +280,6 @@ def test_notebookedit_inside_an_allowed_subdir_is_allowed(run_guard, project, wr
     assert _decision(result) == "allow"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
 def test_notebookedit_nested_under_an_allowed_subdir_is_allowed(
     run_guard, project, write_config, subdir
@@ -305,7 +294,6 @@ def test_notebookedit_nested_under_an_allowed_subdir_is_allowed(
     assert _decision(result) == "allow"
 
 
-@pytest.mark.unit
 def test_notebookedit_outside_both_subdirs_is_denied(run_guard, project, write_config):
     """A notebook anywhere else is refused — this is the tool's whole gap."""
     write_config()
@@ -316,7 +304,6 @@ def test_notebookedit_outside_both_subdirs_is_denied(run_guard, project, write_c
     assert _decision(result) == "deny"
 
 
-@pytest.mark.unit
 def test_notebookedit_into_memory_dir_is_denied(run_guard, project, hook_home, write_config):
     """The two scopes are separate: a notebook may not target the memory dir."""
     write_config()
@@ -327,7 +314,6 @@ def test_notebookedit_into_memory_dir_is_denied(run_guard, project, hook_home, w
     assert _decision(result) == "deny"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
 def test_notebookedit_honours_relocated_agent_data_root(run_guard, project, write_config, subdir):
     """An overridden ``agent_data.base_dir`` moves both allowed directories with it.
@@ -345,7 +331,6 @@ def test_notebookedit_honours_relocated_agent_data_root(run_guard, project, writ
     assert _decision(result) == "allow"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
 def test_notebookedit_at_default_root_denied_when_root_relocated(
     run_guard, project, write_config, subdir
@@ -360,7 +345,6 @@ def test_notebookedit_at_default_root_denied_when_root_relocated(
     assert _decision(result) == "deny"
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("subdir", sorted(NOTEBOOK_SUBDIRS))
 def test_notebookedit_traversal_is_denied(run_guard, project, write_config, subdir):
     """``..`` in the raw path is refused even when it resolves back inside."""
@@ -374,7 +358,6 @@ def test_notebookedit_traversal_is_denied(run_guard, project, write_config, subd
     assert _decision(result) == "deny"
 
 
-@pytest.mark.unit
 def test_notebookedit_without_a_path_is_denied(run_guard, write_config):
     """A notebook edit naming no target is refused, not waved through."""
     write_config()
@@ -384,7 +367,6 @@ def test_notebookedit_without_a_path_is_denied(run_guard, write_config):
     assert _decision(result) == "deny"
 
 
-@pytest.mark.unit
 def test_notebookedit_deny_message_names_both_allowed_directories(run_guard, project, write_config):
     """The refusal points at both agent-data trees, not at the memory directory."""
     write_config()
@@ -400,7 +382,6 @@ def test_notebookedit_deny_message_names_both_allowed_directories(run_guard, pro
 # -- The original Write contract is unchanged --
 
 
-@pytest.mark.unit
 def test_write_to_memory_file_still_allowed(run_guard, project, hook_home):
     """Widening the guard did not disturb the branch it already had."""
     target = str(memory_dir_for(hook_home, project) / "MEMORY.md")
@@ -410,7 +391,6 @@ def test_write_to_memory_file_still_allowed(run_guard, project, hook_home):
     assert _decision(result) == "allow"
 
 
-@pytest.mark.unit
 def test_write_outside_memory_dir_still_denied(run_guard, project):
     """Arbitrary ``Write`` remains refused."""
     result = run_guard("Write", {"file_path": str(project / "CLAUDE.md"), "content": "x"})
@@ -418,7 +398,6 @@ def test_write_outside_memory_dir_still_denied(run_guard, project):
     assert _decision(result) == "deny"
 
 
-@pytest.mark.unit
 def test_read_tool_passes_through(run_guard):
     """A tool that writes nothing gets no opinion, so other gates still decide."""
     result = run_guard("Read", {"file_path": "/etc/passwd"})

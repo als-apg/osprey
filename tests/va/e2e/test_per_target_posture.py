@@ -258,6 +258,15 @@ def _served(port: int) -> bool:
     synchronous pyepics in a thread-pool executor whose CA context is
     per-thread, so a main-thread pyepics call in *this* process would deadlock
     the children these tests spend their time talking to.
+
+    It leaves through ``os._exit`` for that file's other reason: a bare
+    ``caget`` child builds no connector, so pyepics' ``finalize_libca`` is
+    still on its exit hooks. That finalizer's recorded hang follows Channel
+    Access use on a worker thread -- what the connector's executor does --
+    rather than the one main-thread ``caget`` this child makes, which has
+    not been seen to hang. The forced exit is kept as a bound that costs
+    nothing: a probe that will not die is read here as a container that is
+    not serving, and the word is written and flushed before the exit.
     """
     code = (
         "import sys, epics\n"
@@ -698,11 +707,16 @@ def gates_are_silent() -> bool:
 #:
 #: The verdict is written to a file rather than printed, because registry
 #: initialisation is chatty on both streams and a result parsed out of that
-#: noise would be a result this test could misread. The exit is abrupt for the
-#: reason ``osprey_connectors.ipc.host`` states of its own: a process that has
-#: held a Channel Access context can block forever in pyepics'
-#: ``finalize_libca`` atexit hook, and a sandbox that will not die is worse than
-#: one that skips its hooks.
+#: noise would be a result this test could misread.
+#:
+#: The exit is abrupt because the executor's own wrapper ends that way, and a
+#: stand-in that left through interpreter shutdown would be standing in for
+#: something the executor never runs. Shutdown would otherwise reach
+#: ``osprey.runtime``'s connector-teardown hook, which tears a Channel Access
+#: circuit down at interpreter exit -- work the executor never asks of a
+#: sandbox, and the sequence ``tests/e2e/_va_host_ca_op.py`` force-exits to
+#: stay clear of for reasons of its own. The verdict is on disk and both
+#: streams are flushed by then, so leaving abruptly costs this test nothing.
 _SANDBOX_WRITE = """
 import json
 import os

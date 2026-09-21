@@ -397,10 +397,6 @@ def _repo(tmp_path: Path) -> Path:
 @pytest.fixture
 def start_stack_stubs(monkeypatch):
     """The host-touching preflights ``_start_stack`` runs before its compose calls."""
-    # An operator who exported the prebuilt-images switch in their shell would
-    # otherwise silently delete `compose build` from every start sequence below,
-    # reddening tests that are about spooling and have no stake in the switch.
-    monkeypatch.delenv("OSPREY_PREBUILT_IMAGES", raising=False)
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(container_lifecycle, "_preflight_host_ports", lambda config, files: None)
     # Asks the runtime which of this project's data volumes exist. Stubbed for

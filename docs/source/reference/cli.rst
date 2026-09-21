@@ -365,7 +365,7 @@ Render this deployment repository's ``build/`` from its profile.
 
 Run it with no arguments, anywhere inside a deployment repository. It walks up
 to the repository's ``profile.yml`` and renders the whole output zone from it:
-``config.yml``, the Osprey agent artifacts, the data tree, the service templates
+``config.yml``, the OSPREY agent artifacts, the data tree, the service templates
 and the compose files that deploy them.
 
 ``build/`` is derived in full and holds nothing durable — your keys are in
@@ -1279,8 +1279,8 @@ osprey artifacts
 ================
 
 Manage the OSPREY Artifact Gallery -- a local web gallery that displays
-interactive plots, tables, and other outputs produced by the Osprey agent during
-analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact()`` in
+interactive plots, tables, and other outputs produced by the OSPREY agent during
+analysis sessions. Artifacts are written by the OSPREY agent via ``save_artifact()`` in
 ``osprey execute`` or the ``artifact_register`` MCP tool.
 
 ``osprey artifacts web [OPTIONS]``

@@ -226,20 +226,20 @@ def test_list_entries_passes_pagination_and_filters(client, mock_ariel_service):
     mock_ariel_service.repository.count_entries = AsyncMock(return_value=100)
     mock_ariel_service.repository.search_by_time_range = AsyncMock(return_value=[])
 
-    response = client.get("/api/entries?page=3&page_size=20&author=alice&source_system=ALS")
+    response = client.get("/api/entries?page=3&page_size=20&author=alice&source_system=ERF")
 
     assert response.status_code == 200
     _args, kwargs = mock_ariel_service.repository.search_by_time_range.call_args
     assert kwargs["limit"] == 20
     assert kwargs["offset"] == 40  # (page - 1) * page_size
     assert kwargs["author"] == "alice"
-    assert kwargs["source_system"] == "ALS"
+    assert kwargs["source_system"] == "ERF"
 
     # total_pages must reflect the filtered set, so count_entries gets the same
     # author/source filters (not an unfiltered whole-table count).
     _cargs, ckwargs = mock_ariel_service.repository.count_entries.call_args
     assert ckwargs["author"] == "alice"
-    assert ckwargs["source_system"] == "ALS"
+    assert ckwargs["source_system"] == "ERF"
 
 
 def test_list_entries_advertises_no_sort_order(client):
@@ -369,7 +369,7 @@ def test_create_entry_auth_required_returns_401(client, mock_ariel_service):
     mock_ariel_service.create_entry = AsyncMock(
         side_effect=AuthenticationRequiredError(
             "OLOG publishing requires credentials.",
-            source_system="ALS eLog",
+            source_system="Example eLog",
         )
     )
     mock_ariel_service.repository.upsert_entry = AsyncMock()
@@ -393,8 +393,8 @@ def test_create_entry_publish_failure_returns_502(client, mock_ariel_service):
 
     mock_ariel_service.create_entry = AsyncMock(
         side_effect=IngestionError(
-            "ALS olog write failed with HTTP 403: bad password",
-            source_system="ALS eLog",
+            "Example olog write failed with HTTP 403: bad password",
+            source_system="Example eLog",
         )
     )
     mock_ariel_service.repository.upsert_entry = AsyncMock()
@@ -419,7 +419,7 @@ def test_upload_auth_required_returns_401(client, mock_ariel_service):
     from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
 
     mock_ariel_service.create_entry = AsyncMock(
-        side_effect=AuthenticationRequiredError("creds required", source_system="ALS eLog")
+        side_effect=AuthenticationRequiredError("creds required", source_system="Example eLog")
     )
     mock_ariel_service.repository.upsert_entry = AsyncMock()
     mock_ariel_service.repository.store_attachment = AsyncMock()
@@ -442,7 +442,7 @@ def test_upload_publish_failure_returns_502(client, mock_ariel_service):
     from osprey.services.ariel_search.exceptions import IngestionError
 
     mock_ariel_service.create_entry = AsyncMock(
-        side_effect=IngestionError("olog down", source_system="ALS eLog")
+        side_effect=IngestionError("olog down", source_system="Example eLog")
     )
     mock_ariel_service.repository.upsert_entry = AsyncMock()
     mock_ariel_service.repository.store_attachment = AsyncMock()
@@ -496,9 +496,9 @@ def test_upload_publish_success_stores_attachments_locally(client, mock_ariel_se
     mock_ariel_service.create_entry = AsyncMock(
         return_value=FacilityEntryCreateResult(
             entry_id="99999",
-            source_system="ALS eLog",
+            source_system="Example eLog",
             sync_status=SyncStatus.PENDING_SYNC,
-            message="Entry 99999 created in ALS eLog",
+            message="Entry 99999 created in Example eLog",
         )
     )
     mock_ariel_service.repository.store_attachment = AsyncMock()
@@ -506,7 +506,7 @@ def test_upload_publish_success_stores_attachments_locally(client, mock_ariel_se
     mock_ariel_service.repository.get_entry = AsyncMock(
         return_value={
             "entry_id": "99999",
-            "source_system": "ALS eLog",
+            "source_system": "Example eLog",
             "timestamp": datetime.now(),
             "author": "op",
             "raw_text": "Test\n\nBody",
@@ -541,7 +541,9 @@ def _mock_adapter(*, supports_write, requires_write_auth, source_system):
 
 def test_publish_info_requires_auth(client, mock_ariel_service):
     """A write adapter that needs credentials reports requires_auth=True."""
-    adapter = _mock_adapter(supports_write=True, requires_write_auth=True, source_system="ALS eLog")
+    adapter = _mock_adapter(
+        supports_write=True, requires_write_auth=True, source_system="Example eLog"
+    )
     with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
         response = client.get("/api/publish-info")
 
@@ -549,7 +551,7 @@ def test_publish_info_requires_auth(client, mock_ariel_service):
     data = response.json()
     assert data["supports_write"] is True
     assert data["requires_auth"] is True
-    assert data["source_system"] == "ALS eLog"
+    assert data["source_system"] == "Example eLog"
 
 
 def test_publish_info_no_auth(client, mock_ariel_service):

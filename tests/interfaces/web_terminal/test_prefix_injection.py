@@ -26,11 +26,14 @@ shape asserted here is load-bearing.
 from __future__ import annotations
 
 import os
+import string
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
+from osprey.interfaces.common_middleware import MOUNT_SEGMENT_RE
 from osprey.interfaces.web_terminal.app import compute_url_prefix, create_app
 
 # (page id, request path) -- both served HTML documents in scope.
@@ -71,6 +74,91 @@ class TestComputeUrlPrefix:
     def test_empty_when_blank(self):
         with patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "   "}):
             assert compute_url_prefix() == ""
+
+
+class TestAMountMustBeSpellable:
+    """A name the prefix cannot carry is refused, not spelled.
+
+    The prefix is put into URL paths and into header values — the
+    forwarded-prefix every proxied panel request carries, the token exchange's
+    ``Location`` — with no escaping on either side, and nginx matches the
+    container's mount against the literal name. A name outside that class
+    therefore has no front door to arrive through and fails the panel hop on
+    the way out, so it is refused where it is read: the container does not
+    start, and the message names the variable that has to change.
+
+    A dot-segment is refused for a second reason: ``/u/..`` is spelled from
+    characters a path may carry, and still climbs out of the mount it claims to
+    name wherever something resolves it.
+    """
+
+    #: Names outside the class, one per way of leaving it.
+    REFUSED = [
+        "renée",
+        "bob/../x",
+        "alice bob",
+        "al%69ce",
+        "alice\nbob",
+        ".",
+        "..",
+        "-x",
+    ]
+
+    @pytest.mark.parametrize("name", REFUSED)
+    def test_a_name_no_front_door_can_route_is_refused(self, name):
+        with patch.dict("os.environ", {"OSPREY_TERMINAL_USER": f" {name} "}):
+            with pytest.raises(ValueError) as refusal:
+                compute_url_prefix()
+
+        message = str(refusal.value)
+        assert "OSPREY_TERMINAL_USER" in message
+        assert repr(name) in message
+
+    @pytest.mark.parametrize("name", ["alice", "web-1", "a_b", "ALICE", "v1.2"])
+    def test_every_name_the_roster_can_carry_is_spelled(self, name):
+        """The render gate's charset is narrower, so what it admits clears this.
+
+        Pinned by construction rather than by importing that pattern: the two
+        gates answer different questions (which names a deployment can keep
+        apart, which names this process can spell), and a row that admits more
+        than the roster does is the one that keeps this one from tightening
+        into a second roster rule.
+        """
+        with patch.dict("os.environ", {"OSPREY_TERMINAL_USER": name}):
+            assert compute_url_prefix() == f"/u/{name}"
+
+    def test_no_name_the_render_gate_admits_is_refused_here(self):
+        """Containment, character by character, so the two cannot cross.
+
+        The render gate is the narrower of the pair and produces every value
+        this one reads in a deployed container. Loosening it by one character
+        that a mount cannot spell would turn a rendered roster into a container
+        that refuses to start, and the roster is written long before anyone
+        finds that out.
+        """
+        alphabet = string.printable + "éü中"
+
+        for char in alphabet:
+            for name in (char, f"a{char}", f"a{char}b"):
+                if USERNAME_CHARSET_RE.fullmatch(name):
+                    assert MOUNT_SEGMENT_RE.fullmatch(name), name
+
+    def test_a_container_named_outside_the_class_never_serves(self, workspace_dir):
+        """The refusal lands at construction, before anything is served.
+
+        ``create_app`` computes the mount once, so a misconfigured name costs
+        the container its start — an operator reads one message in the logs
+        instead of one 500 per panel, none of which names the variable.
+        """
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value={"watch_dir": str(workspace_dir)},
+            ),
+            patch.dict("os.environ", {"OSPREY_TERMINAL_USER": "renée"}),
+            pytest.raises(ValueError, match="OSPREY_TERMINAL_USER"),
+        ):
+            create_app(shell_command="echo")
 
 
 class TestPrefixInjection:

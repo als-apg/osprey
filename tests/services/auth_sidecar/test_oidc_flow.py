@@ -50,6 +50,7 @@ from osprey.services.auth_sidecar.routes.oidc import (
     CLIENT_NAME,
     LOGIN_PATH,
     PENDING_FLOW_SESSION_KEY,
+    RoleBinding,
 )
 from osprey.services.auth_sidecar.routes.recheck import ENV_ROSTER_ROLE_PREFIX, ROLE_SOURCE_ROSTER
 from osprey.services.auth_sidecar.routes.verify import VERIFY_PATH
@@ -286,6 +287,62 @@ def test_a_real_handshake_unlocks_the_clicked_user(idp: MockIdP) -> None:
     assert authorize["scope"] == " ".join(DEFAULT_OIDC_SCOPES)
     # `openid` in the scope is what makes Authlib generate and later check a nonce.
     assert authorize["nonce"]
+
+
+def test_the_authorization_request_carries_no_claims_parameter_by_default(
+    idp: MockIdP,
+) -> None:
+    """Off is off: the URL a deployment sends today is the URL it keeps sending.
+
+    The OIDC ``claims`` parameter is optional and a provider may refuse a
+    request that carries it, so it appears only when the deployment asks.
+    """
+    with _browser(_sidecar(idp)) as client:
+        _log_in(client, "alice")
+
+    assert "claims" not in idp.authorize_requests[-1]
+
+
+def test_the_authorization_request_asks_for_the_identity_claim_in_the_id_token(
+    idp: MockIdP,
+) -> None:
+    """With the switch on, the OIDC ``claims`` parameter rides the real URL.
+
+    Authlib has to forward the keyword into the query for this to work at all,
+    which is what a real client against a listening provider proves. The
+    identity claim is essential — without it the login is refused — and
+    ``email_verified`` is asked for voluntarily because the token gate reads
+    it. Nothing goes under ``userinfo``: the sidecar never calls it.
+    """
+    app = _sidecar(
+        idp,
+        OSPREY_AUTH_OIDC_CLAIM="email",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice.example@example.org",
+        OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN="true",
+    )
+    with _browser(app) as client:
+        _log_in(client, "alice")
+
+    requested = json.loads(idp.authorize_requests[-1]["claims"])
+    assert requested == {"id_token": {"email": {"essential": True}, "email_verified": None}}
+
+
+def test_the_authorization_request_asks_for_the_role_claim_when_roles_are_bound(
+    idp: MockIdP,
+) -> None:
+    """A deployment that binds roles needs the group claim in the same token.
+
+    Voluntary, not essential: a missing group claim has its own audited
+    refusal category, and letting the provider refuse the whole request over
+    it would hide that diagnosis.
+    """
+    app = _sidecar(idp, OSPREY_AUTH_OIDC_CLAIMS_IN_ID_TOKEN="true")
+    app.state.role_binding = RoleBinding(claim="groups", claim_map={"ca-operators": "operator"})
+    with _browser(app) as client:
+        _log_in(client, "alice")
+
+    requested = json.loads(idp.authorize_requests[-1]["claims"])
+    assert requested == {"id_token": {"sub": {"essential": True}, "groups": None}}
 
 
 def test_the_redirect_uri_is_identical_on_both_legs(idp: MockIdP) -> None:
@@ -976,7 +1033,7 @@ DANA_EMAIL = "dana@example.org"
 
 ALICE_EMAIL = "alice@example.org"
 CAROL_EMAIL = "carol@example.org"
-BOB_OUTSIDE_EMAIL = "bob@lbl.gov"
+BOB_OUTSIDE_EMAIL = "bob@example.com"
 """bob's own mapping, deliberately outside the domain his card names."""
 
 DOMAIN_RULE = access_wire_value(frozenset({f"domain:{DOMAIN}"}))
@@ -1185,11 +1242,11 @@ def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
     match is not consulted at all — a card that still ran it would make
     ``roster`` an unremovable member of every rule.
     """
-    _asserts(idp, "alice@lbl.gov")
+    _asserts(idp, "alice@example.com")
     app = _rule_sidecar(
         idp,
         DOMAIN_RULE,
-        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@lbl.gov",
+        OSPREY_AUTH_OIDC_SUBJECT_ALICE="alice@example.com",
     )
     with _browser(app) as client:
         response = _log_in(client, "bob")
@@ -1206,7 +1263,7 @@ def test_a_mapped_roster_identity_outside_the_domain_is_not_admitted(
     [
         (DANA_EMAIL, {"hd": "other.example"}, audit.REASON_HOSTED_DOMAIN_MISMATCH),
         (DANA_EMAIL, {"email_verified": False}, audit.REASON_UNVERIFIED_EMAIL),
-        ("dana@lbl.gov", {}, audit.REASON_NO_COVERING_PRINCIPAL),
+        ("dana@example.com", {}, audit.REASON_NO_COVERING_PRINCIPAL),
     ],
     ids=["hosted-domain-disagrees", "address-unverified", "no-covering-principal"],
 )

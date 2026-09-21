@@ -24,7 +24,10 @@ from ``bluesky/server_context.py`` for translating a non-2xx bridge response.
 Every write this module makes carries a fixed ``client_id: "mcp-agent"`` so
 the bridge's SSE frames (and the human's BLUESKY panel) can distinguish agent
 edits from the human's own, and so the panel's echo-suppression never
-swallows an agent edit.
+swallows an agent edit. Every write also carries the owner stamp
+``server_context._with_owner`` composes, the same one the queue writes carry:
+``client_id`` says which surface an edit came from, the stamp says which
+person, and on a surface two parties share both answers are worth keeping.
 
 **Drafts are per PLAN LANE, and revisions with them.** The draft is state held
 by a bridge process (one singleton draft plus one monotonic revision counter
@@ -55,6 +58,7 @@ from osprey.mcp_server.bluesky.server_context import (
     _http_delete_json,
     _http_get_json,
     _http_patch_json,
+    _with_owner,
     addressed_lane_key,
     bridge_error_message,
 )
@@ -210,8 +214,9 @@ async def set_draft(
         payload["remove"] = remove
 
     lane = addressed_lane_key()
+    headers = _with_owner(None)
     status, body = await anyio.to_thread.run_sync(
-        lambda: _http_patch_json("/draft", payload, lane=lane)
+        lambda: _http_patch_json("/draft", payload, headers=headers, lane=lane)
     )
     if status == 409 and isinstance(body, dict) and body.get("code") == "no_draft":
         return make_error(
@@ -264,8 +269,9 @@ async def clear_draft() -> str:
         lane's draft is untouched.
     """
     lane = addressed_lane_key()
+    headers = _with_owner(None)
     status, body = await anyio.to_thread.run_sync(
-        lambda: _http_delete_json(f"/draft?client_id={_CLIENT_ID}", lane=lane)
+        lambda: _http_delete_json(f"/draft?client_id={_CLIENT_ID}", headers=headers, lane=lane)
     )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))

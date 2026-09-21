@@ -31,7 +31,11 @@ import time
 
 import pytest
 
-from tests._control_context_fixtures import write_control_context, write_server_report
+from tests._control_context_fixtures import (
+    state_dir_under,
+    write_control_context,
+    write_server_report,
+)
 
 LIVE_ENDPOINT = "pva://live-gw.example.org:5075"
 VA_ENDPOINT = "pva://127.0.0.1:5074"
@@ -82,15 +86,22 @@ def root(tmp_path, monkeypatch):
     developer's own deployment.
     """
     directory = tmp_path / "agent_data"
-    (directory / "control_target").mkdir(parents=True)
+    state_dir_under(directory).mkdir(parents=True)
     monkeypatch.setenv("OSPREY_AGENT_DATA_ROOT", str(directory))
     return directory
 
 
 @pytest.fixture
 def state_dir(root):
-    """The directory the record, the reports and the stamps share."""
-    return root / "control_target"
+    """The directory the record, the reports and the stamps share.
+
+    One directory per identity below the root, asked of
+    :func:`~tests._control_context_fixtures.state_dir_under` rather than joined
+    here: a suite that spelled the hops itself would keep provisioning a
+    directory no reader resolves, and an empty stamp listing is the only
+    symptom that leaves behind.
+    """
+    return state_dir_under(root)
 
 
 @pytest.fixture
@@ -162,7 +173,6 @@ def reason_of(output):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_a_channel_write_ask_stamps_the_binding_it_rendered(approval, root, state_dir, session):
     """The ask carries the target line; the stamp carries the same record."""
     publish(root, target="live", generation=7)
@@ -179,7 +189,6 @@ def test_a_channel_write_ask_stamps_the_binding_it_rendered(approval, root, stat
     assert stamps[0]["tool"] == "channel_write"
 
 
-@pytest.mark.unit
 def test_the_stamp_names_the_audit_session_that_rendered_it(approval, root, state_dir, session):
     """``session`` is the third field of the key, and it comes off the environment.
 
@@ -194,7 +203,6 @@ def test_the_stamp_names_the_audit_session_that_rendered_it(approval, root, stat
     assert stamps_in(state_dir)[0]["session"] == SESSION_A
 
 
-@pytest.mark.unit
 def test_a_session_less_render_stamps_a_null_session(approval, root, state_dir, no_session):
     """A bare ``claude`` has no audit session, and the stamp says so plainly.
 
@@ -208,7 +216,6 @@ def test_a_session_less_render_stamps_a_null_session(approval, root, state_dir, 
     assert stamps_in(state_dir)[0]["session"] is None
 
 
-@pytest.mark.unit
 def test_the_stamp_carries_no_process_identity(approval, root, state_dir, session):
     """No pid in the stamp: the context is the deployment's, not a process tree's.
 
@@ -223,7 +230,6 @@ def test_the_stamp_carries_no_process_identity(approval, root, state_dir, sessio
     assert "server_pid" not in stamps_in(state_dir)[0]
 
 
-@pytest.mark.unit
 def test_an_unpublished_deployment_stamps_an_unpublished_binding(
     approval, root, state_dir, session
 ):
@@ -249,7 +255,6 @@ def test_an_unpublished_deployment_stamps_an_unpublished_binding(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 @pytest.mark.parametrize("confirm", [_UNSET, True, False])
 def test_the_stamp_is_filed_under_the_name_the_server_looks_it_up_by(
     approval, root, state_dir, session, confirm
@@ -283,7 +288,6 @@ def test_the_stamp_is_filed_under_the_name_the_server_looks_it_up_by(
     assert binding == ("va", 3)
 
 
-@pytest.mark.unit
 def test_the_file_name_carries_the_session_as_well_as_the_payload(
     approval, root, state_dir, monkeypatch
 ):
@@ -306,7 +310,6 @@ def test_the_file_name_carries_the_session_as_well_as_the_payload(
     assert {stamp["session"] for stamp in stamps_in(state_dir)} == {SESSION_A, SESSION_B}
 
 
-@pytest.mark.unit
 def test_session_less_siblings_share_one_file(approval, root, state_dir, no_session):
     """Two unattributed renders of the same write collide, and that is benign.
 
@@ -326,7 +329,6 @@ def test_session_less_siblings_share_one_file(approval, root, state_dir, no_sess
     assert len(first) == 1
 
 
-@pytest.mark.unit
 def test_the_confirmation_setting_is_part_of_the_approval_identity(approval):
     """Three different writes, three different keys.
 
@@ -349,7 +351,6 @@ def test_the_confirmation_setting_is_part_of_the_approval_identity(approval):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_a_server_claims_only_stamps_from_its_own_session(monkeypatch):
     """`_stamp_is_ours` is an equality on the audit session, and nothing looser."""
     from osprey.mcp_server.control_system.tools import channel_write as tool
@@ -363,7 +364,6 @@ def test_a_server_claims_only_stamps_from_its_own_session(monkeypatch):
     assert not tool._stamp_is_ours("not a stamp")
 
 
-@pytest.mark.unit
 def test_a_session_less_server_claims_only_session_less_stamps(monkeypatch):
     """With nothing to attribute by, "ours" is the other unattributed renders.
 
@@ -379,7 +379,6 @@ def test_a_session_less_server_claims_only_session_less_stamps(monkeypatch):
     assert not tool._stamp_is_ours({"session": SESSION_A})
 
 
-@pytest.mark.unit
 def test_a_stamp_from_another_session_is_not_compared_against(
     approval, root, state_dir, monkeypatch
 ):
@@ -410,7 +409,6 @@ def test_a_stamp_from_another_session_is_not_compared_against(
     assert tool._read_approval_stamp(tool_input["operations"], None) == (False, None)
 
 
-@pytest.mark.unit
 def test_a_key_miss_is_reported_when_this_session_has_other_stamps(
     approval, root, state_dir, monkeypatch, caplog
 ):
@@ -435,7 +433,6 @@ def test_a_key_miss_is_reported_when_this_session_has_other_stamps(
     assert "deriving different keys" in caplog.text
 
 
-@pytest.mark.unit
 def test_a_session_less_server_does_not_report_a_key_miss(
     approval, root, state_dir, monkeypatch, caplog, no_session
 ):
@@ -465,7 +462,6 @@ def test_a_session_less_server_does_not_report_a_key_miss(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_other_tools_are_not_stamped(approval, root, state_dir, session):
     """Only a write binds itself to a target; every other ask leaves nothing."""
     publish(root)
@@ -477,7 +473,6 @@ def test_other_tools_are_not_stamped(approval, root, state_dir, session):
     assert stamps_in(state_dir) == []
 
 
-@pytest.mark.unit
 def test_the_legacy_single_channel_payload_is_not_stamped(approval, root, state_dir, session):
     """A payload shape the tool does not accept cannot be correlated with a call.
 
@@ -495,7 +490,6 @@ def test_the_legacy_single_channel_payload_is_not_stamped(approval, root, state_
     assert stamps_in(state_dir) == []
 
 
-@pytest.mark.unit
 def test_an_unwritable_state_directory_still_renders_the_prompt(
     approval, reader, session, monkeypatch, tmp_path
 ):
@@ -514,7 +508,6 @@ def test_an_unwritable_state_directory_still_renders_the_prompt(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.unit
 def test_expired_stamps_are_swept_when_a_new_one_is_written(approval, root, state_dir, session):
     """The directory must not grow one file per write for the life of a project."""
     publish(root)
@@ -529,7 +522,6 @@ def test_expired_stamps_are_swept_when_a_new_one_is_written(approval, root, stat
     assert len(stamps_in(state_dir)) == 1
 
 
-@pytest.mark.unit
 def test_a_stamp_is_neither_the_record_nor_a_server_report(approval, root, state_dir, session):
     """The readers glob ``server_*.json`` and name ``control_context.json``.
 
@@ -544,3 +536,280 @@ def test_a_stamp_is_neither_the_record_nor_a_server_report(approval, root, state
     assert [path.name for path in state_dir.glob("server_*.json")] == [f"server_{os.getpid()}.json"]
     assert len(stamp_files(state_dir)) == 1
     assert approval._target_line(hook_input_for(write_payload())).startswith("Target: LIVE MACHINE")
+
+
+# ---------------------------------------------------------------------------
+# the stamp a rendered `queue_start` approval leaves for the queue tool
+# ---------------------------------------------------------------------------
+#
+# A start carries at most a lane id, so the thing the human approved is the
+# queue they were SHOWN — a list that any later add, move or remove replaces.
+# The prompt therefore writes down the queue token it listed, the queue tool
+# quotes it back as `expected_plan_queue_uid`, and the bridge refuses a start
+# whose queue has moved since. The three properties pinned below are the ones
+# that make that binding trustworthy: one file per lane (parallel tool calls
+# render both prompts before either tool runs, so a shared file would let the
+# survivor unbind the other lane's start); a render that showed NO queue nulls
+# every token of the session, so a previous prompt's token cannot outlive the
+# prompt that replaced it; and a session-less render stamps nothing at all.
+
+#: The tool name Claude Code passes for the Bluesky queue's start tool.
+QUEUE_START = "mcp__bluesky__queue_start"
+
+#: A two-lane deployment, which is the only shape in which a start is an
+#: ADDRESS: each lane drives its own machine, so each needs its own stamp.
+TWO_LANE_CONFIG = {
+    "services": {
+        "bluesky": {"port": 60101, "target": "live"},
+        "bluesky_va": {"port": 60102, "target": "va"},
+    }
+}
+
+#: A lane the rendered config publishes no port for — the bridge that was never
+#: given an address, as distinct from one that did not answer.
+UNADDRESSABLE_LANE_CONFIG = {
+    "services": {
+        "bluesky": {"port": 60101, "target": "live"},
+        "bluesky_va": {"target": "va"},
+    }
+}
+
+
+def queue_snapshot(uid="uid-1"):
+    """`GET /queue` as the bridge answers it, carrying the queue's token."""
+    return {
+        "status": {"manager_state": "idle", "plan_queue_uid": uid},
+        "items": [],
+        "running_item": None,
+    }
+
+
+def queue_stamps_in(directory):
+    """Every queue-start stamp in *directory*, parsed, keyed by file name."""
+    return {
+        path.name: json.loads(path.read_text(encoding="utf-8"))
+        for path in directory.glob("queue_start_approval_*.json")
+    }
+
+
+def queue_stamp_name(approval, session, lane):
+    """The name the hook files a stamp for *session*/*lane* under."""
+    return f"queue_start_approval_{approval.write_approval_session_slug(session)}_{lane}.json"
+
+
+@pytest.fixture
+def bridge(monkeypatch):
+    """An address for lane 1. No test dials it — every fetch is patched out."""
+    monkeypatch.setenv("BLUESKY_BRIDGE_URL", "http://127.0.0.1:60101")
+
+
+def render_start(approval, monkeypatch, *, snapshot, lane=None, config=None):
+    """Render a start prompt whose bridge answer is pinned to *snapshot*.
+
+    The listing itself is stubbed out: these tests are about the stamp, and the
+    lines under it are pinned in `test_approval_queue_enrichment.py` against a
+    real HTTP server. Stubbing the fetch is also what keeps them offline — the
+    ports these lanes publish have nothing behind them.
+    """
+    monkeypatch.setattr(approval, "_queue_snapshot", lambda base_url: snapshot)
+    monkeypatch.setattr(approval, "_queue_item_lines", lambda snapshot, base_url: [])
+    tool_input = {"lane": lane} if lane else {}
+    return approval._describe_queue_start(
+        tool_input,
+        config if config is not None else {},
+        hook_input_for(tool_input, QUEUE_START),
+        read_record=lambda: None,
+    )
+
+
+def test_a_queue_start_render_stamps_the_lane_and_the_queue_token(
+    approval, root, state_dir, session, bridge, monkeypatch
+):
+    """The prompt listed a queue; the stamp says which lane's, and at which token."""
+    lines = render_start(approval, monkeypatch, snapshot=queue_snapshot("uid-1"))
+
+    stamps = queue_stamps_in(state_dir)
+    name = queue_stamp_name(approval, SESSION_A, "bluesky")
+    assert list(stamps) == [name]
+    assert stamps[name]["lane"] == "bluesky"
+    assert stamps[name]["plan_queue_uid"] == "uid-1"
+    assert stamps[name]["ts"] == pytest.approx(time.time(), abs=60)
+    assert "EVERY pending item" in "\n".join(lines)
+
+
+def test_two_lanes_prompted_in_one_turn_leave_one_queue_start_stamp_each(
+    approval, root, state_dir, session, bridge, monkeypatch
+):
+    """Parallel tool calls render both prompts before either tool runs.
+
+    One file per session would let whichever prompt rendered second overwrite
+    the first lane's token, and that lane's start would then quote a token from
+    a queue nobody showed its approver.
+    """
+    render_start(
+        approval,
+        monkeypatch,
+        snapshot=queue_snapshot("uid-1"),
+        lane="bluesky",
+        config=TWO_LANE_CONFIG,
+    )
+    render_start(
+        approval,
+        monkeypatch,
+        snapshot=queue_snapshot("uid-2"),
+        lane="bluesky_va",
+        config=TWO_LANE_CONFIG,
+    )
+
+    stamps = queue_stamps_in(state_dir)
+    assert sorted(stamps) == sorted(
+        [
+            queue_stamp_name(approval, SESSION_A, "bluesky"),
+            queue_stamp_name(approval, SESSION_A, "bluesky_va"),
+        ]
+    )
+    assert {payload["lane"]: payload["plan_queue_uid"] for payload in stamps.values()} == {
+        "bluesky": "uid-1",
+        "bluesky_va": "uid-2",
+    }
+
+
+def test_an_unreachable_bridge_nulls_every_queue_start_stamp_of_the_session(
+    approval, root, state_dir, session, bridge, monkeypatch
+):
+    """A prompt that showed no queue must leave no token behind it.
+
+    Both lanes are nulled, not only the one being rendered: what the approver
+    is being shown right now is no queue at all, and a surviving token on the
+    other lane would be a binding no prompt ever made.
+    """
+    render_start(
+        approval,
+        monkeypatch,
+        snapshot=queue_snapshot("uid-1"),
+        lane="bluesky",
+        config=TWO_LANE_CONFIG,
+    )
+    render_start(
+        approval,
+        monkeypatch,
+        snapshot=queue_snapshot("uid-2"),
+        lane="bluesky_va",
+        config=TWO_LANE_CONFIG,
+    )
+
+    lines = render_start(
+        approval, monkeypatch, snapshot=None, lane="bluesky", config=TWO_LANE_CONFIG
+    )
+
+    stamps = queue_stamps_in(state_dir)
+    assert len(stamps) == 2
+    assert {payload["plan_queue_uid"] for payload in stamps.values()} == {None}
+    assert {payload["lane"] for payload in stamps.values()} == {"bluesky", "bluesky_va"}
+    assert "the bridge could not be reached" in "\n".join(lines)
+
+
+def test_a_start_naming_no_lane_nulls_every_queue_start_stamp_of_the_session(
+    approval, root, state_dir, session, bridge, monkeypatch
+):
+    """The multi-lane no-lane return shows no queue either — and is the one a
+    session reaches without the bridge ever being asked."""
+    render_start(
+        approval,
+        monkeypatch,
+        snapshot=queue_snapshot("uid-1"),
+        lane="bluesky",
+        config=TWO_LANE_CONFIG,
+    )
+
+    lines = render_start(
+        approval, monkeypatch, snapshot=queue_snapshot("uid-9"), config=TWO_LANE_CONFIG
+    )
+
+    assert [payload["plan_queue_uid"] for payload in queue_stamps_in(state_dir).values()] == [None]
+    assert "Queue contents: not shown" in "\n".join(lines)
+
+
+def test_an_unaddressable_lane_nulls_every_queue_start_stamp_of_the_session(
+    approval, root, state_dir, session, bridge, monkeypatch
+):
+    """A config that publishes no port for the lane lists nothing, so it binds
+    nothing."""
+    render_start(
+        approval,
+        monkeypatch,
+        snapshot=queue_snapshot("uid-1"),
+        lane="bluesky",
+        config=UNADDRESSABLE_LANE_CONFIG,
+    )
+
+    lines = render_start(
+        approval,
+        monkeypatch,
+        snapshot=queue_snapshot("uid-9"),
+        lane="bluesky_va",
+        config=UNADDRESSABLE_LANE_CONFIG,
+    )
+
+    assert [payload["plan_queue_uid"] for payload in queue_stamps_in(state_dir).values()] == [None]
+    assert "publishes no port" in "\n".join(lines)
+
+
+def test_nulling_leaves_another_sessions_queue_start_stamps_alone(
+    approval, root, state_dir, bridge, monkeypatch
+):
+    """Two sessions share one agent-data root. One's empty queue is not the
+    other's."""
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_A)
+    render_start(approval, monkeypatch, snapshot=queue_snapshot("uid-a"))
+
+    monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_B)
+    render_start(approval, monkeypatch, snapshot=queue_snapshot("uid-b"))
+    render_start(approval, monkeypatch, snapshot=None)
+
+    stamps = queue_stamps_in(state_dir)
+    assert stamps[queue_stamp_name(approval, SESSION_A, "bluesky")]["plan_queue_uid"] == "uid-a"
+    assert stamps[queue_stamp_name(approval, SESSION_B, "bluesky")]["plan_queue_uid"] is None
+
+
+def test_a_session_less_render_writes_no_queue_start_stamp(
+    approval, root, state_dir, no_session, bridge, monkeypatch
+):
+    """The write stamp's `anon` collision is benign because that name is the
+    write's own hash. A queue token is nobody's in particular, so an
+    unattributed process leaves none at all rather than one every other
+    unattributed process would read as its own."""
+    render_start(approval, monkeypatch, snapshot=queue_snapshot("uid-1"))
+
+    assert queue_stamps_in(state_dir) == {}
+
+
+def test_expired_queue_start_stamps_are_swept_when_a_new_one_is_written(
+    approval, root, state_dir, session, bridge, monkeypatch
+):
+    """Queue-start stamps share the write stamps' TTL and their pruning."""
+    stale = state_dir / "queue_start_approval_deadbeefdeadbeef_bluesky_va.json"
+    stale.write_text("{}", encoding="utf-8")
+    expired = time.time() - approval.WRITE_APPROVAL_TTL_S - 60
+    os.utime(stale, (expired, expired))
+
+    render_start(approval, monkeypatch, snapshot=queue_snapshot("uid-1"))
+
+    assert not stale.exists()
+    assert len(queue_stamps_in(state_dir)) == 1
+
+
+def test_a_queue_start_render_leaves_write_approval_stamps_alone(
+    approval, root, state_dir, session, bridge, monkeypatch
+):
+    """Two stamp kinds, two prefixes, one directory: neither the prune nor the
+    null pass may reach across, or an approved write loses the binding a start
+    never had anything to do with."""
+    publish(root, target="live", generation=5)
+    approval.build_approval_output("Channel write", hook_input_for(write_payload()))
+
+    render_start(approval, monkeypatch, snapshot=queue_snapshot("uid-1"))
+    render_start(approval, monkeypatch, snapshot=None)
+
+    assert len(stamps_in(state_dir)) == 1
+    assert stamps_in(state_dir)[0]["generation"] == 5

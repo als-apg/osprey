@@ -1,6 +1,6 @@
 """Measure qmd retrieval latency against a running qmd daemon.
 
-Part of the qmd scale probe. Answers one question: at real ALS logbook scale,
+Part of the qmd scale probe. Answers one question: at ~10^5 logbook entries,
 is qmd fast enough to sit behind an interactive search surface?
 
 Latency is measured with *distinct* queries. qmd caches results, so replaying

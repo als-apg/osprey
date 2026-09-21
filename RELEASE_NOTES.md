@@ -1,10 +1,11 @@
-# Osprey Framework - Latest Release (v2026.9.0b2)
+# Osprey Framework - Latest Release (v2026.9.0b3)
 
-**Second public beta.** A pre-release for evaluation: a plain install keeps
-resolving to the last stable release, and a version pin alone fails under uv
-because the paired `osprey-connectors` beta must resolve too. Install with
+**Third public beta: fixes and hardening after b2.** A pre-release for
+evaluation: a plain install keeps resolving to the last stable release, and a
+version pin alone fails under uv because the paired `osprey-connectors` beta
+must resolve too. Install with
 
-    uv tool install --prerelease allow "osprey-framework==2026.9.0b2"
+    uv tool install --prerelease allow "osprey-framework==2026.9.0b3"
 
 (with pip, `pip install --pre osprey-framework` or the exact pin is enough).
 Interfaces may still move before the stable cut.
@@ -40,5 +41,5 @@ virtual accelerator with pluggable physics, and a guided installer.**
 - Authentication, per-user roles, origin checks and an audit trail; see
   Security below.
 
-See `CHANGELOG.md`: section 2026.9.0b2 for what changed since the first beta,
+See `CHANGELOG.md`: section 2026.9.0b3 for what changed since the second beta,
 section 2026.9.0b1 for the beta line's breaking changes and the full list.

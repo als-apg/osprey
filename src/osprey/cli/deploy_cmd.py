@@ -318,10 +318,28 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
     it, which is why this is a refusal rather than a warning.
 
     On an interactive terminal the operator is offered ``osprey init``'s
-    shell-harvest instead: the auth variable this deployment's own provider
-    authenticates with, taken from the exported environment and written to
+    shell-harvest instead: every variable this deployment's own provider needs
+    of the environment, taken from the exported environment and written to
     ``.env`` through the same append-only 0600 writer every other secret path
-    uses. Values are never echoed — only the variable name.
+    uses. Values are never echoed — the offer names the variables it would
+    write and nothing else.
+
+    "Every variable" is the auth secret and, for a provider that fronts a
+    gateway shipping no default host, the endpoint beside it: two variables,
+    one prompt for the deployment. Seeding only the secret would hand the next
+    step a chain the ``.env.users`` gate refuses over the endpoint — one
+    question answered, one refusal earned, with the value that would have
+    settled it exported in the same shell the seed just read. The endpoint's
+    name comes from
+    :func:`~osprey.deployment.web_terminals.env_production.required_provider_endpoint_var`
+    rather than from a rule of this module's own, so the seed and that gate
+    cannot resolve different spellings of it.
+
+    The offer still turns on the auth secret being exported. A ``.env`` seeded
+    with an endpoint and no credential would satisfy the existence check this
+    function is, silencing the prompt for good on a deployment that still
+    cannot authenticate — so a shell holding only half of what is needed is
+    told what is missing instead of being handed a file.
 
     Only the deployment's own provider, deliberately. A persona that
     authenticates elsewhere needs its key in the same file, but that gap belongs
@@ -348,6 +366,7 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
         return
 
     from osprey.build.claude_code_resolver import provider_auth_secret_env
+    from osprey.deployment.web_terminals.env_production import required_provider_endpoint_var
 
     provider = (config.get("claude_code") or {}).get("provider")
     api_providers = (config.get("api") or {}).get("providers")
@@ -358,27 +377,36 @@ def ensure_repo_env(repo_root: Path, config: dict[str, Any], *, mark: bool = Tru
         if isinstance(provider, str) and provider
         else None
     )
-    exported = os.environ.get(secret_var) if secret_var else None
+    endpoint_var = required_provider_endpoint_var(config)
+    wanted = [var for var in (secret_var, endpoint_var) if var]
+    # Harvested together, so a provider needing two variables costs one
+    # question. A variable the shell does not export is left out rather than
+    # written empty: an empty assignment in .env is a value, and it would beat
+    # the fallback every later reader has for an unset one.
+    harvest = {var: os.environ[var] for var in wanted if os.environ.get(var)}
 
-    if exported and _stdin_is_a_terminal():
+    # An endpoint on its own does not earn the offer: see the docstring on why
+    # a .env holding no credential is worse than no .env at all.
+    if secret_var in harvest and _stdin_is_a_terminal():
         from .phase_reporter import current_reporter
 
+        names = ", ".join(harvest)
         # The prompt and the reporter want the same terminal: a live region
         # left mounted repaints over the question while the operator is still
         # reading it. Suspended for the prompt only — the seed write below is
         # the verb's own work and belongs back under the reporter.
         with current_reporter().suspended():
             seed_it = click.confirm(
-                f"No .env in {repo_root}. Seed one from your shell ({secret_var})?", default=True
+                f"No .env in {repo_root}. Seed one from your shell ({names})?", default=True
             )
         if seed_it:
             from osprey.utils.dotenv import append_profile_env
 
-            append_profile_env(env_path, {secret_var: exported}, _UP_SEEDED_ENV_BANNER)
-            _report_fact(f"Seeded {env_path} (mode 0600) with {secret_var}")
+            append_profile_env(env_path, harvest, _UP_SEEDED_ENV_BANNER)
+            _report_fact(f"Seeded {env_path} (mode 0600) with {names}")
             return
 
-    needed = f" It needs {secret_var} for provider {provider!r}." if secret_var else ""
+    needed = f" It needs {', '.join(wanted)} for provider {provider!r}." if wanted else ""
     # The remedy is only "copy the example" when there is one. A repo whose
     # .env.example has been removed would otherwise be told to copy a file that
     # is not there — a small lie that costs an operator a minute of hunting.

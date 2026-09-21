@@ -55,11 +55,14 @@ from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 from starlette.websockets import WebSocketState
 
+from osprey.dispatch import DISPATCHER_MCP_PATH
 from osprey.interfaces.common_middleware import compute_url_prefix
 from osprey.interfaces.web_auth import get_web_credentials
 from osprey.profiles.web_panels import SIDECAR_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, panel_url_state_attr
 from osprey.utils.http_proxy import HOP_BY_HOP
+from osprey.utils.identity import acting_identity
+from osprey.utils.owner_header import OWNER_HEADER, owner_from_header
 
 logger = logging.getLogger(__name__)
 
@@ -160,14 +163,55 @@ def _panel_is_config_defined(scope: Request | WebSocket, panel_id: str) -> bool:
     return False
 
 
+#: The panel id the event dispatcher is published under.
+#:
+#: Two things ride on this id and on nothing else about the request: the
+#: dispatcher bearer this proxy injects, and the hop to the dispatcher's MCP
+#: transport below. Spelled once so the two cannot come to disagree about which
+#: panel they mean.
+_EVENTS_PANEL_ID = "events"
+
+
+def _is_dispatcher_mcp_hop(panel_id: str, path: str) -> bool:
+    """Whether this request is the hop to the event dispatcher's MCP transport.
+
+    That hop carries a JSON-RPC conversation over streamable HTTP rather than a
+    page: the body is the message, so nothing on it may be rewritten, and the
+    upstream's own content-type is what tells the client whether it was handed
+    one reply or a stream.
+
+    The path is matched against :data:`~osprey.dispatch.DISPATCHER_MCP_PATH`
+    rather than a literal, and the same constant is rendered into the
+    dispatcher's compose as ``FASTMCP_STREAMABLE_HTTP_PATH``. Two further
+    spellings of it are literals — the panel-tier route the terminal's own gate
+    admits, and the entry URL an agent's client holds — and tests hold both to
+    this constant, because a spelling that drifted from it would 404 the agent
+    at one end or cost it the no-rewrite guarantee at the other.
+
+    Args:
+        panel_id: The panel id from the proxied URL.
+        path: The path segment below the panel id, without a leading slash.
+    """
+    return panel_id == _EVENTS_PANEL_ID and f"/{path}" == DISPATCHER_MCP_PATH
+
+
 #: Request headers that are never forwarded to a panel backend.
 #:
-#: All three carry the operator's identity at the terminal: the browser session
-#: cookie, an ``Authorization`` header, and the ``X-Osprey-Terminal-Secret``
-#: the multi-user reverse proxy stamps on. The browser attaches them to panel
-#: requests because a panel is served from the terminal's own origin, not
-#: because the panel is entitled to them — and a backend handed any of the
-#: three could replay it against the terminal as the operator.
+#: Three of them carry the operator's identity at the terminal: the browser
+#: session cookie, an ``Authorization`` header, and the
+#: ``X-Osprey-Terminal-Secret`` the multi-user reverse proxy stamps on. The
+#: browser attaches them to panel requests because a panel is served from the
+#: terminal's own origin, not because the panel is entitled to them — and a
+#: backend handed any of the three could replay it against the terminal as the
+#: operator.
+#:
+#: ``X-Osprey-Owner`` is not a credential and is dropped for the opposite
+#: reason. A backend that reads it files queued work under that name and gates
+#: that work's writes by that user's chip, so a value chosen by the browser —
+#: which sits inside a session the agent itself can drive — would let one
+#: session name another user as the author of its work, and narrow or widen
+#: what that work may do. Nothing inbound is evidence of who is driving:
+#: :func:`_owner_header` mints that from this process's own identity instead.
 #:
 #: Stripped for every panel without exception, framework sidecars included. A
 #: backend that genuinely needs to know its caller is the operator gets the
@@ -182,6 +226,7 @@ _STRIPPED_REQUEST_HEADERS = frozenset(
         "cookie",
         "authorization",
         "x-osprey-terminal-secret",
+        OWNER_HEADER.lower(),
     }
 )
 
@@ -387,9 +432,9 @@ def _backend_earns_credentials(scope: Request | WebSocket, panel_id: str, backen
     operator's browser never authenticated to, over a hop that may not even be
     TLS.
 
-    Every injection site — the operator secret and a sidecar's own launch
-    credential — asks this one question, so the two halves cannot drift apart
-    between them.
+    Every injection site — the operator secret, the event dispatcher's bearer
+    and a sidecar's own launch credential — asks this one question, so the two
+    halves cannot drift apart between them.
 
     Args:
         scope: The request or websocket being proxied.
@@ -463,6 +508,53 @@ def _panel_auth_header(
         return {}
     published = getattr(scope.app.state, "panel_auth_headers", None) or {}
     return dict(published.get(panel_id, {}))
+
+
+def _owner_header(scope: Request | WebSocket, panel_id: str, backend_url: str) -> dict[str, str]:
+    """Who this process says is driving, or ``{}`` for a backend not told.
+
+    Minted from :func:`~osprey.utils.identity.acting_identity` — the account
+    this container runs as — and never from anything that arrived. The value
+    decides whose chip gates the writes a queued plan makes, so an inbound
+    header is a claim rather than evidence: the strip above and this mint are
+    the two halves of one boundary, and a request leaves this hop carrying the
+    name this process vouches for whatever it arrived with.
+
+    The identity ladder answers ``unknown`` rather than nothing when no marker
+    names a human, and that answer is forwarded like any other. It is the name
+    this terminal's own control-context record is written under, so a lane
+    looking up the chip that governs the plan has to be handed the same one.
+
+    A name this end cannot spell as a header — outside the allowlist
+    :func:`~osprey.utils.owner_header.owner_from_header` applies at the reading
+    end — is sent as no header at all, and the work is recorded owner-less.
+    That is the one failure this path may have: the header value goes out over
+    a client that encodes it as ASCII and raises on anything else, so an
+    account the guard would refuse anyway would otherwise fail every proxied
+    request for that user rather than costing them their attribution.
+
+    Gated by :func:`_backend_earns_credentials`, the question the credentials
+    ask, though the reason differs — the name is an attribution, not a secret.
+    A backend registered at runtime is a listener the agent's own sandbox can
+    create, and an off-box backend is a host nobody at this console
+    authenticated to; neither is owed the account name of the human driving.
+    The backends that read the header are declared and on loopback, and they
+    are the same backends this hop hands a credential to, so the attribution
+    reaches exactly as far as the authority it describes.
+
+    Args:
+        scope: The request being proxied.
+        panel_id: The panel id from the proxied URL.
+        backend_url: The resolved backend URL the request is being forwarded to.
+
+    Returns:
+        A single-entry mapping ready to merge into the outbound headers, or an
+        empty mapping when this backend is told nothing about who is driving.
+    """
+    if not _backend_earns_credentials(scope, panel_id, backend_url):
+        return {}
+    owner = owner_from_header(acting_identity())
+    return {OWNER_HEADER: owner} if owner else {}
 
 
 async def _request_no_redirect(
@@ -885,8 +977,9 @@ async def proxy_panel_terminal_static(panel_id: str, asset_path: str):
     inside this route's own directory.
 
     The tier is the design-system route's: nothing under ``/panel/`` is exempt
-    from the auth gate, so this is operator-tier like every other panel path,
-    and ``PANEL_TIER_ROUTES`` is untouched. That is the right level — the page
+    from the auth gate, so this is operator-tier like every path under
+    ``/panel/`` but the dispatcher MCP hop, and ``PANEL_TIER_ROUTES`` is
+    untouched. That is the right level — the page
     doing the importing is one the operator is already logged in to.
 
     Only :data:`_TERMINAL_STATIC_SUFFIXES` are served; the rest of the tree —
@@ -1074,8 +1167,17 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
 
     outer_prefix = compute_url_prefix()
 
-    # Build the target URL.
-    target = f"{backend_url.rstrip('/')}/{path}"
+    # Build the target URL. The dispatcher's MCP transport is addressed from
+    # DISPATCHER_MCP_PATH, not from the inbound spelling: this hop and the
+    # dispatcher's compose environment read that constant, while the route the
+    # terminal's gate admits and the entry URL an agent's client holds spell the
+    # same path literally and are held to the constant by tests. A hop that
+    # rebuilt the path from the request would answer to none of them.
+    dispatcher_mcp = _is_dispatcher_mcp_hop(panel_id, path)
+    if dispatcher_mcp:
+        target = f"{backend_url.rstrip('/')}{DISPATCHER_MCP_PATH}"
+    else:
+        target = f"{backend_url.rstrip('/')}/{path}"
     if request.url.query:
         target = f"{target}?{request.url.query}"
 
@@ -1118,28 +1220,31 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     secret_header = _terminal_secret_header(request, panel_id, backend_url)
     fwd_headers.update(secret_header)
 
-    # The event-dispatcher dashboard endpoints are bearer-gated. Inject the
-    # dispatcher token server-side for the EVENTS panel only, so the browser
-    # never holds it (and other panels are unaffected). The web-terminal process
-    # picks up EVENT_DISPATCHER_TOKEN from the project .env via load_dotenv.
+    # The event-dispatcher dashboard endpoints and its MCP transport are both
+    # bearer-gated. Inject the dispatcher token server-side for the EVENTS panel
+    # only, so the browser never holds it (and other panels are unaffected). The
+    # web-terminal process picks up EVENT_DISPATCHER_TOKEN from the project .env
+    # via load_dotenv, and it is stripped from every agent child environment —
+    # which is what makes this process the single point that can open either.
     #
-    # Gated exactly like the operator secret above — config-declared AND
-    # loopback — rather than on the id string. Config origin alone keeps a
-    # runtime registration from squatting the id, but it would still send the
-    # deployment's dispatcher token over the network to whatever host an
-    # off-box `events` panel names; a shared bearer token leaving the machine is
-    # the same failure as the operator secret leaving it.
-    if (
-        panel_id == "events"
-        and _panel_is_config_defined(request, "events")
-        and _backend_is_loopback(backend_url)
-    ):
+    # Gated on the one question every injection site in this function asks —
+    # :func:`_backend_earns_credentials` — rather than on the id string. A
+    # declared origin alone keeps a runtime registration from squatting the id,
+    # but it would still send the deployment's dispatcher token over the network
+    # to whatever host an off-box `events` panel names; a shared bearer token
+    # leaving the machine is the same failure as the operator secret leaving it.
+    if panel_id == _EVENTS_PANEL_ID and _backend_earns_credentials(request, panel_id, backend_url):
         token = os.environ.get("EVENT_DISPATCHER_TOKEN", "")
         if token:
             fwd_headers["authorization"] = f"Bearer {token}"
 
     # A launched sidecar's own credential, on the same gate as the secret above.
     fwd_headers.update(_panel_auth_header(request, panel_id, backend_url))
+
+    # Who is driving, for the backends that file work under it and gate that
+    # work by the driver's own chip. Minted in this same run, after the strip,
+    # so an inbound claim can neither survive nor sit beside the minted value.
+    fwd_headers.update(_owner_header(request, panel_id, backend_url))
 
     outer_panel_prefix = f"{outer_prefix}/panel/{panel_id}"
 
@@ -1193,11 +1298,18 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
 
             resp_headers = _filter_response_headers(upstream.headers)
             resp_headers.setdefault("cache-control", _DEFAULT_NO_CACHE)
+            # This branch is chosen by what the *request* was willing to accept,
+            # so what comes back is not always a stream: an MCP call advertises
+            # both shapes and is answered with a single ``application/json``
+            # reply as often as with a stream. The upstream's own content-type
+            # therefore stands, and ``text/event-stream`` is the answer only for
+            # an upstream that named no type — which is what a plain SSE
+            # endpoint is.
             return StreamingResponse(
                 _stream(),
                 status_code=upstream.status_code,
                 headers=resp_headers,
-                media_type="text/event-stream",
+                media_type=upstream.headers.get("content-type") or "text/event-stream",
             )
 
         # Standard request. No proxied request follows a redirect, whether or
@@ -1236,6 +1348,21 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
 
     content_type = resp.headers.get("content-type", "")
     base_type = content_type.split(";")[0].strip().lower()
+
+    # The MCP hop's answer is a JSON-RPC envelope, which is parsed rather than
+    # rendered: a path rewritten inside it is a value the client reads back
+    # wrong, not a link that resolves elsewhere. It is relayed byte for byte,
+    # before either rewrite below can consider it — including the opt-in JSON
+    # rewrite, which a panel's own configuration could otherwise aim at this
+    # path. Nothing on this hop is addressed by a browser, so there is no
+    # root-absolute path here that would need moving under the panel prefix.
+    if dispatcher_mcp:
+        return Response(
+            content=resp.content,
+            status_code=resp.status_code,
+            headers=resp_headers,
+            media_type=content_type if content_type else None,
+        )
 
     # Rewrite root-absolute paths in HTML/JS/CSS — skip vendor assets
     # (large, immutable, no OSPREY paths to rewrite).

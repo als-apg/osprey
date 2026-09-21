@@ -116,8 +116,8 @@ def test_footer_defaults_when_unset(tmp_path: Path) -> None:
 
 
 def test_footer_is_configurable(tmp_path: Path) -> None:
-    html = _landing(_config(tmp_path, footer="ALS control room. Ring ext. 5555."))
-    assert "ALS control room. Ring ext. 5555." in html
+    html = _landing(_config(tmp_path, footer="Example control room. Ring ext. 5555."))
+    assert "Example control room. Ring ext. 5555." in html
     assert "Experimental system" not in html
 
 

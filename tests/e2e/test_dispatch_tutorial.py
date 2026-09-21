@@ -17,7 +17,7 @@ credential is absent. For each token trigger this:
 
 ``denied-tool-demo`` is intentionally NOT exercised here — it is covered
 strictly and token-free in the L0 floor
-(``tests/unit/dispatch_worker/test_dispatch_api.py`` denylist 403).
+(``tests/dispatch_worker/test_dispatch_api.py`` denylist 403).
 
 This supersedes the old ``tests/integration/test_golden_path.py`` (which fired
 its own inline trigger, used cborg, and never ran with tokens in CI): the

@@ -11,11 +11,23 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 import websockets
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from osprey.dispatch import DISPATCHER_MCP_PATH
+from osprey.interfaces.common_middleware import WebAuthMiddleware
+from osprey.interfaces.web_auth import (
+    PANEL_TIER_ROUTES,
+    WebCredentials,
+    reset_web_credentials,
+)
 from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
-from osprey.interfaces.web_terminal.routes.proxy import _PANEL_STATE_MAP
+from osprey.interfaces.web_terminal.routes import proxy
+from osprey.interfaces.web_terminal.routes.proxy import _EVENTS_PANEL_ID, _PANEL_STATE_MAP
+from osprey.utils.identity import TERMINAL_USER_ENV
+from osprey.utils.owner_header import OWNER_HEADER
+from tests.conftest import dispatcher_route_registry
 
 
 def _make_client(workspace_dir, custom_panels):
@@ -565,3 +577,516 @@ class TestPanelSubprotocolNegotiation:
                         session.receive_text()
 
                 assert closed.value.code == 1000
+
+
+# ---------------------------------------------------------------------------
+# The dispatcher MCP hop
+# ---------------------------------------------------------------------------
+
+#: The dispatcher's base URL as the EVENTS panel declares it. Loopback, so the
+#: hop earns the bearer and the owner mint.
+DISPATCHER_BACKEND_URL = "http://localhost:8020"
+
+#: The bearer the container holds and the browser never does.
+DISPATCHER_TOKEN = "dispatcher-bearer-value"
+
+#: What every MCP client advertises. The substring puts this hop on the
+#: proxy's streaming branch whatever the answer turns out to be.
+MCP_ACCEPT = "application/json, text/event-stream"
+
+#: One JSON-RPC call and one answer, as bytes. The answer carries a
+#: root-absolute path inside quotes -- the exact shape ``_rewrite_content``
+#: rewrites -- so asserting byte identity is an assertion about the rewrite and
+#: not only about the transport.
+MCP_CALL_BODY = b'{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+MCP_ANSWER_BODY = (
+    b'{"jsonrpc":"2.0","id":1,"result":{"tools":[{"name":"manual_fire",'
+    b'"inputSchema":{"$ref":"/api/schema"}}]}}'
+)
+
+#: The transport's session handle, which both ends must keep seeing.
+MCP_SESSION_ID = "1f5a9c7e-0b44-4a1d-9cc2-0e5b6d2f7a31"
+
+#: The panel token an agent's own child process holds, and the operator secret
+#: it does not.
+HOP_PANEL_TOKEN = "panel-token-value"
+HOP_OPERATOR_SECRET = "operator-secret-value"
+
+
+class _FakeStreamResponse:
+    """A streamed upstream response, as ``client.send(stream=True)`` returns one."""
+
+    def __init__(self, *, status_code=200, headers=None, chunks=(b"data: hello\n\n",)):
+        self.status_code = status_code
+        default = {"content-type": "text/event-stream"}
+        self.headers = httpx.Headers(default if headers is None else headers)
+        self._chunks = chunks
+        self.closed = False
+
+    async def aiter_bytes(self):
+        for chunk in self._chunks:
+            yield chunk
+
+    async def aclose(self):
+        self.closed = True
+
+
+def _capture_stream(app, upstream):
+    """Stub the streaming branch's ``build_request``/``send``; return its kwargs."""
+    captured: dict[str, object] = {}
+    real_build = app.state.proxy_client.build_request
+
+    def spy_build(**kwargs):
+        captured.update(kwargs)
+        return real_build(**kwargs)
+
+    app.state.proxy_client.build_request = spy_build
+    app.state.proxy_client.send = AsyncMock(return_value=upstream)
+    return captured
+
+
+def _refuse_rewrite(*_args, **_kwargs):
+    raise AssertionError("the dispatcher MCP hop must not rewrite the body")
+
+
+class TestDispatcherMcpHop:
+    """``/panel/events/mcp`` carries a JSON-RPC conversation, not a page.
+
+    The proxy is the one process in the container holding the dispatcher
+    bearer, so this hop is the only door an agent in a session has to the MCP
+    transport. What travels over it is a protocol: the bytes are the message,
+    the upstream's own content-type says whether the answer is a single JSON
+    reply or a stream, and the session handle is how the two ends stay in one
+    conversation. Every row here pins one of those against the handling the
+    proxy applies to a web page.
+    """
+
+    @pytest.fixture
+    def app_and_client_events(self, workspace_dir):
+        custom = [
+            {
+                "id": "events",
+                "label": "EVENTS",
+                "url": DISPATCHER_BACKEND_URL,
+                "configDefined": True,
+                # The one panel-config knob that would otherwise reach a JSON
+                # answer on this path. Declared here so every byte-identity row
+                # below asserts a refusal rather than an empty default.
+                "rewriteJsonPaths": ["mcp"],
+            },
+        ]
+        yield from _make_client(workspace_dir, custom)
+
+    def _post(self, client, headers=None):
+        sent = {"accept": MCP_ACCEPT, "content-type": "application/json"}
+        sent.update(headers or {})
+        return client.post("/panel/events/mcp", headers=sent, content=MCP_CALL_BODY)
+
+    def test_the_hop_reaches_the_transport_path(self, app_and_client_events, monkeypatch):
+        """The dispatcher's MCP endpoint, spelled from the constant both ends read."""
+        app, client = app_and_client_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
+        captured = _capture_stream(
+            app,
+            _FakeStreamResponse(
+                headers={"content-type": "application/json"}, chunks=(MCP_ANSWER_BODY,)
+            ),
+        )
+
+        resp = self._post(client)
+
+        assert resp.status_code == 200
+        assert captured["url"] == f"{DISPATCHER_BACKEND_URL}{DISPATCHER_MCP_PATH}"
+        assert captured["method"] == "POST"
+        assert captured["content"] == MCP_CALL_BODY
+
+    @pytest.mark.parametrize("upstream_type", ["application/json", "text/event-stream"])
+    def test_the_answer_is_relayed_unchanged(
+        self, app_and_client_events, monkeypatch, upstream_type
+    ):
+        """A transport answers one call as JSON and the next as a stream.
+
+        Which one it chose is the client's to read, so the content-type comes
+        back as the upstream wrote it -- and the body byte for byte, because a
+        JSON-RPC envelope is parsed, not rendered.
+        """
+        app, client = app_and_client_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
+        _capture_stream(
+            app,
+            _FakeStreamResponse(headers={"content-type": upstream_type}, chunks=(MCP_ANSWER_BODY,)),
+        )
+
+        resp = self._post(client)
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == upstream_type
+        assert resp.content == MCP_ANSWER_BODY
+
+    def test_the_session_id_travels_in_both_directions(self, app_and_client_events, monkeypatch):
+        """The handle the transport hands out is the one the next call presents."""
+        app, client = app_and_client_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
+        captured = _capture_stream(
+            app,
+            _FakeStreamResponse(
+                headers={"content-type": "application/json", "mcp-session-id": MCP_SESSION_ID},
+                chunks=(MCP_ANSWER_BODY,),
+            ),
+        )
+
+        resp = self._post(client, headers={"mcp-session-id": MCP_SESSION_ID})
+
+        assert resp.status_code == 200
+        assert _lower(captured["headers"])["mcp-session-id"] == MCP_SESSION_ID
+        assert resp.headers["mcp-session-id"] == MCP_SESSION_ID
+
+    def test_a_notification_is_relayed_as_202_with_no_body(
+        self, app_and_client_events, monkeypatch
+    ):
+        """A JSON-RPC notification is answered with a status and nothing else."""
+        app, client = app_and_client_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
+        _capture_stream(
+            app, _FakeStreamResponse(status_code=202, headers={"content-length": "0"}, chunks=())
+        )
+
+        resp = self._post(client)
+
+        assert resp.status_code == 202
+        assert resp.content == b""
+
+    def test_the_streaming_branch_never_rewrites(self, app_and_client_events, monkeypatch):
+        """A rewritten envelope is a corrupted one, so the pass is never made."""
+        app, client = app_and_client_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
+        monkeypatch.setattr(proxy, "_rewrite_content", _refuse_rewrite)
+        _capture_stream(
+            app,
+            _FakeStreamResponse(
+                headers={"content-type": "application/json"}, chunks=(MCP_ANSWER_BODY,)
+            ),
+        )
+
+        resp = self._post(client)
+
+        assert resp.status_code == 200
+        assert resp.content == MCP_ANSWER_BODY
+
+    def test_the_standard_branch_never_rewrites(self, app_and_client_events, monkeypatch):
+        """Nor on the branch a client that advertised no stream would take.
+
+        The panel declares ``rewriteJsonPaths`` covering this very path, so the
+        refusal here is the hop's and not the configuration's.
+        """
+        app, client = app_and_client_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
+        monkeypatch.setattr(proxy, "_rewrite_content", _refuse_rewrite)
+
+        async def fake_request(*, method, url, headers, content, **_kwargs):
+            return httpx.Response(
+                200, content=MCP_ANSWER_BODY, headers={"content-type": "application/json"}
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.post(
+            "/panel/events/mcp",
+            headers={"accept": "application/json", "content-type": "application/json"},
+            content=MCP_CALL_BODY,
+        )
+
+        assert resp.status_code == 200
+        assert resp.headers["content-type"] == "application/json"
+        assert resp.content == MCP_ANSWER_BODY
+
+    def test_both_ends_of_the_hop_follow_the_constant(self, app_and_client_events, monkeypatch):
+        """Move the transport's path and the whole hop moves with it.
+
+        The trailing slash is the live version of this: a transport mounted at
+        ``/mcp/`` is reached at ``/mcp/``, and the test that recognises the hop
+        has to agree with the URL it forwards to, or the byte relay is granted
+        to one request while another gets it. Driven through the branch a
+        client advertising no stream takes, where the panel's own
+        ``rewriteJsonPaths`` is waiting for anything this hop fails to claim.
+        """
+        app, client = app_and_client_events
+        monkeypatch.setattr(proxy, "DISPATCHER_MCP_PATH", "/mcp/")
+        monkeypatch.setattr(proxy, "_rewrite_content", _refuse_rewrite)
+        captured: dict[str, object] = {}
+
+        async def fake_request(*, method, url, headers, content, **_kwargs):
+            captured["url"] = url
+            return httpx.Response(
+                200, content=MCP_ANSWER_BODY, headers={"content-type": "application/json"}
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.post(
+            "/panel/events/mcp/",
+            headers={"accept": "application/json", "content-type": "application/json"},
+            content=MCP_CALL_BODY,
+        )
+
+        assert resp.status_code == 200
+        assert captured["url"] == f"{DISPATCHER_BACKEND_URL}/mcp/"
+        assert resp.content == MCP_ANSWER_BODY
+
+    def test_the_hop_carries_the_bearer_and_the_minted_owner(
+        self, app_and_client_events, monkeypatch
+    ):
+        """What the browser sent stops here; what this process vouches for goes on.
+
+        The bearer is the container's, and the owner is the account this
+        container runs as -- the name whose chip gates whatever the fired job
+        writes. Neither is anything the caller supplied.
+        """
+        app, client = app_and_client_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
+        captured = _capture_stream(
+            app,
+            _FakeStreamResponse(
+                headers={"content-type": "application/json"}, chunks=(MCP_ANSWER_BODY,)
+            ),
+        )
+
+        resp = self._post(
+            client,
+            headers={
+                "authorization": "Bearer forged-by-the-caller",
+                OWNER_HEADER: "bob",
+                "cookie": "osprey_session=live-session-id",
+            },
+        )
+
+        assert resp.status_code == 200
+        forwarded = _lower(captured["headers"])
+        owner_names = [name for name in captured["headers"] if name.lower() == OWNER_HEADER.lower()]
+        assert forwarded["authorization"] == f"Bearer {DISPATCHER_TOKEN}"
+        assert owner_names == [OWNER_HEADER]
+        assert forwarded[OWNER_HEADER.lower()] == "alice"
+        assert "cookie" not in forwarded
+
+    def test_no_bearer_when_the_container_holds_none(self, app_and_client_events, monkeypatch):
+        """A deployment without the token sends no credential rather than a blank one."""
+        app, client = app_and_client_events
+        monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
+        captured = _capture_stream(
+            app,
+            _FakeStreamResponse(
+                headers={"content-type": "application/json"}, chunks=(MCP_ANSWER_BODY,)
+            ),
+        )
+
+        resp = self._post(client)
+
+        assert resp.status_code == 200
+        assert "authorization" not in _lower(captured["headers"])
+
+    @pytest.fixture
+    def untrusted_events_client(self, workspace_dir, request):
+        """An EVENTS panel in a shape that earns no credential.
+
+        The parameter is the backend URL and whether the config loader declared
+        the panel; each row below drops one half of what the gate requires.
+        """
+        url, config_defined = request.param
+        panel = {"id": "events", "label": "EVENTS", "url": url, "rewriteJsonPaths": ["mcp"]}
+        if config_defined:
+            panel["configDefined"] = True
+        yield from _make_client(workspace_dir, [panel])
+
+    @pytest.mark.parametrize(
+        "untrusted_events_client",
+        [
+            pytest.param(("http://events.example.com:8020", True), id="declared-but-off-box"),
+            pytest.param((DISPATCHER_BACKEND_URL, False), id="loopback-but-registered"),
+        ],
+        indirect=True,
+    )
+    def test_an_untrusted_events_backend_is_told_nothing(
+        self, untrusted_events_client, monkeypatch
+    ):
+        """Neither the bearer nor the minted owner follows the panel id anywhere.
+
+        The bearer is the deployment's own shared secret and the owner names
+        the account whose chip gates the fired job, so a backend earns both
+        only by being declared in config *and* addressed on loopback. A
+        declared panel pointing off-box would carry the secret off the machine;
+        a loopback panel registered at runtime is a listener the agent's own
+        sandbox can stand up. Each shape here drops one half, and is handed
+        neither -- the hop still forwards, with nothing of this container's on
+        it.
+        """
+        app, client = untrusted_events_client
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
+        monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
+        captured = _capture_stream(
+            app,
+            _FakeStreamResponse(
+                headers={"content-type": "application/json"}, chunks=(MCP_ANSWER_BODY,)
+            ),
+        )
+
+        resp = self._post(client)
+
+        assert resp.status_code == 200
+        forwarded = _lower(captured["headers"])
+        assert "authorization" not in forwarded
+        assert OWNER_HEADER.lower() not in forwarded
+
+
+class TestDispatcherMcpHopTier:
+    """The credential that opens the hop, behind the terminal's own gate.
+
+    The agent's child process holds the panel token and nothing stronger, which
+    is what makes this route panel-tier; a caller holding nothing at all is
+    refused before the proxy runs.
+    """
+
+    @pytest.fixture
+    def gated_client(self):
+        """The proxy router behind the real gate, with a known panel token.
+
+        Every row carries ``no_auth_seam``: the suite-wide seam stamps the
+        operator secret onto any client aimed at a gated app, which would admit
+        these requests on a credential the agent does not have.
+        """
+        reset_web_credentials()
+        app = FastAPI()
+        app.include_router(proxy.router)
+        app.state.custom_panels = [
+            {
+                "id": "events",
+                "label": "EVENTS",
+                "url": DISPATCHER_BACKEND_URL,
+                "configDefined": True,
+            },
+        ]
+        app.state.proxy_client = httpx.AsyncClient()
+        app.state.web_credentials = WebCredentials(
+            operator_secret=HOP_OPERATOR_SECRET, panel_token=HOP_PANEL_TOKEN
+        )
+        app.add_middleware(WebAuthMiddleware, cookie_name="osprey_terminal_session_8080")
+        with TestClient(app, client=("127.0.0.1", 54321)) as client:
+            yield app, client
+        asyncio.run(app.state.proxy_client.aclose())
+        reset_web_credentials()
+
+    @pytest.mark.no_auth_seam
+    def test_the_panel_token_alone_reaches_the_hop(self, gated_client):
+        """The credential an agent's own child process holds opens this door."""
+        app, client = gated_client
+        _capture_stream(
+            app,
+            _FakeStreamResponse(
+                headers={"content-type": "application/json"}, chunks=(MCP_ANSWER_BODY,)
+            ),
+        )
+
+        resp = client.post(
+            "/panel/events/mcp",
+            headers={
+                "accept": MCP_ACCEPT,
+                "content-type": "application/json",
+                "authorization": f"Bearer {HOP_PANEL_TOKEN}",
+            },
+            content=MCP_CALL_BODY,
+        )
+
+        assert resp.status_code == 200
+        assert resp.content == MCP_ANSWER_BODY
+
+    @pytest.mark.no_auth_seam
+    def test_without_a_credential_the_hop_is_refused(self, gated_client):
+        """The route is panel-tier, not open: the proxy is never reached."""
+        app, client = gated_client
+        _capture_stream(app, _FakeStreamResponse())
+
+        resp = client.post(
+            "/panel/events/mcp",
+            headers={"accept": MCP_ACCEPT, "content-type": "application/json"},
+            content=MCP_CALL_BODY,
+        )
+
+        assert resp.status_code == 401
+        app.state.proxy_client.send.assert_not_awaited()
+
+
+class TestTheHopPathIsSpelledOnce:
+    """One path, in every place the wire spells it.
+
+    Two of the spellings read ``DISPATCHER_MCP_PATH`` directly: this proxy's
+    forward target, and the dispatcher's own compose environment. Two are
+    literals -- the panel-tier route the terminal's gate admits, and the entry
+    URL an agent's MCP client dials -- because importing the constant where
+    they live would pull a heavy module into a light one. These rows are what
+    holds the literals to the constant: a spelling that drifted from it leaves
+    the hop refused at the gate or dialed at an address nothing serves, while
+    every transport row above stays green.
+    """
+
+    def test_the_gate_admits_the_route_the_hop_serves(self):
+        """The panel-tier table names this hop, at the path and on the methods it takes."""
+        route = f"/panel/{_EVENTS_PANEL_ID}{DISPATCHER_MCP_PATH}"
+        hop_rows = {
+            (method, path)
+            for method, path in PANEL_TIER_ROUTES
+            if path.startswith(f"/panel/{_EVENTS_PANEL_ID}")
+        }
+
+        assert hop_rows == {("GET", route), ("POST", route), ("DELETE", route)}
+
+    def test_the_agents_entry_url_ends_at_the_hop(self):
+        """The URL an agent's client is handed addresses this hop and not a neighbour."""
+        from osprey.registry.mcp import EVENT_DISPATCHER_PROXY_URL
+
+        assert EVENT_DISPATCHER_PROXY_URL.endswith(
+            f"/panel/{_EVENTS_PANEL_ID}{DISPATCHER_MCP_PATH}"
+        )
+
+
+@pytest.mark.xdist_group("dispatch_mcp_transport_auth")
+async def test_the_transport_answers_the_hop_path_without_a_redirect(monkeypatch):
+    """The dispatcher serves ``POST /mcp`` itself, rather than pointing at ``/mcp/``.
+
+    A redirect here would be relayed to the caller as ``/panel/events/mcp/``,
+    one character off the path the terminal's gate grants an agent's panel
+    token -- so the follow-up would be refused and the conversation would end on
+    its first call. The transport's mount path and the gate's route table are
+    two spellings of one wire, and this is where they are held together.
+    """
+    monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
+    monkeypatch.setenv("TRIGGERS_YML", "/nonexistent/test-triggers.yml")
+    monkeypatch.setenv("DISPATCH_TARGET", "http://worker.invalid:9000")
+
+    with dispatcher_route_registry() as build:
+        app = build().http_app(path=DISPATCHER_MCP_PATH, stateless_http=True, json_response=True)
+
+        async with app.router.lifespan_context(app):
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=app), base_url="http://dispatcher.invalid"
+            ) as client:
+                resp = await client.post(
+                    DISPATCHER_MCP_PATH,
+                    headers={
+                        "accept": MCP_ACCEPT,
+                        "content-type": "application/json",
+                        "authorization": f"Bearer {DISPATCHER_TOKEN}",
+                    },
+                    json={
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "protocolVersion": "2025-06-18",
+                            "capabilities": {},
+                            "clientInfo": {"name": "panel-hop-test", "version": "1.0"},
+                        },
+                    },
+                    follow_redirects=False,
+                )
+
+    assert resp.status_code == 200

@@ -8,6 +8,7 @@ import logging
 import os
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -15,7 +16,7 @@ import pytest
 from rich.logging import RichHandler
 
 from osprey.utils.logger import QUIET_THIRD_PARTY_LOGGERS
-from tests import _env_scope_guard, ci_diagnostics
+from tests import _env_scope_guard, _repo_cleanliness, ci_diagnostics
 from tests._env_scope_guard import restore_module_environment
 
 #: Repo root — the fallback when a test leaves the process in a deleted cwd.
@@ -192,7 +193,16 @@ def session_posture_leak_guard(monkeypatch):
         silently inert, because ``posture_store.agent_data_root()`` reads the
         variable FIRST and only falls back to the resolver.
 
-    All three are CLEARED, not pointed elsewhere. Stamping a throwaway root here
+        Two more carry the container's own control-state binds:
+        ``OSPREY_CONTROL_CONTEXT_DIR``, the one identity's directory, and
+        ``OSPREY_CONTROL_CONTEXT_TREE``, every identity's. They are the rung
+        ABOVE the agent-data root on all four resolvers, so a suite run inside a
+        bound container resolves every control-state path to that deployment —
+        past the stamp a test set and past the resolver it patched, which is the
+        same silent inertness one rung higher, and aimed at a real deployment's
+        record rather than a throwaway.
+
+    All five are CLEARED, not pointed elsewhere. Stamping a throwaway root here
         would look tidier — clearing the variable does not stop a write, it aims it
         at ``<repo>/var/agent_data`` via ``resolve_shared_data_root()`` — but the
         stamp is preferred over the resolver by both readers, so a suite-wide stamp
@@ -214,6 +224,8 @@ def session_posture_leak_guard(monkeypatch):
         "OSPREY_EXECUTION_MODE",
         "OSPREY_POSTURE_SESSION",
         "OSPREY_AGENT_DATA_ROOT",
+        "OSPREY_CONTROL_CONTEXT_DIR",
+        "OSPREY_CONTROL_CONTEXT_TREE",
     ):
         monkeypatch.delenv(anchor, raising=False)
     yield
@@ -221,31 +233,91 @@ def session_posture_leak_guard(monkeypatch):
 
 _REAL_DEPLOYMENT_LANES = ("tests/e2e/", "tests/va/e2e/")
 
+#: The lane that asserts where ``audit_dir()`` resolves to, rather than writing
+#: through it. :func:`_isolate_audit_zone` leaves it alone; it pins its own zone
+#: wherever it records, and the repo guard below still watches it.
+_AUDIT_RESOLVER_LANE = "tests/audit/"
+
 #: ``<repo>/var/agent_data`` — the directory :func:`no_agent_data_in_the_repo`
 #: watches. Spelled once, at import, because the creator hook below needs it
 #: before any fixture has run.
 _AGENT_DATA_MARKER = _REPO_ROOT / "var" / "agent_data"
 
-#: Whether that directory was already there when this conftest was imported.
-#: A pre-existing one belongs to a real local deployment, so nothing about it
-#: is the suite's business and the creator hook stays quiet for the session.
-_AGENT_DATA_PRE_EXISTED = _AGENT_DATA_MARKER.exists()
+#: ``<repo>/var/audit`` — the twin marker, watched by
+#: :func:`no_audit_ledger_in_the_repo`. The ledger and the agent-data root are
+#: siblings under one resolver, so they leak together and are watched together.
+_AUDIT_MARKER = _REPO_ROOT / "var" / "audit"
 
-#: The first test in THIS worker whose teardown found the directory there,
-#: ``None`` while none has. Recorded by :func:`pytest_runtest_teardown` and
-#: read by the guard.
+#: The directory as it was when this conftest was imported — the only moment
+#: guaranteed to precede every test and every higher-scoped fixture. A
+#: directory that was already there belongs to a real local deployment, and
+#: what is IN it is that deployment's business; what this run adds to it is
+#: this suite's, because the first leak would otherwise leave the guard
+#: disarmed for every run after it.
+_AGENT_DATA_BASELINE = _repo_cleanliness.snapshot(_AGENT_DATA_MARKER)
+
+#: The same baseline for the ledger, taken at the same moment and for the same
+#: reason. A developer who has run OSPREY in this checkout owns the records
+#: that were already there; what this run files beside them is the suite's.
+_AUDIT_BASELINE = _repo_cleanliness.snapshot(_AUDIT_MARKER)
+
+#: The first test in THIS worker whose teardown found this run's mark on the
+#: directory, ``None`` while none has. Recorded by
+#: :func:`pytest_runtest_teardown` and read by the guard.
 _AGENT_DATA_FIRST_SEEN: str | None = None
 
+#: The same bound for ``<repo>/var/audit``.
+_AUDIT_FIRST_SEEN: str | None = None
 
+#: Whether the item now running is a real-deployment one. Written by
+#: :func:`pytest_runtest_setup`, cleared by :func:`pytest_runtest_teardown`,
+#: and read by the divert in :func:`agent_data_never_the_checkout`, which is
+#: installed process-wide and so has no other way to tell whose write it is
+#: about to place. Per ITEM, not per collection: a session that mixes one
+#: real-deployment item with a unit lane must divert the unit lane.
+_REAL_DEPLOYMENT_ITEM_RUNNING = False
+
+#: Whether any real-deployment item has run in THIS worker. Once one has, both
+#: repo guards stand down for the rest of the session: those lanes write under
+#: ``var/`` in this checkout on purpose, and nothing distinguishes their
+#: directory from a leaked one after the fact.
+_REAL_DEPLOYMENT_LANE_RAN = False
+
+
+def _is_real_deployment_item(item) -> bool:
+    """Whether *item* runs against this checkout as a real deployment.
+
+    The one predicate behind the divert, both repo guards and the audit seam,
+    so a lane cannot be exempt from one of them and not the others.
+    """
+    return item.nodeid.startswith(_REAL_DEPLOYMENT_LANES)
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item):
+    """Open the window in which resolution to this checkout is legitimate.
+
+    ``tryfirst`` so the flag is already correct when the item's own fixtures
+    are set up: a real-deployment fixture that resolves the project root during
+    setup must see the checkout, not the divert.
+    """
+    global _REAL_DEPLOYMENT_ITEM_RUNNING, _REAL_DEPLOYMENT_LANE_RAN
+    _REAL_DEPLOYMENT_ITEM_RUNNING = _is_real_deployment_item(item)
+    _REAL_DEPLOYMENT_LANE_RAN = _REAL_DEPLOYMENT_LANE_RAN or _REAL_DEPLOYMENT_ITEM_RUNNING
+
+
+@pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_teardown(item):
-    """Timestamp the appearance of ``<repo>/var/agent_data`` against a test.
+    """Timestamp this run's mark on ``<repo>/var/{agent_data,audit}`` against a
+    test, and close the real-deployment window the setup hook opened.
 
-    The guard below runs once per worker at session teardown and can only
+    The guards below run once per worker at session teardown and can only
     report *that* the directory appeared, which is the least useful half of the
     finding: the run is over, and the reader is left grepping a whole tree of
     app fixtures for whichever one resolved the agent-data root to the
     checkout. This narrows it to a window instead — the first test that ran
-    with the directory already present.
+    with this run's mark on the directory, whether or not the directory itself
+    was there before the run started.
 
     Deliberately reported as an upper bound rather than as blame. The writer is
     typically not the test named: the last one measured was a uvicorn daemon
@@ -255,20 +327,65 @@ def pytest_runtest_teardown(item):
     created it. What the name is good for is bounding the search — nothing in
     this worker before it can be the cause.
 
-    One ``stat`` per test, and only until the first hit — cheap enough to leave
-    armed for every lane rather than gated behind a flag nobody would set
-    before the leak had already cost them an afternoon.
+    One hook for both markers, because pytest calls it once per test and each
+    marker stops being read after its own first hit — two comparisons at the
+    start of a run, none once both findings are in hand. A comparison is one
+    ``stat`` and one directory listing, cheap enough to leave armed for every
+    lane rather than gated behind a flag nobody would set before the leak had
+    already cost them an afternoon.
+
+    A wrapper, because the two halves want opposite ends of the teardown. The
+    comparison runs BEFORE every other implementation: pytest's own runs the
+    fixture finalizers, and for the last item of a session those include the
+    two guards below, so a comparison placed after them would never record a
+    bound for the item that most needs one. The window it gives up in exchange
+    is the item's own fixture teardown, which the next item's comparison covers
+    — a bound is an upper bound, and the docstring above already says so. The
+    flag is cleared AFTER them, so a real-deployment item's fixtures still
+    resolve to the checkout while they finalize.
     """
-    global _AGENT_DATA_FIRST_SEEN
-    if _AGENT_DATA_PRE_EXISTED or _AGENT_DATA_FIRST_SEEN is not None:
-        return
-    if _AGENT_DATA_MARKER.exists():
+    global _AGENT_DATA_FIRST_SEEN, _AUDIT_FIRST_SEEN, _REAL_DEPLOYMENT_ITEM_RUNNING
+    if not _REAL_DEPLOYMENT_LANE_RAN:
         worker = os.environ.get("PYTEST_XDIST_WORKER", "master")
-        _AGENT_DATA_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
+        if _AGENT_DATA_FIRST_SEEN is None and _repo_cleanliness.what_this_run_did(
+            _AGENT_DATA_BASELINE, _AGENT_DATA_MARKER
+        ):
+            _AGENT_DATA_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
+        if _AUDIT_FIRST_SEEN is None and _repo_cleanliness.what_this_run_did(
+            _AUDIT_BASELINE, _AUDIT_MARKER
+        ):
+            _AUDIT_FIRST_SEEN = f"{item.nodeid} (worker {worker})"
+    try:
+        yield
+    finally:
+        _REAL_DEPLOYMENT_ITEM_RUNNING = False
+
+
+def _first_seen_clause(first_seen: str | None) -> str:
+    """The "already present by the end of ..." half of a guard's failure."""
+    if not first_seen:
+        return ""
+    return (
+        f"\nalready present by the end of {first_seen} — the writer is at or "
+        "before that point, and may be a background thread an earlier test started"
+    )
+
+
+#: The sentence both guards end on. Neither seam crosses a process boundary,
+#: and neither reaches a module that bound its resolver at import time, so a
+#: failure here bounds the search rather than naming the writer.
+_GUARD_KNOWN_LIMIT = (
+    "\nThis worker is the only one that can be quoted here, in both directions: "
+    "a writer in another worker, in a subprocess, or in a module that bound its "
+    "resolver at import time is not narrowed by the bound above — and under -n, "
+    "a worker that drew only unit items can be failed by a directory an e2e item "
+    "created on purpose in a worker of its own, in which case this failure is "
+    "the wrong answer and the e2e lane is the explanation."
+)
 
 
 @pytest.fixture(autouse=True, scope="session")
-def agent_data_never_the_checkout(request, tmp_path_factory):
+def agent_data_never_the_checkout(tmp_path_factory):
     """Divert a resolution that lands on THIS checkout to a throwaway root.
 
     Every path to the agent-data root funnels through
@@ -302,22 +419,27 @@ def agent_data_never_the_checkout(request, tmp_path_factory):
     ``OSPREY_AGENT_DATA_ROOT`` stamp cannot say for itself (see
     :func:`session_posture_leak_guard`).
 
-    Disarmed for the real-deployment lanes, on the same predicate as
-    :func:`no_agent_data_in_the_repo`: they run agents and servers with this
-    checkout as the project root on purpose, and diverting it would be
+    Disarmed while a real-deployment item is running, on the same predicate as
+    :func:`no_agent_data_in_the_repo`: those lanes run agents and servers with
+    this checkout as the project root on purpose, and diverting it would be
     rewriting the thing under test.
+
+    Disarmed per ITEM rather than per collection. The exemption asks whether
+    the write happening now belongs to a real-deployment test, which is the
+    only question its answer turns on; a collection-wide one answers for the
+    whole session, so a single real-deployment item in a mixed selection would
+    aim every unit test in the run at this checkout and the guards below would
+    stand down over it.
     """
     from osprey_connectors import workspace as connector_workspace
-
-    if any(item.nodeid.startswith(_REAL_DEPLOYMENT_LANES) for item in request.session.items):
-        yield
-        return
 
     real_resolve_project_root = connector_workspace.resolve_project_root
     diverted = tmp_path_factory.mktemp("project-root-not-the-checkout")
 
     def _never_the_checkout(config=None):
         root = real_resolve_project_root(config)
+        if _REAL_DEPLOYMENT_ITEM_RUNNING:
+            return root
         try:
             landed_here = Path(root).resolve() == _REPO_ROOT
         except OSError:  # pragma: no cover - a root that vanished mid-run
@@ -335,7 +457,7 @@ def agent_data_never_the_checkout(request, tmp_path_factory):
 
 
 @pytest.fixture(autouse=True, scope="session")
-def no_agent_data_in_the_repo(request):
+def no_agent_data_in_the_repo():
     """Fail the session if the suite created ``<repo>/var/agent_data``.
 
     The regression this exists for is silent by construction: ``var/`` is
@@ -349,43 +471,116 @@ def no_agent_data_in_the_repo(request):
     every test at once, at the cost of overriding the resolver patch most
     store-touching tests use to redirect that root.
 
-    Only a directory the RUN created is a failure. One that was already there
-    belongs to a real local deployment and is none of the suite's business —
-    checking for creation rather than existence is what keeps this from firing
-    on a developer who has actually run OSPREY in this checkout.
+    Only what the RUN did is a failure. A directory that was already there is
+    not one — that is what keeps this from firing on a developer who has
+    actually run OSPREY in this checkout — but an entry this run put INTO it
+    is, because a directory left behind by an interrupted run is
+    indistinguishable from one a developer owns, and keying on existence hands
+    the guard's silence to the first leak that happens here. The consequence is
+    worth stating plainly: a live local deployment writing into that directory
+    while the suite runs is now named as a failure. The message names the entry
+    that appeared, so that case can be recognised for what it is.
 
     The real-deployment lanes (``tests/e2e/``, ``tests/va/e2e/``) are exempt:
     they run agents and servers with this checkout as the project root, so the
     executor's run folders land under ``var/agent_data`` by design, not by a
-    fixture's mistake. The guard is armed only in a session that collects none
-    of them — the unit lane it was written for.
+    fixture's mistake. Exempt once such an item has RUN in this worker, not
+    once one has been collected — a mixed selection still guards its unit half,
+    which a collection-wide exemption cannot do.
     """
     marker = _AGENT_DATA_MARKER
-    real_deployment_lane = any(
-        item.nodeid.startswith(_REAL_DEPLOYMENT_LANES) for item in request.session.items
-    )
-    existed = marker.exists()
     yield
-    if real_deployment_lane:
+    if _REAL_DEPLOYMENT_LANE_RAN:
         return
-    if not existed and marker.exists():
-        culprit = (
-            "\nalready present by the end of "
-            f"{_AGENT_DATA_FIRST_SEEN} — the writer is at or before that point, "
-            "and may be a background thread an earlier test started"
-            if _AGENT_DATA_FIRST_SEEN
-            else ""
-        )
+    clause = _repo_cleanliness.what_this_run_did(_AGENT_DATA_BASELINE, marker)
+    if clause:
         raise AssertionError(
-            f"the test run created {marker} — something resolved the agent-data root "
+            f"the test run {clause} — something resolved the agent-data root "
             "to the repository. A test that writes the posture store or a control-target "
             "state file must stamp OSPREY_AGENT_DATA_ROOT at a tmp path (see "
             "session_posture_leak_guard) rather than leave it to resolve_shared_data_root()."
-            f"{culprit}"
-            "\nThe bound above names only what this xdist worker ran: a writer in "
-            "another worker, in a subprocess, or in a module that bound its resolver "
-            "at import time is not narrowed by it."
+            f"{_first_seen_clause(_AGENT_DATA_FIRST_SEEN)}"
+            f"{_GUARD_KNOWN_LIMIT}"
         )
+
+
+@pytest.fixture(autouse=True, scope="session")
+def no_audit_ledger_in_the_repo():
+    """Fail the session if the suite created ``<repo>/var/audit``.
+
+    The twin of :func:`no_agent_data_in_the_repo`, watching the other tree that
+    hangs off ``resolve_project_root``. It is the more corrosive of the two
+    when it leaks: an agent-data directory left behind is empty and merely
+    untidy, while a ledger left behind holds ``web_auth`` refusals and
+    ``http_mutation`` admissions that an operator reading ``var/audit`` cannot
+    tell from records of things that really happened.
+
+    Only what the RUN did is a failure — the same rule as the twin, keyed the
+    same way. A ledger that was already there is not one, and what is in it is
+    a local deployment's business, but a record this run filed beside those is,
+    because a ledger left behind by an interrupted run is indistinguishable
+    from one a developer owns, and keying on existence hands the guard's
+    silence to the first leak that happens here. The consequence is worth
+    stating plainly: a live local deployment recording while the suite runs is
+    now named as a failure. The message names the entry that appeared, so that
+    case can be recognised for what it is.
+
+    The real-deployment lanes are exempt once such an item has RUN in this
+    worker, for the twin's reason: they file real records against this checkout
+    on purpose.
+    """
+    marker = _AUDIT_MARKER
+    yield
+    if _REAL_DEPLOYMENT_LANE_RAN:
+        return
+    clause = _repo_cleanliness.what_this_run_did(_AUDIT_BASELINE, marker)
+    if clause:
+        raise AssertionError(
+            f"the test run {clause} — something fired a recorder with the "
+            "ledger resolved to the repository, so records nobody caused now sit "
+            "where an operator reads the real ones. A test that records must point "
+            "writer.audit_dir at a tmp path (see _isolate_audit_zone) rather than "
+            "leave it to resolve_project_root()."
+            f"{_first_seen_clause(_AUDIT_FIRST_SEEN)}"
+            f"{_GUARD_KNOWN_LIMIT}"
+        )
+
+
+@pytest.fixture(autouse=True)
+def _isolate_audit_zone(request, tmp_path, monkeypatch):
+    """Keep every record a test fires out of the live ledger.
+
+    ``writer.audit_dir`` is the ledger's one seam — the HTTP middleware, the
+    protected-set funnel, the MCP middleware and the hook emitters all resolve
+    the zone through it — so redirecting it here contains a whole app test.
+    Suite-wide because the modules that need it are exactly the ones whose
+    authors would not think to ask: any test that drives an app files real
+    ``web_auth`` and ``http_mutation`` records, and the interfaces, dispatch,
+    MCP and integration trees all hold app fixtures of that shape. A test that
+    fires no recorder pays nothing.
+
+    Returned so a test that wants to *read* what it filed can, without knowing
+    where the zone was put.
+
+    Named privately so the ``audit_zone`` and ``_audit_zone`` fixtures several
+    modules define still win: a fixture declared closer to the test is set up
+    after this one and re-points the same seam.
+
+    Two exemptions, and both are about tests whose subject IS the resolver.
+    The real-deployment lanes record against this checkout on purpose. So does
+    ``tests/audit/``, which asserts what ``audit_dir()`` resolves to under a
+    rendered project and pins its own zone wherever it writes — patching the
+    seam from out here would be answering the question under test.
+    """
+    from osprey.audit import writer
+
+    zone = tmp_path / "audit-zone" / "var" / "audit"
+    if _is_real_deployment_item(request.node) or request.node.nodeid.startswith(
+        _AUDIT_RESOLVER_LANE
+    ):
+        return zone
+    monkeypatch.setattr(writer, "audit_dir", lambda: zone)
+    return zone
 
 
 # ===================================================================
@@ -1566,3 +1761,41 @@ def _stub_graph_index_builds(request, monkeypatch, graph_index_cache: GraphIndex
     _cached_build_graph_index.stubbed_by_conftest = True
 
     monkeypatch.setattr(build_cmd, "_build_graph_index", _cached_build_graph_index)
+
+
+@contextmanager
+def dispatcher_route_registry():
+    """Build dispatcher servers without inheriting or leaving route registrations.
+
+    ``osprey.dispatch.server.create_server()`` appends its dashboard and webhook
+    routes to one module-level FastMCP instance. Production calls it once; a test
+    calls it per module or per case, so two things go wrong when it is called
+    bare: a registration an earlier caller left behind matches first and answers
+    from a registry this caller never filled, and the registrations this caller
+    adds outlive it.
+
+    Inside the block, ``build()`` calls the factory and then keeps only the
+    newest registration of each path and method set, so the routes the app serves
+    are the ones this block registered. On the way out the singleton carries
+    exactly the routes it had on the way in. A block that never calls ``build()``
+    still gets the restore, which is all a test needs when the case itself is the
+    one calling the factory.
+    """
+    from osprey.dispatch import server as dispatch_server
+
+    baseline_routes = list(dispatch_server.mcp._additional_http_routes)
+
+    def build():
+        """Call the factory, then drop every registration it did not make."""
+        built = dispatch_server.create_server()
+        newest: dict[tuple, object] = {}
+        for route in dispatch_server.mcp._additional_http_routes:
+            methods = tuple(sorted(getattr(route, "methods", None) or ()))
+            newest[getattr(route, "path", None), methods] = route
+        dispatch_server.mcp._additional_http_routes = list(newest.values())
+        return built
+
+    try:
+        yield build
+    finally:
+        dispatch_server.mcp._additional_http_routes = baseline_routes

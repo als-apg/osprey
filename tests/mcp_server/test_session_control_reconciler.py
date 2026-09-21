@@ -57,8 +57,6 @@ from osprey.mcp_server.control_system.tools import control_target
 from osprey_connectors import control_context, posture_store
 from tests import _control_context_fixtures as fixtures
 
-pytestmark = pytest.mark.unit
-
 SESSION_KEY = "session-abc"
 
 #: A PID that is alive and is not this process, for the "somebody else owns it"

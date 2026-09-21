@@ -71,6 +71,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 import requests
 
+# Aliased to the historical private names: the shared helpers are the same
+# two waits this module used to spell itself, and the alias keeps its fifty
+# call sites reading as they did.
+from tests.interfaces._browser import open_hub_page as _open_page
+from tests.interfaces._browser import rail_entry as _rail_entry
 from tests.interfaces._panel_launch import DEFAULT_ARTIFACT_URL, publish_artifact_url
 from tests.interfaces.conftest import _free_port, _run_app_server
 
@@ -224,40 +229,6 @@ def _live_server(
                 app.state.runtime_panel_allowlist = None  # any non-loopback host allowed
 
             yield base_url, app
-
-
-# ---------------------------------------------------------------------------
-# Page helpers
-# ---------------------------------------------------------------------------
-
-#: Seeded into every page before load: marks the onboarding tour as already
-#: dismissed. Under the default `once` policy the invite card (scrim + modal)
-#: would otherwise overlay the shell on the fresh profile these tests run
-#: under and intercept the tab clicks and drags they drive. The tour has its
-#: own dedicated coverage (tour.test.mjs).
-_DISMISS_RAIL_HINT = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
-
-
-def _open_page(browser, base_url: str) -> Page:
-    """Open a new browser page and wait for the rail + dock grid to render.
-
-    panel-manager.js renders the rail asynchronously (it fetches /api/panels then
-    each panel's config endpoint) and dock-workspace.js builds the dockview grid;
-    this helper blocks until both are present so individual tests can assume a
-    stable starting DOM.
-    """
-    page = browser.new_page()
-    page.add_init_script(_DISMISS_RAIL_HINT)
-    page.goto(base_url, wait_until="domcontentloaded")
-    # Artifacts is always enabled and the DEFAULT_PANEL_FALLBACK, so its rail
-    # button appears quickly after the async init path completes. Iframes also
-    # carry data-panel-id, so target the button element specifically.
-    expect(page.locator('button.panel-rail-button[data-panel-id="artifacts"]')).to_be_attached(
-        timeout=10_000
-    )
-    # The dockview grid is up once at least one group is on screen.
-    expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
-    return page
 
 
 # ---------------------------------------------------------------------------
@@ -420,10 +391,6 @@ _MENU_LABELS_JS = (
     "() => [...document.querySelectorAll('.rail-context-menu .rail-context-label')]"
     ".map(e => e.textContent)"
 )
-
-
-def _rail_entry(page: Page, panel_id: str):
-    return page.locator(f'button.panel-rail-button[data-panel-id="{panel_id}"]')
 
 
 def _context_menu(page: Page):
@@ -1893,7 +1860,6 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
             app.state.visible_panels = ["data-viz"]
 
             page = chromium_browser.new_page()
-            page.add_init_script(_DISMISS_RAIL_HINT)
             page.goto(base_url, wait_until="domcontentloaded")
             expect(page.locator('button[data-panel-id="data-viz"]')).to_be_attached(timeout=10_000)
 
@@ -1942,7 +1908,6 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             app.state.visible_panels = ["artifacts"]
 
             page = chromium_browser.new_page()
-            page.add_init_script(_DISMISS_RAIL_HINT)
             page.goto(base_url, wait_until="domcontentloaded")
             expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
 

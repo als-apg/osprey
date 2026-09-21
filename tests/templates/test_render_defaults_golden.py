@@ -139,8 +139,10 @@ def _pinned_context(config: dict) -> dict:
 
     The injection is ``_inject_project_metadata`` — the same call
     ``render_template`` makes — so what a golden pins is the generator's own
-    context, not one the test assembled. Only the three values that would
-    otherwise differ from one checkout to the next are overwritten afterwards.
+    context, not one the test assembled. Only the values that would otherwise
+    differ from one checkout to the next are overwritten afterwards — the
+    version, what it implies for the recipes' pip resolve, and the repo's
+    path and identity.
 
     Shared with the axis-shape suite (``test_render_axis_shapes.py``), which
     hands in the same raw config with a per-scenario overlay applied: one
@@ -152,6 +154,9 @@ def _pinned_context(config: dict) -> dict:
     config = _inject_project_metadata(config)
     config["project_root"] = _PINNED_PROJECT_ROOT
     config["osprey_version"] = _PINNED_OSPREY_VERSION
+    # Follows the pinned version, which is a stable one: a checkout running a
+    # beta would otherwise ask every recipe for a --pre resolve here.
+    config["osprey_pip_pre"] = False
     config["osprey_labels"] = {
         **config["osprey_labels"],
         "project_root": _PINNED_PROJECT_ROOT,

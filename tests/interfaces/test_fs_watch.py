@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import threading
 import time
 
@@ -17,6 +18,7 @@ from osprey.interfaces.fs_watch import (
     one_level_listing,
     reconcile_interval_seconds,
     reconcile_targets,
+    refresh_listing,
 )
 
 _STAMP: ChangeStamp = (False, 0, 0)
@@ -26,7 +28,6 @@ def _listing() -> dict[str, ChangeStamp]:
     return {"note.txt": _STAMP}
 
 
-@pytest.mark.unit
 class TestEvictingADirectorysSubtree:
     """A path that is no longer in the tree keeps no listing, and neither does
     anything that was under it."""
@@ -77,7 +78,55 @@ class TestEvictingADirectorysSubtree:
         assert listings == {}
 
 
-@pytest.mark.unit
+class TestRefreshingADirectorysListing:
+    """One listing is kept per directory that still exists, and the caller is
+    handed what it replaced so it can say what differs."""
+
+    def test_a_directory_not_yet_tracked_has_no_previous_listing(self, tmp_path):
+        (tmp_path / "note.txt").write_text("hello")
+        listings: dict[str, dict[str, ChangeStamp]] = {}
+
+        previous, current = refresh_listing(listings, tmp_path)
+
+        assert previous is None
+        assert current == one_level_listing(tmp_path)
+        assert listings == {str(tmp_path): current}
+
+    def test_a_second_read_returns_what_the_first_stored(self, tmp_path):
+        (tmp_path / "note.txt").write_text("hello")
+        listings: dict[str, dict[str, ChangeStamp]] = {}
+        _, first = refresh_listing(listings, tmp_path)
+
+        (tmp_path / "later.txt").write_text("world")
+        previous, current = refresh_listing(listings, tmp_path)
+
+        assert previous == first
+        assert "later.txt" in current
+        assert listings == {str(tmp_path): current}
+
+    def test_a_directory_that_is_gone_drops_its_key_rather_than_storing_an_empty_listing(
+        self, tmp_path
+    ):
+        directory = tmp_path / "sub"
+        directory.mkdir()
+        (directory / "note.txt").write_text("hello")
+        listings: dict[str, dict[str, ChangeStamp]] = {}
+        _, primed = refresh_listing(listings, directory)
+
+        shutil.rmtree(directory)
+        previous, current = refresh_listing(listings, directory)
+
+        assert previous == primed
+        assert current == {}
+        assert str(directory) not in listings
+
+    def test_a_directory_that_was_never_there_adds_no_key(self, tmp_path):
+        listings: dict[str, dict[str, ChangeStamp]] = {}
+
+        assert refresh_listing(listings, tmp_path / "never_there") == (None, {})
+        assert listings == {}
+
+
 class TestStampingOneEntry:
     """A stamp taken of a path and a stamp taken by listing its parent describe
     the same file identically — otherwise a change recorded through one could
@@ -113,7 +162,6 @@ class TestStampingOneEntry:
         assert entry_stamp(note) != before
 
 
-@pytest.mark.unit
 class TestTheReconciliationTimer:
     """The second trigger: it keeps running, it stops on demand, and one bad
     pass does not end it."""
@@ -167,7 +215,6 @@ class TestTheReconciliationTimer:
         assert Reconciler(1.5, lambda: None).interval == 1.5
 
 
-@pytest.mark.unit
 class TestTheConfiguredInterval:
     """One setting for both watchers, and no value that switches the pass off."""
 
@@ -197,7 +244,6 @@ class TestTheConfiguredInterval:
         assert "web.file_watch_reconcile_interval_s" in caplog.text
 
 
-@pytest.mark.unit
 class TestTheDirectoriesAPassVisits:
     """What one pass owes a frame to, decided in one place for both watchers.
 

@@ -20,7 +20,7 @@ resolution-markers = [
 
 [options.exclude-newer-package]
 lume-pyat = "2026-09-18T00:00:00Z"
-lume-pva-apg = "2026-08-08T00:00:00Z"
+lume-pva-apg = "2026-09-13T00:00:00Z"
 
 [manifest]
 members = [
@@ -3647,15 +3647,15 @@ wheels = [
 
 [[package]]
 name = "lume-pva-apg"
-version = "0.1.2"
+version = "0.1.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lume-base" },
     { name = "numpy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c0/01/4611d7a2b91c207304d9f6f4364a31190014925802c7145e7ccbdb1c0b91/lume_pva_apg-0.1.2.tar.gz", hash = "sha256:b375db188ecbed91697888f098d6d01364793ea4ba7e822befd150af963d673d", size = 76507, upload-time = "2026-08-07T19:13:48.613Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/28/d8/cf2769b3d176cd1fd5acddd332ad2c5b0d1588ef2223008d7ad28f948dd8/lume_pva_apg-0.1.4.tar.gz", hash = "sha256:6331d4fc0d8dc0f0827aa536c0d7cdc77b8f0f5a50ea78d8de06fde29937622e", size = 82426, upload-time = "2026-09-12T23:58:09.577Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/4b/12f8d4b30f62264fdfc1d298af4344324d07da75be42f5d348a8bcf90215/lume_pva_apg-0.1.2-py3-none-any.whl", hash = "sha256:36050520b1f93a987aef134b435d0d97081bc0b4a7f1e410cf916b2da4a72d23", size = 65086, upload-time = "2026-08-07T19:13:47.226Z" },
+    { url = "https://files.pythonhosted.org/packages/73/83/a81a3aaf0c241b2119ca2cf040fb5e966ac125b9309735ab05e4141c5bc2/lume_pva_apg-0.1.4-py3-none-any.whl", hash = "sha256:d2c22586b58763ec8201d9efad4248f2d1bb2f03d680b298203eff74457de79f", size = 71173, upload-time = "2026-09-12T23:58:08.346Z" },
 ]
 
 [package.optional-dependencies]
@@ -5123,15 +5123,15 @@ requires-dist = [
     { name = "linkml-runtime", marker = "extra == 'knowledge'", specifier = ">=1.11.1,<2" },
     { name = "litellm", specifier = ">=1.56.0" },
     { name = "lume-base", specifier = "==0.5.0" },
-    { name = "lume-pva-apg", extras = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = "==0.1.2" },
+    { name = "lume-pva-apg", extras = ["ca", "pva"], marker = "platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'virtual-accelerator'", specifier = "==0.1.4" },
     { name = "lume-pyat", specifier = "==0.2.0" },
     { name = "markdown", specifier = ">=3.5" },
     { name = "markupsafe", specifier = ">=3.0.2" },
     { name = "matplotlib", specifier = ">=3.11.1" },
     { name = "mss", marker = "extra == 'all'", specifier = ">=10.2.0" },
     { name = "mss", marker = "extra == 'screen-capture-linux'", specifier = ">=10.2.0" },
-    { name = "mypy", marker = "extra == 'all'" },
-    { name = "mypy", marker = "extra == 'dev'" },
+    { name = "mypy", marker = "extra == 'all'", specifier = ">=1.19.1,<1.20" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.19.1,<1.20" },
     { name = "myst-parser", marker = "extra == 'all'" },
     { name = "myst-parser", marker = "extra == 'docs'" },
     { name = "nbclient" },

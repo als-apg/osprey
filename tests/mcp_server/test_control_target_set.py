@@ -54,22 +54,14 @@ from osprey_connectors import control_context
 from osprey_connectors.standin import ARCHIVER_RECORDER_SERVICE
 from osprey_connectors.types import LIVE_STANDIN
 from tests._control_context_fixtures import owner, write_control_context, write_server_report
-from tests.mcp_server import test_switch_lifecycle as switch_suite
+from tests.mcp_server._switch_harness import SETTLE_TIMEOUT_S, raw_config
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
-SETTLE_TIMEOUT_S = switch_suite.SETTLE_TIMEOUT_S
-raw_config = switch_suite.raw_config
 
-# The switch-lifecycle suite's fixtures, rebound so pytest collects them in this
-# module too. ``state_root`` and ``child_environment`` are autouse there and stay
-# autouse here, which is what anchors every state file this module writes under
-# tmp_path. Rebound rather than imported by name so that a test's fixture
-# parameter does not read as a shadowed import.
-child_environment = switch_suite.child_environment
-fixture_dir = switch_suite.fixture_dir
-live_type = switch_suite.live_type
-make_manager = switch_suite.make_manager
-state_root = switch_suite.state_root
+@pytest.fixture(autouse=True)
+def _child_harness(child_environment, state_root):
+    """Every test here runs a child against a scratch state root."""
+
 
 TOOL = get_tool_fn(control_target.control_target_set)
 

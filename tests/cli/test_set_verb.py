@@ -27,8 +27,6 @@ from click.testing import CliRunner
 from osprey.cli.set_cmd import set as set_command
 from osprey.deployment import staleness
 
-pytestmark = pytest.mark.unit
-
 
 @pytest.fixture
 def runner() -> CliRunner:

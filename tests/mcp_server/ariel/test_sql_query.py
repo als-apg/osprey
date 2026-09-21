@@ -128,7 +128,6 @@ def _setup_registry(tmp_path, monkeypatch):
     initialize_ariel_context()
 
 
-@pytest.mark.unit
 async def test_sql_query_valid(tmp_path, monkeypatch):
     """Valid SELECT query executes and returns rows."""
     _setup_registry(tmp_path, monkeypatch)
@@ -160,7 +159,6 @@ async def test_sql_query_valid(tmp_path, monkeypatch):
     assert data["rows"][0]["entry_id"] == "e1"
 
 
-@pytest.mark.unit
 async def test_sql_query_rejected_dml():
     """DML queries return validation error without touching the database."""
     fn = _get_sql_query()
@@ -171,7 +169,6 @@ async def test_sql_query_rejected_dml():
     assert "INSERT" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_sql_query_empty():
     """Empty query returns validation error."""
     fn = _get_sql_query()
@@ -181,7 +178,6 @@ async def test_sql_query_empty():
     _exc_ctx["envelope"]
 
 
-@pytest.mark.unit
 async def test_sql_query_row_limit(tmp_path, monkeypatch):
     """max_rows > 200 is capped at 200 inside sql_query()."""
     _setup_registry(tmp_path, monkeypatch)
@@ -208,7 +204,6 @@ async def test_sql_query_row_limit(tmp_path, monkeypatch):
     mock_sql.assert_called_once()
 
 
-@pytest.mark.unit
 async def test_sql_query_service_error(tmp_path, monkeypatch):
     """Database error returns internal_error."""
     _setup_registry(tmp_path, monkeypatch)
@@ -234,7 +229,6 @@ async def test_sql_query_service_error(tmp_path, monkeypatch):
     assert "Connection refused" in data["error_message"]
 
 
-@pytest.mark.unit
 async def test_sql_query_uses_the_readonly_pool(tmp_path, monkeypatch):
     """The tool queries through the SELECT-only role where the deployment has
     one, so a dangerous function is refused by Postgres rather than by a
@@ -263,7 +257,6 @@ async def test_sql_query_uses_the_readonly_pool(tmp_path, monkeypatch):
     assert mock_sql.call_args.args[0] is mock_service.readonly_pool
 
 
-@pytest.mark.unit
 async def test_sql_query_falls_back_to_the_ingestion_pool(tmp_path, monkeypatch):
     """A store whose data volume predates the role has no read-only pool. The
     tool keeps working on the connection it always used; the service logs the

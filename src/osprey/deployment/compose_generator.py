@@ -144,6 +144,23 @@ QMD_ARIEL_COLLECTION = "ariel"
 #: resolves relative paths against.
 _CONTAINER_PROJECT_ROOT = "/app/project"
 
+#: Where a reader container sees the read-only control-context TREE — the whole
+#: ``control_target/`` root, one directory per identity, which a container reads
+#: to learn whether the identity behind an owned write has narrowed itself to
+#: another machine.
+#:
+#: Deliberately OUTSIDE both ``/app/<project>`` and ``/app/project``, and so
+#: outside every container's own ``var/`` state zone. ``entrypoint.sh``'s
+#: ``hand_back_state_zone`` chowns everything under ``var/`` to the container
+#: account on every start, and a chown across a read-only bind fails with EROFS
+#: and warns on every start; a target outside the zone is never walked, so the
+#: bind needs no prune entry to stay quiet and stays correct in an image whose
+#: entrypoint predates the prune. It is also never a container's own state
+#: directory: the tree is the HOST's copy of every identity's record, and
+#: mounting it over the place a container writes its own would silence that
+#: container's writes behind a read-only mount.
+_CONTAINER_CONTROL_TREE_DIR = "/osprey/control_tree"
+
 
 def resolve_repo_root(config=None, config_path=None):
     """The deployment repo a compose invocation is pinned to.
@@ -612,7 +629,9 @@ def resolve_user_volume_names(config, user):
     return f"{project}_{user}-claude-config", f"{project}_{user}-agent-data"
 
 
-def repo_relative_mount_source(raw, repo_root=None):
+def repo_relative_mount_source(
+    raw: str | os.PathLike[str], repo_root: str | os.PathLike[str] | None = None
+) -> str:
     """Spell a configured host path as a compose bind source.
 
     The one spelling rule every renderer uses, shared so the base compose files
@@ -678,26 +697,31 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
     (hence ``repo_root=None``) — rewriting it repo-relative would silently
     re-point the mount at a file that is not there.
 
-    Refusals are gated on :func:`~osprey_connectors.types.any_target_writes_enabled`
-    because that is what gates the mount itself. The mount is rendered per
-    Bluesky lane, on each lane's own target posture
-    (:func:`_bluesky_lane_write_posture`), so a deployment whose
-    deployment-wide key is ``false`` still mounts this file into a lane whose
-    ``control_system.connector.<type>.writes_enabled`` arms it. Reading the flat
-    key here would skip both refusals on exactly that config and hand the
-    template a mount it does not have: with the path unset the render emits a
-    bind with no source, and with it set but unstaged a build-time refusal
-    degrades into a container that comes up enforcing an unreadable file. The
-    union predicate — the same one the web terminal's write gate reads — is what
-    keeps the refusal and the mount describing the same deployment.
+    Refusals are gated on
+    :func:`~osprey_connectors.types.any_armed_target_checks_limits`: a target
+    opens this file only when it both arms writes and has
+    ``limits_checking.enabled`` on, so that pairing is what makes the file's
+    absence a fault rather than a posture. Both halves are read off the SAME
+    target, and the write half is a union over the targets a session here can
+    select rather than the flat key — the mount is rendered per Bluesky lane,
+    on each lane's own target posture (:func:`_bluesky_lane_write_posture`), so
+    a deployment whose deployment-wide key is ``false`` still mounts this file
+    into a lane whose ``control_system.connector.<type>.writes_enabled`` arms
+    it. Reading the flat key would let that config refuse nothing and then
+    render an armed lane binding a file that is not on the host, which the
+    container runtime creates as an empty directory.
 
-    A deployment with no armed target never enforces limits against this file,
-    so an unset or not-yet-staged path is a posture there, not a fault. One that
-    arms a target without a limits database is the one unsafe combination — the
-    same one ``bluesky_bridge.validation._assert_limits_readable_if_writable``
-    refuses to start on — and catching it here turns an unhealthy container an
-    hour into a deploy into a refusal while the operator still has the config in
-    front of them.
+    A limits database is therefore optional, exactly as it is at runtime. A
+    deployment with no armed target never opens it; neither does one that arms
+    writes with limits checking off for every armed target, where the connector
+    builds no validator and consults no database. Both leave an unset or
+    not-yet-staged path a posture rather than a fault, and the render carries
+    no mount — a bind source that does not exist would otherwise materialise as
+    a stray empty directory. Checking that is ON for an armed target is the
+    combination that needs the file, the same rule
+    ``bluesky_bridge.validation._assert_limits_readable_if_writable`` starts
+    on, and catching it here turns an unhealthy container an hour into a deploy
+    into a refusal while the operator still has the config in front of them.
 
     :param config: The loaded project config
     :type config: dict
@@ -710,30 +734,34 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         will be read under; ``""`` for the repo root itself
     :type deployed_config_dir: str
     :return: ``{"source": ..., "target": ...}``, or ``None`` when the key names
-        no path at all and no target arms writes
+        no path at all, or names one that is not on this host and no armed
+        target checks limits — there is nothing to mount either way, and a bind
+        source that is not there is worse than no bind at all
     :rtype: dict[str, str] or None
-    :raises DeploymentPreconditionError: Some target arms writes and the key is
-        unset, is not a string, or names a file that is not on this host
+    :raises DeploymentPreconditionError: Some target arms writes with limits
+        checking on for it, and the key is unset, is not a string, or names a
+        file that is not on this host
     """
-    from osprey_connectors.types import any_target_writes_enabled
+    from osprey_connectors.types import any_armed_target_checks_limits
 
     control_system = config.get("control_system") or {}
     limits_checking = control_system.get("limits_checking") or {}
     raw = limits_checking.get("database_path")
-    writes_enabled = any_target_writes_enabled(control_system)
+    limits_required = any_armed_target_checks_limits(control_system)
 
     if not isinstance(raw, str) or not raw.strip():
-        if writes_enabled:
+        if limits_required:
             raise DeploymentPreconditionError(
                 reason=(
                     f"At least one control target arms writes_enabled (from "
                     f"control_system.writes_enabled or a "
                     f"control_system.connector.<type>.writes_enabled that "
-                    f"overrides it), so the channel-limits database is mounted "
-                    f"into the services that write — but "
-                    f"{LIMITS_DATABASE_CONFIG_KEY} names no path (found: "
-                    f"{raw!r}). There is nothing to mount, so those services "
-                    f"would come up with no limits to enforce."
+                    f"overrides it) AND has limits_checking.enabled on, so the "
+                    f"channel-limits database is mounted into the services that "
+                    f"write — but {LIMITS_DATABASE_CONFIG_KEY} names no path "
+                    f"(found: {raw!r}). There is nothing to mount, so those "
+                    f"services would come up checking writes against a database "
+                    f"they cannot read."
                 ),
                 remedy=(
                     f"Set {LIMITS_DATABASE_CONFIG_KEY} to the limits file, "
@@ -741,14 +769,18 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
                     "    control_system:\n"
                     "      limits_checking:\n"
                     "        database_path: data/channel_limits.json\n"
-                    "Or disarm every target — control_system.writes_enabled: "
-                    "false with no control_system.connector.<type>."
-                    "writes_enabled: true overriding it — to deploy read-only, "
-                    "which needs no limits database."
+                    "Or turn limits checking off for the armed target — "
+                    "limits_checking.enabled: false, deployment-wide or in that "
+                    "target's control_system.connector.<type> block — which "
+                    "needs no limits database. Disarming every target "
+                    "(control_system.writes_enabled: false with no "
+                    "control_system.connector.<type>.writes_enabled: true "
+                    "overriding it) needs none either."
                 ),
             )
-        # Read-only and unconfigured: nothing to spell, and nothing that would
-        # consume the strings if they were spelled.
+        # Unconfigured, and nothing here opens a limits database: nothing to
+        # spell, and nothing that would consume the strings if they were
+        # spelled.
         return None
 
     configured = Path(raw).expanduser()
@@ -769,33 +801,40 @@ def resolve_limits_mount(config, config_dir, deployed_config_dir):
         target = str(PurePosixPath(_CONTAINER_PROJECT_ROOT) / relative)
         on_host = Path(config_dir) / configured
 
-    if writes_enabled and not on_host.is_file():
-        raise DeploymentPreconditionError(
-            reason=(
-                f"At least one control target arms writes_enabled (from "
-                f"control_system.writes_enabled or a "
-                f"control_system.connector.<type>.writes_enabled that overrides "
-                f"it), so the channel-limits database is mounted into the "
-                f"services that write — but "
-                f"{LIMITS_DATABASE_CONFIG_KEY} is {raw!r} and there is no file "
-                f"at {on_host}. A bind source that does not exist is created by "
-                f"the container runtime as an empty directory, so the deployment "
-                f"would come up enforcing an unreadable limits database."
-            ),
-            remedy=(
-                f"Put the limits database at {on_host}, or point "
-                f"{LIMITS_DATABASE_CONFIG_KEY} at where it already is, and "
-                "rebuild. The limits database is authored in the build "
-                "profile's `data/` tree and copied into the deployment by "
-                "`osprey build`, so a path that is right in the profile and "
-                "absent here usually means the build has not been re-run."
-            ),
-        )
+    if not on_host.is_file():
+        if limits_required:
+            raise DeploymentPreconditionError(
+                reason=(
+                    f"At least one control target arms writes_enabled (from "
+                    f"control_system.writes_enabled or a "
+                    f"control_system.connector.<type>.writes_enabled that "
+                    f"overrides it) AND has limits_checking.enabled on, so the "
+                    f"channel-limits database is mounted into the services that "
+                    f"write — but {LIMITS_DATABASE_CONFIG_KEY} is {raw!r} and "
+                    f"there is no file at {on_host}. A bind source that does not "
+                    f"exist is created by the container runtime as an empty "
+                    f"directory, so the deployment would come up checking writes "
+                    f"against a limits database it cannot read."
+                ),
+                remedy=(
+                    f"Put the limits database at {on_host}, or point "
+                    f"{LIMITS_DATABASE_CONFIG_KEY} at where it already is, and "
+                    "rebuild. The limits database is authored in the build "
+                    "profile's `data/` tree and copied into the deployment by "
+                    "`osprey build`, so a path that is right in the profile and "
+                    "absent here usually means the build has not been re-run. To "
+                    "deploy without one, set limits_checking.enabled: false for "
+                    "the armed target — a target that checks no limits opens no "
+                    "database."
+                ),
+            )
+        # Configured, absent, and nothing here will open it. No mount is
+        # recorded rather than the strings for a file that is not there: the
+        # container runtime creates a missing bind source as an empty
+        # directory, and the template renders the volume only when this key
+        # reaches it.
+        return None
 
-    # Returned even when the file is absent and writes are disabled: the
-    # strings are still the right answer for that configured path, the mount
-    # they describe is writes-gated in the template, and an operator staging
-    # the file later changes nothing about how it is spelled.
     return {"source": source, "target": target}
 
 
@@ -1193,13 +1232,13 @@ def _lane_target(block, control_system):
     test the worker applies to the same key
     (:func:`~osprey.services.bluesky_bridge.queue_backend._declared_lane_target`).
     On a hand-edited config a target of any other type would otherwise be a
-    lane this gate resolves one way and the runtime another — the build gating
-    a machine the worker does not come up on.
+    lane this render resolves one way and the runtime another — a lane rendered
+    for a machine the worker does not come up on.
 
-    One spelling, because two readers act on the answer and a disagreement
-    between them is a lane described as one machine and gated as another: the
-    template's write posture below, and the limits gate
-    (:func:`_refuse_lane_writes_without_limits`) that refuses the build.
+    One spelling, because the answer decides what the lane is described as: the
+    template's write posture below reads it, and a lane resolved one way here
+    and another by the worker would render a machine the worker never comes up
+    on.
 
     :param block: The lane's ``services.<lane>`` block
     :type block: dict
@@ -1394,7 +1433,7 @@ def _inject_project_metadata(config):
     # can sit AHEAD of the checkout's lineage. A production build from a
     # development checkout is still refused earlier and more clearly by
     # `_resolve_pip_spec`; see `get_image_pin_version` for the full rationale.
-    from osprey.version import get_image_pin_version
+    from osprey.version import get_image_pin_version, is_prerelease
 
     osprey_version = get_image_pin_version(bool(config.get("dev_mode")))
 
@@ -1435,6 +1474,10 @@ def _inject_project_metadata(config):
         "repo_id": repo_identity(repo_root),
     }
     config_with_labels["osprey_version"] = osprey_version
+    # A beta framework exists only beside a beta connectors, which pip never
+    # picks for a requirement that names none: the service recipes take this
+    # as OSPREY_PIP_PRE=1 and resolve their deps layer with --pre.
+    config_with_labels["osprey_pip_pre"] = is_prerelease(osprey_version)
 
     # Which env-chain files this deployment repo has, for the templates that
     # deliver them to a container. A service reads the chain through an
@@ -1542,6 +1585,35 @@ def _inject_project_metadata(config):
     config_with_labels["osprey_service_container_audit_dir"] = (
         PurePosixPath(_CONTAINER_APP_ROOT) / AUDIT_DIR_RELPATH
     ).as_posix()
+
+    # The control-context TREE, in the two spellings a compose template needs:
+    # the HOST-side bind source — the ``control_target/`` root under whatever
+    # agent-data root this project configured — and the fixed container path
+    # the read-only bind lands on (:data:`_CONTAINER_CONTROL_TREE_DIR`).
+    #
+    # A reader container binds the WHOLE tree rather than one identity's
+    # subdirectory, unlike the audit zone above: it does not know at render time
+    # which identity will own the write it has to judge — the owner arrives with
+    # the request — so narrowing the mount per identity would mean a tree that
+    # answers for nobody. Read-only for the same reason the mount exists: the
+    # record is the terminal's to write and this container's only to read.
+    #
+    # The directory name comes from the writer's own constant rather than a
+    # literal here, so the directory a terminal writes its record into and the
+    # directory a reader is mounted at cannot be spelled apart. Anchored on the
+    # agent-data root for the same reason: a project that relocated
+    # ``agent_data.base_dir`` moved the tree with it.
+    #
+    # Injected unconditionally, like every other derived key here. WHETHER a
+    # service mounts the tree is the template's decision — a lane with writes
+    # disabled has no owned write to judge and renders no mount — and a template
+    # that never names these keys is unaffected.
+    from osprey_connectors.posture_store import STATE_DIR_NAME
+
+    config_with_labels["osprey_control_tree_mount_source"] = repo_relative_mount_source(
+        (agent_data_base / STATE_DIR_NAME).as_posix(), repo_root
+    )
+    config_with_labels["osprey_container_control_tree_dir"] = _CONTAINER_CONTROL_TREE_DIR
 
     # ARIEL's markdown mirror, in the same two spellings and for the same
     # reason as the audit zone above: the HOST bind source compose resolves
@@ -2023,7 +2095,7 @@ def ensure_shared_corpus_dir(path, relative_to=None):
     )
 
 
-def _ensure_group_shared_dir(path, *, relative_to, label, noun, consequence):
+def _ensure_group_shared_dir(path, *, relative_to, label, noun, consequence, exact=False):
     """Create *path* setgid + group-writable, and report its GID.
 
     The mechanism behind :func:`ensure_shared_corpus_dir` and
@@ -2045,6 +2117,26 @@ def _ensure_group_shared_dir(path, *, relative_to, label, noun, consequence):
     :type noun: str
     :param consequence: What the operator loses when provisioning failed
     :type consequence: str
+    :param exact: Set an existing directory to exactly
+        :data:`SHARED_CORPUS_DIR_MODE` instead of adding those bits to the mode
+        it already carries. The two rules differ only for a directory that
+        already exists, and they differ over whose intent its mode expresses:
+
+        * ``False`` (:func:`ensure_shared_corpus_dir`, :func:`ensure_audit_dir`)
+          — the directory may be an operator's, so its bits are widened and
+          never narrowed. A bundle deliberately kept at 0700 must not become
+          world-readable because a deploy ran.
+        * ``True`` (the control-target tree root, provisioned on the build path
+          and on the web-stack up path) — the directory is the framework's, and
+          its mode carries no intent to preserve. Such a root may already sit
+          at the 0755 an umasked ``mkdir(parents=True)`` leaves, and OR alone
+          would settle that at 2775 — leaving ``other`` able to list the
+          identity names under it.
+
+        A directory this call CREATES lands at exactly
+        :data:`SHARED_CORPUS_DIR_MODE` either way; there is no prior mode to
+        take a position on.
+    :type exact: bool
     :return: The directory's group id, or ``None`` when unavailable
     :rtype: int | None
     """
@@ -2059,8 +2151,15 @@ def _ensure_group_shared_dir(path, *, relative_to, label, noun, consequence):
         # information, and neither consumer needs the `other` triad anyway (the
         # sidecar runs as root; the web containers come in through group_add).
         # A directory this call CREATED has no operator intent to preserve, so it
-        # starts at exactly the bits sharing needs and nothing wider.
-        wanted = (current | SHARED_CORPUS_DIR_MODE) if existed else SHARED_CORPUS_DIR_MODE
+        # starts at exactly the bits sharing needs and nothing wider — and
+        # neither does a framework-owned tree the caller declares `exact`, where
+        # widening alone would leave a root already at 0755 listable by `other`.
+        # See the `exact` parameter above.
+        wanted = (
+            (current | SHARED_CORPUS_DIR_MODE)
+            if (existed and not exact)
+            else SHARED_CORPUS_DIR_MODE
+        )
         if wanted != current:
             os.chmod(target, wanted)
             if existed:
@@ -2273,6 +2372,454 @@ def service_audit_identities(config):
     ]
 
 
+#: Filename of the marker the build writes at the root of the control-context
+#: tree, and the mode it is written with.
+#:
+#: A reader container is handed the tree as a READ-ONLY bind, and a bind whose
+#: host source does not exist is created empty by the container runtime — after
+#: which an unprovisioned tree is indistinguishable from a tree in which nobody
+#: has narrowed anything, and the chip fails OPEN on exactly the deployment that
+#: never provisioned it. The marker is what the tree reader checks first: no
+#: marker, no tree, and every owned write refuses ``control_context_unavailable``
+#: rather than running unnarrowed.
+#:
+#: 0640 rather than whatever the umask leaves: the readers are containers running
+#: as another uid in the directory's group, and a 0600 marker would have every
+#: one of them report a tree that is in fact provisioned. The mode is therefore
+#: set explicitly on the descriptor, the same idiom the record writer uses.
+#:
+#: The reader in ``osprey_connectors.posture_store`` restates the filename rather
+#: than importing it: the connectors package may not import the deployment layer.
+CONTROL_TREE_MARKER_NAME = ".osprey-control-tree"
+CONTROL_TREE_MARKER_MODE = 0o640
+
+#: What the marker says to whoever finds it on the host. A dotfile at the root of
+#: a state tree is otherwise indistinguishable from litter, and an operator who
+#: deletes it disables every owned write in the deployment.
+_CONTROL_TREE_MARKER_TEXT = (
+    "This directory is the OSPREY control-context tree, written by `osprey build`.\n"
+    "Each subdirectory holds one identity's control-context record.\n"
+    "\n"
+    "Do not delete this file: a reader that does not find it treats the whole tree\n"
+    "as unprovisioned and refuses every owned write, rather than letting a write\n"
+    "run as though its owner had narrowed nothing.\n"
+)
+
+
+def control_target_tree_dir(config, repo_root):
+    """The control-context tree on the HOST: ``<agent-data root>/control_target``.
+
+    One directory per identity lives under it, and the record inside each is what
+    every lane and the dispatch worker read to decide whether a write that
+    identity owns has been narrowed to another machine.
+
+    Both halves of the path are read from the source that owns them rather than
+    spelled here: ``agent_data.base_dir`` through
+    :func:`~osprey_connectors.workspace.agent_data_base_dir`, so a project that
+    relocated its agent-data root moves the tree with it; and the WRITER's own
+    :data:`~osprey_connectors.posture_store.STATE_DIR_NAME`, so the directory a
+    terminal writes its record into and the directory this path provisions cannot
+    be spelled apart. A literal either side would leave the bind pointing at a
+    path the deploy never creates — which the runtime then creates root-owned,
+    failing the chip closed on a deployment that changed nothing about control.
+
+    Anchored through :func:`~osprey_connectors.workspace.anchored_path`, the same
+    three-way choice (absolute, home-relative, project-relative) the render and
+    the runtime resolver make. A home-relative ``~/state`` is a configured path
+    like any other, and joining it under *repo_root* would leave a literal ``~``
+    directory beside the real one.
+
+    This is the ONE seam for the tree's path: the build path here and the
+    web-stack up path both resolve through it, so the directory one provisions
+    and the other binds is the same string on every host.
+
+    :param config: The deployment configuration
+    :type config: dict
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :return: The control-context tree root
+    :rtype: pathlib.Path
+    """
+    from osprey.utils.workspace import agent_data_base_dir, anchored_path
+
+    # Aliased on import: ``osprey.utils.workspace`` — already imported here for
+    # two other names — exports a ``STATE_DIR_NAME`` of its own, spelled "var".
+    # Under one name, folding this constant into that import line is a one-word
+    # edit that silently repoints the whole tree at <agent-data root>/var, which
+    # is the single class of drift this seam exists to make impossible.
+    from osprey_connectors.posture_store import STATE_DIR_NAME as CONTROL_TREE_DIR_NAME
+
+    return anchored_path(agent_data_base_dir(config), Path(repo_root)) / CONTROL_TREE_DIR_NAME
+
+
+def control_target_identity_dir(config, repo_root, identity):
+    """Where *identity*'s control-context record lives on the HOST.
+
+    The control-tree counterpart of :func:`audit_identity_dir`, and validated for
+    the same reason: the identity is a path SEGMENT here, and this helper is the
+    seam every provisioning caller goes through — an unvalidated ``../../x``
+    would drive ``mkdir`` outside the tree entirely, and it would do so on the
+    deploy path BEFORE the render's own roster gates get to refuse the
+    deployment. Validating at the seam rather than at each caller is what makes
+    that unreachable however the identity was obtained.
+
+    :param config: The deployment configuration
+    :type config: dict
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param identity: The identity owning the record — a roster user, a service
+        key, a dispatch worker, or the account running the build
+    :type identity: str
+    :return: That identity's directory under the tree
+    :rtype: pathlib.Path
+    :raises ValueError: If *identity* is outside the username charset. Every
+        fixed identity the framework mints (``dispatch-worker-<n>``,
+        ``bluesky-web``) matches; a roster name that does not is a name the lint
+        and the render both reject on their own account, with messages that can
+        explain it.
+    """
+    from osprey.deployment.web_terminals.personas import USERNAME_CHARSET_RE
+
+    if not isinstance(identity, str) or not USERNAME_CHARSET_RE.fullmatch(identity):
+        raise ValueError(
+            f"control-context identity {identity!r} must match "
+            f"{USERNAME_CHARSET_RE.pattern!r}: it names a subdirectory of the "
+            "control-context tree, so anything else provisions or mounts a "
+            "directory outside it"
+        )
+    return control_target_tree_dir(config, repo_root) / identity
+
+
+def ensure_control_target_dir(config, repo_root, identity=None, relative_to=None):
+    """Provision the control-context tree, or one identity's directory under it.
+
+    The same act, and the same two failures, as :func:`ensure_audit_dir`: a bind
+    source the deploy does not create is created by the container runtime
+    instead — root-owned under a rootful daemon — after which the terminal's
+    dropped ``osprey`` process writes no record at all, every lane and the
+    dispatch worker read nothing where the chip should be, and the deployment
+    looks healthy while narrowing silently does not hold.
+
+    ``exact=True`` at both levels, unlike the corpus bundles: these directories
+    are the framework's, not an operator's, so whatever mode one of them already
+    carries carries no intent to preserve. An existing directory here may be at
+    any mode an umasked ``mkdir`` leaves — 0755 among them — and merely ADDING
+    the sharing bits to that settles at 2775, leaving ``other`` able to list
+    (and read through) every identity in the deployment. 2770 is what the
+    cross-uid read needs and nothing more: setgid so a record takes the
+    directory's group whichever uid wrote it, and no ``other`` triad.
+
+    Non-fatal by construction, like every other directory on the deploy path: a
+    directory that cannot be provisioned warns and the deploy continues, because
+    a misprovisioned tree fails visibly at the first owned write — with a remedy
+    naming this directory — rather than by refusing the whole deploy here.
+
+    A target that is a SYMLINK is refused rather than provisioned, and refused
+    here rather than in the shared helper below, for the reasons the guard's own
+    comment gives: 2770 is what lets another party plant an entry under an
+    identity's name, and the same 2770 on the destination of a followed link is
+    setgid group write into a directory outside the tree. That refusal names the
+    path and the remedy, which is what an operator needs; it is not what makes
+    the identity rung safe, because a name refused by one syscall and acted on by
+    the next can be swapped in between. What makes that rung safe is where it is
+    provisioned — on a descriptor opened ``O_NOFOLLOW``, in
+    :func:`_ensure_control_target_identity_dir`, which also refuses a tree root
+    that is itself a link rather than creating identity directories inside its
+    destination.
+
+    :param config: The deployment configuration
+    :type config: dict
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :param identity: The identity to provision a directory for, or ``None`` for
+        the tree root itself
+    :type identity: str | None
+    :param relative_to: Root to spell the directory against in the INFO line (see
+        :func:`ensure_shared_corpus_dir`); ``None`` names it absolutely
+    :type relative_to: str | pathlib.Path | None
+    :return: The directory's group id, or ``None`` when it could not be
+        provisioned, the identity was refused, or the platform reports none
+    :rtype: int | None
+    """
+    if identity is None:
+        target = control_target_tree_dir(config, repo_root)
+        label, noun = "Control-context tree", "control-context tree"
+        consequence = (
+            "Records may be unwritable, and every owned write in the deployment then refuses."
+        )
+    else:
+        try:
+            target = control_target_identity_dir(config, repo_root, identity)
+        except ValueError as e:
+            # SKIPPED, not raised, for the reason `ensure_audit_dir`'s seam
+            # states: this helper is never the thing that fails a deploy. What
+            # matters here is that nothing outside the tree is created on the
+            # way there.
+            logger.warning(f"Skipping control-context directory provisioning: {e}")
+            return None
+        label, noun = "Control-context dir", "control-context directory"
+        consequence = (
+            f"{identity} may be unable to write its control-context record, and "
+            "every write it owns elsewhere then refuses."
+        )
+    if target.is_symlink():
+        # `lstat`, not `stat`: the question is what this NAME is, not what it
+        # leads to. 2770 makes the tree root writable by a group the deploying
+        # account shares with parties other than itself, so an entry named after
+        # an identity is something any of them can create — and provisioning by
+        # path (`mkdir(exist_ok=True)` then `chmod`, which is how the root rung
+        # goes through `_ensure_group_shared_dir`) would set 2770 on whatever
+        # destination the deploying account can chmod, handing that shared group
+        # setgid write into a directory outside the tree entirely. Refused with
+        # the same warn-and-continue posture the marker's ``O_NOFOLLOW`` branch
+        # has: the deploy carries on, this directory is simply not provisioned,
+        # and the first owned write that needs it says so with a remedy naming
+        # it. This is the operator's message, not the closure — a link swapped in
+        # after this returns is refused by the open in the identity helper.
+        #
+        # Refused at this seam rather than inside `_ensure_group_shared_dir`,
+        # even though that would cover the helper's other callers too: a symlink
+        # there can be legitimate. The corpus bundles and the audit zone may be
+        # an operator's, and a bundle pointed onto another filesystem by a link
+        # is a normal relocation — refusing it would return no gid for the
+        # containers to join and break access on a deploy that changed nothing.
+        # The control tree is the framework's own and has no such reading, which
+        # is the same distinction `exact=True` above draws about its mode.
+        logger.warning(
+            f"Skipping {noun} provisioning: {target} is a symlink. The tree root is "
+            f"group-writable, so this is an entry the build did not create, and "
+            f"provisioning through it would set 2770 on its destination instead. "
+            f"Remove the planted entry and re-run `osprey build`. {consequence}"
+        )
+        return None
+    if identity is not None:
+        # The rung inside the 2770 root, where a name examined and then acted on
+        # is a race; provisioned on a descriptor instead. See the helper.
+        return _ensure_control_target_identity_dir(
+            target,
+            relative_to=relative_to,
+            label=label,
+            noun=noun,
+            consequence=consequence,
+        )
+    return _ensure_group_shared_dir(
+        target,
+        relative_to=relative_to,
+        label=label,
+        noun=noun,
+        consequence=consequence,
+        exact=True,
+    )
+
+
+def _ensure_control_target_identity_dir(target, *, relative_to, label, noun, consequence):
+    """Provision one identity's directory under the tree, on a descriptor.
+
+    This rung does not go through :func:`_ensure_group_shared_dir`, which
+    resolves its directory by path at every step — ``is_dir()``, then
+    ``mkdir(exist_ok=True)``, then ``os.chmod`` — and follows a link at each of
+    them. That is right where the parent is the operator's own and a bundle
+    relocated by a link is a normal move. It is not right here: the parent is
+    2770 with no sticky bit, so any member of the shared group can create,
+    rename or unlink an entry under it, and a name that is examined and then
+    acted on by path is a race by construction. A party presenting a real
+    directory while the name is examined and swapping a link in before the mode
+    is applied would have the deploy put setgid group write on the destination —
+    the same escalation the caller's ``lstat`` refuses deterministically, reached
+    by winning a race instead.
+
+    So nothing here is reached by a path more than once. ``O_NOFOLLOW`` refuses a
+    link in the open that would otherwise have followed it (``ELOOP``, or
+    ``ENOTDIR`` where the platform reports it that way), and the mode and the
+    group then come off the descriptor, which names the object already: there is
+    nothing left to re-resolve between the check and the change.
+
+    That flag constrains the FINAL component only, though, so a descriptor on the
+    leaf alone would leave the TREE component resolved afresh by every call that
+    named it — and the tree is an entry like any other, one an operator or a
+    party with write access in the agent-data root can replace between two of
+    them. The tree is therefore opened once, before either act, and the create
+    and the open below are made relative to that descriptor: it keeps naming the
+    directory the checks examined however the name is repointed afterwards. That
+    open is also what makes a link or a non-directory at the tree impossible to
+    provision through; the checks in front of it exist to say so in a sentence an
+    operator can act on, which a bare ``ENOENT`` at the end does not.
+
+    A refusal, whichever step produces it, is the warn-and-continue posture every
+    other directory on the deploy path has. Containment lives here, at the seam
+    both provisioning paths reach the tree through, rather than in either caller.
+
+    Exactly :data:`SHARED_CORPUS_DIR_MODE`, never the bits merely added to what
+    the directory carries, for the reason :func:`ensure_control_target_dir`
+    gives: this directory is the framework's, so whatever mode it already has
+    expresses no intent to preserve.
+
+    :param target: The identity directory to provision
+    :type target: pathlib.Path
+    :param relative_to: Root to spell the directory against in the INFO line
+    :type relative_to: str | pathlib.Path | None
+    :param label: How the INFO line names this kind of directory
+    :type label: str
+    :param noun: How the failure WARNING names it
+    :type noun: str
+    :param consequence: What the operator loses when provisioning failed
+    :type consequence: str
+    :return: The directory's group id, or ``None`` when it could not be
+        provisioned or the platform reports none
+    :rtype: int | None
+    """
+    tree = target.parent
+    if tree.is_symlink():
+        logger.warning(
+            f"Skipping {noun} provisioning: the control-context tree {tree} is a symlink. "
+            f"An identity directory created through it would land inside the destination, "
+            f"outside the tree and carrying no marker, and every reader refuses a tree it "
+            f"cannot find. Remove the planted entry and re-run `osprey build`. {consequence}"
+        )
+        return None
+    if not tree.is_dir():
+        logger.warning(
+            f"Skipping {noun} provisioning: the control-context tree {tree} is not a "
+            f"directory, so there is nothing to provision this directory inside. "
+            f"{consequence}"
+        )
+        return None
+    existed = True
+    try:
+        # The tree is opened ONCE and both acts below are made relative to that
+        # descriptor. `O_NOFOLLOW` constrains only the FINAL component of a path,
+        # so naming `<tree>/<identity>` in each call would resolve the tree name
+        # afresh every time and leave the tree itself a check-then-use — a party
+        # able to replace that entry between two of them has the deploy act
+        # inside whatever the replacement leads to, whatever the flag does for
+        # the leaf. A held descriptor names the directory the checks above
+        # examined, for as long as it is open, whatever happens to the name.
+        tfd = os.open(tree, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            try:
+                # No `parents`, and no `exist_ok`: the tree is the caller's to
+                # provision, and an existing entry has to reach the `O_NOFOLLOW`
+                # open below rather than be re-tested by a path.
+                os.mkdir(target.name, SHARED_CORPUS_DIR_MODE, dir_fd=tfd)
+                existed = False
+            except FileExistsError:
+                pass
+            fd = os.open(target.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=tfd)
+            try:
+                current = stat.S_IMODE(os.fstat(fd).st_mode)
+                if current != SHARED_CORPUS_DIR_MODE:
+                    # The mode argument to `mkdir` is masked by the umask, so a
+                    # directory this call created needs the same explicit set as
+                    # one it found: 2770 here is a guarantee the readers depend
+                    # on, not a request. Only a directory that already EXISTED is
+                    # reported — the deploy's own fresh directories are not a
+                    # permission change an operator has to be told about.
+                    os.fchmod(fd, SHARED_CORPUS_DIR_MODE)
+                    if existed:
+                        logger.info(
+                            f"{label} {_display_path(target, relative_to)}: "
+                            f"{current:04o} -> {SHARED_CORPUS_DIR_MODE:04o} "
+                            "(setgid, group-writable)"
+                        )
+                gid = getattr(os.fstat(fd), "st_gid", None)
+            finally:
+                os.close(fd)
+        finally:
+            os.close(tfd)
+    except OSError as e:
+        logger.warning(f"Could not provision {noun} {target}: {e}. {consequence}")
+        return None
+    logger.debug(f"Provisioned {noun} {target} (gid {gid})")
+    return gid
+
+
+def _control_tree_build_account(config, repo_root):
+    """The build account's identity, or ``None`` when it cannot name a directory.
+
+    The build account is the one rung of the control tree that no roster and no
+    lint governs: the shared ladder that produces it rejects only values that
+    break path semantics, on the grounds that a stricter allowlist would turn a
+    legitimate account name into ``UNKNOWN_IDENTITY``. The tree's own seam is
+    stricter — an identity is a directory name here — so an account name the
+    ladder accepts and the seam refuses is reachable, and it reaches the seam
+    with no roster message behind it that could explain itself.
+
+    Refusing it here rather than at the seam is what lets the warning name a
+    remedy the operator can act on: the record that account's own process writes
+    then lands in a directory the writer creates under whatever umask it has,
+    which a reader in another container may be unable to read — and an owned
+    write whose control-context record cannot be read refuses.
+
+    :param config: The deployment configuration
+    :type config: dict
+    :param repo_root: The deployment repo root
+    :type repo_root: str | pathlib.Path
+    :return: The identity to provision a directory for, or ``None``
+    :rtype: str | None
+    """
+    from osprey.utils.identity import acting_identity
+
+    identity = acting_identity()
+    try:
+        control_target_identity_dir(config, repo_root, identity)
+    except ValueError:
+        logger.warning(
+            f"No control-context directory is provisioned for the account running "
+            f"this build ({identity!r}): the name cannot be a directory under the "
+            f"control-context tree. Its own record will be written into a directory "
+            f"created under this account's umask, which the lanes and the dispatch "
+            f"worker may be unable to read — in which case every write that account "
+            f"owns refuses. Set OSPREY_AUDIT_IDENTITY to a roster-shaped name "
+            f"(lowercase letters and digits, then any of them plus '_' and '-') "
+            f"before running `osprey build` to have it provisioned."
+        )
+        return None
+    return identity
+
+
+def _ensure_control_tree_marker(tree):
+    """Write the group-readable marker that says the tree was provisioned.
+
+    Truncating rather than skipping an existing file, so a marker sitting at a
+    narrower mode than the readers need is corrected; the mode is set on the
+    DESCRIPTOR, because the mode argument to ``os.open`` is masked by the umask
+    and 0640 here is a guarantee the readers depend on, not a request.
+
+    ``O_NOFOLLOW`` because the directory this file lives in is deliberately
+    group-writable and the group is shared with parties other than the account
+    running the build: any of them can plant a symlink under this name, and
+    without the flag the build follows it and truncates whatever the deploying
+    account can reach. With it, a planted symlink fails the open with ``ELOOP``,
+    which is the warn-and-continue posture the marker already has for every
+    other reason it cannot be written.
+
+    :param tree: The control-context tree root
+    :type tree: pathlib.Path
+    :return: True iff the marker is in place
+    :rtype: bool
+    """
+    marker = Path(tree) / CONTROL_TREE_MARKER_NAME
+    try:
+        fd = os.open(
+            marker,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+            CONTROL_TREE_MARKER_MODE,
+        )
+        try:
+            os.fchmod(fd, CONTROL_TREE_MARKER_MODE)
+            os.write(fd, _CONTROL_TREE_MARKER_TEXT.encode("utf-8"))
+        finally:
+            os.close(fd)
+    except OSError as e:
+        logger.warning(
+            f"Could not write the control-context tree marker {marker}: {e}. "
+            "Every owned write in this deployment will refuse "
+            "control_context_unavailable until it exists."
+        )
+        return False
+    return True
+
+
 def render_service_templates(source_dir, config, out_dir):
     """Render a service's non-compose ``.j2`` siblings into its build context.
 
@@ -2316,19 +2863,29 @@ def _ensure_agent_data_structure(config):
     matches what :func:`osprey.utils.config.get_agent_dir` resolves at runtime. The
     scenario state directory is the one addition outside ``file_paths``, created only
     for a Virtual Accelerator deployment — the one compose service that mounts it.
+    The control-context tree is the other: its root, its marker and one directory
+    per identity that owns a record are provisioned here because every container
+    that reads the tree binds it READ-ONLY and so can create none of them.
 
     :param config: Configuration dictionary containing agent_data and file_paths settings
     :type config: dict
     """
     from osprey.connectors.types import VIRTUAL_ACCELERATOR
-    from osprey.utils.workspace import agent_data_base_dir, resolve_simulation_state_dir
+    from osprey.utils.workspace import (
+        agent_data_base_dir,
+        anchored_path,
+        resolve_simulation_state_dir,
+    )
 
     # Get file paths configuration
     file_paths = config.get("file_paths", {})
     project_root = config.get("project_root", ".")
 
-    # Create main agent data directory
-    agent_data_path = Path(project_root) / agent_data_base_dir(config)
+    # Create main agent data directory, anchored the same three-way way every
+    # runtime resolver anchors it: joining the configured value under the repo
+    # root instead would leave a home-relative `~/state` as a literal `~`
+    # directory inside the repo, beside the real root the runtime then uses.
+    agent_data_path = anchored_path(agent_data_base_dir(config), Path(project_root))
     agent_data_path.mkdir(parents=True, exist_ok=True)
 
     # Create all configured subdirectories
@@ -2384,6 +2941,47 @@ def _ensure_agent_data_structure(config):
     # deploy runs through.
     for identity in (*dispatch_worker_audit_identities(config), *service_audit_identities(config)):
         ensure_audit_dir(project_root, identity, relative_to=project_root)
+
+    # The control-context tree, for the audit zone's reason and one of its own.
+    # Every container that has to judge an owned write binds the tree READ-ONLY,
+    # so none of them can create a directory the deploy left out — and a bind
+    # source that does not exist is created empty by the container runtime, after
+    # which an unprovisioned tree is indistinguishable from a tree in which
+    # nobody has narrowed anything. The marker is what tells those apart, so it
+    # is written with the root rather than on any later path.
+    #
+    # Gated on the root actually being there: an identity directory under a root
+    # that could not be made cannot be made either, and a warning per identity
+    # buries the one line that names the cause. `is_dir()` follows links, so the
+    # refusal the seam makes for a planted root — a name the build did not
+    # create — has to be repeated here, or the marker and every identity
+    # directory would still be written inside whatever that name leads to.
+    tree = control_target_tree_dir(config, project_root)
+    ensure_control_target_dir(config, project_root, relative_to=project_root)
+    if tree.is_dir() and not tree.is_symlink():
+        _ensure_control_tree_marker(tree)
+        # One directory per identity that owns a record: every identity the
+        # render assigns an ``OSPREY_AUDIT_IDENTITY`` to, plus the account
+        # running the build. That account is on the list because in a single-user
+        # deployment no roster names it and it is nonetheless the one whose chip
+        # every lane and the dispatch worker read — so its directory has to carry
+        # the setgid group the worker's entrypoint joins, which is true of a
+        # directory provisioned here and not of one the record writer creates
+        # later under whatever umask the deploying account happens to have.
+        #
+        # De-duplicated because the build may itself run under one of the render's
+        # own identities, and the same directory reported twice reads as two.
+        build_account = _control_tree_build_account(config, project_root)
+        identities = dict.fromkeys(
+            (
+                *dispatch_worker_audit_identities(config),
+                *service_audit_identities(config),
+                *((build_account,) if build_account is not None else ()),
+            )
+        )
+        for identity in identities:
+            ensure_control_target_dir(config, project_root, identity, relative_to=project_root)
+
     # The ARIEL qmd mirror, for the same reasons: the sidecar binds it
     # read-only, so a missing directory would be created root-owned by the
     # runtime and the host exporter could never write it; and in a multi-user
@@ -2486,6 +3084,30 @@ def _bluesky_panel_secret_env_vars(config, source_dir, persona_root=None):
     from osprey.deployment.web_terminals.personas import bluesky_panel_secret_env_vars
 
     return bluesky_panel_secret_env_vars(config, resolve_repo_root(config), persona_root)
+
+
+def _bluesky_panel_roster_owners(config, source_dir, persona_root=None):
+    """Whose secret each variable of the sidecar's roster grant is.
+
+    The companion of :func:`_bluesky_panel_secret_env_vars`, resolved off the
+    same entitlement walk and gated on the same service, so the map and the
+    grant it explains are rendered together or not at all.
+
+    :param config: Full project configuration dictionary
+    :type config: dict
+    :param source_dir: Service source directory being rendered
+    :type source_dir: str
+    :param persona_root: Where a build in flight has rendered its personas;
+        ``None`` reads the published build zone
+    :type persona_root: str or None
+    :return: ``"<SUFFIX>=<username>,..."``, roster order; empty off this service
+    :rtype: str
+    """
+    if os.path.basename(os.path.normpath(source_dir)) != _ROSTER_SECRET_SERVICE:
+        return ""
+    from osprey.deployment.web_terminals.personas import bluesky_panel_roster_owners
+
+    return bluesky_panel_roster_owners(config, resolve_repo_root(config), persona_root)
 
 
 #: Basename of the one service directory the Bluesky plan-device file is staged
@@ -2648,14 +3270,11 @@ def _write_staged_devices(source, staged_path):
 class _DerivedDevices:
     """Whether this render stages a roster-derived plan-device file, and from what.
 
-    The derivation decision, made ONCE per render and consulted by everything
-    that has to know it: :func:`_stage_bluesky_devices`, which acts on it, and
-    the per-lane limits-posture gate in :func:`prepare_compose_files`, which
-    refuses the build before any service directory is written. Both have to
-    agree about whether a derived file lands — a gate that guessed differently
-    would either refuse a browse-only build or wave a derived one through — so
-    the answer is computed in one place rather than re-derived from the config
-    at each site.
+    The derivation decision, made ONCE per render for
+    :func:`_stage_bluesky_devices`, which acts on it, and for anything else
+    that has to know whether a derived file lands. Computed in one place rather
+    than re-derived from the config at each site, so no two readers can
+    disagree about what this render stages.
 
     ``roster`` is carried because the decision and its FACT come from the same
     read: the line an operator is handed names the source
@@ -2667,8 +3286,8 @@ class _DerivedDevices:
     :ivar derives: True iff a roster-derived device file will be staged when
         the bluesky service directory is rendered. It says what the DECISION
         is, not that a render has happened: this is a pure function of the
-        config plus the filesystem, so the gate can read it before the service
-        loop starts and get the same answer the staging step will act on.
+        config plus the filesystem, so a reader that asks before the service
+        loop starts gets the same answer the staging step will act on.
     :ivar is_mock: True when the control system is the mock, which has no
         channels to drive whatever else is configured
     :ivar configured: ``bluesky.devices_file`` as the profile spelled it, or
@@ -2723,7 +3342,7 @@ def _plan_derived_devices(config):
        :func:`_stage_bluesky_devices` for what each of those is reported as.
 
     The roster read is memoized per source file, so calling this once per lane
-    and once more for the gate costs one parse of the corpus or database.
+    costs one parse of the corpus or database.
 
     :param config: The render config
     :type config: dict
@@ -2903,8 +3522,9 @@ def _stage_bluesky_devices(config, source_dir, out_dir):
     namespace is a name a plan MAY reference, never a write that has happened;
     the gates that decide whether a write lands sit on the write path — the
     connector's per-put reference monitor and the bridge's arming + limits
-    facade — and the build refuses outright, per lane, when a target has writes
-    enabled without an enabled limits posture. Withholding the machine's own
+    facade. A derived device moves through the same connector as any other
+    channel write and meets the same checks there, including the optional,
+    per-target limits check. Withholding the machine's own
     channels from the namespace would add no gate: it would only make the
     channels an agent is allowed to READ invisible to it, and push operators
     back to hand-authored device files that nothing keeps in step with the
@@ -3195,6 +3815,10 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False, person
         "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
             config, source_dir, persona_root
         ),
+        # Whose secret each of those variables is; "" elsewhere.
+        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(
+            config, source_dir, persona_root
+        ),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
@@ -3390,6 +4014,10 @@ def _incremental_setup_build_dir(
         "bluesky_panel_secret_env_vars": _bluesky_panel_secret_env_vars(
             config, source_dir, persona_root
         ),
+        # Whose secret each of those variables is; "" elsewhere.
+        "bluesky_panel_roster_owners": _bluesky_panel_roster_owners(
+            config, source_dir, persona_root
+        ),
         "bluesky_devices": _stage_bluesky_devices(config, source_dir, out_dir),
     }
     compose_filepath = render_template(template_path, render_config, out_dir)
@@ -3560,101 +4188,6 @@ def clean_deployment(compose_files, config=None, repo_root=None):
     logger.debug("Cleanup completed")
 
 
-def _refuse_lane_writes_without_limits(config):
-    """Refuse a build that would hand an armed lane a derived device set with no
-    limits checking behind it.
-
-    Only when this render DERIVES the device file
-    (:func:`_plan_derived_devices`). A device set the operator authored is their
-    own list of what the worker may move, and this build does not second-guess
-    it; a derived one is OSPREY's list, mounting a settable for every channel
-    the facility states is writable — so the build that chose that list is
-    where the posture behind it has to hold.
-
-    Asked PER LANE, against the target that lane is bound to at render time
-    (:func:`_lane_target`), and never as a deployment-wide fold. A deployment
-    can arm its virtual accelerator and leave its live machine read-only, or
-    check limits on one and not the other; an ``any()``-style answer over both
-    would let an enabled simulator vouch for a live lane that enforces nothing
-    — which is precisely the lane the refusal exists for.
-
-    The condition is one leaf: writes armed for the lane's target
-    (:func:`~osprey_connectors.types.target_writes_enabled`) while
-    ``limits_checking.enabled`` for that same target is not ``True``
-    (:func:`~osprey_connectors.types.target_limits_posture`). ``enabled`` alone,
-    because that is the leaf deciding whether a validator is built at all —
-    ``LimitsValidator._from_posture`` returns ``None`` for anything else, and
-    nothing bounds a setpoint after that. ``allow_unlisted_channels`` is a
-    deliberate facility choice about channels the database does not list, which
-    the shipped presets set true, and is not this gate's business.
-
-    Evaluated before the service loop in :func:`prepare_compose_files`, so a
-    refusal costs no half-written build context.
-
-    :param config: The render config
-    :type config: dict
-    :raises DeploymentPreconditionError: A deployed lane arms writes for its
-        target while limits checking is not on for that target, and this render
-        would derive that lane's device set
-    """
-    from osprey_connectors.types import (
-        target_limits_posture,
-        target_writes_enabled,
-        target_writes_enabled_key,
-    )
-
-    deployed = {str(name) for name in (config.get("deployed_services") or [])}
-    lanes = [lane for lane in _BLUESKY_LANE_KEYS if lane in deployed]
-    if not lanes:
-        # Nothing to arm, so nothing to refuse -- and asked first, because the
-        # roster read below is a corpus parse or a database query and a
-        # deployment running no plan lane should not pay for one.
-        return
-
-    plan = _plan_derived_devices(config)
-    if not plan.derives:
-        return
-
-    # `services` is a dict here or the plan derives nothing: a non-mapping makes
-    # `_configured_devices_file` answer None, which is the `configured is None`
-    # arm of `_plan_derived_devices`.
-    services = config.get("services") or {}
-    control_system = config.get("control_system") or {}
-
-    for lane in lanes:
-        block = services.get(lane)
-        if not isinstance(block, dict):
-            continue
-        target = _lane_target(block, control_system)
-        if not target_writes_enabled(control_system, target):
-            continue
-        posture = target_limits_posture(control_system, target)
-        if posture.enabled is True:
-            continue
-        raise DeploymentPreconditionError(
-            reason=(
-                f"The queueserver worker's plan devices are derived from "
-                f"{plan.roster.source.describe()}, so lane '{lane}' comes up holding a "
-                f"settable for every channel this facility states is writable. That "
-                f"lane serves the {target!r} target, which arms writes "
-                f"({target_writes_enabled_key(control_system, target)}), while limits "
-                f"checking is not on for it: {posture.key('enabled')} is "
-                f"{posture.enabled!r}. Limits checking that is not on builds no "
-                f"validator at all, so every one of those devices would take whatever "
-                f"value a plan asks for, with no channel-limits database consulted."
-            ),
-            remedy=(
-                f"Set {posture.key('enabled')} to true and rebuild, so the {target!r} "
-                f"target enforces the limits database on the channels this build "
-                f"derived. To bring lane '{lane}' up browse-only instead, set "
-                f"{target_writes_enabled_key(control_system, target)} to false. To keep "
-                f"the writes and choose the device set yourself, author a device file "
-                f"and point {BLUESKY_DEVICES_CONFIG_KEY} at it — an authored set is the "
-                f"operator's own list, and nothing is derived for it."
-            ),
-        )
-
-
 def prepare_compose_files(
     config_path,
     dev_mode=False,
@@ -3727,13 +4260,11 @@ def prepare_compose_files(
     :return: Tuple of (config dict, list of compose file paths)
     :rtype: tuple[dict, list[str]]
     :raises RuntimeError: If configuration loading fails
-    :raises DeploymentPreconditionError: Writes are enabled and
-        ``control_system.limits_checking.database_path`` names no path, or names
-        a file that is not on this host; or a deployed plan lane whose device
-        set this render derives arms writes for its target while limits checking
-        is not on for that target
-        (:func:`_refuse_lane_writes_without_limits`). Nothing has been rendered
-        when either raises.
+    :raises DeploymentPreconditionError: Some target arms writes with limits
+        checking on for it, and
+        ``control_system.limits_checking.database_path`` names no path or names
+        a file that is not on this host (:func:`resolve_limits_mount`). Nothing
+        has been rendered when it raises.
     """
     # Fail before any work when --dev cannot be honored: every precondition is
     # a path check away, so there is no reason to surface it seven services in.
@@ -3770,10 +4301,10 @@ def prepare_compose_files(
     # which a Jinja context can hold but cannot derive, and a template that
     # built the strings itself would have to be re-taught the rule every time
     # another service mounted the same file. Recorded only when the key names a
-    # path: a read-only deployment with no limits database has nothing to spell,
-    # and the template's mount is writes-gated anyway. When writes ARE enabled,
-    # `resolve_limits_mount` either sets this key or refuses the render, so a
-    # writable deployment can never reach the template without it.
+    # path that is on this host: a limits database is optional — a deployment
+    # that arms no target, or that checks no limits on the targets it arms, has
+    # nothing to spell — and the template renders the volume only for a lane
+    # that is armed AND handed this key.
     limits_mount = resolve_limits_mount(config, config["config_dir"], deployed_config_dir)
     if limits_mount is not None:
         config["limits_mount"] = limits_mount
@@ -3809,14 +4340,6 @@ def prepare_compose_files(
     else:
         logger.warning("No deployed_services list found, no services will be processed")
         deployed_service_names = []
-
-    # The per-lane limits gate, before anything is written. A lane whose device
-    # set THIS render derives must not come up armed for writes with limits
-    # checking off for its target: the derived set is OSPREY's list of what the
-    # worker may move, so the build that chose it is where the posture behind it
-    # is checked. Asked once here rather than per service, and per lane rather
-    # than deployment-wide — see the function for why a fold would not do.
-    _refuse_lane_writes_without_limits(config)
 
     # Record which env-chain files this render found, beside the compose files
     # it explains. Written for every render, including one that deploys no

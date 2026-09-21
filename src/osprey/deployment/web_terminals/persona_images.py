@@ -196,6 +196,7 @@ def _persona_image_build_cmd(
     # is a generic helper shared with the dispatch-worker build path, so it
     # stays in container_lifecycle.
     from osprey.deployment.container_lifecycle import _resolve_pip_spec, site_image_build_args
+    from osprey.version import pins_prerelease
 
     render = os.path.join(context, BUILD_DIR_NAME)
     cmd = [
@@ -211,7 +212,12 @@ def _persona_image_build_cmd(
     cli_version = _resolve_persona_claude_cli_version(render)
     if cli_version:
         cmd.extend(["--build-arg", f"CLAUDE_CLI_VERSION={cli_version}"])
-    cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec(dev_mode=dev_mode)}"])
+    pip_spec = _resolve_pip_spec(dev_mode=dev_mode)
+    cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={pip_spec}"])
+    if pins_prerelease(pip_spec):
+        # Same reason as the project image: a beta framework resolves only
+        # beside its beta connectors, which pip admits only under --pre.
+        cmd.extend(["--build-arg", "OSPREY_PIP_PRE=1"])
     if dev_mode:
         cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.extend(site_image_build_args(config, context))

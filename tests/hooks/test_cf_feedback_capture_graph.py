@@ -157,7 +157,6 @@ def _stored_response(item):
     return json.loads(raw) if isinstance(raw, str) else raw
 
 
-@pytest.mark.unit
 class TestReadCypherCapture:
     """A ``QueryResult`` envelope reaches the store with its counts intact."""
 
@@ -250,7 +249,6 @@ class TestReadCypherCapture:
         assert _stored_response(item)["channels"][0] == "GTL:BC1:Setpoint"
 
 
-@pytest.mark.unit
 class TestReadCypherNotCaptured:
     """Nothing to review means nothing in the store."""
 
@@ -272,7 +270,6 @@ class TestReadCypherNotCaptured:
         assert _capture(hook_runner, tmp_path, response) is None
 
 
-@pytest.mark.unit
 class TestSearchChannelsCapture:
     """The index answer is reviewed on the card the Cypher answer produces."""
 
@@ -324,7 +321,6 @@ class TestSearchChannelsCapture:
         assert self._capture_search(hook_runner, tmp_path, response) is None
 
 
-@pytest.mark.unit
 class TestHookDeclaresItsGraphTools:
     """The gate and the front matter have to name a tool, or nothing fires."""
 

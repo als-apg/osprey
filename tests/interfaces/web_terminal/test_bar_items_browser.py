@@ -225,18 +225,10 @@ def _seed_layout(
 # Page helpers
 # ---------------------------------------------------------------------------
 
-#: Seeded before every load: the onboarding tour is already dismissed. Under the
-#: default `once` policy its invite card scrims the shell on the fresh profile
-#: these tests run under and intercepts every click and press below. Copied from
-#: test_osprey_drawer.py / test_scaffold_detail.py, which need it for the same
-#: reason; the tour has its own coverage in tour.test.mjs.
-_DISMISS_TOUR = "try { localStorage.setItem('osprey-tour-dismissed-v1', '1') } catch (e) {}"
-
 
 def _open(browser: Browser, base_url: str, viewport: dict | None = None) -> Page:
     """A fresh-context page on the hub, booted, with the tour out of the way."""
     page = browser.new_page(viewport=viewport or VIEWPORT)
-    page.add_init_script(_DISMISS_TOUR)
     page.goto(base_url, wait_until="domcontentloaded")
     page.wait_for_selector(HYDRATED_SHELL, timeout=15_000)
     return page
@@ -449,6 +441,8 @@ def test_an_item_dragged_to_the_other_bar_leaves_the_first(tmp_path, chromium_br
         page = _open(chromium_browser, base_url)
         _enter_edit_mode(page)
 
+        _settled(page, "header", ["logo", "clock", "space", "display"])
+        _settled(page, "status", ["docs"])
         status_box = page.locator(STATUS_HOST).bounding_box()
         assert status_box is not None
         # The far right of the footer: past every shell's midpoint, so the
@@ -921,7 +915,6 @@ def test_a_hidden_header_comes_back_from_the_terminal_tile_menu(tmp_path, chromi
             header_visible=False,
         )
         page = chromium_browser.new_page(viewport=VIEWPORT)
-        page.add_init_script(_DISMISS_TOUR)
         page.goto(base_url, wait_until="domcontentloaded")
         # The header is withdrawn, so its hydrated shell is attached but not
         # visible -- the default "visible" wait would sit out the timeout.

@@ -381,6 +381,26 @@ services:
       # from the image's WORKDIR.
       CONFIG_FILE: /app/project/config.yml
       TZ: UTC
+
+      # The read-only control-context tree, mounted below. The per-put reference
+      # monitor runs in THIS container, so this is where an owned write is
+      # judged against the record the identity behind it last wrote: an operator
+      # who pointed their terminal at another machine has narrowed themselves,
+      # and a plan of theirs sitting in this queue must not move anything here
+      # afterwards. Naming the directory is what arms that read — a container
+      # without this variable reads no tree and judges on the lane's ceiling
+      # alone.
+      #
+      # Gated on the lane's write posture for the same reason the limits mount
+      # is: a read-only lane refuses every write at the ceiling before an owner
+      # is ever consulted, so a tree there would be a bind nothing reads.
+      #
+      # The path is the container's, fixed by the generator and matching the
+      # mount target below — outside `var/` on purpose (see the mount). This
+      # image declares no unprivileged user and runs none of the project
+      # image's group-joining entrypoint, so nothing here joins the tree's
+      # group: the mode on the host directory is the whole access story.
+      OSPREY_CONTROL_CONTEXT_TREE: /osprey/control_tree
       # ── queue control plane (server side) ────────────────────────────────
       # Upstream-spelled: `start-re-manager` reads the private key from
       # QSERVER_ZMQ_PRIVATE_KEY_FOR_SERVER. It treats an EMPTY value as
@@ -404,9 +424,10 @@ services:
       QSERVER_ZMQ_PUBLIC_KEY: ${BLUESKY_QSERVER_ZMQ_PUBLIC_KEY:?minted by `osprey up`; deploy through it rather than running compose directly}
       # ── document plane (publisher side) ──────────────────────────────────
       # Connect form of the bridge's in-side bind: the startup module's
-      # `bluesky.callbacks.zmq` Publisher pushes run documents at the Proxy
-      # the bridge binds, authenticating with the CLIENT half of the document
-      # plane's keypair (its own secret certificate + the bridge's public one).
+      # `bluesky.callbacks.zmq` Publisher pushes run documents at the
+      # document-plane forwarder the bridge binds, authenticating with the
+      # CLIENT half of the document plane's keypair (its own secret
+      # certificate + the bridge's public one).
       # Certificate paths, fixed by the mount below — see the bridge's copy of
       # this block for why they are paths and not `.env` passthroughs.
       #
@@ -482,6 +503,30 @@ services:
       # and never spelled in this template.
       - ./data/channel_limits.json:/app/project/data/channel_limits.json:ro
 
+      # The control-context tree, READ-ONLY: the whole `control_target/` root as
+      # the host holds it, one directory per identity. The reference monitor in
+      # this container judges an owned write against the record the identity
+      # behind it wrote from their terminal, and the owner arrives with the
+      # request — so the mount is the whole tree rather than one identity's
+      # subdirectory the way the audit binds are.
+      #
+      # Read-only because the record belongs to the terminal that wrote it: this
+      # container has no record of its own to file, and a writable tree here
+      # would let a queued plan rewrite the very narrowing that judges it.
+      #
+      # The target is NOT under `/app/project` — and so not under any `var/`
+      # state zone. `entrypoint.sh`'s `hand_back_state_zone` chowns the state
+      # zone to the container account on every start, and a chown across a
+      # read-only bind fails with EROFS and logs a warning on every start; a
+      # target outside the zone is never walked. It is also not the directory
+      # any container writes its OWN record into, which this mount would
+      # otherwise cover read-only.
+      #
+      # Both halves are computed host-side by compose_generator and consumed
+      # here as finished strings, exactly as the limits mount above: the tree
+      # follows `agent_data.base_dir`, and a template that joined that itself
+      # would be a second spelling of the path the writer resolves.
+      - ./var/agent_data/control_target:/osprey/control_tree:ro
     networks:
       # Necessarily dual-homed: bluesky-internal for the bridge and Redis,
       # osprey-network to reach the Virtual Accelerator's Channel Access

@@ -60,9 +60,11 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from osprey_connectors.posture_store import bind_owner, current_owner
+
 from .plan_fields import declared_channels
 from .plan_validation import hash_plan_body
-from .preflight import available_devices_phrase, probe_before_motion
+from .preflight import available_devices_phrase, probe_before_motion, warn_if_write_refused
 from .session_dir import resolve_session_plan_dir
 from .validation_record import ValidationRecordStore, validation_records
 
@@ -206,6 +208,18 @@ def install_session_plan(
     restating it, is what keeps a session plan from being the quiet way past a
     gate the catalog path enforces.
 
+    The owner binding is the other half of that: the wrapper's whole body runs
+    inside ``bind_owner``, exactly as the catalog wrapper's does, so the writes
+    a session plan makes are gated against the narrowing of the person who
+    queued it and not against the worker account's. The reserved owner kwarg is
+    popped before ``PARAMS`` validation — a plan file never declares it — and
+    the binding spans ``return (yield from plan)`` rather than the call, so it
+    holds across every message and is reset when the generator closes. A write
+    the monitor refuses earns one warning line naming the plan, the owner, the
+    channel and the refusal — written by ``preflight.warn_if_write_refused``,
+    the same seam the catalog wrapper calls — and then travels on unchanged so
+    the manager reports the monitor's own wording as the item's failure.
+
     Args:
         namespace: The worker namespace (``globals()`` inside the script).
         name: The plan name, which is also the namespace key.
@@ -253,25 +267,36 @@ def install_session_plan(
     devices = collect_devices(namespace)
 
     def plan_function(**kwargs: Any) -> Iterator[Any]:
-        params = params_model.model_validate(kwargs)
-        declared = _declared_devices(params_model, params, devices)
-        yield from probe_before_motion(name, declared)
-        try:
-            plan = build_plan(declared, params)
-        except KeyError as exc:
-            missing = exc.args[0] if exc.args else "<unknown>"
-            if missing in devices:
+        with bind_owner(kwargs) as clean:
+            params = params_model.model_validate(clean)
+            declared = _declared_devices(params_model, params, devices)
+            yield from probe_before_motion(name, declared)
+            try:
+                plan = build_plan(declared, params)
+            except KeyError as exc:
+                missing = exc.args[0] if exc.args else "<unknown>"
+                if missing in devices:
+                    raise KeyError(
+                        f"session plan {name!r} referenced device {missing!r}, which its "
+                        f"parameters do not declare as a movable or readable channel — a plan "
+                        f"resolves only the channels it declares; available devices: "
+                        f"{available_devices_phrase(devices)}"
+                    ) from exc
                 raise KeyError(
-                    f"session plan {name!r} referenced device {missing!r}, which its parameters "
-                    f"do not declare as a movable or readable channel — a plan resolves only "
-                    f"the channels it declares; available devices: "
-                    f"{available_devices_phrase(devices)}"
+                    f"session plan {name!r} referenced device {missing!r}, which this worker "
+                    f"did not build; available devices: {available_devices_phrase(devices)}"
                 ) from exc
-            raise KeyError(
-                f"session plan {name!r} referenced device {missing!r}, which this worker "
-                f"did not build; available devices: {available_devices_phrase(devices)}"
-            ) from exc
-        return (yield from plan)
+            try:
+                return (yield from plan)
+            except Exception as exc:
+                # Everything, and nothing handled: the shared seam decides
+                # whether what a run raised is a refusal, because a refusal out
+                # of a device's `set()` reaches a plan as the RunEngine's own
+                # failure rather than as itself.
+                # `qserver_startup._make_plan_function` does the same thing the
+                # same way, for the same reason.
+                warn_if_write_refused(logger, name, current_owner(), exc)
+                raise
 
     plan_function.__name__ = name
     plan_function.__qualname__ = name

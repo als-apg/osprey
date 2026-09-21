@@ -358,8 +358,34 @@ class MigrationRunner:
 
                 logger.info(f"Applying migration: {migration.name}")
                 try:
-                    await migration.up(conn)
-                    await migration.mark_applied(conn)
+                    # One transaction per migration, covering `up()` AND the
+                    # bookkeeping row together. The pool is opened with
+                    # autocommit=True (`connection.py`), so without this every
+                    # statement inside `up()` commits on its own -- and a
+                    # migration that drops an index before creating its
+                    # replacement destroys the old one for good the moment the
+                    # create fails. Two in this registry do exactly that
+                    # (`text_embedding_hnsw_index`, and
+                    # `semantic_processor_search_index` on the FTS index), and
+                    # the create is an index build: it is the statement most
+                    # likely to fail on resources, which is precisely when the
+                    # drop must not have happened. Committing the two together
+                    # also closes the narrower hole where `up()` succeeded and
+                    # `mark_applied()` then failed, leaving a drop-then-create
+                    # migration to run a second time against the state it
+                    # already made.
+                    #
+                    # Every migration in KNOWN_MIGRATIONS is transactional DDL
+                    # (CREATE/DROP INDEX, CREATE TABLE, ALTER TABLE ... ADD
+                    # COLUMN, CREATE EXTENSION, CREATE FUNCTION). Nothing here
+                    # uses CREATE INDEX CONCURRENTLY, VACUUM or CREATE
+                    # DATABASE, which are the statements PostgreSQL forbids
+                    # inside a transaction block -- so a migration that needs
+                    # one of those cannot simply be added here; it needs its
+                    # own escape from this block, deliberately.
+                    async with conn.transaction():
+                        await migration.up(conn)
+                        await migration.mark_applied(conn)
                     applied.append(migration.name)
                     logger.info(f"Applied migration: {migration.name}")
                 except MigrationSkippedError as e:

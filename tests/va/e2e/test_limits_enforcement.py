@@ -43,6 +43,10 @@ LIMITS_OVERRIDES = {
     "control_system.limits_checking.allow_unlisted_channels": True,
 }
 
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 3
+
 
 @pytest.fixture(scope="module")
 def corrector() -> Binding:
@@ -115,3 +119,17 @@ class TestLimitsEnforcement:
             # Leave this lane's corrector at a known, in-limits state.
             reset = await connector.write_channel(corrector_sp, 0.0)
             assert reset.outcome is WriteOutcome.CONFIRMED
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_limits_enforcement.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS

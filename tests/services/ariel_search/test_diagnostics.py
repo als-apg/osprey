@@ -20,7 +20,7 @@ def _make_entry(entry_id: str, text: str = "Test content") -> dict:
     """Create a mock EnhancedLogbookEntry dict."""
     return {
         "entry_id": entry_id,
-        "source_system": "ALS eLog",
+        "source_system": "Example eLog",
         "timestamp": datetime(2024, 3, 15, 10, 30, 0, tzinfo=UTC),
         "author": "jsmith",
         "raw_text": text,

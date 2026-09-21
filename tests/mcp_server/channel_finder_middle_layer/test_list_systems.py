@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, PropertyMock, patch
 
-import pytest
-
 from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
@@ -17,7 +15,6 @@ def _setup(tmp_path, monkeypatch):
     initialize_cf_ml_context()
 
 
-@pytest.mark.unit
 def test_list_systems_returns_systems(tmp_path, monkeypatch):
     """Happy path: returns list of systems with count."""
     _setup(tmp_path, monkeypatch)
@@ -44,7 +41,6 @@ def test_list_systems_returns_systems(tmp_path, monkeypatch):
     assert data["systems"][1]["name"] == "BR"
 
 
-@pytest.mark.unit
 def test_list_systems_empty(tmp_path, monkeypatch):
     """Returns empty list when no systems exist."""
     _setup(tmp_path, monkeypatch)
@@ -67,7 +63,6 @@ def test_list_systems_empty(tmp_path, monkeypatch):
     assert data["systems"] == []
 
 
-@pytest.mark.unit
 def test_list_systems_internal_error(tmp_path, monkeypatch):
     """Internal error returns standard error envelope."""
     _setup(tmp_path, monkeypatch)

@@ -11,13 +11,9 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-import pytest
-
 from osprey.mcp_server.workspace.execution.sandbox_executor import _create_sandbox_wrapper
 from osprey.services.python_executor.execution.wrapper import ExecutionWrapper
 from osprey.stores.artifact_manifest import SAVE_ARTIFACT_SOURCE
-
-pytestmark = pytest.mark.unit
 
 
 def test_shared_source_is_valid_python():

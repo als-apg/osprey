@@ -60,7 +60,9 @@ async def execute(
     A refused write is reported to the operator and recorded in the
     deployment's audit log, at whichever layer catches it. A readonly script
     therefore cannot shell out or load a shared library at all, even for
-    unrelated work — resubmit as readwrite, which requires human approval.
+    unrelated work — resubmit as readwrite, which requires human approval:
+    the operator answers the terminal permission prompt, which links a
+    pre-execution notebook of the code in the artifact gallery for review.
 
     A ``save_artifact(obj, title, description)`` helper is available in the
     subprocess for saving objects to the artifact gallery.

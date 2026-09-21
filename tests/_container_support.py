@@ -1,9 +1,9 @@
 """Shared helpers for testcontainers-backed tests.
 
-Several test packages (``tests/connectors/``, ``tests/services/ariel_search/``,
-``tests/e2e/``) spin up real containers and must degrade to a skip rather than
-an error when the host has no Docker engine. This module is the single home for
-the environment probes and start helpers they share.
+Every testcontainers-backed suite in the tree takes its environment probes and
+its start helpers from here, and each of them degrades to a skip rather than an
+error when the host has no container engine. This module is the single home for
+both.
 
 Two start helpers live here because container suites split into two kinds, and
 which one a suite wants is a real decision rather than a preference:

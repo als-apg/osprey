@@ -1,5 +1,5 @@
 {
-  "_comment": "Distinct operator-style queries over the ALS logbook corpus. Each is used at most once per latency pass so qmd's result cache cannot flatter the measurement. Vocabulary is drawn from accelerator operations, not from any single entry.",
+  "_comment": "Distinct operator-style queries over the logbook corpus. Each is used at most once per latency pass so qmd's result cache cannot flatter the measurement. Vocabulary is drawn from accelerator operations, not from any single entry.",
   "queries": [
     {"lex": "girder water leak", "vec": "cooling water leaking from a girder"},
     {"lex": "superbend quench", "vec": "why did the superbend magnet quench"},

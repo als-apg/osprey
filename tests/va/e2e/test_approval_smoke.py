@@ -26,6 +26,7 @@ import pytest
 
 from osprey.services.virtual_accelerator.bindings import Binding
 from osprey_connectors.control_system import WriteOutcome
+from osprey_connectors.types import VIRTUAL_ACCELERATOR, writes_enabled_key
 from tests.va.e2e import conftest as e2e_conftest
 
 #: Which writable corrector this lane drives, as a slot in the served tree's
@@ -38,6 +39,10 @@ from tests.va.e2e import conftest as e2e_conftest
 _CORRECTOR_SLOT = 2
 
 DEMO_CURRENT = 10.0
+
+#: Floor for this module's own test count -- a guard against a refactor that
+#: leaves the file importable but empty, which would otherwise pass silently.
+MIN_COLLECTED_TESTS = 3
 
 
 @pytest.fixture(scope="module")
@@ -80,7 +85,7 @@ class TestApprovalSmoke:
 
         assert result.outcome is WriteOutcome.REFUSED
         assert "writes are disabled" in result.error_message
-        assert "control_system.writes_enabled" in result.error_message
+        assert writes_enabled_key(VIRTUAL_ACCELERATOR) in result.error_message
 
         # Read back with writes still disabled (reads are never gated) to
         # confirm the blocked write never reached the IOC over CA.
@@ -116,3 +121,17 @@ class TestApprovalSmoke:
             # anyway).
             reset = await connector.write_channel(corrector_sp, 0.0)
             assert reset.outcome is WriteOutcome.CONFIRMED
+
+
+# ---------------------------------------------------------------------------
+
+
+def test_this_module_collects_its_whole_suite(request: pytest.FixtureRequest) -> None:
+    """Vacuous-green guard: an empty or half-collected module fails here."""
+    collected = [
+        item
+        for item in request.session.items
+        if item.nodeid.split("::")[0].endswith("test_approval_smoke.py")
+    ]
+
+    assert len(collected) >= MIN_COLLECTED_TESTS

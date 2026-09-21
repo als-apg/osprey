@@ -345,7 +345,7 @@ class TestDeviceFileRoundTrip:
     """The written file, read back by the worker's own parser."""
 
     # Addresses the env-var channel could not have carried: every name holds
-    # colons, and one settable's device component holds a comma (16 of ALS's
+    # colons, and one settable's device component holds a comma (16 real
     # BTS quadrupoles really do).
     _AWKWARD = (
         _write("SR:MAG:COIL:01,02:CURRENT:SP", readback="SR:MAG:COIL:01,02:CURRENT:RB"),

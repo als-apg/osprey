@@ -58,9 +58,11 @@ sentinels and expanded at materialization, so a byte-comparison against a live
 ``str.format``/``%`` because the YAML carries literal ``${VAR:-default}`` shell
 expansions.
 
-``providers.yml`` is the fourth thing not frozen. Init copies the packaged
-catalog beside the profile verbatim, so the fixture reads that file rather than
-holding a second copy of it; see :func:`packaged_providers_yml`.
+``providers.yml`` and ``triggers.yml`` are the fourth and fifth things not
+frozen. Init copies the packaged provider catalog and the packaged tutorial
+trigger file into the repo verbatim, so the fixture reads both rather than
+holding a second copy of either; see :func:`packaged_providers_yml` and
+:func:`packaged_tutorial_triggers_yml`.
 
 Usage::
 
@@ -75,6 +77,7 @@ Usage::
 from __future__ import annotations
 
 import contextlib
+import importlib.resources
 import os
 import re
 import subprocess
@@ -504,8 +507,10 @@ config:
   # TANGO connector: one coordinate of its own, the device database, spelled
   # `host:port`. Leave `tango_host` unset and PyTango reads the TANGO_HOST the
   # environment already carries; write it to name a database that environment
-  # does not. The port is the database's own, not one of this deployment's.
-  # control_system.connector.tango.tango_host: your-tango-db.example.com:<db-port>
+  # does not.
+  # Not a deployment port: 10000 is TANGO's own convention for the device
+  # database, not a port this deployment publishes.
+  # control_system.connector.tango.tango_host: your-tango-db.example.com:10000
   # Seconds a device call waits before it is given up on.
   # control_system.connector.tango.timeout: 5.0
   # The same four leaves as every other connector type, for the TANGO machine.
@@ -545,6 +550,9 @@ config:
   # `archiver.type: epics_archiver`.
   # archiver.epics_archiver.url: https://your-archiver.example.com:8443
   # archiver.epics_archiver.timeout: 60
+  # Only when a reverse proxy in front of the appliance publishes its
+  # `/retrieval` servlet under another prefix; the bare appliance needs no line.
+  # archiver.epics_archiver.retrieval_path: /retrieval
   # MongoDB archiver pointed at a store this deployment does NOT run. The
   # coordinates above are derived from `va_archiver:`; spell them here instead
   # to read an archive someone else keeps, and drop the `va_archiver:` block so
@@ -695,6 +703,8 @@ config:
   # acronym, noise for an ordinary word ("calibration" → "cal").
   ariel.vocabulary.canonical_to_acronym: true
   ariel.vocabulary.canonical_to_shorthand: false
+  # `kind: synonym` concepts ignore both switches: every member reaches every
+  # other member --- phrasings of one event have no noisy direction to gate.
   # No `ariel.vocabulary.expand_modes`: unset, every enabled search module
   # expands. Set `[keyword, semantic]` to drop `hybrid` alone if the reranked
   # ordering degrades under expansion.
@@ -1151,10 +1161,15 @@ config:
       # publishes the identity claim under `profile` or `email`; add whatever
       # scope yours publishes it under. `openid` cannot be dropped: without it
       # the provider issues no ID token and the sidecar refuses every login.
+      # If every login fails with "no usable claim" although the scope was
+      # requested, the provider serves scope claims from UserInfo rather than
+      # in the ID token (OIDC Core §5.4); `claims_in_id_token: true` asks for
+      # them in the token instead.
       #   oidc:
       #     issuer: https://idp.example.org
       #     claim: preferred_username
       #     scopes: [openid, profile, email]
+      #     claims_in_id_token: false
     # Which tier a user lands on is pinned per entry below. Single sign-on can
     # pick it instead by mapping provider groups onto declared roles — see
     # "Let single sign-on pick the tier" in the multi-user login guide.
@@ -1280,6 +1295,13 @@ config:
 # ship need no control system, so a single `curl` after `osprey up` exercises
 # it. Delete this block to turn it off.
 dispatch:
+  # The host's network namespace, which the web tier above already runs in. A
+  # dispatched job runs the same agent a terminal does, so it reaches the
+  # control system and the plan queue at the same addresses — and those are
+  # this machine's own loopback, which inside a container on the compose
+  # network names the container instead. One knob moves the dispatcher and its
+  # workers together; see the networking how-to.
+  network: host
   triggers: triggers.yml            # a path in this repo, or a bundled name
   worker_count: 1
   workspace_mode: isolated
@@ -1959,104 +1981,28 @@ config:
 # SOURCE zone — dispatch triggers
 # ─────────────────────────────────────────────────────────────────────────────
 
-TRIGGERS_YML = """\
-# triggers.yml
-#
-# Four control-system-free demonstration triggers shipped with the
-# control-assistant preset. Each illustrates one event-dispatch concept so a
-# new user can exercise the pipeline end-to-end without any facility hardware:
-#
-#   1. hello-dispatch    — anatomy of a trigger + first successful round-trip
-#   2. triage-event      — a webhook payload becomes the agent's context
-#   3. save-report       — tool use, a short multi-turn loop, and persistence
-#   4. denied-tool-demo  — the worker's server-side tool denylist (safety)
-#
-# The dispatcher answers on this deployment's dispatcher port:
-# `deployment.port_base` + 10, which is 10010 unless the deployment moved its
-# port block. Fire one with (`osprey up` mints EVENT_DISPATCHER_TOKEN into this
-# repo's .env; load it first:
-# export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
-#   curl -X POST http://localhost:10010/webhook/hello-dispatch \\
-#     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
-#     -H "Content-Type: application/json" -d '{}'
-#
-# Watch progress stream in the dashboard at http://localhost:10010/dashboard
-#
-# (Retries fire on *dispatch failure* — i.e. when the dispatcher cannot reach
-# the worker — via the per-trigger `on_error: retry` policy. That path is not
-# exercised by a curl against a healthy stack; see the docs and the unit test
-# tests/unit/dispatch/test_server_routes.py for the retry/backoff behaviour.)
 
-dispatcher:
-  # The dispatcher forwards each fired trigger to this worker. The compose
-  # template names the single worker "dispatch-worker-1", one port above the
-  # dispatcher itself — `deployment.port_base` + 11, so 10011 at the default
-  # base. Moving the block moves both. Under `dispatch.network: host` the build
-  # rewrites this line to the worker's host address instead.
-  # (Multi-worker load distribution is not yet implemented — see docs.)
-  dispatch_target: http://dispatch-worker-1:10011
-  max_concurrent_runs: 2
-  max_queue_depth: 50
+def packaged_tutorial_triggers_yml() -> str:
+    """The packaged ``tutorial_triggers.yml``, which ``osprey init`` copies verbatim.
 
-triggers:
-  # 1. Anatomy + minimal end-to-end check: webhook in, one sentence out, no tools.
-  - name: hello-dispatch
-    source: webhook
-    action:
-      prompt: >-
-        Reply with a single friendly sentence confirming the event-dispatch
-        pipeline is working end to end. Do not use any tools.
-      allowed_tools: []
+    Read rather than frozen, for the same reason the provider catalog is: the
+    package owns this file's content, so a copy here would prove only that
+    someone remembered to update two places. What the byte comparison
+    downstream is for is that init copies the trigger file through unchanged,
+    and that is what reading it here asserts.
 
-  # 2. The webhook JSON body arrives as the agent's context. Zero tools keeps
-  #    this cheap and focused on the payload lesson. Try it with a realistic
-  #    event body, e.g.:
-  #      curl -X POST http://localhost:10010/webhook/triage-event \\
-  #        -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \\
-  #        -H "Content-Type: application/json" \\
-  #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0}'
-  - name: triage-event
-    source: webhook
-    action:
-      prompt: >-
-        An automated monitor fired this event and handed you its JSON payload as
-        context. In plain language: summarize what the event reports, say whether
-        it looks normal or concerning given any threshold in the payload, and
-        outline what you would investigate first. Do not use any tools — reason
-        only from the payload.
-      allowed_tools: []
+    Resolved the way the CLI resolves it
+    (``osprey.cli.build_profile_presets._triggers_dir``), so the exemplar and
+    the emission it is compared against read one file.
+    """
+    package = importlib.resources.files("osprey.profiles.triggers")
+    return (Path(str(package)) / "tutorial_triggers.yml").read_text(encoding="utf-8")
 
-  # 3. Tool use + a short multi-turn loop + persistence via the workspace MCP
-  #    artifact tool. Artifacts land in the worker's mounted workspace volume,
-  #    so they survive the run. This is the sanctioned persistence channel: the
-  #    preset's memory guard intentionally blocks arbitrary file writes, so the
-  #    agent persists through the artifact tool.
-  - name: save-report
-    source: webhook
-    action:
-      prompt: >-
-        Investigate this event and save a short status report. First take a
-        quick look at the working directory (Glob/Read) to ground yourself, then
-        use the workspace artifact tool to save a concise markdown report
-        (content_type markdown) summarizing the event payload and what you would
-        do next. Confirm the artifact you created.
-      allowed_tools:
-        - Glob
-        - Read
-        - mcp__osprey_workspace__artifact_register
-        - mcp__osprey_workspace__create_document
 
-  # 4. Requests a tool the worker blocks server-side; teaches the denylist.
-  - name: denied-tool-demo
-    source: webhook
-    action:
-      prompt: >-
-        Attempt to fetch https://example.com with WebFetch and report what
-        happens. WebFetch is on the worker's server-side denylist, so the run is
-        rejected regardless of the tools this trigger requests — demonstrating
-        that the denylist is enforced independently of the trigger config.
-      allowed_tools: [WebFetch]
-"""
+#: The demonstration triggers the ``control-assistant`` preset ships, which
+#: ``init`` writes into a new repo as ``triggers.yml``. Resolved at import,
+#: because :data:`BASE_SOURCE_FILES` is built at import.
+TRIGGERS_YML = packaged_tutorial_triggers_yml()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -2150,6 +2096,7 @@ ANTHROPIC_API_KEY=your-anthropic-api-key-here
 # ARGO_API_KEY=your-argo-api-key-here
 # STANFORD_API_KEY=your-stanford-api-key-here
 # ALS_APG_API_KEY=your-als-apg-api-key-here
+# ASKSAGE_API_KEY=your-asksage-api-key-here
 
 # Gateway endpoints. These providers front a gateway that is your own host, so
 # OSPREY ships no default: switch to one of them and it will not start until
@@ -3190,8 +3137,10 @@ def exemplar_source_files(*, with_ci: bool = False) -> dict[str, str]:
 
     files = dict(BASE_SOURCE_FILES)
     files["profile.yml"] = profile.replace(_DEPLOY_BLOCK_MARKER + "\n", deploy_block)
-    # The provider catalog init writes beside the profile. Not in
-    # BASE_SOURCE_FILES because it is read from the package rather than frozen.
+    # The provider catalog init writes beside the profile, read from the
+    # package rather than frozen for the reason `triggers.yml` is: the
+    # package owns the content, and a copy here would prove only that
+    # someone remembered to update two places.
     files["providers.yml"] = packaged_providers_yml()
     if with_ci:
         files.update(CI_PIPELINE_FILES)

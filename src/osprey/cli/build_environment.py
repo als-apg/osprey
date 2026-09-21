@@ -83,8 +83,8 @@ def detect_provider_credentials(
     deployment carries, and reporting it as a found credential described the
     build host rather than the deployment.
 
-    Keyless providers (ollama, vllm, ds4, asksage) are excluded — they have no
-    API-key env var to report on.
+    Keyless providers (ollama, vllm, ds4) are excluded — they have no API-key
+    env var to report on.
 
     Args:
         project_path: The build zone, whose own ``.env`` is source 1.
@@ -280,33 +280,10 @@ def _osprey_requirement(osprey_spec: str) -> str:
 
 
 def _pins_prerelease(osprey_spec: str) -> bool:
-    """Whether *osprey_spec* pins osprey to a pre-release.
+    """Whether *osprey_spec* pins osprey to a pre-release; see :func:`pins_prerelease`."""
+    from osprey.version import pins_prerelease
 
-    osprey-framework and osprey-connectors ship as a pair from one tag, so a
-    pre-release of one exists only beside a pre-release of the other. uv admits
-    a pre-release for the requirement that names one and for nothing else, so
-    the framework's own connectors requirement, which names none, resolves to
-    nothing under a beta pin: a resolve driven by such a pin has to admit
-    pre-releases as a whole. An exclusion (``!=2026.6.2a0``) rules a version
-    out and pins nothing, so it does not count; neither does a source path or
-    a spec that is not a requirement.
-    """
-    from packaging.requirements import InvalidRequirement, Requirement
-    from packaging.version import InvalidVersion, Version
-
-    try:
-        specifiers = Requirement(osprey_spec).specifier
-    except InvalidRequirement:
-        return False
-    for spec in specifiers:
-        if spec.operator == "!=":
-            continue
-        try:
-            if Version(spec.version).is_prerelease:
-                return True
-        except InvalidVersion:
-            continue
-    return False
+    return pins_prerelease(osprey_spec)
 
 
 def _project_requires_python() -> str:
@@ -887,8 +864,11 @@ def _create_project_venv(project_path: Path, profile: Any) -> list[str]:
             "install",
             "--quiet",
             "--disable-pip-version-check",
-            *all_deps,
         ]
+        if _pins_prerelease(osprey_spec):
+            # pip draws the same line uv does: see _pins_prerelease.
+            cmd.append("--pre")
+        cmd += all_deps
 
     from rich.live import Live
     from rich.spinner import Spinner

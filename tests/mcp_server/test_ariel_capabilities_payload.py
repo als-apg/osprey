@@ -44,7 +44,6 @@ def capabilities_payload(tmp_path, monkeypatch):
         reset_config_cache()
 
 
-@pytest.mark.unit
 async def test_capabilities_omits_retired_keys(capabilities_payload):
     """Neither retired key reaches the agent, even when the config declares it."""
     data = json.loads(await capabilities_payload())
@@ -54,7 +53,6 @@ async def test_capabilities_omits_retired_keys(capabilities_payload):
     assert "default_max_results" not in data
 
 
-@pytest.mark.unit
 async def test_capabilities_still_reports_live_config(capabilities_payload):
     """The live half of the payload is unaffected by the removal."""
     data = json.loads(await capabilities_payload())

@@ -1353,11 +1353,11 @@ def test_external_parameter_schemas_render_the_env_and_the_mounts() -> None:
         external={
             "zmq_control_addr": "tcp://qserver-host:60615",
             "insecure_plaintext": True,
-            "parameter_schemas_env": '{"geecs_scan_request_plan.request": "/app/project/plan_schemas/geecs_scan_request_plan.request.json"}',
+            "parameter_schemas_env": '{"scan_request_plan.request": "/app/project/plan_schemas/scan_request_plan.request.json"}',
             "parameter_schema_mounts": [
                 {
                     "source": "./data/plan_schemas/scan_request.schema.json",
-                    "target": "/app/project/plan_schemas/geecs_scan_request_plan.request.json",
+                    "target": "/app/project/plan_schemas/scan_request_plan.request.json",
                 }
             ],
         }
@@ -1365,11 +1365,11 @@ def test_external_parameter_schemas_render_the_env_and_the_mounts() -> None:
     bridge = doc["services"]["bluesky-bridge"]
     assert (
         bridge["environment"]["BLUESKY_EXTERNAL_PARAM_SCHEMAS"]
-        == '{"geecs_scan_request_plan.request": "/app/project/plan_schemas/geecs_scan_request_plan.request.json"}'
+        == '{"scan_request_plan.request": "/app/project/plan_schemas/scan_request_plan.request.json"}'
     )
     assert (
         "./data/plan_schemas/scan_request.schema.json:"
-        "/app/project/plan_schemas/geecs_scan_request_plan.request.json:ro" in bridge["volumes"]
+        "/app/project/plan_schemas/scan_request_plan.request.json:ro" in bridge["volumes"]
     )
 
 

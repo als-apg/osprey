@@ -1184,6 +1184,32 @@ class TestTemplateRendering:
         assert "command" in controls
         assert "type" not in controls
 
+    def test_render_mcp_json_url_server_with_headers(self, template_manager):
+        """Declared headers join the URL entry; an undeclared one adds no key.
+
+        The empty case is the one worth pinning: an entry carrying
+        ``"headers": {}`` reads to Claude Code as a deliberate empty header
+        set, not as "this server was never given any".
+        """
+        ctx = self._full_ctx(
+            _claude_code_config={
+                "servers": {
+                    "with-headers": {
+                        "url": "http://remote:8001/mcp",
+                        "headers": {"Authorization": "Bearer ${FACILITY_TOKEN:-}"},
+                    },
+                    "without-headers": {"url": "http://remote:8002/mcp"},
+                }
+            }
+        )
+        data = json.loads(self._render(template_manager, "claude_code/mcp.json.j2", ctx))
+        assert data["mcpServers"]["with-headers"] == {
+            "type": "http",
+            "url": "http://remote:8001/mcp",
+            "headers": {"Authorization": "Bearer ${FACILITY_TOKEN:-}"},
+        }
+        assert "headers" not in data["mcpServers"]["without-headers"]
+
     def test_topology_default_leaves_custom_url_server_untouched(self, template_manager):
         """Regression guard (web-terminals Task 2.5): the `modules.web_terminals.
         mcp.topology` fail-closed gate lives entirely in
@@ -1513,3 +1539,153 @@ class TestMixedReadWriteTools:
             "mcp__python2__execute",
             "mcp__python2__execute_file",
         ]
+
+
+# ---------------------------------------------------------------------------
+# The event_dispatcher entry: the framework's first URL server
+# ---------------------------------------------------------------------------
+
+
+def _events_panel_config() -> dict:
+    """A config that declares the EVENTS panel, as a terminal persona does."""
+    return {"web": {"panels": {"events": {}}}}
+
+
+def _dispatcher_entry(ctx: dict) -> dict:
+    """The resolved ``event_dispatcher`` server dict for *ctx*."""
+    (entry,) = [s for s in resolve_servers({}, ctx) if s["name"] == "event_dispatcher"]
+    return entry
+
+
+class TestEventDispatcherServer:
+    """The dispatcher entry an agent reaches through its own terminal's proxy."""
+
+    def test_entry_is_the_proxy_url_and_the_panel_token_header(self):
+        """Exact url and header — both are the wire, and both are spelled ``:-``.
+
+        The agent never holds ``EVENT_DISPATCHER_TOKEN``; the terminal's panel
+        proxy does, and it is reached on loopback at the terminal's own port
+        with the panel token every agent child already carries. The ``:-`` form
+        matters in both places: Claude Code leaves a bare ``${VAR}`` in place
+        when the variable is unset, so the entry would carry the literal text
+        of the placeholder as a port number or as a bearer.
+        """
+        entry = _dispatcher_entry(_base_ctx(event_dispatcher_wired=True))
+
+        assert entry["enabled"] is True
+        assert entry["url"] == "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp"
+        assert entry["headers"] == {"Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}"}
+        assert entry["transport"] == "http"
+        assert entry["command"] == ""
+        assert entry["args"] == []
+
+    def test_only_manual_fire_prompts(self):
+        """Reads are silent; firing a job is the one call that asks.
+
+        The dispatcher's other three tools report what is configured and what
+        has run — prompting for those would train an operator to click through
+        prompts that never precede anything.
+        """
+        entry = _dispatcher_entry(_base_ctx(event_dispatcher_wired=True))
+
+        assert entry["permissions_ask"] == ["manual_fire"]
+        assert set(entry["permissions_allow"]) == {
+            "list_triggers",
+            "trigger_history",
+            "trigger_status",
+        }
+        assert [r["matcher"] for r in entry["hooks_pre"]] == ["mcp__event_dispatcher__manual_fire"]
+
+    def test_absent_without_the_events_panel(self):
+        """No ``event_dispatcher_wired`` in the context → the entry is disabled.
+
+        Same shape as the graph server's ``graphdb_configured``: without the
+        panel there is no proxy hop holding the bearer, so the entry would be a
+        tool that can only fail.
+        """
+        assert _dispatcher_entry(_base_ctx())["enabled"] is False
+
+    def test_wiring_key_follows_the_panel_declaration(self, tmp_path):
+        """``event_dispatcher_wired`` IS the dispatcher-token predicate.
+
+        The per-persona bearer in the web-terminals render and the single-user
+        host both grant the dispatcher token from
+        ``config_needs_dispatcher_token``. Deriving the render key from any
+        second reading of the config would let a persona be handed the entry
+        without the credential behind it, or the credential with no entry to
+        spend it on.
+        """
+        from osprey.cli.templates.claude_code import config_derived_context
+        from osprey.deployment.web_terminals.personas import config_needs_dispatcher_token
+
+        with_panel = _events_panel_config()
+        assert config_derived_context(with_panel, tmp_path)["event_dispatcher_wired"] is True
+        assert config_derived_context({}, tmp_path)["event_dispatcher_wired"] is False
+
+        for config in (with_panel, {}):
+            assert config_derived_context(config, tmp_path)[
+                "event_dispatcher_wired"
+            ] == config_needs_dispatcher_token(config)
+
+    def test_render_carries_the_entry_with_no_env_block(self, tmp_path):
+        """End to end: a persona that declares the panel renders the entry exactly.
+
+        A URL entry has nowhere to put ``env`` — a remote server never sees it —
+        so the rendered block is ``{type, url, headers}`` and nothing else.
+        """
+        from osprey.cli.templates.claude_code import config_derived_context
+        from osprey.cli.templates.manager import TemplateManager
+
+        def _render(config: dict) -> dict:
+            ctx = _base_ctx(**config_derived_context(config, tmp_path))
+            ctx["servers"] = resolve_servers({}, ctx)
+            tm = TemplateManager()
+            template = tm.jinja_env.get_template("claude_code/mcp.json.j2")
+            return json.loads(template.render(**ctx))["mcpServers"]
+
+        rendered = _render(_events_panel_config())
+        assert rendered["event_dispatcher"] == {
+            "type": "http",
+            "url": "http://127.0.0.1:${OSPREY_WEB_PORT:-}/panel/events/mcp",
+            "headers": {"Authorization": "Bearer ${OSPREY_PANEL_TOKEN:-}"},
+        }
+
+        assert "event_dispatcher" not in _render({})
+
+    def test_url_and_header_are_spelled_from_their_owners(self):
+        """Drift guard: every piece of the wire equals the module that owns it.
+
+        The registry spells the url and the bearer header as literals — the
+        modules that own those pieces are either far heavier than this registry
+        (the interfaces package, loaded on every render) or import the registry
+        themselves (personas), so importing them there is not on offer. What is
+        on offer is failing HERE the moment one of them moves: a renamed env
+        var or a relocated MCP path would otherwise leave the agent dialing a
+        404 with an empty bearer, and nothing else would notice.
+        """
+        from osprey.deployment.web_terminals.personas import EVENTS_PANEL_ID
+        from osprey.dispatch import DISPATCHER_MCP_PATH
+        from osprey.interfaces.common_middleware import WEB_PORT_ENV
+        from osprey.interfaces.web_auth import PANEL_TOKEN_ENV
+        from osprey.registry.mcp import EVENT_DISPATCHER_PROXY_URL, PANEL_TOKEN_ENV_NAME
+
+        assert PANEL_TOKEN_ENV_NAME == PANEL_TOKEN_ENV
+        assert EVENT_DISPATCHER_PROXY_URL == (
+            f"http://127.0.0.1:${{{WEB_PORT_ENV}:-}}/panel/{EVENTS_PANEL_ID}{DISPATCHER_MCP_PATH}"
+        )
+
+    def test_extends_of_the_dispatcher_is_refused(self, caplog):
+        """A second instance cannot be cloned out of the conditioned entry.
+
+        Cloning would copy the url and the framework's own bearer header onto a
+        name the facility chose, which is a second wire nothing conditions and
+        no proxy route serves.
+        """
+        ctx = _base_ctx(event_dispatcher_wired=True)
+        with caplog.at_level(logging.WARNING):
+            servers = resolve_servers(
+                {"servers": {"dispatcher2": {"extends": "event_dispatcher"}}}, ctx
+            )
+
+        assert "dispatcher2" not in {s["name"] for s in servers}
+        assert any("conditioned" in r.message for r in caplog.records)
