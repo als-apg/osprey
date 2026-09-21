@@ -43,7 +43,7 @@ def _load_summary():
 # ===================================================================
 
 
-def test_recorder_from_env_is_none_when_unset(monkeypatch, tmp_path):
+def test_recorder_from_env_is_none_when_unset(monkeypatch):
     """Local runs must be untouched — no directory, no faulthandler timer."""
     monkeypatch.delenv(ENV_DIR, raising=False)
     assert recorder_from_env() is None

@@ -108,7 +108,7 @@ class TestAnchoredAppend:
             "bluesky",
         ]
 
-    def test_plain_list_still_appends(self, tmp_path):
+    def test_plain_list_still_appends(self):
         lst = ["a"]
         anchored_append(lst, "b")
         assert lst == ["a", "b"]
