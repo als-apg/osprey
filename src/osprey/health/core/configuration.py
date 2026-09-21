@@ -64,7 +64,10 @@ class ConfigState:
     health_error: str | None = None
 
 
-def configuration(config: ConfigState, context: Any = None) -> Any:
+def configuration(
+    config: ConfigState,
+    context: Any = None,  # noqa: ARG001 - health category factory signature; categories that probe a runtime read the context
+) -> Any:
     """Build the ``configuration`` category callable.
 
     Args:

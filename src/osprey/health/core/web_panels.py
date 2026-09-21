@@ -91,7 +91,7 @@ class _Target(NamedTuple):
 
 def web_panels(
     config: Mapping[str, Any] | None = None,
-    context: HealthRuntime | None = None,
+    context: HealthRuntime | None = None,  # noqa: ARG001 - health category factory signature; categories that probe a runtime read the context
     *,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> CategoryCallable:
