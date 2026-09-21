@@ -143,7 +143,7 @@ def test_unknown_backend_warns_rather_than_refuses(monkeypatch):
 def test_no_runtime_defers_to_the_runtime_check(monkeypatch):
     """A host with no usable runtime is diagnosed by verify_runtime_is_running, not here."""
 
-    def no_runtime(config):
+    def no_runtime(_config):
         raise RuntimeError("No container runtime found")
 
     monkeypatch.setattr(container_lifecycle, "get_runtime_command", no_runtime)

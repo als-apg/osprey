@@ -31,7 +31,11 @@ class RecordingReporter(PhaseReporter):
         super().__init__(color=False)
         self.lines: list[str] = []
 
-    def emit(self, text: str, style: str | None = None) -> None:
+    def emit(
+        self,
+        text: str,
+        style: str | None = None,  # noqa: ARG002 - PhaseReporter.emit's style argument
+    ) -> None:
         self.lines.append(text)
 
 

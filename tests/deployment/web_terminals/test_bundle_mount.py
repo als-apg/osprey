@@ -663,7 +663,7 @@ def test_web_deploy_provisions_the_bundle_before_any_compose_invocation(monkeypa
         stdout = ""
         stderr = ""
 
-    def _run(cmd, **kwargs):
+    def _run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
         seen_at_first_compose.append(bundle.is_dir())
         return _Completed()
 

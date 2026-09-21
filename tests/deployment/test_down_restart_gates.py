@@ -77,7 +77,14 @@ def runtime(monkeypatch):
         lambda *a, **k: record.setdefault("built", True),
     )
 
-    def _fake_run(cmd, env=None, check=False, capture_output=False, text=False, **kwargs):
+    def _fake_run(
+        cmd,
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        capture_output=False,  # noqa: ARG001 - subprocess.run's keywords
+        text=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         # ``**kwargs`` swallows the redirection keywords ``run_captured`` passes
         # (``cwd``/``stdout``/``stderr``): a captured child's output goes to a
         # spool file, and nothing here writes any, so they are ignored.
@@ -538,7 +545,7 @@ def test_as_built_restarts_the_drifted_build_and_says_so(lifecycle_repo, runtime
 def test_build_chains_the_render_then_stops_and_starts(lifecycle_repo, runtime, monkeypatch):
     chained: list = []
 
-    def _fake_chain(ctx, repo_root, *, dev=False):
+    def _fake_chain(_ctx, repo_root, *, dev=False):  # noqa: ARG001 - _chain_build's dev keyword
         chained.append(repo_root)
 
     import osprey.cli.deploy_cmd as deploy_cmd

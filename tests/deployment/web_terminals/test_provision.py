@@ -427,7 +427,11 @@ def test_preflight_mints_a_credential_for_an_entry_carrying_the_retired_login_ke
     calls: list[list[str]] = []
     env_auth = tmp_path / AUTH_ENV_FILENAME
 
-    def _fake_credentials(usernames, project_root, **kwargs):
+    def _fake_credentials(
+        usernames,
+        project_root,  # noqa: ARG001 - ensure_auth_credentials's signature, the rest in **kwargs
+        **kwargs,
+    ):
         calls.append(list(usernames))
         return _credentials_result(env_auth, users=usernames)
 
@@ -458,7 +462,11 @@ def test_preflight_mints_no_credential_for_a_shared_entry(monkeypatch, tmp_path)
     calls: list[list[str]] = []
     env_auth = tmp_path / AUTH_ENV_FILENAME
 
-    def _fake_credentials(usernames, project_root, **kwargs):
+    def _fake_credentials(
+        usernames,
+        project_root,  # noqa: ARG001 - ensure_auth_credentials's signature, the rest in **kwargs
+        **kwargs,
+    ):
         calls.append(list(usernames))
         return _credentials_result(env_auth, users=usernames)
 
@@ -594,15 +602,19 @@ def test_the_terminal_mint_runs_after_the_auth_credential_mint(monkeypatch, tmp_
     order: list[str] = []
     env_auth = tmp_path / AUTH_ENV_FILENAME
 
-    def _fake_credentials(usernames, project_root, **kwargs):
+    def _fake_credentials(
+        usernames,
+        project_root,  # noqa: ARG001 - ensure_auth_credentials's signature, the rest in **kwargs
+        **kwargs,
+    ):
         order.append("credentials")
         return _credentials_result(env_auth, users=usernames)
 
-    def _fake_secrets(project_root):
+    def _fake_secrets(_project_root):
         order.append("secrets")
         return _secrets_result(env_auth)
 
-    def _fake_terminal(project_root, usernames):
+    def _fake_terminal(project_root, _usernames):
         order.append("terminal")
         return _terminal_result(Path(project_root) / ENV_LOCAL_FILENAME)
 
@@ -1084,7 +1096,7 @@ def test_force_recreate_auth_sidecar_rerenders_before_the_recreate(monkeypatch, 
         lambda config, dest_dir=".": order.append("render") or [],
     )
 
-    def _fake_run(cmd, **kwargs):
+    def _fake_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
         order.append("recreate")
         return _FakeCompletedProcess()
 
@@ -1106,7 +1118,7 @@ def test_force_recreate_auth_sidecar_still_recreates_when_the_render_fails(
     _write_web_compose(tmp_path, "services: {}\n")
     recreated: list[list[str]] = []
 
-    def _failing_render(config, dest_dir="."):
+    def _failing_render(_config, _dest_dir="."):
         raise ValueError("unrenderable config")
 
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", _failing_render)
@@ -1140,7 +1152,7 @@ def test_deploy_up_renders_the_artifacts_before_any_web_stack_compose_invocation
         lambda config, dest_dir=".": order.append("render") or [],
     )
 
-    def _fake_run(cmd, **kwargs):
+    def _fake_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run's argv, the rest in **kwargs
         order.append("compose")
         return _FakeCompletedProcess()
 

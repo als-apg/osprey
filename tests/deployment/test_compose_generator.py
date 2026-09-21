@@ -3352,7 +3352,10 @@ def test_two_projects_render_disjoint_local_image_tag_sets() -> None:
     ("rel_path", "service_key", "env_var", "suffix"), _PREFIXED_IMAGE_SERVICES, ids=_PREFIXED_IDS
 )
 def test_service_build_args_carry_project_name_and_dev_flag(
-    rel_path: str, service_key: str, env_var: str, suffix: str
+    rel_path: str,
+    service_key: str,
+    env_var: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table
+    suffix: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table,
 ) -> None:
     """build.args always carry OSPREY_PROJECT_NAME; OSPREY_DEV renders as "1"
     iff dev mode, and is entirely absent otherwise."""
@@ -3374,7 +3377,10 @@ def test_service_build_args_carry_project_name_and_dev_flag(
     ("rel_path", "service_key", "env_var", "suffix"), _PREFIXED_IMAGE_SERVICES, ids=_PREFIXED_IDS
 )
 def test_service_build_args_carry_the_prerelease_flag_only_for_a_prerelease_pin(
-    rel_path: str, service_key: str, env_var: str, suffix: str
+    rel_path: str,
+    service_key: str,
+    env_var: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table
+    suffix: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table,
 ) -> None:
     """A beta pin renders ``OSPREY_PIP_PRE: "1"`` beside ``OSPREY_VERSION`` so
     the recipe's pip resolve admits the paired connectors beta; a stable pin
@@ -3723,7 +3729,7 @@ def test_failed_wheel_staging_aborts_the_deploy(
     from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError
 
-    def _staging_fails(out_dir):  # type: ignore[no-untyped-def]
+    def _staging_fails(_out_dir):  # type: ignore[no-untyped-def]
         raise DevModeUnavailableError("staging failed", "fix it")
 
     monkeypatch.setattr(compose_generator, "_copy_local_framework_for_override", _staging_fails)
@@ -4084,7 +4090,7 @@ def test_staging_fails_closed_when_manifest_write_fails(
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
     from osprey.deployment.errors import DevModeUnavailableError
 
-    def _boom(cached_wheel, out_dir):  # type: ignore[no-untyped-def]
+    def _boom(_cached_wheel, _out_dir):  # type: ignore[no-untyped-def]
         raise OSError("disk full")
 
     monkeypatch.setattr(wheel_build, "_write_local_requirements_manifest", _boom)
@@ -6481,7 +6487,8 @@ def _render_bridge_with_axis(
 
 @pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
 def test_bridge_without_the_axis_renders_todays_network_blocks(
-    config_key: str, service_key: str
+    config_key: str,
+    service_key: str,  # noqa: ARG001 - a column of the shared _AXIS_BRIDGES table
 ) -> None:
     """An undeclared axis reproduces the pre-macro bytes exactly.
 
@@ -6636,7 +6643,9 @@ def _bridge_pair_urls(config_key: str, service_key: str, **kwargs: object) -> tu
 @pytest.mark.parametrize("network", [None, "bridge"], ids=["unset", "bridge"])
 @pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
 def test_bridge_on_a_network_addresses_the_pair_by_its_compose_keys(
-    config_key: str, service_key: str, network: str | None
+    config_key: str,
+    service_key: str,  # noqa: ARG001 - a column of the shared _AXIS_BRIDGES table
+    network: str | None,
 ) -> None:
     """A network-joined bridge keeps the service-key addresses, byte for byte.
 

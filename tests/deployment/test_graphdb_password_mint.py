@@ -85,7 +85,7 @@ def _deploy_fixture(monkeypatch, tmp_path, services):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         captured["cmd"] = cmd
         # run_captured re-wraps this result to carry its spool path, so the
         # stand-in has to be a real completed process, and it passes redirection

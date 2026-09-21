@@ -290,7 +290,7 @@ def resolve_via_load_project_dotenv(repo: Path, monkeypatch: pytest.MonkeyPatch)
     return chain_keys_of(os.environ)
 
 
-def resolve_via_chat_overlay(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+def resolve_via_chat_overlay(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """``osprey chat``'s overlay, which runs before the provider spec resolves."""
     from osprey.cli.chat_cmd import _overlay_repo_env
 
@@ -298,7 +298,7 @@ def resolve_via_chat_overlay(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dic
     return chain_keys_of(os.environ)
 
 
-def resolve_via_query_overlay(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+def resolve_via_query_overlay(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """``osprey query``'s overlay — the same contract on the one-shot verb."""
     from osprey.cli.query_cmd import _overlay_repo_env
 
@@ -306,7 +306,7 @@ def resolve_via_query_overlay(repo: Path, monkeypatch: pytest.MonkeyPatch) -> di
     return chain_keys_of(os.environ)
 
 
-def resolve_via_build_lifecycle(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+def resolve_via_build_lifecycle(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """A lifecycle step's subprocess environment — asked of the process itself.
 
     Not the merge helper the phase runner calls, but what a profile's own
@@ -324,7 +324,7 @@ def resolve_via_build_lifecycle(repo: Path, monkeypatch: pytest.MonkeyPatch) -> 
     return chain_keys_of(parse_dotenv_text(dump.read_text(encoding="utf-8")))
 
 
-def resolve_via_inject_provider_env(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+def resolve_via_inject_provider_env(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The launch-path passthrough that feeds ``.mcp.json``'s ``${VAR}`` expansion.
 
     Every key of the chain is copied, not a declared subset — narrowing it
@@ -338,7 +338,7 @@ def resolve_via_inject_provider_env(repo: Path, monkeypatch: pytest.MonkeyPatch)
     return chain_keys_of(environ)
 
 
-def resolve_via_resolver_env_lookup(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+def resolve_via_resolver_env_lookup(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The ``${VAR}`` view a provider spec is resolved against (chain over shell)."""
     from osprey.build.claude_code_resolver import _env_lookup
 
@@ -360,7 +360,7 @@ def resolve_via_mcp_env(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str
     return chain_keys_of(os.environ)
 
 
-def resolve_via_users_env_file(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+def resolve_via_users_env_file(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The ``.env.users`` a local-mode deploy derives for the web terminals."""
     from osprey.deployment.web_terminals import env_production
 
@@ -368,7 +368,7 @@ def resolve_via_users_env_file(repo: Path, monkeypatch: pytest.MonkeyPatch) -> d
     return chain_keys_of(parse_dotenv_file(written))
 
 
-def resolve_via_users_cli(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+def resolve_via_users_cli(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """``osprey users env``, whose stdout IS the rendered file."""
     from click.testing import CliRunner
 
@@ -381,7 +381,7 @@ def resolve_via_users_cli(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[s
     return chain_keys_of(parse_dotenv_text(result.output))
 
 
-def resolve_via_health_cli(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+def resolve_via_health_cli(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """``osprey health --project <repo>``'s pre-check env load, from ANOTHER cwd.
 
     The anchors resolve through the config path, never the working directory —
@@ -397,7 +397,7 @@ def resolve_via_health_cli(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[
     return chain_keys_of(os.environ)
 
 
-def resolve_via_health_loader(repo: Path, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+def resolve_via_health_loader(repo: Path, _monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
     """The long-lived health surface's refresh-cycle loader.
 
     The one loader that also WATCHES what it reads: the chain it loads here is

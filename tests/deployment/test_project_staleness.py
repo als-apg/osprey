@@ -321,7 +321,7 @@ def test_warn_if_project_stale_is_quiet_when_fresh(tmp_path, monkeypatch, _captu
 def test_warn_if_project_stale_never_raises(tmp_path, monkeypatch):
     """Advisory means advisory: internal failure must not break a deploy."""
 
-    def _boom(project_dir):
+    def _boom(_project_dir):
         raise RuntimeError("staleness exploded")
 
     monkeypatch.setattr(staleness, "staleness_reasons", _boom)

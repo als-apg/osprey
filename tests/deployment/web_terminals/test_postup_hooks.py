@@ -213,7 +213,7 @@ def test_web_stack_reachable_no_warning(monkeypatch, caplog):
 
 
 def test_web_stack_unreachable_warns_with_docker_desktop_hint(monkeypatch, caplog):
-    def _refuse(url, timeout):
+    def _refuse(_url, timeout):  # noqa: ARG001 - urlopen's timeout keyword
         raise OSError("connection refused")
 
     monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refuse)
@@ -231,7 +231,7 @@ def test_web_stack_unreachable_warns_with_docker_desktop_hint(monkeypatch, caplo
 
 
 def test_web_stack_unreachable_on_linux_warns_without_desktop_hint(monkeypatch, caplog):
-    def _refuse(url, timeout):
+    def _refuse(_url, timeout):  # noqa: ARG001 - urlopen's timeout keyword
         raise OSError("connection refused")
 
     monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _refuse)
@@ -269,7 +269,7 @@ def _refusing_urlopen(succeed_after: int, calls: list[int]):
         def __exit__(self, *args):
             return False
 
-    def _urlopen(url, timeout):
+    def _urlopen(_url, timeout):  # noqa: ARG001 - urlopen's timeout keyword
         calls.append(1)
         if len(calls) <= succeed_after:
             raise OSError("connection refused")
@@ -393,7 +393,7 @@ def test_self_heal_skipped_when_caller_supplies_no_compose_cmd(monkeypatch, capl
 
 
 def test_web_stack_http_error_counts_as_reachable(monkeypatch, caplog):
-    def _http_error(url, timeout):
+    def _http_error(url, timeout):  # noqa: ARG001 - urlopen's timeout keyword
         raise postup_hooks.urllib.error.HTTPError(url, 502, "Bad Gateway", None, None)
 
     monkeypatch.setattr(postup_hooks.urllib.request, "urlopen", _http_error)

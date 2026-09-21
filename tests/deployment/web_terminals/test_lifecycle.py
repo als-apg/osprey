@@ -112,7 +112,14 @@ def fake_runtime(monkeypatch):
     """Patch subprocess.run + get_runtime_command; return the list of captured argvs."""
     calls: list[list[str]] = []
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
+    def _fake_run(
+        argv,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         calls.append(list(argv))
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
@@ -135,7 +142,14 @@ def fake_runtime_prune(monkeypatch):
     calls: list[list[str]] = []
     listing: dict[str, list[str]] = {"containers": [], "volumes": []}
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
+    def _fake_run(
+        argv,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             stdout = "\n".join(listing["containers"])
@@ -174,7 +188,14 @@ def fake_runtime_nuke(monkeypatch):
     down_result = {"returncode": 0, "stderr": ""}
     image_labels: dict[str, str | None] = {}
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
+    def _fake_run(
+        argv,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             return subprocess.CompletedProcess(
@@ -2611,7 +2632,14 @@ def test_up_reconcile_reports_a_failed_removal_instead_of_raising(
     config = _config(["alice"])
     listing["containers"] = ["dls-web-eve"]
 
-    def _refusing_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
+    def _refusing_run(
+        argv,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         calls.append(list(argv))
         if argv[1] == "rm":
             return subprocess.CompletedProcess(argv, returncode=1, stdout="", stderr="busy")

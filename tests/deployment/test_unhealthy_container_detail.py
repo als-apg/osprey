@@ -175,7 +175,7 @@ def test_a_spool_that_blames_nothing_yields_no_detail(
 def test_an_unresolvable_runtime_still_names_the_container(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def _no_runtime(config=None):
+    def _no_runtime(_config=None):
         raise RuntimeError("no container runtime")
 
     monkeypatch.setattr(runtime_helper, "get_runtime_command", _no_runtime)

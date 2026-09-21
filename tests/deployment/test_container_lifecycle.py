@@ -88,7 +88,7 @@ def captured_argv(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         captured["cmd"] = cmd
         captured["env"] = env
         return _FakeCompletedProcess(returncode=0)
@@ -321,13 +321,13 @@ def captured_web_runs(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_write_artifacts(config, dest_dir="."):
+    def _fake_write_artifacts(config, _dest_dir="."):
         written.append(config)
         return []
 
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", _fake_write_artifacts)
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         calls.append({"cmd": list(cmd), "env": env})
         return _FakeCompletedProcess(returncode=0)
 
@@ -529,17 +529,17 @@ def captured_combined_runs(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
 
-    def _fake_build(config, dev_mode, env, build_context=None):
+    def _fake_build(config, dev_mode, _env, _build_context=None):
         build_calls.append({"config": config, "dev_mode": dev_mode})
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _fake_build)
 
-    def _fake_tokens(config, expose_network, env_path=None):
+    def _fake_tokens(config, _expose_network, _env_path=None):
         token_calls.append({"config": config})
 
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", _fake_tokens)
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         calls.append({"cmd": list(cmd), "env": env})
         return _FakeCompletedProcess(returncode=0)
 
@@ -898,7 +898,7 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
         lambda cfg, resolved_users, repo_root=None: order.append("verify_persona_renders"),
     )
 
-    def _fake_build(cfg, resolved_users, dev_mode, env):
+    def _fake_build(_cfg, _resolved_users, _dev_mode, _env):
         order.append("build_persona_images")
 
     monkeypatch.setattr(provision, "build_persona_images", _fake_build)
@@ -950,7 +950,7 @@ def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
 
     captured_users = []
 
-    def _fake_build(cfg, resolved_users, dev_mode, env):
+    def _fake_build(_cfg, resolved_users, _dev_mode, _env):
         captured_users.extend(resolved_users)
 
     monkeypatch.setattr(provision, "build_persona_images", _fake_build)
@@ -1614,7 +1614,7 @@ def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     calls: list = []
 
-    def _fake_run(cmd, env=None, **k):
+    def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
         calls.append(list(cmd))
         return _FakeCompletedProcess(returncode=0)
 
@@ -1750,7 +1750,7 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     )
     runs: list = []
 
-    def _fake_run(cmd, env=None, **k):
+    def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
         runs.append(list(cmd))
         return _FakeCompletedProcess(returncode=0)
 
@@ -1945,7 +1945,7 @@ def test_the_project_image_build_stages_the_ca_then_clears_it(tmp_path, monkeypa
     while the build runs and gone when it returns."""
     staged_while_building: list[bool] = []
 
-    def _run(cmd, **kwargs):
+    def _run(cmd, **kwargs):  # noqa: ARG001 - run_captured's argv, the rest in **kwargs
         staged_while_building.append(
             (tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME).is_file()
         )
@@ -2731,7 +2731,7 @@ def _dev_deploy_cmds(
     # which branch ran.
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         cmds.append(list(cmd))
         return _FakeCompletedProcess(returncode=0)
 
@@ -3067,7 +3067,7 @@ class _FakeAdmin:
         self.fail_times = fail_times
         self.pings = 0
 
-    def command(self, name):
+    def command(self, _name):
         self.pings += 1
         if self.fail_times > 0:
             self.fail_times -= 1
@@ -3150,7 +3150,7 @@ def staged_archiver(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         state["cmds"].append(list(cmd))
         # A real CompletedProcess, because the quiesce checks its returncode.
         # `returncode` models the *quiesce* specifically: every other compose
@@ -3188,7 +3188,12 @@ def staged_archiver(monkeypatch, tmp_path):
         ),
     )
 
-    def _fake_seed_base(collection, channels, knobs, **kwargs):
+    def _fake_seed_base(
+        collection,  # noqa: ARG001 - seed_base's collection handle, the rest in **kwargs
+        channels,
+        knobs,
+        **kwargs,
+    ):
         state["seeded"].append({"channels": list(channels), "knobs": knobs, "kwargs": kwargs})
         # The staged step reports on what it wrote, so hand back a real report.
         return archiver_seed.SeedReport(documents=10, channels=len(channels))
@@ -3468,7 +3473,11 @@ def test_reapply_anchors_on_the_persisted_t0_not_a_fresh_one(monkeypatch, tmp_pa
     anchor = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
     forwarded: dict = {}
 
-    def _record(project_dir, names, **kwargs):
+    def _record(
+        project_dir,  # noqa: ARG001 - apply_scenarios's project dir, the rest in **kwargs
+        names,
+        **kwargs,
+    ):
         forwarded.update(names=names, **kwargs)
         return apply_mod.ApplyResult(active=tuple(names), logbook_seeded=0, purged=False)
 
@@ -3598,7 +3607,7 @@ def test_authentication_is_retried_while_a_fresh_volume_initializes(monkeypatch)
     collection = _FakeCollection()
     refusals = [3]
 
-    def _initializing(name):
+    def _initializing(_name):
         collection.admin.pings += 1
         if refusals[0] > 0:
             refusals[0] -= 1
@@ -3627,7 +3636,7 @@ def test_authentication_failure_past_the_grace_window_fails_with_the_cause(monke
     monkeypatch.setattr(container_lifecycle, "_ARCHIVER_AUTH_GRACE_S", 0.0)
     collection = _FakeCollection()
 
-    def _refuse(name):
+    def _refuse(_name):
         collection.admin.pings += 1
         raise OperationFailure("Authentication failed.", code=18)
 
@@ -3653,7 +3662,7 @@ def test_a_non_auth_operation_failure_is_not_swallowed(monkeypatch):
     monkeypatch.setattr(container_lifecycle.time, "sleep", lambda seconds: None)
     collection = _FakeCollection()
 
-    def _fail(name):
+    def _fail(_name):
         raise OperationFailure("not authorized on admin", code=13)
 
     collection.admin.command = _fail
@@ -4283,7 +4292,7 @@ def test_deploy_up_removes_orphan_terminals_before_the_host_port_preflight(
     order: list[str] = []
     _record_web_deploy(monkeypatch, tmp_path, order, {"enabled": True, "image_source": "local"})
 
-    def _fake_remove(config):
+    def _fake_remove(_config):
         order.append("orphans")
         return {"ariel": "als-web-ariel"}
 

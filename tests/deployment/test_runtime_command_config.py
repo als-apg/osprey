@@ -215,7 +215,10 @@ class TestHealthThreadsConfigThrough:
     ) -> None:
         seen: list[Any] = []
 
-        def _record(config: Any = None, all_containers: bool = False) -> list[str]:
+        def _record(
+            config: Any = None,
+            all_containers: bool = False,  # noqa: ARG001 - get_ps_command's keyword argument
+        ) -> list[str]:
             seen.append(config)
             raise RuntimeError("no container runtime")  # short-circuits to a skip row
 

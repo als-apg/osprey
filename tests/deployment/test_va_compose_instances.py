@@ -283,14 +283,14 @@ def _text_lines(rendered_text: str, needle: str) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    ("shape", "block"),
+    ("_shape", "block"),
     [
         ("null", None),
         ("portless", {"path": "./services/virtual_accelerator"}),
     ],
 )
 def test_va_compose_deployed_standin_without_a_port_fails_the_render(
-    shape: str, block: dict[str, Any] | None
+    _shape: str, block: dict[str, Any] | None
 ) -> None:
     """A second instance has no default port, and must not borrow instance 1's.
 
