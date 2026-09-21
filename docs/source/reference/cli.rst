@@ -1088,6 +1088,16 @@ to end.
       group of its own, so what it does is not readable from the export.
       Answer ``latch``, or ``ignore_hook`` to bind it anyway.
 
+   A family the model drives may also carry a ``values:`` block, which is a
+   question of a different shape: a quantity the model needs to build the
+   family and no part of the export states, written out with its units and a
+   null ``answer`` for you to fill in. There is one today --- the voltage of a
+   cavity built into a deck that carries none --- and ``--check`` refuses the
+   mapping while the answer is null, missing, or not a positive number, the
+   same way it refuses a null slot. Latch the family instead and the question
+   goes with it: a family the model does not drive needs nothing answered
+   for it.
+
    ``--init`` writes the skeleton, refusing to overwrite an existing file
    unless ``--force`` says to, because that file holds reviewed decisions. It
    appends the virtual-accelerator block to a mapping that already exists and
@@ -1132,6 +1142,12 @@ to end.
    how; ``data/simulation/machine.json``, the machine the model stands for;
    ``data/machine_state_channels.json``, the channels that carry its state; and
    the write bands of every coupled setpoint in ``data/channel_limits.json``.
+   Where the export describes a radio-frequency family and the deck carries no
+   cavity of its own, emit builds one onto the end of that deck --- at the
+   frequency a whole number of waves fits around it, and at the voltage the
+   mapping answers --- so the served model solves through the bucket instead
+   of at a fixed energy, and it prints that frequency beside the one the
+   export states.
    The lanes run channel database, DuckDB copy, ontology, knowledge pages,
    virtual accelerator, then corpus. A tree whose export is 1.0 is not refused:
    emit reports ``VA lane skipped: data/mml/va.json is not in the tree;
@@ -1165,19 +1181,37 @@ to end.
    and write ``data/mml/VA-REPORT.md``. Verify steers the model's correctors
    the way the facility steered its own, reads the orbit the model gives back,
    and compares it entry by entry with the matrix the export carries. An entry
-   agrees when ``|R_model - R_file| <= 0.05 * max(|R_file|, 0.1 * rms(column))``
-   --- five per cent of the exported value, or of a tenth of that actuator
-   column's own scale, whichever is larger, so a near-zero entry is held to
-   size alone. Above that floor the sign has to agree too, because a corrector
-   that pushes the beam the wrong way is wrong however small the number.
+   agrees when ``|R_model - R_file| <= 0.05 * max(|R_file|, 0.1 * rms(matrix))``
+   --- five per cent of the exported value, or of a tenth of the whole matrix's
+   own scale, whichever is larger, so a near-zero entry is held to size alone.
+   Above that floor the sign has to agree too, because a corrector that pushes
+   the beam the wrong way is wrong however small the number.
+
+   The verdict is pooled over the blocks whose monitors read the plane their
+   correctors kick, which the emitted bindings state. A block pairing one
+   plane's monitors with the other plane's correctors is compared and printed
+   the same way and marked as reported rather than judged: what sits there is
+   whatever couples the two planes on that deck, not an answer about the
+   bindings this command checks. One corrector whose column the file has
+   running the opposite way to the model over more than half of its compared
+   entries --- counting only the entries big enough for a sign to mean
+   anything --- is a polarity outlier: the report names the channel and leaves
+   the column out of the counts, because no deck reproduces a reversed device
+   and no tolerance should hide one.
+
+   Where emit built a cavity into the served deck, the report says so and
+   states what it was built at, its harmonic number and its voltage, beside
+   the frequency the export states for it.
 
    Monitor rows are matched to the export's device list by sector and device,
    never by position, and a row with no match is reported rather than compared.
    A row the export marks down is dropped and named. The report says whether
    the deck agrees, where it was measured and at what energy, the worst
    disagreements per block, the rows that were not compared, the write bands
-   the model needed widened, and the nominals the model does not hold. Read it
-   before ``osprey build``.
+   the model needed widened, and the nominals the model does not hold. The
+   report is written either way, and the command exits non-zero when not one
+   entry was compared, because a run that held nothing against the file is no
+   evidence about the model. Read it before ``osprey build``.
 
 .. code-block:: bash
 

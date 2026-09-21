@@ -17,9 +17,10 @@ That surface carries obligations of its own:
   and a run that succeeds sends the reader to ``osprey build`` next;
 - **the report's shape** -- its six sections in the order the install skill
   walks a reviewer through them, a Verdict whose counts and percentage are the
-  ones the command computed and printed, an orbit-response table that accounts
-  for every compared entry, and rows left out named by the ``[sector, device]``
-  pair they were aligned on rather than by their position in the file;
+  ones the command computed and printed, an orbit-response table that says of
+  every block whether it carries a verdict and accounts for every entry the
+  Verdict pooled, and rows left out named by the ``[sector, device]`` pair they
+  were aligned on rather than by their position in the file;
 - **determinism** -- a second run over an unchanged tree rewrites the report
   byte for byte, prints the same lines, and touches nothing else under
   ``data/``.
@@ -42,6 +43,7 @@ comparison came off one deck.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import shutil
@@ -82,6 +84,7 @@ SECTIONS = (
     "## Verdict",
     "## Export",
     "## Orbit response",
+    "## Polarity outliers",
     "## Rows not compared",
     "## Widened bands",
     "## Nominals the model does not maintain",
@@ -291,6 +294,37 @@ def _median_ratio(row: Sequence[str]) -> float:
     return math.nan if row[5] == "—" else float(row[5])
 
 
+def _judged(row: Sequence[str]) -> bool:
+    """Whether one block's numbers are part of the verdict.
+
+    A block is judged where its monitors read the plane its correctors kick,
+    which the report states per row; the cross-plane blocks are printed with
+    the same numbers and pooled into nothing.
+    """
+    return row[7].startswith("yes")
+
+
+def _judged_blocks(text: str) -> dict[str, list[str]]:
+    """The orbit-response rows that carry a verdict, keyed as the table names them."""
+    return {name: row for name, row in _blocks(text).items() if _judged(row)}
+
+
+def _judged_figures(text: str) -> dict[str, list[str]]:
+    """Each judged block's numbers as the Verdict counted them.
+
+    Where a corrector's column runs the other way in the file, the Polarity
+    outliers section names it and restates every judged block without it, and
+    that restatement is what the Verdict pooled. Where no column was set aside
+    the orbit-response row is already it. The two tables share the columns
+    read here -- compared, inside the band, sign, median ratio -- so a lane
+    asks for the figures and gets the ones that carry the verdict.
+    """
+    tables = _tables(_section(text, "## Polarity outliers"))
+    if len(tables) > 1:
+        return {f"{row[0]} ← {row[1]}": row for row in tables[1]}
+    return _judged_blocks(text)
+
+
 def _tree_bytes(root: Path, *, except_for: Path) -> dict[str, bytes]:
     """Every file under ``data/`` bar one, keyed by its path relative to root."""
     data = root / "data"
@@ -370,6 +404,62 @@ class TestTheCommandTheInstallSkillNames:
         assert not (root / REPORT).is_file()
 
 
+class TestARunThatComparedNothing:
+    """A verb asked for evidence does not report none of it and exit zero.
+
+    Every block of a tree can be undrivable for reasons no one typed -- an
+    export that states its sweep width another way, a mapping that binds the
+    wrong side -- and the reviewer's next step is ``osprey build``. So the
+    report is written, because it is what says which rows were left out, and
+    the command fails on the reason that dropped the most of them.
+    """
+
+    @staticmethod
+    def _unswept(root: Path) -> None:
+        """Take the sweep width out of every block of the imported export."""
+        path = root / "data" / "mml" / "response.json"
+        document = json.loads(path.read_text(encoding="utf-8"))
+        for body in document.values():
+            if not isinstance(body, dict):
+                continue
+            for block in body.get("blocks", []):
+                block["actuator_delta"] = None
+        path.write_text(json.dumps(document), encoding="utf-8")
+
+    @pytest.fixture(scope="class")
+    def unswept(self, trees: Callable[[str], Tree], tmp_path_factory: pytest.TempPathFactory):
+        """The synthetic tree with nothing left for the model to be swept by."""
+        root = tmp_path_factory.mktemp("nothing-compared") / "tree"
+        shutil.copytree(trees("synthetic").root, root)
+        self._unswept(root)
+        (root / REPORT).unlink()
+        return _run(root, "verify"), root
+
+    def test_the_command_fails(self, unswept) -> None:
+        result, _root = unswept
+
+        assert result.exit_code != 0, result.output
+        assert "Traceback" not in result.output
+
+    def test_it_says_that_nothing_was_compared(self, unswept) -> None:
+        result, _root = unswept
+
+        assert "Not one entry of the exported response matrix could be compared." in result.output
+
+    def test_it_names_the_report_it_wrote_and_the_reason_with_its_count(self, unswept) -> None:
+        result, root = unswept
+
+        assert (root / REPORT).is_file()
+        assert str(root / REPORT) in result.output
+        assert "actuator_delta" in result.output
+        assert re.search(r"\(\d+ rows\)", result.output), result.output
+
+    def test_it_does_not_send_the_reader_to_osprey_build(self, unswept) -> None:
+        result, _root = unswept
+
+        assert "osprey build" not in result.output
+
+
 # ===================================================================
 # What the report says, on every tree that carries a virtual accelerator
 # ===================================================================
@@ -394,20 +484,46 @@ class TestTheReportOfEveryCommittedTree:
         assert _spoken_verdict(tree.spoken) == (passed, compared, percent)
 
     def test_the_orbit_response_table_accounts_for_every_compared_entry(self, tree: Tree) -> None:
+        # The Verdict pools the judged blocks -- those whose monitors read the
+        # plane their correctors kick -- less any column set aside for its
+        # polarity. The cross-plane rows are printed with the same numbers and
+        # belong to no total, so a reader adding the column up has to be able
+        # to tell which rows the verdict counted and what it left out of them.
         passed, compared, _ = _verdict(tree.report)
+        rows = _one_table(tree.report, "## Orbit response")
+        figures = _judged_figures(tree.report)
+
+        assert rows
+        assert figures, "not one block of this export was judged"
+        assert sum(int(row[2]) for row in figures.values()) == compared
+        assert sum(_inside(row) for row in figures.values()) == passed
+        assert sum(int(row[2]) for row in _judged_blocks(tree.report).values()) >= compared
+
+    def test_the_verdicts_sign_agreement_is_the_sum_of_the_judged_blocks(self, tree: Tree) -> None:
+        agreed, checked = _sign(tree.report)
+        blocks = [_agreement(row) for row in _judged_figures(tree.report).values()]
+
+        assert blocks
+        assert sum(one for one, _ in blocks) == agreed
+        assert sum(total for _, total in blocks) == checked
+
+    def test_every_block_says_whether_it_carries_a_verdict(self, tree: Tree) -> None:
+        """A cross-plane block holds the deck's own coupling against the file.
+
+        That is not a statement about the bindings this command checks, so the
+        row says the block was reported rather than judged, and the page says
+        what such a row holds.
+        """
         rows = _one_table(tree.report, "## Orbit response")
 
         assert rows
-        assert sum(int(row[2]) for row in rows) == compared
-        assert sum(_inside(row) for row in rows) == passed
-
-    def test_the_verdicts_sign_agreement_is_the_sum_of_the_blocks(self, tree: Tree) -> None:
-        agreed, checked = _sign(tree.report)
-        rows = _one_table(tree.report, "## Orbit response")
-        blocks = [_agreement(row) for row in rows]
-
-        assert sum(one for one, _ in blocks) == agreed
-        assert sum(total for _, total in blocks) == checked
+        for row in rows:
+            assert row[7] in {"yes"} or row[7].startswith(("yes, less ", "reported only, ")), row
+        if any(not _judged(row) for row in rows):
+            assert "pooled into nothing" in tree.report
+        if any(row[7].startswith("yes, less ") for row in rows):
+            assert "## Polarity outliers" in tree.report
+            assert "Left out, the judged blocks stand at:" in tree.report
 
     def test_a_row_that_was_not_compared_is_named_by_its_sector_and_device(
         self, tree: Tree
@@ -479,14 +595,20 @@ class TestTheSyntheticRingAgainstItsOwnMatrix:
         """Every entry of every block, and the count says every one was reached.
 
         The toy pairs four monitors of each plane with three horizontal and four
-        vertical correctors, twice over, so the whole matrix is 56 entries. A
+        vertical correctors, twice over, so the whole matrix is 56 entries. The
+        verdict pools the two in-plane blocks of those four -- 16 horizontal
+        entries and 12 vertical, the file marking one vertical monitor out of
+        the measurement -- and the table below accounts for all 56. A
         chain that compared one entry and passed it would satisfy the ratio
         alone.
         """
         passed, compared, _ = _verdict(report)
+        rows = _one_table(report, "## Orbit response")
 
-        assert compared == 56
+        assert compared == 28
         assert passed == compared
+        assert sum(int(row[2]) for row in rows) == 56
+        assert len(_judged_blocks(report)) == 2
 
 
 # ===================================================================
@@ -497,38 +619,96 @@ class TestTheSyntheticRingAgainstItsOwnMatrix:
 class TestTheReExportedFacilityMatrices:
     """The named exports the feature is judged on, each held to its own bar.
 
-    A model-derived matrix and a matrix measured on the machine are read
-    differently: the first has to reproduce nearly every entry, the second only
-    has to agree on which way the beam moves and on the scale of the bulk. Each
-    lane skips until its facility commits a 2.0 export, and runs the day one
-    lands without a name being typed again.
+    **Which bar is the block's `origin`, never the facility's name.** A matrix
+    computed from a model and a matrix measured on a machine are two different
+    claims. A model-derived file is arithmetic on a deck, so the served model
+    has to reproduce nearly all of it: a miss there is the chain between the
+    two -- a calibration, a binding, a device order, a missing element -- and
+    nothing else. A measured file carries the machine's own imperfections and
+    the noise of the measurement, so what says the two describe one
+    accelerator is that the beam moves the same way and the bulk of the
+    magnitudes sit near one; asking a measured entry to land inside a
+    five-per-cent band would be asking the deck to be the machine.
+
+    **Block by block, not pooled.** A pooled ratio lets a healthy plane carry a
+    broken one: NSLS-II's horizontal block sits at 94.9 % while its vertical is
+    perfect, and the pool reads 97.4 % and passes. Each judged block is
+    therefore held to the bar on its own, and the message names the block and
+    the number so the next person starts at the right column.
+
+    **And on a block that says something.** The floor is the whole file's, so
+    a judged block an order of magnitude smaller than the rest of the matrix
+    holds nothing above it, reports every entry inside a band that is the
+    floor, and would pass the model bar for free. Both bars therefore ask each
+    judged block for at least one entry above the floor before reading it.
+
+    **Over the correctors whose direction both sides agree on.** A column the
+    file has running backwards is a polarity outlier: named in its own section,
+    left out of what the block counts, and not a tolerance question. So the
+    figures each bar reads are the ones the Verdict pooled, which is the
+    restated table where any column was set aside and the orbit-response row
+    otherwise.
+
+    Each lane skips until its facility commits a 2.0 export, and runs the day
+    one lands without a name being typed again.
     """
 
+    #: A model-derived file is arithmetic on a deck: the model reproduces it.
+    MODEL_INSIDE_THE_BAND = 0.99
+
+    #: A measured file is the machine's: the bulk of the magnitudes agree.
+    MEASURED_RATIO = (0.8, 1.25)
+
+    #: And the beam moves the same way wherever the file says anything.
+    MEASURED_SIGN = 0.95
+
+    @staticmethod
+    def _origin(report: str) -> str:
+        """The origin the Export section states for the blocks below."""
+        for row in _one_table(report, "## Export"):
+            if row[0] == "origin":
+                return row[1]
+        raise AssertionError("the Export section states no origin")
+
     @_only("nsls2")
-    def test_the_nsls2_matrix_is_reproduced_entry_by_entry(
+    def test_the_nsls2_model_derived_matrix_is_reproduced_entry_by_entry(
         self, trees: Callable[[str], Tree]
     ) -> None:
         report = trees("nsls2").report
-        passed, compared, _ = _verdict(report)
-        agreed, checked = _sign(report)
+        judged = _judged_figures(report)
 
-        assert compared
-        assert passed / compared >= 0.95, f"{passed} of {compared}"
-        assert checked and agreed == checked
+        assert self._origin(report) == "model"
+        assert judged
+        for name, row in judged.items():
+            compared = int(row[2])
+            inside = _inside(row)
+            _, checked = _agreement(row)
+            assert compared, f"{name} compared nothing"
+            assert inside / compared >= self.MODEL_INSIDE_THE_BAND, (
+                f"{name}: {inside} of {compared} entries "
+                f"({inside / compared * 100:.1f} %) are inside the band"
+            )
+            # The band alone would pass a block sitting entirely under the
+            # file-wide floor: its band there is the floor, so every entry is
+            # inside it and the block says nothing about the model at all.
+            assert checked, f"{name} holds no entry above the floor"
 
     @_only("spear3")
-    def test_the_spear3_matrix_agrees_on_sign_and_on_scale(
+    def test_the_spear3_measured_matrix_agrees_on_sign_and_on_scale(
         self, trees: Callable[[str], Tree]
     ) -> None:
         report = trees("spear3").report
-        agreed, checked = _sign(report)
-        ratios = {
-            name: _median_ratio(row)
-            for name, row in _blocks(report).items()
-            if math.isfinite(_median_ratio(row))
-        }
+        judged = _judged_figures(report)
+        low, high = self.MEASURED_RATIO
 
-        assert checked and agreed == checked
-        assert ratios
-        for name, ratio in ratios.items():
-            assert 0.8 <= ratio <= 1.25, f"{name} median ratio {ratio}"
+        assert self._origin(report) == "measured"
+        assert judged
+        for name, row in judged.items():
+            ratio = _median_ratio(row)
+            agreed, checked = _agreement(row)
+            assert low <= ratio <= high, f"{name}: median ratio {ratio}"
+            assert checked, f"{name} holds no entry above the floor"
+            assert agreed / checked >= self.MEASURED_SIGN, (
+                f"{name}: sign agrees on {agreed} of the {checked} entries above "
+                f"the floor ({agreed / checked * 100:.1f} %)"
+            )

@@ -7,9 +7,16 @@ than against a hand-written stand-in of one.
 
 What the lanes pin:
 
-- **the criterion** -- the per-entry band and its floor, both as arithmetic on
+- **the criterion** -- the per-entry band and its floor, which is a share of
+  the whole matrix's scale rather than of one column's, both as arithmetic on
   a hand-built entry and as the number every entry of the real comparison was
   actually given;
+- **which blocks carry a verdict** -- the in-plane ones, read off the emitted
+  bindings rather than off any family's name, with the cross-plane blocks
+  compared and printed and pooled into nothing;
+- **which columns it is made of** -- a corrector whose column the file has
+  running backwards is named on its own and left out of what its block counts,
+  while a scatter of flipped entries is not;
 - **alignment** -- an entry names the addresses its two device rows name, and
   a row no judged device sits at is reported instead of compared, so a whole
   column can never land on the wrong magnet;
@@ -38,6 +45,7 @@ import json
 import math
 import os
 import shutil
+from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -59,6 +67,7 @@ from osprey.services.mml.va.verify import (
     TOLERANCE_FRACTION,
     Entry,
     VerifyReport,
+    _polarity,
     model_channels,
     render_report,
     verify,
@@ -132,7 +141,9 @@ def inputs(emitted: Path) -> dict[str, Any]:
     ctx = build_context(out_dir / "ao.json", mapping_path, ao)
     data = emitted / "data"
     bindings = load_bindings(data / "simulation" / "va_bindings.json")
-    _machine, seeds = emit_machine(lane.verdicts, lane.views, lane.judged_va, mapping, ctx)
+    _machine, seeds = emit_machine(
+        lane.verdicts, lane.views, lane.judged_va, mapping, ctx, lane.element_bindings
+    )
     _limits, bands = emit_channel_limits(
         json.loads((data / "channel_limits.json").read_text(encoding="utf-8")),
         bindings.bindings,
@@ -153,6 +164,7 @@ def inputs(emitted: Path) -> dict[str, Any]:
         "seeds": seeds,
         "bands": bands,
         "bindings": bindings,
+        "monitors": lane.monitors,
     }
 
 
@@ -172,6 +184,7 @@ def _verify(inputs: dict[str, Any], response: dict | None = None) -> VerifyRepor
         judged_va=inputs["judged_va"],
         seeds=inputs["seeds"],
         bands=inputs["bands"],
+        monitors=inputs["monitors"],
     )
 
 
@@ -210,7 +223,7 @@ def _compared(report: VerifyReport) -> set[tuple[str, str, float, float]]:
 
 
 class TestCriterion:
-    """``|R_model - R_file| <= 0.05 * max(|R_file|, 0.1 * rms(column))``."""
+    """``|R_model - R_file| <= 0.05 * max(|R_file|, 0.1 * rms(matrix))``."""
 
     def test_an_entry_inside_its_band_passes(self) -> None:
         entry = _entry(file_value=1.0, model_value=1.04, floor=0.0)
@@ -221,12 +234,12 @@ class TestCriterion:
     def test_an_entry_outside_its_band_fails(self) -> None:
         assert not _entry(file_value=1.0, model_value=1.06, floor=0.0).passed
 
-    def test_the_floor_bands_a_near_zero_entry_by_its_columns_scale(self) -> None:
+    def test_the_floor_bands_a_near_zero_entry_by_the_matrixs_scale(self) -> None:
         """A cross-plane zero is asked to stay small, not to be exact.
 
         Without the floor its tolerance would be zero and the last bit of a
         solve would fail it; with the floor it is held to a share of what the
-        rest of its column is worth.
+        whole exported matrix is worth.
         """
         entry = _entry(file_value=0.0, model_value=0.004, floor=0.1)
 
@@ -246,20 +259,362 @@ class TestCriterion:
     def test_every_compared_entry_was_given_the_band_the_formula_states(
         self, result: VerifyReport
     ) -> None:
-        """The floor is the column's own rms, recomputed here from the file alone."""
+        """The floor is the whole matrix's rms, recomputed here from the file alone.
+
+        Every entry of every block, judged or not, is weighed against the one
+        number: an entry's band says how far the model may sit from the file,
+        and which block the entry happens to belong to is no part of that.
+        """
         assert result.compared
+        compared = [entry for block in result.blocks for entry in block.entries]
+        rms = math.sqrt(sum(entry.file_value**2 for entry in compared) / len(compared))
+
+        for entry in compared:
+            assert entry.floor == pytest.approx(FLOOR_FRACTION * rms)
+            assert entry.tolerance == pytest.approx(
+                TOLERANCE_FRACTION * max(abs(entry.file_value), entry.floor)
+            )
+
+    def test_a_column_the_file_states_as_zero_is_banded_by_the_rest_of_the_matrix(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """The case the per-column floor got wrong, on a real comparison.
+
+        A model-derived export states its cross-plane blocks as exactly zero.
+        Weighed against its own column that block has no scale at all, so the
+        band is zero wide and the model's last solved bit -- 1e-13 of a metre
+        per radian -- is a miss on every entry of it. Weighed against the
+        matrix it belongs to, the same entry is asked only to stay small,
+        which is what a column of zeros says.
+        """
+        response = copy.deepcopy(inputs["response"])
+        zeroed = next(
+            body
+            for body in response["blocks"]
+            if body["monitor"]["family"] == "BPMx" and body["actuator"]["family"] == "VC"
+        )
+        zeroed["data"] = [[0.0] * len(row) for row in zeroed["data"]]
+
+        report = _verify(inputs, response)
+        block = _block(report, "BPMx", "VC")
+
+        assert block.entries
+        assert {entry.file_value for entry in block.entries} == {0.0}
+        floor = block.entries[0].floor
+        assert floor > 0.0
+        assert floor == pytest.approx(
+            FLOOR_FRACTION
+            * math.sqrt(
+                sum(entry.file_value**2 for other in report.blocks for entry in other.entries)
+                / sum(other.compared for other in report.blocks)
+            )
+        )
+        assert _entry(file_value=0.0, model_value=1e-13, floor=floor).passed
+        assert not _entry(file_value=0.0, model_value=1e-13, floor=0.0).passed
+
+    def test_an_entry_against_a_zero_band_is_ranked_rather_than_divided_by(self) -> None:
+        """A file stating zero everywhere it was compared gives the matrix no scale.
+
+        Its floor is zero and so is every band in it, and the outlier tables
+        rank by how many times its band an entry missed by -- so the one place
+        the criterion has no denominator is the one the report reads first.
+        """
+        assert _entry(file_value=0.0, model_value=1e-12, floor=0.0).excess == math.inf
+        assert _entry(file_value=0.0, model_value=0.0, floor=0.0).excess == 0.0
+        assert _entry(file_value=1.0, model_value=1.1, floor=0.0).excess == pytest.approx(2.0)
+
+    def test_the_outlier_table_lists_an_entry_against_a_zero_band(
+        self, result: VerifyReport
+    ) -> None:
+        first, *rest = result.blocks
+
+        text = render_report(
+            replace(result, blocks=(replace(first, entries=(_entry(0.0, 1e-09, 0.0),)), *rest)),
+            provenance="",
+        )
+
+        assert f"{first.monitor_family} outliers against {first.actuator_family}" in text
+
+
+class TestInPlaneJudging:
+    """A block carries a verdict where its two sides work in one plane.
+
+    The export pairs every monitor family with every corrector family, so half
+    the blocks of a two-plane machine hold one plane's monitors against the
+    other plane's correctors. What sits there is whatever the deck couples the
+    planes by -- exactly zero in a model-derived file, the measurement's own
+    noise in a measured one -- and neither is a statement about the bindings,
+    the calibrations or the device order that this comparison exists to check.
+    So those blocks are compared and printed like any other and pool into
+    nothing.
+
+    Which plane each side works in is read off the emitted bindings: a monitor
+    states the axis it reads, a kick states the component of its attribute it
+    writes. Never off the family's name -- a facility calls its horizontal
+    correctors whatever it likes, and ``tests/va/test_facility_seam.py`` is the
+    standing gate on that habit.
+    """
+
+    def test_the_blocks_that_pair_one_plane_with_itself_are_judged(
+        self, result: VerifyReport
+    ) -> None:
+        for monitors, actuators in (("BPMx", "HC"), ("BPMy", "VC")):
+            block = _block(result, monitors, actuators)
+            assert block.compared
+            assert block.judged
+            assert block.unjudged is None
+
+    def test_a_cross_plane_block_is_compared_and_reported_rather_than_judged(
+        self, result: VerifyReport
+    ) -> None:
+        for monitors, actuators in (("BPMx", "VC"), ("BPMy", "HC")):
+            block = _block(result, monitors, actuators)
+            assert block.compared, f"{monitors} <- {actuators} was not compared"
+            assert not block.judged
+            assert block.unjudged == "cross-plane"
+
+    def test_the_totals_pool_the_judged_blocks_alone(self, result: VerifyReport) -> None:
+        """The verdict counts what the criterion means something about."""
+        judged = [_block(result, "BPMx", "HC"), _block(result, "BPMy", "VC")]
+
+        assert result.judged == tuple(judged)
+        assert result.compared == sum(block.compared for block in judged)
+        assert result.passed == sum(block.passed for block in judged)
+        assert result.signed == (
+            sum(block.signed[0] for block in judged),
+            sum(block.signed[1] for block in judged),
+        )
+        assert result.compared < sum(block.compared for block in result.blocks)
+
+    def test_the_plane_is_read_off_the_bindings_and_not_off_the_family_name(
+        self, inputs: dict[str, Any], result: VerifyReport
+    ) -> None:
+        """The pairing the judgment made, re-derived from the emitted file.
+
+        A monitor binding's ``attribute`` is the axis it reads and a kick's
+        ``index`` is the component of ``KickAngle`` it writes, which are the
+        two numbers the rule is allowed to consult.
+        """
+        axes = {
+            binding.family: binding.attribute
+            for binding in inputs["bindings"].bindings
+            if binding.kind == "monitor"
+        }
+        kicks = {
+            binding.family: ("x", "y")[binding.index]
+            for binding in inputs["bindings"].bindings
+            if binding.kind == "kick"
+        }
+
+        assert axes == {"BPMx": "x", "BPMy": "y"}
+        assert kicks == {"HC": "x", "VC": "y"}
         for block in result.blocks:
-            columns: dict[int, list[Entry]] = {}
-            for entry in block.entries:
-                columns.setdefault(entry.actuator_device, []).append(entry)
-            for entries in columns.values():
-                values = [entry.file_value for entry in entries]
-                rms = math.sqrt(sum(value * value for value in values) / len(values))
-                for entry in entries:
-                    assert entry.floor == pytest.approx(FLOOR_FRACTION * rms)
-                    assert entry.tolerance == pytest.approx(
-                        TOLERANCE_FRACTION * max(abs(entry.file_value), entry.floor)
-                    )
+            assert block.monitor_plane == axes[block.monitor_family]
+            assert block.actuator_plane == kicks[block.actuator_family]
+            assert block.judged == (block.monitor_plane == block.actuator_plane)
+
+    def test_a_family_the_bindings_place_in_no_plane_is_reported_by_name(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """A block this cannot place is refused, never judged on one side's plane.
+
+        The file names the families its matrix was measured against, and a
+        family that drives no corrector has no plane to be judged in -- so the
+        block says which family it could not place rather than borrowing the
+        monitor's plane and passing itself off as in-plane.
+        """
+        response = copy.deepcopy(inputs["response"])
+        for body in response["blocks"]:
+            if body["actuator"]["family"] == "HC":
+                body["actuator"]["family"] = "QF"
+
+        block = _block(_verify(inputs, response), "BPMx", "QF")
+
+        assert not block.judged
+        assert block.unjudged == "the bindings place 'QF' in no plane"
+        assert block.actuator_plane == ""
+
+    def test_a_family_the_bindings_place_in_two_planes_is_reported_by_name(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """One family, two planes: nothing to hold either side of a block to."""
+        from osprey.services.mml.va.verify import _family_plane
+
+        kicks = [binding for binding in inputs["bindings"].bindings if binding.family == "HC"]
+        assert len(kicks) > 1
+
+        plane, reason = _family_plane("HC", {0: kicks[0], 1: replace(kicks[1], index=1)})
+
+        assert plane == ""
+        assert reason == "the bindings place 'HC' in x and y"
+        assert _family_plane("HC", {0: kicks[0]}) == ("x", None)
+
+
+class TestPolarityOutliers:
+    """A corrector the two sides disagree about the direction of is named.
+
+    Inside a judged block the sign is the one thing a lattice cannot argue
+    with: a corrector pushes the beam one way or the other. A scatter of
+    flipped entries is the comparison finding something in the ring, but a
+    column flipped -- above the floor, on more than half of every entry of it
+    that was compared -- at the size the rest of the matrix is worth, is the
+    file and the model disagreeing about that device --
+    a cable, a convention, a sign in a database somebody typed in 2006. Nothing
+    in a deck reproduces it and no tolerance should absorb it, so the column is
+    reported on its own and left out of what the block counts, and the bar the
+    block is held to is then about the correctors whose direction both sides
+    agree on.
+    """
+
+    @staticmethod
+    def _flipped(
+        response: dict, monitors: str, actuators: str, *, column: int, rows: set[int] | None = None
+    ) -> dict:
+        """The same document with one column's sign turned over in the file."""
+        block = next(
+            body
+            for body in response["blocks"]
+            if body["monitor"]["family"] == monitors and body["actuator"]["family"] == actuators
+        )
+        for index, row in enumerate(block["data"]):
+            if rows is None or index in rows:
+                row[column] = -row[column]
+        return response
+
+    def test_the_export_this_runs_on_has_no_column_running_backwards(
+        self, result: VerifyReport
+    ) -> None:
+        """The baseline the lanes below move away from."""
+        assert result.polarity == ()
+        for block in result.blocks:
+            assert block.polarity == ()
+            assert block.counted == block.entries
+
+    def test_a_column_flipped_over_its_whole_length_is_named(self, inputs: dict[str, Any]) -> None:
+        response = self._flipped(copy.deepcopy(inputs["response"]), "BPMx", "HC", column=0)
+
+        block = _block(_verify(inputs, response), "BPMx", "HC")
+
+        assert len(block.polarity) == 1
+        (flipped,) = block.polarity
+        assert flipped.family == "HC"
+        assert flipped.address == "QK:HC:1:CUR:SP"
+        assert flipped.device == 1
+        assert flipped.checked and flipped.flipped == flipped.checked
+        assert flipped.median_ratio == pytest.approx(1.0, abs=0.01)
+
+    def test_the_named_column_is_left_out_of_what_the_block_and_the_verdict_count(
+        self, inputs: dict[str, Any], result: VerifyReport
+    ) -> None:
+        """The row keeps the block's own numbers; the counts drop the column."""
+        response = self._flipped(copy.deepcopy(inputs["response"]), "BPMx", "HC", column=0)
+        before = _block(result, "BPMx", "HC")
+        column = sum(1 for entry in before.entries if entry.actuator_device == 1)
+
+        report = _verify(inputs, response)
+        block = _block(report, "BPMx", "HC")
+
+        assert column
+        assert block.compared == before.compared
+        assert {entry.actuator_device for entry in block.counted} == {2, 3, 4}
+        assert block.counts.compared == block.compared - column
+        assert block.counts.signed[1] == block.counts.signed[0]
+        assert block.signed[1] < block.signed[0]
+        assert report.compared == block.counts.compared + _block(report, "BPMy", "VC").compared
+        assert report.signed[1] == report.signed[0]
+
+    def test_a_column_flipped_on_fewer_than_half_its_entries_is_not_an_outlier(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """One entry of a column is the comparison working, not a reversed device."""
+        response = self._flipped(
+            copy.deepcopy(inputs["response"]), "BPMx", "HC", column=1, rows={0}
+        )
+
+        block = _block(_verify(inputs, response), "BPMx", "HC")
+
+        assert block.signed[1] < block.signed[0], "the flip did not reach the comparison"
+        assert block.polarity == ()
+        assert block.counted == block.entries
+
+    @staticmethod
+    def _column(signs: Sequence[int], *, floor: float = 1.0) -> list[Entry]:
+        """One corrector's column: ``+1`` agrees, ``-1`` is flipped, ``0`` is small."""
+        entries = []
+        for index, sign in enumerate(signs):
+            size = 10.0 if sign else 0.1 * floor
+            entries.append(
+                Entry(
+                    monitor_device=index + 1,
+                    monitor_address=f"BPM:{index + 1}",
+                    actuator_device=7,
+                    actuator_address="COR:7",
+                    file_value=size,
+                    model_value=size if sign >= 0 else -size,
+                    tolerance=0.05 * max(size, floor),
+                    floor=floor,
+                )
+            )
+        return entries
+
+    def test_one_flipped_entry_among_small_ones_does_not_retire_the_column(self) -> None:
+        """The column is mostly too small to have a sign, so it is no polarity fact.
+
+        Held against the entries above the floor alone, this column reads one
+        of one and takes its nine small entries out of the block with it. The
+        rule counts against the whole column, so it stays in.
+        """
+        assert _polarity(self._column([-1] + [0] * 9), "HC") == ()
+
+    def test_a_column_mostly_sizable_and_mostly_flipped_is_named(self) -> None:
+        """What a reversed cable looks like: 56 of a column of 57, as SPEAR3's are."""
+        (column,) = _polarity(self._column([-1] * 56 + [0]), "HC")
+
+        assert (column.flipped, column.checked) == (56, 57)
+        assert column.median_ratio == pytest.approx(1.0)
+
+    def test_a_column_flipped_above_the_floor_but_not_over_half_of_itself_is_kept(self) -> None:
+        """Half the column sizable and every sizable entry flipped is still a tie."""
+        assert _polarity(self._column([-1] * 28 + [0] * 29), "HC") == ()
+
+    def test_a_cross_plane_column_has_no_polarity_to_be_wrong_about(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """A block nothing is judged on states no polarity outlier either.
+
+        What sits in a cross-plane block is the deck's own coupling, and a sign
+        there is not a claim about which way a corrector pushes the beam.
+        """
+        response = self._flipped(copy.deepcopy(inputs["response"]), "BPMx", "VC", column=0)
+
+        block = _block(_verify(inputs, response), "BPMx", "VC")
+
+        assert not block.judged
+        assert block.polarity == ()
+
+    def test_the_report_names_the_column_and_restates_the_block_without_it(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """The page carries the channel to go and look at, and the bar without it."""
+        response = self._flipped(copy.deepcopy(inputs["response"]), "BPMx", "HC", column=0)
+        report = _verify(inputs, response)
+        block = _block(report, "BPMx", "HC")
+        (flipped,) = block.polarity
+
+        text = render_report(report, provenance="the synthetic export")
+
+        assert "## Polarity outliers" in text
+        assert f"| BPMx ← HC | HC | QK:HC:1:CUR:SP | {flipped.flipped}/{flipped.checked} |" in text
+        assert "| yes, less 1 polarity column |" in text
+        assert "Left out, the judged blocks stand at:" in text
+        assert f"| BPMx | HC | {block.counts.compared} |" in text
+        assert "are named under Polarity outliers" in text
+
+    def test_the_report_says_when_every_corrector_agrees(self, result: VerifyReport) -> None:
+        text = render_report(result, provenance="the synthetic export")
+
+        assert "Every corrector moves the beam the way the file says it did." in text
+        assert "Left out, the judged blocks stand at:" not in text
 
 
 class TestAlignment:
@@ -320,6 +675,90 @@ class TestAlignment:
 
         assert _compared(permuted)
         assert _compared(permuted) == _compared(result)
+
+    def test_a_matrix_that_is_not_the_shape_of_its_two_device_lists_is_refused(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """A matrix written against another pair of lists places no entry.
+
+        An entry is read at ``data[monitor row][actuator row]``, and an index
+        past the data states no number -- so a block a column short would
+        compare the part that overlaps and report the rest as rows the
+        bindings never reached, which is not what happened to them.
+        """
+        response = copy.deepcopy(inputs["response"])
+        response["blocks"][0]["data"] = [row[:-1] for row in response["blocks"][0]["data"]]
+
+        report = _verify(inputs, response)
+        refused = _block(report, "BPMx", "HC")
+
+        assert refused.compared == 0
+        assert refused.dropped
+        for row in refused.dropped:
+            assert "a 4 by 3 matrix" in row.reason
+            assert "4 devices of 'BPMx'" in row.reason
+            assert "4 of 'HC'" in row.reason
+        assert _block(report, "BPMy", "HC").compared
+
+    def test_a_corrector_two_devices_share_is_dropped_by_name_on_both_rows(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """A supply feeding magnets in series measures nothing one column says.
+
+        The model moves the whole string with that one knob and the response
+        file's column is one magnet trimmed on its own, so the two are not the
+        same measurement. Taking the first magnet would compare them anyway
+        and say nothing, while the rest of the string reported that the
+        bindings drive nothing there -- which is not what happened to it.
+        """
+        views = copy.deepcopy(inputs["views"])
+        field = next(view for view in views if view.raw_name == "HC").fields["Setpoint"]
+        key = field.keys[0]
+        slots = list(field.slots(key))
+        slots[1] = slots[0]
+        field.body[key] = slots
+
+        report = verify(
+            inputs["data"],
+            system=inputs["system"],
+            response=inputs["response"],
+            views=views,
+            verdicts=inputs["verdicts"],
+            judged_va=inputs["judged_va"],
+            seeds=inputs["seeds"],
+            bands=inputs["bands"],
+        )
+        block = _block(report, "BPMx", "HC")
+
+        assert {entry.actuator_device for entry in block.entries} == {3, 4}
+        reasons = [row.reason for row in block.dropped if row.side == "actuator"]
+        assert len(reasons) == 2
+        for reason in reasons:
+            assert "QK:HC:1:CUR:SP feeds this magnet in series with 1 other of 'HC'" in reason
+            assert "the model moves the whole string at once" in reason
+            assert "the file measured one magnet" in reason
+
+    def test_a_block_with_no_monitor_row_and_no_matrix_is_named_rather_than_passed(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """Zero rows against zero devices agree, and say nothing happened.
+
+        Such a block compares nothing and drops no monitor row, so a reader is
+        left to work out from an empty comparison that there was never
+        anything in it. The actuator rows carry the reason instead.
+        """
+        response = copy.deepcopy(inputs["response"])
+        response["blocks"][0]["monitor"]["device_list"] = []
+        response["blocks"][0]["monitor"]["status"] = []
+        response["blocks"][0]["data"] = []
+
+        block = _block(_verify(inputs, response), "BPMx", "HC")
+
+        assert block.compared == 0
+        assert block.dropped
+        for row in block.dropped:
+            assert "the block states no matrix" in row.reason
+            assert "0 devices of 'BPMx'" in row.reason
 
 
 class TestStatusFilter:
@@ -486,11 +925,186 @@ class TestTheReport:
             "## Verdict",
             "## Export",
             "## Orbit response",
+            "## Polarity outliers",
             "## Rows not compared",
             "## Widened bands",
+            "## Trimmed conversions",
+            "## Monitors served as markers",
             "## Nominals the model does not maintain",
         ):
             assert heading in text, heading
+
+    def test_it_says_when_every_conversion_runs_one_way(self, text: str) -> None:
+        assert "Every sampled conversion converts one way over its whole grid." in text
+
+    def test_it_says_when_every_monitor_on_the_deck_addresses_its_own_reading(
+        self, text: str
+    ) -> None:
+        assert "Every monitor-type element on the deck is read or uniquely named." in text
+
+    def test_it_names_each_repeated_monitor_it_served_as_a_marker(
+        self, result: VerifyReport
+    ) -> None:
+        """A reviewer reads which positions of the deck stopped reading."""
+        from osprey.services.mml.va.elements import ServedMarker
+
+        text = render_report(
+            replace(
+                result,
+                markers=(
+                    ServedMarker(name="GE", elements=180),
+                    ServedMarker(name="GS", elements=180),
+                ),
+            ),
+            provenance="the synthetic export",
+        )
+
+        assert "| GE | 180 |" in text
+        assert "| GS | 180 |" in text
+        assert "no family reads them" in text
+        assert "reads no beam position anywhere" not in text
+
+    def test_it_says_when_the_conversion_leaves_the_system_no_monitor(
+        self, result: VerifyReport
+    ) -> None:
+        """A model with no monitor left measures no orbit and publishes none.
+
+        The counts do not say it: reading it off them means knowing how many
+        monitor-type elements the deck held to begin with.
+        """
+        from osprey.services.mml.va.elements import ServedMarker
+
+        text = render_report(
+            replace(
+                result,
+                markers=(ServedMarker(name="BPM", elements=7),),
+                monitors=0,
+            ),
+            provenance="the synthetic export",
+        )
+
+        assert (
+            f"The conversion leaves {result.system} with no monitor-type element at all, "
+            "so the served system reads no beam position anywhere" in text
+        )
+
+    def test_it_names_each_conversion_that_kept_one_stretch_of_itself(
+        self, result: VerifyReport
+    ) -> None:
+        """A reviewer reads the span beside the operating point it was kept for."""
+        from osprey.services.mml.emit.va import CalibrationTrim
+
+        text = render_report(
+            replace(
+                result,
+                trims=(
+                    CalibrationTrim(
+                        family="QF",
+                        address="QK:QF:1:CUR:SP",
+                        curve="monitor_inverse",
+                        working=-1.97,
+                        kept=(-14.4, 2.51),
+                        dropped=1,
+                    ),
+                ),
+            ),
+            provenance="the synthetic export",
+        )
+
+        assert "| QK:QF:1:CUR:SP | QF | monitor_inverse | -14.4 to 2.51 | -1.97 | 1 |" in text
+        assert "one reading would answer two hardware values" in text
+
+    def test_it_says_when_a_judged_block_holds_nothing_above_the_floor(
+        self, result: VerifyReport
+    ) -> None:
+        """A block under the whole file's floor passes the band for free.
+
+        The floor is the matrix's, so a judged block an order of magnitude
+        smaller than the rest of the file can hold no entry above it. Every
+        entry is then inside a band that is the floor, the sign and the ratio
+        state nothing, and the row says as much only as a ``0/0`` and a dash.
+        """
+        judged = next(block for block in result.blocks if block.judged)
+        sunk = replace(
+            judged,
+            entries=tuple(
+                replace(entry, floor=1.0e9, tolerance=0.05 * 1.0e9) for entry in judged.entries
+            ),
+        )
+        report = replace(
+            result, blocks=(sunk, *(block for block in result.blocks if block is not judged))
+        )
+        assert not sunk.counts.checked
+
+        text = render_report(report, provenance="the synthetic export")
+
+        assert (
+            f"No entry of {sunk.monitor_family} ← {sunk.actuator_family} sits above the "
+            "matrix floor, so the block is held to the band alone" in text
+        )
+
+    def test_it_says_nothing_of_the_kind_while_a_judged_block_has_a_sign(
+        self, text: str, result: VerifyReport
+    ) -> None:
+        assert any(block.counts.checked for block in result.judged)
+        assert "sits above the matrix floor, so the block is held to the band alone" not in text
+
+    def test_it_says_where_a_cavity_the_deck_does_not_carry_came_from(
+        self, result: VerifyReport
+    ) -> None:
+        """A served ring with an element the facility's deck lacks says so.
+
+        The emit lane builds one onto a deck that holds no cavity, because a
+        machine that holds its radio frequency moves in dispersion the way
+        only a cavity makes a model move. A reader holding the two files side
+        by side finds the extra element here rather than wondering at it.
+
+        Both frequencies are printed to the hertz, because the gap between
+        them is the last few figures of a nine-figure number and it is the
+        whole reason the built one is preferred to the stated one.
+        """
+        from osprey.services.mml.va.verdicts import BuiltCavity
+
+        text = render_report(
+            replace(
+                result,
+                cavity=BuiltCavity(
+                    family="RF",
+                    nominal_hz=499680000.0,
+                    harmonic=1320,
+                    voltage=3_000_000.0,
+                    frequency_hz=499680594.88,
+                ),
+            ),
+            provenance="the synthetic export",
+        )
+
+        assert (
+            "| built cavity | RF at 499680595 Hz on harmonic 1320, 3e+06 V; "
+            "the export states 499680000 Hz |" in text
+        )
+        assert "The deck carries no cavity of its own" in text
+        assert "for the RF family to drive" in text
+
+    def test_the_cavity_row_says_when_no_voltage_was_answered(self, result: VerifyReport) -> None:
+        """The reviewer's one open value, read off the same row."""
+        from osprey.services.mml.va.verdicts import BuiltCavity
+
+        text = render_report(
+            replace(
+                result,
+                cavity=BuiltCavity(family="RF", nominal_hz=499680000.0, harmonic=1320),
+            ),
+            provenance="the synthetic export",
+        )
+
+        assert (
+            "| built cavity | RF at harmonic 1320, not yet built against a deck, "
+            "an unanswered voltage; the export states 499680000 Hz |" in text
+        )
+
+    def test_it_says_nothing_about_a_cavity_where_the_deck_carries_its_own(self, text: str) -> None:
+        assert "no cavity of its own" not in text
 
     def test_it_states_where_the_matrix_came_from_and_at_which_energy(self, text: str) -> None:
         assert "| origin | model |" in text
@@ -499,8 +1113,32 @@ class TestTheReport:
         assert "| energy at nominal | 2 GeV |" in text
 
     def test_it_states_the_criterion_beside_the_pass_ratio(self, text: str) -> None:
-        assert "|R_model - R_file| <= 0.05 * max(|R_file|, 0.1 * rms(column))" in text
+        assert "|R_model - R_file| <= 0.05 * max(|R_file|, 0.1 * rms(matrix))" in text
+        assert "root mean square of every entry of the file that was compared" in text
         assert "Sign agrees on" in text
+
+    def test_it_says_which_blocks_the_verdict_is_made_of(self, text: str) -> None:
+        """The reader has to know the counts are not the whole table.
+
+        The toy's four blocks are two in-plane and two cross-plane, and the
+        Verdict pools the first two, so the page names the other two and says
+        what they hold.
+        """
+        assert "The counts above are the judged blocks alone" in text
+        assert "BPMx ← VC (cross-plane)" in text
+        assert "BPMy ← HC (cross-plane)" in text
+
+    def test_the_block_table_says_whether_each_block_carries_a_verdict(self, text: str) -> None:
+        judged = [
+            line for line in text.splitlines() if line.startswith("| BPM") and "←" not in line
+        ]
+
+        assert [line.rsplit("|", 2)[1].strip() for line in judged] == [
+            "yes",
+            "reported only, cross-plane",
+            "reported only, cross-plane",
+            "yes",
+        ]
 
     def test_it_says_what_a_model_derived_matrix_can_prove(self, text: str) -> None:
         """The toy's matrix came off its own deck, so a pass is plumbing.
@@ -558,6 +1196,193 @@ class TestTheReport:
     def test_it_lists_a_nominal_nothing_was_seeded_from(self, text: str) -> None:
         assert "non-finite nominal" in text
         assert "not hardware" in text
+
+
+class TestThePerDeviceSweep:
+    """A response file states one sweep width per corrector, and each is used."""
+
+    @staticmethod
+    def _swept(
+        inputs: dict[str, Any], response: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> tuple[VerifyReport, dict[str, list[float]]]:
+        """Run the comparison, recording every width every address was driven by."""
+        from osprey.services.mml.va import verify as module
+
+        sweep = module.orbit_response
+        seen: dict[str, list[float]] = {}
+
+        def recording(model, binding, delta, *, monitors):
+            seen.setdefault(binding.setpoint_address, []).append(delta)
+            return sweep(model, binding, delta, monitors=monitors)
+
+        monkeypatch.setattr(module, "orbit_response", recording)
+        return _verify(inputs, response), seen
+
+    @staticmethod
+    def _stated(response: dict, family: str, delta: Any) -> dict:
+        """The same document with one family's blocks stating another sweep width."""
+        for block in response["blocks"]:
+            if block["actuator"]["family"] == family:
+                block["actuator_delta"] = delta
+        return response
+
+    @staticmethod
+    def _driven(seen: dict[str, list[float]], family: str) -> dict[str, list[float]]:
+        """What one family's addresses were swept by, out of everything recorded."""
+        return {address: widths for address, widths in seen.items() if f":{family}:" in address}
+
+    def test_a_scalar_sweeps_every_device_by_it(
+        self, inputs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The width a file states as one number is the width of every column."""
+        report, seen = self._swept(inputs, copy.deepcopy(inputs["response"]), monkeypatch)
+
+        assert report.compared
+        assert self._driven(seen, "HC") == {
+            f"QK:HC:{device}:CUR:SP": [1e-05] for device in (1, 2, 3, 4)
+        }
+
+    def test_each_device_is_swept_by_its_own_width(
+        self, inputs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A machine trims the kick per corrector, so a column is measured by its own.
+
+        Reading the vector as one number -- its first entry, or its mean --
+        would measure three of these four columns at a width the file never
+        used, and on a real export the widths differ by ten per cent.
+        """
+        widths = [1e-05, 2e-05, 3e-05, 4e-05]
+        response = self._stated(copy.deepcopy(inputs["response"]), "HC", widths)
+
+        report, seen = self._swept(inputs, response, monkeypatch)
+
+        assert self._driven(seen, "HC") == {
+            f"QK:HC:{device}:CUR:SP": [width]
+            for device, width in zip((1, 2, 3, 4), widths, strict=True)
+        }
+        assert self._driven(seen, "VC") == {
+            f"QK:VC:{device}:CUR:SP": [1e-05] for device in (1, 2, 3, 4)
+        }
+        assert _block(report, "BPMx", "HC").compared == 16
+
+    def test_a_width_per_device_changes_no_entry_of_a_linear_model(
+        self, inputs: dict[str, Any], result: VerifyReport
+    ) -> None:
+        """The response is per unit of actuator, so the width divides back out.
+
+        Which is what makes the comparison a statement about the bindings and
+        the calibrations rather than about the width the export measured at.
+        """
+        response = self._stated(
+            copy.deepcopy(inputs["response"]), "HC", [1e-05, 2e-05, 3e-05, 4e-05]
+        )
+
+        block = _block(_verify(inputs, response), "BPMx", "HC")
+
+        assert block.pass_ratio == 1.0
+        measured = {
+            (entry.monitor_device, entry.actuator_device): entry.model_value
+            for entry in _block(result, "BPMx", "HC").entries
+        }
+        for entry in block.entries:
+            assert entry.model_value == pytest.approx(
+                measured[(entry.monitor_device, entry.actuator_device)], rel=1e-3
+            )
+
+    def test_one_sweep_serves_both_planes_of_one_corrector_family(
+        self, inputs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The BPMx and BPMy blocks of one family are two readings of one pass.
+
+        Their arms are the same two lattice states, and a solve per block would
+        pay for every corrector of the machine twice.
+        """
+        response = self._stated(
+            copy.deepcopy(inputs["response"]), "HC", [1e-05, 2e-05, 3e-05, 4e-05]
+        )
+
+        report, seen = self._swept(inputs, response, monkeypatch)
+
+        assert _block(report, "BPMx", "HC").compared
+        assert _block(report, "BPMy", "HC").compared
+        assert sorted(seen) == [
+            f"QK:{kind}:{device}:CUR:SP" for kind in ("HC", "VC") for device in (1, 2, 3, 4)
+        ]
+        assert [len(widths) for widths in seen.values()] == [1] * 8
+
+    def test_a_vector_of_another_length_refuses_the_block_naming_both(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """A vector that does not run with the ``DeviceList`` pairs nothing.
+
+        Sweeping the devices it does cover would hand the reviewer a comparison
+        over an alignment the file never states.
+        """
+        response = self._stated(copy.deepcopy(inputs["response"]), "HC", [1e-05, 2e-05])
+
+        report = _verify(inputs, response)
+        block = _block(report, "BPMx", "HC")
+
+        assert block.compared == 0
+        assert all("2 actuator_delta values" in row.reason for row in block.dropped)
+        assert all("4 devices of 'HC'" in row.reason for row in block.dropped)
+        assert _block(report, "BPMx", "VC").compared
+
+    def test_a_device_the_file_states_no_width_for_is_dropped_with_its_status(
+        self, inputs: dict[str, Any]
+    ) -> None:
+        """The export fills the width of a device its file does not hold with a non-number.
+
+        That is the file's own answer about one corrector, so the column is
+        reported and the rest of the matrix is still compared.
+        """
+        response = self._stated(
+            copy.deepcopy(inputs["response"]), "HC", [1e-05, None, 3e-05, 4e-05]
+        )
+
+        block = _block(_verify(inputs, response), "BPMx", "HC")
+
+        assert {entry.actuator_device for entry in block.entries} == {1, 3, 4}
+        dropped = [row for row in block.dropped if row.side == "actuator"]
+        assert [row.row for row in dropped] == ["[2, 1]"]
+        assert "no actuator_delta for this device" in dropped[0].reason
+        assert "Status 1" in dropped[0].reason
+
+    def test_a_width_stated_as_a_one_column_row_is_read_like_any_other(
+        self, inputs: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """MATLAB writes a column vector as one-column rows, and it is a vector.
+
+        The ``Status`` beside it is already read that way. A width read
+        straight out of ``[1e-05]`` is not a number, every column of the block
+        would state no finite width, and the block would be dropped whole --
+        which is the failure the per-device sweep was written to fix, in a
+        shape this module already knows facilities use.
+        """
+        widths = [1e-05, 2e-05, 3e-05, 4e-05]
+        response = self._stated(
+            copy.deepcopy(inputs["response"]), "HC", [[width] for width in widths]
+        )
+
+        report, seen = self._swept(inputs, response, monkeypatch)
+
+        assert self._driven(seen, "HC") == {
+            f"QK:HC:{device}:CUR:SP": [width]
+            for device, width in zip((1, 2, 3, 4), widths, strict=True)
+        }
+        assert _block(report, "BPMx", "HC").compared == 16
+        assert not [row for row in _block(report, "BPMx", "HC").dropped if row.side == "actuator"]
+
+    def test_the_block_table_states_the_range_it_swept_with(
+        self, inputs: dict[str, Any], result: VerifyReport
+    ) -> None:
+        """A reviewer reads the width beside the ratio it was measured at."""
+        response = self._stated(
+            copy.deepcopy(inputs["response"]), "HC", [1e-05, 2e-05, 3e-05, 4e-05]
+        )
+
+        assert "| 1e-05 |" in render_report(result, provenance="")
+        assert "| 1e-05 to 4e-05 |" in render_report(_verify(inputs, response), provenance="")
 
 
 class TestASweepThatLosesTheOrbit:
