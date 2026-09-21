@@ -45,6 +45,10 @@ function files = mml_export(outdir)
 %
 %     * function handles become {"$fn": func2str(h), "file": <path or "">};
 %     * char matrices become one deblanked string per row;
+%     * text that begins at the Middle Layer root - a handle's file, a data
+%       directory, a response-file name - is recorded relative to that root,
+%       so it names the same file in every checkout of the tree rather than
+%       the account the export happened to run under;
 %     * Inf, -Inf and NaN become the strings "Inf", "-Inf" and "NaN", so no
 %       non-finite number is ever encoded (jsonencode is called with
 %       'ConvertInfAndNaN', false, so nothing is written as null);
@@ -1522,11 +1526,11 @@ function response = local_response(AD)
 % operating point its own correctors sat at, which is the point a consumer
 % converts it about.
 %
-% FILE is the file the read answered from, and is empty when no file answered
-% and the model was measured instead. It is the only record of which of those
-% two happened. A block's origin answers the other question, whether the
-% numbers were measured on a machine or computed from a model, and a file can
-% hold either.
+% FILE is the file the read answered from, relative to the Middle Layer root,
+% and is empty when no file answered and the model was measured instead. It is
+% the only record of which of those two happened. A block's origin answers the
+% other question, whether the numbers were measured on a machine or computed
+% from a model, and a file can hold either.
 if isempty(local_response_files(AD))
     [S, file] = local_response_of_model();
 else
@@ -1538,7 +1542,7 @@ if isempty(S) || ~isstruct(S)
 end
 
 response = struct();
-response.file = local_text(file);
+response.file = local_mml_path(local_text(file));
 response.blocks = local_response_blocks(S);
 end
 
@@ -1915,18 +1919,18 @@ file = '';
 if isfield(info, 'file')
     file = info.file;
 end
-out = containers.Map({'$fn', 'file'}, {func2str(h), file});
+out = containers.Map({'$fn', 'file'}, {func2str(h), local_mml_path(local_text(file))});
 end
 
 
 function out = local_char(c)
 if size(c, 1) <= 1
-    out = deblank(c);
+    out = local_mml_path(deblank(c));
     return
 end
 out = cell(1, size(c, 1));
 for r = 1:size(c, 1)
-    out{r} = deblank(c(r, :));
+    out{r} = local_mml_path(deblank(c(r, :)));
 end
 end
 
@@ -2042,6 +2046,44 @@ end
 end
 
 
+function out = local_mml_path(text)
+% One path, relative to the Middle Layer root.
+%
+% An absolute path is the exporting machine's own: an account name, a home
+% directory and a checkout nobody else has. What survives the trip is the
+% part under the Middle Layer root - machine/Spear3/StorageRing/amp2k.m
+% names the same file wherever that tree is unpacked. Text that does not
+% begin at the root is not a path into it and stands as it is.
+out = text;
+root = local_mml_root();
+if isempty(root) || isempty(out) || ~ischar(out)
+    return
+end
+if strncmp(out, root, numel(root))
+    out = out(numel(root) + 1:end);
+end
+end
+
+
+function root = local_mml_root()
+% The Middle Layer root, ending in a separator, read once per session.
+%
+% The read costs a getfamilydata lookup and every text value in the export
+% asks for it, so the answer is held. One session exports from one install.
+persistent cached
+if isempty(cached)
+    cached = '';
+    if exist('getmmlroot', 'file') ~= 0
+        cached = getmmlroot;
+    end
+    if ~isempty(cached) && cached(end) ~= filesep
+        cached = [cached, filesep];
+    end
+end
+root = cached;
+end
+
+
 function name = local_filename(text)
 name = lower(regexprep(text, '[^A-Za-z0-9_-]+', '_'));
 end
@@ -2053,5 +2095,5 @@ if fid < 0
     error('mml_export:write', 'Cannot write %s', path);
 end
 cleanup = onCleanup(@() fclose(fid));
-fprintf(fid, '%s', text);
+fprintf(fid, '%s\n', text);
 end
