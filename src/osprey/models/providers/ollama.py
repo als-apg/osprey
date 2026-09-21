@@ -116,8 +116,8 @@ class OllamaProviderAdapter(BaseProvider):
         base_url: str | None,
         max_tokens: int = 1024,
         temperature: float = 0.0,
-        thinking: dict | None = None,
-        system_prompt: str | None = None,
+        thinking: dict | None = None,  # noqa: ARG002 - provider adapter contract; adapters that support extended thinking read it
+        system_prompt: str | None = None,  # noqa: ARG002 - provider adapter contract; adapters that send a system turn read it
         output_format: Any | None = None,
         **kwargs,
     ) -> str | Any:
@@ -139,10 +139,10 @@ class OllamaProviderAdapter(BaseProvider):
 
     def check_health(
         self,
-        api_key: str | None,
+        api_key: str | None,  # noqa: ARG002 - provider adapter contract; adapters that authenticate read the key
         base_url: str | None,
-        timeout: float = 5.0,
-        model_id: str | None = None,
+        timeout: float = 5.0,  # noqa: ARG002 - provider adapter contract; adapters that bound the probe read the timeout
+        model_id: str | None = None,  # noqa: ARG002 - provider adapter contract; adapters that probe a specific model read the model id
     ) -> tuple[bool, str]:
         """Check Ollama connectivity (no API key needed).
 
