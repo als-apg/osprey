@@ -45,7 +45,7 @@ def posted(monkeypatch):
     """Capture every activity POST instead of talking to a web terminal."""
     calls: list[tuple[str, dict]] = []
 
-    def _capture(url, payload, *, timeout=3):
+    def _capture(url, payload, *, timeout=3):  # noqa: ARG001 - http.post_json fixes this keyword-only parameter
         calls.append((url, payload))
 
     monkeypatch.setattr(http, "post_json", _capture)

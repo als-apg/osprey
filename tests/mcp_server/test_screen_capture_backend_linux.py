@@ -107,13 +107,13 @@ def _make_mock_xlib_modules():
         def get_wm_name(self):
             return "Test Window"
 
-        def get_full_property(self, atom, prop_type):
+        def get_full_property(self, _atom, _prop_type):
             return MockProperty(b"Test Window")
 
         def get_geometry(self):
             return MockGeometry()
 
-        def translate_coords(self, root, x, y):
+        def translate_coords(self, _root, _x, _y):
             return MockCoords()
 
         def configure(self, **kwargs):
@@ -125,7 +125,7 @@ def _make_mock_xlib_modules():
             pass
 
     class MockRoot:
-        def get_full_property(self, atom, prop_type):
+        def get_full_property(self, _atom, _prop_type):
             return MockProperty([0x100001])
 
         def send_event(self, event, event_mask):
@@ -143,7 +143,7 @@ def _make_mock_xlib_modules():
         def intern_atom(self, name):
             return hash(name) & 0xFFFF
 
-        def create_resource_object(self, type_name, wid):
+        def create_resource_object(self, _type_name, wid):
             return MockWindow(wid)
 
         def flush(self):

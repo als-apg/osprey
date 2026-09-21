@@ -48,13 +48,13 @@ RETENTION_KEY = "control_system.channel_read_artifact_retention"
 def _fake_config(values: dict):
     """A get_config_value side_effect answering *values*, else the caller default."""
 
-    def _side_effect(path, default=None, config_path=None):
+    def _side_effect(path, default=None, _config_path=None):
         return values.get(path, default)
 
     return _side_effect
 
 
-def _boom(path, default=None, config_path=None):
+def _boom(_path, _default=None, _config_path=None):
     """Config that cannot be resolved at all (no config.yml, broken builder)."""
     raise RuntimeError("no configuration loaded")
 

@@ -57,7 +57,7 @@ Welcome to the presentation.
     async def test_compilation_failure(self, tool_fn):
         bad_latex = r"\documentclass{article}\begin{document}\badcommand\end{document}"
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             result = MagicMock()
             result.returncode = 1
             result.stdout = "! Undefined control sequence.\n\\badcommand"
@@ -87,7 +87,7 @@ Welcome to the presentation.
         """Test successful PDF generation with mocked pdflatex."""
         call_count = 0
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             nonlocal call_count
             call_count += 1
             # Create a fake PDF on the first pass
@@ -122,7 +122,7 @@ Welcome to the presentation.
     async def test_pdf_and_source_artifacts(self, tool_fn, simple_latex):
         """Verify both PDF and .tex source are saved as artifacts."""
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             cwd = Path(kwargs.get("cwd", "."))
             (cwd / "document.pdf").write_bytes(b"%PDF-1.4 content")
             result = MagicMock()
@@ -173,7 +173,7 @@ Welcome to the presentation.
 
         captured_cwd = None
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             nonlocal captured_cwd
             captured_cwd = kwargs.get("cwd")
             cwd = Path(captured_cwd)
@@ -211,7 +211,7 @@ Welcome to the presentation.
     async def test_missing_artifact_id_skipped(self, tool_fn, simple_latex):
         """Non-existent artifact IDs are skipped without failing."""
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             cwd = Path(kwargs.get("cwd", "."))
             (cwd / "document.pdf").write_bytes(b"%PDF-1.4 content")
             result = MagicMock()

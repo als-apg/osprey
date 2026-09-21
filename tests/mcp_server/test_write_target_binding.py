@@ -287,7 +287,7 @@ def _patched(connector, *, when_resolved=None):
     tool's own control flow passes through this seam.
     """
 
-    async def _create(_config, *, control_target=None):
+    async def _create(_config, *, control_target=None):  # noqa: ARG001 - ConnectorFactory.create_control_system_connector fixes this keyword-only parameter
         if when_resolved is not None:
             when_resolved()
         return connector

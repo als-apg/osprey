@@ -91,14 +91,16 @@ def make_write_blocked() -> ChannelWriteBlockedError:
 class RaisingConnector(ControlSystemConnector):
     """A connector that reads normally and refuses writes on named channels."""
 
-    async def connect(self, config: dict[str, Any] | None = None) -> None:
+    async def connect(self, config: dict[str, Any] | None = None) -> None:  # noqa: ARG002 - the connector interface fixes the signature
         return None
 
     async def disconnect(self) -> None:
         return None
 
     async def read_channel(
-        self, channel_address: str, timeout: float | None = None
+        self,
+        channel_address: str,
+        timeout: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
     ) -> ChannelValue:
         if channel_address == HANG_CHANNEL:
             await asyncio.Event().wait()
@@ -120,8 +122,8 @@ class RaisingConnector(ControlSystemConnector):
         self,
         channel_address: str,
         value: Any,
-        timeout: float | None = None,
-        confirm: bool | None = None,
+        timeout: float | None = None,  # noqa: ARG002 - the connector interface fixes the signature
+        confirm: bool | None = None,  # noqa: ARG002 - the connector interface fixes the signature
     ) -> ChannelWriteResult:
         if channel_address == LIMITS_CHANNEL:
             raise make_limits_violation()
@@ -141,8 +143,8 @@ class RaisingConnector(ControlSystemConnector):
     async def unsubscribe(self, subscription_id: str) -> None:
         raise NotImplementedError("the raising connector serves reads and writes only")
 
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, channel_address: str) -> ChannelMetadata:  # noqa: ARG002 - the connector interface fixes the signature
         return ChannelMetadata(units="A")
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, channel_address: str) -> bool:  # noqa: ARG002 - the connector interface fixes the signature
         return True

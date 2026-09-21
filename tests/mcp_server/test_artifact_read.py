@@ -287,7 +287,7 @@ class TestDataRead:
     ):
         """An unexpected store exception surfaces as internal_error, not a raw traceback."""
 
-        def _boom(artifact_id):
+        def _boom(_artifact_id):
             raise RuntimeError("index corrupted")
 
         monkeypatch.setattr(store, "get_entry", _boom)

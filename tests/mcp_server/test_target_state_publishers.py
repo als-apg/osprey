@@ -84,7 +84,7 @@ def _dead_pid(monkeypatch, dead):
     """Make ``is_process_alive`` report *dead* as gone and everything else alive."""
     real = os.kill
 
-    def fake_kill(pid, sig):
+    def fake_kill(pid, _sig):
         if pid in dead:
             raise ProcessLookupError
         return real(os.getpid(), 0)

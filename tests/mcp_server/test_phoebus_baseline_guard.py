@@ -295,7 +295,7 @@ async def _call_snapshot_without_artifact_store(tmp_path):
         return await bridge_fn("phoebus_snapshot")(widget="Setpoint")
 
 
-async def _call_open_databrowser(tmp_path):
+async def _call_open_databrowser(_tmp_path):
     with patch(f"{_DB_MOD}._http_post_open", return_value=(200, {"id": "d-1", "ready": True})):
         return await get_tool_fn(databrowser_tools.phoebus_open_databrowser)(channels=["SR:DCCT"])
 

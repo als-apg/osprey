@@ -394,7 +394,7 @@ class TestRead:
 class TestSweep:
     @staticmethod
     def _kill_with_dead(dead_pids):
-        def fake_kill(pid, sig):
+        def fake_kill(pid, _sig):
             if pid in dead_pids:
                 raise ProcessLookupError(pid)
             return None
@@ -472,14 +472,14 @@ class TestIsProcessAlive:
         assert target_state.is_process_alive(4321) is False
 
     def test_permission_error_counts_as_alive(self, monkeypatch):
-        def denied(pid, sig):
+        def denied(pid, _sig):
             raise PermissionError(pid)
 
         monkeypatch.setattr(os, "kill", denied)
         assert target_state.is_process_alive(4321) is True
 
     def test_non_positive_pids_never_reach_os_kill(self, monkeypatch):
-        def explode(pid, sig):  # pragma: no cover - must not be called
+        def explode(_pid, _sig):  # pragma: no cover - must not be called
             raise AssertionError("os.kill called with a process-group pid")
 
         monkeypatch.setattr(os, "kill", explode)
@@ -490,7 +490,7 @@ class TestIsProcessAlive:
     def test_anything_but_an_int_names_no_process(self, monkeypatch, value):
         """``True`` is ``1`` to ``os.kill``, and PID 1 is always alive."""
 
-        def explode(pid, sig):  # pragma: no cover - must not be called
+        def explode(pid, _sig):  # pragma: no cover - must not be called
             raise AssertionError(f"os.kill called with {pid!r}")
 
         monkeypatch.setattr(os, "kill", explode)

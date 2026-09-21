@@ -302,7 +302,7 @@ def allow_every_target(monkeypatch):
     """
     from osprey.mcp_server.control_system.target_eligibility import TargetAvailability
 
-    def available(config, target, control_target, baseline_target, **kwargs):
+    def available(config, target, control_target, baseline_target, **kwargs):  # noqa: ARG001 - target_availability fixes this stand-in's signature
         return TargetAvailability(
             target=target,
             eligible=True,
@@ -1344,7 +1344,7 @@ class TestInFlightMarkerContract:
         directory = target_state.state_dir()
         directory.mkdir(parents=True, exist_ok=True)
 
-        def fail_to_rename(src, dst):
+        def fail_to_rename(_src, _dst):
             raise OSError("rename refused")
 
         monkeypatch.setattr(py_executor.os, "replace", fail_to_rename)

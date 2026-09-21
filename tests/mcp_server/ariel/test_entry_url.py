@@ -27,7 +27,7 @@ def _fake_config(template):
     caller's default so unrelated config reads keep working.
     """
 
-    def _side_effect(path, default=None, config_path=None):
+    def _side_effect(path, default=None, _config_path=None):
         if path == "ariel.entry_url_template":
             return template
         return default
@@ -89,7 +89,7 @@ def test_build_entry_url_fails_safe_when_config_unavailable():
     """FR6: if config resolution itself raises (e.g. no config loaded), degrade
     to None instead of crashing the per-entry read hot path."""
 
-    def _boom(path, default=None, config_path=None):
+    def _boom(_path, _default=None, _config_path=None):
         raise FileNotFoundError("No config.yml found in current directory")
 
     with patch("osprey.utils.config.get_config_value", _boom):

@@ -134,7 +134,7 @@ class TestCreateDashboard:
         """Verify Bokeh imports are prepended to the code."""
         captured_code = None
 
-        async def mock_execute(code, execution_folder):
+        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
             nonlocal captured_code
             captured_code = code
             return SandboxExecutionResult(
@@ -161,7 +161,7 @@ class TestCreateDashboard:
         """Verify no auto-detect epilogue or __DASHBOARD_OUTPUT__ marker."""
         captured_code = None
 
-        async def mock_execute(code, execution_folder):
+        async def mock_execute(code, execution_folder):  # noqa: ARG001 - execute_sandbox_code fixes this stand-in's signature
             nonlocal captured_code
             captured_code = code
             return SandboxExecutionResult(
