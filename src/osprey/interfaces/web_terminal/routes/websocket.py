@@ -1260,7 +1260,6 @@ def _refuse_gesture(
 
 
 def _context_write_rung(
-    app: Any,
     session_key: str | None,
     context: _ContextState,
     *,
@@ -1314,7 +1313,6 @@ def _context_write_rung(
 
 
 def _context_error_refusal(
-    app: Any,
     session_key: str | None,
     exc: ContextOwnerError,
     *,
@@ -1751,7 +1749,6 @@ def _switch_in_progress_message(pids: tuple[int, ...]) -> str:
 
 
 def _target_refusal(
-    app: Any,
     session_id: str | None,
     body: TargetRequest,
     facts: _TargetRequestFacts,
@@ -1778,7 +1775,7 @@ def _target_refusal(
             detail=detail,
         )
 
-    return _context_write_rung(app, session_id, context, subject=subject, detail=detail)
+    return _context_write_rung(session_id, context, subject=subject, detail=detail)
 
 
 @router.post("/api/terminal/target", status_code=202)
@@ -1831,7 +1828,7 @@ async def request_terminal_target(body: TargetRequest, request: Request):
         _target_request_facts, app, app.state.config_path
     )
 
-    refusal = _target_refusal(app, session_id, body, facts, context)
+    refusal = _target_refusal(session_id, body, facts, context)
     if refusal is not None:
         raise refusal
 
@@ -1849,7 +1846,7 @@ async def request_terminal_target(body: TargetRequest, request: Request):
             )
         )
     except ContextOwnerError as exc:
-        raise _context_error_refusal(app, session_id, exc, subject=subject, detail=detail) from exc
+        raise _context_error_refusal(session_id, exc, subject=subject, detail=detail) from exc
 
     if outcome.status != control_context.SWITCH_APPLIED:
         raise _refuse_gesture(
@@ -2006,7 +2003,7 @@ def _first_live_execution() -> dict[str, Any] | None:
 
 
 def _posture_post_facts(
-    app: Any, config_path: Path | None, target: str, posture: str
+    config_path: Path | None, target: str, posture: str
 ) -> _PostureRequestFacts:
     """Read everything the posture ladder decides on. BLOCKING.
 
@@ -2064,7 +2061,6 @@ def _in_flight_message(marker: dict[str, Any]) -> str:
 
 
 def _posture_refusal(
-    app: Any,
     session_id: str | None,
     body: PostureRequest,
     facts: _PostureRequestFacts,
@@ -2098,7 +2094,7 @@ def _posture_refusal(
             detail=gesture,
         )
 
-    context_refusal = _context_write_rung(app, session_id, context, subject=subject, detail=gesture)
+    context_refusal = _context_write_rung(session_id, context, subject=subject, detail=gesture)
     if context_refusal is not None:
         return context_refusal
 
@@ -2242,10 +2238,10 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
 
     context = _context_state(app)
     facts: _PostureRequestFacts = await run_in_threadpool(
-        _posture_post_facts, app, app.state.config_path, body.target, body.posture
+        _posture_post_facts, app.state.config_path, body.target, body.posture
     )
 
-    refusal = _posture_refusal(app, session_id, body, facts, context, gesture)
+    refusal = _posture_refusal(session_id, body, facts, context, gesture)
     if refusal is not None:
         raise refusal
 
@@ -2263,7 +2259,7 @@ async def set_terminal_posture(body: PostureRequest, request: Request):
             partial(_posture_mutation, applying=applying, widening=widening)
         )
     except ContextOwnerError as exc:
-        raise _context_error_refusal(app, session_id, exc, subject=subject, detail=gesture) from exc
+        raise _context_error_refusal(session_id, exc, subject=subject, detail=gesture) from exc
 
     from osprey.audit.envelope import DECISION_ALLOWED
 

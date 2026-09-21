@@ -123,7 +123,9 @@ class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
     code — so :meth:`ServerLauncher._probe_status` reports the redirect itself.
     """
 
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+    def redirect_request(  # type: ignore[no-untyped-def]
+        self, _req, _fp, _code, _msg, _headers, _newurl
+    ):
         """Never follow: the listener's own first response is the verdict."""
         return None
 

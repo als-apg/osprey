@@ -902,7 +902,7 @@ def _asset_media_type(candidate: Path) -> str:
     "/panel/{panel_id}/design-system/{asset_path:path}",
     methods=["GET", "HEAD"],
 )
-async def proxy_panel_design_system(panel_id: str, asset_path: str, request: Request):
+async def proxy_panel_design_system(panel_id: str, asset_path: str, _request: Request):
     """Serve the HUB's design-system assets to an embedded panel.
 
     MUST stay declared above :func:`proxy_panel` — that route's
@@ -952,7 +952,10 @@ async def proxy_panel_design_system(panel_id: str, asset_path: str, request: Req
     "/panel/{panel_id}/terminal-static/{asset_path:path}",
     methods=["GET", "HEAD"],
 )
-async def proxy_panel_terminal_static(panel_id: str, asset_path: str):
+async def proxy_panel_terminal_static(
+    panel_id: str,  # noqa: ARG001 - route path parameter; terminal assets are served verbatim
+    asset_path: str,
+):
     """Serve the TERMINAL's own ``static/`` tree to an embedded panel.
 
     MUST stay declared above :func:`proxy_panel` for the same reason the
