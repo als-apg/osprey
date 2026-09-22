@@ -688,12 +688,6 @@ ignore-variadic-names = true
 "tests/hooks/*" = ["ARG001", "ARG002"]
 "tests/audit/*" = ["ARG001", "ARG002"]
 
-"tests/connectors/*" = ["ARG001", "ARG002"]
-"tests/bridges/*" = ["ARG001", "ARG002"]
-"tests/health/*" = ["ARG001", "ARG002"]
-"tests/models/*" = ["ARG001", "ARG002"]
-"tests/simulation/*" = ["ARG001", "ARG002"]
-
 "tests/e2e/*" = ["ARG001", "ARG002"]
 "tests/va/*" = ["ARG001", "ARG002"]
 "tests/dispatch_worker/*" = ["ARG001", "ARG002"]
