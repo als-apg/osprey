@@ -43,7 +43,7 @@ class TestChatRequestValidation:
             get_chat_completion(provider="openai")
 
     @patch("osprey.models.completion.get_provider_config", return_value={"api_key": "test"})
-    def test_message_only_works(self, mock_config):
+    def test_message_only_works(self, _mock_config):
         """Existing message= path continues to work (mocked provider)."""
         from osprey.models.completion import get_chat_completion
 
@@ -60,7 +60,7 @@ class TestChatRequestValidation:
         assert result == "response"
 
     @patch("osprey.models.completion.get_provider_config", return_value={"api_key": "test"})
-    def test_chat_request_only_works(self, mock_config):
+    def test_chat_request_only_works(self, _mock_config):
         """chat_request= path works (mocked provider)."""
         from osprey.models.completion import get_chat_completion
 
@@ -82,7 +82,7 @@ class TestChatRequestFlowThrough:
     """Test that chat_request flows through to provider."""
 
     @patch("osprey.models.completion.get_provider_config", return_value={"api_key": "test"})
-    def test_chat_request_in_completion_kwargs(self, mock_config):
+    def test_chat_request_in_completion_kwargs(self, _mock_config):
         """Verify chat_request is included in kwargs passed to execute_completion."""
         from osprey.models.completion import get_chat_completion
 
@@ -103,7 +103,7 @@ class TestChatRequestFlowThrough:
         assert call_kwargs["chat_request"] is req
 
     @patch("osprey.models.completion.get_provider_config", return_value={"api_key": "test"})
-    def test_chat_request_none_when_using_message(self, mock_config):
+    def test_chat_request_none_when_using_message(self, _mock_config):
         """When using message=, chat_request is None in kwargs."""
         from osprey.models.completion import get_chat_completion
 
@@ -123,7 +123,7 @@ class TestChatRequestFlowThrough:
         assert call_kwargs["chat_request"] is None
 
     @patch("osprey.models.completion.get_provider_config", return_value={"api_key": "test"})
-    def test_log_api_call_uses_to_single_string(self, mock_config):
+    def test_log_api_call_uses_to_single_string(self, _mock_config):
         """When chat_request is provided, log_api_call receives the flattened string."""
         from osprey.models.completion import get_chat_completion
 
