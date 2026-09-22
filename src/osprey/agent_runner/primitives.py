@@ -253,12 +253,12 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
             # Raw secret for the MCP-subprocess ${SECRET} expansion (see Notes).
             env[spec.auth_secret_env] = secret
 
-    # Endpoint counterpart of the raw-secret carry-through. A gateway provider's
-    # catalog entry spells its endpoint ``base_url: ${ALS_APG_BASE_URL}``, which
-    # the MCP subprocess expands against its own environment; ANTHROPIC_BASE_URL
-    # in the env block does not stand in for it, being the CLI's own variable and
+    # Endpoint counterpart of the raw-secret carry-through. A config may spell a
+    # gateway endpoint as ``base_url: ${SOME_GATEWAY_URL}``, which the MCP
+    # subprocess expands against its own environment; ANTHROPIC_BASE_URL in the
+    # env block does not stand in for it, being the CLI's own variable and
     # stripped of its ``/v1``. Unset, the placeholder resolves to nothing and the
-    # provider refuses the call for a missing endpoint.
+    # provider falls back to whatever endpoint it ships, or refuses the call.
     base_url_var = provider_base_url_env(spec.provider)
     if base_url_var:
         base_url = lookup.get(base_url_var)

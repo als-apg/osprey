@@ -129,17 +129,15 @@ concurrency:
 # src/osprey/templates/services/openobserve/docker-compose.yml.j2 moves.
 env:
   OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-  # ALS-APG endpoint. The provider ships no built-in host — the gateway it
-  # fronts belongs to whoever runs it — so every LLM-touching job (probes and
-  # pytest alike) has to be told one, and a job given nothing is refused by
-  # name instead of falling through. This line is where the fork's own gateway
-  # is named: the ALS_APG_BASE_URL repository variable, stated once here and
-  # read by the jobs below rather than repeated in each of them.
+  # ALS-APG endpoint. The probes address the gateway themselves rather than
+  # through the provider catalog, so every LLM-touching job (probes and pytest
+  # alike) reads its endpoint from here. This line is where a fork's own
+  # gateway is named: the ALS_APG_BASE_URL repository variable, stated once
+  # here and read by the jobs below rather than repeated in each of them.
   #
-  # No literal stands behind it. A fork that has not set the variable gets an
-  # empty endpoint and its LLM-touching lanes are refused by name, which is the
-  # honest outcome — a baked-in host would instead send that fork's traffic,
-  # and its API key, to somebody else's gateway.
+  # No literal stands behind it. A fork that sets the variable points its own
+  # traffic at its own gateway, which is the reason the value is not spelled
+  # out here.
   ALS_APG_BASE_URL: ${{ vars.ALS_APG_BASE_URL }}
   # The provider every lane that collects tests/e2e/ builds its deployment
   # repos with. Stated once here rather than per lane, because a run that names

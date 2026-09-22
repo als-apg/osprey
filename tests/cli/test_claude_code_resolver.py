@@ -18,10 +18,10 @@ from tests.conftest import GATEWAY_BASE_URL, GATEWAY_ORIGIN
 def _resolve_builtin(provider_name: str):
     """Resolve a built-in provider, naming a gateway for the ones that need one.
 
-    A provider with no built-in endpoint (``requires_base_url``) is refused
-    unless config or the environment names one, so a sweep over the whole table
-    has to supply it — otherwise the sweep would only ever pass for the
-    providers that ship a URL.
+    An entry that requires an endpoint and ships none (``requires_base_url``)
+    is refused unless config or the environment names one, so a sweep over the
+    whole table has to supply it — otherwise the sweep would only ever pass for
+    the providers that ship a URL.
     """
     api_providers = (
         {provider_name: {"base_url": GATEWAY_BASE_URL}}
@@ -118,9 +118,10 @@ class TestCBORGProvider:
 class TestAlsApgProvider:
     """The ``als-apg`` gateway provider configuration.
 
-    The gateway is a site's own host, so every case here has to name the
-    endpoint the way a deployment does — there is nothing built in to fall
-    back on, and :meth:`test_a_missing_base_url_is_refused` pins that.
+    The table ships the gateway's own address, so a deployment that names none
+    still routes — :meth:`test_the_shipped_gateway_stands_when_nothing_names_one`
+    pins that. The other cases name an endpoint the way a site with its own
+    gateway does, which is what :attr:`ENVIRON` supplies.
     """
 
     ENVIRON = {"ALS_APG_BASE_URL": GATEWAY_BASE_URL}
@@ -139,14 +140,14 @@ class TestAlsApgProvider:
         spec = self._spec()
         assert spec.env_block["ANTHROPIC_BASE_URL"] == GATEWAY_ORIGIN
 
-    def test_a_missing_base_url_is_refused(self):
-        """No endpoint anywhere must not silently mean "Anthropic direct".
+    def test_the_shipped_gateway_stands_when_nothing_names_one(self):
+        """An empty environment must still route, and route to the gateway.
 
-        Without a base_url the env block simply omits ANTHROPIC_BASE_URL, and
-        the gateway's bearer token would be presented to api.anthropic.com.
+        An omitted ANTHROPIC_BASE_URL would mean "Anthropic direct", i.e. the
+        gateway's bearer token presented to api.anthropic.com.
         """
-        with pytest.raises(ValueError, match="ALS_APG_BASE_URL"):
-            ClaudeCodeModelResolver.resolve({"provider": "als-apg"}, environ={})
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"}, environ={})
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.als.lbl.gov"
 
     def test_shell_exports_use_als_apg_api_key(self):
         spec = self._spec()

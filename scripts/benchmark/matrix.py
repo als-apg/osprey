@@ -309,9 +309,10 @@ def load_config(path: Path) -> MatrixConfig:
     raw = yaml.safe_load(path.read_text()) or {}
     raw = resolve_env_vars(raw)
     providers = raw.get("providers") or {}
-    # A gateway with no default host is written as a bare ``${VAR}``, which the
-    # resolver leaves verbatim when the variable is unset. Refuse it here rather
-    # than handing the literal reference to an HTTP client one cell at a time.
+    # An endpoint left to the environment is written as a bare ``${VAR}``, which
+    # the resolver leaves verbatim when the variable is unset. Refuse it here
+    # rather than handing the literal reference to an HTTP client one cell at a
+    # time.
     for name, spec in providers.items():
         if isinstance(spec, dict) and is_unresolved_placeholder(spec.get("base_url")):
             raise ValueError(

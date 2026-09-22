@@ -1,8 +1,9 @@
 """ALS-APG Provider Adapter Implementation.
 
 This provider uses LiteLLM as the backend for unified API access.
-ALS-APG is an OpenAI-compatible gateway that fronts Anthropic models. It has no
-public endpoint: a deployment supplies its own, through
+ALS-APG is an OpenAI-compatible gateway that fronts Anthropic models, served at
+``https://llm.als.lbl.gov/v1``. That endpoint ships with the provider; a site
+whose gateway is elsewhere overrides it through
 ``api.providers.als-apg.base_url`` or the ``ALS_APG_BASE_URL`` environment
 variable.
 """
@@ -23,16 +24,14 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     requires_base_url = True
     requires_model_id = True
     supports_proxy = True
-    # No built-in endpoint: this proxy is a deployment's own gateway, so its URL
-    # is site data and there is nothing generic to fall back to. A config that
-    # names none is refused by the ``requires_base_url`` gate in
-    # osprey.models.completion rather than resolving to somebody else's host.
-    default_base_url = None
-    # Break-glass redirect: a set ALS_APG_BASE_URL beats config, so deployments
-    # with a baked-in URL can be pointed at a fallback gateway at runtime
-    # (accepts the URL with or without a trailing /v1). It is also the ordinary
-    # way to supply the endpoint, since the shipped catalog entry reads
-    # ``base_url: ${ALS_APG_BASE_URL}``.
+    # The gateway's own endpoint, so a call that names none still reaches it.
+    # ``requires_base_url`` above is what makes this value reachable at all:
+    # BaseProvider.effective_base_url returns a default only for a provider
+    # that requires an endpoint.
+    default_base_url = "https://llm.als.lbl.gov/v1"
+    # Optional override: a set ALS_APG_BASE_URL beats both config and the
+    # default above, so a deployment with a baked-in URL can be pointed at
+    # another gateway at runtime (accepts the URL with or without /v1).
     base_url_env_var = "ALS_APG_BASE_URL"
     default_model_id = "claude-haiku-4-5-20251001"
     health_check_model_id = "claude-haiku-4-5-20251001"
@@ -47,7 +46,7 @@ class ALSAPGProviderAdapter(LiteLLMDelegatingProvider):
     api_key_instructions = [
         "Contact the ALS Accelerator Physics Group for API access.",
         "Set ALS_APG_API_KEY in your environment.",
-        "Set ALS_APG_BASE_URL to the gateway endpoint — there is no default.",
+        "Optionally set ALS_APG_BASE_URL to reach the gateway at another host.",
     ]
     api_key_note = "Internal ALS-APG proxy — requires group membership."
 

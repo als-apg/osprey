@@ -184,9 +184,10 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
         ),
     ]
 
-    # The als-apg gateway has no built-in endpoint: it is a deployment's own
-    # host, named by ALS_APG_BASE_URL. With nothing to call there is no provider
-    # to detect, so the entry is only offered once the variable is set.
+    # This lane addresses the als-apg gateway itself rather than through the
+    # provider catalog, named by ALS_APG_BASE_URL. With nothing to call there is
+    # no provider to detect, so the entry is only offered once the variable is
+    # set.
     als_apg_base_url = os.environ.get("ALS_APG_BASE_URL")
     if als_apg_base_url:
         providers_to_check.append(

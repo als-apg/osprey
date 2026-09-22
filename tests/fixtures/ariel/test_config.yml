@@ -12,9 +12,9 @@ api:
   providers:
     als-apg:
       api_key: ${ALS_APG_API_KEY}
-      # No default endpoint: the gateway is the running site's own host, named
-      # the same way a deployment names it. Export the full /v1 URL alongside
-      # the key before running this suite.
+      # The endpoint is named here rather than taken from the catalog, so the
+      # suite runs against whichever gateway the operator reaches. Export the
+      # full /v1 URL alongside the key before running it.
       base_url: ${ALS_APG_BASE_URL}
     ollama:
       api_key: ollama

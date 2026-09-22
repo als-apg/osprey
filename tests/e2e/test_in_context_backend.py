@@ -73,7 +73,8 @@ _TEST_CHANNELS = [
 # network that gates it, unreachable from outside. Direct anthropic is the last
 # fallback.
 _ALS_APG_KEY = os.environ.get("ALS_APG_API_KEY", "")
-# The gateway has no built-in endpoint; without one it is not a usable route.
+# The generated project is given the endpoint outright, so without one there
+# is no route to write into it.
 _ALS_APG_BASE_URL = os.environ.get("ALS_APG_BASE_URL", "")
 _CBORG_KEY = os.environ.get("CBORG_API_KEY", "")
 _ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY_o", "")

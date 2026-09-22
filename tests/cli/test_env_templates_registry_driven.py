@@ -13,6 +13,8 @@ which renders a template.
 
 from __future__ import annotations
 
+import pytest
+
 from osprey.cli.templates.manager import TemplateManager
 from osprey.cli.templates.scaffolding import (
     provider_api_key_entries,
@@ -21,7 +23,49 @@ from osprey.cli.templates.scaffolding import (
 )
 from osprey.deployment.container_lifecycle import _SERVICE_TOKEN_VARS
 from osprey.models.provider_registry import PROVIDER_API_KEYS
+from osprey.models.providers.base import BaseProvider
 from osprey_connectors.dotenv import parse_dotenv_text
+
+#: An adapter in the one shape the endpoint section is for: it requires an
+#: endpoint and declares none, so a deployment has to name one. Synthetic,
+#: because no shipped provider is in that shape and both the derivation and
+#: the template have to stay correct for the next one that is.
+GATEWAY_WITHOUT_ENDPOINT = "gateway-without-endpoint"
+GATEWAY_WITHOUT_ENDPOINT_VAR = "GATEWAY_WITHOUT_ENDPOINT_BASE_URL"
+
+
+class _GatewayWithoutEndpointAdapter(BaseProvider):
+    name = GATEWAY_WITHOUT_ENDPOINT
+    description = "A gateway each site hosts itself"
+    requires_api_key = True
+    requires_base_url = True
+    default_base_url = None
+    base_url_env_var = GATEWAY_WITHOUT_ENDPOINT_VAR
+
+
+#: What :func:`provider_base_url_entries` derives from the adapter above. The
+#: template tests supply this directly: they are about what the file says, not
+#: about which providers the registry holds.
+SYNTHETIC_BASE_URL_ENTRIES = [
+    {"provider": GATEWAY_WITHOUT_ENDPOINT, "var": GATEWAY_WITHOUT_ENDPOINT_VAR}
+]
+
+
+@pytest.fixture
+def a_registered_gateway_without_an_endpoint(monkeypatch):
+    """Put the synthetic adapter in the registry for the length of one test."""
+    from osprey.models.provider_registry import _ProviderEntry, get_provider_registry
+
+    registry = get_provider_registry()
+    monkeypatch.setitem(
+        registry._entries,
+        GATEWAY_WITHOUT_ENDPOINT,
+        _ProviderEntry(__name__, "_GatewayWithoutEndpointAdapter"),
+    )
+    monkeypatch.setitem(
+        registry._providers, GATEWAY_WITHOUT_ENDPOINT, _GatewayWithoutEndpointAdapter
+    )
+    return GATEWAY_WITHOUT_ENDPOINT_VAR
 
 
 def _render(template_name: str, ctx: dict) -> str:
@@ -29,7 +73,7 @@ def _render(template_name: str, ctx: dict) -> str:
     return manager.jinja_env.get_template(template_name).render(**ctx)
 
 
-def _base_ctx(env: dict) -> dict:
+def _base_ctx(env: dict, provider_base_urls: list[dict[str, str]] | None = None) -> dict:
     return {
         "project_name": "test-project",
         "project_root": "/tmp/test-project",
@@ -41,7 +85,9 @@ def _base_ctx(env: dict) -> dict:
         # undefined name emits nothing — and the assertions below would then be
         # testing the fixture rather than the template.
         "service_token_vars": service_token_var_entries(),
-        "provider_base_urls": provider_base_url_entries(),
+        "provider_base_urls": (
+            provider_base_url_entries() if provider_base_urls is None else provider_base_urls
+        ),
         "active_provider_base_url_vars": [],
         "env_required": [],
         "env_defaults": {},
@@ -61,12 +107,15 @@ class TestProviderApiKeyEntries:
 
 
 class TestProviderBaseUrlEntries:
-    def test_names_every_provider_that_ships_no_endpoint(self):
+    def test_names_every_provider_that_ships_no_endpoint(
+        self, a_registered_gateway_without_an_endpoint
+    ):
         """A provider that requires a base_url and defaults none is listed.
 
         Derived from the classes rather than a hand-written list, so a gateway
         adapter added later cannot quietly omit the one variable without which
-        it refuses to start.
+        it refuses to start. Every shipped provider names an endpoint of its
+        own, so the subject is a synthetic adapter in that shape.
         """
         from osprey.models.provider_registry import get_provider_registry
 
@@ -79,7 +128,7 @@ class TestProviderBaseUrlEntries:
             if cls.requires_base_url and not cls.default_base_url and cls.base_url_env_var:
                 expected.add(cls.base_url_env_var)
 
-        assert expected  # the assertion below must not pass vacuously
+        assert a_registered_gateway_without_an_endpoint in expected  # not vacuous
         assert {e["var"] for e in provider_base_url_entries()} == expected
 
     def test_providers_with_a_working_default_are_excluded(self):
@@ -87,6 +136,22 @@ class TestProviderBaseUrlEntries:
         providers = {e["provider"] for e in provider_base_url_entries()}
         assert "cborg" not in providers
         assert "ollama" not in providers
+
+    def test_als_apg_is_excluded_because_it_ships_its_gateway(self):
+        """Its endpoint is one gateway's address, not deployment data.
+
+        Listing it in ``.env.example`` would tell a deployer to supply a value
+        the provider already has.
+        """
+        assert "als-apg" not in {e["provider"] for e in provider_base_url_entries()}
+
+    def test_no_shipped_provider_leaves_its_endpoint_to_the_deployment(self):
+        """The list is empty for a stock install -- the section renders nothing.
+
+        Pinned so the emptiness stays a fact about the shipped providers rather
+        than a derivation that quietly stopped selecting anything.
+        """
+        assert provider_base_url_entries() == []
 
 
 class TestEnvExampleJ2:
@@ -100,34 +165,33 @@ class TestEnvExampleJ2:
 
         A provider with no default endpoint refuses to start until its gateway
         is named, so an example that lists only the API key sends a deployer
-        through a launch failure to find the second half.
+        through a launch failure to find the second half. Which providers are
+        in that shape is :class:`TestProviderBaseUrlEntries`' subject; here the
+        entries are supplied, so this asks only what the template does with them.
         """
-        entries = provider_base_url_entries()
-        assert entries  # the loop below must not pass vacuously
-        rendered = _render("project/env.example.j2", _base_ctx({}))
+        entries = SYNTHETIC_BASE_URL_ENTRIES
+        rendered = _render("project/env.example.j2", _base_ctx({}, entries))
         for entry in entries:
             assert f"{entry['var']}=" in rendered
 
     def test_the_endpoint_line_reads_back_as_an_empty_value(self):
         """A note on the same line would be the value, not a comment.
 
-        ``.env`` has no inline comments: ``ALS_APG_BASE_URL=  # als-apg`` sets
-        the endpoint to ``# als-apg``, and a deployer who fills in the file
-        below that line never sees why the gateway is unreachable. The provider
-        name goes on a line of its own.
+        ``.env`` has no inline comments: ``SITE_GATEWAY_URL=  # a-gateway``
+        sets the endpoint to ``# a-gateway``, and a deployer who fills in the
+        file below that line never sees why the gateway is unreachable. The
+        provider name goes on a line of its own.
         """
-        entries = provider_base_url_entries()
-        assert entries
-        rendered = _render("project/env.example.j2", _base_ctx({}))
+        entries = SYNTHETIC_BASE_URL_ENTRIES
+        rendered = _render("project/env.example.j2", _base_ctx({}, entries))
         parsed = parse_dotenv_text(rendered)
         for entry in entries:
             assert parsed[entry["var"]] == ""
 
     def test_comments_out_the_endpoints_this_profile_does_not_use(self):
         """Same treatment as the unused API keys: present, but not to fill in."""
-        entries = provider_base_url_entries()
-        assert entries
-        ctx = _base_ctx({})
+        entries = SYNTHETIC_BASE_URL_ENTRIES
+        ctx = _base_ctx({}, entries)
         # A profile-aware render (non-empty active key list) that uses none of
         # the gateway providers.
         ctx["active_provider_vars"] = ["ANTHROPIC_API_KEY"]
