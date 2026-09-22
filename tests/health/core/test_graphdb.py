@@ -372,7 +372,7 @@ async def test_unreachable_store_warns(monkeypatch: pytest.MonkeyPatch) -> None:
 async def test_driver_construction_failure_warns(monkeypatch: pytest.MonkeyPatch) -> None:
     import neo4j
 
-    def _boom(uri, *, auth=None, **config):
+    def _boom(uri, *, auth=None, **config):  # noqa: ARG001 - stands in for the Neo4j driver factory, which collects keyword arguments
         raise ValueError(f"Unsupported URI scheme: {uri}")
 
     monkeypatch.setattr(neo4j.GraphDatabase, "driver", _boom)

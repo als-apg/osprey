@@ -224,7 +224,7 @@ async def test_hard_timeout_is_warning(monkeypatch: Any) -> None:
 
 
 async def test_api_key_falls_back_to_config_block(monkeypatch: Any) -> None:
-    def _fake_config_value(path: str, default: Any = None) -> Any:
+    def _fake_config_value(path: str, _default: Any = None) -> Any:
         assert path == "api.providers.cborg"
         return {"api_key": "${OSPREY_TEST_CANARY_CFG}", "base_url": "https://cfg"}
 

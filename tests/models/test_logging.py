@@ -551,7 +551,7 @@ class TestLogApiCall:
         )
 
         # Mock get_agent_dir to raise an error
-        def failing_get_agent_dir(x):
+        def failing_get_agent_dir(_x):
             raise RuntimeError("Failed to get agent dir")
 
         monkeypatch.setattr("osprey.models.logging.get_agent_dir", failing_get_agent_dir)

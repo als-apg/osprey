@@ -26,7 +26,7 @@ _UNIT = "osprey.service"
 def _stub_run(monkeypatch, *, returncode=0, stdout="", stderr="", raises=None):
     """Patch ``_run_systemctl`` to return canned output or raise."""
 
-    async def _fake(argv, timeout_s):
+    async def _fake(_argv, _timeout_s):
         if raises is not None:
             raise raises
         return (returncode, stdout, stderr)
@@ -240,7 +240,7 @@ class TestInstallDirResolution:
         repo = _repo_with_unit(tmp_path)
         monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
 
-        def _boom(cls):
+        def _boom(_cls):
             raise RuntimeError("Could not determine home directory")
 
         monkeypatch.setattr(Path, "home", classmethod(_boom))

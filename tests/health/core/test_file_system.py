@@ -150,7 +150,7 @@ class TestProjectPaths:
     def test_exception_path_yields_project_paths_error(self, monkeypatch, tmp_path: Path) -> None:
         # Any failure while resolving the project paths — the agent-data root
         # here — is reported as a single project_paths error row.
-        def _boom(config: dict[str, Any] | None) -> str:
+        def _boom(_config: dict[str, Any] | None) -> str:
             raise RuntimeError("agent-data root unresolvable")
 
         monkeypatch.setattr(file_system_module, "agent_data_base_dir", _boom)

@@ -20,7 +20,7 @@ HYBRID_ON = {"ariel": {"search_modules": {"hybrid": {"enabled": True}}}}
 async def _run(config, *, knock=None) -> dict[str, CheckResult]:
     """Run the category with a knock that answers, keyed by row name."""
 
-    async def _answers(host: str, port: int) -> None:
+    async def _answers(_host: str, _port: int) -> None:
         return None
 
     results = await reach(config, knock=knock or _answers)()
@@ -69,7 +69,7 @@ class TestRows:
 
 class TestOutcomes:
     async def test_unreachable_is_a_warning_naming_the_address(self):
-        async def refused(host: str, port: int) -> None:
+        async def refused(_host: str, _port: int) -> None:
             raise ConnectionRefusedError(111, "Connection refused")
 
         rows = await _run({**HYBRID_ON, "services": {"qmd": {"port": 8180}}}, knock=refused)
@@ -80,7 +80,7 @@ class TestOutcomes:
         assert "services.qmd.port" in row.details
 
     async def test_timeout_is_unreachable_too(self):
-        async def hangs(host: str, port: int) -> None:
+        async def hangs(_host: str, _port: int) -> None:
             raise TimeoutError()
 
         rows = await _run({**HYBRID_ON, "services": {"qmd": {"port": 8180}}}, knock=hangs)

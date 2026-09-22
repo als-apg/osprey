@@ -44,7 +44,7 @@ class _SpyArchiver:
         channels: list[str],
         start_date: Any,
         end_date: Any,
-        precision_ms: int = 1000,
+        precision_ms: int = 1000,  # noqa: ARG002 - the archiver connector interface fixes this signature
         timeout: int | None = None,
     ) -> pd.DataFrame:
         self.get_data_calls.append((channels, start_date, end_date, timeout))
@@ -289,7 +289,7 @@ async def test_none_config_falls_back_to_global_archiver_block(
     block = {"type": "mock_archiver"}
     keys_asked: list[str] = []
 
-    def fake_get_config_value(key: str, default: Any = None) -> Any:
+    def fake_get_config_value(key: str, _default: Any = None) -> Any:
         keys_asked.append(key)
         return block
 
@@ -305,7 +305,7 @@ async def test_none_config_falls_back_to_global_archiver_block(
     assert runtime.get_archiver_calls == [block]  # the global block reached the runtime
 
 
-def _raising_get_config_value(key: str, default: Any = None) -> Any:
+def _raising_get_config_value(_key: str, _default: Any = None) -> Any:
     raise RuntimeError("config file not found")
 
 

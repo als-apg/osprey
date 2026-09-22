@@ -68,7 +68,7 @@ def _patch_factory(
 ) -> None:
     """Spy `register_builtin_connectors` + `create_control_system_connector`."""
 
-    async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:
+    async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:  # noqa: ARG001 - stands in for the connector factory, whose control_target is keyword-only
         construct_calls.append(config)
         return connector
 
@@ -385,10 +385,10 @@ def test_atexit_wedged_teardown_logs_single_warning_without_traceback(
     lc.bind_loop(_FakeLoop())  # type: ignore[arg-type]
 
     class _WedgedFuture:
-        def result(self, timeout: float | None = None) -> None:
+        def result(self, timeout: float | None = None) -> None:  # noqa: ARG002 - stands in for a shutdown future, whose caller names timeout
             raise TimeoutError("teardown wedged")
 
-    def _fake_submit(coro: Any, loop: Any) -> _WedgedFuture:
+    def _fake_submit(coro: Any, _loop: Any) -> _WedgedFuture:
         coro.close()  # avoid "coroutine was never awaited"
         return _WedgedFuture()
 

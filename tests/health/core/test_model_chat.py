@@ -52,7 +52,7 @@ def _patch_run_sync(
     ``result`` — no daemon thread, no real completion.
     """
 
-    async def fake_run_sync(fn: Any, *args: Any, timeout_s: float) -> Any:
+    async def fake_run_sync(fn: Any, *args: Any, timeout_s: float) -> Any:  # noqa: ARG001 - stands in for run_sync, whose caller names timeout_s
         if recorder is not None:
             recorder.append((args, timeout_s))
         if exc is not None:

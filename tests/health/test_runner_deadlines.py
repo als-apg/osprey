@@ -20,7 +20,7 @@ def runtime():
     return HealthRuntime({})
 
 
-async def _fake_probe(spec, ctx):
+async def _fake_probe(spec, _ctx):
     """Controllable stand-in probe: ``hang`` sleeps forever, ``sleep`` delays,
     ``result_status`` sets the outcome (default ok)."""
     if spec.get("hang"):
