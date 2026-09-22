@@ -123,7 +123,7 @@ class TestOllamaExecuteCompletion:
 
     @patch("httpx.post")
     @patch.object(OllamaProviderAdapter, "_test_connection", return_value=True)
-    def test_execute_text_completion(self, mock_test, mock_post):
+    def test_execute_text_completion(self, _mock_test, mock_post):
         """Test basic text completion via direct Ollama API."""
         provider = OllamaProviderAdapter()
 
@@ -147,7 +147,7 @@ class TestOllamaExecuteCompletion:
 
     @patch("httpx.post")
     @patch.object(OllamaProviderAdapter, "_test_connection", return_value=True)
-    def test_execute_structured_output(self, mock_test, mock_post):
+    def test_execute_structured_output(self, _mock_test, mock_post):
         """output_format routes through the direct structured-output path,
         requesting format=json and validating the response into the model."""
         provider = OllamaProviderAdapter()
@@ -172,7 +172,7 @@ class TestOllamaExecuteCompletion:
 
     @patch("httpx.post")
     @patch.object(OllamaProviderAdapter, "_test_connection", return_value=True)
-    def test_execute_structured_output_invalid_json_raises(self, mock_test, mock_post):
+    def test_execute_structured_output_invalid_json_raises(self, _mock_test, mock_post):
         """Unparseable content surfaces as a ValueError rather than propagating a
         raw pydantic error or returning garbage."""
         provider = OllamaProviderAdapter()
@@ -197,7 +197,7 @@ class TestOllamaExecuteCompletion:
         "_test_connection",
         side_effect=[False, True],  # First fails, second succeeds
     )
-    def test_execute_completion_with_fallback(self, mock_test, mock_post):
+    def test_execute_completion_with_fallback(self, _mock_test, mock_post):
         """Test completion execution with fallback."""
         provider = OllamaProviderAdapter()
 
@@ -220,7 +220,7 @@ class TestOllamaExecuteCompletion:
         assert mock_post.call_args[0][0] == "http://host.containers.internal:11434/api/chat"
 
     @patch.object(OllamaProviderAdapter, "_test_connection", return_value=False)
-    def test_execute_completion_all_connections_fail(self, mock_test):
+    def test_execute_completion_all_connections_fail(self, _mock_test):
         """Test completion fails when all connections fail."""
         provider = OllamaProviderAdapter()
 

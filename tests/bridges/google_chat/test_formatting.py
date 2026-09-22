@@ -93,17 +93,17 @@ GOLDEN: list[tuple[str, str, str, bool]] = [
 ]
 
 
-@pytest.mark.parametrize("name,md,expected,_fp", GOLDEN, ids=[g[0] for g in GOLDEN])
-def test_every_golden_case_converts_to_its_chat_target(name, md, expected, _fp):
+@pytest.mark.parametrize("_name,md,expected,_fp", GOLDEN, ids=[g[0] for g in GOLDEN])
+def test_every_golden_case_converts_to_its_chat_target(_name, md, expected, _fp):
     assert markdown_to_chat(md) == expected
 
 
 @pytest.mark.parametrize(
-    "name,md,expected",
+    "_name,md,expected",
     [(g[0], g[1], g[2]) for g in GOLDEN if g[3]],
     ids=[g[0] for g in GOLDEN if g[3]],
 )
-def test_a_fixpoint_case_is_unchanged_by_a_second_conversion(name, md, expected):
+def test_a_fixpoint_case_is_unchanged_by_a_second_conversion(_name, md, expected):
     once = markdown_to_chat(md)
     assert markdown_to_chat(once) == once
     # The Chat target form is itself a fixpoint.

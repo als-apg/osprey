@@ -118,7 +118,7 @@ class TestToolsPassthrough:
         assert result == "text response"
 
     @patch("osprey.models.providers.litellm_adapter.litellm")
-    def test_tools_and_output_format_raises(self, mock_litellm):
+    def test_tools_and_output_format_raises(self, _mock_litellm):
         """Providing both tools and output_format raises ValueError."""
         from pydantic import BaseModel
 

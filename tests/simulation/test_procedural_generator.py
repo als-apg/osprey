@@ -422,8 +422,8 @@ class TestKindShapes:
             )
             assert kind_name in KIND_SHAPES
 
-    @pytest.mark.parametrize(("kind_name", "pv"), sorted(KIND_EXAMPLES.items()))
-    def test_each_kind_varies_around_its_baseline(self, kind_name, pv):
+    @pytest.mark.parametrize(("_kind_name", "pv"), sorted(KIND_EXAMPLES.items()))
+    def test_each_kind_varies_around_its_baseline(self, _kind_name, pv):
         """Finite, moving, and centred — the sanity floor for every branch.
 
         The sigma the series moves by is the kind's declared one, not a scale

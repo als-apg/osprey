@@ -235,7 +235,7 @@ class TestThePlatformsThatMustRunIt:
         assert on_pva_platform("linux", "X86_64") is True
 
     @pytest.mark.parametrize(
-        ("name", "sys_platform", "machine"),
+        ("_name", "sys_platform", "machine"),
         [
             ("linux-aarch64", "linux", "aarch64"),
             ("linux-armv7l", "linux", "armv7l"),
@@ -243,7 +243,7 @@ class TestThePlatformsThatMustRunIt:
         ],
     )
     def test_the_venue_is_not_required_elsewhere(
-        self, name: str, sys_platform: str, machine: str
+        self, _name: str, sys_platform: str, machine: str
     ) -> None:
         """No p4p wheel exists on any of these -- bare-metal arm64 linux would
         have to build p4p, pvxslibs and epicscorelibs from source -- so an
@@ -285,14 +285,14 @@ class TestTheGuardCanFail:
         return object()
 
     @pytest.mark.parametrize(
-        ("name", "sys_platform", "machine"),
+        ("_name", "sys_platform", "machine"),
         [
             ("linux-x86_64", "linux", "x86_64"),
             ("macos-arm64", "darwin", "arm64"),
         ],
     )
     def test_a_required_venue_that_is_missing_is_rejected(
-        self, name: str, sys_platform: str, machine: str
+        self, _name: str, sys_platform: str, machine: str
     ) -> None:
         with pytest.raises(AssertionError, match="SKIP"):
             check_venue(sys_platform=sys_platform, machine=machine, import_module=self._absent)
@@ -339,11 +339,11 @@ class TestTheGuardCanFail:
         )
 
     @pytest.mark.parametrize(
-        ("name", "sys_platform", "machine"),
+        ("_name", "sys_platform", "machine"),
         [("linux-aarch64", "linux", "aarch64"), ("windows-x86_64", "win32", "AMD64")],
     )
     def test_a_missing_venue_is_tolerated_where_it_is_not_required(
-        self, name: str, sys_platform: str, machine: str
+        self, _name: str, sys_platform: str, machine: str
     ) -> None:
         """Bare-metal arm64 linux has no wheel; its skip must stay honest."""
         check_venue(sys_platform=sys_platform, machine=machine, import_module=self._absent)

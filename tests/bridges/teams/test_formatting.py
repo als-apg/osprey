@@ -111,13 +111,13 @@ GOLDEN: list[tuple[str, str, str]] = [
 ]
 
 
-@pytest.mark.parametrize("name,md,expected", GOLDEN, ids=[g[0] for g in GOLDEN])
-def test_every_golden_case_converts_to_its_teams_target(name, md, expected):
+@pytest.mark.parametrize("_name,md,expected", GOLDEN, ids=[g[0] for g in GOLDEN])
+def test_every_golden_case_converts_to_its_teams_target(_name, md, expected):
     assert markdown_to_teams(md) == expected
 
 
-@pytest.mark.parametrize("name,md,expected", GOLDEN, ids=[g[0] for g in GOLDEN])
-def test_every_golden_case_is_a_fixpoint(name, md, expected):
+@pytest.mark.parametrize("_name,md,expected", GOLDEN, ids=[g[0] for g in GOLDEN])
+def test_every_golden_case_is_a_fixpoint(_name, md, expected):
     once = markdown_to_teams(md)
     assert markdown_to_teams(once) == once
     # The Teams target form is itself a fixpoint.
