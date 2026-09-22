@@ -807,13 +807,20 @@ def _referenced_providers(
 
 
 class _ShellProviderKeys(NamedTuple):
-    """The exported provider keys, split by whether this profile references them."""
+    """The exported provider variables, split by whether this profile references them.
+
+    A referenced provider contributes every variable it cannot start without:
+    its API key and, for a gateway that ships no default host, the endpoint
+    beside it (:func:`_exported_provider_keys`). Only keys are ever reported as
+    skipped — an endpoint is harvested for a referenced provider or not at all.
+    """
 
     seeded: dict[str, str]
-    """``{VAR: value}`` to write into the profile ``.env``, in registry order."""
+    """``{VAR: value}`` to write into the profile ``.env``: keys in registry
+    order, then the endpoints of the providers that need one."""
 
     skipped: tuple[str, ...]
-    """Variables the shell exports for providers the profile never names."""
+    """Key variables the shell exports for providers the profile never names."""
 
 
 #: An ``api_key:`` that defers to the environment, e.g. ``${CBORG_API_KEY}`` or
@@ -849,7 +856,7 @@ def _catalog_key_variables(entries: Mapping[str, Any]) -> dict[str, str]:
 def _exported_provider_keys(
     providers: Collection[str], catalog_entries: Mapping[str, Any] | None = None
 ) -> _ShellProviderKeys:
-    """Split the shell's provider API keys against the providers ``providers`` names.
+    """Split the shell's provider variables against the providers ``providers`` names.
 
     ``os.environ`` is the ONLY source (FR-1). A ``.env`` that happens to sit in
     whatever directory ``osprey init`` was run from is ambient state the profile
@@ -879,6 +886,21 @@ def _exported_provider_keys(
     a packaged entry has been re-pointed. The two agree for every packaged
     provider, so nothing about a stock repo changes.
 
+    A key is not always the whole of what a provider needs. One that fronts a
+    gateway shipping no default host reads its endpoint from the environment
+    too, and a ``.env`` holding the key alone is refused by the ``.env.users``
+    gate over the endpoint — with the value that would have settled it exported
+    in the same shell this harvest read. So the endpoint is taken beside the
+    key, named by
+    :func:`~osprey.deployment.web_terminals.env_production.required_provider_endpoint_var`
+    rather than by a rule of this module's own: ``osprey up``'s seed
+    (:func:`~.deploy_cmd.ensure_repo_env`) asks the same helper, and it never
+    reaches a repo ``init`` has already written a ``.env`` for, so the two seeds
+    have one chance between them to get the name right. A variable the shell
+    does not export is left out rather than written empty — an empty assignment
+    in ``.env`` is a value, and it would beat the fallback every later reader
+    has for an unset one.
+
     Args:
         providers: Provider names the profile references
             (:func:`_referenced_providers`).
@@ -887,10 +909,12 @@ def _exported_provider_keys(
             registry alone, for a caller with no catalog in hand.
 
     Returns:
-        The exported keys split into ``seeded`` and ``skipped``. Both are empty
-        when the caller exported none.
+        The exported variables split into ``seeded`` and ``skipped``. Both are
+        empty when the caller exported none.
     """
     import os
+
+    from osprey.deployment.web_terminals.env_production import required_provider_endpoint_var
 
     from .templates.scaffolding import provider_api_key_entries
 
@@ -909,6 +933,23 @@ def _exported_provider_keys(
             seeded[var] = value
         elif var not in skipped:
             skipped.append(var)
+    # The endpoints come after the keys, each resolved against the minimal
+    # config the helper reads: the provider it is asked about, and the catalog
+    # that may spell that provider's `base_url` as a variable of the operator's
+    # own choosing.
+    for provider in sorted(providers):
+        endpoint_var = required_provider_endpoint_var(
+            {
+                "claude_code": {"provider": provider},
+                "api": {"providers": dict(catalog_entries or {})},
+            }
+        )
+        if not endpoint_var:
+            continue
+        endpoint = os.environ.get(endpoint_var)
+        if endpoint:
+            seeded.setdefault(endpoint_var, endpoint)
+
     # Two entries may name one variable — an operator's gateway sharing a
     # packaged provider's key, say. Seeding wins: the variable IS carried, so
     # reporting it as left out would be a false statement about the `.env`.
