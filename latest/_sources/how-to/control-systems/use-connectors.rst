@@ -417,8 +417,8 @@ independently of the control system:
 
       MYA records changes, not samples -- a value stays in effect until the
       next update. Reads therefore ask for the prior point, so a channel whose
-      last change predates the window still reports its value, stamped at the
-      window start, instead of answering with nothing at all.
+      last change predates the window still reports that change, at the time
+      it was recorded, instead of answering with nothing at all.
 
 Contracts and Custom Connectors
 -------------------------------
