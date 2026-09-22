@@ -679,15 +679,6 @@ ignore-variadic-names = true
 "tests/services/channel_finder/test_registration.py" = ["E402"]  # Late imports after path manipulation
 "src/osprey/services/channel_finder/__init__.py" = ["E402"]  # Grouped imports with section comments
 
-# Unused arguments in the test tree: swept per directory, and an entry leaves
-# with the directory's sweep. A root-level file needs its exact path, because
-# a `*` in these globs spans `/`.
-
-"tests/runtime/*" = ["ARG001", "ARG002"]
-"tests/dispatch/*" = ["ARG001", "ARG002"]
-"tests/hooks/*" = ["ARG001", "ARG002"]
-"tests/audit/*" = ["ARG001", "ARG002"]
-
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]
 
