@@ -216,7 +216,7 @@ def impatient_tiled_client(monkeypatch: Any) -> None:
 
 
 @pytest.fixture
-def bridge(tiled_uri: str, stored_runs: dict[str, Any], monkeypatch: Any) -> Iterator[TestClient]:
+def bridge(tiled_uri: str, stored_runs: dict[str, Any], monkeypatch: Any) -> Iterator[TestClient]:  # noqa: ARG001 - the catalog holds runs before the app is pointed at it
     """The bridge app, pointed at the live catalog through the compose env vars.
 
     `app` is imported inside the fixture, after the container is up, so a module

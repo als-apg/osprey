@@ -743,7 +743,7 @@ def mount_preflight(host_zone) -> str:
 
 
 @pytest.fixture(scope="module")
-def image(repo: Path, project: str, mount_preflight: str):
+def image(repo: Path, project: str, mount_preflight: str):  # noqa: ARG001 - the mount is proved before an image is built on it
     """The deployment's own image, built with the local dev wheel staged in."""
     context = container_image_context(repo, project)
     tag = f"{TAG_PREFIX}:{uuid.uuid4().hex[:8]}"

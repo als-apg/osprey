@@ -473,7 +473,7 @@ def deployment(bench_endpoint, va_endpoint, limits_database) -> dict[str, Any]: 
 
 
 @pytest.fixture
-async def make_manager(written_config, state_root):
+async def make_manager(written_config, state_root):  # noqa: ARG001 - the stamped state root exists before a manager is built over it
     """Managers whose children are all reaped when the test ends."""
     created: list[ConnectorHostManager] = []
 

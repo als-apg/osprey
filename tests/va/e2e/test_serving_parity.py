@@ -442,7 +442,7 @@ def va() -> Any:
 
 
 @pytest.fixture(scope="module")
-def truth_orbit(va: LiveVA) -> dict[str, float]:
+def truth_orbit(va: LiveVA) -> dict[str, float]:  # noqa: ARG001 - the seeded machine is up and sampled before the reference one boots
     """The same machine with no seeded error, where a reading *is* the truth.
 
     Booted after the seeded container is already up and sampled, and torn down

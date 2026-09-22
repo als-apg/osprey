@@ -235,7 +235,7 @@ def armed_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def connector(armed_deployment: None) -> Iterator[_RecordingMockConnector]:
+def connector(armed_deployment: None) -> Iterator[_RecordingMockConnector]:  # noqa: ARG001 - the deployment's write ceiling is open before the connector is built
     """The connector a lane builds, through the factory that builds a lane's.
 
     Built rather than constructed, because the monitor reads two stamps that
