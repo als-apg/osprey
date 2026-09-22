@@ -333,9 +333,7 @@ def test_seed_from_ttl_help_listed() -> None:
     assert "seed-from-ttl" in result.output
 
 
-def test_seed_from_ttl_no_rdflib_clean_error(
-    mini_ttl: Path, seed_bundle: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_seed_from_ttl_no_rdflib_clean_error(mini_ttl: Path, seed_bundle: Path) -> None:
     """Missing rdflib produces a clean ClickException, not a traceback."""
     import sys
     import unittest.mock as mock

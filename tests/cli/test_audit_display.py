@@ -67,7 +67,7 @@ class TestMachineOutput:
         assert json.loads(captured.out)["overall_risk"] == "high"
         assert printed == []
 
-    def test_json_output_prints_no_panel_and_no_table(self, capsys, printed):
+    def test_json_output_prints_no_panel_and_no_table(self, printed):
         """The renderer is not reached at all on the machine path."""
         _display_report(_report(_finding()), json_output=True, verbose=True, cost=0.05, turns=10)
 

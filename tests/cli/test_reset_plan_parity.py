@@ -262,7 +262,7 @@ def test_the_condensed_steps_are_on_the_default_view_not_the_log(
 
 
 def test_an_empty_plan_reports_nothing_to_do_and_removes_nothing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_destruction
+    tmp_path: Path, no_destruction
 ) -> None:
     """``reset_for_reinit`` on a repo with nothing to take does not execute.
 

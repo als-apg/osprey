@@ -376,7 +376,7 @@ class TestPrunePurgesOrphanSecrets:
         assert (root / ENV_LOCAL_FILENAME).read_text(encoding="utf-8") == before
 
     @pytest.mark.usefixtures("stub_engines")
-    def test_an_intact_roster_keeps_every_secret(self, cli_runner, repo_root, monkeypatch):
+    def test_an_intact_roster_keeps_every_secret(self, cli_runner, repo_root):
         cli_runner.invoke(users, ["seed"])
         before = (repo_root / ENV_LOCAL_FILENAME).read_text(encoding="utf-8")
 

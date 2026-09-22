@@ -1033,7 +1033,7 @@ def test_crown_jewel_invariant_accepts_prefix_match_on_existing_allow(
 # ---------------------------------------------------------------------------
 
 
-def test_build_command_fails_on_violation(tmp_path, monkeypatch, caplog):
+def test_build_command_fails_on_violation(tmp_path, caplog):
     """``osprey build`` must abort when a profile agent declares an unbacked tool.
 
     Uses a synthetic profile whose ``agents/`` convention directory holds an
