@@ -468,7 +468,7 @@ def written_config(tmp_path):
 
 
 @pytest.fixture
-async def make_manager(state_root, endpoints, written_config, tmp_path):
+async def make_manager(state_root, endpoints, written_config, tmp_path):  # noqa: ARG001 - the stamped state root exists before a manager is built over it
     """Managers whose children are all reaped when the test ends."""
     created: list[ConnectorHostManager] = []
 
@@ -1048,7 +1048,7 @@ os._exit(0)
 
 
 @pytest.fixture
-def sandbox(tmp_path, endpoints, state_root):
+def sandbox(tmp_path, endpoints, state_root):  # noqa: ARG001 - the stamped state root is what the sandbox subprocess resolves
     """Run stamped agent code the way the executor runs it: another process.
 
     The deployment is written to ``config.yml`` in ``tmp_path`` so that the

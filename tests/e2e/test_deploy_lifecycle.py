@@ -447,7 +447,7 @@ def _seed_repo(
 
 
 @pytest.fixture
-def repo(tmp_path: Path, stub_image: str) -> Path:
+def repo(tmp_path: Path, stub_image: str) -> Path:  # noqa: ARG001 - the seeded repo's build/ refers to this image
     """A throwaway deployment repo whose build/ is multi_user_config.yml."""
     return _seed_repo(
         tmp_path / "project",

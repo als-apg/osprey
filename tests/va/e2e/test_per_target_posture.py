@@ -540,7 +540,7 @@ def config_path(module_environment) -> Path:
 
 
 @pytest.fixture(scope="module")
-def web(tmp_path_factory, config_path, module_environment):
+def web(tmp_path_factory, config_path, module_environment):  # noqa: ARG001 - the stamped module environment is in place
     """The real web server, over the same stamped root, for the whole module.
 
     Two seams are patched and nothing else, and both say the same thing: the
@@ -863,7 +863,7 @@ def configured_endpoint(config_path: Path, connector_type: str, role: str) -> st
 
 
 @pytest.fixture(scope="module")
-async def session(config_path, web, module_environment):
+async def session(config_path, web, module_environment):  # noqa: ARG001 - the stamped module environment is in place
     """Drive the whole scripted session once, recording what each step saw.
 
     Module-scoped because every expensive part is shared: two containers, one

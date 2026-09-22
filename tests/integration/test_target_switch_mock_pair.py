@@ -639,7 +639,7 @@ class TestSandboxEndpointMatchesTheDerivation:
     """CF-5's integration half: both halves of the stamp name one endpoint."""
 
     @pytest.fixture
-    def sandbox(self, state_root, monkeypatch):
+    def sandbox(self, state_root, monkeypatch):  # noqa: ARG002 - the stamped state root exists before the sandbox is built in it
         """A stamped sandbox with the fake registry the factory will build from."""
         import osprey.runtime as runtime
 
