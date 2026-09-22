@@ -986,7 +986,9 @@ _FALSE_WORDS = frozenset({"false", "no", "off", "0"})
 _TRUE_WORDS = frozenset({"true", "yes", "on", "1"})
 
 
-def resolve_config_flag(key: str, default: bool, on_error: str) -> bool:
+def resolve_config_flag(
+    key: str, default: bool, on_error: str, *, config_path: str | Path | None = None
+) -> bool:
     """Read a configured boolean switch at startup, failing OPEN to *default*.
 
     The read and the coercion are one step because the two failure modes want
@@ -1000,6 +1002,11 @@ def resolve_config_flag(key: str, default: bool, on_error: str) -> bool:
         default: Posture for a deployment that never mentions the key.
         on_error: Warning logged when the config cannot be read at all; it says
             which switch was left at its default and what that means.
+        config_path: The config file to answer from. A surface that resolved its
+            own config file names it here, so the switch is read out of that file
+            rather than out of whichever one this process defaults to. None reads
+            the process default (``CONFIG_FILE``, else ``config.yml`` in the
+            working directory).
 
     Returns:
         The configured boolean, or *default*.
@@ -1007,7 +1014,7 @@ def resolve_config_flag(key: str, default: bool, on_error: str) -> bool:
     try:
         from osprey.utils.config import get_config_value
 
-        raw = get_config_value(key, default)
+        raw = get_config_value(key, default, str(config_path) if config_path is not None else None)
     except Exception:  # noqa: BLE001 — never let config load block startup
         logger.warning(on_error, exc_info=True)
         raw = None
