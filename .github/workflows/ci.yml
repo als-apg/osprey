@@ -564,6 +564,8 @@ jobs:
           tests/connectors/test_archiver_timerange.py \
           tests/connectors/test_epics_archiver_connector.py \
           tests/connectors/test_doocs_archiver_connector.py \
+          tests/connectors/test_mya_archiver_connector.py \
+          tests/connectors/test_mya_registration.py \
           tests/connectors/test_mock_connector.py \
           tests/connectors/test_archiver_timezone.py \
           tests/connectors/test_simulation_integration.py \

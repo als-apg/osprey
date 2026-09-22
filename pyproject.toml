@@ -557,6 +557,7 @@ module = [
     "podman.*",
     "pymongo.*",
     "doocs4py.*",
+    "jlab_archiver_client.*",
     "tango.*",
 ]
 ignore_missing_imports = true
