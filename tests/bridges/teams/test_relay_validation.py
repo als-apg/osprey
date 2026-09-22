@@ -132,7 +132,7 @@ def _metadata_source(record, *, payload: bytes | None = None, error: Exception |
 def _jwks_source(record, *, payload: bytes | None = None, error: Exception | None = None):
     """A stand-in for ``urllib.request.urlopen``: PyJWT's JWKS GET."""
 
-    def _open(request, timeout=None, context=None):
+    def _open(request, timeout=None, context=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
         record.jwks.append((request.full_url, timeout))
         if error is not None:
             raise error
@@ -150,7 +150,7 @@ def network(monkeypatch):
         record.metadata.append((url, timeout))
         raise AssertionError(f"unexpected metadata fetch: {url}")
 
-    def _jwks_fetch(request, timeout=None, context=None):
+    def _jwks_fetch(request, timeout=None, context=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
         record.jwks.append((request.full_url, timeout))
         raise AssertionError(f"unexpected JWKS fetch: {request.full_url}")
 
@@ -326,7 +326,7 @@ def test_a_jwks_failure_is_reported_as_an_outage(monkeypatch, network, case):
 def test_an_unexpected_key_source_failure_is_not_masked_as_an_outage(monkeypatch):
     """Stage B's boundary is the stated exception tuple, not a bare ``except``."""
 
-    def _explode(name, cloud):
+    def _explode(_name, _cloud):
         raise RuntimeError("a bug in the relay, not an outage")
 
     monkeypatch.setattr(validation, "_key_source", _explode)

@@ -287,7 +287,7 @@ def test_the_scope_is_chat_bot():
 class BlockGoogleImports:
     """A meta-path finder that refuses every ``google*`` import."""
 
-    def find_spec(self, fullname, path=None, target=None):
+    def find_spec(self, fullname, _path=None, _target=None):
         if fullname == "google" or fullname.startswith(("google.", "googleapiclient")):
             raise ImportError(f"blocked in this test: {fullname}")
         return None

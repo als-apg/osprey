@@ -575,7 +575,7 @@ def test_give_up_survives_a_failing_history_write(dedup):
     into a retried one."""
 
     class BrokenHistory:
-        def append_failed(self, key, question):
+        def append_failed(self, _key, _question):
             raise RuntimeError("disk full")
 
     ops = _ops()

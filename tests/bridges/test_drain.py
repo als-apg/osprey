@@ -51,15 +51,15 @@ class FakeCalls:
     give_up_raises: bool = False
 
     def as_callbacks(self):
-        def dispatch(mid, entry):
+        def dispatch(mid, _entry):
             self.dispatched.append(mid)
 
-        def deliver(mid, entry, body):
+        def deliver(mid, _entry, body):
             self.delivered.append((mid, body.get("status")))
             if self.deliver_raises:
                 raise RuntimeError("send failed")
 
-        def give_up(mid, entry):
+        def give_up(mid, _entry):
             self.gave_up.append(mid)
             if self.give_up_raises:
                 raise RuntimeError("notice failed")
@@ -168,7 +168,7 @@ def test_cas_loser_takes_no_action(tmp_path):
     _enqueue(store, "m2", num_tool_calls=0)
     dispatched = []
 
-    def dispatch(mid, entry):
+    def dispatch(mid, _entry):
         dispatched.append(mid)
         if mid == "m1":  # simulate a racing actor claiming m2 mid-pass
             assert store.transition("m2", "queued", "superseded")
@@ -525,7 +525,7 @@ def test_one_entry_failure_does_not_abort_pass(tmp_path):
     _enqueue(store, "good", text="hi", num_tool_calls=0)
 
     class Boom(FakeDispatcher):
-        def status(self, run_id):
+        def status(self, _run_id):
             raise RuntimeError("worker exploded")
 
     calls = FakeCalls()

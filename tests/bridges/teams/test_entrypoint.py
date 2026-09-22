@@ -186,13 +186,13 @@ class RecordingReceiver:
         self.pulls.append((max_messages, max_wait))
         return []
 
-    def complete(self, msg: Any) -> None:
+    def complete(self, _msg: Any) -> None:
         raise AssertionError("nothing was delivered to complete")
 
-    def dead_letter(self, msg: Any, reason: str) -> None:
+    def dead_letter(self, _msg: Any, _reason: str) -> None:
         raise AssertionError("nothing was delivered to dead-letter")
 
-    def register(self, msg: Any) -> None:
+    def register(self, _msg: Any) -> None:
         raise AssertionError("nothing was delivered to register")
 
     def close(self) -> None:
@@ -226,7 +226,7 @@ class FakeRuntime:
     def supervise(self) -> None:
         self.supervised += 1
 
-    def handle_event(self, event: Any) -> str:
+    def handle_event(self, _event: Any) -> str:
         return "ignored"
 
 
@@ -595,7 +595,7 @@ def test_run_lets_a_caller_replace_the_deps_bundle(
     ``gate`` seam travels the same way."""
     forever: dict[str, Any] = {}
 
-    def fake_run_forever(core: CoreConfig, ops: Any, serve: Any, **kwargs: Any) -> None:
+    def fake_run_forever(core: CoreConfig, ops: Any, serve: Any, **kwargs: Any) -> None:  # noqa: ARG001 - stands in for run_forever, which collects its remaining arguments as keywords
         forever.update(kwargs)
 
     def always_healthy() -> bool:

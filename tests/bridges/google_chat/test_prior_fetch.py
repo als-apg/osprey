@@ -253,7 +253,7 @@ def test_a_descriptor_with_no_published_url_reports_nothing_when_the_worker_has_
 
 
 def test_both_routes_failing_reports_nothing_rather_than_raising():
-    def failing(request: httpx.Request) -> httpx.Response:
+    def failing(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(500)
 
     result, _, _ = fetch(worker_serving({}), failing)
@@ -262,7 +262,7 @@ def test_both_routes_failing_reports_nothing_rather_than_raising():
 
 
 def test_a_transport_error_on_the_fallback_reports_nothing_rather_than_raising():
-    def exploding(request: httpx.Request) -> httpx.Response:
+    def exploding(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("no route to host")
 
     result, _, _ = fetch(worker_serving({}), exploding)

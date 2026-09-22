@@ -376,7 +376,7 @@ def test_an_artifact_the_worker_does_not_have_costs_only_itself(cfg, caplog):
 
 
 def test_an_unreachable_worker_yields_no_urls_and_no_exception(cfg, caplog):
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("worker unreachable")
 
     urls = publish_artifacts(

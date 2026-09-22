@@ -203,7 +203,7 @@ class FakeFuture:
     def __init__(self) -> None:
         self.cancelled = False
 
-    def result(self, timeout: float | None = None) -> Any:
+    def result(self, timeout: float | None = None) -> Any:  # noqa: ARG002 - stands in for a streaming-pull future, whose caller names timeout
         raise TimeoutError
 
     def cancel(self) -> None:
@@ -215,7 +215,7 @@ class FakeSubscriber:
         self.subscriptions: list[str] = []
         self.future = FakeFuture()
 
-    def subscribe(self, subscription: str, callback: Callable[[Any], None]) -> FakeFuture:
+    def subscribe(self, subscription: str, callback: Callable[[Any], None]) -> FakeFuture:  # noqa: ARG002 - stands in for the Pub/Sub subscriber, whose caller names callback
         self.subscriptions.append(subscription)
         return self.future
 
@@ -229,7 +229,7 @@ class FakeRuntime:
     def supervise(self) -> None:
         self.supervised += 1
 
-    def handle_event(self, event: Any) -> str:
+    def handle_event(self, _event: Any) -> str:
         return "ignored"
 
 
@@ -524,7 +524,7 @@ def test_run_lets_a_caller_replace_the_deps_bundle(
     ``gate`` seam travels the same way."""
     forever: dict[str, Any] = {}
 
-    def fake_run_forever(core: CoreConfig, ops: Any, serve: Any, **kwargs: Any) -> None:
+    def fake_run_forever(core: CoreConfig, ops: Any, serve: Any, **kwargs: Any) -> None:  # noqa: ARG001 - stands in for run_forever, which collects its remaining arguments as keywords
         forever.update(kwargs)
 
     def always_healthy() -> bool:

@@ -151,7 +151,7 @@ def test_download_default_cap_comes_from_the_core_budget():
 
 
 def test_download_rejects_a_declared_length_over_the_cap():
-    def big(request):
+    def big(_request):
         return httpx.Response(200, content=b"x" * 64)
 
     with pytest.raises(DavTooLargeError, match="over the 32-byte cap"):
@@ -162,7 +162,7 @@ def test_download_abandons_a_stream_that_passes_the_cap():
     """No declared length, so only the streaming guard can stop this one."""
     sent: list[int] = []
 
-    def chunked(request):
+    def chunked(_request):
         def body():
             for _ in range(100):
                 sent.append(1)
@@ -178,7 +178,7 @@ def test_download_abandons_a_stream_that_passes_the_cap():
 
 
 def test_download_accepts_a_body_exactly_at_the_cap():
-    def exact(request):
+    def exact(_request):
         return httpx.Response(200, content=b"x" * 32)
 
     assert _client(exact).dav_download("Talk/edge.bin", max_bytes=32) == b"x" * 32
@@ -201,7 +201,7 @@ def test_download_rejects_a_non_positive_cap():
 
 
 def test_download_raises_on_a_missing_file():
-    def gone(request):
+    def gone(_request):
         return httpx.Response(404)
 
     with pytest.raises(httpx.HTTPStatusError):
@@ -363,7 +363,7 @@ def test_share_type_is_the_room_share():
 def test_share_tolerates_a_duplicate(status, message):
     """Redelivering the same artifact must be a no-op, not a failure."""
 
-    def duplicate(request):
+    def duplicate(_request):
         return _ocs_failure(status, message)
 
     _client(duplicate).share_to_room(f"{RUN_DIR}/plot.png", "roomA")
@@ -372,7 +372,7 @@ def test_share_tolerates_a_duplicate(status, message):
 def test_share_raises_on_a_genuine_permission_failure():
     """A bare 403 is also how "the bot may not share here" arrives."""
 
-    def denied(request):
+    def denied(_request):
         return _ocs_failure(403, "You are not allowed to share this file")
 
     with pytest.raises(httpx.HTTPStatusError):
@@ -382,7 +382,7 @@ def test_share_raises_on_a_genuine_permission_failure():
 def test_share_raises_when_a_rejection_is_not_an_ocs_envelope():
     """An HTML error page from a proxy must not be read as a tolerated duplicate."""
 
-    def html(request):
+    def html(_request):
         return httpx.Response(403, text="<html>already shared</html>")
 
     with pytest.raises(httpx.HTTPStatusError):
@@ -390,7 +390,7 @@ def test_share_raises_when_a_rejection_is_not_an_ocs_envelope():
 
 
 def test_share_raises_on_a_server_error():
-    def broken(request):
+    def broken(_request):
         return httpx.Response(500)
 
     with pytest.raises(httpx.HTTPStatusError):

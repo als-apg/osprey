@@ -87,7 +87,7 @@ class RecordingFetcher:
         self.calls: list[tuple[str, str]] = []
 
     def __call__(
-        self, http: Any, cfg: Any, run_id: str, artifact_id: str
+        self, _http: Any, _cfg: Any, run_id: str, artifact_id: str
     ) -> FetchedArtifact | None:
         self.calls.append((run_id, artifact_id))
         return self.byte_map.get(artifact_id)
