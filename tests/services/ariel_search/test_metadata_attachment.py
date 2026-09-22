@@ -248,7 +248,7 @@ class TestAdapterDeclaredSidecarNames:
         assert entry["metadata"] == {"a": 1}
 
     @pytest.mark.asyncio
-    async def test_unmatched_attachments_are_logged_at_debug(self, tmp_path: Path, caplog):
+    async def test_unmatched_attachments_are_logged_at_debug(self, caplog):
         """An entry with attachments and no sidecar says so rather than staying silent."""
         entry = _make_entry(attachments=[{"url": "/files/plot.png", "filename": "plot.png"}])
 

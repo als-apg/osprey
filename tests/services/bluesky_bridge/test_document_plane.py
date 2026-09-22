@@ -125,7 +125,7 @@ def plane(certificates: dict[str, Path]):
 
 
 @pytest.fixture
-def publishers(plane):
+def publishers(plane):  # noqa: ARG001 - the plane orders this teardown ahead of the proxy's
     """Every publisher a test opens, closed before the plane goes down.
 
     ``Publisher`` owns a 0MQ context and a PUB socket and releases neither

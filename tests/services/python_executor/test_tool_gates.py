@@ -137,7 +137,7 @@ def _refusal_records(audit_zone):
 
 
 @BOTH_MODES
-async def test_execute_refuses_render_zone_write_in_every_mode(execution_mode, audit_zone):
+async def test_execute_refuses_render_zone_write_in_every_mode(execution_mode):
     """readwrite is not a way around the policy — both modes refuse."""
     with assert_raises_error(error_type="safety_error") as ctx:
         await _execute()(
@@ -152,7 +152,7 @@ async def test_execute_refuses_render_zone_write_in_every_mode(execution_mode, a
 
 
 @BOTH_MODES
-async def test_readwrite_wording_does_not_blame_readonly_mode(execution_mode, audit_zone):
+async def test_readwrite_wording_does_not_blame_readonly_mode(execution_mode):
     """The refusal must not send a readwrite caller back to try readwrite."""
     with assert_raises_error(error_type="safety_error") as ctx:
         await _execute()(
@@ -209,7 +209,7 @@ class TestTheProseCheckIsBlindToTheCheckoutName:
 
 
 @BOTH_MODES
-async def test_execute_file_matches_execute(execution_mode, script_root, audit_zone):
+async def test_execute_file_matches_execute(execution_mode, script_root):
     """The same code through the file tool gives the same refusal."""
     script = _script(script_root, RENDER_ZONE_WRITE + "\n")
     with assert_raises_error(error_type="safety_error") as file_ctx:
