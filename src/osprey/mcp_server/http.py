@@ -159,10 +159,17 @@ def _panel_auth_headers() -> dict[str, str]:
     ``get_web_credentials()`` would *mint* a token the terminal does not
     recognise.
 
+    A process behind the multi-user proxy holds no operator secret, so building
+    an interface app in it refuses, and that refusal consumes the carrier before
+    anything latched it — the holder stays empty too.  The token it was handed
+    is still the right bearer, and
+    :func:`~osprey.interfaces.web_auth.peek_supplied_panel_token` is where it is
+    read, last.
+
     Returns:
         ``{"Authorization": "Bearer <token>"}`` when the carrier, the latch,
-        or this process's own credential holder yields a non-blank value,
-        otherwise ``{}``.  Blank counts as
+        this process's own credential holder, or the token it was handed
+        yields a non-blank value, otherwise ``{}``.  Blank counts as
         absent — an uninterpolated compose variable arrives as ``""`` — and a
         bare ``"Bearer "`` would be a credential-shaped lie the route has to
         reject.
@@ -170,7 +177,11 @@ def _panel_auth_headers() -> dict[str, str]:
     global _PANEL_TOKEN_LATCH
     import os
 
-    from osprey.interfaces.web_auth import PANEL_TOKEN_ENV, peek_web_credentials
+    from osprey.interfaces.web_auth import (
+        PANEL_TOKEN_ENV,
+        peek_supplied_panel_token,
+        peek_web_credentials,
+    )
 
     token = os.environ.get(PANEL_TOKEN_ENV, "").strip()
     if token:
@@ -179,6 +190,8 @@ def _panel_auth_headers() -> dict[str, str]:
         token = _PANEL_TOKEN_LATCH
     elif (held := peek_web_credentials()) is not None:
         token = held.panel_token
+    elif (supplied := peek_supplied_panel_token()) is not None:
+        token = supplied
     return {"Authorization": f"Bearer {token}"} if token else {}
 
 

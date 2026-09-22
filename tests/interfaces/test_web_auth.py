@@ -40,6 +40,7 @@ from osprey.interfaces.web_auth import (
     _digest,
     get_web_credentials,
     mint_secret,
+    peek_supplied_panel_token,
     reset_web_credentials,
 )
 from osprey.utils.identity import AUDIT_IDENTITY_ENV, TERMINAL_USER_ENV, acting_identity
@@ -239,6 +240,65 @@ def test_container_shape_failure_still_consumes_the_panel_token(
 
     assert PANEL_TOKEN_ENV not in os.environ
     assert OPERATOR_SECRET_ENV not in os.environ
+
+
+def test_a_refused_population_still_remembers_the_supplied_panel_token(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The refusal takes the carrier out of the environment, not out of this process.
+
+    Both halves hold at once: a child spawned afterwards inherits no panel
+    token, and this process still has the one its launcher handed it.
+    """
+    import os
+
+    monkeypatch.setenv(BIND_HOST_ENV, "127.0.0.1")
+    monkeypatch.setenv(PANEL_TOKEN_ENV, "supplied-panel-token")
+
+    with pytest.raises(RuntimeError):
+        get_web_credentials()
+
+    assert PANEL_TOKEN_ENV not in os.environ
+    assert peek_supplied_panel_token() == "supplied-panel-token"
+
+
+@pytest.mark.parametrize("carrier", [None, "", "   "])
+def test_a_refused_population_remembers_nothing_when_nothing_was_supplied(
+    monkeypatch: pytest.MonkeyPatch, carrier: str | None
+) -> None:
+    """An absent or blank carrier is no credential, so nothing is remembered."""
+    monkeypatch.setenv(BIND_HOST_ENV, "127.0.0.1")
+    if carrier is not None:
+        monkeypatch.setenv(PANEL_TOKEN_ENV, carrier)
+
+    with pytest.raises(RuntimeError):
+        get_web_credentials()
+
+    assert peek_supplied_panel_token() is None
+
+
+def test_a_successful_population_remembers_the_supplied_token_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """In the single-user shape the memory and the holder agree."""
+    monkeypatch.setenv(PANEL_TOKEN_ENV, "supplied")
+
+    credentials = get_web_credentials()
+
+    assert peek_supplied_panel_token() == credentials.panel_token == "supplied"
+
+
+def test_reset_forgets_the_supplied_panel_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A remembered token must not outlive the reset every test runs between."""
+    monkeypatch.setenv(BIND_HOST_ENV, "127.0.0.1")
+    monkeypatch.setenv(PANEL_TOKEN_ENV, "supplied-panel-token")
+    with pytest.raises(RuntimeError):
+        get_web_credentials()
+    assert peek_supplied_panel_token() == "supplied-panel-token"
+
+    reset_web_credentials()
+
+    assert peek_supplied_panel_token() is None
 
 
 def test_container_shape_with_supplied_secret_is_accepted(
