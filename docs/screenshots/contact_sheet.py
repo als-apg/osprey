@@ -1029,7 +1029,7 @@ class PanelSurface(NamedTuple):
 
 #: Boot one hermetic app per surface family. Each callable takes the seeded
 #: workspace and returns a context manager yielding the server's base URL.
-def _boot_ariel(workspace: Path):
+def _boot_ariel(_workspace: Path):
     from osprey.interfaces._serving import run_app_server
     from osprey.interfaces.ariel.app import create_app
 
@@ -1059,7 +1059,7 @@ def _boot_okf(workspace: Path):
     return run_app_server(create_app(str(workspace / "knowledge")))
 
 
-def _boot_dispatch_dashboard(workspace: Path):
+def _boot_dispatch_dashboard(_workspace: Path):
     from fastapi import FastAPI
     from fastapi.responses import HTMLResponse
     from fastapi.staticfiles import StaticFiles
@@ -1081,7 +1081,7 @@ def _boot_dispatch_dashboard(workspace: Path):
     return run_app_server(app)
 
 
-def _boot_bluesky_web(workspace: Path):
+def _boot_bluesky_web(_workspace: Path):
     from osprey.interfaces._serving import run_app_server
     from osprey.interfaces.bluesky_web.app import app as bluesky_web_app
 

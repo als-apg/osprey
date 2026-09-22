@@ -831,7 +831,7 @@ def capture_tutorial_stack(
 # ---------------------------------------------------------------------------
 
 
-def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> None:
+def run(shots: list[DocShot], *, stack: bool = False, agentic: bool = False) -> None:  # noqa: ARG001 - the CLI passes both selector flags by keyword; the recipe list arrives already filtered on stack
     """Capture the selected recipes, sharing one headless browser for the run.
 
     ``standalone_interface`` recipes are booted and captured directly;

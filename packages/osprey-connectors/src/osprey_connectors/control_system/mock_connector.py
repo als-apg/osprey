@@ -103,7 +103,9 @@ class MockConnector(ControlSystemConnector):
         logger.debug("Mock connector disconnected")
 
     async def read_channel(
-        self, channel_address: str, timeout: float | None = None
+        self,
+        channel_address: str,
+        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.read_channel signature; a mock read never blocks
     ) -> ChannelValue:
         """
         Read channel - generates realistic value if not cached.
@@ -195,7 +197,7 @@ class MockConnector(ControlSystemConnector):
         self,
         channel_address: str,
         value: Any,
-        timeout: float | None = None,
+        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.write_channel signature; a mock write never blocks
         confirm: bool | None = None,
     ) -> ChannelWriteResult:
         """
@@ -325,7 +327,9 @@ class MockConnector(ControlSystemConnector):
             self._state[readback_ch] = float(value) + offset
 
     async def read_multiple_channels(
-        self, channel_addresses: list[str], timeout: float | None = None
+        self,
+        channel_addresses: list[str],
+        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.read_multiple_channels signature; a mock read never blocks
     ) -> dict[str, ChannelValue]:
         """Read multiple channels concurrently."""
         tasks = [self.read_channel(ch) for ch in channel_addresses]
@@ -371,7 +375,7 @@ class MockConnector(ControlSystemConnector):
             timestamp=datetime.now(get_facility_timezone()),
         )
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, channel_address: str) -> bool:  # noqa: ARG002 - ControlSystemConnector.validate_channel signature; every name is valid in mock mode
         """All channel names are valid in mock mode."""
         return True
 

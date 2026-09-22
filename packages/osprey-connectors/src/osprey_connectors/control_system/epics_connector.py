@@ -1215,7 +1215,7 @@ class EPICSConnector(ControlSystemConnector):
         if self._is_pva_channel(channel_address):
             return self._subscribe_pva(channel_address, callback, loop)
 
-        def epics_callback(pvname=None, value=None, timestamp=None, **kwargs):
+        def epics_callback(pvname=None, value=None, timestamp=None, **kwargs):  # noqa: ARG001 - pyepics monitor callback signature; the subscriber reads the value and its timestamp
             """Wrapper to convert EPICS callback to our format.
 
             pyepics hands a monitor callback a copy of the PV's whole argument
