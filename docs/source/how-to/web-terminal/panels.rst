@@ -323,6 +323,33 @@ approve each call on a stock build.
 ``list_panels`` reports the configured layouts so the agent can honor a request
 like "set up for machine setup."
 
+Panel tools the agent uses
+--------------------------
+
+The panel tools come in two kinds: the ones that say what is on screen, which
+are auto-allowed, and the ones that change rail membership, which ask the
+operator first.
+
+What is on screen:
+
+- ``list_panels`` — the panels this deployment has, which of them are on
+  screen, and the configured layouts.
+- ``open_panel`` — put a panel on screen; it joins the rail if it was off it.
+- ``close_panel`` — take a panel's tile off screen, leaving it on the rail.
+- ``arrange_workspace`` — state a whole layout: exactly these tiles, in this
+  order.
+
+Rail membership, each one approved by the operator:
+
+- ``add_panel_to_rail`` — make a panel launchable from the rail in one click.
+- ``remove_panel_from_rail`` — take a panel off the rail, and off screen with
+  it.
+- ``register_panel`` — add a rail entry at runtime for an upstream URL the
+  terminal proxies.
+
+:doc:`/architecture/mcp-servers` lists these beside the rest of the workspace
+server's tools.
+
 .. dropdown:: Going deeper — how panels work
    :icon: package
 
