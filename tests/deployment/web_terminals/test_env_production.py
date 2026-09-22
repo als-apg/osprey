@@ -778,9 +778,8 @@ def test_env_production_existing_file_with_the_endpoint_in_the_chain_is_not_refu
     assert env_production.parse_dotenv_file(written)["ALS_APG_BASE_URL"] == "https://gw.test/v1"
 
 
-def test_the_preflight_report_carries_the_missing_endpoint_of_an_existing_file(
-    tmp_path, a_gateway_that_ships_no_endpoint
-):
+@pytest.mark.usefixtures("a_gateway_that_ships_no_endpoint")
+def test_the_preflight_report_carries_the_missing_endpoint_of_an_existing_file(tmp_path):
     """The collect-all pass reports what the gate raises on, for an existing
     file as much as for a render it would refuse to generate."""
     from osprey.deployment.web_terminals.provision import web_terminal_preflight_report

@@ -1079,7 +1079,8 @@ def _with_derived_block(repo: Path) -> Path:
     return env
 
 
-def test_the_build_derived_pointers_go_with_the_deployment(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_build_derived_pointers_go_with_the_deployment(repo):
     """A discarded deployment keeps no pointer into the build tree it discarded.
 
     The next build re-derives both from the project's own content, and a value
@@ -1096,7 +1097,8 @@ def test_the_build_derived_pointers_go_with_the_deployment(repo, no_down):
     assert DERIVED_ENV_BANNER not in text
 
 
-def test_the_operators_keys_survive_the_derived_strip(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_the_operators_keys_survive_the_derived_strip(repo):
     env = _with_derived_block(repo)
 
     run_reset(repo, FakeRuntime())
@@ -1104,7 +1106,8 @@ def test_the_operators_keys_survive_the_derived_strip(repo, no_down):
     assert "ANTHROPIC_API_KEY=sk-provider-secret" in env.read_text(encoding="utf-8")
 
 
-def test_a_pointer_pinned_outside_the_builds_section_is_the_operators(repo, no_down):
+@pytest.mark.usefixtures("no_down")
+def test_a_pointer_pinned_outside_the_builds_section_is_the_operators(repo):
     """The banner is what makes a line the build's. A line above it is not."""
     (repo / ".env").write_text(
         "VA_LATTICE=my-own-ring.json\nANTHROPIC_API_KEY=sk-x\n", encoding="utf-8"
