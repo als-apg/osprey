@@ -525,7 +525,8 @@ async def test_a_failed_publish_does_not_stop_the_loop(listener, monkeypatch, ca
 
     monkeypatch.setattr(ep.target_state, "publish_reachability", _boom)
 
-    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01)
+    clock = FakeClock()
+    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01, monotonic=clock)
 
     with caplog.at_level("WARNING", logger=ep.logger.name):
         await prober.start()
