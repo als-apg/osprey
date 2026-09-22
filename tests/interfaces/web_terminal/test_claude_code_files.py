@@ -206,7 +206,8 @@ class TestWriteFile:
         with pytest.raises(FileNotFoundError):
             service.write_file("does-not-exist.md", "content")
 
-    def test_markdown_no_validation(self, service, project_dir):
+    @pytest.mark.usefixtures("project_dir")
+    def test_markdown_no_validation(self, service):
         """Markdown files should not be syntax-checked."""
         weird_content = "{{{{not yaml not json\n"
         result = service.write_file(".claude/agents/test-agent.md", weird_content)
@@ -216,7 +217,7 @@ class TestWriteFile:
 class TestWriteFileProtectedSet:
     """``write_file`` consults the protected set before it touches anything."""
 
-    def test_write_file_refuses_reserved_settings_json(self, service, project_dir, audit_dir):
+    def test_write_file_refuses_reserved_settings_json(self, service, project_dir):
         before = (project_dir / ".claude" / "settings.json").read_bytes()
 
         with pytest.raises(ProtectedWriteError) as excinfo:
@@ -241,7 +242,7 @@ class TestWriteFileProtectedSet:
         ],
     )
     def test_write_file_refusal_names_the_owning_channel(
-        self, service, project_dir, audit_dir, rel_path, channel_phrase
+        self, service, project_dir, rel_path, channel_phrase
     ):
         before = (project_dir / rel_path).read_bytes()
 
@@ -278,7 +279,7 @@ class TestWriteFileProtectedSet:
         service.write_file(".claude/agents/test-agent.md", "# Fine\n")
         assert _audit_records(audit_dir) == []
 
-    def test_write_file_refusal_precedes_content_validation(self, service, project_dir, audit_dir):
+    def test_write_file_refusal_precedes_content_validation(self, service, project_dir):
         """Invalid JSON aimed at a reserved file is refused as reserved, not as syntax."""
         before = (project_dir / ".claude" / "settings.json").read_bytes()
 
@@ -303,7 +304,7 @@ class TestClaudeSetupRoutes:
         app.state.agent_activity_ring = []
         return app
 
-    def test_write_file_refusal_returns_403_naming_the_channel(self, app, project_dir, audit_dir):
+    def test_write_file_refusal_returns_403_naming_the_channel(self, app, project_dir):
         before = (project_dir / ".claude" / "settings.json").read_bytes()
 
         with TestClient(app) as client:
@@ -316,7 +317,7 @@ class TestClaudeSetupRoutes:
         assert "`config:`" in resp.json()["detail"]
         assert (project_dir / ".claude" / "settings.json").read_bytes() == before
 
-    def test_write_file_refusal_publishes_agent_activity(self, app, audit_dir):
+    def test_write_file_refusal_publishes_agent_activity(self, app):
         with TestClient(app) as client:
             client.put(
                 "/api/claude-setup",
@@ -339,9 +340,7 @@ class TestClaudeSetupRoutes:
         assert resp.status_code == 200
         assert app.state.agent_activity_ring == []
 
-    def test_create_file_refusal_returns_403_and_publishes_activity(
-        self, app, project_dir, audit_dir
-    ):
+    def test_create_file_refusal_returns_403_and_publishes_activity(self, app, project_dir):
         with TestClient(app) as client:
             resp = client.post(
                 "/api/claude-setup",
@@ -386,7 +385,8 @@ class TestCreateFile:
         assert (project_dir / ".claude" / "commands" / "new-command.md").exists()
         assert result["category"] == "Commands"
 
-    def test_create_in_agents_dir(self, service, project_dir):
+    @pytest.mark.usefixtures("project_dir")
+    def test_create_in_agents_dir(self, service):
         result = service.create_file(".claude/agents/my-agent.md", "# Agent\n")
         assert result["status"] == "created"
         assert result["category"] == "Agents"
@@ -447,7 +447,7 @@ class TestCreateFileProtectedSet:
         ],
     )
     def test_create_file_refuses_a_new_file_in_a_reserved_subtree(
-        self, service, project_dir, audit_dir, rel_path, channel_phrase
+        self, service, project_dir, rel_path, channel_phrase
     ):
         with pytest.raises(ProtectedWriteError) as excinfo:
             service.create_file(rel_path, "# Authored by the agent\n")
@@ -487,9 +487,7 @@ class TestCreateFileProtectedSet:
         service.create_file(".claude/agents/new.md", "# Fine\n")
         assert _audit_records(audit_dir) == []
 
-    def test_create_file_refusal_precedes_the_allowed_dir_check(
-        self, service, project_dir, audit_dir
-    ):
+    def test_create_file_refusal_precedes_the_allowed_dir_check(self, service, project_dir):
         """A reserved root file is refused as reserved, not as "wrong directory"."""
         before = (project_dir / ".mcp.json").read_bytes()
 
@@ -500,7 +498,7 @@ class TestCreateFileProtectedSet:
         assert "New files must be in" not in str(excinfo.value)
         assert (project_dir / ".mcp.json").read_bytes() == before
 
-    def test_create_file_refusal_precedes_content_validation(self, service, project_dir, audit_dir):
+    def test_create_file_refusal_precedes_content_validation(self, service, project_dir):
         """Invalid JSON aimed at a reserved subtree is refused as reserved, not as syntax."""
         with pytest.raises(ProtectedWriteError):
             service.create_file(".claude/skills/new/skill.json", "not valid json {{{")
@@ -577,6 +575,7 @@ class TestSymlinkedReservedTargets:
         target.write_text("# the write-safety hook\n")
         return target
 
+    @pytest.mark.usefixtures("hook")
     @pytest.mark.parametrize(
         ("link_rel", "target_rel", "channel_phrase"),
         [
@@ -589,7 +588,7 @@ class TestSymlinkedReservedTargets:
         ],
     )
     def test_write_file_refuses_a_link_onto_a_reserved_file(
-        self, service, project_dir, audit_dir, hook, link_rel, target_rel, channel_phrase
+        self, service, project_dir, link_rel, target_rel, channel_phrase
     ):
         target = project_dir / target_rel
         before = target.read_bytes()
@@ -621,7 +620,7 @@ class TestSymlinkedReservedTargets:
         assert record["reason"] == "reserved path"
 
     def test_create_file_refuses_a_dangling_link_into_a_reserved_subtree(
-        self, service, project_dir, audit_dir
+        self, service, project_dir
     ):
         """Create is the other half: a link with no target yet still lands in ``rules/``."""
         link_rel = ".claude/agents/new-rule.md"

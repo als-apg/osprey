@@ -539,7 +539,8 @@ def _mock_adapter(*, supports_write, requires_write_auth, source_system):
     return adapter
 
 
-def test_publish_info_requires_auth(client, mock_ariel_service):
+@pytest.mark.usefixtures("mock_ariel_service")
+def test_publish_info_requires_auth(client):
     """A write adapter that needs credentials reports requires_auth=True."""
     adapter = _mock_adapter(
         supports_write=True, requires_write_auth=True, source_system="Example eLog"
@@ -554,7 +555,8 @@ def test_publish_info_requires_auth(client, mock_ariel_service):
     assert data["source_system"] == "Example eLog"
 
 
-def test_publish_info_no_auth(client, mock_ariel_service):
+@pytest.mark.usefixtures("mock_ariel_service")
+def test_publish_info_no_auth(client):
     """A no-auth write adapter reports requires_auth=False (publishes without creds)."""
     adapter = _mock_adapter(
         supports_write=True, requires_write_auth=False, source_system="Generic JSON"
@@ -567,7 +569,8 @@ def test_publish_info_no_auth(client, mock_ariel_service):
     assert data["requires_auth"] is False
 
 
-def test_publish_info_read_only(client, mock_ariel_service):
+@pytest.mark.usefixtures("mock_ariel_service")
+def test_publish_info_read_only(client):
     """A read-only adapter reports requires_auth=False — credentials are irrelevant."""
     adapter = _mock_adapter(
         supports_write=False, requires_write_auth=True, source_system="JLab Logbook"
@@ -580,7 +583,8 @@ def test_publish_info_read_only(client, mock_ariel_service):
     assert data["requires_auth"] is False
 
 
-def test_publish_info_no_adapter_configured(client, mock_ariel_service):
+@pytest.mark.usefixtures("mock_ariel_service")
+def test_publish_info_no_adapter_configured(client):
     """No ingestion adapter configured degrades gracefully to read-only."""
     response = client.get("/api/publish-info")
 
@@ -590,7 +594,8 @@ def test_publish_info_no_adapter_configured(client, mock_ariel_service):
     assert data["requires_auth"] is False
 
 
-def test_status_endpoint(client, mock_ariel_service):
+@pytest.mark.usefixtures("mock_ariel_service")
+def test_status_endpoint(client):
     """Test status endpoint."""
     response = client.get("/api/status")
 
@@ -899,7 +904,8 @@ def test_search_hybrid_leaves_expand_query_alone(client, mock_ariel_service):
     assert mock_ariel_service.search.call_args.kwargs["advanced_params"]["expand_query"] == "yes"
 
 
-def test_capabilities_advertises_default_mode(client, mock_ariel_service):
+@pytest.mark.usefixtures("mock_ariel_service")
+def test_capabilities_advertises_default_mode(client):
     """The capabilities payload carries the mode the UI should open on."""
     response = client.get("/api/capabilities")
 
@@ -1065,7 +1071,8 @@ def test_put_config_refuses_a_changed_protected_value(client, gated_config, audi
     assert [r["subject"] for r in records] == ["control_system.writes_enabled"]
 
 
-def test_put_config_refusal_leaks_no_value(client, gated_config, audit_zone):
+@pytest.mark.usefixtures("gated_config")
+def test_put_config_refusal_leaks_no_value(client, audit_zone):
     """Config values are secrets; a refusal reports the key, never the value."""
     import json as _j
 
@@ -1097,7 +1104,8 @@ def test_put_config_allows_an_unprotected_edit(client, gated_config, audit_zone)
 class TestConfigPanelTierGate:
     """``web.config_panel.enabled: false`` closes the settings editor's server surface."""
 
-    def test_get_config_is_refused_when_the_panel_is_disabled(self, client, gated_config):
+    @pytest.mark.usefixtures("gated_config")
+    def test_get_config_is_refused_when_the_panel_is_disabled(self, client):
         """A read is gated too: the document carries the provider base_urls."""
         client.app.state.config_panel_enabled = False
 
@@ -1117,7 +1125,8 @@ class TestConfigPanelTierGate:
         assert "web.config_panel.enabled" in response.json()["detail"]
         assert gated_config.read_bytes() == before
 
-    def test_the_gate_runs_before_the_protected_set(self, client, gated_config):
+    @pytest.mark.usefixtures("gated_config")
+    def test_the_gate_runs_before_the_protected_set(self, client):
         """A disabled panel never gets as far as having a key to judge."""
         client.app.state.config_panel_enabled = False
 
@@ -1129,7 +1138,8 @@ class TestConfigPanelTierGate:
         assert response.status_code == 403
         assert "agent_data.base_dir" not in response.json()["detail"]
 
-    def test_an_absent_key_leaves_the_panel_open(self, client, gated_config):
+    @pytest.mark.usefixtures("gated_config")
+    def test_an_absent_key_leaves_the_panel_open(self, client):
         """An app whose lifespan never set the flag behaves as it always did."""
         assert not hasattr(client.app.state, "config_panel_enabled")
 

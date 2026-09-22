@@ -392,9 +392,8 @@ def test_operator_header_websocket_with_a_foreign_origin_is_403(middleware, down
     assert not downstream.called
 
 
-def test_external_origin_env_is_consulted_on_the_header_path(
-    middleware, downstream, app_stub, monkeypatch
-):
+@pytest.mark.usefixtures("downstream")
+def test_external_origin_env_is_consulted_on_the_header_path(middleware, app_stub, monkeypatch):
     """The proxy shape's declared origin governs the header path too.
 
     Behind nginx the app's own ``Host`` is an internal service name no browser
@@ -440,7 +439,8 @@ def test_expired_or_forged_cookie_is_refused(middleware, downstream, app_stub):
     assert not downstream.called
 
 
-def test_revoked_session_is_refused(middleware, downstream, app_stub, credentials):
+@pytest.mark.usefixtures("downstream")
+def test_revoked_session_is_refused(middleware, app_stub, credentials):
     session_id = credentials.create_session()
     credentials.revoke_session(session_id)
     headers = {"cookie": f"{COOKIE_NAME}={session_id}"}
@@ -481,13 +481,15 @@ def test_adversarial_cookie_bytes_are_refused_not_crashed(middleware, downstream
     assert not downstream.called
 
 
-def test_quoted_cookie_value_is_unquoted(middleware, downstream, app_stub, credentials):
+@pytest.mark.usefixtures("downstream")
+def test_quoted_cookie_value_is_unquoted(middleware, app_stub, credentials):
     session_id = credentials.create_session()
     headers = {"cookie": f'other=x; {COOKIE_NAME}="{session_id}"'}
     assert status_of(drive(middleware, http_scope(headers=headers, app=app_stub))) == 200
 
 
-def test_split_cookie_headers_are_joined(middleware, downstream, app_stub, credentials):
+@pytest.mark.usefixtures("downstream")
+def test_split_cookie_headers_are_joined(middleware, app_stub, credentials):
     """HTTP/2 clients may split the cookie header; the session must survive it."""
     session_id = credentials.create_session()
     raw = [
@@ -497,7 +499,8 @@ def test_split_cookie_headers_are_joined(middleware, downstream, app_stub, crede
     assert status_of(drive(middleware, http_scope(raw_headers=raw, app=app_stub))) == 200
 
 
-def test_cookie_under_another_name_is_ignored(middleware, downstream, app_stub, credentials):
+@pytest.mark.usefixtures("downstream")
+def test_cookie_under_another_name_is_ignored(middleware, app_stub, credentials):
     """The name carries the port, so a neighbouring server's cookie is not ours."""
     headers = session_cookie(credentials, name="osprey_terminal_session_9999")
     assert status_of(drive(middleware, http_scope(headers=headers, app=app_stub))) == 401
@@ -565,7 +568,8 @@ def test_mutating_cookie_request_from_a_foreign_origin_is_403(
     assert not downstream.called
 
 
-def test_origin_match_is_whole_string_not_a_prefix(middleware, downstream, app_stub, credentials):
+@pytest.mark.usefixtures("downstream")
+def test_origin_match_is_whole_string_not_a_prefix(middleware, app_stub, credentials):
     """``http://localhost:8080.evil.test`` starts with the real origin."""
     headers = {
         "host": "localhost:8080",
@@ -576,8 +580,9 @@ def test_origin_match_is_whole_string_not_a_prefix(middleware, downstream, app_s
     assert status_of(sent) == 403
 
 
+@pytest.mark.usefixtures("downstream")
 @pytest.mark.parametrize("method", ["GET", "HEAD", "OPTIONS"])
-def test_safe_methods_skip_the_origin_check(middleware, downstream, app_stub, credentials, method):
+def test_safe_methods_skip_the_origin_check(middleware, app_stub, credentials, method):
     """A cross-site GET can be made but not read, so it needs no Origin."""
     headers = {"host": "localhost:8080", "origin": "http://evil.test"}
     headers.update(session_cookie(credentials))
@@ -585,8 +590,9 @@ def test_safe_methods_skip_the_origin_check(middleware, downstream, app_stub, cr
     assert status_of(sent) == 200
 
 
+@pytest.mark.usefixtures("downstream")
 def test_sec_fetch_site_same_origin_stands_in_for_a_missing_origin(
-    middleware, downstream, app_stub, credentials
+    middleware, app_stub, credentials
 ):
     headers = {
         "host": "localhost:8080",
@@ -597,10 +603,9 @@ def test_sec_fetch_site_same_origin_stands_in_for_a_missing_origin(
     assert status_of(sent) == 200
 
 
+@pytest.mark.usefixtures("downstream")
 @pytest.mark.parametrize("site", ["cross-site", "same-site", "none"])
-def test_other_sec_fetch_site_values_are_refused(
-    middleware, downstream, app_stub, credentials, site
-):
+def test_other_sec_fetch_site_values_are_refused(middleware, app_stub, credentials, site):
     headers = {"host": "localhost:8080", "sec-fetch-site": site, **session_cookie(credentials)}
     sent = drive(middleware, http_scope("/api/config", "POST", headers, app=app_stub))
     assert status_of(sent) == 403
@@ -616,16 +621,16 @@ def test_mutating_cookie_request_with_no_origin_headers_at_all_is_403(
     assert not downstream.called
 
 
-def test_origin_with_no_host_to_compare_against_is_403(
-    middleware, downstream, app_stub, credentials
-):
+@pytest.mark.usefixtures("downstream")
+def test_origin_with_no_host_to_compare_against_is_403(middleware, app_stub, credentials):
     headers = {"origin": "http://localhost:8080", **session_cookie(credentials)}
     sent = drive(middleware, http_scope("/api/config", "POST", headers, app=app_stub))
     assert status_of(sent) == 403
 
 
+@pytest.mark.usefixtures("downstream")
 def test_external_origin_env_overrides_the_host_header(
-    middleware, downstream, app_stub, credentials, monkeypatch
+    middleware, app_stub, credentials, monkeypatch
 ):
     """The nginx shape: the app's own Host is a service name no browser sends."""
     monkeypatch.setenv(EXTERNAL_ORIGIN_ENV, "https://osprey.example.test")
@@ -638,9 +643,8 @@ def test_external_origin_env_overrides_the_host_header(
     assert status_of(sent) == 200
 
 
-def test_external_origin_env_is_compared_exactly(
-    middleware, downstream, app_stub, credentials, monkeypatch
-):
+@pytest.mark.usefixtures("downstream")
+def test_external_origin_env_is_compared_exactly(middleware, app_stub, credentials, monkeypatch):
     monkeypatch.setenv(EXTERNAL_ORIGIN_ENV, "https://osprey.example.test")
     headers = {
         "host": "osprey.example.test",
@@ -660,7 +664,8 @@ def test_constructor_origin_beats_the_environment(downstream, app_stub, credenti
     assert status_of(drive(guard, http_scope("/api/config", "POST", headers, app=app_stub))) == 200
 
 
-def test_https_request_derives_an_https_origin(middleware, downstream, app_stub, credentials):
+@pytest.mark.usefixtures("downstream")
+def test_https_request_derives_an_https_origin(middleware, app_stub, credentials):
     headers = {
         "host": "console.test",
         "origin": "https://console.test",
@@ -691,9 +696,10 @@ ORIGIN_DEFAULT_PORT_CASES = [
 ]
 
 
+@pytest.mark.usefixtures("downstream")
 @pytest.mark.parametrize(("expected", "origin", "allowed"), ORIGIN_DEFAULT_PORT_CASES)
 def test_declared_origin_is_compared_with_default_ports_elided(
-    middleware, downstream, app_stub, credentials, monkeypatch, expected, origin, allowed
+    middleware, app_stub, credentials, monkeypatch, expected, origin, allowed
 ):
     """``nginx_port: 80`` must not refuse every write in the proxy shape.
 
@@ -713,9 +719,10 @@ def test_declared_origin_is_compared_with_default_ports_elided(
     assert status_of(sent) == (200 if allowed else 403)
 
 
+@pytest.mark.usefixtures("downstream")
 @pytest.mark.parametrize(("expected", "origin", "allowed"), ORIGIN_DEFAULT_PORT_CASES)
 def test_host_derived_origin_is_compared_with_default_ports_elided(
-    middleware, downstream, app_stub, credentials, monkeypatch, expected, origin, allowed
+    middleware, app_stub, credentials, monkeypatch, expected, origin, allowed
 ):
     """The single-user fallback needs the same normalization.
 
@@ -748,9 +755,8 @@ def test_operator_header_origin_is_normalized_too(middleware, downstream, app_st
 # --------------------------------------------------------------------------- #
 
 
-def test_an_origin_refusal_names_both_origins_in_the_log(
-    middleware, app_stub, credentials, monkeypatch, caplog
-):
+@pytest.mark.usefixtures("credentials")
+def test_an_origin_refusal_names_both_origins_in_the_log(middleware, app_stub, monkeypatch, caplog):
     """The one refusal whose cause is deployment configuration must not be silent.
 
     Neither the received nor the resolved origin is a credential, and an
@@ -836,22 +842,23 @@ def test_panel_token_is_refused_on_an_operator_route(middleware, downstream, app
     assert not downstream.called
 
 
-def test_wrong_panel_token_is_refused(middleware, downstream, app_stub):
+@pytest.mark.usefixtures("downstream")
+def test_wrong_panel_token_is_refused(middleware, app_stub):
     sent = drive(middleware, http_scope("/api/panels", "GET", bearer("wrong"), app=app_stub))
     assert status_of(sent) == 401
     assert detail_of(sent) == "invalid credential"
 
 
+@pytest.mark.usefixtures("downstream")
 @pytest.mark.parametrize("header", ["Bearer", "Bearer   ", "Basic abc", "token-with-no-scheme"])
-def test_unusable_authorization_headers_read_as_no_credential(
-    middleware, downstream, app_stub, header
-):
+def test_unusable_authorization_headers_read_as_no_credential(middleware, app_stub, header):
     sent = drive(middleware, http_scope(headers={"authorization": header}, app=app_stub))
     assert status_of(sent) == 401
     assert detail_of(sent) == "authentication required"
 
 
-def test_bearer_scheme_is_case_insensitive(middleware, downstream, app_stub):
+@pytest.mark.usefixtures("downstream")
+def test_bearer_scheme_is_case_insensitive(middleware, app_stub):
     headers = {"authorization": f"bearer {PANEL_TOKEN}"}
     assert (
         status_of(drive(middleware, http_scope("/api/panels", "GET", headers, app=app_stub))) == 200
@@ -903,7 +910,8 @@ def test_url_backed_registration_is_operator_only(middleware, downstream, app_st
     assert not downstream.called
 
 
-def test_null_url_still_counts_as_a_url_key(middleware, downstream, app_stub):
+@pytest.mark.usefixtures("downstream")
+def test_null_url_still_counts_as_a_url_key(middleware, app_stub):
     """The key's presence decides, not its truthiness — a null is still a repoint."""
     sent = drive(middleware, register_scope(app_stub), body_messages(b'{"url": null}'))
     assert status_of(sent) == 401
@@ -999,7 +1007,8 @@ def test_websocket_refusal_falls_back_to_close_without_the_extension(
     assert not downstream.called
 
 
-def test_websocket_is_never_accepted_before_a_refusal(middleware, downstream, app_stub):
+@pytest.mark.usefixtures("downstream")
+def test_websocket_is_never_accepted_before_a_refusal(middleware, app_stub):
     sent = drive(middleware, ws_scope(app=app_stub, extensions=WS_EXTENSIONS), incoming=[])
     assert all(message["type"] != "websocket.accept" for message in sent)
 
@@ -1036,9 +1045,8 @@ def test_cookie_websocket_needs_a_matching_origin(middleware, downstream, app_st
     assert not downstream.called
 
 
-def test_cookie_websocket_from_the_page_itself_is_accepted(
-    middleware, downstream, app_stub, credentials
-):
+@pytest.mark.usefixtures("downstream")
+def test_cookie_websocket_from_the_page_itself_is_accepted(middleware, app_stub, credentials):
     """``wss``/``ws`` scopes compare against the page's ``https``/``http`` origin."""
     headers = {
         "host": "console.test",
@@ -1055,9 +1063,8 @@ def test_cookie_websocket_from_the_page_itself_is_accepted(
 # --------------------------------------------------------------------------- #
 
 
-def test_credentials_come_from_the_process_holder_when_the_app_has_none(
-    middleware, downstream, monkeypatch
-):
+@pytest.mark.usefixtures("downstream")
+def test_credentials_come_from_the_process_holder_when_the_app_has_none(middleware, monkeypatch):
     """An app that never cached them still gates on the process's credentials."""
     from osprey.interfaces import web_auth
 
@@ -1074,7 +1081,8 @@ def test_credentials_come_from_the_process_holder_when_the_app_has_none(
         reset_web_credentials()
 
 
-def test_app_state_credentials_win_over_the_process_holder(middleware, downstream, app_stub):
+@pytest.mark.usefixtures("downstream")
+def test_app_state_credentials_win_over_the_process_holder(middleware, app_stub):
     """A companion app carrying the hub's holder authenticates against that one."""
     sent = drive(
         middleware,
@@ -1181,7 +1189,8 @@ def test_client_websocket_opens_with_the_operator_secret(client):
 # --------------------------------------------------------------------------- #
 
 
-def test_refusal_is_json_for_a_fetch(middleware, downstream, app_stub):
+@pytest.mark.usefixtures("downstream")
+def test_refusal_is_json_for_a_fetch(middleware, app_stub):
     """``fetch``/``XHR`` default to ``Accept: */*`` and keep the JSON body."""
     sent = drive(middleware, http_scope(headers={"accept": "*/*"}, app=app_stub))
     assert status_of(sent) == 401
@@ -1189,7 +1198,8 @@ def test_refusal_is_json_for_a_fetch(middleware, downstream, app_stub):
     assert _content_type_of(sent) == "application/json"
 
 
-def test_refusal_is_html_for_a_navigating_browser(middleware, downstream, app_stub, monkeypatch):
+@pytest.mark.usefixtures("downstream")
+def test_refusal_is_html_for_a_navigating_browser(middleware, app_stub, monkeypatch):
     """A navigation gets a readable page, not raw JSON.
 
     Single-user has no perimeter in front of the app, so when a session expires
@@ -1211,7 +1221,8 @@ def test_refusal_is_html_for_a_navigating_browser(middleware, downstream, app_st
     assert OPERATOR_SECRET not in body
 
 
-def test_html_refusal_is_self_contained(middleware, downstream, app_stub):
+@pytest.mark.usefixtures("downstream")
+def test_html_refusal_is_self_contained(middleware, app_stub):
     """No asset references: the page must render for an operator whose session is gone."""
     sent = drive(middleware, http_scope(headers={"accept": "text/html"}, app=app_stub))
     body = _body_of(sent).decode("utf-8")
@@ -1219,9 +1230,8 @@ def test_html_refusal_is_self_contained(middleware, downstream, app_stub):
         assert reference not in body
 
 
-def test_html_refusal_points_single_user_at_the_launcher_line(
-    middleware, downstream, app_stub, monkeypatch
-):
+@pytest.mark.usefixtures("downstream")
+def test_html_refusal_points_single_user_at_the_launcher_line(middleware, app_stub, monkeypatch):
     """With no per-user mount the way back in is the ``Open:`` line, and it exists."""
     monkeypatch.delenv(TERMINAL_USER_ENV, raising=False)
     sent = drive(middleware, http_scope(headers={"accept": "text/html"}, app=app_stub))
@@ -1232,9 +1242,8 @@ def test_html_refusal_points_single_user_at_the_launcher_line(
     assert "osprey users login-url" not in body
 
 
-def test_html_refusal_points_multi_user_at_the_login_url_command(
-    middleware, downstream, app_stub, monkeypatch
-):
+@pytest.mark.usefixtures("downstream")
+def test_html_refusal_points_multi_user_at_the_login_url_command(middleware, app_stub, monkeypatch):
     """In the deployment shape the launcher prints no ``Open:`` line to re-open.
 
     A browser only reaches this page when the app's own gate is the outermost
@@ -1254,7 +1263,8 @@ def test_html_refusal_points_multi_user_at_the_login_url_command(
     assert OPERATOR_SECRET not in body
 
 
-def test_websocket_refusal_is_json_even_with_an_html_accept(middleware, downstream, app_stub):
+@pytest.mark.usefixtures("downstream")
+def test_websocket_refusal_is_json_even_with_an_html_accept(middleware, app_stub):
     """A handshake refusal stays machine-readable; a websocket client parses it."""
     headers = {"accept": "text/html"}
     sent = drive(
@@ -1714,8 +1724,9 @@ def test_the_own_secret_at_a_shared_sidecar_stamps_nobody(
     assert stamped_owner(admitted) is None
 
 
+@pytest.mark.usefixtures("identity_markers")
 def test_the_own_secret_on_a_single_user_host_stamps_the_process_account(
-    middleware, downstream, app_stub, identity_markers
+    middleware, downstream, app_stub
 ):
     """No declared bind host means no reverse proxy and one human at the console."""
     headers = {OPERATOR_SECRET_HEADER: OPERATOR_SECRET}
@@ -1726,8 +1737,9 @@ def test_the_own_secret_on_a_single_user_host_stamps_the_process_account(
     assert stamped_owner(admitted) == acting_identity()
 
 
+@pytest.mark.usefixtures("identity_markers")
 def test_a_cookie_login_stamps_nobody_and_still_drops_the_claim(
-    middleware, downstream, app_stub, credentials, identity_markers
+    middleware, downstream, app_stub, credentials
 ):
     """Nothing about the login that minted a session id was attributable."""
     headers = {**session_cookie(credentials), OWNER_HEADER: "bob"}
@@ -1738,9 +1750,8 @@ def test_a_cookie_login_stamps_nobody_and_still_drops_the_claim(
     assert stamped_owner(admitted) is None
 
 
-def test_the_panel_token_stamps_nobody_and_still_drops_the_claim(
-    middleware, downstream, app_stub, identity_markers
-):
+@pytest.mark.usefixtures("identity_markers")
+def test_the_panel_token_stamps_nobody_and_still_drops_the_claim(middleware, downstream, app_stub):
     """One shared value held by every companion identifies a component."""
     headers = {**bearer(), OWNER_HEADER: "bob"}
 
@@ -1792,8 +1803,9 @@ def test_a_token_exchange_stamps_nobody(middleware, downstream, app_stub, identi
     assert stamped_owner(scope) is None
 
 
+@pytest.mark.usefixtures("identity_markers")
 def test_a_wrong_header_secret_still_answers_exactly_invalid_credential(
-    middleware, downstream, roster_app_stub, identity_markers
+    middleware, downstream, roster_app_stub
 ):
     """Naming the operator must not have changed what a refusal says.
 
@@ -1810,8 +1822,9 @@ def test_a_wrong_header_secret_still_answers_exactly_invalid_credential(
     assert not downstream.called
 
 
+@pytest.mark.usefixtures("identity_markers")
 def test_a_wrong_query_token_still_answers_exactly_invalid_credential(
-    middleware, downstream, roster_app_stub, identity_markers
+    middleware, downstream, roster_app_stub
 ):
     scope = http_scope("/", "GET", app=roster_app_stub)
     scope["query_string"] = b"token=not-the-secret"

@@ -230,7 +230,8 @@ def test_the_page_sources_are_not_served(client: TestClient) -> None:
         assert client.get(_url(page)).status_code == 404
 
 
-def test_the_allow_list_covers_every_asset_a_module_graph_needs(client: TestClient) -> None:
+@pytest.mark.usefixtures("client")
+def test_the_allow_list_covers_every_asset_a_module_graph_needs() -> None:
     """The suffixes 8.2 can actually reach for, pinned as a set.
 
     Held here rather than imported so a widening of the route's own frozenset

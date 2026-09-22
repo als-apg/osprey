@@ -294,9 +294,8 @@ async def _until(predicate, *, timeout: float = 5.0) -> None:
         await asyncio.sleep(0.01)
 
 
-async def test_both_changes_land_when_the_pool_is_blocked_mid_job(
-    context_owner, record_file, roomy_pool
-):
+@pytest.mark.usefixtures("roomy_pool")
+async def test_both_changes_land_when_the_pool_is_blocked_mid_job(context_owner, record_file):
     """SC-80: a second mutation submitted while a job is parked loses nothing."""
     entered = threading.Event()
     release = threading.Event()
@@ -336,7 +335,8 @@ async def test_both_changes_land_when_the_pool_is_blocked_mid_job(
     assert stored.generation == 4
 
 
-async def test_a_blocked_job_does_not_stall_the_event_loop(context_owner, roomy_pool):
+@pytest.mark.usefixtures("roomy_pool")
+async def test_a_blocked_job_does_not_stall_the_event_loop(context_owner):
     entered = threading.Event()
     release = threading.Event()
     ticks = 0

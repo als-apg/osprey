@@ -498,7 +498,8 @@ class TestServeIndexRead:
         install({"services": {"graphdb": {"ttl_path": "./data/facility.ttl"}}})
         return install
 
-    def test_a_read_answers_off_the_event_loop(self, graph_config):
+    @pytest.mark.usefixtures("graph_config")
+    def test_a_read_answers_off_the_event_loop(self):
         with open_demo_index() as index:
             app = _probe_app(index)
             resp = TestClient(app).get("/probe")
@@ -508,7 +509,8 @@ class TestServeIndexRead:
         assert len(app.state.reads) == 1
         assert app.state.reads[0][1] is False
 
-    def test_an_absence_answers_503_with_the_build_remedy(self, graph_config, tmp_path):
+    @pytest.mark.usefixtures("graph_config")
+    def test_an_absence_answers_503_with_the_build_remedy(self, tmp_path):
         absence = GraphIndexAbsence("missing", tmp_path / "g.duckdb", "No search index at g.")
 
         resp = TestClient(_probe_app(absence)).get("/probe")
@@ -531,7 +533,8 @@ class TestServeIndexRead:
             "Turtle file, then build the index."
         ]
 
-    def test_an_app_holding_no_index_at_all_still_answers_the_remedy(self, graph_config):
+    @pytest.mark.usefixtures("graph_config")
+    def test_an_app_holding_no_index_at_all_still_answers_the_remedy(self):
         resp = TestClient(_probe_app(None)).get("/probe")
 
         assert resp.status_code == 503
@@ -539,7 +542,8 @@ class TestServeIndexRead:
         assert body["detail"] == "The search index is not open."
         assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
 
-    def test_a_closed_index_answers_503_rather_than_500(self, graph_config):
+    @pytest.mark.usefixtures("graph_config")
+    def test_a_closed_index_answers_503_rather_than_500(self):
         """A request racing shutdown is unavailability, not a bug in the route."""
         index = open_demo_index()
         index.close()

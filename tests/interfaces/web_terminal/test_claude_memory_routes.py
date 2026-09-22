@@ -62,7 +62,8 @@ def memory_dir(client, fake_home):
 
 
 class TestListMemoryFiles:
-    def test_empty(self, client, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_empty(self, client):
         resp = client.get("/api/claude-memory")
         assert resp.status_code == 200
         data = resp.json()
@@ -93,11 +94,13 @@ class TestGetMemoryFile:
         assert resp.status_code == 200
         assert resp.json()["content"] == "hello\n"
 
-    def test_read_nonexistent(self, client, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_read_nonexistent(self, client):
         resp = client.get("/api/claude-memory/missing.md")
         assert resp.status_code == 404
 
-    def test_read_invalid_filename(self, client, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_read_invalid_filename(self, client):
         resp = client.get("/api/claude-memory/.hidden.md")
         assert resp.status_code == 422
 
@@ -125,7 +128,8 @@ class TestCreateMemoryFile:
         )
         assert resp.status_code == 409
 
-    def test_create_missing_filename(self, client, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_create_missing_filename(self, client):
         resp = client.post(
             "/api/claude-memory",
             json={"content": "x"},
@@ -148,7 +152,8 @@ class TestUpdateMemoryFile:
         assert resp.status_code == 200
         assert (memory_dir / "test.md").read_text(encoding="utf-8") == "new\n"
 
-    def test_update_nonexistent(self, client, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_update_nonexistent(self, client):
         resp = client.put(
             "/api/claude-memory/missing.md",
             json={"content": "x"},
@@ -168,6 +173,7 @@ class TestDeleteMemoryFile:
         assert resp.status_code == 200
         assert not (memory_dir / "doomed.md").exists()
 
-    def test_delete_nonexistent(self, client, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_delete_nonexistent(self, client):
         resp = client.delete("/api/claude-memory/missing.md")
         assert resp.status_code == 404

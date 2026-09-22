@@ -266,7 +266,8 @@ class TestTheSharedParserDecidesTheShape:
 class TestANarrowingSurvivesARestart:
     """The property the file exists for, driven through the real route."""
 
-    def test_a_narrowing_set_on_one_app_is_read_by_the_next(self, started, make_client):
+    @pytest.mark.usefixtures("started")
+    def test_a_narrowing_set_on_one_app_is_read_by_the_next(self, make_client):
         with make_client() as client:
             assert post_posture(client).status_code == 200
             assert row_for(client, "standin")["posture"] == "sandbox"
@@ -317,7 +318,8 @@ class TestANarrowingSurvivesARestart:
             assert row_for(client, "standin")["posture"] == "sandbox"
             assert row_for(client, "standin")["effective"] is False
 
-    def test_the_narrowing_is_deployment_wide_not_per_session(self, started, make_client):
+    @pytest.mark.usefixtures("started")
+    def test_the_narrowing_is_deployment_wide_not_per_session(self, make_client):
         """Two session ids, one answer — there is no key to file it under.
 
         The narrowing the first gesture recorded governs the deployment, so a
@@ -334,7 +336,8 @@ class TestANarrowingSurvivesARestart:
         standin = next(row for row in other["targets"] if row["target"] == "standin")
         assert standin["posture"] == "sandbox"
 
-    def test_the_other_targets_are_untouched(self, started, make_client):
+    @pytest.mark.usefixtures("started")
+    def test_the_other_targets_are_untouched(self, make_client):
         """One target narrowed is one target narrowed."""
         with make_client() as client:
             post_posture(client, target="standin")

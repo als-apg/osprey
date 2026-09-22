@@ -433,9 +433,15 @@ class TestIndexUnavailable:
 
     ROUTES = ["/api/graph/ontology", "/api/graph/search"]
 
+    # ``client`` builds the app through the same config seam, so the pin has to be
+    # installed after it to be the one the routes read.
     @pytest.mark.parametrize("path", ROUTES)
     def test_an_absent_index_answers_the_reason_and_the_remedy(
-        self, client, graph_config, tmp_path, path
+        self,
+        client,
+        graph_config,  # noqa: ARG002
+        tmp_path,
+        path,
     ):
         absence = GraphIndexAbsence("missing", tmp_path / "graph.duckdb", "No search index at g.")
         install_graph_paradigm(client, demo_context(), index=absence)
@@ -450,9 +456,14 @@ class TestIndexUnavailable:
         assert body["error_type"] == "service_unavailable"
         assert any(GRAPHDB_BUILD_INDEX_COMMAND in line for line in body["suggestions"])
 
+    # ``client`` builds the app through the same config seam, so the pin has to be
+    # installed after it to be the one the routes read.
     @pytest.mark.parametrize("path", ROUTES)
     def test_an_app_holding_no_index_at_all_still_answers_the_remedy(
-        self, client, graph_config, path
+        self,
+        client,
+        graph_config,  # noqa: ARG002
+        path,
     ):
         install_graph_paradigm(client, demo_context(), index=None)
 
@@ -484,9 +495,14 @@ class TestIndexUnavailable:
         assert "Turtle file" in body["suggestions"][0]
         assert GRAPHDB_BUILD_INDEX_COMMAND not in body["suggestions"][0]
 
+    # ``client`` builds the app through the same config seam, so the pin has to be
+    # installed after it to be the one the routes read.
     @pytest.mark.parametrize("path", ROUTES)
     def test_a_malformed_index_path_names_the_key_and_no_build_step(
-        self, client, graph_config, path
+        self,
+        client,
+        graph_config,  # noqa: ARG002
+        path,
     ):
         # The absence the app builds for a config typo carries the fix in its
         # own sentence; a build would read the same malformed key, so none is
@@ -503,8 +519,15 @@ class TestIndexUnavailable:
         assert "services.graphdb.index_path" in body["detail"]
         assert body["suggestions"] == []
 
+    # ``client`` builds the app through the same config seam, so the pin has to be
+    # installed after it to be the one the routes read.
     @pytest.mark.parametrize("path", ROUTES)
-    def test_a_closed_index_answers_503_rather_than_500(self, client, graph_config, path):
+    def test_a_closed_index_answers_503_rather_than_500(
+        self,
+        client,
+        graph_config,  # noqa: ARG002
+        path,
+    ):
         # A request racing shutdown is unavailability, not a bug in the route.
         index = open_demo_index()
         index.close()

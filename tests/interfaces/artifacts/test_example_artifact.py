@@ -271,16 +271,18 @@ def seeded_store(tmp_path):
 
 
 class TestAgentFacingListingsSkipTheExample:
+    @pytest.mark.usefixtures("seeded_store")
     @pytest.mark.asyncio
-    async def test_artifact_list_tool(self, seeded_store):
+    async def test_artifact_list_tool(self):
         from osprey.mcp_server.workspace.tools.artifact_query import artifact_list
 
         result = json.loads(await get_tool_fn(artifact_list)())
         assert [e["title"] for e in result["entries"]] == ["Real work"]
         assert result["total_entries"] == 1
 
+    @pytest.mark.usefixtures("seeded_store")
     @pytest.mark.asyncio
-    async def test_session_summary_tool(self, seeded_store):
+    async def test_session_summary_tool(self):
         from osprey.mcp_server.workspace.tools.session_summary import session_summary
 
         result = json.loads(await get_tool_fn(session_summary)())
@@ -302,7 +304,8 @@ class TestAgentFacingListingsSkipTheExample:
         described = artifact_resolve.describe_run_artifacts("run-1")
         assert [d["artifact_id"] for d in described] == [produced.id]
 
-    def test_web_terminal_session_summary_route(self, seeded_store, tmp_path):
+    @pytest.mark.usefixtures("seeded_store")
+    def test_web_terminal_session_summary_route(self, tmp_path):
         from fastapi import FastAPI
 
         from osprey.interfaces.web_terminal.routes.session import router

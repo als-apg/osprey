@@ -853,7 +853,8 @@ class TestSetupPatchSurface:
         (record,) = audit_records(mcp_render / "var" / "audit")
         assert record["posture_source"] == POSTURE_SOURCE_SPAWN
 
-    async def test_a_blocked_detail_carries_no_safety_marker(self, mcp_render):
+    @pytest.mark.usefixtures("mcp_render")
+    async def test_a_blocked_detail_carries_no_safety_marker(self):
         """The honest version of a branch that reads as if it should fire here.
 
         ``_activity_detail`` marks *applied* ``control_system.*`` patches with a
@@ -877,7 +878,8 @@ class TestSetupPatchSurface:
         assert "safety config" not in detail, detail
         assert detail.startswith(CONFIG_FEED_PHRASE), detail
 
-    async def test_the_refusal_message_names_the_channel_and_says_nothing_changed(self, mcp_render):
+    @pytest.mark.usefixtures("mcp_render")
+    async def test_the_refusal_message_names_the_channel_and_says_nothing_changed(self):
         from osprey.mcp_server.workspace.tools.setup import setup_patch
         from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 

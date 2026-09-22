@@ -357,7 +357,8 @@ def test_send_reads_each_transcript_source_exactly_once(env: _Env) -> None:
     assert env.store.list_entries.call_count == 1
 
 
-def test_send_handler_runs_in_the_threadpool(env: _Env) -> None:
+@pytest.mark.usefixtures("env")
+def test_send_handler_runs_in_the_threadpool() -> None:
     from osprey.interfaces.web_terminal.routes import feedback as module
 
     assert not inspect.iscoroutinefunction(module.submit_feedback)
@@ -793,7 +794,8 @@ def test_bundle_reads_each_transcript_source_exactly_once(env: _Env) -> None:
     assert env.store.list_entries.call_count == 1
 
 
-def test_bundle_handler_runs_in_the_threadpool(env: _Env) -> None:
+@pytest.mark.usefixtures("env")
+def test_bundle_handler_runs_in_the_threadpool() -> None:
     from osprey.interfaces.web_terminal.routes import feedback as module
 
     assert not inspect.iscoroutinefunction(module.feedback_bundle)
