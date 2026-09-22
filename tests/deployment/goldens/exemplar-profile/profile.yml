@@ -294,9 +294,9 @@ config:
   # registry_path: project/registry.py
   # Master write switch, the FIRST guard in the write-safety chain: while
   # false, every hardware write is refused before the limits check or the
-  # approval prompt is consulted. On here because the baseline is the stand-in,
-  # which cannot move a magnet; the read-only persona pins it off. Write
-  # posture is per connector type: a `control_system.connector.<type>.
+  # approval prompt is consulted. On here because the baseline is the
+  # simulator, which cannot move a magnet; the read-only persona pins it off.
+  # Write posture is per connector type: a `control_system.connector.<type>.
   # writes_enabled` overrides this for that type alone, and only a literal
   # `true` arms writes at either level.
   control_system.writes_enabled: true

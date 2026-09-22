@@ -188,15 +188,10 @@ def _exemplar(
 ) -> Path:
     """A seeded exemplar repo with the stand-in key set (or removed) as asked.
 
-    Taking the stand-in away moves the baseline with it. The exemplar starts
-    every session on the stand-in (``control_system.type: live_standin``), and
-    ``standin_baseline_errors`` refuses that baseline on a deployment that
-    stands no stand-in up — so a profile with the key removed and the baseline
-    left behind is not an off-state deployment, it is an incoherent one, and
-    would test the refusal rather than the absence. The baseline therefore goes
-    back to the sandbox VA, which is the deployment an operator who never asked
-    for a stand-in actually has. A caller naming ``control_system.type`` itself
-    is left alone.
+    The exemplar opens on the sandbox simulator
+    (``control_system.type: virtual_accelerator``); removing the stand-in
+    leaves that baseline in place, and the ``setdefault`` pins it explicitly so
+    a caller naming ``control_system.type`` itself is left alone.
     """
     dest.mkdir(parents=True, exist_ok=True)
     repo = build_exemplar_repo(dest / EXEMPLAR_DIRNAME, seed_env=True)

@@ -104,7 +104,7 @@ def test_each_user_row_carries_rights_auth_and_port(exemplar_lines: list[str]) -
     band rather than at whatever the profile happened to spell.
     """
     alice = line_with(exemplar_lines, "alice")
-    assert "readwrite · live read-only · va rights approval-gated · standin read-only" in alice
+    assert "readwrite · live read-only · va rights approval-gated" in alice
     assert "password" in alice
     assert alice.rstrip().endswith(f":{_PORTS['web']}")
 
@@ -292,9 +292,9 @@ def test_the_machine_group_reads_connector_archiver_and_channels(
     control = line_with(exemplar_lines, "control ")
     # The baseline connector type, spelled the way the card spells one
     # (underscores to spaces), then the two simulator ports the preset
-    # declares: the sandbox on 5064 and the stand-in the baseline names, which
-    # `live_standin: true` places at the layout's stand-in slot.
-    assert "live standin" in control
+    # declares: the sandbox on 5064, which the baseline names, and the
+    # stand-in, which `live_standin: true` places at the layout's stand-in slot.
+    assert control.split()[1:3] == ["virtual", "accelerator"]
     assert "EPICS :5064" in control
     assert f"live stand-in :{default_port('va_standin')}" in control
     archiver = line_with(exemplar_lines, "archiver")

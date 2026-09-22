@@ -44,11 +44,11 @@ To regenerate it, run the migration verb over it rather than re-emitting from
 the preset: `osprey profile expand --from control-assistant --repo <this dir>`.
 Expand only *adds* the keys a profile leaves to its preset, so the trims that
 make this fixture what it is — the shorter artifact lists, the two-user roster,
-`deployed_services: [openobserve]`, `control_system.type: virtual_accelerator` —
-survive it, where a fresh emission would replace them. Then delete two things
-from its output by hand. The `provenance:` block, because a profile that carries
-one is compared against its preset and this one deviates from it by design, so
-validate would refuse every trim above as drift. And
+`deployed_services: [openobserve]` — survive it, where a fresh emission would
+replace them. Then delete two things from its output by hand. The
+`provenance:` block, because a profile that carries one is compared against its
+preset and this one deviates from it by design, so validate would refuse every
+trim above as drift. And
 `modules.web_terminals.image_source`, because this profile's `deploy:` block
 already states `image_source` and the loader refuses the second home — expand
 writes the key anyway, and writes a comment claiming there is no deploy block.

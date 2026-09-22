@@ -545,6 +545,51 @@ _CONTROL_ASSISTANT_PERSONAS = tuple(
 )
 
 
+def _simulator_baseline_deltas() -> tuple[Delta, ...]:
+    """The session baseline, moved from the live stand-in to the simulator.
+
+    ``control_system.type`` was ``live_standin`` when the fixtures were frozen
+    and is ``virtual_accelerator`` now, in the root and in every persona that
+    inherits it. The single plan lane followed: the build writes a lane's
+    ``target`` and CA name servers only on a stand-in baseline, so the lane is
+    now addressed by the fallback — the co-deployed simulator — and the root
+    loses both leaves while the three attached tiers that copy the target lose
+    it too.
+
+    Returns:
+        One ``type`` delta per document, one ``target`` delta per document
+        that carried it, and the root's ``ca_name_servers`` delta.
+    """
+    return (
+        tuple(
+            Delta(
+                document=document,
+                path="control_system.type",
+                fixture="live_standin",
+                live="virtual_accelerator",
+            )
+            for document in _CONTROL_ASSISTANT_DOCUMENTS
+        )
+        + tuple(
+            Delta(
+                document=document,
+                path="services.bluesky.target",
+                fixture="standin",
+                live=ABSENT,
+            )
+            for document in ("admin", "readonly", "readwrite", "root")
+        )
+        + (
+            Delta(
+                document="root",
+                path="services.bluesky.ca_name_servers",
+                fixture="live-standin:10090",
+                live=ABSENT,
+            ),
+        )
+    )
+
+
 def _persona_corpus_deltas() -> tuple[Delta, ...]:
     """The corpus key every control-assistant persona carries beside its host's port.
 
@@ -606,7 +651,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
-    + _tier_write_posture_deltas(),
+    + _tier_write_posture_deltas()
+    + _simulator_baseline_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -615,7 +661,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
-    + _tier_write_posture_deltas(),
+    + _tier_write_posture_deltas()
+    + _simulator_baseline_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -624,7 +671,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
-    + _tier_write_posture_deltas(),
+    + _tier_write_posture_deltas()
+    + _simulator_baseline_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -633,7 +681,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _persona_corpus_deltas()
-    + _tier_write_posture_deltas(),
+    + _tier_write_posture_deltas()
+    + _simulator_baseline_deltas(),
 }
 
 

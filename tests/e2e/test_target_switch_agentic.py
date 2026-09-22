@@ -525,9 +525,8 @@ def _profile_edits(*, bench_port: int, va_port: int) -> dict[str, Any]:
             "agents": ["logbook-search", "logbook-deep-research"],
         },
         "config": {
-            # The baseline: the simulator, spelled out because the preset
-            # baselines on the stand-in nulled above and the build refuses
-            # that pairing.
+            # The baseline: the simulator, restated so the lane pins it beside
+            # the stand-in nulled above.
             "control_system.type": "virtual_accelerator",
             # The live machine: the bench IOC, on the port it is already serving.
             "control_system.connector.epics.probe_channel": BENCH_PROBE_CHANNEL,
