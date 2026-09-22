@@ -66,7 +66,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="dev" />
-    <meta name="docbuild:last-update" content="Sep 21, 2026"/>
+    <meta name="docbuild:last-update" content="Sep 22, 2026"/>
   </head>
   
   
@@ -684,28 +684,27 @@ automatically starts a local translation proxy to bridge the protocols.</p></li>
 </pre></div>
 </div>
 <p>Ollama and vLLM run locally and do not require an API key.</p>
-<p><code class="docutils literal notranslate"><span class="pre">als-apg</span></code> needs one more variable: it fronts a gateway that each site hosts
-itself, so there is no endpoint to default to. Name it alongside the key, or
-put the URL straight into <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code>:</p>
+<p><code class="docutils literal notranslate"><span class="pre">als-apg</span></code> ships the endpoint of the gateway it fronts,
+<code class="docutils literal notranslate"><span class="pre">https://llm.als.lbl.gov</span></code>, so the key is all a deployment needs. A site that
+reaches the gateway somewhere else names that host instead — in the shell, or
+straight in <code class="docutils literal notranslate"><span class="pre">providers.yml</span></code> under <code class="docutils literal notranslate"><span class="pre">api.providers.als-apg.base_url</span></code>:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">export</span><span class="w"> </span><span class="nv">ALS_APG_BASE_URL</span><span class="o">=</span><span class="s2">&quot;https://your-gateway.example.org/v1&quot;</span>
 </pre></div>
 </div>
-<p>Without it, every path that would place a call refuses rather than sending the
-gateway’s token to another host. A launch — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, an
-agent run — stops with:</p>
-<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">Provider</span> <span class="s1">&#39;als-apg&#39;</span> <span class="n">has</span> <span class="n">no</span> <span class="n">base_url</span><span class="o">.</span> <span class="n">It</span> <span class="n">fronts</span> <span class="n">models</span> <span class="n">through</span> <span class="n">a</span> <span class="n">gateway</span> <span class="n">that</span>
-<span class="n">has</span> <span class="n">no</span> <span class="n">default</span> <span class="n">endpoint</span><span class="p">,</span> <span class="n">so</span> <span class="n">the</span> <span class="n">URL</span> <span class="n">has</span> <span class="n">to</span> <span class="n">be</span> <span class="n">named</span><span class="p">:</span> <span class="nb">set</span> <span class="n">ALS_APG_BASE_URL</span><span class="p">,</span>
-<span class="ow">or</span> <span class="n">api</span><span class="o">.</span><span class="n">providers</span><span class="o">.</span><span class="n">als</span><span class="o">-</span><span class="n">apg</span><span class="o">.</span><span class="n">base_url</span> <span class="ow">in</span> <span class="n">config</span><span class="o">.</span><span class="n">yml</span><span class="o">.</span>
-</pre></div>
-</div>
-<p>A direct model call and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> report the same thing more briefly,
-as <code class="docutils literal notranslate"><span class="pre">Base</span> <span class="pre">URL</span> <span class="pre">required</span> <span class="pre">for</span> <span class="pre">als-apg</span></code>.</p>
-<p>On a multi-user deployment the endpoint has to be in the repository’s env chain
-rather than only in your shell. Each per-user terminal runs with <code class="docutils literal notranslate"><span class="pre">.env.users</span></code>,
-a generated file the deploy copies the provider’s key and endpoint into, and it
-is copied from what is on disk — never from the environment <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> runs
-in. A chain that sets neither is refused before any container starts, naming the
-variable.</p>
+<p>The variable beats a value in the config, which is what makes it a runtime
+redirect for a deployment whose endpoint is already baked into an image.</p>
+<p>A provider that requires an endpoint and ships none behaves differently: every
+path that would place a call refuses rather than sending the gateway’s token to
+another host. A launch — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">chat</span></code>, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>, an agent run — stops
+with a message naming the variable and the config key that would settle it, and
+a direct model call and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> report the same thing more briefly, as
+<code class="docutils literal notranslate"><span class="pre">Base</span> <span class="pre">URL</span> <span class="pre">required</span> <span class="pre">for</span> <span class="pre">&lt;provider&gt;</span></code>.</p>
+<p>On a multi-user deployment such an endpoint has to be in the repository’s env
+chain rather than only in your shell. Each per-user terminal runs with
+<code class="docutils literal notranslate"><span class="pre">.env.users</span></code>, a generated file the deploy copies the provider’s key and
+endpoint into, and it is copied from what is on disk — never from the
+environment <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">up</span></code> runs in. A chain that sets neither is refused before
+any container starts, naming the variable.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>A shell export reaches a <strong>deployment</strong> only once, when <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">init</span></code>
@@ -799,13 +798,14 @@ but it is not required: a tier that no source maps falls back to the default
 model, with a build warning naming each substitution. The framework never
 substitutes another provider’s model IDs; a provider with no <code class="docutils literal notranslate"><span class="pre">models</span></code>
 mapping <em>and</em> no <code class="docutils literal notranslate"><span class="pre">default_model</span></code> to fall back on is refused.</p>
-<p><code class="docutils literal notranslate"><span class="pre">base_url</span></code> is the endpoint the agent itself talks to. <code class="docutils literal notranslate"><span class="pre">cborg</span></code> and
-<code class="docutils literal notranslate"><span class="pre">als-apg</span></code> front a gateway each site hosts itself and ship no built-in URL:
-name the endpoint here (or, for <code class="docutils literal notranslate"><span class="pre">als-apg</span></code>, in <code class="docutils literal notranslate"><span class="pre">ALS_APG_BASE_URL</span></code> as above)
-or the provider refuses to start. <code class="docutils literal notranslate"><span class="pre">argo</span></code>, <code class="docutils literal notranslate"><span class="pre">stanford</span></code> and the local runtimes
-(<code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">vllm</span></code>, <code class="docutils literal notranslate"><span class="pre">ds4</span></code>) ship a well-known endpoint that a value here
-overrides. <code class="docutils literal notranslate"><span class="pre">anthropic</span></code> and <code class="docutils literal notranslate"><span class="pre">openai</span></code> need none, so omitting it sends
-requests to the vendor’s own API. Keep the trailing
+<p><code class="docutils literal notranslate"><span class="pre">base_url</span></code> is the endpoint the agent itself talks to. Every entry the shipped
+catalog carries names one, and a value here replaces it: the institutional
+gateways (<code class="docutils literal notranslate"><span class="pre">cborg</span></code>, <code class="docutils literal notranslate"><span class="pre">amsc-i2</span></code>, <code class="docutils literal notranslate"><span class="pre">stanford</span></code>, <code class="docutils literal notranslate"><span class="pre">als-apg</span></code>) and the vendors’
+own APIs are spelled out, while <code class="docutils literal notranslate"><span class="pre">ollama</span></code> and <code class="docutils literal notranslate"><span class="pre">argo</span></code> are spelled as a
+variable with the well-known host as its default. For <code class="docutils literal notranslate"><span class="pre">als-apg</span></code>,
+<code class="docutils literal notranslate"><span class="pre">ALS_APG_BASE_URL</span></code> overrides the entry in turn, as above. A gateway a
+deployment adds itself has no shipped entry, so it names its endpoint here or
+refuses to start. Keep the trailing
 <code class="docutils literal notranslate"><span class="pre">/v1</span></code> on OpenAI-compatible gateways — the translation proxy needs it, and the
 agent’s own requests have it stripped automatically.</p>
 <p><code class="docutils literal notranslate"><span class="pre">extra_body</span></code> is an optional mapping sent in the request body of every

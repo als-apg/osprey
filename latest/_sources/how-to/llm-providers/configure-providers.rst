@@ -101,31 +101,31 @@ Set the API key as an environment variable before running Osprey:
 
 Ollama and vLLM run locally and do not require an API key.
 
-``als-apg`` needs one more variable: it fronts a gateway that each site hosts
-itself, so there is no endpoint to default to. Name it alongside the key, or
-put the URL straight into ``providers.yml``:
+``als-apg`` ships the endpoint of the gateway it fronts,
+``https://llm.als.lbl.gov``, so the key is all a deployment needs. A site that
+reaches the gateway somewhere else names that host instead — in the shell, or
+straight in ``providers.yml`` under ``api.providers.als-apg.base_url``:
 
 .. code-block:: bash
 
    export ALS_APG_BASE_URL="https://your-gateway.example.org/v1"
 
-Without it, every path that would place a call refuses rather than sending the
-gateway's token to another host. A launch — ``osprey chat``, ``osprey web``, an
-agent run — stops with::
+The variable beats a value in the config, which is what makes it a runtime
+redirect for a deployment whose endpoint is already baked into an image.
 
-   Provider 'als-apg' has no base_url. It fronts models through a gateway that
-   has no default endpoint, so the URL has to be named: set ALS_APG_BASE_URL,
-   or api.providers.als-apg.base_url in config.yml.
+A provider that requires an endpoint and ships none behaves differently: every
+path that would place a call refuses rather than sending the gateway's token to
+another host. A launch — ``osprey chat``, ``osprey web``, an agent run — stops
+with a message naming the variable and the config key that would settle it, and
+a direct model call and ``osprey health`` report the same thing more briefly, as
+``Base URL required for <provider>``.
 
-A direct model call and ``osprey health`` report the same thing more briefly,
-as ``Base URL required for als-apg``.
-
-On a multi-user deployment the endpoint has to be in the repository's env chain
-rather than only in your shell. Each per-user terminal runs with ``.env.users``,
-a generated file the deploy copies the provider's key and endpoint into, and it
-is copied from what is on disk — never from the environment ``osprey up`` runs
-in. A chain that sets neither is refused before any container starts, naming the
-variable.
+On a multi-user deployment such an endpoint has to be in the repository's env
+chain rather than only in your shell. Each per-user terminal runs with
+``.env.users``, a generated file the deploy copies the provider's key and
+endpoint into, and it is copied from what is on disk — never from the
+environment ``osprey up`` runs in. A chain that sets neither is refused before
+any container starts, naming the variable.
 
 .. note::
 
@@ -232,13 +232,14 @@ model, with a build warning naming each substitution. The framework never
 substitutes another provider's model IDs; a provider with no ``models``
 mapping *and* no ``default_model`` to fall back on is refused.
 
-``base_url`` is the endpoint the agent itself talks to. ``cborg`` and
-``als-apg`` front a gateway each site hosts itself and ship no built-in URL:
-name the endpoint here (or, for ``als-apg``, in ``ALS_APG_BASE_URL`` as above)
-or the provider refuses to start. ``argo``, ``stanford`` and the local runtimes
-(``ollama``, ``vllm``, ``ds4``) ship a well-known endpoint that a value here
-overrides. ``anthropic`` and ``openai`` need none, so omitting it sends
-requests to the vendor's own API. Keep the trailing
+``base_url`` is the endpoint the agent itself talks to. Every entry the shipped
+catalog carries names one, and a value here replaces it: the institutional
+gateways (``cborg``, ``amsc-i2``, ``stanford``, ``als-apg``) and the vendors'
+own APIs are spelled out, while ``ollama`` and ``argo`` are spelled as a
+variable with the well-known host as its default. For ``als-apg``,
+``ALS_APG_BASE_URL`` overrides the entry in turn, as above. A gateway a
+deployment adds itself has no shipped entry, so it names its endpoint here or
+refuses to start. Keep the trailing
 ``/v1`` on OpenAI-compatible gateways — the translation proxy needs it, and the
 agent's own requests have it stripped automatically.
 
