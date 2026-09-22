@@ -441,7 +441,7 @@ def test_a_reader_that_raises_still_renders_the_baseline_line(approval, monkeypa
     """Fail-open at the call site too, not only at the import."""
 
     class _Exploding:
-        def read_target_view(self, hook_input=None):
+        def read_target_view(self, _hook_input=None):
             raise RuntimeError("the record is on fire")
 
     monkeypatch.setattr(approval, "_target_state", _Exploding())

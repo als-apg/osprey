@@ -316,7 +316,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
     """The duplicate the retirement removes, driven through both layers."""
 
     @pytest.fixture
-    def client(self, audit_root):
+    def client(self, audit_root):  # noqa: ARG002 - audit_root redirects the audit zone under a temporary root
         from osprey.interfaces.web_terminal.routes import config as config_routes
 
         app = FastAPI()
@@ -362,7 +362,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
         app = FastAPI()
 
         @app.patch("/api/config")
-        async def allow(request: Request):
+        async def allow(_request: Request):
             return {"status": "ok"}
 
         app.add_middleware(HttpAuditMiddleware)
@@ -378,7 +378,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
 
 class TestTheSetupPatchToolRecordsPerKey:
     @pytest.fixture
-    def render(self, audit_root, tmp_path):
+    def render(self, audit_root, tmp_path):  # noqa: ARG002 - audit_root redirects the audit zone under a temporary root
         """The minimal render ``setup_patch`` resolves its root from."""
         from unittest.mock import patch as mock_patch
 

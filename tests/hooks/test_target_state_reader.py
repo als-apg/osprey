@@ -228,7 +228,7 @@ def test_parse_record_accepts_text_and_bytes():
 
 
 def test_an_exploding_state_dir_still_returns_the_marker(monkeypatch):
-    def boom(hook_input=None):
+    def boom(_hook_input=None):
         raise RuntimeError("state dir resolution blew up")
 
     monkeypatch.setattr(reader, "resolve_state_dir", boom)

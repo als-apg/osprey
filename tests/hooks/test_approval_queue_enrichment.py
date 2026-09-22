@@ -1103,7 +1103,7 @@ def _preview_taking(clock, delay_s: float, attempted: list | None = None):
     the only behaviour the budget arithmetic depends on.
     """
 
-    def post(base_url, path, body, timeout):
+    def post(_base_url, path, _body, timeout):
         if attempted is not None:
             attempted.append((path, timeout))
         clock.advance(min(delay_s, timeout))
@@ -1226,13 +1226,13 @@ def test_bounded_move_lines_singular_at_exactly_one_hidden_move(hook_module):
     '1 move not shown', not '1 moves not shown'."""
     mod = hook_module("osprey_approval")
 
-    lines = mod._bounded_move_lines(_moves_for_module(mod, 11))
+    lines = mod._bounded_move_lines(_moves_for_module(11))
 
     assert "  … 1 move not shown …" in lines
     assert "moves not shown" not in "\n".join(lines)
 
 
-def _moves_for_module(mod, count: int) -> list:
+def _moves_for_module(count: int) -> list:
     return [
         {"channel": f"SR:C{index:02d}:COR:SP", "target": index * 0.5}
         for index in range(1, count + 1)

@@ -61,7 +61,7 @@ def fake_bridge(approval, bridge_calls, monkeypatch):
     """
 
     def _install(routes: dict[str, object]):
-        def _get(base_url, path, timeout=3.0):
+        def _get(base_url, path, _timeout=3.0):
             bridge_calls.append((base_url, path))
             return routes.get(path)
 
@@ -732,7 +732,7 @@ def test_the_enqueue_preview_is_bounded_by_the_prompts_own_budget(
     fake_bridge({"/draft": {"revision": 1, "draft": {"plan_name": "count"}}, "/plans": []})
     asked: list[float] = []
 
-    def _post(base_url, path, body, timeout):
+    def _post(_base_url, _path, _body, timeout):
         asked.append(timeout)
         return None
 
@@ -755,7 +755,7 @@ def test_the_enqueue_says_the_budget_is_spent_rather_than_fetching_anyway(
     monkeypatch.setattr(approval, "_HOOK_ENTERED_AT", time.monotonic() - 3600.0)
     attempted: list[str] = []
 
-    def _post(base_url, path, body, timeout):
+    def _post(_base_url, path, _body, _timeout):
         attempted.append(path)
         return None
 

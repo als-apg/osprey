@@ -85,7 +85,7 @@ async def test_successful_dispatch_returns_response_dict():
 
 @pytest.mark.asyncio
 async def test_connection_error_raises_dispatch_error():
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")
 
     transport = httpx.MockTransport(handler)
@@ -308,7 +308,7 @@ async def test_fetch_worker_runs_returns_list():
 
 @pytest.mark.asyncio
 async def test_fetch_worker_runs_connection_error_raises():
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused")
 
     with _patched_client(httpx.MockTransport(handler)):

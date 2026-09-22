@@ -262,7 +262,7 @@ def _isolated_home(hook_home, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _no_session_posture(session_posture_leak_guard):
+def _no_session_posture(session_posture_leak_guard):  # noqa: ARG001 - session_posture_leak_guard clears the session posture stamp
     """Run every hook test outside a session posture unless it asks for one.
 
     Five variables are blanked suite-wide by

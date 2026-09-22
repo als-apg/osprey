@@ -175,11 +175,11 @@ def fake_bridge(approval, bridge_calls, monkeypatch):
     """
 
     def _install(routes: dict[str, object]):
-        def _get(base_url, path, timeout=3.0):
+        def _get(base_url, path, _timeout=3.0):
             bridge_calls.append((base_url, path))
             return routes.get(path)
 
-        def _post(base_url, path, body, timeout):
+        def _post(base_url, path, _body, _timeout):
             bridge_calls.append((base_url, path))
             return routes.get(path)
 
@@ -288,7 +288,7 @@ def test_a_single_lane_describer_never_reads_the_state_file(approval, fake_bridg
     belongs to the `Target:` line, which happens later and only once."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/draft": DRAFT_ROUTE, "/plans": []})
 
-    def refuse(hook_input=None):
+    def refuse(_hook_input=None):
         raise AssertionError("a single-lane describer read the target state")
 
     monkeypatch.setattr(approval, "_read_record_once", refuse)

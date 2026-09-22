@@ -352,7 +352,7 @@ class TestInstallingTheHook:
         registry_calls = []
         config_path = "/deployment/config.yml"
 
-        def prepare(argv):
+        def prepare(_argv):
             order.append("prepare")
             monkeypatch.setenv(jupyter_kernel.CONFIG_FILE_ENV_VAR, config_path)
             return {}
@@ -382,7 +382,7 @@ class TestInstallingTheHook:
                 app.shell = RecordingShell()
                 return app
 
-            def initialize(self, argv):
+            def initialize(self, _argv):
                 order.append("initialize")
 
             def start(self):
@@ -429,7 +429,7 @@ class TestInstallingTheHook:
                 app.shell = StubShell()
                 return app
 
-            def initialize(self, argv):
+            def initialize(self, _argv):
                 order.append("initialize")
 
             def start(self):
@@ -985,7 +985,7 @@ def stub_factory(monkeypatch):
     """
     built: list[_StubConnector] = []
 
-    async def create(config=None, control_target=None):
+    async def create(config=None, control_target=None):  # noqa: ARG001 - create_control_system_connector is called by keyword
         built.append(_StubConnector())
         return built[-1]
 

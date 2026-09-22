@@ -516,7 +516,7 @@ class TestAppendMechanics:
         """The seam for a caller that owns the path raises rather than swallows:
         that caller owns the degrade, and a ``try`` added here would take it away."""
 
-        def exploding_open(path, flags, mode=0o777):
+        def exploding_open(_path, _flags, _mode=0o777):
             raise OSError("the audit zone is gone")
 
         monkeypatch.setattr(writer.os, "open", exploding_open)

@@ -170,7 +170,7 @@ MOCK_ONLY_SECTION = {"type": "mock", "connector": {"mock": {}}}
 def _section_reader(section):
     """A ``get_config_value`` stand-in serving *section* as ``control_system``."""
 
-    def get_config_value(path, default=None, config_path=None):
+    def get_config_value(path, default=None, _config_path=None):
         return section if path == "control_system" else default
 
     return get_config_value
@@ -730,7 +730,7 @@ class _FakeConnector:
 
 
 @pytest.fixture
-def fake_registry(deployment_config):
+def fake_registry(deployment_config):  # noqa: ARG001 - deployment_config serves the control_system section this registry answers for
     """Register the fake connector under every type this deployment can select."""
     from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 
@@ -995,7 +995,7 @@ class TestWritePin:
         import osprey.runtime as runtime
 
         class _Reader:
-            async def read_channel(self, channel_address, **kwargs):
+            async def read_channel(self, channel_address, **kwargs):  # noqa: ARG002 - a connector's read_channel names the channel it reads
                 class _Value:
                     value = 42.0
 
