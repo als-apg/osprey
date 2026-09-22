@@ -41,8 +41,8 @@ class _WriteEnabledConnector(ControlSystemConnector):
         self,
         channel_address: str,
         value: Any,
-        timeout: float | None = None,
-        confirm: bool | None = None,
+        timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
     ) -> ChannelWriteResult:
         self.writes.append((channel_address, value))
         return ChannelWriteResult(
@@ -51,7 +51,7 @@ class _WriteEnabledConnector(ControlSystemConnector):
             outcome=WriteOutcome.CONFIRMED,
         )
 
-    async def write_multiple_channels(self, operations, timeout=None):
+    async def write_multiple_channels(self, operations, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return [await self.write_channel(addr, val) for addr, val in operations]
 
     async def subscribe(self, channel_address, callback):
@@ -63,7 +63,7 @@ class _WriteEnabledConnector(ControlSystemConnector):
     async def get_metadata(self, channel_address):
         raise NotImplementedError
 
-    async def validate_channel(self, channel_address) -> bool:
+    async def validate_channel(self, channel_address) -> bool:  # noqa: ARG002 - the control-system connector interface fixes this signature
         return True
 
 

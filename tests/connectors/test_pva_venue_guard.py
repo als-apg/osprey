@@ -305,7 +305,7 @@ class TestTheGuardCanFail:
         """The failure mode a metadata-only check would miss: the distribution
         is present and its extension module will not load."""
 
-        def unloadable(name: str) -> Any:
+        def unloadable(_name: str) -> Any:
             raise ImportError("dlopen failed: libpvxs.so.1.3 not found")
 
         with pytest.raises(AssertionError, match="dlopen"):
@@ -352,7 +352,7 @@ class TestTheGuardCanFail:
         """The exact hole this module exists for: the suite's own
         ``importorskip`` firing on a platform that must run it."""
 
-        def skipping(name: str) -> Any:
+        def skipping(_name: str) -> Any:
             raise pytest.skip.Exception("could not import 'p4p'")
 
         with pytest.raises(AssertionError, match="silent hole"):
@@ -361,14 +361,14 @@ class TestTheGuardCanFail:
     def test_a_live_suite_that_cannot_import_is_rejected(self) -> None:
         """A collection error is as blind as a skip -- neither runs the wire."""
 
-        def broken(name: str) -> Any:
+        def broken(_name: str) -> Any:
             raise ImportError("cannot import name 'NTNDArray' from 'p4p.nt'")
 
         with pytest.raises(AssertionError, match="NTNDArray"):
             check_live_suite_runs(sys_platform="linux", machine="x86_64", import_module=broken)
 
     def test_a_skipped_live_suite_is_tolerated_where_it_is_not_required(self) -> None:
-        def skipping(name: str) -> Any:
+        def skipping(_name: str) -> Any:
             raise pytest.skip.Exception("could not import 'p4p'")
 
         check_live_suite_runs(sys_platform="linux", machine="aarch64", import_module=skipping)

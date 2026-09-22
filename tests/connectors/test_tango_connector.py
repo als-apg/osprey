@@ -571,7 +571,7 @@ class TestNonBlockingOffload:
         finished = threading.Event()  # validate() has returned
         threads: dict[str, int] = {}
 
-        def blocking_validate(_addr, _val, *, read_current=None):
+        def blocking_validate(_addr, _val, *, read_current=None):  # noqa: ARG001 - the limits-validator interface names read_current
             threads["validate"] = threading.get_ident()
             entered.set()
             release.wait(_OFFLOAD_CEILING_S)

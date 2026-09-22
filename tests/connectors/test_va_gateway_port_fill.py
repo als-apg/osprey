@@ -61,7 +61,7 @@ def deployed_va_port(monkeypatch):
     from osprey.utils import config as config_module
 
     def _set(port: Any | None) -> None:
-        def fake_get_config_value(path: str, default: Any = None, config_path: str | None = None):
+        def fake_get_config_value(path: str, default: Any = None, _config_path: str | None = None):
             assert path == "services.virtual_accelerator.port", path
             return default if port is None else port
 
@@ -162,7 +162,7 @@ def test_unreadable_config_falls_back_to_5064(monkeypatch) -> None:
     """Outside a project context the connector falls back to the default port."""
     from osprey.utils import config as config_module
 
-    def exploding_get_config_value(path: str, default: Any = None, config_path: str = None):
+    def exploding_get_config_value(_path: str, _default: Any = None, _config_path: str = None):
         raise FileNotFoundError("no config.yml here")
 
     monkeypatch.setattr(config_module, "get_config_value", exploding_get_config_value)
@@ -278,7 +278,7 @@ async def test_connect_fills_the_port_before_epics_sees_it(deployed_va_port, mon
     deployed_va_port(15064)
     captured: dict[str, Any] = {}
 
-    async def fake_epics_connect(self, config):
+    async def fake_epics_connect(_self, config):
         captured["config"] = config
 
     monkeypatch.setattr(va_connector.EPICSConnector, "connect", fake_epics_connect, raising=True)
@@ -301,7 +301,7 @@ async def test_plain_epics_connector_does_not_follow_the_va_service_port(monkeyp
     from osprey.connectors.control_system.epics_connector import EPICSConnector
     from osprey.utils import config as config_module
 
-    def fake_get_config_value(path: str, default: Any = None, config_path: str | None = None):
+    def fake_get_config_value(path: str, default: Any = None, _config_path: str | None = None):
         if path == "services.virtual_accelerator.port":
             return 15064
         return default

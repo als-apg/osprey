@@ -53,7 +53,11 @@ def _fake_p4p_module() -> types.ModuleType:
 class _LoudValidator:
     """A limits validator that fails the test if the refusal path consults it."""
 
-    def validate(self, channel_address, value):  # pragma: no cover - must not run
+    def validate(
+        self,
+        channel_address,
+        value,  # noqa: ARG002 - the limits-validator interface names read_current
+    ):  # pragma: no cover - must not run
         raise AssertionError(f"limits validation ran for a refused write: {channel_address}")
 
     def resolve_confirm(self, channel_address):  # pragma: no cover - must not run

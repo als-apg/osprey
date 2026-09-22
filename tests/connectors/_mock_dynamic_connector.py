@@ -12,14 +12,14 @@ class MockDynamicConnector(ControlSystemConnector):
     async def disconnect(self):
         pass
 
-    async def read_channel(self, channel_address, timeout=None):
+    async def read_channel(self, channel_address, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         from datetime import datetime
 
         from osprey.connectors.control_system.base import ChannelValue
 
         return ChannelValue(value=42, timestamp=datetime.now())
 
-    async def write_channel(self, channel_address, value, timeout=None, confirm=False):
+    async def write_channel(self, channel_address, value, timeout=None, confirm=False):  # noqa: ARG002 - the control-system connector interface fixes this signature
         """Declares its own ``confirm`` default, so a forwarded ``None`` would show."""
         from osprey.connectors.control_system.base import ChannelWriteResult, WriteOutcome
 
@@ -30,19 +30,19 @@ class MockDynamicConnector(ControlSystemConnector):
             observed_value=value if confirm else None,
         )
 
-    async def read_multiple_channels(self, channel_addresses, timeout=None):
+    async def read_multiple_channels(self, channel_addresses, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return {}
 
-    async def subscribe(self, channel_address, callback):
+    async def subscribe(self, channel_address, callback):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return "sub-1"
 
     async def unsubscribe(self, subscription_id):
         pass
 
-    async def get_metadata(self, channel_address):
+    async def get_metadata(self, channel_address):  # noqa: ARG002 - the control-system connector interface fixes this signature
         from osprey.connectors.control_system.base import ChannelMetadata
 
         return ChannelMetadata()
 
-    async def validate_channel(self, channel_address):
+    async def validate_channel(self, channel_address):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return True

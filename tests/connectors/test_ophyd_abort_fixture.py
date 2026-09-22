@@ -48,10 +48,10 @@ class _FakeConnector(ControlSystemConnector):
 
     async def write_channel(
         self,
-        channel_address: str,
-        value: Any,
-        timeout: float | None = None,
-        confirm: bool | None = None,
+        channel_address: str,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        value: Any,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        timeout: float | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
+        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector interface fixes this signature
     ) -> ChannelWriteResult:
         return self._canned_result
 

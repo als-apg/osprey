@@ -80,7 +80,7 @@ class _RecordingFactory:
         return self.calls[0][1]
 
 
-async def _noop_connect(type_config: Any = None) -> None:
+async def _noop_connect(type_config: Any = None) -> None:  # noqa: ARG001 - the control-system connector interface fixes this signature
     return None
 
 

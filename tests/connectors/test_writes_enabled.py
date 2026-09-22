@@ -90,10 +90,10 @@ class _WritableStub(ControlSystemConnector):
             for addr, val in operations
         ]
 
-    async def read_multiple_channels(self, addrs, timeout=None):
+    async def read_multiple_channels(self, addrs, timeout=None):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return {}
 
-    async def subscribe(self, addr, cb):
+    async def subscribe(self, addr, cb):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return "sub"
 
     async def unsubscribe(self, sub_id):
@@ -102,7 +102,7 @@ class _WritableStub(ControlSystemConnector):
     async def get_metadata(self, addr):
         raise NotImplementedError
 
-    async def validate_channel(self, addr):
+    async def validate_channel(self, addr):  # noqa: ARG002 - the control-system connector interface fixes this signature
         return True
 
 
@@ -327,7 +327,7 @@ class _RecordingConnector(_WritableStub):
     def __init__(self):
         self.type_seen_in_connect: Any = "not connected"
 
-    async def connect(self, config):
+    async def connect(self, config):  # noqa: ARG002 - the control-system connector interface fixes this signature
         self.type_seen_in_connect = self._connector_type
 
 
