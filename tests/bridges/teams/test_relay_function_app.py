@@ -399,9 +399,8 @@ def test_an_unexpected_validator_failure_is_not_mapped_to_a_status_code(
 # --- what reaches the queue -------------------------------------------------
 
 
-def test_an_accepted_activity_is_enqueued_exactly_as_teams_sent_it(
-    relay: ModuleType, validator: _Validator
-) -> None:
+@pytest.mark.usefixtures("validator")
+def test_an_accepted_activity_is_enqueued_exactly_as_teams_sent_it(relay: ModuleType) -> None:
     response, queue = _post(relay)
 
     assert response.status_code == 200
@@ -409,8 +408,9 @@ def test_an_accepted_activity_is_enqueued_exactly_as_teams_sent_it(
     assert queue.get().encode("utf-8") == RAW_BODY
 
 
+@pytest.mark.usefixtures("validator")
 def test_the_enqueued_body_is_the_original_text_and_not_a_re_serialisation(
-    relay: ModuleType, validator: _Validator
+    relay: ModuleType,
 ) -> None:
     """Guards the guard: a canonical fixture would let a round-trip pass unnoticed."""
     assert json.dumps(json.loads(RAW_BODY)).encode("utf-8") != RAW_BODY

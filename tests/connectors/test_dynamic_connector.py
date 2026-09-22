@@ -145,7 +145,8 @@ class TestCustomConnectorConfirmDefault:
         return await ConnectorFactory.create_control_system_connector(config)
 
     @pytest.mark.asyncio
-    async def test_omitted_confirm_leaves_connector_default_in_place(self, writes_enabled):
+    @pytest.mark.usefixtures("writes_enabled")
+    async def test_omitted_confirm_leaves_connector_default_in_place(self):
         """Single write with the keyword omitted: the connector's default applies."""
         connector = await self._connector()
 
@@ -154,7 +155,8 @@ class TestCustomConnectorConfirmDefault:
         assert result.outcome is WriteOutcome.UNREQUESTED
 
     @pytest.mark.asyncio
-    async def test_batch_omits_keyword_for_custom_connector(self, writes_enabled):
+    @pytest.mark.usefixtures("writes_enabled")
+    async def test_batch_omits_keyword_for_custom_connector(self):
         """Batch write with ``confirm`` omitted: no ``None`` reaches write_channel."""
         connector = await self._connector()
 
@@ -176,7 +178,8 @@ class TestCustomConnectorConfirmDefault:
         assert seen_kwargs and all("confirm" not in kw for kw in seen_kwargs)
 
     @pytest.mark.asyncio
-    async def test_batch_forwards_an_explicit_confirm(self, writes_enabled):
+    @pytest.mark.usefixtures("writes_enabled")
+    async def test_batch_forwards_an_explicit_confirm(self):
         """An explicit answer still reaches a custom connector unchanged."""
         connector = await self._connector()
 

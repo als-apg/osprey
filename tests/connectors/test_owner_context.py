@@ -146,7 +146,8 @@ def test_rung_three_the_stamped_owner_is_read(monkeypatch):
     assert current_owner() == "stamped"
 
 
-def test_rung_three_is_read_past_an_unbound_variable(monkeypatch, tree_bound):
+@pytest.mark.usefixtures("tree_bound")
+def test_rung_three_is_read_past_an_unbound_variable(monkeypatch):
     """An empty binding is not an answer — the stamp below it still is."""
     monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, "stamped")
     with bind_owner({}):
@@ -155,7 +156,8 @@ def test_rung_three_is_read_past_an_unbound_variable(monkeypatch, tree_bound):
 
 
 @pytest.mark.parametrize("stamp", ["", "   ", "\t\n"])
-def test_rung_three_a_blank_stamp_is_the_unset_case(monkeypatch, tree_bound, stamp):
+@pytest.mark.usefixtures("tree_bound")
+def test_rung_three_a_blank_stamp_is_the_unset_case(monkeypatch, stamp):
     """A rendered-but-empty ``environment:`` entry names nobody."""
     monkeypatch.setenv(posture_store.CONTROL_OWNER_ENV_VAR, stamp)
     assert current_owner() is NO_OWNER
@@ -175,7 +177,8 @@ def test_rung_three_only_ever_yields_a_string(monkeypatch, stamp):
     assert resolved == stamp.strip()
 
 
-def test_rung_four_the_tree_bind_means_owned_or_nothing(tree_bound, monkeypatch):
+@pytest.mark.usefixtures("tree_bound")
+def test_rung_four_the_tree_bind_means_owned_or_nothing(monkeypatch):
     """A container holding the whole tree holds no chip of its own."""
     monkeypatch.setattr(posture_store, "acting_identity", lambda: "queueserver")
     assert current_owner() is NO_OWNER
@@ -201,7 +204,8 @@ def test_the_last_rung_answers_with_a_real_name_unmocked():
     assert resolved.strip() == resolved
 
 
-def test_a_higher_rung_never_consults_the_identity_ladder(monkeypatch, tree_bound):
+@pytest.mark.usefixtures("tree_bound")
+def test_a_higher_rung_never_consults_the_identity_ladder(monkeypatch):
     """The last rung is reached only when nothing above it answered.
 
     Not an optimisation: a tree-holding container must not read the account it
@@ -230,7 +234,8 @@ def test_a_higher_rung_never_consults_the_identity_ladder(monkeypatch, tree_boun
 # --- the binding -----------------------------------------------------------
 
 
-def test_the_owner_is_visible_in_the_block_and_gone_after(tree_bound):
+@pytest.mark.usefixtures("tree_bound")
+def test_the_owner_is_visible_in_the_block_and_gone_after():
     with bind_owner({RESERVED_OWNER_KWARG: "ada", "detectors": ["d1"]}):
         assert current_owner() == "ada"
     assert bound_owner() is NO_OWNER
@@ -256,7 +261,8 @@ def test_the_callers_mapping_is_not_mutated():
     "claimed",
     [{}, {RESERVED_OWNER_KWARG: None}, {RESERVED_OWNER_KWARG: ""}, {RESERVED_OWNER_KWARG: "  "}],
 )
-def test_a_nameless_plan_binds_the_sentinel(tree_bound, claimed):
+@pytest.mark.usefixtures("tree_bound")
+def test_a_nameless_plan_binds_the_sentinel(claimed):
     """No name on the item means the ceiling is all that governs the plan."""
     with bind_owner(dict(claimed)):
         assert bound_owner() is NO_OWNER
@@ -283,7 +289,8 @@ def test_the_binding_is_released_when_the_body_raises():
     assert bound_owner() is NO_OWNER
 
 
-def test_one_runs_owner_does_not_reach_the_next_run(tree_bound):
+@pytest.mark.usefixtures("tree_bound")
+def test_one_runs_owner_does_not_reach_the_next_run():
     with bind_owner({RESERVED_OWNER_KWARG: "ada"}):
         assert current_owner() == "ada"
     with bind_owner({}):

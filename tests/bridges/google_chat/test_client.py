@@ -316,7 +316,8 @@ def load_client_copy():
     return module
 
 
-def test_the_client_works_with_no_google_library_installed(no_google):
+@pytest.mark.usefixtures("no_google")
+def test_the_client_works_with_no_google_library_installed():
     fresh = load_client_copy()
     service = make_service()
     client = fresh.ChatClient(CFG, service)
@@ -326,7 +327,8 @@ def test_the_client_works_with_no_google_library_installed(no_google):
     assert fresh.chunk_text("abcdefgh", limit=3) == ["abc", "def", "gh"]
 
 
-def test_only_the_default_factory_needs_the_google_libraries(no_google):
+@pytest.mark.usefixtures("no_google")
+def test_only_the_default_factory_needs_the_google_libraries():
     # The other half of the test above: proof the block is real rather than
     # vacuous, and that the imports are function-local to exactly one place.
     fresh = load_client_copy()

@@ -76,7 +76,8 @@ def writes_enabled_deployment(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_refuses_write(monkeypatch, writes_enabled_deployment):
+@pytest.mark.usefixtures("writes_enabled_deployment")
+async def test_readonly_run_refuses_write(monkeypatch):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     connector = _WriteEnabledConnector()
 
@@ -89,7 +90,8 @@ async def test_readonly_run_refuses_write(monkeypatch, writes_enabled_deployment
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_refuses_multi_write(monkeypatch, writes_enabled_deployment):
+@pytest.mark.usefixtures("writes_enabled_deployment")
+async def test_readonly_run_refuses_multi_write(monkeypatch):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
     connector = _WriteEnabledConnector()
 
@@ -100,9 +102,8 @@ async def test_readonly_run_refuses_multi_write(monkeypatch, writes_enabled_depl
 
 
 @pytest.mark.asyncio
-async def test_readonly_refusal_message_does_not_blame_deployment(
-    monkeypatch, writes_enabled_deployment
-):
+@pytest.mark.usefixtures("writes_enabled_deployment")
+async def test_readonly_refusal_message_does_not_blame_deployment(monkeypatch):
     """The operator-facing text must not send anyone to flip writes_enabled —
     the deployment allows writes; this *run* was declared readonly."""
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readonly")
@@ -115,7 +116,8 @@ async def test_readonly_refusal_message_does_not_blame_deployment(
 
 
 @pytest.mark.asyncio
-async def test_readwrite_run_passes_through(monkeypatch, writes_enabled_deployment):
+@pytest.mark.usefixtures("writes_enabled_deployment")
+async def test_readwrite_run_passes_through(monkeypatch):
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readwrite")
     connector = _WriteEnabledConnector()
 
@@ -126,7 +128,8 @@ async def test_readwrite_run_passes_through(monkeypatch, writes_enabled_deployme
 
 
 @pytest.mark.asyncio
-async def test_no_mode_var_means_not_a_sandbox_run(monkeypatch, writes_enabled_deployment):
+@pytest.mark.usefixtures("writes_enabled_deployment")
+async def test_no_mode_var_means_not_a_sandbox_run(monkeypatch):
     """Outside the sandbox (e.g. the controls MCP server) the variable is unset
     and the deployment posture alone decides."""
     monkeypatch.delenv("OSPREY_EXECUTION_MODE", raising=False)
@@ -138,9 +141,8 @@ async def test_no_mode_var_means_not_a_sandbox_run(monkeypatch, writes_enabled_d
 
 
 @pytest.mark.asyncio
-async def test_readonly_refusal_message_carries_the_shared_marker(
-    monkeypatch, writes_enabled_deployment
-):
+@pytest.mark.usefixtures("writes_enabled_deployment")
+async def test_readonly_refusal_message_carries_the_shared_marker(monkeypatch):
     """The connector's refusal must stay recognisable to the tool layer.
 
     A write refused here reaches the executor tools only as a traceback on the
@@ -224,9 +226,8 @@ def test_mcp_server_process_is_detected_from_the_real_entry_point(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_refusal_names_the_deployment_wide_run(
-    writes_enabled_deployment, readonly_run_in_an_mcp_server
-):
+@pytest.mark.usefixtures("writes_enabled_deployment", "readonly_run_in_an_mcp_server")
+async def test_readonly_run_refusal_names_the_deployment_wide_run():
     """The operator is told what actually refused: the whole run is read-only.
 
     Not a posture, and not this one session — the variable is on the
@@ -244,9 +245,8 @@ async def test_readonly_run_refusal_names_the_deployment_wide_run(
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_refusal_does_not_blame_config_or_a_script(
-    writes_enabled_deployment, readonly_run_in_an_mcp_server
-):
+@pytest.mark.usefixtures("writes_enabled_deployment", "readonly_run_in_an_mcp_server")
+async def test_readonly_run_refusal_does_not_blame_config_or_a_script():
     """Neither of the other stories applies here.
 
     ``writes_enabled`` is not the gate (the deployment config allows writes),
@@ -266,9 +266,8 @@ async def test_readonly_run_refusal_does_not_blame_config_or_a_script(
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_refusal_says_the_chip_cannot_lift_it(
-    writes_enabled_deployment, readonly_run_in_an_mcp_server
-):
+@pytest.mark.usefixtures("writes_enabled_deployment", "readonly_run_in_an_mcp_server")
+async def test_readonly_run_refusal_says_the_chip_cannot_lift_it():
     """The one remedy that does NOT work is named, because it is the one an
     operator would reach for: the control-target chip in the header already
     reads writes here and cannot lift a deployment-wide read-only run. Sending
@@ -284,9 +283,8 @@ async def test_readonly_run_refusal_says_the_chip_cannot_lift_it(
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_refusal_carries_the_shared_marker(
-    writes_enabled_deployment, readonly_run_in_an_mcp_server
-):
+@pytest.mark.usefixtures("writes_enabled_deployment", "readonly_run_in_an_mcp_server")
+async def test_readonly_run_refusal_carries_the_shared_marker():
     """This message keeps the marker the script message carries.
 
     It costs nothing — both are readonly execution mode, one held for the
@@ -305,9 +303,8 @@ async def test_readonly_run_refusal_carries_the_shared_marker(
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_refusal_keeps_the_shared_refusal_reason(
-    writes_enabled_deployment, readonly_run_in_an_mcp_server
-):
+@pytest.mark.usefixtures("writes_enabled_deployment", "readonly_run_in_an_mcp_server")
+async def test_readonly_run_refusal_keeps_the_shared_refusal_reason():
     """Only the message forks. ``refusal_reason`` is the machine-readable
     contract every caller of ``raise_for_write_result`` already handles, and a
     read-only run's refusal is the same kind of refusal: writes are off for
@@ -320,9 +317,8 @@ async def test_readonly_run_refusal_keeps_the_shared_refusal_reason(
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_refusal_covers_the_multi_write_path(
-    writes_enabled_deployment, readonly_run_in_an_mcp_server
-):
+@pytest.mark.usefixtures("writes_enabled_deployment", "readonly_run_in_an_mcp_server")
+async def test_readonly_run_refusal_covers_the_multi_write_path():
     """Both guarded entry points build their result the same way."""
     connector = _WriteEnabledConnector()
 
@@ -334,9 +330,8 @@ async def test_readonly_run_refusal_covers_the_multi_write_path(
 
 
 @pytest.mark.asyncio
-async def test_sandbox_script_run_keeps_the_script_shaped_message(
-    writes_enabled_deployment, executor_sandbox_script
-):
+@pytest.mark.usefixtures("writes_enabled_deployment", "executor_sandbox_script")
+async def test_sandbox_script_run_keeps_the_script_shaped_message():
     """Inside the executor's subprocess a script genuinely exists.
 
     The posture text would be wrong here: the run is readonly because *this

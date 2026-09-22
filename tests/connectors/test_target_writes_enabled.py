@@ -1215,9 +1215,8 @@ class TestTheFactoryBuiltConnector:
     """The stamps the factory really applies, through the real factory path."""
 
     @pytest.mark.asyncio
-    async def test_a_target_unstamped_connector_still_reads_its_types_posture(
-        self, deployment, store
-    ):
+    @pytest.mark.usefixtures("store")
+    async def test_a_target_unstamped_connector_still_reads_its_types_posture(self, deployment):
         """The mixed config SC pins: deployment-wide ``true``, this type ``false``.
 
         The target stamp indexes the STORE and nothing else, so a build site
@@ -1397,8 +1396,9 @@ class TestTheMemoCarriesAVerdictNotABool:
         assert connector._last_store_reason is None
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("store")
     async def test_an_unreadable_narrowing_memoises_the_sentence_for_it(
-        self, deployment, store, monkeypatch
+        self, deployment, monkeypatch
     ):
         """A tree bound to no usable path is nobody's decision, and says so.
 
@@ -1439,7 +1439,8 @@ class TestTheMemoCarriesAVerdictNotABool:
         assert connector._last_store_verdict is posture_store.StoreVerdict.PERMITTED
         assert connector._last_store_reason is None
 
-    def test_a_refusal_reads_the_verdict_by_name_never_by_truthiness(self, deployment, store):
+    @pytest.mark.usefixtures("store")
+    def test_a_refusal_reads_the_verdict_by_name_never_by_truthiness(self, deployment):
         """Every verdict is a non-empty string, so a bool test grants them all.
 
         This is the regression the by-name comparison exists for: a safety
@@ -1462,9 +1463,8 @@ class TestTheMemoCarriesAVerdictNotABool:
         # Assert
         assert "control-target chip in the header" in refusal.error_message
 
-    def test_an_unavailable_verdict_refuses_under_the_one_word_the_vocabulary_has(
-        self, deployment, store
-    ):
+    @pytest.mark.usefixtures("store")
+    def test_an_unavailable_verdict_refuses_under_the_one_word_the_vocabulary_has(self, deployment):
         """A third answer does not become a third ``refusal_reason``."""
         # Arrange
         deployment(ARMED_SECTION)
@@ -1516,8 +1516,9 @@ class TestEveryStoreClauseEndsInItsVerdict:
         assert result.error_message.rstrip(".").endswith(posture_store.StoreVerdict.NARROWING.value)
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("store")
     async def test_an_unreadable_store_carries_the_readers_remedy_and_its_verdict(
-        self, deployment, store, monkeypatch
+        self, deployment, monkeypatch
     ):
         """A bind that names no path: the refusal quotes the path and the fix.
 
@@ -1544,9 +1545,8 @@ class TestEveryStoreClauseEndsInItsVerdict:
         # The remedy for a decision nobody made must not be a chip to go and flip.
         assert "Turn writes back on" not in result.error_message
 
-    def test_an_unavailable_verdict_with_no_sentence_still_closes_on_its_verdict(
-        self, deployment, store
-    ):
+    @pytest.mark.usefixtures("store")
+    def test_an_unavailable_verdict_with_no_sentence_still_closes_on_its_verdict(self, deployment):
         """A direct caller may hand down a verdict and no sentence.
 
         The wording then has a cause and no path to name, and the one thing it

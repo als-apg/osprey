@@ -437,7 +437,7 @@ class TestGetCallerInfo:
 class TestLogApiCall:
     """Test log_api_call function."""
 
-    def test_logging_disabled_by_default(self, tmp_path, monkeypatch):
+    def test_logging_disabled_by_default(self, monkeypatch):
         """Test that logging is disabled when save_all is False."""
         from osprey.models.logging import log_api_call
 

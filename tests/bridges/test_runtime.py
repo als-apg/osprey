@@ -216,7 +216,8 @@ def test_reconcile_runs_before_the_drain_starts(tmp_path, monkeypatch, spawn):
     assert deps.dedup.get("m1")["status"] == "completed"
 
 
-def test_startup_recovery_settles_through_the_pipeline(tmp_path, no_drain):
+@pytest.mark.usefixtures("no_drain")
+def test_startup_recovery_settles_through_the_pipeline(tmp_path):
     """The injected settlement is the pipeline's: a retryable failure found at startup is
     PARKED for the drain (queued + queued notice), not reported as a delivered error."""
     ops = RecordingChannelOps()
@@ -232,7 +233,8 @@ def test_startup_recovery_settles_through_the_pipeline(tmp_path, no_drain):
     assert ops.count("post_answer") == 0
 
 
-def test_startup_recovery_replays_the_live_payload(tmp_path, no_drain):
+@pytest.mark.usefixtures("no_drain")
+def test_startup_recovery_replays_the_live_payload(tmp_path):
     """A re-dispatch (crashed before a run id existed) carries the same context a live
     dispatch would — proof the pipeline's context builder is the injected one."""
     ops = RecordingChannelOps()
@@ -283,7 +285,8 @@ def test_supervise_restarts_a_dead_drain(tmp_path, no_drain, spawn):
     assert len(no_drain) == 2
 
 
-def test_shutdown_signals_the_drain_to_stop(tmp_path, no_drain):
+@pytest.mark.usefixtures("no_drain")
+def test_shutdown_signals_the_drain_to_stop(tmp_path):
     ops = RecordingChannelOps()
     bridge = runtime.start(_cfg(tmp_path), ops, deps=_deps(tmp_path, ops))
 
@@ -521,7 +524,8 @@ def test_run_forever_serves_the_adapter_loop_then_stops(tmp_path, no_drain):
     assert len(no_drain) == 1
 
 
-def test_run_forever_stops_the_drain_when_the_loop_raises(tmp_path, no_drain):
+@pytest.mark.usefixtures("no_drain")
+def test_run_forever_stops_the_drain_when_the_loop_raises(tmp_path):
     ops = RecordingChannelOps()
     deps = _deps(tmp_path, ops)
     captured: dict[str, Any] = {}

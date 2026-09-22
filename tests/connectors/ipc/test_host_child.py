@@ -781,8 +781,9 @@ def _verify(config, report, writes_enabled):
     return derivation, verify_child_report(derivation, report)
 
 
+@pytest.mark.usefixtures("narrowed_va")
 def test_identical_gateways_report_the_role_the_narrowed_posture_selected(
-    va_deployment, narrowed_va, monkeypatch
+    va_deployment, monkeypatch
 ):
     """The shipped VA shape, with the operator holding ``va`` read-only.
 
@@ -841,8 +842,9 @@ def test_identical_gateways_still_report_write_access_when_nothing_narrows(
     assert verification.ok, verification.detail
 
 
+@pytest.mark.usefixtures("narrowed_va")
 async def test_a_narrowed_target_reports_the_posture_its_writes_are_refused_on(
-    va_deployment, narrowed_va, monkeypatch
+    va_deployment, monkeypatch
 ):
     """Distinct gateways: the report's posture is the connector's, end to end.
 
