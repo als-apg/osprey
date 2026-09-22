@@ -990,7 +990,7 @@ class _Sessions(http.server.BaseHTTPRequestHandler):
     status: int = 200
     seen: list[tuple[str, str]] = []
 
-    def do_GET(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's spelling
+    def do_GET(self) -> None:
         type(self).seen.append((self.path, self.headers.get("Authorization", "")))
         self.send_response(self.status)
         self.send_header("Content-Type", "application/json")

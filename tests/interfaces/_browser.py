@@ -48,7 +48,7 @@ def _same_origin(url: str, origin: tuple[str, str | None, int | None]) -> bool:
     return (parsed.scheme, parsed.hostname, parsed.port) == origin
 
 
-def _is_script_or_stylesheet(response) -> bool:  # noqa: ANN001 - Playwright Response
+def _is_script_or_stylesheet(response) -> bool:
     request = getattr(response, "request", None)
     resource_type = getattr(request, "resource_type", None) if request is not None else None
     if resource_type in _SCRIPT_STYLESHEET_RESOURCE_TYPES:
@@ -104,10 +104,10 @@ def assert_page_loads_clean(
     origin = (urlparse(url).scheme, urlparse(url).hostname, urlparse(url).port)
     collected: list[tuple[str, str]] = []
 
-    def _on_pageerror(error) -> None:  # noqa: ANN001 - Playwright error arg
+    def _on_pageerror(error) -> None:
         collected.append(("pageerror", str(error)))
 
-    def _on_response(response) -> None:  # noqa: ANN001 - Playwright Response
+    def _on_response(response) -> None:
         try:
             if response.status < 400:
                 return
@@ -119,7 +119,7 @@ def assert_page_loads_clean(
             return
         collected.append(("response", response.url))
 
-    def _on_console(msg) -> None:  # noqa: ANN001 - Playwright ConsoleMessage
+    def _on_console(msg) -> None:
         if getattr(msg, "type", None) == "error":
             collected.append(("console", msg.text))
 

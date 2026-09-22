@@ -100,7 +100,7 @@ def test_write_record_puts_the_context_on_disk_before_the_header(
     destinations: list[str] = []
     committed_before_each: list[list[str]] = []
 
-    def spy_replace(src, dst, *args, **kwargs):  # noqa: ANN001, ANN202 — stdlib passthrough
+    def spy_replace(src, dst, *args, **kwargs):
         committed_before_each.append(_record_globs_in(Path(dst).parent))
         destinations.append(Path(dst).name)
         return real_replace(src, dst, *args, **kwargs)
@@ -126,7 +126,7 @@ def test_write_record_temp_files_never_match_the_record_globs(
     real_mkstemp = tempfile.mkstemp
     temp_names: list[str] = []
 
-    def spy_mkstemp(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202 — stdlib passthrough
+    def spy_mkstemp(*args, **kwargs):
         fd, name = real_mkstemp(*args, **kwargs)
         temp_names.append(Path(name).name)
         return fd, name
@@ -135,7 +135,7 @@ def test_write_record_temp_files_never_match_the_record_globs(
     real_replace = os.replace
     mid_write_listings: list[list[str]] = []
 
-    def spy_replace(src, dst, *args, **kwargs):  # noqa: ANN001, ANN202 — stdlib passthrough
+    def spy_replace(src, dst, *args, **kwargs):
         # The temp file is still present here; anything it matched would be
         # read as a half-written record by the CLI.
         mid_write_listings.append(sorted(p.name for p in Path(dst).parent.iterdir()))
@@ -432,7 +432,7 @@ def test_prune_store_rewrites_headers_through_the_temp_file_path(
     real_replace = os.replace
     replacements: list[tuple[str, str]] = []
 
-    def spy_replace(src, dst, *args, **kwargs):  # noqa: ANN001, ANN202 — stdlib passthrough
+    def spy_replace(src, dst, *args, **kwargs):
         replacements.append((Path(src).name, Path(dst).name))
         return real_replace(src, dst, *args, **kwargs)
 
@@ -461,7 +461,7 @@ def test_prune_store_deletes_an_orphan_context_without_writing_a_header(
     orphan_size = (feedback_dir / feedback_store.context_filename(orphan_id)).stat().st_size
     ceiling = _store_bytes(feedback_dir) - orphan_size + 500
 
-    def refuse_replace(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202
+    def refuse_replace(*args, **kwargs):
         raise AssertionError("an orphan context has no header to rewrite")
 
     monkeypatch.setattr(os, "replace", refuse_replace)

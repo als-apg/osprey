@@ -122,7 +122,7 @@ def _stub_backend():
     """
 
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+        def do_GET(self):
             self.send_response(200)
             self.send_header("Content-Type", "text/plain")
             self.end_headers()
@@ -2220,7 +2220,7 @@ def _contrib_panel_backend():
     """Serve a page that contributes to the tile bar and records actions."""
 
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+        def do_GET(self):
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
@@ -2340,7 +2340,7 @@ def _search_menu_panel_backend():
     """Serve a page contributing a search box and an overflow menu."""
 
     class _Handler(BaseHTTPRequestHandler):
-        def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+        def do_GET(self):
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()

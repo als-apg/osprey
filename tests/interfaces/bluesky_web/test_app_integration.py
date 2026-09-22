@@ -35,7 +35,7 @@ from osprey.interfaces.bluesky_web.app import app
 from osprey.interfaces.vendor import asset_cdn_url
 from osprey.port_layout import default_port
 
-TOKEN = "s3cr3t-launch-token"  # noqa: S105 - test fixture value, not a real secret
+TOKEN = "s3cr3t-launch-token"
 RUN_ID = "run-xyz789"
 _BRIDGE_URL = "http://bridge.test"
 

@@ -424,5 +424,5 @@ class TestResolveConfiguredWebTheme:
         """A resolved theme is read once at startup and shared; it must not be
         editable in place by whatever reads it later."""
         resolved = resolve_configured_web_theme("light")
-        with pytest.raises(Exception):  # noqa: B017 - FrozenInstanceError is a dataclass detail
+        with pytest.raises(Exception):
             resolved.id = "dark"  # type: ignore[misc]

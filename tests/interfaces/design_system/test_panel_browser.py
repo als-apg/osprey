@@ -87,7 +87,7 @@ def _launch_reference_panel() -> Iterator[str]:
         yield base_url
 
 
-def _applied_theme(page) -> str | None:  # noqa: ANN001 - Playwright Page
+def _applied_theme(page) -> str | None:
     """Return the ``data-theme`` attribute on ``<html>`` after boot."""
     return page.evaluate("document.documentElement.getAttribute('data-theme')")
 
