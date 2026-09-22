@@ -140,7 +140,9 @@ Go live
 A deployment baselined on the stand-in
 (``control_system.type: live_standin``) starts on ``standin``, so
 going to the real machine is one tool call — the same call, and the same
-prompts, as on a deployment that never had a stand-in at all.
+prompts, as on a deployment that never had a stand-in at all. The
+``control-assistant`` preset starts on the simulator (``va``) instead, so there
+the stand-in is a switch of its own before the real machine.
 
 Read the roster before you ask for it, so you know what will happen::
 
