@@ -610,8 +610,9 @@ class TestASwitchToTheBenchMachine:
     it is told to switch to, and FR-8 is what decides whether it is told.
     """
 
+    @pytest.mark.usefixtures("quiet_switch_notifications")
     async def test_the_tool_switches_onto_the_bench_and_the_reads_follow(
-        self, make_manager, deployment, served_context, quiet_switch_notifications, reconciling
+        self, make_manager, deployment, served_context, reconciling
     ):
         manager = await started_on(make_manager, deployment, "va")
         served_context(manager)

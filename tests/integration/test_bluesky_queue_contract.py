@@ -678,9 +678,8 @@ def test_a_stale_draft_revision_never_reaches_the_manager(
     assert manager.items == []
 
 
-def test_the_queue_read_publishes_a_bounded_status_summary(
-    client: TestClient, manager: MockQueueServer
-) -> None:
+@pytest.mark.usefixtures("manager")
+def test_the_queue_read_publishes_a_bounded_status_summary(client: TestClient) -> None:
     """`GET /queue` reports the manager's queue, and only the status keys the
     contract names — the raw status document carries 0MQ material that must
     never reach a consumer."""
@@ -1506,9 +1505,8 @@ def test_health_publishes_the_capability_record_the_refusal_carries(
     assert body["capability"] == refused.json()["detail"]["capability"]
 
 
-def test_an_executable_deployment_advertises_it_on_health(
-    client: TestClient, manager: MockQueueServer
-) -> None:
+@pytest.mark.usefixtures("manager")
+def test_an_executable_deployment_advertises_it_on_health(client: TestClient) -> None:
     """The positive control for the fail-closed set: `can_execute` is true only
     when a reachable manager sits behind a connector that can drive hardware."""
     body = client.get("/health").json()
@@ -1518,9 +1516,9 @@ def test_an_executable_deployment_advertises_it_on_health(
     assert body["capability"]["reason"] == qb.REASON_EXECUTABLE
 
 
+@pytest.mark.usefixtures("manager")
 def test_a_browse_only_refusal_names_the_command_that_flips_it(
     client: TestClient,
-    manager: MockQueueServer,
     connector: Callable[[str | Exception], None],
 ) -> None:
     """The mock-connector refusal is the one an operator meets most, so it

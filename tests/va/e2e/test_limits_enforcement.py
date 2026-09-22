@@ -75,8 +75,9 @@ def corrector_rb(corrector: Binding) -> str:
 
 class TestLimitsEnforcement:
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("va_container")
     async def test_out_of_limits_write_rejected_before_reaching_ioc(
-        self, va_container, corrector_sp, corrector_rb
+        self, corrector_sp, corrector_rb
     ):
         with e2e_conftest.patched_config(**LIMITS_OVERRIDES):
             connector = await e2e_conftest.connect_va()
@@ -104,7 +105,8 @@ class TestLimitsEnforcement:
             )
 
     @pytest.mark.asyncio
-    async def test_in_limits_write_succeeds(self, va_container, corrector_sp):
+    @pytest.mark.usefixtures("va_container")
+    async def test_in_limits_write_succeeds(self, corrector_sp):
         with e2e_conftest.patched_config(**LIMITS_OVERRIDES):
             connector = await e2e_conftest.connect_va()
 

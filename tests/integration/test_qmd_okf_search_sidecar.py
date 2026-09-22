@@ -434,9 +434,7 @@ def test_panel_hits_carry_the_daemons_own_snippet(panel_client):
 # ---------------------------------------------------------------------------
 
 
-def test_stopped_sidecar_degrades_to_substring_with_one_warning(
-    tmp_path_factory, request, monkeypatch, caplog
-):
+def test_stopped_sidecar_degrades_to_substring_with_one_warning(tmp_path_factory, request, caplog):
     """Stopping the sidecar leaves search working, unranked, and warning once.
 
     A dedicated container over a two-document corpus, deliberately not the

@@ -292,7 +292,8 @@ def _write_record(log_dir, run_id: str, **fields: Any) -> None:
     (log_dir / f"{run_id}.json").write_text(json.dumps(record))
 
 
-def test_clear_runs_requires_auth(client, log_dir):
+@pytest.mark.usefixtures("log_dir")
+def test_clear_runs_requires_auth(client):
     resp = client.delete("/dispatch/runs")
     assert resp.status_code in (401, 403)
 
@@ -314,7 +315,8 @@ def test_clear_runs_deletes_records_and_memory(client, log_dir):
     assert dispatch_api._runs == {}
 
 
-def test_clear_runs_route_is_not_swallowed_by_the_cancel_route(client, log_dir):
+@pytest.mark.usefixtures("log_dir")
+def test_clear_runs_route_is_not_swallowed_by_the_cancel_route(client):
     """``/dispatch/runs`` must not be read as a cancel of run id "runs".
 
     Starlette matches in registration order, so this only holds while the
@@ -370,7 +372,8 @@ def test_clear_runs_rejects_a_negative_horizon(client, log_dir):
     assert (log_dir / "done.json").exists()
 
 
-def test_clear_runs_drops_the_stream_queue(client, log_dir):
+@pytest.mark.usefixtures("log_dir")
+def test_clear_runs_drops_the_stream_queue(client):
     """A cleared run's SSE queue goes with it rather than leaking."""
     dispatch_api._runs["done"] = {"status": "completed", "completed_at": time.time()}
     dispatch_api._queues["done"] = MagicMock()

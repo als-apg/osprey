@@ -20,7 +20,7 @@ from osprey.mcp_server.dispatch_worker.dispatch_api import DispatchRequest
 
 
 @pytest.fixture
-def counter_calls(monkeypatch):
+def counter_calls():
     """Observe every _stamp counter increment via the register_counter_hook seam."""
     calls: list[str] = []
     failure_class.register_counter_hook(calls.append)
@@ -41,7 +41,7 @@ def persist_calls(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _clean_state(monkeypatch):
+def _clean_state():
     """Isolate the module-level run/stats maps between tests."""
     dispatch_api._runs.clear()
     dispatch_api._queues.clear()
@@ -140,7 +140,8 @@ async def test_site_stamps_expected_class_exactly_once(
 
 
 @pytest.mark.parametrize("site", sorted(_DRIVERS))
-async def test_site_stamps_honest_tool_call_count(site, monkeypatch, counter_calls, persist_calls):
+@pytest.mark.usefixtures("counter_calls", "persist_calls")
+async def test_site_stamps_honest_tool_call_count(site, monkeypatch):
     driver, _expected_class = _DRIVERS[site]
     run_id = f"count-{site}"
     for _ in range(3):
@@ -152,7 +153,8 @@ async def test_site_stamps_honest_tool_call_count(site, monkeypatch, counter_cal
     assert record["num_tool_calls"] == 3
 
 
-async def test_zero_tool_calls_defaults_to_zero(monkeypatch, counter_calls, persist_calls):
+@pytest.mark.usefixtures("counter_calls", "persist_calls")
+async def test_zero_tool_calls_defaults_to_zero(monkeypatch):
     run_id = "count-none"
     await _drive_generic(monkeypatch, run_id)
     assert dispatch_api._runs[run_id]["num_tool_calls"] == 0
@@ -163,22 +165,23 @@ async def test_zero_tool_calls_defaults_to_zero(monkeypatch, counter_calls, pers
 # ---------------------------------------------------------------------------
 
 
-async def test_timeout_record_carries_timeout_message_and_duration(
-    monkeypatch, counter_calls, persist_calls
-):
+@pytest.mark.usefixtures("counter_calls", "persist_calls")
+async def test_timeout_record_carries_timeout_message_and_duration(monkeypatch):
     await _drive_timeout(monkeypatch, "r-timeout")
     record = dispatch_api._runs["r-timeout"]
     assert record["error"] == "Timed out after 0.05s"
     assert record["duration_sec"] == 0.05
 
 
-async def test_generic_record_carries_exception_message(monkeypatch, counter_calls, persist_calls):
+@pytest.mark.usefixtures("counter_calls", "persist_calls")
+async def test_generic_record_carries_exception_message(monkeypatch):
     await _drive_generic(monkeypatch, "r-generic")
     record = dispatch_api._runs["r-generic"]
     assert record["error"] == "orchestration blew up"
 
 
-async def test_genuine_cancel_marks_cancelled_flag(monkeypatch, counter_calls, persist_calls):
+@pytest.mark.usefixtures("counter_calls", "persist_calls")
+async def test_genuine_cancel_marks_cancelled_flag(monkeypatch):
     await _drive_cancel(monkeypatch, "r-cancel")
     record = dispatch_api._runs["r-cancel"]
     assert record["error"] == "cancelled by user"
@@ -191,7 +194,8 @@ async def test_genuine_cancel_marks_cancelled_flag(monkeypatch, counter_calls, p
 # ---------------------------------------------------------------------------
 
 
-async def test_cancel_merges_preserving_swept_record(monkeypatch, counter_calls, persist_calls):
+@pytest.mark.usefixtures("persist_calls")
+async def test_cancel_merges_preserving_swept_record(monkeypatch, counter_calls):
     """Sweep wins the race: the cancel branch must not re-stamp or re-count."""
     run_id = "r-merge"
 

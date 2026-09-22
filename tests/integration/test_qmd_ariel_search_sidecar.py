@@ -605,7 +605,8 @@ class TestQmdManglesReportedPaths:
         assert "a-252-46b.md" in reported, reported
         assert on_disk.name not in reported, "qmd started reporting the real filename"
 
-    async def test_every_escape_is_slugified(self, sidecar_world, sidecar_client):
+    @pytest.mark.usefixtures("sidecar_world")
+    async def test_every_escape_is_slugified(self, sidecar_client):
         """The transformation, spelled out: ``%`` and ``_`` -> ``-``, runs collapsed.
 
         Derived from the reported names rather than assumed — ``-%`` in an id like
@@ -676,9 +677,8 @@ class TestUnderscoreCollision:
         assert under.exists() and hyphen.exists()
         assert under != hyphen
 
-    async def test_qmd_collapses_the_pair_onto_one_reported_path(
-        self, sidecar_world, sidecar_client
-    ):
+    @pytest.mark.usefixtures("sidecar_world")
+    async def test_qmd_collapses_the_pair_onto_one_reported_path(self, sidecar_client):
         """Two documents go in; one reported name comes out."""
         hits = sidecar_client.query(
             ARIEL_COLLECTION, COLLISION_TOKEN, limit=50, rerank=False, candidate_limit=40
@@ -708,9 +708,8 @@ class TestUnderscoreCollision:
 
         assert {COLLISION_UNDERSCORE, COLLISION_HYPHEN} <= _ids(results)
 
-    async def test_the_reported_path_would_have_hydrated_the_wrong_row(
-        self, sidecar_world, sidecar_client
-    ):
+    @pytest.mark.usefixtures("sidecar_world")
+    async def test_the_reported_path_would_have_hydrated_the_wrong_row(self, sidecar_client):
         """Pins the path channel that hydration deliberately no longer consults.
 
         This measures ``entry_id_from_path(hit.file)`` directly — a channel
@@ -765,7 +764,8 @@ class TestUnderscoreCollision:
             == sidecar_world.rows[COLLISION_UNDERSCORE]["raw_text"]
         )
 
-    async def test_mangled_path_decodes_to_a_key_no_row_has(self, sidecar_world):
+    @pytest.mark.usefixtures("sidecar_world")
+    async def test_mangled_path_decodes_to_a_key_no_row_has(self):
         """Why the hit vanishes: the inversion produces a different identifier."""
         from osprey.services.ariel_search.enhancement.qmd_export.writer import entry_id_from_path
 
@@ -1301,8 +1301,9 @@ class TestVocabularyExpansionReachesTheSidecar:
     for the one knob that has to travel with it.
     """
 
+    @pytest.mark.usefixtures("framework_registry")
     async def test_expansion_lifts_the_canonical_entry_into_the_top_three(
-        self, sidecar_world, sidecar_client, vocabulary_file, framework_registry
+        self, sidecar_world, sidecar_client, vocabulary_file
     ):
         """The differential: same query, same corpus, expansion the only change.
 
@@ -1345,8 +1346,9 @@ class TestVocabularyExpansionReachesTheSidecar:
             f"{_result_ids(unexpanded)}"
         )
 
+    @pytest.mark.usefixtures("framework_registry")
     async def test_expanded_terms_name_both_shorthand_pairs(
-        self, sidecar_world, sidecar_client, vocabulary_file, framework_registry
+        self, sidecar_world, sidecar_client, vocabulary_file
     ):
         """The transparency payload the caller sees alongside the results.
 
@@ -1362,8 +1364,9 @@ class TestVocabularyExpansionReachesTheSidecar:
         pairs = {group["original"]: tuple(group["alternatives"]) for group in result.expanded_terms}
         assert pairs == VOCABULARY_EXPECTED_PAIRS
 
+    @pytest.mark.usefixtures("framework_registry")
     async def test_the_sidecar_receives_the_flattened_query(
-        self, sidecar_world, sidecar_client, vocabulary_file, framework_registry
+        self, sidecar_world, sidecar_client, vocabulary_file
     ):
         """Expansion has to reach the daemon, not merely the result payload.
 
@@ -1385,8 +1388,9 @@ class TestVocabularyExpansionReachesTheSidecar:
 class TestVocabularyExpandModesGateTheSidecar:
     """``expand_modes`` that omits ``hybrid`` leaves this module unexpanded."""
 
+    @pytest.mark.usefixtures("framework_registry")
     async def test_keyword_only_expand_modes_sends_the_unexpanded_query(
-        self, sidecar_world, sidecar_client, vocabulary_file, framework_registry
+        self, sidecar_world, sidecar_client, vocabulary_file
     ):
         """A usable vocabulary the caller asked for, scoped away from hybrid.
 
