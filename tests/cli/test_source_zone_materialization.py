@@ -369,8 +369,9 @@ def no_provider_keys(monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv(var, raising=False)
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_only_keys_of_referenced_providers_are_seeded(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The keys of the providers this profile names, and nothing else — the
     profile is where a facility's secrets live, so what lands there must be
@@ -389,8 +390,9 @@ def test_only_keys_of_referenced_providers_are_seeded(
     assert parse_dotenv_file(env_path) == {"ANTHROPIC_API_KEY": "sk-ant-test"}
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_a_switched_provider_takes_its_own_key(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The rule reads the RESOLVED profile, so a `--set provider=` that the
     emitted profile.yml records moves which key is seeded with it."""
@@ -405,8 +407,9 @@ def test_a_switched_provider_takes_its_own_key(
     assert parse_dotenv_file(target / ".env") == {"OPENAI_API_KEY": "sk-openai-test"}
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_a_gateway_added_to_the_catalog_is_referenced(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A repo that writes a gateway into `providers.yml` intends to reach it, so
     its key is seeded even when the agent runs on a different one.
@@ -470,8 +473,9 @@ def test_a_malformed_persona_delta_is_reported_before_anything_is_written(
     assert not target.exists()
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_unreferenced_exported_keys_are_named_not_dropped_silently(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Seen and skipped has to read differently from lost: the operator exported
     these, and is told which ones the profile had no use for."""
@@ -485,8 +489,9 @@ def test_unreferenced_exported_keys_are_named_not_dropped_silently(
     assert "Left out OPENAI_API_KEY" in result.output
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_only_unreferenced_keys_exported_writes_no_env_and_says_why(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Nothing exported at all and nothing this profile can use are different
     situations with different remedies, so they are not reported the same way."""
@@ -501,8 +506,9 @@ def test_only_unreferenced_keys_exported_writes_no_env_and_says_why(
     assert "Left out OPENAI_API_KEY" in result.output
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_seeded_env_file_is_owner_only(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     target = tmp_path / "my-facility"
@@ -512,9 +518,8 @@ def test_seeded_env_file_is_owner_only(
     assert (target / ".env").stat().st_mode & 0o777 == 0o600
 
 
-def test_no_exported_keys_writes_the_example_but_no_env(
-    runner: CliRunner, tmp_path: Path, no_provider_keys: None
-) -> None:
+@pytest.mark.usefixtures("no_provider_keys")
+def test_no_exported_keys_writes_the_example_but_no_env(runner: CliRunner, tmp_path: Path) -> None:
     """An empty ``.env`` reads as a configured one. With nothing to seed, the
     documented variable list is the whole deliverable."""
     target = tmp_path / "my-facility"
@@ -526,9 +531,8 @@ def test_no_exported_keys_writes_the_example_but_no_env(
     assert (target / ".env.example").is_file()
 
 
-def test_env_example_documents_the_whole_variable_set(
-    runner: CliRunner, tmp_path: Path, no_provider_keys: None
-) -> None:
+@pytest.mark.usefixtures("no_provider_keys")
+def test_env_example_documents_the_whole_variable_set(runner: CliRunner, tmp_path: Path) -> None:
     """One template renders this file into a profile and into a project, so the
     two cannot document different variables."""
     from osprey.cli.templates.scaffolding import service_token_var_entries
@@ -544,8 +548,9 @@ def test_env_example_documents_the_whole_variable_set(
         assert entry["var"] in content, f"{entry['var']} missing from the profile .env.example"
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_env_example_documents_the_profiles_own_env_block(
-    runner: CliRunner, tmp_path: Path, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path
 ) -> None:
     """The example documents the `env:` block — required vars arrive bare,
     declared defaults arrive with theirs (the defaults are *also* seeded into
@@ -568,8 +573,9 @@ def test_env_example_documents_the_profiles_own_env_block(
     assert "LOG_LEVEL=info" in lines
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_env_defaults_are_seeded_into_env_as_starting_values(
-    runner: CliRunner, tmp_path: Path, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path
 ) -> None:
     """Declared `env.defaults` become real starting values: seeded into `.env`
     under their own banner, so a deployment created from the profile comes up
@@ -593,8 +599,9 @@ def test_env_defaults_are_seeded_into_env_as_starting_values(
     assert (target / ".env").stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_summary_names_the_secret_files_it_wrote(
-    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The caller is told where their secrets now live, and which keys were
     taken from their shell."""
@@ -608,8 +615,9 @@ def test_summary_names_the_secret_files_it_wrote(
     assert "ANTHROPIC_API_KEY" in result.output
 
 
+@pytest.mark.usefixtures("no_provider_keys")
 def test_summary_says_no_env_was_written_when_nothing_was_exported(
-    runner: CliRunner, tmp_path: Path, no_provider_keys: None
+    runner: CliRunner, tmp_path: Path
 ) -> None:
     target = tmp_path / "my-facility"
 

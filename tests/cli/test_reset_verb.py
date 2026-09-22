@@ -200,8 +200,9 @@ def test_the_plan_is_written_through_the_console_that_owns_the_region(
     assert "WILL BE REMOVED" not in result.stdout
 
 
+@pytest.mark.usefixtures("no_down")
 def test_the_typed_confirmation_runs_with_the_region_taken_down(
-    repo: Path, no_down, monkeypatch: pytest.MonkeyPatch, live_reporter
+    repo: Path, monkeypatch: pytest.MonkeyPatch, live_reporter
 ) -> None:
     """The prompt asks its question on a terminal nothing else is repainting.
 

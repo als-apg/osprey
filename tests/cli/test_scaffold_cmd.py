@@ -663,7 +663,8 @@ class TestClaimCommand:
         config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
         assert "rules/safety" not in config.get("scaffold", {}).get("user_owned", [])
 
-    def test_claim_twice_errors_on_the_second(self, repo_dir, project_dir):
+    @pytest.mark.usefixtures("project_dir")
+    def test_claim_twice_errors_on_the_second(self, repo_dir):
         runner = CliRunner()
         assert (
             runner.invoke(scaffold, ["claim", "rules/safety", "--repo", str(repo_dir)]).exit_code
@@ -678,7 +679,8 @@ class TestClaimCommand:
 class TestPromptsList:
     """Tests for ``osprey scaffold list``."""
 
-    def test_list_shows_all_artifacts(self, repo_dir, project_dir):
+    @pytest.mark.usefixtures("project_dir")
+    def test_list_shows_all_artifacts(self, repo_dir):
         runner = CliRunner()
         result = runner.invoke(scaffold, ["list", "--repo", str(repo_dir)])
         assert result.exit_code == 0
@@ -687,12 +689,14 @@ class TestPromptsList:
         assert "agents/channel-finder" in result.output
         assert "hooks/error-guidance" in result.output
 
-    def test_list_shows_framework_managed(self, repo_dir, project_dir):
+    @pytest.mark.usefixtures("project_dir")
+    def test_list_shows_framework_managed(self, repo_dir):
         runner = CliRunner()
         result = runner.invoke(scaffold, ["list", "--repo", str(repo_dir)])
         assert "Framework-managed" in result.output
 
-    def test_list_shows_facility(self, repo_dir, project_dir):
+    @pytest.mark.usefixtures("project_dir")
+    def test_list_shows_facility(self, repo_dir):
         """rules/facility appears either as framework-managed or user-owned."""
         runner = CliRunner()
         result = runner.invoke(scaffold, ["list", "--repo", str(repo_dir)])
@@ -749,7 +753,8 @@ class TestOwnedRow:
 class TestPromptsDiff:
     """Tests for ``osprey scaffold diff``."""
 
-    def test_diff_not_owned_errors(self, repo_dir, project_dir):
+    @pytest.mark.usefixtures("project_dir")
+    def test_diff_not_owned_errors(self, repo_dir):
         runner = CliRunner()
         result = runner.invoke(
             scaffold,
@@ -824,7 +829,8 @@ class TestPromptsUnclaim:
 
         assert (project_dir / ".claude" / "rules" / "safety.md").exists()
 
-    def test_unclaim_not_owned_errors(self, repo_dir, project_dir):
+    @pytest.mark.usefixtures("project_dir")
+    def test_unclaim_not_owned_errors(self, repo_dir):
         runner = CliRunner()
         result = runner.invoke(
             scaffold,

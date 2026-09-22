@@ -179,9 +179,8 @@ def run_reset(repo_root: Path, *args: str) -> Result:
 # ---------------------------------------------------------------------------
 
 
-def test_both_verbs_execute_the_same_removal_set(
-    target: Path, runtime: FakeRuntime, no_destruction, no_survivor_check
-) -> None:
+@pytest.mark.usefixtures("runtime", "no_survivor_check")
+def test_both_verbs_execute_the_same_removal_set(target: Path, no_destruction) -> None:
     """The two verbs hand ``execute_reset`` the same plan, entry for entry.
 
     Ordering matters: ``init --reset`` runs first and leaves the repo it just
@@ -204,9 +203,8 @@ def test_both_verbs_execute_the_same_removal_set(
     assert init_removals["containers"] and init_removals["volumes"]
 
 
-def test_the_standalone_verb_still_prints_the_full_plan(
-    target: Path, runtime: FakeRuntime, no_destruction, no_survivor_check
-) -> None:
+@pytest.mark.usefixtures("runtime", "no_destruction", "no_survivor_check")
+def test_the_standalone_verb_still_prints_the_full_plan(target: Path) -> None:
     """``osprey reset`` keeps the confirmation document, whole.
 
     The full plan is what an operator confirms a destruction against, so the
@@ -223,9 +221,8 @@ def test_the_standalone_verb_still_prints_the_full_plan(
     assert PLAN_CLOSES_WITH in result.stdout
 
 
-def test_init_reset_reports_condensed_steps_not_the_plan(
-    target: Path, runtime: FakeRuntime, no_destruction, no_survivor_check
-) -> None:
+@pytest.mark.usefixtures("runtime", "no_destruction", "no_survivor_check")
+def test_init_reset_reports_condensed_steps_not_the_plan(target: Path) -> None:
     """The chained reset is phase steps: what went, what stayed — no document.
 
     The full plan is a confirmation surface, and nothing is being confirmed
@@ -242,8 +239,9 @@ def test_init_reset_reports_condensed_steps_not_the_plan(
     assert "kept the audit log" in flowed
 
 
+@pytest.mark.usefixtures("runtime", "no_destruction", "no_survivor_check")
 def test_the_condensed_steps_are_on_the_default_view_not_the_log(
-    target: Path, runtime: FakeRuntime, no_destruction, no_survivor_check, terminal_probe
+    target: Path, terminal_probe
 ) -> None:
     """The historical bug, re-pinned against the condensed form.
 
@@ -282,8 +280,9 @@ def test_an_empty_plan_reports_nothing_to_do_and_removes_nothing(
     assert no_destruction == []
 
 
+@pytest.mark.usefixtures("no_survivor_check")
 def test_a_reset_with_nothing_to_remove_says_so_on_the_phase_line(
-    target: Path, monkeypatch: pytest.MonkeyPatch, no_survivor_check
+    target: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """An empty plan closes the phase with its note instead of printing a plan."""
     monkeypatch.setattr(
@@ -303,8 +302,9 @@ def test_a_reset_with_nothing_to_remove_says_so_on_the_phase_line(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("runtime", "no_survivor_check")
 def test_the_typed_gate_still_refuses_a_wrong_answer(
-    target: Path, runtime: FakeRuntime, no_destruction, no_survivor_check, monkeypatch
+    target: Path, no_destruction, monkeypatch
 ) -> None:
     """``osprey reset`` without ``-y`` still destroys nothing on a mistyped token."""
     run_init_reset(target)
@@ -318,9 +318,8 @@ def test_the_typed_gate_still_refuses_a_wrong_answer(
     assert no_destruction == [], "a declined reset must not reach the removals"
 
 
-def test_the_typed_gate_still_accepts_the_token(
-    target: Path, runtime: FakeRuntime, no_destruction, no_survivor_check, monkeypatch
-) -> None:
+@pytest.mark.usefixtures("runtime", "no_survivor_check")
+def test_the_typed_gate_still_accepts_the_token(target: Path, no_destruction, monkeypatch) -> None:
     """And the right token still gets through it, on the same path."""
     run_init_reset(target)
     no_destruction.clear()
@@ -332,8 +331,9 @@ def test_the_typed_gate_still_accepts_the_token(
     assert len(no_destruction) == 1
 
 
+@pytest.mark.usefixtures("runtime", "no_survivor_check")
 def test_init_reset_waives_the_prompt_rather_than_answering_it(
-    target: Path, runtime: FakeRuntime, no_destruction, no_survivor_check, monkeypatch
+    target: Path, no_destruction, monkeypatch
 ) -> None:
     """``--reset`` is the unattended path: nothing may ask.
 

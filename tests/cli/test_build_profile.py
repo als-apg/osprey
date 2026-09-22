@@ -319,7 +319,8 @@ class TestControlAssistantTurnkeyPlanControlSystem:
         assert turnkey_plan_config["claude_code"]["servers"]["bluesky"]["enabled"] is True
 
 
-def test_control_assistant_turnkey_plan_preset_validates(turnkey_plan_project: Path) -> None:
+@pytest.mark.usefixtures("turnkey_plan_project")
+def test_control_assistant_turnkey_plan_preset_validates() -> None:
     """BuildProfile.validate() passes for the preset as shipped (bare, no
     overrides) -- the non-builtin bluesky-panel ids are accepted because
     the preset's own bluesky_web block is present."""

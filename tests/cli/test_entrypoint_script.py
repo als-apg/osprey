@@ -415,9 +415,8 @@ class TestStateZoneHandBack:
         (zone / "audit").mkdir(parents=True, exist_ok=True)
         return zone
 
-    def test_the_state_zone_is_handed_back_before_the_drop(
-        self, script: Path, tmp_path: Path, state_zone: Path
-    ):
+    @pytest.mark.usefixtures("state_zone")
+    def test_the_state_zone_is_handed_back_before_the_drop(self, script: Path, tmp_path: Path):
         """Order is the property: after ``exec gosu`` nothing else runs."""
         bindir = _stub_bin(tmp_path, uid=0, with_gosu=True)
 
@@ -429,8 +428,9 @@ class TestStateZoneHandBack:
             f"the hand-back runs after the privilege drop, so it never runs: {order}"
         )
 
+    @pytest.mark.usefixtures("state_zone")
     def test_the_hand_back_targets_the_state_zone_beside_the_render(
-        self, script: Path, tmp_path: Path, state_zone: Path
+        self, script: Path, tmp_path: Path
     ):
         """``var/`` is the render's SIBLING, not a directory inside it.
 
@@ -450,9 +450,8 @@ class TestStateZoneHandBack:
         )
         assert target == f"{script.parent.parent}/var"
 
-    def test_the_hand_back_touches_only_what_root_left_behind(
-        self, script: Path, tmp_path: Path, state_zone: Path
-    ):
+    @pytest.mark.usefixtures("state_zone")
+    def test_the_hand_back_touches_only_what_root_left_behind(self, script: Path, tmp_path: Path):
         """Not ``chown -R``: an operator's storage under ``var/`` keeps its owner.
 
         A recursive chown would rewrite a bind-mounted dataset on every single
@@ -468,9 +467,8 @@ class TestStateZoneHandBack:
         assert "! -user osprey" in predicate, predicate
         assert "-exec chown osprey:osprey" in predicate, predicate
 
-    def test_a_non_root_start_hands_nothing_back(
-        self, script: Path, tmp_path: Path, state_zone: Path
-    ):
+    @pytest.mark.usefixtures("state_zone")
+    def test_a_non_root_start_hands_nothing_back(self, script: Path, tmp_path: Path):
         """Nothing was written as root, so there is nothing to give back — and
         a non-root process could not chown it anyway."""
         bindir = _stub_bin(tmp_path, uid=1000, with_gosu=True)

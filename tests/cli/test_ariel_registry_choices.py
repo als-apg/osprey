@@ -58,7 +58,8 @@ class TestChoicesComeFromTheRegistry:
     def test_choices_match_the_registered_names(self, attribute: str) -> None:
         assert set(_RegistryChoice(attribute).choices) >= set(framework_ariel_names(attribute))
 
-    def test_every_registered_adapter_parses(self, monkeypatch, registered_ingest) -> None:
+    @pytest.mark.usefixtures("registered_ingest")
+    def test_every_registered_adapter_parses(self, monkeypatch) -> None:
         """A name the registry carries is accepted, one it does not is refused."""
         monkeypatch.setattr("osprey.cli.ariel.get_config_value", lambda key, default=None: _DB)
 

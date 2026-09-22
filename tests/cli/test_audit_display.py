@@ -146,7 +146,8 @@ class TestFindings:
         cell = list(table.columns[0].cells)[0]
         assert cell.plain == "critical"
 
-    def test_detail_block_reads_at_three_altitudes(self, capsys, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_detail_block_reads_at_three_altitudes(self, capsys):
         """Title, then the explanation as a note, then the recommendation."""
         _display_report(_report(_finding()), json_output=False, verbose=False)
 
@@ -155,7 +156,8 @@ class TestFindings:
         assert "  The hook does not check the channel name." in lines
         assert "  Recommendation   Check it before the write." in lines
 
-    def test_stats_line_counts_every_severity(self, capsys, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_stats_line_counts_every_severity(self, capsys):
         _display_report(
             _report(_finding("error"), _finding("warning"), _finding("info")),
             json_output=False,
@@ -178,12 +180,14 @@ class TestCleanAudit:
 class TestVerboseFooter:
     """``-v`` adds what the run cost, as a note under the counts."""
 
-    def test_cost_and_turns_print_as_a_note(self, capsys, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_cost_and_turns_print_as_a_note(self, capsys):
         _display_report(_report(_finding()), json_output=False, verbose=True, cost=0.05, turns=10)
 
         assert "  Cost: $0.0500 | Turns: 10" in capsys.readouterr().out
 
-    def test_no_footer_without_the_flag(self, capsys, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_no_footer_without_the_flag(self, capsys):
         _display_report(_report(_finding()), json_output=False, verbose=False, cost=0.05, turns=10)
 
         assert "Cost:" not in capsys.readouterr().out

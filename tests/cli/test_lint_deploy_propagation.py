@@ -83,7 +83,8 @@ def _reported(errors: list[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_a_deploy_block_answers_a_question_the_raw_config_cannot(runner: CliRunner) -> None:
+@pytest.mark.usefixtures("runner")
+def test_a_deploy_block_answers_a_question_the_raw_config_cannot() -> None:
     """The whole bug in one assertion: the same profile, judged two ways."""
     config = _config()
 

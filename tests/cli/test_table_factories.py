@@ -207,7 +207,8 @@ def test_panel_renders_its_contents_inside_a_rounded_frame():
 # ---------------------------------------------------------------------------
 
 
-def test_data_table_header_follows_set_theme(restore_theme):
+@pytest.mark.usefixtures("restore_theme")
+def test_data_table_header_follows_set_theme():
     table = data_table()
     table.add_column("Name")
     table.add_row("registry")
@@ -222,7 +223,8 @@ def test_data_table_header_follows_set_theme(restore_theme):
     assert after.bold is True
 
 
-def test_panel_border_follows_set_theme(restore_theme):
+@pytest.mark.usefixtures("restore_theme")
+def test_panel_border_follows_set_theme():
     built = panel("contents")
 
     def border_style():
@@ -237,7 +239,8 @@ def test_panel_border_follows_set_theme(restore_theme):
     assert after.color.triplet.hex == "#0000ff"
 
 
-def test_a_table_built_before_a_theme_switch_renders_in_the_new_theme(restore_theme):
+@pytest.mark.usefixtures("restore_theme")
+def test_a_table_built_before_a_theme_switch_renders_in_the_new_theme():
     """The factory bakes tokens, not colors, so instances outlive a retheme."""
     table = data_table()
     table.add_column("Name")

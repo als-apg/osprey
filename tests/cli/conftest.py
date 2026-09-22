@@ -216,7 +216,7 @@ def _build_probe_handler(console: Console) -> RichHandler:
 @pytest.fixture
 def terminal_probe(
     monkeypatch: pytest.MonkeyPatch,
-    restore_root_logging: None,
+    restore_root_logging: None,  # noqa: ARG001 - takes this probe's root-logger handler back off
 ) -> Iterator[TerminalProbe]:
     """Capture what the terminal shows *and* what the loggers emitted.
 

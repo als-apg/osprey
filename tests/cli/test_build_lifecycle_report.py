@@ -120,8 +120,9 @@ def test_a_passing_step_reports_through_the_renderer(
     assert "—" not in printed
 
 
+@pytest.mark.usefixtures("verbose_reporter")
 def test_a_pass_line_survives_the_verbose_reporter(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], verbose_reporter: None
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """``osprey -v build`` still gets the step's own result: it is not record."""
     build_lifecycle._run_lifecycle_phase(
@@ -256,8 +257,9 @@ def test_the_test_results_table_prints_through_the_renderer(
     assert "[green]" not in printed
 
 
+@pytest.mark.usefixtures("verbose_reporter")
 def test_the_test_results_table_survives_the_verbose_reporter(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], verbose_reporter: None
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """The table is the step's report, so ``--verbose`` does not swallow it."""
     (tmp_path / "check_results.xml").write_text(_JUNIT_XML)

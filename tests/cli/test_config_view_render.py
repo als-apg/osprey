@@ -138,7 +138,8 @@ class TestTheTerminalGetsTheView:
 class TestTheCodeBlockGoesThroughTheRenderer:
     """The YAML block is a built renderable, printed by the one primitive."""
 
-    def test_the_syntax_block_is_handed_to_output_table(self, terminal):
+    @pytest.mark.usefixtures("terminal")
+    def test_the_syntax_block_is_handed_to_output_table(self):
         recorded: list[object] = []
         with patch("osprey.cli.output.table", side_effect=recorded.append):
             config_cmd._emit(AWKWARD_YAML, label="Source profile", source=None)

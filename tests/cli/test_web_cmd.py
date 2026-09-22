@@ -1364,9 +1364,8 @@ class TestRepoFlagIsAuthoritative:
         )
         return result, observed, repo, port
 
-    def test_repo_dotenv_is_loaded(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
-    ):
+    @pytest.mark.usefixtures("restore_env_and_cwd")
+    def test_repo_dotenv_is_loaded(self, tmp_path, lifecycle_repo, runner, monkeypatch):
         """The deployment's .env reaches os.environ before the server starts.
 
         This is the reported bug: without it, the render's ${VAR} placeholders
@@ -1381,8 +1380,9 @@ class TestRepoFlagIsAuthoritative:
         assert result.exit_code == 0
         assert observed["key"] == "sk-from-project-dotenv"
 
+    @pytest.mark.usefixtures("restore_env_and_cwd")
     def test_the_render_becomes_the_working_directory(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
+        self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """The agent CLI treats its cwd as the project root, and the render is it.
 
@@ -1395,8 +1395,9 @@ class TestRepoFlagIsAuthoritative:
 
         assert Path(observed["cwd"]).resolve() == (repo / "build").resolve()
 
+    @pytest.mark.usefixtures("restore_env_and_cwd")
     def test_render_web_terminal_port_is_honored(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
+        self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """web_terminal.port from the *resolved* render, not the layout default."""
         _result, observed, _repo, port = self._invoke_from_elsewhere(
@@ -1405,8 +1406,9 @@ class TestRepoFlagIsAuthoritative:
 
         assert observed["kwargs"]["port"] == port
 
+    @pytest.mark.usefixtures("restore_env_and_cwd")
     def test_osprey_config_points_at_the_render(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
+        self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """Child processes (PTY shells, MCP servers) resolve config via OSPREY_CONFIG."""
         _result, observed, repo, _port = self._invoke_from_elsewhere(
@@ -1416,8 +1418,9 @@ class TestRepoFlagIsAuthoritative:
         expected = (repo / "build" / "config.yml").resolve()
         assert Path(observed["osprey_config"]).resolve() == expected
 
+    @pytest.mark.usefixtures("restore_env_and_cwd")
     def test_explicit_flag_beats_stale_osprey_config_export(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
+        self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """A stale OSPREY_CONFIG in the shell must not defeat an explicit --repo."""
         stale = tmp_path / "stale"
