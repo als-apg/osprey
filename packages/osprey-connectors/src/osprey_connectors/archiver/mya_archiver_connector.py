@@ -21,7 +21,10 @@ one, so a channel whose last change predates the window would otherwise answer
 with nothing at all -- "no data" for a setpoint whose value is perfectly well
 known. The ``interval`` query therefore asks for the prior point, which myquery
 documents as "the most recent update prior to the start, to give a value at the
-start of the query"; see :meth:`MYAArchiverConnector._clamp_prior`.
+start of the query". It is returned at the instant it was recorded, before the
+window, the way the EPICS connector passes through the sample the archiver
+appliance returns ahead of ``from``: a real sample at its real time, never a
+value relabelled to the window start.
 
 Aggregates go to ``mystats`` where it can compute them, the same shape as the
 EPICS connector's server-side operators. ``median`` is the exception -- MYA does
@@ -316,6 +319,9 @@ class MYAArchiverConnector(ArchiverConnector):
     ) -> dict[str, pd.Series]:
         """Every archived event per channel, from myquery's interval endpoint.
 
+        The prior point comes back with the rest, at its own timestamp before
+        the window; see the module docstring.
+
         One query per channel rather than the client's ``run_parallel`` helper:
         that helper forward-fills each channel onto a shared index, and the
         frame must carry each channel's own real samples and nothing else.
@@ -334,31 +340,8 @@ class MYAArchiverConnector(ArchiverConnector):
             )
             interval = self._client.interval.Interval(query, url=self._urls["interval"])
             interval.run()
-            series[channel] = self._clamp_prior(self._localize(interval.data, channel), start_utc)
+            series[channel] = self._localize(interval.data, channel)
         return series
-
-    def _clamp_prior(self, s: pd.Series, start_utc: datetime) -> pd.Series:
-        """Stamp the prior point at the window start whose value it reports.
-
-        ``prior_point`` returns the last update *before* the window, carrying
-        its own original timestamp. Left there it would be a sample outside the
-        range the caller asked for, and it would land in a bin that is not in
-        the window at all. Moved to the window start it says what it is there to
-        say -- this was the value in effect when the window opened -- which is
-        what MYA's record-on-change model means by the value at that instant.
-
-        A real sample recorded exactly at the window start is the better
-        witness, so the prior point gives way to it rather than doubling it.
-        """
-        if s.empty:
-            return s
-        start = pd.Timestamp(start_utc)
-        if not (s.index < start).any():
-            return s
-        moved = pd.Series(
-            s.to_numpy(), index=s.index.where(s.index >= start, start), name=s.name
-        ).sort_index()
-        return moved[~moved.index.duplicated(keep="last")]
 
     def _fetch_stats(
         self,

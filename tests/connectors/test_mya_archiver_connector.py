@@ -375,41 +375,29 @@ async def test_channel_with_no_data_contributes_no_rows():
 
 
 @pytest.mark.asyncio
-async def test_the_prior_point_is_requested_and_stamped_at_the_window_start():
+async def test_the_prior_point_is_requested_and_kept_at_its_recorded_time():
     """A setpoint last changed before the window still has a known value.
 
     Without the prior point MYA answers nothing for it and the agent reports
-    "no data" for a channel whose value is perfectly well known.
+    "no data" for a channel whose value is perfectly well known. It is kept at
+    the instant it was recorded -- before the window -- not relabelled to the
+    window start, which would fabricate a timestamp nothing was recorded at.
     """
     client = _fake_client()
-    prior = _millis(_START - timedelta(hours=9))
-    client.interval.Interval.return_value.data = pd.Series([7.0], index=[prior], name="TEST:PV")
-    connector = _connected(client)
-
-    data = await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0)
-
-    assert client.query.IntervalQuery.call_args[1]["prior_point"] is True
-    assert data["value"].tolist() == [7.0]
-    # Reported at the window start whose value it states, not nine hours before
-    # it, where it would sit outside the range the caller asked for.
-    assert list(data["timestamp"]) == [pd.Timestamp(_START)]
-
-
-@pytest.mark.asyncio
-async def test_a_real_sample_at_the_window_start_outranks_the_prior_point():
-    """Both land on the same instant; the recorded one is the better witness."""
-    client = _fake_client()
+    prior = _START - timedelta(hours=9)
     client.interval.Interval.return_value.data = pd.Series(
-        [7.0, 9.0, 11.0],
-        index=[_millis(_START - timedelta(hours=9)), _millis(_START), _millis(_END)],
-        name="TEST:PV",
+        [7.0, 9.0], index=[_millis(prior), _millis(_START + timedelta(minutes=5))], name="TEST:PV"
     )
     connector = _connected(client)
 
     data = await connector.get_data(["TEST:PV"], _START, _END, precision_ms=0)
 
-    assert data["value"].tolist() == [9.0, 11.0]
-    assert list(data["timestamp"]) == [pd.Timestamp(_START), pd.Timestamp(_END)]
+    assert client.query.IntervalQuery.call_args[1]["prior_point"] is True
+    assert data["value"].tolist() == [7.0, 9.0]
+    assert list(data["timestamp"]) == [
+        pd.Timestamp(prior),
+        pd.Timestamp(_START + timedelta(minutes=5)),
+    ]
 
 
 # --------------------------------------------------------------------------------------
