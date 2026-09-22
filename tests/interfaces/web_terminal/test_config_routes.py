@@ -320,9 +320,8 @@ class TestPatchProtectedKeys:
         assert resp.status_code == 403
         assert (built_project / "config.yml").read_bytes() == before
 
-    def test_patch_protected_refusal_names_the_key_and_says_nothing_changed(
-        self, client, built_project
-    ):
+    @pytest.mark.usefixtures("built_project")
+    def test_patch_protected_refusal_names_the_key_and_says_nothing_changed(self, client):
         resp = client.patch(
             "/api/config",
             json={"updates": {"control_system.limits_checking.enabled": False}},
@@ -599,9 +598,8 @@ class TestRenderZoneReadonlyRegen:
         assert "detail" not in body
         assert len(calls) == 1
 
-    def test_patch_render_readonly_absent_keeps_todays_regen(
-        self, client, built_project, monkeypatch
-    ):
+    @pytest.mark.usefixtures("built_project")
+    def test_patch_render_readonly_absent_keeps_todays_regen(self, client, monkeypatch):
         """The PATCH half of the same pin."""
         calls = self._recording_regen(monkeypatch)
 

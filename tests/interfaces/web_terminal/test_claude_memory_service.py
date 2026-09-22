@@ -62,7 +62,8 @@ class TestResolveMemoryDir:
         assert result.name == "memory"
         assert ".claude/projects/" in str(result)
 
-    def test_uses_resolved_path(self, tmp_path, fake_home):
+    @pytest.mark.usefixtures("fake_home")
+    def test_uses_resolved_path(self, tmp_path):
         """Service resolves relative paths before encoding."""
         s = ClaudeMemoryService(tmp_path / "a" / ".." / "b")
         d = s._resolve_memory_dir()
@@ -96,7 +97,8 @@ class TestListFiles:
         """Returns empty list when memory directory doesn't exist."""
         assert service.list_files() == []
 
-    def test_empty_when_dir_empty(self, service, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_empty_when_dir_empty(self, service):
         """Returns empty list when memory directory has no .md files."""
         assert service.list_files() == []
 
@@ -146,11 +148,13 @@ class TestReadFile:
         assert result["line_count"] == 2
         assert result["is_primary"] is False
 
-    def test_read_nonexistent_raises(self, service, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_read_nonexistent_raises(self, service):
         with pytest.raises(MemoryFileNotFoundError):
             service.read_file("missing.md")
 
-    def test_read_invalid_filename(self, service, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_read_invalid_filename(self, service):
         with pytest.raises(MemoryValidationError):
             service.read_file("../escape.md")
 
@@ -172,7 +176,8 @@ class TestCreateFile:
         with pytest.raises(MemoryFileExistsError):
             service.create_file("existing.md", "y\n")
 
-    def test_create_invalid_filename(self, service, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_create_invalid_filename(self, service):
         with pytest.raises(MemoryValidationError):
             service.create_file("no-extension", "x")
 
@@ -195,7 +200,8 @@ class TestUpdateFile:
         assert result["filename"] == "test.md"
         assert (memory_dir / "test.md").read_text(encoding="utf-8") == "new\n"
 
-    def test_update_nonexistent_raises(self, service, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_update_nonexistent_raises(self, service):
         with pytest.raises(MemoryFileNotFoundError):
             service.update_file("missing.md", "x")
 
@@ -212,7 +218,8 @@ class TestDeleteFile:
         assert result["deleted"] is True
         assert not (memory_dir / "doomed.md").exists()
 
-    def test_delete_nonexistent_raises(self, service, memory_dir):
+    @pytest.mark.usefixtures("memory_dir")
+    def test_delete_nonexistent_raises(self, service):
         with pytest.raises(MemoryFileNotFoundError):
             service.delete_file("missing.md")
 
@@ -223,6 +230,7 @@ class TestDeleteFile:
 
 
 class TestFilenameValidation:
+    @pytest.mark.usefixtures("memory_dir")
     @pytest.mark.parametrize(
         "filename",
         [
@@ -236,7 +244,7 @@ class TestFilenameValidation:
             "has spaces.md",
         ],
     )
-    def test_invalid_filenames(self, service, memory_dir, filename):
+    def test_invalid_filenames(self, service, filename):
         with pytest.raises(MemoryValidationError):
             service.read_file(filename)
 

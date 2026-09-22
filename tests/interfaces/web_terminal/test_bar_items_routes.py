@@ -514,7 +514,8 @@ class TestARealReadOnlyStore:
         assert error_of(response) == "store_write_failed"
         assert types(client.get("/api/bar-items").json(), "header") == ["identity"]
 
-    def test_removing_a_document_that_was_never_there_still_succeeds(self, client, readonly_store):
+    @pytest.mark.usefixtures("readonly_store")
+    def test_removing_a_document_that_was_never_there_still_succeeds(self, client):
         """Nothing to unlink is not a write, so the mode bits never come into it."""
         response = client.delete("/api/bar-items")
 
@@ -1012,7 +1013,8 @@ class TestTheRefusalVocabulary:
         appearing here is a rung nothing below exercises."""
         assert ROUTE_TOKENS - (STORE_REASONS | ROUTE_ONLY_REASONS) == NON_422_TOKENS
 
-    def test_each_of_those_four_is_reachable_over_http(self, client, store_dir):
+    @pytest.mark.usefixtures("store_dir")
+    def test_each_of_those_four_is_reachable_over_http(self, client):
         """Derived tokens are worth nothing unless a request produces them.
 
         Four requests, one per rung, in the order that lets each one set up the

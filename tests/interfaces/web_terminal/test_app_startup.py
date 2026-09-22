@@ -149,7 +149,8 @@ def test_marker_absent_regenerates_and_restores_as_before(project, startup_spies
     assert startup_spies["dry_run"] == []
 
 
-def test_marker_absent_state_flag_is_readable_via_getattr(project, startup_spies, monkeypatch):
+@pytest.mark.usefixtures("startup_spies")
+def test_marker_absent_state_flag_is_readable_via_getattr(project, monkeypatch):
     """Downstream routes read the flag defensively; it is always present."""
     monkeypatch.delenv("OSPREY_RENDER_ZONE_READONLY", raising=False)
 

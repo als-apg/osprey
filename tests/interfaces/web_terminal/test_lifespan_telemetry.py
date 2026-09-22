@@ -113,10 +113,10 @@ def test_an_unissued_store_credential_serves_without_telemetry(
     assert injected[0].env_block["ANTHROPIC_MODEL"]
 
 
+@pytest.mark.usefixtures("injected")
 def test_the_operator_is_told_which_verb_issues_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    injected: list[Any],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Silence would read as "this deployment has no telemetry configured"."""

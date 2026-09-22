@@ -981,7 +981,8 @@ class TestAdmittedMutations:
         assert downstream.called
         assert records == []
 
-    def test_the_request_body_still_reaches_the_route(self, records):
+    @pytest.mark.usefixtures("records")
+    def test_the_request_body_still_reaches_the_route(self):
         downstream = RecordingApp()
         drive(
             HttpAuditMiddleware(downstream),
@@ -991,7 +992,8 @@ class TestAdmittedMutations:
 
         assert downstream.bodies == [b'{"key": "value"}']
 
-    def test_the_response_still_reaches_the_client(self, records):
+    @pytest.mark.usefixtures("records")
+    def test_the_response_still_reaches_the_client(self):
         sent = drive(HttpAuditMiddleware(RecordingApp(status=201)), http_scope(method="POST"))
 
         assert status_of(sent) == 201
@@ -1095,7 +1097,8 @@ class TestTheNeverRaisesBoundaryEnclosesTheWholeEmitter:
         assert status_of(sent) == 201
         assert records == []
 
-    def test_the_routes_own_exception_is_not_masked(self, records, monkeypatch):
+    @pytest.mark.usefixtures("records")
+    def test_the_routes_own_exception_is_not_masked(self, monkeypatch):
         """A raise from the ``finally`` would replace the route's own failure."""
         monkeypatch.setattr(common_middleware, "_audit_detail", self._explode)
         with pytest.raises(RuntimeError, match="route blew up"):
@@ -1277,8 +1280,9 @@ class TestTheRouteCanOwnTheDecision:
         assert lines[0]["decision"] == DECISION_REFUSED
         assert lines[0]["surface"] == "web_terminal"
 
+    @pytest.mark.usefixtures("dedup")
     def test_a_route_that_recorded_nothing_is_recorded_here_as_before(
-        self, dedup, audit_root, monkeypatch
+        self, audit_root, monkeypatch
     ):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
 

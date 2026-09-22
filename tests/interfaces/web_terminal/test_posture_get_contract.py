@@ -547,7 +547,8 @@ class TestTheOwner:
             "self": False,
         }
 
-    def test_a_record_this_process_owns_is_self_even_with_no_task(self, client, agent_data_root):
+    @pytest.mark.usefixtures("agent_data_root")
+    def test_a_record_this_process_owns_is_self_even_with_no_task(self, client):
         del client.app.state.control_context_owner
         assert get_posture(client)["owner"]["self"] is True
 

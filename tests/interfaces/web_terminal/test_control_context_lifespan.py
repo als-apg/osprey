@@ -121,7 +121,8 @@ def read(root: Path) -> ControlContext | None:
 # -- claiming ---------------------------------------------------------------
 
 
-async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_root, liveness):
+@pytest.mark.usefixtures("liveness")
+async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_root):
     app = make_app()
     await make_task(app).tick_once()
 
@@ -132,8 +133,9 @@ async def test_an_empty_deployment_is_claimed_at_the_baseline(control_context_ro
     assert app.state.control_context_follows is None
 
 
+@pytest.mark.usefixtures("liveness")
 async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
-    control_context_root, write_control_context, liveness
+    control_context_root, write_control_context
 ):
     """SC-79: the record says what the deployment is pointed at, not who is running."""
     write_control_context(
@@ -153,8 +155,9 @@ async def test_a_claim_over_a_dead_owner_merges_the_deployment_s_own_facts(
     assert stored.owner == terminal_identity()
 
 
+@pytest.mark.usefixtures("liveness")
 async def test_an_operator_s_narrowing_survives_a_terminal_restart(
-    control_context_root, write_control_context, liveness
+    control_context_root, write_control_context
 ):
     """The restart case of the merge, stated as the operator experiences it."""
     write_control_context(
@@ -196,7 +199,8 @@ async def test_a_terminal_claims_over_a_live_controls_server(
     assert app.state.control_context_follows is None
 
 
-async def test_an_unparseable_record_starts_a_fresh_one(control_context_root, liveness):
+@pytest.mark.usefixtures("liveness")
+async def test_an_unparseable_record_starts_a_fresh_one(control_context_root):
     path = control_context.record_path_under(control_context_root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("{not json at all", encoding="utf-8")
@@ -209,8 +213,9 @@ async def test_an_unparseable_record_starts_a_fresh_one(control_context_root, li
     assert (stored.target, stored.generation) == (BASELINE, 0)
 
 
+@pytest.mark.usefixtures("liveness")
 async def test_a_terminal_that_already_owns_the_record_writes_nothing(
-    control_context_root, write_control_context, liveness
+    control_context_root, write_control_context
 ):
     """The steady state is silent: a 1 Hz rewrite would wake every reader watching it."""
     path = write_control_context(control_context_root, target="va", generation=3)
@@ -265,7 +270,8 @@ async def test_a_follower_takes_the_record_the_moment_the_other_terminal_goes(
 # -- what the routes read off app.state -------------------------------------
 
 
-async def test_an_owning_terminal_publishes_a_writable_owner(control_context_root, liveness):
+@pytest.mark.usefixtures("control_context_root", "liveness")
+async def test_an_owning_terminal_publishes_a_writable_owner():
     app = make_app()
     task = make_task(app)
 
@@ -295,8 +301,9 @@ async def test_a_claim_that_cannot_be_made_leaves_app_state_without_an_owner(mon
         await task.stop()
 
 
+@pytest.mark.usefixtures("liveness")
 async def test_the_owner_task_keeps_trying_after_a_failed_startup_claim(
-    control_context_root, liveness, monkeypatch
+    control_context_root, monkeypatch
 ):
     """The retry is the reason a failed claim starts the task anyway."""
     resolved = control_context.record_path()
@@ -407,8 +414,9 @@ async def test_a_requester_with_no_session_is_named_by_its_pid(
     assert stored.last_switch["requested_by"] == f"pid:{OTHER_TERMINAL_PID}"
 
 
+@pytest.mark.usefixtures("liveness")
 async def test_a_request_from_a_process_that_has_gone_is_dropped_with_no_terminus(
-    control_context_root, write_control_context, liveness
+    control_context_root, write_control_context
 ):
     """Nobody is left to read an answer, and writing one would overwrite a live gesture."""
     write_control_context(control_context_root, target="va", generation=1)
@@ -464,8 +472,9 @@ async def test_an_already_answered_request_is_removed_and_answered_only_once(
 # -- the push ---------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("liveness")
 async def test_the_context_frame_is_pushed_when_the_record_moves(
-    control_context_root, write_control_context, liveness
+    control_context_root, write_control_context
 ):
     """A record written by a route reaches the browsers without the route pushing."""
     write_control_context(control_context_root, target="va", generation=1)
@@ -481,9 +490,8 @@ async def test_the_context_frame_is_pushed_when_the_record_moves(
     assert app.state.broadcaster.frames == [CONTROL_CONTEXT_FRAME]
 
 
-async def test_a_settled_deployment_pushes_nothing(
-    control_context_root, write_control_context, liveness
-):
+@pytest.mark.usefixtures("liveness")
+async def test_a_settled_deployment_pushes_nothing(control_context_root, write_control_context):
     write_control_context(control_context_root, target="va", generation=1)
     app = make_app()
     task = make_task(app)

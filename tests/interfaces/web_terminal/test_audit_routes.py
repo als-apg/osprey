@@ -154,7 +154,8 @@ class TestTierGate:
         response = disabled_client.get(RECENT)
         assert response.status_code == 403
 
-    def test_the_refusal_names_the_config_panel_switch(self, disabled_client, own_dir):
+    @pytest.mark.usefixtures("own_dir")
+    def test_the_refusal_names_the_config_panel_switch(self, disabled_client):
         detail = disabled_client.get(RECENT).json()["detail"]
         assert "web.config_panel.enabled: false" in detail
 
@@ -168,7 +169,8 @@ class TestTierGate:
             _require_config_panel(_FakeRequest(config_panel_enabled=False))
         assert disabled_client.get(RECENT).json()["detail"] == excinfo.value.detail
 
-    def test_the_gate_runs_before_the_read(self, disabled_client, zone):
+    @pytest.mark.usefixtures("zone")
+    def test_the_gate_runs_before_the_read(self, disabled_client):
         """No ledger directory at all — still a 403, never a 500 or a 200."""
         assert disabled_client.get(RECENT).status_code == 403
 
@@ -176,16 +178,18 @@ class TestTierGate:
         (own_dir / "mcp.jsonl").write_text(_record("2026-01-01T00:00:00Z") + "\n")
         assert client.get(RECENT).status_code == 200
 
-    def test_an_absent_flag_means_enabled(self, default_client, own_dir):
+    @pytest.mark.usefixtures("own_dir")
+    def test_an_absent_flag_means_enabled(self, default_client):
         """Matches every other Config-panel route: absent is not disabled."""
         assert default_client.get(RECENT).status_code == 200
 
+    @pytest.mark.usefixtures("own_dir")
     @pytest.mark.parametrize(
         "params",
         [{"surface": "../bob"}, {"surface": ""}, {"limit": "abc"}, {"limit": "1e9"}],
         ids=["traversal-surface", "empty-surface", "non-numeric-limit", "float-limit"],
     )
-    def test_the_gate_answers_before_any_parameter_check(self, disabled_client, own_dir, params):
+    def test_the_gate_answers_before_any_parameter_check(self, disabled_client, params):
         """403, never 400 or 422 — the gate is the FIRST thing that answers.
 
         Every one of these values is refusable on its own merits, and a lower
@@ -198,7 +202,8 @@ class TestTierGate:
         response = disabled_client.get(RECENT, params=params)
         assert response.status_code == 403, (params, response.text)
 
-    def test_a_non_numeric_limit_is_refused_once_past_the_gate(self, client, own_dir):
+    @pytest.mark.usefixtures("own_dir")
+    def test_a_non_numeric_limit_is_refused_once_past_the_gate(self, client):
         """Past the gate it is an ordinary bad request, with an honest message.
 
         Out of range clamps; not-a-number cannot, so it refuses — and says
@@ -326,12 +331,14 @@ class TestTailSemantics:
         )
         assert _subjects(client.get(RECENT)) == ["older-real", "real"]
 
-    def test_a_missing_ledger_directory_is_an_empty_list(self, client, zone):
+    @pytest.mark.usefixtures("zone")
+    def test_a_missing_ledger_directory_is_an_empty_list(self, client):
         response = client.get(RECENT)
         assert response.status_code == 200
         assert response.json()["records"] == []
 
-    def test_an_empty_ledger_directory_is_an_empty_list(self, client, own_dir):
+    @pytest.mark.usefixtures("own_dir")
+    def test_an_empty_ledger_directory_is_an_empty_list(self, client):
         assert client.get(RECENT).json()["records"] == []
 
     def test_an_unresolvable_audit_zone_is_empty_not_a_500(self, client, monkeypatch):
@@ -502,7 +509,8 @@ class TestReadsOnlyItsOwnSubdir:
         (other / "mcp.jsonl").write_text(_record("2026-01-01T00:00:09Z", subject="theirs") + "\n")
         assert _subjects(client.get(RECENT)) == ["mine"]
 
-    def test_the_response_names_the_identity_it_read(self, client, own_dir):
+    @pytest.mark.usefixtures("own_dir")
+    def test_the_response_names_the_identity_it_read(self, client):
         assert client.get(RECENT).json()["identity"] == OWN_IDENTITY
 
     def test_nested_directories_are_not_walked(self, client, own_dir):
@@ -597,9 +605,8 @@ class TestSurfaceFilter:
         response = client.get(RECENT, params={"surface": value})
         assert response.status_code == 400, value
 
-    def test_traversal_cannot_reach_another_identity_even_if_the_guard_slipped(
-        self, client, own_dir, zone
-    ):
+    @pytest.mark.usefixtures("client")
+    def test_traversal_cannot_reach_another_identity_even_if_the_guard_slipped(self, own_dir, zone):
         """Belt and braces: the filter matches STEMS this container enumerated.
 
         The guard above refuses the value outright; this asserts the second
@@ -614,7 +621,8 @@ class TestSurfaceFilter:
         selected = audit_routes._select(own_dir, "../bob/mcp")
         assert selected == []
 
-    def test_the_refusal_explains_the_rule(self, client, own_dir):
+    @pytest.mark.usefixtures("own_dir")
+    def test_the_refusal_explains_the_rule(self, client):
         detail = client.get(RECENT, params={"surface": "../bob"}).json()["detail"]
         assert "surface" in detail
 

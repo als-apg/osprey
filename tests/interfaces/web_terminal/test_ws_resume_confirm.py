@@ -226,7 +226,8 @@ def test_reused_warm_session_confirms_immediately(app, sessions_dir):
     assert len(spawned) == 1
 
 
-def test_warm_session_without_transcript_is_reattached(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_warm_session_without_transcript_is_reattached(app):
     """A session opened and never prompted has a PTY but no transcript yet.
 
     Claude Code writes ``projects/<encoded>/<id>.jsonl`` on the first prompt,
@@ -269,7 +270,8 @@ def test_cold_resume_with_existing_file_confirms_immediately(app, sessions_dir):
 # ---------------------------------------------------------------------------
 
 
-def test_cold_resume_without_transcript_is_surfaced_not_spawned(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_cold_resume_without_transcript_is_surfaced_not_spawned(app):
     """No warm PTY and no ``.jsonl``: nothing to resume, so nothing is spawned.
 
     ``claude --resume <id>`` on such an id prints ``No conversation found``
@@ -349,7 +351,8 @@ def test_resume_child_exiting_for_another_reason_still_sends_exit(app, sessions_
 # ---------------------------------------------------------------------------
 
 
-def test_cold_resume_of_a_chat_held_key_is_not_refused(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_cold_resume_of_a_chat_held_key_is_not_refused(app):
     """An id only the chat pool holds resumes instead of being refused.
 
     The Simple view keys its pool on the same session key the terminal does,
@@ -374,7 +377,8 @@ def test_cold_resume_of_a_chat_held_key_is_not_refused(app, sessions_dir):
     assert holder.chat.teardowns == 1
 
 
-def test_cold_resume_of_a_key_no_surface_holds_is_refused(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_cold_resume_of_a_key_no_surface_holds_is_refused(app):
     """With a chat pool answering to some OTHER key, the refusal still stands."""
     sid = _uuid()
     with TestClient(app) as client:

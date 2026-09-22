@@ -381,7 +381,8 @@ class TestFingerprintBookkeeping:
         assert reused is False
         assert _child_env_lines(report, 2) == ["<unset>", "readonly"]
 
-    def test_evicted_key_forgets_its_fingerprint(self, registry, tmp_path):
+    @pytest.mark.usefixtures("registry")
+    def test_evicted_key_forgets_its_fingerprint(self, tmp_path):
         """LRU eviction must not leave a fingerprint behind for the next tenant."""
         small = PtyRegistry(max_background=2)
         try:

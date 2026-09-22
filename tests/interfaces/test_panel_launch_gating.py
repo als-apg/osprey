@@ -104,9 +104,8 @@ class TestAutoLaunchGating:
         assert _url(stub_app, key) == "http://127.0.0.1:8099"
         assert launched == [key]
 
-    def test_published_url_honours_the_port_env_override(
-        self, key, config, stub_app, launched, monkeypatch
-    ):
+    @pytest.mark.usefixtures("launched")
+    def test_published_url_honours_the_port_env_override(self, key, config, stub_app, monkeypatch):
         """Multi-user compose moves every panel's port via this env var.
 
         The URL published here and the port uvicorn binds come from the same
@@ -121,8 +120,9 @@ class TestAutoLaunchGating:
 
         assert _url(stub_app, key) == "http://127.0.0.1:9999"
 
+    @pytest.mark.usefixtures("launched")
     def test_set_but_empty_port_override_falls_back_to_config(
-        self, key, config, stub_app, launched, monkeypatch
+        self, key, config, stub_app, monkeypatch
     ):
         """A compose file's bare ``OSPREY_..._PORT=`` must not kill the launch."""
         definition = FRAMEWORK_WEB_SERVERS[key]
@@ -160,6 +160,7 @@ class TestAutoLaunchGating:
         assert launched == []
 
 
+@pytest.mark.usefixtures("launched")
 @pytest.mark.parametrize("key", ALL_KEYS)
 @pytest.mark.parametrize(
     "env_value",
@@ -170,7 +171,7 @@ class TestAutoLaunchGating:
     ],
 )
 def test_published_port_equals_the_port_the_launcher_binds(
-    key, env_value, config, stub_app, launched, monkeypatch
+    key, env_value, config, stub_app, monkeypatch
 ):
     """The advertised port and the bound port are compared, not assumed equal.
 
@@ -244,10 +245,11 @@ class TestEnabledPanelSelection:
         assert sorted(launch_calls) == ALL_KEYS
 
 
+@pytest.mark.usefixtures("config")
 @pytest.mark.parametrize(
     "key", sorted(k for k, d in FRAMEWORK_WEB_SERVERS.items() if d.require_section)
 )
-def test_missing_section_publishes_no_url(key, config, stub_app, launched):
+def test_missing_section_publishes_no_url(key, stub_app, launched):
     """``require_section`` servers stay dark when their config section is absent."""
     _launch(stub_app, key)
 
@@ -255,10 +257,11 @@ def test_missing_section_publishes_no_url(key, config, stub_app, launched):
     assert launched == []
 
 
+@pytest.mark.usefixtures("config")
 @pytest.mark.parametrize(
     "key", sorted(k for k, d in FRAMEWORK_WEB_SERVERS.items() if not d.require_section)
 )
-def test_missing_section_still_launches_when_not_required(key, config, stub_app, launched):
+def test_missing_section_still_launches_when_not_required(key, stub_app, launched):
     """``auto_launch`` defaults on — omitting the section must not disable the tab."""
     _launch(stub_app, key)
 

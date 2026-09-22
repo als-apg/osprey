@@ -218,7 +218,8 @@ def single_user_launch(monkeypatch):
     reset_web_credentials()
 
 
-def test_pty_child_gets_the_panel_token_and_never_the_operator_secret(single_user_launch):
+@pytest.mark.usefixtures("single_user_launch")
+def test_pty_child_gets_the_panel_token_and_never_the_operator_secret():
     """The interactive terminal's child holds the weak credential, not the strong one.
 
     ``build_pty_env`` hands its result to ``Popen(env=...)`` as the child's
@@ -253,9 +254,8 @@ def test_pty_child_gets_the_panel_token_and_never_the_operator_secret(single_use
     assert env["TERM"] == "xterm-256color"
 
 
-def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(
-    single_user_launch, tmp_path
-):
+@pytest.mark.usefixtures("single_user_launch")
+def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(tmp_path):
     """The chat/operator SDK session's env carries the same weak credential.
 
     The SDK overlays this dict onto ``os.environ`` rather than replacing it, so
@@ -284,7 +284,8 @@ def test_sdk_operator_child_gets_the_panel_token_and_never_the_operator_secret(
     assert "PATH" in sdk_child_env
 
 
-def test_both_web_terminal_child_paths_agree_on_the_panel_token(single_user_launch, tmp_path):
+@pytest.mark.usefixtures("single_user_launch")
+def test_both_web_terminal_child_paths_agree_on_the_panel_token(tmp_path):
     """PTY and SDK hand the child the SAME token — the one the server verifies.
 
     Two seams re-introducing the credential independently is exactly the shape

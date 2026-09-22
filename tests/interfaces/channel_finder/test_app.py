@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from unittest.mock import MagicMock, patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from tests.interfaces.channel_finder.graph_fixture import FakeGraphContext
@@ -64,7 +65,8 @@ class TestPipelineResolution:
         # Nothing to detect either, so no paradigm is invented.
         assert app.state.pipeline_type is None
 
-    def test_configured_pipeline_mode_is_not_warned_about(self, caplog, mock_config, mock_registry):
+    @pytest.mark.usefixtures("mock_registry")
+    def test_configured_pipeline_mode_is_not_warned_about(self, caplog, mock_config):
         with caplog.at_level(logging.DEBUG, logger=_APP_LOGGER):
             app = _start_app(mock_config)
 
@@ -72,9 +74,8 @@ class TestPipelineResolution:
         assert not any("channel_finder.pipeline_mode" in m for m in warnings), warnings
         assert app.state.pipeline_type == "in_context"
 
-    def test_absent_pipeline_block_skips_at_debug_without_warning(
-        self, caplog, mock_config, mock_registry
-    ):
+    @pytest.mark.usefixtures("mock_registry")
+    def test_absent_pipeline_block_skips_at_debug_without_warning(self, caplog, mock_config):
         # mock_config configures in_context only.
         with caplog.at_level(logging.DEBUG, logger=_APP_LOGGER):
             app = _start_app(mock_config)
@@ -254,7 +255,8 @@ class TestGraphParadigmState:
         warnings = [r.getMessage() for r in _records(caplog, logging.WARNING)]
         assert any("graphdb" in m for m in warnings), warnings
 
-    def test_file_backed_mode_reports_not_graph_backed(self, mock_config, mock_registry):
+    @pytest.mark.usefixtures("mock_registry")
+    def test_file_backed_mode_reports_not_graph_backed(self, mock_config):
         app = _start_app(mock_config)
         assert app.state.graph_backed is False
 

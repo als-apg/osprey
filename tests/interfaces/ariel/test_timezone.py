@@ -43,7 +43,8 @@ def _entry() -> dict:
     }
 
 
-def test_web_and_mcp_render_same_facility_local_timestamp(facility_tokyo):
+@pytest.mark.usefixtures("facility_tokyo")
+def test_web_and_mcp_render_same_facility_local_timestamp():
     web = _entry_to_response(_entry())
     mcp = serialize_entry(_entry())
 
@@ -52,7 +53,8 @@ def test_web_and_mcp_render_same_facility_local_timestamp(facility_tokyo):
     assert web.timestamp == mcp["timestamp"]
 
 
-def test_web_localizes_all_three_timestamp_fields(facility_tokyo):
+@pytest.mark.usefixtures("facility_tokyo")
+def test_web_localizes_all_three_timestamp_fields():
     """timestamp AND created_at/updated_at must localize — leaving two of three in
     UTC would reintroduce an intra-object asymmetry on the same entry."""
     web = _entry_to_response(_entry())
@@ -60,7 +62,8 @@ def test_web_localizes_all_three_timestamp_fields(facility_tokyo):
     assert web.updated_at.endswith("+09:00")
 
 
-def test_web_handles_naive_or_missing_gracefully(facility_tokyo):
+@pytest.mark.usefixtures("facility_tokyo")
+def test_web_handles_naive_or_missing_gracefully():
     """Naive datetimes degrade to str (no crash); the response stays a string."""
     entry = _entry()
     entry["timestamp"] = datetime(2026, 6, 1, 0, 0, 0)  # naive

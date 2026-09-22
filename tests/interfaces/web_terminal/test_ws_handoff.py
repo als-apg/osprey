@@ -205,7 +205,8 @@ def _fake_clock(app) -> FakeClock:
 # ---------------------------------------------------------------------------
 
 
-def test_a_chat_held_key_is_handed_off_with_the_pending_frame_first(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_chat_held_key_is_handed_off_with_the_pending_frame_first(app):
     """``handoff_pending`` goes out before the wait, ``session_info`` after the door."""
     sid = _uuid()
     with TestClient(app) as client:
@@ -225,7 +226,8 @@ def test_a_chat_held_key_is_handed_off_with_the_pending_frame_first(app, session
     assert len(spawns) == 1
 
 
-def test_a_key_with_no_transcript_starts_fresh_under_the_key(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_key_with_no_transcript_starts_fresh_under_the_key(app):
     """A chat that never wrote a transcript hands off to ``--session-id <key>``."""
     sid = _uuid()
     with TestClient(app) as client:
@@ -310,7 +312,8 @@ def test_a_free_key_gets_no_pending_frame(app, sessions_dir):
 # ---------------------------------------------------------------------------
 
 
-def test_a_busy_chat_is_waited_on(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_busy_chat_is_waited_on(app):
     """The terminal is confirmed once the chat's turn ends, and not before."""
     sid = _uuid()
     with TestClient(app) as client:
@@ -332,7 +335,8 @@ def test_a_busy_chat_is_waited_on(app, sessions_dir):
     assert len(spawns) == 1
 
 
-def test_interrupt_cuts_the_chat_turn_short(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_interrupt_cuts_the_chat_turn_short(app):
     """``interrupt=1`` on the resume URL is the "stop and switch now" path."""
     sid = _uuid()
     with TestClient(app) as client:
@@ -346,7 +350,8 @@ def test_interrupt_cuts_the_chat_turn_short(app, sessions_dir):
     assert len(spawns) == 1
 
 
-def test_leaving_during_the_wait_sends_nothing_and_spares_the_chat(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_leaving_during_the_wait_sends_nothing_and_spares_the_chat(app):
     """A closed socket ends the wait: no spawn, no frame, the chat untouched, the key clean."""
     sid = _uuid()
     with TestClient(app) as client:
@@ -370,7 +375,8 @@ def test_leaving_during_the_wait_sends_nothing_and_spares_the_chat(app, sessions
 # ---------------------------------------------------------------------------
 
 
-def test_a_newer_terminal_displaces_the_older_one_with_4409(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_newer_terminal_displaces_the_older_one_with_4409(app):
     """Same key, second socket: the first is closed with 4409, the PTY is reused."""
     with TestClient(app) as client, ExitStack() as stack:
         spawns = _patch_spawn(app)
@@ -393,7 +399,8 @@ def test_a_newer_terminal_displaces_the_older_one_with_4409(app, sessions_dir):
     assert len(spawns) == 1
 
 
-def test_an_outgoing_child_that_survives_its_kill_is_refused_with_4503(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_an_outgoing_child_that_survives_its_kill_is_refused_with_4503(app):
     """The chat child would not die: nothing is spawned, the chat is pooled again, 4503."""
     sid = _uuid()
     with TestClient(app) as client:
@@ -437,7 +444,8 @@ def test_a_handoff_error_is_an_error_frame_and_a_close(app, sessions_dir):
 # ---------------------------------------------------------------------------
 
 
-def test_a_resize_sent_while_waiting_sizes_the_spawn(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_resize_sent_while_waiting_sizes_the_spawn(app):
     """The side reader records the resize; the spawn starts at that size."""
     sid = _uuid()
     with TestClient(app) as client:
@@ -480,7 +488,8 @@ def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(app, session
             assert (session._last_rows, session._last_cols) == (40, 132)
 
 
-def test_a_reused_pty_is_resized_to_the_clients_size(app, sessions_dir):
+@pytest.mark.usefixtures("sessions_dir")
+def test_a_reused_pty_is_resized_to_the_clients_size(app):
     """The door hands a pooled PTY back as is; the handler applies the client's size."""
     with TestClient(app) as client:
         spawns = _patch_spawn(app)
