@@ -54,7 +54,7 @@ def test_write_json_atomic_lands_by_replacing_a_hidden_sibling_temp_file(
     real_mkstemp = tempfile.mkstemp
     temp_paths: list[Path] = []
 
-    def spy_mkstemp(*args, **kwargs):  # noqa: ANN002, ANN003, ANN202 — stdlib passthrough
+    def spy_mkstemp(*args, **kwargs):
         fd, name = real_mkstemp(*args, **kwargs)
         temp_paths.append(Path(name))
         return fd, name
@@ -62,7 +62,7 @@ def test_write_json_atomic_lands_by_replacing_a_hidden_sibling_temp_file(
     real_replace = os.replace
     replacements: list[tuple[str, str]] = []
 
-    def spy_replace(src, dst, *args, **kwargs):  # noqa: ANN001, ANN202 — stdlib passthrough
+    def spy_replace(src, dst, *args, **kwargs):
         replacements.append((Path(src).name, Path(dst).name))
         return real_replace(src, dst, *args, **kwargs)
 
@@ -91,7 +91,7 @@ def test_write_json_atomic_leaves_the_previous_document_readable_until_the_repla
     real_replace = os.replace
     seen_mid_write: list[dict] = []
 
-    def spy_replace(src, dst, *args, **kwargs):  # noqa: ANN001, ANN202 — stdlib passthrough
+    def spy_replace(src, dst, *args, **kwargs):
         # A concurrent reader arriving here reads the whole previous document.
         seen_mid_write.append(json.loads(Path(dst).read_text()))
         return real_replace(src, dst, *args, **kwargs)

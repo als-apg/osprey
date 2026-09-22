@@ -1462,7 +1462,7 @@ class TestSidecarCredentialThroughTheProxy:
         seen: list[str | None] = []
 
         class _Handler(BaseHTTPRequestHandler):
-            def do_GET(self):  # noqa: N802 — BaseHTTPRequestHandler's own spelling
+            def do_GET(self):
                 seen.append(self.headers.get("authorization"))
                 self.send_response(200)
                 self.send_header("content-type", "application/json")

@@ -69,11 +69,11 @@ def _open_simple_hub(browser: Browser, base_url: str) -> tuple[Page, list[str], 
     errors: list[str] = []
     chat_posts: list[str] = []
 
-    def _on_console(msg) -> None:  # noqa: ANN001 - Playwright ConsoleMessage
+    def _on_console(msg) -> None:
         if msg.type == "error":
             errors.append(f"console: {msg.text}")
 
-    def _on_request(request) -> None:  # noqa: ANN001 - Playwright Request
+    def _on_request(request) -> None:
         if request.method == "POST" and "/api/chat" in request.url:
             chat_posts.append(request.url)
 
