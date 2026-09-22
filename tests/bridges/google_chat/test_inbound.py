@@ -261,7 +261,7 @@ def test_any_error_status_becomes_a_skip_note(status):
 
 
 def test_a_transport_failure_becomes_a_skip_note():
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("chat.googleapis.com unreachable")
 
     session = httpx.Client(transport=httpx.MockTransport(handler))
@@ -296,7 +296,7 @@ def test_a_reference_that_cannot_even_be_read_costs_only_itself():
         def __len__(self) -> int:
             return 0
 
-        def get(self, key: str, default: Any = None) -> Any:
+        def get(self, _key: str, _default: Any = None) -> Any:
             raise RuntimeError("unreadable reference")
 
     session = session_for({"good": PNG})

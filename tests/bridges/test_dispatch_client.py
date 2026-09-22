@@ -215,7 +215,7 @@ def test_poll_worker_polls_past_pending_until_terminal():
         ]
     )
 
-    def handler(request):
+    def handler(_request):
         return next(responses)
 
     r = _client(handler).poll_worker("R6")
@@ -258,7 +258,7 @@ def test_fire_returns_dispatch_id():
 
 
 def test_fire_missing_dispatch_id_raises():
-    def handler(request):
+    def handler(_request):
         return httpx.Response(202, json={})
 
     with pytest.raises(DispatchPipelineError):
@@ -266,7 +266,7 @@ def test_fire_missing_dispatch_id_raises():
 
 
 def test_fire_non_2xx_raises():
-    def handler(request):
+    def handler(_request):
         return httpx.Response(500, text="nope")
 
     with pytest.raises(DispatchPipelineError):
@@ -274,14 +274,14 @@ def test_fire_non_2xx_raises():
 
 
 def test_wait_for_run_id_returns_run_id_on_completed():
-    def handler(request):
+    def handler(_request):
         return httpx.Response(200, json={"status": "completed", "result": {"run_id": "R9"}})
 
     assert _client(handler).wait_for_run_id("D1", deadline=100.0) == "R9"
 
 
 def test_wait_for_run_id_dispatcher_error_raises():
-    def handler(request):
+    def handler(_request):
         return httpx.Response(200, json={"status": "error", "error": "dispatch failed"})
 
     with pytest.raises(DispatchPipelineError):
@@ -333,7 +333,7 @@ def test_run_handshake_dispatch_error_returns_infrastructure_result():
 
 
 def test_run_network_error_during_handshake_converted_to_result():
-    def handler(request):
+    def handler(_request):
         raise httpx.ConnectError("no route")
 
     r = _client(handler).run("q")
@@ -396,7 +396,7 @@ def test_dispatch_error_default_error_code_none():
 
 
 def test_wait_for_run_id_error_code_propagates_to_exception():
-    def handler(request):
+    def handler(_request):
         return httpx.Response(
             200, json={"status": "error", "error": "bad", "error_code": "input_files_invalid"}
         )
@@ -407,7 +407,7 @@ def test_wait_for_run_id_error_code_propagates_to_exception():
 
 
 def test_wait_for_run_id_error_without_code_has_none():
-    def handler(request):
+    def handler(_request):
         return httpx.Response(200, json={"status": "error", "error": "generic"})
 
     with pytest.raises(DispatchPipelineError) as exc_info:
@@ -458,14 +458,14 @@ def test_run_ordinary_failure_has_none_error_code():
 def test_poll_worker_terminal_body_error_code_passed_through():
     body = {"status": "error", "error": "x", "error_code": "input_files_invalid"}
 
-    def handler(request):
+    def handler(_request):
         return httpx.Response(200, json=body)
 
     assert _client(handler).poll_worker("R1")["error_code"] == "input_files_invalid"
 
 
 def test_poll_worker_terminal_body_without_error_code_is_none():
-    def handler(request):
+    def handler(_request):
         return httpx.Response(200, json={"status": "completed", "text_output": "ok"})
 
     assert _client(handler).poll_worker("R1")["error_code"] is None
@@ -536,7 +536,7 @@ def test_status_does_not_sleep_or_poll():
     # there is no polling loop.
     calls = {"n": 0}
 
-    def handler(request):
+    def handler(_request):
         calls["n"] += 1
         if calls["n"] > 1:
             raise AssertionError("status() must issue exactly one request")

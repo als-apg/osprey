@@ -91,7 +91,7 @@ def _event(parent=None, **overrides):
         raw["parent"] = parent
     raw.update(overrides)
 
-    def handler(request):
+    def handler(_request):
         return httpx.Response(
             200,
             json={
@@ -265,7 +265,7 @@ def test_an_exploding_parent_lookup_is_reported_as_no_quote(caplog):
     here, the question still gets dispatched without its quote."""
 
     class Hostile(dict):
-        def get(self, key, default=None):
+        def get(self, _key, _default=None):
             raise RuntimeError("boom")
 
     event = InboundEvent(
@@ -351,7 +351,7 @@ def test_quoted_file_ref_shape_matches_the_own_file_shape():
 def _rooms_of(event):
     """A resolved directory for the room ``event`` came from."""
 
-    def handler(request):
+    def handler(_request):
         return httpx.Response(
             200,
             json={

@@ -50,7 +50,7 @@ class FakeDispatcher:
 
     # -- DispatchClient surface ----------------------------------------------
 
-    def poll_worker(self, run_id: str, deadline: float | None = None) -> dict[str, Any]:
+    def poll_worker(self, run_id: str, _deadline: float | None = None) -> dict[str, Any]:
         self.polled.append(run_id)
         if self.raise_on_poll is not None:
             raise self.raise_on_poll
@@ -64,7 +64,7 @@ class FakeDispatcher:
             on_run_id(self.run_id)
         return dict(self.run_result, run_id=self.run_id)
 
-    def fire(self, question: str, extra: dict[str, Any] | None = None) -> str:
+    def fire(self, question: str, _extra: dict[str, Any] | None = None) -> str:
         self.fired.append(question)
         return "dispatch-1"
 
@@ -400,7 +400,7 @@ def test_settle_seam_replaces_the_default_settlement(store):
     deps = Deps(dedup=store, dispatcher=FakeDispatcher(poll_result={"status": "error"}))
     settled: list[tuple[str, str]] = []
 
-    def settle(message_id, entry, result):
+    def settle(message_id, entry, _result):
         settled.append((message_id, entry["text"]))
         store.update_status(message_id, "queued")
 

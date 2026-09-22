@@ -27,7 +27,7 @@ class BlockAzureImports:
     ``ImportError`` the caller would see on a machine without the extra.
     """
 
-    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> None:
+    def find_spec(self, fullname: str, _path: Any = None, _target: Any = None) -> None:
         if fullname == "azure" or fullname.startswith("azure."):
             raise ImportError(f"blocked in this test: {fullname}")
         return None
@@ -56,7 +56,7 @@ class BlockPillowImports:
     without the extra loses its images and keeps its answers.
     """
 
-    def find_spec(self, fullname: str, path: Any = None, target: Any = None) -> None:
+    def find_spec(self, fullname: str, _path: Any = None, _target: Any = None) -> None:
         if fullname == "PIL" or fullname.startswith("PIL."):
             raise ImportError(f"blocked in this test: {fullname}")
         return None

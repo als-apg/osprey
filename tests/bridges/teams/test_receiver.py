@@ -878,7 +878,7 @@ class StubAutoLockRenewer:
     def register(self, receiver: Any, renewable: Any) -> None:
         self.registered.append((receiver, renewable))
 
-    def close(self, wait: bool = True) -> None:
+    def close(self, _wait: bool = True) -> None:
         self.closed = True
 
 
