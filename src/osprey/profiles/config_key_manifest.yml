@@ -1446,8 +1446,10 @@ keys:
     rendered: false
     covered-by: archiver.mya_archiver
     note: >-
-      IANA zone the myquery server's naive timestamps are read in. Unset uses
-      the deployment's own `system.timezone`.
+      IANA zone the myquery server reads query bounds in. Samples come back as
+      epoch milliseconds and carry their own instant, so this only spells a UTC
+      window in the server's local time. Unset uses the deployment's own
+      `system.timezone`.
     default: 'system.timezone'
   # The stored archive's connection block, rendered by the control_assistant
   # template and written from the profile's `va_archiver:` block at build time.

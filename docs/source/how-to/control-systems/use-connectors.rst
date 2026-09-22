@@ -375,7 +375,7 @@ independently of the control system:
            type: mya_archiver
 
       To name a different myquery host, a non-production MYA deployment, or the
-      zone its naive timestamps are read in:
+      zone it reads query bounds in:
 
       .. code-block:: yaml
 
@@ -384,19 +384,41 @@ independently of the control system:
            mya_archiver:
              myquery_server: myquery.facility.edu
              deployment: ops        # MYA deployment to query
-             timeout: 60            # seconds
+             timeout: 60            # seconds per request
              timezone: America/New_York   # default: system.timezone
+
+      ``timezone`` spells a UTC query window in the server's own local time,
+      which is the one place myquery has no offset to read. It does not affect
+      the samples that come back: those carry epoch milliseconds, which name an
+      instant outright and so survive the autumn fall-back hour, when every
+      wall-clock time occurs twice.
 
       The client library is not installed with OSPREY. Add it to the profile's
       top-level ``dependencies:`` so the image carries it::
 
          dependencies:
-           - jlab-archiver-client>=2.0.0
+           - jlab-archiver-client>=4.0.1
+
+      .. important::
+
+         4.0.1 is a floor, not a preference. Earlier releases accept the
+         request for epoch timestamps and then parse them as nanoseconds,
+         dating every sample to January 1970 with no error. The connector
+         checks for that and refuses rather than serving it.
 
       Aggregates (``mean``, ``min``, ``max``, ``std``...) are computed by
       myquery's ``mystats`` endpoint. ``median`` is the exception -- MYA does
       not compute one -- so that mode alone fetches raw events and bins them
       client-side.
+
+      ``mystats`` is asked for a number of bins rather than a bin width, so a
+      width that does not divide the window evenly costs one extra request:
+      the whole bins, then the ragged remainder as a final partial bin.
+
+      MYA records changes, not samples -- a value stays in effect until the
+      next update. Reads therefore ask for the prior point, so a channel whose
+      last change predates the window still reports its value, stamped at the
+      window start, instead of answering with nothing at all.
 
 Contracts and Custom Connectors
 -------------------------------

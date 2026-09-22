@@ -432,11 +432,12 @@ config:
   # MYA, read over the myquery HTTP service: every key is optional, because the
   # client library carries its own server and protocol. A deployment inside the
   # facility's network needs only `archiver.type: mya_archiver`, plus
-  # `jlab-archiver-client` in its top-level `dependencies:`.
+  # `jlab-archiver-client>=4.0.1` in its top-level `dependencies:`.
   # archiver.mya_archiver.myquery_server: your-myquery.example.com
   # archiver.mya_archiver.protocol: https
   # archiver.mya_archiver.deployment: ops
   # archiver.mya_archiver.timeout: 60
+  # The zone myquery reads query bounds in -- samples carry their own instant.
   # archiver.mya_archiver.timezone: America/New_York
 
   # ── Scan plans (Bluesky) ───────────────────────────────────────────────────
