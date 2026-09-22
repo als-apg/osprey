@@ -1007,7 +1007,8 @@ class TestMakeReceiver:
 
         assert servicebus.renewer.kwargs["max_workers"] == POOL_SIZE + 1
 
-    def test_what_it_returns_satisfies_the_seam(self, servicebus: StubServiceBus) -> None:
+    @pytest.mark.usefixtures("servicebus")
+    def test_what_it_returns_satisfies_the_seam(self) -> None:
         assert isinstance(make_receiver(make_cfg()), QueueReceiver)
 
     def test_building_pulls_nothing(self, servicebus: StubServiceBus) -> None:
@@ -1154,25 +1155,27 @@ class TestWithoutTheAzureLibrary:
     anywhere under the package would make all of those fail at import.
     """
 
-    def test_the_block_is_real(self, no_servicebus: None) -> None:
+    @pytest.mark.usefixtures("no_servicebus")
+    def test_the_block_is_real(self) -> None:
         # Proof the three tests below are not passing vacuously on a machine
         # that has azure-servicebus installed after all.
         with pytest.raises(ImportError, match="blocked in this test"):
             importlib.import_module("azure.servicebus")
 
-    def test_the_adapter_package_imports(
-        self, no_servicebus: None, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    @pytest.mark.usefixtures("no_servicebus")
+    def test_the_adapter_package_imports(self, monkeypatch: pytest.MonkeyPatch) -> None:
         fresh = reimport_adapter_package(monkeypatch)
 
         assert fresh.TeamsBridgeConfig is not None
 
-    def test_the_ingestion_module_imports_and_works(self, no_servicebus: None) -> None:
+    @pytest.mark.usefixtures("no_servicebus")
+    def test_the_ingestion_module_imports_and_works(self) -> None:
         fresh = load_receiver_copy()
 
         assert fresh.decode_body(FakeMessage("a")) == {"type": "message", "id": "a"}
 
-    def test_make_receiver_names_the_extra_to_install(self, no_servicebus: None) -> None:
+    @pytest.mark.usefixtures("no_servicebus")
+    def test_make_receiver_names_the_extra_to_install(self) -> None:
         # The one function that needs the SDK, and the one place an operator
         # meets the missing extra: the message has to say which extra it is.
         fresh = load_receiver_copy()

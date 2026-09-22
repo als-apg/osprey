@@ -198,7 +198,8 @@ class TestEPICSConnectorPosture:
     """The EPICS connector, and everything that inherits its ``connect()``."""
 
     @pytest.mark.asyncio
-    async def test_stand_in_reads_its_own_block(self, monkeypatch, tmp_path, clean_epics_env):
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_stand_in_reads_its_own_block(self, monkeypatch, tmp_path):
         """``live_standin`` is a type of its own, served by this same connector."""
         from osprey.connectors.control_system.epics_connector import EPICSConnector
 
@@ -210,7 +211,8 @@ class TestEPICSConnectorPosture:
         assert _posture(connector) == (True, _type_allow_key(LIVE_STANDIN))
 
     @pytest.mark.asyncio
-    async def test_live_type_inherits_deployment_wide(self, monkeypatch, tmp_path, clean_epics_env):
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_live_type_inherits_deployment_wide(self, monkeypatch, tmp_path):
         from osprey.connectors.control_system.epics_connector import EPICSConnector
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
@@ -221,9 +223,8 @@ class TestEPICSConnectorPosture:
         assert _posture(connector) == (False, DEPLOYMENT_WIDE_ALLOW_KEY)
 
     @pytest.mark.asyncio
-    async def test_unstamped_connector_reads_the_deployment_wide_block(
-        self, monkeypatch, tmp_path, clean_epics_env
-    ):
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_unstamped_connector_reads_the_deployment_wide_block(self, monkeypatch, tmp_path):
         from osprey.connectors.control_system.epics_connector import EPICSConnector
 
         _patch_config(monkeypatch, _permissive_simulators_section(), _limits_db(tmp_path))
@@ -233,8 +234,9 @@ class TestEPICSConnectorPosture:
         assert _posture(connector) == (False, DEPLOYMENT_WIDE_ALLOW_KEY)
 
     @pytest.mark.asyncio
+    @pytest.mark.usefixtures("clean_epics_env")
     async def test_va_connector_inherits_the_wiring_through_super_connect(
-        self, monkeypatch, tmp_path, clean_epics_env
+        self, monkeypatch, tmp_path
     ):
         """``VirtualAcceleratorConnector`` builds no validator of its own."""
         from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector

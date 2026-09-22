@@ -88,7 +88,8 @@ class TestActingSurface:
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
         assert acting_surface() == "service"
 
-    def test_local(self, no_identity):
+    @pytest.mark.usefixtures("no_identity")
+    def test_local(self):
         assert acting_surface() == "local"
 
 
@@ -106,7 +107,8 @@ class TestAttributionHeaders:
         assert headers[END_USER_HEADER] == "dispatch-worker-1"
         assert headers[TAGS_HEADER] == "osprey,surface:dispatch"
 
-    def test_exactly_two_headers(self, no_identity):
+    @pytest.mark.usefixtures("no_identity")
+    def test_exactly_two_headers(self):
         assert set(attribution_headers()) == {END_USER_HEADER, TAGS_HEADER}
 
 
@@ -151,7 +153,8 @@ class TestApplyAttributionEnv:
         assert environ[CUSTOM_HEADERS_ENV].startswith("X-Corp-Trace: abc123\n")
         assert f"{END_USER_HEADER}: alice" in environ[CUSTOM_HEADERS_ENV]
 
-    def test_no_gateway_leaves_environ_untouched(self, no_identity):
+    @pytest.mark.usefixtures("no_identity")
+    def test_no_gateway_leaves_environ_untouched(self):
         environ = {CUSTOM_HEADERS_ENV: "X-Corp-Trace: abc123"}
         apply_attribution_env(environ, None)
         assert environ == {CUSTOM_HEADERS_ENV: "X-Corp-Trace: abc123"}

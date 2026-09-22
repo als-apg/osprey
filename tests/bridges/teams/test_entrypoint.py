@@ -523,9 +523,8 @@ def test_a_raise_from_the_pull_still_closes_the_receiver(cfg: TeamsBridgeConfig)
     assert receiver.closed == 1
 
 
-def test_the_default_factory_is_the_packages_own_and_opens_nothing(
-    cfg: TeamsBridgeConfig, no_servicebus: None
-) -> None:
+@pytest.mark.usefixtures("no_servicebus")
+def test_the_default_factory_is_the_packages_own_and_opens_nothing(cfg: TeamsBridgeConfig) -> None:
     """Wiring a bridge imports no Service Bus: the factory is named here and called
     only when the engine is ready to pull, which is what lets an ``osprey build`` host
     and every non-extra test import this module."""
@@ -666,8 +665,9 @@ def test_the_exported_names_are_sorted() -> None:
     assert package.__all__ == sorted(package.__all__)
 
 
+@pytest.mark.usefixtures("no_servicebus", "no_pillow")
 def test_the_package_root_imports_without_the_optional_extra(
-    monkeypatch: pytest.MonkeyPatch, no_servicebus: None, no_pillow: None
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The standing promise of the package, proven the only way it can be: with both
     optional distributions blocked AND the package purged from the module cache, so the

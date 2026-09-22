@@ -68,7 +68,8 @@ def _patch_writes_enabled(monkeypatch, enabled: bool):
 
 
 @pytest.mark.asyncio
-async def test_write_access_gateway_used_when_writes_enabled(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_write_access_gateway_used_when_writes_enabled(monkeypatch):
     """writes_enabled + write_access configured -> CA context points at write gateway."""
     _patch_writes_enabled(monkeypatch, True)
 
@@ -80,7 +81,8 @@ async def test_write_access_gateway_used_when_writes_enabled(monkeypatch, clean_
 
 
 @pytest.mark.asyncio
-async def test_read_only_gateway_used_when_writes_disabled(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_read_only_gateway_used_when_writes_disabled(monkeypatch):
     """writes disabled -> stay on read_only gateway even if write_access is configured."""
     _patch_writes_enabled(monkeypatch, False)
 
@@ -92,7 +94,8 @@ async def test_read_only_gateway_used_when_writes_disabled(monkeypatch, clean_ep
 
 
 @pytest.mark.asyncio
-async def test_warns_when_writes_enabled_but_no_write_gateway(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_warns_when_writes_enabled_but_no_write_gateway(monkeypatch):
     """writes_enabled but only read_only configured -> use read_only and warn."""
     _patch_writes_enabled(monkeypatch, True)
 
@@ -113,7 +116,8 @@ async def test_warns_when_writes_enabled_but_no_write_gateway(monkeypatch, clean
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_stays_on_read_only_gateway(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_readonly_run_stays_on_read_only_gateway(monkeypatch):
     """A readonly sandbox run never routes through the write gateway.
 
     ``writes_enabled`` is the deployment posture; ``OSPREY_EXECUTION_MODE`` is
@@ -131,7 +135,8 @@ async def test_readonly_run_stays_on_read_only_gateway(monkeypatch, clean_epics_
 
 
 @pytest.mark.asyncio
-async def test_readwrite_run_uses_write_gateway(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_readwrite_run_uses_write_gateway(monkeypatch):
     _patch_writes_enabled(monkeypatch, True)
     monkeypatch.setenv("OSPREY_EXECUTION_MODE", "readwrite")
 
@@ -161,7 +166,8 @@ _EPICS_DISARMED = {
 
 
 @pytest.mark.asyncio
-async def test_unarmed_type_stays_on_read_only_gateway(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_unarmed_type_stays_on_read_only_gateway(monkeypatch):
     """A type with no posture of its own inherits the deployment-wide false."""
     # Arrange
     _patch_control_system(monkeypatch, _VA_ARMED_ONLY)
@@ -177,7 +183,8 @@ async def test_unarmed_type_stays_on_read_only_gateway(monkeypatch, clean_epics_
 
 
 @pytest.mark.asyncio
-async def test_armed_type_uses_write_gateway_under_global_false(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_armed_type_uses_write_gateway_under_global_false(monkeypatch):
     """The armed type routes through write_access even with the global key false."""
     # Arrange
     _patch_control_system(monkeypatch, _VA_ARMED_ONLY)
@@ -193,7 +200,8 @@ async def test_armed_type_uses_write_gateway_under_global_false(monkeypatch, cle
 
 
 @pytest.mark.asyncio
-async def test_type_block_false_overrides_global_true(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_type_block_false_overrides_global_true(monkeypatch):
     """A block that says false keeps that type off the write gateway."""
     # Arrange
     _patch_control_system(monkeypatch, _EPICS_DISARMED)
@@ -208,7 +216,8 @@ async def test_type_block_false_overrides_global_true(monkeypatch, clean_epics_e
 
 
 @pytest.mark.asyncio
-async def test_type_without_block_inherits_global_true(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_type_without_block_inherits_global_true(monkeypatch):
     """A type the deployment says nothing about keeps the deployment-wide true."""
     # Arrange
     _patch_control_system(monkeypatch, _EPICS_DISARMED)
@@ -223,7 +232,8 @@ async def test_type_without_block_inherits_global_true(monkeypatch, clean_epics_
 
 
 @pytest.mark.asyncio
-async def test_unstamped_connector_reads_the_deployment_wide_key(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_unstamped_connector_reads_the_deployment_wide_key(monkeypatch):
     """No stamped type -> no per-type block to read, so the global key decides.
 
     ``_VA_ARMED_ONLY`` arms one type and leaves the deployment-wide key false;
@@ -242,7 +252,8 @@ async def test_unstamped_connector_reads_the_deployment_wide_key(monkeypatch, cl
 
 
 @pytest.mark.asyncio
-async def test_readonly_run_overrides_an_armed_type(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_readonly_run_overrides_an_armed_type(monkeypatch):
     """The per-run claim still wins over an armed type."""
     # Arrange
     _patch_control_system(monkeypatch, _VA_ARMED_ONLY)
@@ -258,7 +269,8 @@ async def test_readonly_run_overrides_an_armed_type(monkeypatch, clean_epics_env
 
 
 @pytest.mark.asyncio
-async def test_va_connector_inherits_the_per_type_selection(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_va_connector_inherits_the_per_type_selection(monkeypatch):
     """The VA connector adds gateway-port filling, not a selection of its own."""
     # Arrange
     _patch_control_system(monkeypatch, _VA_ARMED_ONLY)
@@ -274,7 +286,8 @@ async def test_va_connector_inherits_the_per_type_selection(monkeypatch, clean_e
 
 
 @pytest.mark.asyncio
-async def test_no_write_gateway_warning_names_the_type_block(monkeypatch, clean_epics_env):
+@pytest.mark.usefixtures("clean_epics_env")
+async def test_no_write_gateway_warning_names_the_type_block(monkeypatch):
     """The warning points at the block the operator has to edit for this type."""
     # Arrange
     _patch_control_system(monkeypatch, _VA_ARMED_ONLY)

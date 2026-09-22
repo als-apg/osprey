@@ -111,7 +111,8 @@ def test_unresolvable_root_answers_none(monkeypatch):
     assert posture_store.recorded_posture() == {}
 
 
-def test_the_posture_sits_beside_the_target_state_file(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_the_posture_sits_beside_the_target_state_file():
     """FR9: co-sited with the state file — one directory, not two."""
     from osprey.mcp_server.control_system import target_state
 
@@ -184,7 +185,8 @@ def test_the_record_applies_this_very_filter(data_root):
 # --- lookups ---------------------------------------------------------------
 
 
-def test_no_record_is_no_narrowing(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_no_record_is_no_narrowing():
     assert posture_store.recorded_posture() == {}
     assert posture_store.target_posture("live") is None
     assert posture_store.store_permits("live") is True
@@ -335,7 +337,8 @@ def test_effective_writes_truth_table(data_root, monkeypatch, armed, entry, read
     assert posture_store.effective_writes(section, "live") is expected
 
 
-def test_effective_writes_uses_the_targets_own_ceiling(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_effective_writes_uses_the_targets_own_ceiling():
     section = _section(live_writes=False, va_writes=True)
     assert posture_store.effective_writes(section, "live") is False
     assert posture_store.effective_writes(section, "va") is True
@@ -354,7 +357,8 @@ def test_no_target_with_nothing_narrowed_leaves_the_ceiling_in_charge(data_root)
     assert posture_store.effective_writes(UNARMED, None) is False
 
 
-def test_connector_type_ceiling_beats_the_deployment_wide_key(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_connector_type_ceiling_beats_the_deployment_wide_key():
     """Mixed config: deployment armed, the EPICS block explicitly unarmed."""
     section = {
         "type": "epics",
@@ -458,7 +462,8 @@ def test_store_permits_never_consults_the_execution_mode(data_root, monkeypatch)
 # refuses without touching the disk.
 
 
-def test_the_launch_pin_refuses_ahead_of_the_record(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_the_launch_pin_refuses_ahead_of_the_record(monkeypatch):
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
 
     def _explode(**_kwargs):  # pragma: no cover - must not run
@@ -469,7 +474,8 @@ def test_the_launch_pin_refuses_ahead_of_the_record(data_root, monkeypatch):
     assert posture_store.effective_writes(ARMED, "live") is False
 
 
-def test_the_launch_pin_leaves_other_targets_alone(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_the_launch_pin_leaves_other_targets_alone(monkeypatch):
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
     assert posture_store.store_permits("va") is True
     assert posture_store.launch_narrowed_target() == "live"
@@ -481,7 +487,8 @@ def test_a_launch_stamp_cannot_widen_a_recorded_narrowing(data_root, monkeypatch
     assert posture_store.store_permits("live") is False
 
 
-def test_an_unstamped_process_is_unaffected_by_the_launch_clause(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_an_unstamped_process_is_unaffected_by_the_launch_clause(monkeypatch):
     monkeypatch.delenv(posture_store.LAUNCH_POSTURE_ENV_VAR, raising=False)
     assert posture_store.launch_permits("live") is True
     assert posture_store.launch_narrowed_target() is None
@@ -843,7 +850,8 @@ def test_store_verdict_takes_a_target_and_an_owner():
     assert list(inspect.signature(posture_store.store_permits).parameters) == ["target"]
 
 
-def test_nothing_narrowed_is_permitted(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_nothing_narrowed_is_permitted():
     assert posture_store.store_verdict("live") is posture_store.StoreVerdict.PERMITTED
     assert posture_store.store_permits("live") is True
 
@@ -863,7 +871,8 @@ def test_a_narrowing_on_another_target_permits_this_one(data_root):
     assert posture_store.store_verdict("va") is posture_store.StoreVerdict.NARROWING
 
 
-def test_a_launch_pin_naming_a_target_answers_narrowing(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_a_launch_pin_naming_a_target_answers_narrowing(monkeypatch):
     """Somebody had this machine read-only when the run started — a decision."""
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
 
@@ -871,7 +880,8 @@ def test_a_launch_pin_naming_a_target_answers_narrowing(data_root, monkeypatch):
     assert posture_store.store_verdict("va") is posture_store.StoreVerdict.PERMITTED
 
 
-def test_a_launch_pin_on_every_target_answers_control_context_unavailable(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_a_launch_pin_on_every_target_answers_control_context_unavailable(monkeypatch):
     """Nobody decided this: the executor could resolve neither target nor record.
 
     Reporting it as a narrowing would send an operator to a chip to undo a
@@ -889,7 +899,8 @@ def test_a_launch_pin_on_every_target_answers_control_context_unavailable(data_r
     assert posture_store.store_verdict(None) is verdict
 
 
-def test_the_launch_pin_is_taken_before_any_record_is_read(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_the_launch_pin_is_taken_before_any_record_is_read(monkeypatch):
     """The pin is one environment read, so a run that launched narrow touches no disk."""
 
     def _boom(*_args, **_kwargs):  # pragma: no cover - must not run
@@ -902,7 +913,8 @@ def test_the_launch_pin_is_taken_before_any_record_is_read(data_root, monkeypatc
     assert posture_store.store_verdict("live") is posture_store.StoreVerdict.NARROWING
 
 
-def test_work_that_belongs_to_nobody_reads_no_record(bound_tree, monkeypatch):
+@pytest.mark.usefixtures("bound_tree")
+def test_work_that_belongs_to_nobody_reads_no_record(monkeypatch):
     """The ceiling alone governs an owner-less plan, so there is no record to read.
 
     Passing the sentinel is naming an owner — "this belongs to nobody" — and it
@@ -933,7 +945,8 @@ def test_the_tree_reader_answers_for_the_owner_a_plan_carries(bound_tree):
     assert posture_store.store_verdict("va", "alice") is posture_store.StoreVerdict.PERMITTED
 
 
-def test_an_owner_with_no_record_in_the_tree_is_permitted(bound_tree):
+@pytest.mark.usefixtures("bound_tree")
+def test_an_owner_with_no_record_in_the_tree_is_permitted():
     """The one absence that is an answer: nobody narrowed anything for this owner."""
     assert posture_store.store_verdict("live", "carol") is posture_store.StoreVerdict.PERMITTED
 
@@ -979,7 +992,8 @@ def test_an_unprovisioned_tree_bind_refuses_rather_than_permits(tmp_path, monkey
     )
 
 
-def test_an_owner_the_tree_cannot_hold_refuses(bound_tree):
+@pytest.mark.usefixtures("bound_tree")
+def test_an_owner_the_tree_cannot_hold_refuses():
     """A name nobody can look up is a lookup that did not happen, not one that found nothing."""
     assert (
         posture_store.store_verdict("live", "../alice")
@@ -1036,7 +1050,8 @@ def test_store_permits_is_the_verdict_by_another_name(data_root, monkeypatch):
         ), (pin, posture)
 
 
-def test_a_raising_host_reader_still_leaves_the_ceiling_in_charge(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_a_raising_host_reader_still_leaves_the_ceiling_in_charge(monkeypatch):
     """The host rung keeps its fail-open; only the tree rung refuses on a bad read."""
     monkeypatch.delenv(posture_store.CONTROL_CONTEXT_TREE_ENV_VAR, raising=False)
 
@@ -1056,7 +1071,7 @@ def test_a_raising_host_reader_still_leaves_the_ceiling_in_charge(data_root, mon
 # lookup that did not happen — the tree reader's own classification.
 
 
-def test_an_owner_that_is_not_a_name_refuses(bound_tree, monkeypatch, caplog):
+def test_an_owner_that_is_not_a_name_refuses(bound_tree, caplog):
     """The ceiling-only rung is for the sentinel alone, never for a type.
 
     An owner can arrive from a decoded payload — a queue item's reserved kwarg
@@ -1075,7 +1090,8 @@ def test_an_owner_that_is_not_a_name_refuses(bound_tree, monkeypatch, caplog):
     assert "not a name" in caplog.text
 
 
-def test_an_owner_named_with_no_name_refuses(bound_tree):
+@pytest.mark.usefixtures("bound_tree")
+def test_an_owner_named_with_no_name_refuses():
     """A caller that named an owner spelled "" named a directory nobody can hold."""
     assert (
         posture_store.store_verdict("live", "   ")
@@ -1228,7 +1244,8 @@ def test_one_record_read_per_verdict(bound_tree, monkeypatch):
     assert reads == ["alice", "alice"]
 
 
-def test_a_pin_on_every_target_hands_over_the_launch_remedy(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_a_pin_on_every_target_hands_over_the_launch_remedy(monkeypatch):
     """Nobody decided this one, so its remedy is the run's and not the chip's."""
     monkeypatch.setenv(
         posture_store.LAUNCH_POSTURE_ENV_VAR,
@@ -1241,7 +1258,8 @@ def test_a_pin_on_every_target_hands_over_the_launch_remedy(data_root, monkeypat
     assert detail.reason == "pinned everywhere at launch — re-run the script"
 
 
-def test_a_pin_naming_a_target_carries_no_remedy(data_root, monkeypatch):
+@pytest.mark.usefixtures("data_root")
+def test_a_pin_naming_a_target_carries_no_remedy(monkeypatch):
     """A named pin is an operator's decision, and its wording is the caller's."""
     monkeypatch.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "live=sandbox")
 
