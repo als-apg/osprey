@@ -683,7 +683,6 @@ ignore-variadic-names = true
 # with the directory's sweep. A root-level file needs its exact path, because
 # a `*` in these globs spans `/`.
 "tests/cli/*" = ["ARG001", "ARG002"]
-"tests/services/*" = ["ARG001", "ARG002"]
 
 "tests/runtime/*" = ["ARG001", "ARG002"]
 "tests/dispatch/*" = ["ARG001", "ARG002"]
