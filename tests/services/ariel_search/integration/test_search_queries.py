@@ -212,9 +212,7 @@ class TestSemanticSearchWithRealEmbeddings:
     async def seeded_repository_with_embeddings(
         self,
         repository,
-        migrated_pool,
         seed_entry_factory,
-        integration_ariel_config,
         seeded_prefixes,
     ):
         """Repository seeded with three entries and their embeddings.
@@ -230,9 +228,7 @@ class TestSemanticSearchWithRealEmbeddings:
 
         Args:
             repository: Repository over the migrated test database.
-            migrated_pool: Pool over the migrated test database.
             seed_entry_factory: Factory building a single logbook entry.
-            integration_ariel_config: ARIEL configuration for that database.
             seeded_prefixes: Package ledger of the entry-id prefixes to delete
                 at teardown.
 

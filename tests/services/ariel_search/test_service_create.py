@@ -265,7 +265,7 @@ async def test_create_entry_mirrors_inline_when_qmd_export_enabled(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_create_entry_mirror_failure_is_warned_not_raised(tmp_path, caplog):
+async def test_create_entry_mirror_failure_is_warned_not_raised(caplog):
     """A broken mirror config logs a warning and never fails the create.
 
     The entry is already durable in Postgres when the mirror write runs, so a
