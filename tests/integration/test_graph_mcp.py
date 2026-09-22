@@ -348,9 +348,8 @@ def _store_state(uri: str) -> tuple[int, str | None]:
 # ---------------------------------------------------------------------------
 
 
-def test_write_is_refused_by_the_read_transaction_and_changes_nothing(
-    demo_ctx: Any, demo_store: str
-) -> None:
+@pytest.mark.usefixtures("demo_ctx")
+def test_write_is_refused_by_the_read_transaction_and_changes_nothing(demo_store: str) -> None:
     """A CREATE reaches the store, is refused there, and leaves no trace.
 
     The gate deliberately does not vet write keywords — write enforcement is
@@ -531,7 +530,8 @@ def test_returning_a_node_yields_json_native_values(demo_ctx: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping(demo_ctx: Any) -> None:
+@pytest.mark.usefixtures("demo_ctx")
+def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping() -> None:
     """The schema names the NARAD vocabulary and nothing the seeder wrote."""
     payload = _get_schema()
 
@@ -564,14 +564,16 @@ def test_get_schema_reports_the_corpus_and_hides_the_bookkeeping(demo_ctx: Any) 
 # ---------------------------------------------------------------------------
 
 
-def test_example_q1a_counts_the_verified_devices(demo_ctx: Any) -> None:
+@pytest.mark.usefixtures("demo_ctx")
+def test_example_q1a_counts_the_verified_devices() -> None:
     """The device census sums to the 512 verified devices."""
     payload = _run_example("q1a")
     assert payload["truncated"] is False, payload
     assert sum(row["device_count"] for row in payload["rows"]) == EXPECTED_DEVICES
 
 
-def test_example_q5_reproduces_the_verified_direction_split(demo_ctx: Any) -> None:
+@pytest.mark.usefixtures("demo_ctx")
+def test_example_q5_reproduces_the_verified_direction_split() -> None:
     """The binding rollup reproduces 396 write-only / 2512 read-only / 2908 total."""
     payload = _run_example("q5")
     row = payload["rows"][0]
@@ -601,7 +603,8 @@ def test_example_q1c_rolls_up_the_verified_magnets(demo_ctx: Any) -> None:
     assert {row["device_class"] for row in payload["rows"]} > {"Quadrupole"}
 
 
-def test_example_q1b_puts_the_magnets_under_one_branch(demo_ctx: Any) -> None:
+@pytest.mark.usefixtures("demo_ctx")
+def test_example_q1b_puts_the_magnets_under_one_branch() -> None:
     """The branch rollup reaches the same 382 without naming a magnet subclass."""
     payload = _run_example("q1b")
     by_branch = {row["branch"]: row["device_count"] for row in payload["rows"]}
@@ -628,7 +631,8 @@ def test_the_taxonomy_separates_a_grouping_from_a_kind_of_device(demo_ctx: Any) 
 
 
 @pytest.mark.parametrize("key", _example_keys())
-def test_every_example_runs_on_the_demo_corpus(demo_ctx: Any, key: str) -> None:
+@pytest.mark.usefixtures("demo_ctx")
+def test_every_example_runs_on_the_demo_corpus(key: str) -> None:
     """Every shipped example returns usable rows with its demo parameter set."""
     payload = _run_example(key)
     _assert_usable(key, payload)
@@ -653,7 +657,8 @@ def _assert_usable(key: str, payload: dict[str, Any]) -> None:
             assert value is not None, f"{key} returned a null {column}: {row}"
 
 
-def test_example_q6_finds_one_owner_and_no_shared_endpoint(demo_ctx: Any) -> None:
+@pytest.mark.usefixtures("demo_ctx")
+def test_example_q6_finds_one_owner_and_no_shared_endpoint() -> None:
     """The reverse PV lookup resolves an address back to exactly one device.
 
     The generated corpus mints one binding per channel, so an address maps to

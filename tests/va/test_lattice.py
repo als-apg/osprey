@@ -158,8 +158,9 @@ class TestTheDeckIsNeverIndexedByExportPosition:
             for piece in binding.slices:
                 assert isinstance(piece.element, str)
 
+    @pytest.mark.usefixtures("paths")
     def test_the_saved_deck_is_shorter_than_the_positions_the_export_states(
-        self, booted: PyATRingModel, paths: ManifestPaths
+        self, booted: PyATRingModel
     ) -> None:
         """The off-by-one made concrete, so the trap is visible rather than
         only described: the highest position the export states is past the

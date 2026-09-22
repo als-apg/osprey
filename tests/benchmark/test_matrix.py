@@ -98,17 +98,20 @@ def test_resolve_key_missing_is_empty(monkeypatch):
 # --- route derivation -------------------------------------------------------
 
 
-def test_route_openai_is_proxy(keys):
+@pytest.mark.usefixtures("keys")
+def test_route_openai_is_proxy():
     cell = matrix.build_cell(_cfg(), {"id": "gpt-oss-20b", "provider": "cborg"}, 1)
     assert cell.route == "proxy"
 
 
-def test_route_anthropic_is_direct(keys):
+@pytest.mark.usefixtures("keys")
+def test_route_anthropic_is_direct():
     cell = matrix.build_cell(_cfg(), {"id": "claude-sonnet-4-6", "provider": "als-apg"}, 1)
     assert cell.route == "direct"
 
 
-def test_per_model_protocol_override_beats_provider(keys):
+@pytest.mark.usefixtures("keys")
+def test_per_model_protocol_override_beats_provider():
     # CBORG serves claude-* on the Anthropic route under the OpenAI-native
     # cborg provider — the per-model override must win.
     cell = matrix.build_cell(
@@ -117,7 +120,8 @@ def test_per_model_protocol_override_beats_provider(keys):
     assert cell.protocol == "anthropic" and cell.route == "direct"
 
 
-def test_safe_name_slashes(keys):
+@pytest.mark.usefixtures("keys")
+def test_safe_name_slashes():
     cell = matrix.build_cell(_cfg(), {"id": "google/qwen-3", "provider": "cborg"}, 2)
     assert cell.safe == "google__qwen-3"
     assert cell.summary_json == "google__qwen-3__seed2.json"
@@ -126,7 +130,8 @@ def test_safe_name_slashes(keys):
 # --- grid expansion: seed-major, per-model seeds, resume, filter ------------
 
 
-def test_expand_grid_seed_major_and_per_model_seeds(keys):
+@pytest.mark.usefixtures("keys")
+def test_expand_grid_seed_major_and_per_model_seeds():
     cells = matrix.expand_grid(_cfg())
     # cborg(3 seeds)x3 models? -> 3 cborg models? no: 2 cborg + 1 als-apg(1) + 1 ds4(3)
     # seed1: all 4 ; seed2: cborg+ds4 (3) ; seed3: cborg+ds4 (3) => 10 cells
@@ -139,13 +144,15 @@ def test_expand_grid_seed_major_and_per_model_seeds(keys):
     assert [c.seed for c in alsapg] == [1]
 
 
-def test_only_filter(keys):
+@pytest.mark.usefixtures("keys")
+def test_only_filter():
     cells = matrix.expand_grid(_cfg(), only="deepseek")
     assert {c.model for c in cells} == {"deepseek-v4-flash"}
     assert [c.seed for c in cells] == [1, 2, 3]
 
 
-def test_provider_filter_isolates_lanes(keys):
+@pytest.mark.usefixtures("keys")
+def test_provider_filter_isolates_lanes():
     # the subject lane and reference lane run at different parallelism via
     # matrix_restart.sh's --provider filter.
     cborg = matrix.expand_grid(_cfg(), providers={"cborg"})
@@ -155,7 +162,8 @@ def test_provider_filter_isolates_lanes(keys):
     assert [c.seed for c in refs] == [1]
 
 
-def test_resume_skips_existing_summary(tmp_path, keys):
+@pytest.mark.usefixtures("keys")
+def test_resume_skips_existing_summary(tmp_path):
     cfg = _cfg()
     results = tmp_path / "results"
     results.mkdir()
@@ -167,7 +175,8 @@ def test_resume_skips_existing_summary(tmp_path, keys):
     assert len(todo) == 9
 
 
-def test_matrix_log_markers_pair_like_dashboard(keys):
+@pytest.mark.usefixtures("keys")
+def test_matrix_log_markers_pair_like_dashboard():
     # Regression guard: matrix_dashboard_live.sh pairs START/END by stripping a
     # trailing HH:MM:SS off START and "rc=..." off END. A START line whose tail
     # is NOT a time (e.g. "route=proxy") never strips, so cells look perpetually
@@ -189,7 +198,8 @@ def test_matrix_log_markers_pair_like_dashboard(keys):
 # --- the per-cell environment (the replaced ``case`` logic) -----------------
 
 
-def test_cell_env_cborg_open_model(keys):
+@pytest.mark.usefixtures("keys")
+def test_cell_env_cborg_open_model():
     cell = matrix.build_cell(_cfg(), {"id": "gpt-oss-20b", "provider": "cborg"}, 1)
     env = matrix.cell_env(cell)
     assert env["OSPREY_E2E_FORCE_PROVIDER"] == "cborg"
@@ -203,7 +213,8 @@ def test_cell_env_cborg_open_model(keys):
     assert env["OSPREY_E2E_BUDGET_SCALE"] == "1"
 
 
-def test_cell_env_alsapg_reference_is_direct(keys):
+@pytest.mark.usefixtures("keys")
+def test_cell_env_alsapg_reference_is_direct():
     cell = matrix.build_cell(
         _cfg(), {"id": "claude-sonnet-4-6", "provider": "als-apg", "budget_scale": 3}, 1
     )
@@ -219,7 +230,8 @@ def test_cell_env_alsapg_reference_is_direct(keys):
     assert env["OSPREY_E2E_BUDGET_SCALE"] == "3"
 
 
-def test_cell_env_ds4_local_keyless_judge_stays_remote(keys):
+@pytest.mark.usefixtures("keys")
+def test_cell_env_ds4_local_keyless_judge_stays_remote():
     cell = matrix.build_cell(_cfg(), {"id": "deepseek-v4-flash", "provider": "ds4"}, 1)
     env = matrix.cell_env(cell)
     assert env["OSPREY_E2E_FORCE_PROVIDER"] == "ds4"
@@ -285,7 +297,8 @@ def test_provider_key_env_derives_by_convention_when_undeclared():
 # --- errors & misc ----------------------------------------------------------
 
 
-def test_unknown_provider_raises(keys):
+@pytest.mark.usefixtures("keys")
+def test_unknown_provider_raises():
     with pytest.raises(KeyError):
         matrix.build_cell(_cfg(), {"id": "x", "provider": "nope"}, 1)
 
@@ -394,7 +407,8 @@ def test_load_config_refuses_an_unresolved_base_url(tmp_path, monkeypatch):
 # --- orchestration (drive): resume + matrix.log markers ---------------------
 
 
-def test_drive_writes_markers_and_resumes(tmp_path, keys, monkeypatch):
+@pytest.mark.usefixtures("keys")
+def test_drive_writes_markers_and_resumes(tmp_path, monkeypatch):
     """drive() runs each cell once, emits the dashboard markers, and on a second
     pass skips every already-summarized cell. The per-cell worker is stubbed so
     no real pytest-e2e is spawned."""

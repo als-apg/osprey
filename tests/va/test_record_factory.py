@@ -472,18 +472,22 @@ class TestBootValues:
     order in the entrypoint a contract rather than a convenience.
     """
 
-    def test_every_served_address_boots_at_its_seeded_value(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_every_served_address_boots_at_its_seeded_value(self) -> None:
         assert _snapshot(*BOOT_STATE) == pytest.approx(BOOT_STATE)
 
-    def test_a_seeded_setpoint_boots_at_the_scenario_value(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_seeded_setpoint_boots_at_the_scenario_value(self) -> None:
         assert _caget(SEEDED_SP) == pytest.approx(SEEDED_BOOT)
 
-    def test_its_readback_boots_there_too(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_its_readback_boots_there_too(self) -> None:
         """A machine whose readbacks disagree with its setpoints at boot is a
         machine every client would immediately try to correct."""
         assert _caget(SEEDED_RB) == pytest.approx(SEEDED_BOOT)
 
-    def test_an_unseeded_setpoint_boots_at_the_type_default(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_an_unseeded_setpoint_boots_at_the_type_default(self) -> None:
         assert _caget(BAND_SP) == pytest.approx(0.0)
 
 
@@ -497,15 +501,18 @@ class TestPhysicsRoundTrip:
     never returns and every orbit-response scan hangs at its first step.
     """
 
-    def test_the_readback_follows_the_setpoint(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_readback_follows_the_setpoint(self) -> None:
         assert _caput(BAND_SP, 2.0) == 1
         assert _settle(BAND_RB, 2.0) == pytest.approx(2.0)
 
-    def test_the_setpoint_carries_the_written_value_too(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_setpoint_carries_the_written_value_too(self) -> None:
         assert _caput(BAND_SP, 1.5) == 1
         assert _settle(BAND_SP, 1.5) == pytest.approx(1.5)
 
-    def test_a_settle_wait_on_the_readback_is_woken_by_a_monitor_event(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_settle_wait_on_the_readback_is_woken_by_a_monitor_event(self) -> None:
         """What a settle-wait actually subscribes to.
 
         A one-shot read can be satisfied by a value the server recorded without
@@ -538,7 +545,8 @@ class TestPhysicsRoundTrip:
 
         assert live.hook.calls == [(BAND_SP, pytest.approx(3.0))]
 
-    def test_the_reading_on_the_wire_is_the_one_the_hook_pushed(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_reading_on_the_wire_is_the_one_the_hook_pushed(self) -> None:
         """Never a value read back out of the model: a BPM reading carries its
         own seeded readout error, and republishing the model's own view would
         overwrite the reading with the truth it exists to differ from."""
@@ -553,7 +561,8 @@ class TestPhysicsRoundTrip:
 
         assert live.hook.threads == {live.loop.thread.name}
 
-    def test_put_completion_does_not_return_before_the_value_is_committed(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_put_completion_does_not_return_before_the_value_is_committed(self) -> None:
         """A client that unblocks and reads immediately must see its write.
 
         No sleep and no settle poll between the two calls: ``callbackPV`` fires
@@ -576,13 +585,15 @@ class TestDriveLimitClamp:
     schema, applied to any writer.
     """
 
-    def test_a_write_above_the_band_lands_at_the_top_of_it(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_write_above_the_band_lands_at_the_top_of_it(self) -> None:
         assert _caput(BAND_SP, 50.0) == 1
 
         assert _settle(BAND_SP, BAND_HIGH) == pytest.approx(BAND_HIGH)
         assert _settle(BAND_RB, BAND_HIGH) == pytest.approx(BAND_HIGH)
 
-    def test_a_write_below_the_band_lands_at_the_bottom_of_it(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_write_below_the_band_lands_at_the_bottom_of_it(self) -> None:
         assert _caput(BAND_SP, -50.0) == 1
 
         assert _settle(BAND_SP, BAND_LOW) == pytest.approx(BAND_LOW)
@@ -597,12 +608,14 @@ class TestDriveLimitClamp:
 
         assert live.hook.calls == [(BAND_SP, pytest.approx(BAND_HIGH))]
 
-    def test_an_in_band_write_is_served_untouched(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_an_in_band_write_is_served_untouched(self) -> None:
         assert _caput(BAND_SP, -11.875) == 1
 
         assert _settle(BAND_SP, -11.875) == pytest.approx(-11.875)
 
-    def test_the_band_is_published_as_the_control_limits(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_band_is_published_as_the_control_limits(self) -> None:
         """A client reads the same band the write path enforces, so it can
         refuse the write itself rather than discover the clamp afterwards."""
         import epics
@@ -617,7 +630,8 @@ class TestDriveLimitClamp:
         assert control["lower_ctrl_limit"] == pytest.approx(BAND_LOW)
         assert control["upper_ctrl_limit"] == pytest.approx(BAND_HIGH)
 
-    def test_an_echo_setpoint_with_no_model_behind_it_is_clamped_too(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_an_echo_setpoint_with_no_model_behind_it_is_clamped_too(self) -> None:
         """The clamp is a property of the write path, not of the physics
         hand-off, so a write that never reaches a model is bounded as well."""
         assert _caput(ECHO_SP, 40.0) == 1
@@ -629,7 +643,8 @@ class TestDriveLimitClamp:
 class TestEchoWithoutPhysics:
     """A setpoint with no model behind it: the readback is a plain value copy."""
 
-    def test_the_readback_follows_immediately(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_readback_follows_immediately(self) -> None:
         assert _caput(ECHO_SP, 2.5) == 1
 
         assert _settle(ECHO_RB, 2.5) == pytest.approx(2.5)
@@ -651,12 +666,14 @@ class TestStuckSetpointFreeze:
     is the served value, so every reader sees the same frozen device.
     """
 
-    def test_the_setpoint_latches_the_written_value(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_setpoint_latches_the_written_value(self) -> None:
         assert _caput(STUCK_SP, 7.5) == 1
 
         assert _settle(STUCK_SP, 7.5) == pytest.approx(7.5)
 
-    def test_the_readback_never_moves(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_readback_never_moves(self) -> None:
         before = _caget(STUCK_RB)
         assert _caput(STUCK_SP, 4.0) == 1
         _settle(STUCK_SP, 4.0)
@@ -672,7 +689,8 @@ class TestStuckSetpointFreeze:
 
         assert live.hook.calls == []
 
-    def test_the_write_still_completes(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_write_still_completes(self) -> None:
         """A setpoint whose asynchronous write is never completed has every
         later write to it postponed by the server library, which would turn a
         frozen readback into a frozen setpoint as well."""
@@ -681,7 +699,8 @@ class TestStuckSetpointFreeze:
 
         assert _settle(STUCK_SP, 2.0) == pytest.approx(2.0)
 
-    def test_an_unfaulted_sibling_still_echoes(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_an_unfaulted_sibling_still_echoes(self) -> None:
         """The fault is per channel, not a partition-wide switch."""
         assert _caput(SEEDED_SP, 6.25) == 1
 
@@ -697,7 +716,8 @@ class TestRefusedWrite:
     still be served to the next one-shot reader.
     """
 
-    def test_a_one_shot_reader_sees_no_movement(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_one_shot_reader_sees_no_movement(self) -> None:
         assert _caput(BAND_SP, 1.25) == 1
         _settle(BAND_SP, 1.25)
 
@@ -707,7 +727,8 @@ class TestRefusedWrite:
         assert _caget(BAND_SP) == pytest.approx(1.25)
         assert _caget(BAND_RB) == pytest.approx(1.25)
 
-    def test_a_monitoring_reader_sees_no_movement_either(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_monitoring_reader_sees_no_movement_either(self) -> None:
         import epics
 
         assert _caput(BAND_SP, 2.75) == 1
@@ -742,7 +763,8 @@ class TestRefusedWrite:
 
         assert severity == live.refusal_alarm[1]
 
-    def test_a_later_write_still_lands(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_later_write_still_lands(self) -> None:
         """Completion is signalled on a refusal too, so the setpoint is not
         left with an asynchronous write in flight forever."""
         assert _caput(BAND_SP, REFUSED_VALUE) == 1
@@ -751,7 +773,8 @@ class TestRefusedWrite:
         assert _settle(BAND_SP, 8.5) == pytest.approx(8.5)
         assert _settle(BAND_RB, 8.5) == pytest.approx(8.5)
 
-    def test_the_alarm_clears_on_the_next_accepted_write(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_alarm_clears_on_the_next_accepted_write(self) -> None:
         """Self-clearing, because the served database declares no alarm limits:
         the next accepted write's ``setParam`` recomputes the condition from the
         value, and with nothing to compare against it always lands on
@@ -782,7 +805,8 @@ class TestPerWriteIsolation:
     wire, because that is where "moved" is defined.
     """
 
-    def test_writing_one_magnet_leaves_every_other_address_alone(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_writing_one_magnet_leaves_every_other_address_alone(self) -> None:
         bystanders = (SEEDED_SP, SEEDED_RB, STUCK_SP, STUCK_RB, ECHO_SP, ECHO_RB, TELEMETRY)
         before = _snapshot(*bystanders)
 
@@ -791,7 +815,8 @@ class TestPerWriteIsolation:
 
         assert _snapshot(*bystanders) == pytest.approx(before)
 
-    def test_writing_one_magnet_leaves_the_others_readback_alone(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_writing_one_magnet_leaves_the_others_readback_alone(self) -> None:
         assert _caput(SEEDED_SP, 1.0) == 1
         _settle(SEEDED_RB, 1.0)
 
@@ -804,14 +829,16 @@ class TestPerWriteIsolation:
 class TestNonWritableChannels:
     """Refusing a write is what keeps a served value the value its source published."""
 
-    def test_a_telemetry_channel_refuses_the_write(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_telemetry_channel_refuses_the_write(self) -> None:
         before = _caget(TELEMETRY)
         _caput(TELEMETRY, 42.0)
         time.sleep(0.5)
 
         assert _caget(TELEMETRY) == pytest.approx(before)
 
-    def test_a_readback_of_a_setpoint_pair_refuses_the_write(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_readback_of_a_setpoint_pair_refuses_the_write(self) -> None:
         assert _caput(ECHO_SP, 3.5) == 1
         _settle(ECHO_RB, 3.5)
 

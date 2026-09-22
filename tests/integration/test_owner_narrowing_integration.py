@@ -688,10 +688,10 @@ def test_an_owner_less_item_writes_under_the_deployment_ceiling_alone(
     assert wrapper_warnings(caplog, logger_name) == []
 
 
+@pytest.mark.usefixtures("control_context_tree")
 def test_an_owner_less_item_is_refused_when_the_deployment_arms_no_writes(
     wrapped_plan: tuple[Callable[..., Iterator[Any]], str],
     connector: _RecordingMockConnector,
-    control_context_tree: Path,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ) -> None:

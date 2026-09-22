@@ -881,7 +881,8 @@ def open_deployment(
 # --------------------------------------------------------------------------
 
 
-def test_up_builds_the_real_persona_image(token_deployment: dict[str, Any]) -> None:
+@pytest.mark.usefixtures("token_deployment")
+def test_up_builds_the_real_persona_image() -> None:
     """The DEPLOYED persona image built, and the per-user container is running.
 
     Everything below runs against a real terminal app; this pins that the app is
@@ -894,7 +895,8 @@ def test_up_builds_the_real_persona_image(token_deployment: dict[str, Any]) -> N
     )
 
 
-def test_uncredentialed_mutation_is_refused_by_the_app(token_deployment: dict[str, Any]) -> None:
+@pytest.mark.usefixtures("token_deployment")
+def test_uncredentialed_mutation_is_refused_by_the_app() -> None:
     """T1: under ``token``, the app itself refuses an uncredentialed mutating request.
 
     nginx passed this request straight through — it ran no ``auth_request`` and
@@ -945,7 +947,8 @@ def test_token_login_unlocks_the_mutation(token_deployment: dict[str, Any]) -> N
 # --------------------------------------------------------------------------
 
 
-def test_open_navigation_reaches_a_credentialed_terminal(open_deployment: dict[str, Any]) -> None:
+@pytest.mark.usefixtures("open_deployment")
+def test_open_navigation_reaches_a_credentialed_terminal() -> None:
     """O1: no token, no cookie, no header of our own — and the terminal is ours.
 
     Both halves matter. The navigation ``GET`` shows a person reaching the page
@@ -969,9 +972,8 @@ def test_open_navigation_reaches_a_credentialed_terminal(open_deployment: dict[s
     )
 
 
-def test_open_stamps_the_perimeter_onto_every_user_container(
-    open_deployment: dict[str, Any],
-) -> None:
+@pytest.mark.usefixtures("open_deployment")
+def test_open_stamps_the_perimeter_onto_every_user_container() -> None:
     """O3a: every per-user container knows it is open, and which ports that covers.
 
     Read out of the RUNNING containers, because the claim is that the stamp
@@ -994,9 +996,8 @@ def test_open_stamps_the_perimeter_onto_every_user_container(
         )
 
 
-def test_open_refuses_executed_code_the_deployments_own_web_port(
-    open_deployment: dict[str, Any],
-) -> None:
+@pytest.mark.usefixtures("open_deployment")
+def test_open_refuses_executed_code_the_deployments_own_web_port() -> None:
     """O3b: inside the real image, a wrapped child cannot open the deployment's nginx port.
 
     The probe runs in ``alice``'s container, on the container's own interpreter

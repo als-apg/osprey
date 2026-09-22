@@ -191,8 +191,9 @@ class TestEveryModeSaysIt:
         return script._run_derive_all(sweeper, sweeper.addresses, floored, str(tmp_path / "out"))
 
     @pytest.mark.parametrize("mode", ["derive", "check", "verify"])
+    @pytest.mark.usefixtures("no_sweep")
     def test_the_mode_prints_a_floor_decision_for_every_swept_family(
-        self, script, sweeper, no_sweep, tmp_path, capsys, mode
+        self, script, sweeper, tmp_path, capsys, mode
     ):
         assert self._run(script, mode, sweeper, tmp_path) == 0
 

@@ -416,9 +416,8 @@ def test_a_waveform_column_survives_the_export_and_the_data_route(
     assert "det_wave" in body["columns"]
 
 
-def test_the_read_path_keeps_a_waveform_a_waveform_through_the_client(
-    bridge: TestClient,
-) -> None:
+@pytest.mark.usefixtures("bridge")
+def test_the_read_path_keeps_a_waveform_a_waveform_through_the_client() -> None:
     """The upstream half of the same defect, measured at the seam it happens on.
 
     Tiled's table client assembles its Arrow partitions through dask, and dask's
@@ -526,9 +525,8 @@ def test_a_run_that_recorded_nothing_is_refused_as_such(bridge: TestClient) -> N
     assert bridge.get(f"/runs/{BARE_RUN}/data").status_code == 200
 
 
-def test_an_unconfigured_catalog_is_refused_before_any_read(
-    tiled_uri: str, stored_runs: dict[str, Any], monkeypatch: Any
-) -> None:
+@pytest.mark.usefixtures("tiled_uri", "stored_runs")
+def test_an_unconfigured_catalog_is_refused_before_any_read(monkeypatch: Any) -> None:
     """A deployment with no Tiled at all answers 503, not a 500 out of the client.
 
     Deliberately not parameterized onto the `bridge` fixture: this is the one
@@ -546,9 +544,8 @@ def test_an_unconfigured_catalog_is_refused_before_any_read(
     assert response.json()["detail"]["code"] == "tiled_unavailable"
 
 
-def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(
-    stored_runs: dict[str, Any], impatient_tiled_client: None, monkeypatch: Any
-) -> None:
+@pytest.mark.usefixtures("stored_runs", "impatient_tiled_client")
+def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(monkeypatch: Any) -> None:
     """The ordinary outage: Tiled is configured, and nothing is listening.
 
     This is the case the unset-variable test above cannot reach — that one takes
@@ -589,10 +586,9 @@ def test_a_configured_but_unreachable_catalog_is_refused_not_a_500(
     assert "could not be reached" in detail["detail"]
 
 
+@pytest.mark.usefixtures("stored_runs", "impatient_tiled_client")
 def test_a_catalog_that_cannot_serialize_is_a_502_not_a_503(
     bridge: TestClient,
-    stored_runs: dict[str, Any],
-    impatient_tiled_client: None,
     monkeypatch: Any,
 ) -> None:
     """The other half of the network ladder: reached, and it failed on the format.

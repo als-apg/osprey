@@ -976,7 +976,8 @@ def _runs_by_trigger() -> dict[str, dict]:
     return by_trigger
 
 
-def test_full_stack_dispatch(deployed_stack: Path) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_full_stack_dispatch() -> None:
     """All four shipped triggers behave correctly through the real Docker stack."""
     # Fire the three completing triggers + the denied one.
     _fire("hello-dispatch", {})
@@ -1482,7 +1483,8 @@ def _control_tree_is_readable_in_the_worker() -> bool:
     return "cannot read/traverse OSPREY_CONTROL_CONTEXT_TREE" not in logs
 
 
-def test_manual_fire_owner_reaches_the_dispatch_run(deployed_stack: Path) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_manual_fire_owner_reaches_the_dispatch_run() -> None:
     """O1: a job fired through a terminal's panel proxy runs as that terminal's user.
 
     The whole wire in one assertion: the proxy minted the owner from the account
@@ -1522,7 +1524,8 @@ def test_manual_fire_owner_reaches_the_dispatch_run(deployed_stack: Path) -> Non
     )
 
 
-def test_dispatch_owner_absent_for_a_cron_shaped_fire(deployed_stack: Path) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_dispatch_owner_absent_for_a_cron_shaped_fire() -> None:
     """O3a: the webhook door mints nothing, so the job it fires belongs to nobody.
 
     The control for O1. Without it, a wire that stamped every run with one name
@@ -1543,7 +1546,8 @@ def test_dispatch_owner_absent_for_a_cron_shaped_fire(deployed_stack: Path) -> N
     )
 
 
-def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write(deployed_stack: Path) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write() -> None:
     """O2: the firing user's chip gates every write the job they fired attempts.
 
     The point of carrying the owner at all. The firing user is narrowed to
@@ -1592,9 +1596,8 @@ def test_manual_fire_owner_narrowing_refuses_the_jobs_first_write(deployed_stack
     )
 
 
-def test_dispatch_owner_less_write_is_held_to_the_deployment_ceiling(
-    deployed_stack: Path,
-) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_dispatch_owner_less_write_is_held_to_the_deployment_ceiling() -> None:
     """O3b: the control for O2 — an owner-less job reads nobody's narrowing.
 
     The firing user is narrowed; a cron-shaped fire of the same probe must not
@@ -1641,7 +1644,8 @@ def test_dispatch_owner_less_write_is_held_to_the_deployment_ceiling(
     )
 
 
-def test_manual_fire_through_the_panel_proxy_needs_a_credential(deployed_stack: Path) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_manual_fire_through_the_panel_proxy_needs_a_credential() -> None:
     """O4: the hop to the dispatcher's MCP transport is gated at the terminal.
 
     ``/panel/events/mcp`` is the one route in the panel tier that fires work

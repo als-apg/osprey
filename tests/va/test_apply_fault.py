@@ -607,18 +607,21 @@ class TestApplyFaultsLiveInTheModel:
 class TestLiveStuckEchoPair:
     """A faulted sp-echo channel, over the wire."""
 
-    def test_the_setpoint_latches_the_written_value(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_setpoint_latches_the_written_value(self) -> None:
         assert _caput(STUCK_SP, 7.25) == 1
 
         assert _settle(STUCK_SP, 7.25) == pytest.approx(7.25)
 
-    def test_the_readback_stays_at_its_boot_value(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_readback_stays_at_its_boot_value(self) -> None:
         assert _caput(STUCK_SP, 4.0) == 1
         _settle(STUCK_SP, 4.0)
 
         assert _caget(STUCK_RB) == pytest.approx(STUCK_BOOT)
 
-    def test_repeated_writes_never_move_it(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_repeated_writes_never_move_it(self) -> None:
         """Frozen means frozen, not merely lagging by one write."""
         for value in (1.0, -3.0, 11.5):
             assert _caput(STUCK_SP, value) == 1
@@ -626,7 +629,8 @@ class TestLiveStuckEchoPair:
 
         assert _caget(STUCK_RB) == pytest.approx(STUCK_BOOT)
 
-    def test_a_monitoring_client_is_told_nothing(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_a_monitoring_client_is_told_nothing(self) -> None:
         """The freeze is in the served value, so there is no monitor event to
         deliver either -- a subscriber sees a device that simply never moves,
         not one that reports a value identical to the last."""
@@ -649,7 +653,8 @@ class TestLiveStuckEchoPair:
 
         assert [value for value in seen if abs(value - STUCK_BOOT) > 1e-9] == []
 
-    def test_the_write_still_completes(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_write_still_completes(self) -> None:
         """The server library postpones every later write to a PV whose
         asynchronous write never completed, so a fault that skipped completion
         would freeze the setpoint as well as the readback -- and the client
@@ -659,12 +664,14 @@ class TestLiveStuckEchoPair:
 
         assert _settle(STUCK_SP, 2.0) == pytest.approx(2.0)
 
-    def test_the_unfaulted_sibling_still_echoes(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_unfaulted_sibling_still_echoes(self) -> None:
         assert _caput(LIVE_SP, 4.5) == 1
 
         assert _settle(LIVE_RB, 4.5) == pytest.approx(4.5)
 
-    def test_faulting_one_channel_leaves_its_sibling_alone(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_faulting_one_channel_leaves_its_sibling_alone(self) -> None:
         assert _caput(LIVE_SP, 3.0) == 1
         _settle(LIVE_RB, 3.0)
 
@@ -682,12 +689,14 @@ class TestLiveStuckMagnet:
     move, and no channel would say why.
     """
 
-    def test_the_setpoint_latches_the_written_value(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_setpoint_latches_the_written_value(self) -> None:
         assert _caput(STUCK_MAGNET_SP, 5.5) == 1
 
         assert _settle(STUCK_MAGNET_SP, 5.5) == pytest.approx(5.5)
 
-    def test_the_readback_stays_at_its_boot_value(self, live: Any) -> None:
+    @pytest.mark.usefixtures("live")
+    def test_the_readback_stays_at_its_boot_value(self) -> None:
         assert _caput(STUCK_MAGNET_SP, -2.0) == 1
         _settle(STUCK_MAGNET_SP, -2.0)
 

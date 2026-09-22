@@ -1334,7 +1334,8 @@ def test_up_builds_the_real_sidecar_and_both_persona_images(deployment: dict[str
     )
 
 
-def test_alices_container_runs_the_persona_her_role_named(deployment: dict[str, Any]) -> None:
+@pytest.mark.usefixtures("deployment")
+def test_alices_container_runs_the_persona_her_role_named() -> None:
     """FR6, end to end: the ROLE decided which image each container runs.
 
     No roster entry here carries a ``persona:`` key — alice reaches the real
@@ -1539,7 +1540,8 @@ def test_a_session_for_one_user_cannot_reach_anothers_terminal(
 # ---------------------------------------------------------------------------
 
 
-def test_a_login_whose_role_cannot_be_carried_is_refused(deployment: dict[str, Any]) -> None:
+@pytest.mark.usefixtures("deployment")
+def test_a_login_whose_role_cannot_be_carried_is_refused() -> None:
     """The identity matrix fails CLOSED on a role the header boundary cannot carry.
 
     ``dave``'s password is correct — the credential verifies — and the login is
@@ -1560,7 +1562,8 @@ def test_a_login_whose_role_cannot_be_carried_is_refused(deployment: dict[str, A
     )
 
 
-def test_the_refused_login_minted_no_session(deployment: dict[str, Any]) -> None:
+@pytest.mark.usefixtures("deployment")
+def test_the_refused_login_minted_no_session() -> None:
     """And the refusal left the browser holding nothing.
 
     The matrix is asked before anything is minted precisely so a refusal cannot

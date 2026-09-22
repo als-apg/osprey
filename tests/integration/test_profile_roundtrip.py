@@ -598,9 +598,8 @@ class TestPersonaStack:
         assert (roundtrip.project_dir / rel).is_file()
         assert not (persona_project / rel).exists()
 
-    def test_a_root_edit_moves_the_repos_one_drift_verdict(
-        self, workspace: Roundtrip, tmp_path: Path
-    ) -> None:
+    @pytest.mark.usefixtures("workspace")
+    def test_a_root_edit_moves_the_repos_one_drift_verdict(self, tmp_path: Path) -> None:
         """One repo, one drift verdict, personas folded into it.
 
         Editing the root has to register as drift, and it registers in exactly

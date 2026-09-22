@@ -89,7 +89,8 @@ PIPELINES = {
 
 class TestFinderLiveReads:
     @pytest.mark.parametrize("pipeline_name", sorted(PIPELINES))
-    def test_pipeline_representative_addresses_are_live(self, va_container, pipeline_name):
+    @pytest.mark.usefixtures("va_container")
+    def test_pipeline_representative_addresses_are_live(self, pipeline_name):
         all_addresses = PIPELINES[pipeline_name]()
         assert len(all_addresses) > 1000, (
             f"sanity check: {pipeline_name} expansion looked too small "

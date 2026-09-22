@@ -660,9 +660,8 @@ async def _keyword_search_envelope(expand_query):
 
 
 @pytest.mark.harness_benchmark
-async def test_vocabulary_expansion_through_mcp_keyword_search(
-    vocabulary_seeded_entry, vocabulary_mcp_context
-):
+@pytest.mark.usefixtures("vocabulary_seeded_entry")
+async def test_vocabulary_expansion_through_mcp_keyword_search(vocabulary_mcp_context):
     """``ts bpm`` finds a canonical-only entry, and only with expansion on."""
     context = vocabulary_mcp_context
     assert context.config.vocabulary_active, (

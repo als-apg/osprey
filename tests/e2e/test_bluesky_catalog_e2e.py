@@ -411,9 +411,8 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
 # ---------------------------------------------------------------------------
 
 
-def test_plans_endpoint_shows_shipped_and_facility_provenance(
-    deployed_catalog_stack: Path,
-) -> None:
+@pytest.mark.usefixtures("deployed_catalog_stack")
+def test_plans_endpoint_shows_shipped_and_facility_provenance() -> None:
     """``GET /plans`` against the real container must show, in one response:
 
     - the shipped plans (``orm``, ``grid_scan``, ``orbit_bump_sweep``) with
@@ -460,9 +459,8 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
     assert set(metadata) == {"name", "description", "writes"}
 
 
-def test_the_served_schemas_carry_the_declared_channel_roles(
-    deployed_catalog_stack: Path,
-) -> None:
+@pytest.mark.usefixtures("deployed_catalog_stack")
+def test_the_served_schemas_carry_the_declared_channel_roles() -> None:
     """A deployed container publishes each plan's channel ROLES in its schema.
 
     The role declaration is what replaced guessing a channel's purpose from its
@@ -513,7 +511,8 @@ def test_the_served_schemas_carry_the_declared_channel_roles(
 # ---------------------------------------------------------------------------
 
 
-def test_preview_answers_in_one_shape_for_a_known_plan(deployed_catalog_stack: Path) -> None:
+@pytest.mark.usefixtures("deployed_catalog_stack")
+def test_preview_answers_in_one_shape_for_a_known_plan() -> None:
     """A known plan's pre-flight always answers 200 and always names its channels.
 
     Whether a trajectory comes back depends on a worker this deployment may not
@@ -554,9 +553,8 @@ def test_preview_answers_in_one_shape_for_a_known_plan(deployed_catalog_stack: P
     ], f"the nested per-axis setpoint was not read as a declared movable: {payload['channels']}"
 
 
-def test_preview_reports_an_unknown_plan_as_a_reason_not_a_404(
-    deployed_catalog_stack: Path,
-) -> None:
+@pytest.mark.usefixtures("deployed_catalog_stack")
+def test_preview_reports_an_unknown_plan_as_a_reason_not_a_404() -> None:
     """An unknown name is one more reason to have no trajectory, in the same shape.
 
     A 404 here would give the approval gate a second branch -- a status branch
@@ -571,9 +569,8 @@ def test_preview_reports_an_unknown_plan_as_a_reason_not_a_404(
     assert payload["channels"] == [], "there is no plan to declare channels for"
 
 
-def test_preview_reports_a_body_that_is_not_parameters_as_a_plan_error(
-    deployed_catalog_stack: Path,
-) -> None:
+@pytest.mark.usefixtures("deployed_catalog_stack")
+def test_preview_reports_a_body_that_is_not_parameters_as_a_plan_error() -> None:
     """Malformed and non-object bodies answer 200 too -- never FastAPI's own 422.
 
     The parameters are read raw for exactly this reason: a typed argument would
@@ -604,9 +601,8 @@ def test_preview_reports_a_body_that_is_not_parameters_as_a_plan_error(
 # ---------------------------------------------------------------------------
 
 
-def test_deployment_reports_browse_only_and_names_the_flip(
-    deployed_catalog_stack: Path,
-) -> None:
+@pytest.mark.usefixtures("deployed_catalog_stack")
+def test_deployment_reports_browse_only_and_names_the_flip() -> None:
     """A mock deployment is HEALTHY and says plainly that it cannot execute.
 
     ``status: "ok"`` is deliberately independent of ``can_execute``: a
@@ -629,7 +625,8 @@ def test_deployment_reports_browse_only_and_names_the_flip(
     )
 
 
-def test_a_facility_plan_is_composable_but_unqueueable(deployed_catalog_stack: Path) -> None:
+@pytest.mark.usefixtures("deployed_catalog_stack")
+def test_a_facility_plan_is_composable_but_unqueueable() -> None:
     """The facility-injected plan reaches the draft, and stops at the queue.
 
     This is the discovery claim carried one step further than ``GET /plans``:
