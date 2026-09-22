@@ -367,8 +367,10 @@ instead.
 .. code-block:: yaml
 
    control_system:
-     writes_enabled: false          # what every type inherits — the live machine
+     writes_enabled: false          # what every type inherits
      connector:
+       epics:
+         writes_enabled: false      # the live machine, pinned by name
        virtual_accelerator:
          writes_enabled: true       # ... and the simulator alone is armed
 
@@ -381,8 +383,9 @@ profile turns the deployment-wide key on.
 Switching to the live target (see
 :doc:`switch-control-target`) therefore takes its writes away, with no config
 edit and no rebuild — the same write tool that moves the simulator is refused
-on the machine. The bundled ``control-assistant-va-readwrite`` persona ships
-exactly that pair of keys.
+on the machine. The bundled ``control-assistant-readwrite`` and
+``control-assistant-admin`` personas ship exactly those three keys: they pin
+the live block by name, so no later per-type ``true`` can lift it.
 
 .. note::
 

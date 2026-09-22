@@ -197,7 +197,7 @@ the framework reads and what it falls back to when no line spells it.
    config:
      # Control system: which backend the deployment talks to. Required — see
      # the posture floor below.
-     control_system.type: live_standin
+     control_system.type: virtual_accelerator
      # The write posture every connector type inherits when it says nothing
      # itself. Only a literal `true` arms writes, at either level.
      control_system.writes_enabled: true
