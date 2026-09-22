@@ -421,7 +421,7 @@ def test_unresolvable_home_entry_is_error_row(tmp_path: Path, monkeypatch) -> No
     outside the import ``try``, so nothing else would catch it.
     """
 
-    def _no_home(self):
+    def _no_home(_self):
         raise RuntimeError("Could not determine home directory.")
 
     monkeypatch.setattr(Path, "expanduser", _no_home)
@@ -443,7 +443,7 @@ def test_unresolvable_home_entry_is_error_row(tmp_path: Path, monkeypatch) -> No
 def test_unresolvable_home_entry_without_anchor_is_error_row(monkeypatch) -> None:
     """Same on the anchorless path, where the shared config-path rule expands ``~``."""
 
-    def _no_home(self):
+    def _no_home(_self):
         raise RuntimeError("Could not determine home directory.")
 
     monkeypatch.setattr(Path, "expanduser", _no_home)
@@ -458,7 +458,7 @@ def test_unresolvable_home_entry_without_anchor_is_error_row(monkeypatch) -> Non
 def test_resolution_oserror_is_error_row(tmp_path: Path, monkeypatch) -> None:
     """A path that cannot be resolved (symlink cycle, over-long name) is a row too."""
 
-    def _boom(self, *args, **kwargs):
+    def _boom(self, *args, **kwargs):  # noqa: ARG001 - stands in for Path.resolve, which collects keyword arguments
         raise OSError("Too many levels of symbolic links")
 
     monkeypatch.setattr(Path, "resolve", _boom)

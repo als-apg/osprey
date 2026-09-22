@@ -57,10 +57,10 @@ def _patch_client(monkeypatch, *, tool_names=None, connect_error=None, hang=Fals
     """Wire the probe's SDK symbols to the fakes above."""
     tool_names = tool_names or []
 
-    def _fake_streamable(url, *args, **kwargs):
+    def _fake_streamable(url, *args, **kwargs):  # noqa: ARG001 - stands in for streamablehttp_client, which collects keyword arguments
         return _FakeStreamCM(connect_error=connect_error)
 
-    def _fake_session(read, write, *args, **kwargs):
+    def _fake_session(read, write, *args, **kwargs):  # noqa: ARG001 - stands in for ClientSession, which collects keyword arguments
         return _FakeSession(tool_names, hang=hang)
 
     monkeypatch.setattr(probe, "streamablehttp_client", _fake_streamable)

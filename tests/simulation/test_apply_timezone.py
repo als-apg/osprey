@@ -53,7 +53,7 @@ def test_default_anchor_seeds_logbook_in_facility_zone(tmp_path, monkeypatch):
 
     captured: dict = {}
 
-    async def _fake_seed(ariel_config, entries):
+    async def _fake_seed(_ariel_config, entries):
         captured["entries"] = entries
         return len(entries), True
 

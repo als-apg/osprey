@@ -175,7 +175,7 @@ class TestStatusMapping:
 
     @pytest.mark.parametrize("code", [500, 503])
     async def test_server_error_is_degraded_for_both_probe_kinds(self, code):
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(code)
 
         rows = await _run(
@@ -198,7 +198,7 @@ class TestStatusMapping:
         answer counts — that is the whole difference between the two kinds.
         """
 
-        def handler(request: httpx.Request) -> httpx.Response:
+        def handler(_request: httpx.Request) -> httpx.Response:
             return httpx.Response(404)
 
         rows = await _run(

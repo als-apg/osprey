@@ -57,7 +57,7 @@ def _patch_factory(
     attributes here intercepts them.
     """
 
-    async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:
+    async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:  # noqa: ARG001 - stands in for the connector factory, whose control_target is keyword-only
         construct_calls.append(config)
         return connector
 
@@ -289,7 +289,7 @@ def _patch_slow_factory(
     ``shutdown()`` would never disconnect.
     """
 
-    async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:
+    async def fake_create(config: dict[str, Any], *, control_target: str | None = None) -> Any:  # noqa: ARG001 - stands in for the connector factory, whose control_target is keyword-only
         construct_calls.append(config)
         await asyncio.sleep(0)
         return connector

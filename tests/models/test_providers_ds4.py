@@ -39,7 +39,7 @@ class TestDS4Provider:
             def json(self):
                 return {"data": [{"id": "deepseek-v4-flash"}]}
 
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None):  # noqa: ARG001 - stands in for httpx.get, whose caller names timeout
             captured["url"] = url
             return _Resp()
 
@@ -71,7 +71,7 @@ class TestDS4Provider:
             def json(self):
                 return {"data": []}
 
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None):  # noqa: ARG001 - stands in for httpx.get, whose caller names timeout
             return _Resp()
 
         import httpx
@@ -90,7 +90,7 @@ class TestDS4Provider:
             def json(self):
                 return {}
 
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None):  # noqa: ARG001 - stands in for httpx.get, whose caller names timeout
             return _Resp()
 
         import httpx
@@ -106,7 +106,7 @@ class TestDS4Provider:
         litellm health call."""
         import httpx
 
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None):  # noqa: ARG001 - stands in for httpx.get, whose caller names timeout
             raise httpx.ConnectError("connection refused")
 
         monkeypatch.setattr(httpx, "get", fake_get)
@@ -119,7 +119,7 @@ class TestDS4Provider:
         'Error querying ds4' message rather than propagating."""
         import httpx
 
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None):  # noqa: ARG001 - stands in for httpx.get, whose caller names timeout
             raise ValueError("boom")
 
         monkeypatch.setattr(httpx, "get", fake_get)
@@ -137,7 +137,7 @@ class TestDS4Provider:
             def json(self):
                 return {"data": [{"object": "model"}]}  # no "id" key
 
-        def fake_get(url, timeout=None):
+        def fake_get(url, timeout=None):  # noqa: ARG001 - stands in for httpx.get, whose caller names timeout
             return _Resp()
 
         import httpx
@@ -153,7 +153,7 @@ class TestDS4Provider:
         forwarded straight to the litellm health check."""
         captured = {}
 
-        def fail_get(url, timeout=None):
+        def fail_get(url, timeout=None):  # noqa: ARG001 - stands in for httpx.get, whose caller names timeout
             raise AssertionError("httpx.get must not be called when model_id is given")
 
         def fake_health(**kw):

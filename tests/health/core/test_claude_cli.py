@@ -19,7 +19,7 @@ from osprey.health.models import Status
 def _stub_run(monkeypatch, *, returncode=0, stdout="", stderr="", raises=None):
     """Patch ``_run_version_command`` to return canned output or raise."""
 
-    async def _fake(argv, timeout_s):
+    async def _fake(_argv, _timeout_s):
         if raises is not None:
             raise raises
         return (returncode, stdout, stderr)
