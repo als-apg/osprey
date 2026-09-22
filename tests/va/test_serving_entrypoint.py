@@ -1637,7 +1637,7 @@ def _arrangement(*, refuse: frozenset[str] = frozenset()) -> Arrangement:
         driver.calls.append(("hook", address, value))
         model.set({address: value})
 
-    def enqueue(values: dict[str, Any], done: Any = None, reset: bool = False) -> None:
+    def enqueue(values: dict[str, Any], done: Any = None, _reset: bool = False) -> None:
         queue.append((values, done))
 
     def pva_post(address: str, value: Any) -> None:

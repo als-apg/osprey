@@ -186,7 +186,7 @@ async def test_input_files_content_b64_absent_from_worker_record_and_logs(
     # then return a normal completion.
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: A002 - matches SDK signature
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: A002, ARG001 - matches the SDK query signature
         messages = []
         async for m in prompt:
             messages.append(m)

@@ -417,7 +417,7 @@ def test_drive_writes_markers_and_resumes(tmp_path, monkeypatch):
 
     calls: list[str] = []
 
-    def fake_run_cell(cell, results_dir, log_path, extra_env):
+    def fake_run_cell(cell, results_dir, log_path, _extra_env):
         calls.append(cell.summary_json)
         # mimic the worker: drop a summary json so resume can see it
         (results_dir / cell.summary_json).write_text("{}")

@@ -1064,7 +1064,7 @@ def _bind_approval_policy(
     if takes_context:
         return policy
 
-    def _call_without_context(tool_name: str, tool_input: dict[str, Any], context: Any) -> bool:
+    def _call_without_context(tool_name: str, tool_input: dict[str, Any], _context: Any) -> bool:
         return policy(tool_name, tool_input)
 
     return _call_without_context

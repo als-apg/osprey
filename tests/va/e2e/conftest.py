@@ -269,7 +269,7 @@ CONNECTOR_CONFIG: dict[str, Any] = {
 }
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:  # noqa: ARG001 - pytest resolves a hook's arguments by name
     """Skip every test under this directory unless the e2e flag is set.
 
     Applied at collection time (not via a per-file ``pytestmark``) so the

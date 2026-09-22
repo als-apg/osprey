@@ -117,7 +117,7 @@ def _result_message(cost_usd: float, num_turns: int) -> ResultMessage:
 
 @pytest.mark.asyncio
 async def test_run_dispatch_increments_per_tool_use(monkeypatch, _stub_osprey_helpers):
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(
             content=[
                 ToolUseBlock(id="t1", name="Read", input={}),
@@ -145,7 +145,7 @@ async def test_run_dispatch_counts_beyond_retained_cap(monkeypatch, _stub_osprey
     """num_tool_calls stays truthful past the retained tool_calls cap."""
     monkeypatch.setattr(sdk_runner, "_MAX_TOOL_CALLS", 2)
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         for i in range(5):
             yield AssistantMessage(
                 content=[ToolUseBlock(id=f"t{i}", name="Read", input={})], model="m"
@@ -165,7 +165,7 @@ async def test_run_dispatch_counts_beyond_retained_cap(monkeypatch, _stub_osprey
 
 @pytest.mark.asyncio
 async def test_run_dispatch_without_run_id_creates_no_entry(monkeypatch, _stub_osprey_helpers):
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(content=[ToolUseBlock(id="t1", name="Read", input={})], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
@@ -192,7 +192,7 @@ async def test_dispatch_task_pops_stats_on_completion(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
     monkeypatch.setattr(dispatch_api, "describe_run_artifacts", lambda run_id: [])
 
-    async def _fake_run_dispatch(*, run_id, event_queue, **kw):
+    async def _fake_run_dispatch(*, run_id, event_queue, **kw):  # noqa: ARG001 - the patched run_dispatch is called with event_queue=
         run_stats.increment_tool_calls(run_id)
         run_stats.increment_tool_calls(run_id)
         return {
@@ -224,7 +224,7 @@ async def test_dispatch_task_pops_stats_on_error(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_tasks", {})
     monkeypatch.setattr(dispatch_api, "_persist_run", lambda run_id, run: None)
 
-    async def _boom(*, run_id, event_queue, **kw):
+    async def _boom(*, run_id, event_queue, **kw):  # noqa: ARG001 - the patched run_dispatch is called with event_queue=
         run_stats.increment_tool_calls(run_id)
         raise RuntimeError("kaboom")
 
