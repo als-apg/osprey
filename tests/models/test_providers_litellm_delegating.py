@@ -91,7 +91,7 @@ LITELLM_ADAPTERS: tuple[_Adapter, ...] = (
         name="als-apg",
         description_keyword="ALS",
         requires_base_url=True,
-        default_base_url=None,
+        default_base_url="https://llm.als.lbl.gov/v1",
         default_model_id="claude-haiku-4-5-20251001",
         health_check_model_id="claude-haiku-4-5-20251001",
         is_openai_compatible=True,
@@ -99,8 +99,8 @@ LITELLM_ADAPTERS: tuple[_Adapter, ...] = (
         litellm_prefix=None,
         api_key_url=None,
         declares_api_key_note=True,
-        missing_base_url_refusal="Base URL required for als-apg",
-        missing_base_url_resolves_to=None,
+        missing_base_url_refusal=None,
+        missing_base_url_resolves_to="https://llm.als.lbl.gov/v1",
     ),
     _Adapter(
         adapter=AMSCI2ProviderAdapter,
@@ -476,13 +476,15 @@ class TestTheALSAPGEndpointOverride:
     def test_declares_the_env_var_name(self):
         assert _ALS_APG.adapter.base_url_env_var == "ALS_APG_BASE_URL"
 
-    def test_no_default_endpoint_resolves_to_nothing(self):
-        """A default here would be one organisation's host reached silently.
+    def test_the_shipped_endpoint_stands_when_nothing_overrides_it(self):
+        """The gateway this adapter fronts is reached with no configuration.
 
-        The adapter requires an endpoint, so the requirement gate would accept
-        the default instead of asking for the deployment's own.
+        ``requires_base_url`` is what makes the declared default reachable, so
+        the pair has to be asserted together: drop either and a call naming no
+        endpoint is refused instead of routed.
         """
-        assert _ALS_APG.adapter.effective_base_url(None) is None
+        assert _ALS_APG.adapter.requires_base_url
+        assert _ALS_APG.adapter.effective_base_url(None) == "https://llm.als.lbl.gov/v1"
 
     def test_env_var_wins_over_explicit_base_url(self, monkeypatch):
         monkeypatch.setenv("ALS_APG_BASE_URL", "https://fallback.example.org/v1")
@@ -512,14 +514,16 @@ class TestTheALSAPGEndpointOverride:
     def test_an_unresolved_placeholder_is_not_a_url(self, monkeypatch):
         """The config resolver keeps a reference verbatim when the variable is unset.
 
-        Resolving to nothing is the refusal, rather than handing the literal
-        string to litellm as a hostname.
+        The reference is read as an absent value, so the call falls back to the
+        shipped endpoint rather than handing the literal string to litellm as a
+        hostname.
         """
         monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
-        with pytest.raises(ValueError, match="Base URL required for als-apg"):
+        with patch(_completion_target(_ALS_APG), return_value="ok") as mock_exec:
             _ALS_APG.adapter().execute_completion(
                 message="hi", model_id=MODEL_ID, api_key="key", base_url="${ALS_APG_BASE_URL}"
             )
+        assert mock_exec.call_args.kwargs["base_url"] == "https://llm.als.lbl.gov/v1"
 
     def test_env_var_redirects_check_health_too(self, monkeypatch):
         """The health probe must reach the endpoint completions actually use."""

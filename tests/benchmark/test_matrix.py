@@ -365,9 +365,10 @@ def test_load_config_refuses_an_unresolved_base_url(tmp_path, monkeypatch):
     """A provider whose endpoint is named by an unset variable is refused.
 
     ``resolve_env_vars`` leaves ``${VAR}`` verbatim when ``VAR`` is unset, and
-    the shipped matrix names the als-apg gateway that way because it has no
-    default host. Without the refusal the literal reference travels on as a URL
-    and every cell fails at the first request, far from the cause.
+    the shipped matrix names the als-apg gateway that way so a run can aim the
+    cells at whichever gateway it reaches. Without the refusal the literal
+    reference travels on as a URL and every cell fails at the first request,
+    far from the cause.
     """
     pytest.importorskip("yaml")
     p = tmp_path / "m.yaml"

@@ -72,17 +72,15 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "als-apg": {
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",  # Bearer auth for proxy
         "auth_secret_env": "ALS_APG_API_KEY",  # Shell env var holding the secret
-        # No built-in URL: this gateway is a deployment's own host, so the
-        # endpoint is site data. `requires_base_url` turns "nobody named one"
-        # into a refusal instead of an unset ANTHROPIC_BASE_URL, which would
-        # send the gateway's key straight to api.anthropic.com.
-        "base_url": None,
-        "requires_base_url": True,
-        # The endpoint arrives from api.providers.als-apg.base_url (the shipped
-        # catalog entry reads ``${ALS_APG_BASE_URL}``) or from the env var
-        # directly, which also beats a baked-in config so an already-deployed
-        # system can be pointed at a fallback gateway without a rebuild
-        # (mirrors the provider adapter's base_url_env_var).
+        # The gateway's own address, so a deployment that names none still
+        # reaches it. Spelled without /v1 because this value becomes
+        # ANTHROPIC_BASE_URL and Claude Code appends /v1/messages itself.
+        "base_url": "https://llm.als.lbl.gov",
+        # A site whose gateway is elsewhere names it in
+        # api.providers.als-apg.base_url, or in this variable, which beats both
+        # the config and the address above — so an already-deployed system can
+        # be pointed at a fallback gateway without a rebuild (mirrors the
+        # provider adapter's base_url_env_var).
         "base_url_env_var": "ALS_APG_BASE_URL",
         "default_model_tier": "haiku",
         # Fallback model IDs (used when api.providers.als-apg.models is absent)
@@ -500,9 +498,9 @@ def _without_unresolved_base_urls(api_providers: dict) -> dict:
     """Drop every ``base_url`` that is still an unexported ``${VAR}``.
 
     This is the *runtime* path, where a placeholder is not a value: the config
-    resolver keeps ``${VAR}`` verbatim when the variable is unset, and the
-    shipped catalog spells gateway endpoints exactly that way
-    (``base_url: ${ALS_APG_BASE_URL}``). Left in place the literal would be
+    resolver keeps ``${VAR}`` verbatim when the variable is unset, and a config
+    may well spell its gateway endpoint as a reference
+    (``base_url: ${SITE_GATEWAY_URL}``). Left in place the literal would be
     exported as ``ANTHROPIC_BASE_URL``, i.e. handed to the agent as a hostname.
     Blanked, it falls through the same precedence chain a missing key does —
     to the built-in URL, or to the refusal that names the variable.

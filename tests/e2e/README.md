@@ -404,7 +404,7 @@ jobs:
     steps:
       - run: pytest tests/e2e/ -v
     env:
-      # Both halves: the gateway ships no built-in endpoint, so a runner
+      # Both halves: the lanes address the gateway themselves, so a runner
       # holding only the key has no route.
       ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       ALS_APG_BASE_URL: ${{ vars.ALS_APG_BASE_URL }}

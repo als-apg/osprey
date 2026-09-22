@@ -58,9 +58,8 @@ RENDERED_CONFIG = textwrap.dedent(
     """
 )
 
-#: The same deployment run through a gateway provider that ships no default
-#: endpoint, so the URL is named by a variable rather than baked into the
-#: catalog entry.
+#: The same deployment run through a gateway provider whose endpoint is named
+#: by a variable rather than spelled out in the catalog entry.
 RENDERED_CONFIG_GATEWAY = RENDERED_CONFIG.replace(
     "llm:\n  provider: cborg\n  api_key_env_var: CBORG_API_KEY\n",
     "api:\n"

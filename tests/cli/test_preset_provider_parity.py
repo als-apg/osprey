@@ -26,6 +26,7 @@ import yaml
 
 import osprey
 from osprey.build.claude_code_resolver import (
+    CLAUDE_CODE_PROVIDERS,
     ClaudeCodeModelResolver,
     _without_unresolved_base_urls,
 )
@@ -52,9 +53,9 @@ PLACEHOLDER_ENDPOINT = "https://gateway.example.org/v1"
 def _endpoint_env_vars() -> set[str]:
     """The env vars the catalog's ``base_url`` values are spelled in terms of.
 
-    A gateway that each site hosts itself ships as a reference rather than a
-    host (``base_url: ${ALS_APG_BASE_URL}``), so a deployment that exports
-    nothing has no endpoint for it. Naming the variables here lets the routing
+    An entry may name a variable rather than a host
+    (``base_url: ${SOME_GATEWAY_URL}``), and a deployment that exports nothing
+    then has no endpoint for it. Naming the variables here lets the routing
     test supply one, instead of resolving against a literal ``"${VAR}"`` that
     is not a URL at all.
     """
@@ -140,19 +141,39 @@ def test_a_gateway_with_no_endpoint_exported_is_refused_rather_than_routed(monke
     so the value a launch reads is the reference itself. The launch path blanks
     it before resolving, which turns "nobody named an endpoint" into the
     refusal that names the variable — rather than a spec that would hand
-    Claude Code the string ``"${ALS_APG_BASE_URL}"`` as its base URL.
+    Claude Code that reference as its base URL.
+
+    The catalog and the built-in entry are both built here. Every shipped
+    provider ships an endpoint of its own, which a blanked reference falls back
+    to, so the end-to-end path (``resolve_env_vars`` →
+    ``_without_unresolved_base_urls`` → refusal) has no shipped subject left.
     """
-    for var in _endpoint_env_vars():
-        monkeypatch.delenv(var, raising=False)
-    providers = resolve_env_vars(_api_providers())
-    assert providers["als-apg"]["base_url"] == "${ALS_APG_BASE_URL}", (
-        "the catalog no longer spells the als-apg endpoint as a variable "
-        "reference — this guard is aimed at the wrong shape"
+    gateway = "gateway-without-endpoint"
+    endpoint_var = "GATEWAY_WITHOUT_ENDPOINT_BASE_URL"
+    monkeypatch.setitem(
+        CLAUDE_CODE_PROVIDERS,
+        gateway,
+        {
+            "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
+            "auth_secret_env": "GATEWAY_WITHOUT_ENDPOINT_API_KEY",
+            "base_url": None,
+            "requires_base_url": True,
+            "base_url_env_var": endpoint_var,
+            "default_model_tier": "haiku",
+            "models": {"haiku": "fast", "sonnet": "balanced", "opus": "capable"},
+        },
+    )
+    monkeypatch.delenv(endpoint_var, raising=False)
+
+    providers = resolve_env_vars({gateway: {"base_url": f"${{{endpoint_var}}}"}})
+    assert providers[gateway]["base_url"] == f"${{{endpoint_var}}}", (
+        "resolve_env_vars no longer keeps an unexported reference verbatim — "
+        "this guard is aimed at the wrong shape"
     )
 
-    with pytest.raises(ValueError, match="ALS_APG_BASE_URL"):
+    with pytest.raises(ValueError, match=endpoint_var):
         ClaudeCodeModelResolver.resolve(
-            {"provider": "als-apg"}, _without_unresolved_base_urls(providers)
+            {"provider": gateway}, _without_unresolved_base_urls(providers)
         )
 
 

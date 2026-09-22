@@ -634,12 +634,13 @@ def check_litellm_health(
 
     if not base_url:
         # The endpoint is checked the same way the key is. A provider that
-        # declares requires_base_url fronts a gateway with no default host and
-        # routes openai-compatible, so litellm would resolve `openai/<model>`
-        # with no api_base and send the call — carrying the gateway's key — to
-        # api.openai.com. The failure that comes back names authentication,
-        # nowhere near its cause. Lazy import: provider_registry imports the
-        # provider modules, which import this adapter.
+        # declares requires_base_url routes openai-compatible, and one that
+        # resolves no endpoint here (no default declared, nothing configured)
+        # would have litellm resolve `openai/<model>` with no api_base and send
+        # the call — carrying the gateway's key — to api.openai.com. The failure
+        # that comes back names authentication, nowhere near its cause. Lazy
+        # import: provider_registry imports the provider modules, which import
+        # this adapter.
         from osprey.models.provider_registry import get_provider_registry
 
         provider_class = get_provider_registry().get_provider(provider)

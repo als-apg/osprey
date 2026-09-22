@@ -136,6 +136,7 @@ class TestConvertTypedDictToPydantic:
 # Kept explicit so a new provider forces a deliberate entry here rather than
 # silently inheriting whichever behavior its class attributes happen to give it.
 PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT = [
+    ("als-apg", "https://llm.als.lbl.gov/v1"),
     ("argo", "https://apps.inside.anl.gov/argoapi/v1"),
     ("ds4", "http://127.0.0.1:8000/v1"),
     ("ollama", "http://localhost:11434"),
@@ -146,7 +147,7 @@ PROVIDERS_DECLARING_A_DEFAULT_ENDPOINT = [
 # Providers that require a base_url and declare no default: nothing but config
 # (or an env override) can supply their endpoint, so the gate must keep
 # rejecting them.
-PROVIDERS_WITH_NO_ENDPOINT_SOURCE = ["als-apg", "amsc-i2", "asksage", "cborg"]
+PROVIDERS_WITH_NO_ENDPOINT_SOURCE = ["amsc-i2", "asksage", "cborg"]
 
 
 def _clear_base_url_overrides(monkeypatch):
@@ -309,18 +310,18 @@ class TestGetChatCompletionAcceptsAProviderDefault:
         monkeypatch.setattr(
             completion_module,
             "get_provider_config",
-            lambda provider: {"api_key": "k", "default_model_id": "claude-haiku-4-5-20251001"},
+            lambda provider: {"api_key": "k", "default_model_id": "anthropic/claude-haiku"},
         )
 
-        with pytest.raises(ValueError, match="Base URL required for als-apg"):
-            completion_module.get_chat_completion(message="ping", provider="als-apg", max_tokens=4)
+        with pytest.raises(ValueError, match="Base URL required for cborg"):
+            completion_module.get_chat_completion(message="ping", provider="cborg", max_tokens=4)
 
     def test_an_unresolved_placeholder_is_rejected_like_a_missing_url(self, monkeypatch):
         """A deployment that never exported its gateway variable is refused.
 
-        The shipped catalog spells the endpoint ``${ALS_APG_BASE_URL}``; unset,
-        the literal survives config resolution, and the gate has to read it as
-        "no URL" rather than let it through to the HTTP client.
+        A config may spell an endpoint as a reference; unset, the literal
+        survives config resolution, and the gate has to read it as "no URL"
+        rather than let it through to the HTTP client.
         """
         from osprey.models import completion as completion_module
 
@@ -329,13 +330,13 @@ class TestGetChatCompletionAcceptsAProviderDefault:
             "get_provider_config",
             lambda provider: {
                 "api_key": "k",
-                "base_url": "${ALS_APG_BASE_URL}",
-                "default_model_id": "claude-haiku-4-5-20251001",
+                "base_url": "${CBORG_BASE_URL}",
+                "default_model_id": "anthropic/claude-haiku",
             },
         )
 
-        with pytest.raises(ValueError, match="Base URL required for als-apg"):
-            completion_module.get_chat_completion(message="ping", provider="als-apg", max_tokens=4)
+        with pytest.raises(ValueError, match="Base URL required for cborg"):
+            completion_module.get_chat_completion(message="ping", provider="cborg", max_tokens=4)
 
     def test_provider_config_extra_body_reaches_provider(self, monkeypatch):
         """Provider catalog entries may carry LiteLLM request-body extensions.

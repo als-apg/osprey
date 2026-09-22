@@ -30,8 +30,8 @@ providers:
   als-apg:
     # Native als-apg endpoint (NO /v1 — the Anthropic SDK
     # appends /v1/messages). Same base_url backs both SUT routing and the judge.
-    # The gateway is a deployment's own host and has no default: set
-    # ALS_APG_BASE_URL, or write the endpoint here.
+    # The matrix names the endpoint itself rather than taking it from the
+    # provider catalog: set ALS_APG_BASE_URL, or write the endpoint here.
     base_url: ${ALS_APG_BASE_URL}
     key_env: ALS_APG_API_KEY
     key_file: ~/.als_apg_key

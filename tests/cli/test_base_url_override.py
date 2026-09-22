@@ -17,6 +17,21 @@ from osprey.models.provider_registry import get_provider_registry
 
 FACILITY_GATEWAY = "https://llm.facility.example.org"
 
+#: A built-in entry in the one shape the endpoint refusal still fires for: it
+#: requires an endpoint and ships none. Synthetic, because no shipped provider
+#: is in that shape and the refusal has to stay correct for the next one.
+GATEWAY_WITHOUT_ENDPOINT = "gateway-without-endpoint"
+GATEWAY_WITHOUT_ENDPOINT_VAR = "GATEWAY_WITHOUT_ENDPOINT_BASE_URL"
+GATEWAY_WITHOUT_ENDPOINT_ENTRY = {
+    "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
+    "auth_secret_env": "GATEWAY_WITHOUT_ENDPOINT_API_KEY",
+    "base_url": None,
+    "requires_base_url": True,
+    "base_url_env_var": GATEWAY_WITHOUT_ENDPOINT_VAR,
+    "default_model_tier": "haiku",
+    "models": {"haiku": "fast", "sonnet": "balanced", "opus": "capable"},
+}
+
 
 def _tier_map() -> dict[str, str]:
     return {"haiku": "fast", "sonnet": "balanced", "opus": "capable"}
@@ -50,16 +65,36 @@ class TestBuiltInProviderOverride:
         )
         assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
 
-    def test_a_provider_with_no_builtin_url_is_refused_when_config_names_none(self):
-        """als-apg fronts a site's own gateway, so nothing can stand in for it.
+    def test_als_apg_ships_its_gateway_when_config_names_no_base_url(self):
+        """als-apg fronts an ALS-owned gateway, shipped the way cborg's is.
+
+        A deployment that names no endpoint reaches it without configuration.
+        This is the test that catches a silent revert to "no default", which
+        refused every render that received no ``ALS_APG_BASE_URL`` -- every
+        fork pull request, for one.
+        """
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "als-apg"},
+            api_providers={"als-apg": {"api_key": "k"}},
+        )
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://llm.als.lbl.gov"
+
+    def test_a_builtin_that_ships_no_endpoint_is_refused_when_nothing_names_one(self, monkeypatch):
+        """A gateway nothing can stand in for is refused rather than fallen through.
 
         Falling through would leave ANTHROPIC_BASE_URL unset, i.e. Claude Code
-        talking to its native backend with the gateway's bearer token.
+        talking to its native backend with the gateway's bearer token. No
+        shipped provider is in that shape, so the case is driven through a
+        synthetic entry.
         """
-        with pytest.raises(ValueError, match="ALS_APG_BASE_URL"):
+        monkeypatch.setitem(
+            CLAUDE_CODE_PROVIDERS, GATEWAY_WITHOUT_ENDPOINT, GATEWAY_WITHOUT_ENDPOINT_ENTRY
+        )
+
+        with pytest.raises(ValueError, match=GATEWAY_WITHOUT_ENDPOINT_VAR):
             ClaudeCodeModelResolver.resolve(
-                {"provider": "als-apg"},
-                api_providers={"als-apg": {"api_key": "k"}},
+                {"provider": GATEWAY_WITHOUT_ENDPOINT},
+                api_providers={GATEWAY_WITHOUT_ENDPOINT: {"api_key": "k"}},
             )
 
     def test_anthropic_gains_a_base_url_only_when_config_gives_one(self):
@@ -162,26 +197,30 @@ class TestEndToEndThroughLoadProviderSpec:
         assert spec.env_block["ANTHROPIC_BASE_URL"] == FACILITY_GATEWAY
 
     def test_unexported_placeholder_is_refused_by_name(self, tmp_path, monkeypatch):
-        """The shipped catalog form with nothing exported must not travel on.
+        """A config that defers its endpoint to an unset variable must not travel on.
 
-        ``providers.yml`` spells the endpoint ``${ALS_APG_BASE_URL}``. Unset,
-        the config resolver keeps the reference verbatim, so without this the
+        The config resolver keeps the reference verbatim, so without this the
         literal reaches the env block and Claude Code is handed
-        ``ANTHROPIC_BASE_URL="${ALS_APG_BASE_URL}"`` as a hostname.
+        ``ANTHROPIC_BASE_URL="${GATEWAY_WITHOUT_ENDPOINT_BASE_URL}"`` as a
+        hostname. Driven through the synthetic built-in, since a provider that
+        ships an endpoint of its own falls back to it instead.
         """
         from osprey.build.claude_code_resolver import load_provider_spec
 
-        monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
+        monkeypatch.setitem(
+            CLAUDE_CODE_PROVIDERS, GATEWAY_WITHOUT_ENDPOINT, GATEWAY_WITHOUT_ENDPOINT_ENTRY
+        )
+        monkeypatch.delenv(GATEWAY_WITHOUT_ENDPOINT_VAR, raising=False)
         (tmp_path / "config.yml").write_text(
             "api:\n"
             "  providers:\n"
-            "    als-apg:\n"
-            "      base_url: ${ALS_APG_BASE_URL}\n"
+            f"    {GATEWAY_WITHOUT_ENDPOINT}:\n"
+            f"      base_url: ${{{GATEWAY_WITHOUT_ENDPOINT_VAR}}}\n"
             "claude_code:\n"
-            "  provider: als-apg\n"
+            f"  provider: {GATEWAY_WITHOUT_ENDPOINT}\n"
         )
 
-        with pytest.raises(ValueError, match="ALS_APG_BASE_URL"):
+        with pytest.raises(ValueError, match=GATEWAY_WITHOUT_ENDPOINT_VAR):
             load_provider_spec(tmp_path, include_telemetry=False)
 
     def test_a_render_may_defer_the_placeholder_to_its_runtime(self, tmp_path, monkeypatch):
@@ -236,7 +275,7 @@ class TestEnvVarBreakGlassOverride:
     """
 
     def test_supplied_value_is_enough_on_its_own(self):
-        """For a provider with no built-in URL the variable is the whole source."""
+        """The variable is an address in itself, beating the shipped one."""
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "als-apg"},
             environ={"ALS_APG_BASE_URL": f"{FACILITY_GATEWAY}/v1"},

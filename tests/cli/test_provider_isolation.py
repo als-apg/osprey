@@ -439,8 +439,9 @@ class TestResolveEnvBlockRegression:
         }
 
     def test_env_block_regression_als_apg(self):
-        # No built-in endpoint for this one: the gateway is site infrastructure,
-        # so config names it the way a deployment's providers.yml does.
+        # Config names the endpoint the way a deployment's providers.yml does,
+        # so what the block carries below is the configured host rather than
+        # the one the built-in table ships.
         spec = ClaudeCodeModelResolver.resolve(
             {"provider": "als-apg"},
             {"als-apg": {"base_url": GATEWAY_BASE_URL}},

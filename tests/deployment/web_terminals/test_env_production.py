@@ -486,32 +486,61 @@ def test_env_production_keyless_persona_provider_secret_not_required(tmp_path):
 # its URL from. Same closed-allowlist rule as the auth secrets: a web container
 # sees only .env.users, so a provider whose endpoint is named by a variable
 # nobody copied resolves no URL and the container exits at startup.
+#
+# The refusal half needs a provider that ships no endpoint at all. No shipped
+# provider is in that shape, so those cases register a synthetic built-in and
+# the rest of the section stays on als-apg, whose endpoint arrives from config.
 # ---------------------------------------------------------------------------
 
+#: A built-in entry that requires an endpoint and ships none.
+_GATEWAY_WITHOUT_ENDPOINT = "gateway-without-endpoint"
+_GATEWAY_WITHOUT_ENDPOINT_KEY = "GATEWAY_WITHOUT_ENDPOINT_API_KEY"
+_GATEWAY_WITHOUT_ENDPOINT_VAR = "GATEWAY_WITHOUT_ENDPOINT_BASE_URL"
+_GATEWAY_WITHOUT_ENDPOINT_ENTRY = {
+    "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
+    "auth_secret_env": _GATEWAY_WITHOUT_ENDPOINT_KEY,
+    "base_url": None,
+    "requires_base_url": True,
+    "base_url_env_var": _GATEWAY_WITHOUT_ENDPOINT_VAR,
+    "default_model_tier": "haiku",
+    "models": {"haiku": "fast", "sonnet": "balanced", "opus": "capable"},
+}
 
-def _gateway_persona_config(tmp_path, base_url="${ALS_APG_BASE_URL}"):
-    """A persona catalog whose single persona runs als-apg through a gateway.
+
+@pytest.fixture
+def a_gateway_that_ships_no_endpoint(monkeypatch):
+    """Register the synthetic built-in for the length of one test."""
+    from osprey.build.claude_code_resolver import CLAUDE_CODE_PROVIDERS
+
+    monkeypatch.setitem(
+        CLAUDE_CODE_PROVIDERS, _GATEWAY_WITHOUT_ENDPOINT, _GATEWAY_WITHOUT_ENDPOINT_ENTRY
+    )
+    return _GATEWAY_WITHOUT_ENDPOINT
+
+
+def _gateway_persona_config(tmp_path, base_url="${ALS_APG_BASE_URL}", provider="als-apg"):
+    """A persona catalog whose single persona runs ``provider`` through a gateway.
 
     The persona's rendered ``config.yml`` carries the provider catalog the real
     render ships, so the endpoint reaches the resolver the same way it does in
     a deployed container.
     """
-    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config = _persona_config(tmp_path, {"operator": provider})
     (tmp_path / "operator-proj" / "config.yml").write_text(
         "project_name: operator-proj\n"
         "api:\n"
         "  providers:\n"
-        "    als-apg:\n"
+        f"    {provider}:\n"
         f"      base_url: {base_url}\n"
-        "claude_code:\n  provider: als-apg\n",
+        f"claude_code:\n  provider: {provider}\n",
         encoding="utf-8",
     )
     return config
 
 
 def test_env_production_copies_the_gateway_endpoint_its_provider_needs(tmp_path):
-    """als-apg fronts a gateway with no default host, so the container resolves
-    no endpoint at all unless the variable naming it crosses into .env.users."""
+    """The persona's config names its endpoint by variable, so the container
+    resolves no endpoint at all unless that variable crosses into .env.users."""
     _write_dotenv(
         tmp_path / ".env",
         {"ALS_APG_API_KEY": "persona-secret", "ALS_APG_BASE_URL": "https://gw.test/v1"},
@@ -565,16 +594,21 @@ def test_env_production_provider_with_its_own_endpoint_adds_nothing(tmp_path):
     assert set(generated) == {"CBORG_API_KEY", "TZ"}
 
 
-def test_env_production_missing_gateway_endpoint_refuses_the_deploy(tmp_path):
+def test_env_production_missing_gateway_endpoint_refuses_the_deploy(
+    tmp_path, a_gateway_that_ships_no_endpoint
+):
     """Absent from the whole chain, the endpoint is a container that exits at
     startup and restarts forever -- refused here, naming the variable."""
-    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
-    config = _gateway_persona_config(tmp_path)
+    gateway = a_gateway_that_ships_no_endpoint
+    _write_dotenv(tmp_path / ".env", {_GATEWAY_WITHOUT_ENDPOINT_KEY: "persona-secret"})
+    config = _gateway_persona_config(
+        tmp_path, base_url=f"${{{_GATEWAY_WITHOUT_ENDPOINT_VAR}}}", provider=gateway
+    )
 
-    with pytest.raises(RuntimeError, match="ALS_APG_BASE_URL") as excinfo:
+    with pytest.raises(RuntimeError, match=_GATEWAY_WITHOUT_ENDPOINT_VAR) as excinfo:
         env_production.ensure_env_production(config, tmp_path)
 
-    assert "als-apg" in str(excinfo.value)
+    assert gateway in str(excinfo.value)
     assert "operator" in str(excinfo.value)
     assert not (tmp_path / ".env.users").exists()
 
@@ -606,18 +640,21 @@ def test_env_production_a_defaulted_endpoint_reference_is_not_required(tmp_path)
     assert "ALS_APG_BASE_URL" not in generated
 
 
-def test_env_production_endpoint_of_the_deploys_own_provider_is_required(tmp_path):
+def test_env_production_endpoint_of_the_deploys_own_provider_is_required(
+    tmp_path, a_gateway_that_ships_no_endpoint
+):
     """The zero-migration path: no persona catalog, so the web image runs the
     deploy config itself and its provider's endpoint is the container's."""
-    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "cc-secret"})
+    gateway = a_gateway_that_ships_no_endpoint
+    _write_dotenv(tmp_path / ".env", {_GATEWAY_WITHOUT_ENDPOINT_KEY: "cc-secret"})
     config = {
         "facility": {},
-        "api": {"providers": {"als-apg": {"base_url": "${ALS_APG_BASE_URL}"}}},
-        "claude_code": {"provider": "als-apg"},
+        "api": {"providers": {gateway: {"base_url": f"${{{_GATEWAY_WITHOUT_ENDPOINT_VAR}}}"}}},
+        "claude_code": {"provider": gateway},
         "modules": {"web_terminals": {"image_source": "local"}},
     }
 
-    with pytest.raises(RuntimeError, match="ALS_APG_BASE_URL"):
+    with pytest.raises(RuntimeError, match=_GATEWAY_WITHOUT_ENDPOINT_VAR):
         env_production.ensure_env_production(config, tmp_path)
 
 
@@ -683,10 +720,18 @@ def test_env_production_a_generated_file_without_the_endpoint_is_re_rendered(tmp
 
 
 def _existing_users_file_without_the_endpoint(tmp_path, *, generated: bool):
-    """A chain and a ``.env.users`` that agree, and both lack the endpoint."""
-    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
-    config = _gateway_persona_config(tmp_path)
-    values = {"ALS_APG_API_KEY": "persona-secret", "TZ": "UTC"}
+    """A chain and a ``.env.users`` that agree, and both lack the endpoint.
+
+    On the synthetic provider, since only a provider that ships no endpoint of
+    its own can leave a chain with nothing to resolve.
+    """
+    _write_dotenv(tmp_path / ".env", {_GATEWAY_WITHOUT_ENDPOINT_KEY: "persona-secret"})
+    config = _gateway_persona_config(
+        tmp_path,
+        base_url=f"${{{_GATEWAY_WITHOUT_ENDPOINT_VAR}}}",
+        provider=_GATEWAY_WITHOUT_ENDPOINT,
+    )
+    values = {_GATEWAY_WITHOUT_ENDPOINT_KEY: "persona-secret", "TZ": "UTC"}
     if generated:
         text = env_production.render_env_users(values)
     else:
@@ -697,7 +742,7 @@ def _existing_users_file_without_the_endpoint(tmp_path, *, generated: bool):
 
 @pytest.mark.parametrize("generated", [True, False], ids=["osprey-rendered", "authored"])
 def test_env_production_existing_file_is_refused_when_the_chain_lacks_a_required_endpoint(
-    tmp_path, generated
+    tmp_path, generated, a_gateway_that_ships_no_endpoint
 ):
     """An existing file is no reason to skip the question a fresh render asks:
     the endpoint is required, the chain does not set it, and the deploy is
@@ -705,11 +750,11 @@ def test_env_production_existing_file_is_refused_when_the_chain_lacks_a_required
     the persona -- whoever rendered the file. The file is left alone."""
     config, text = _existing_users_file_without_the_endpoint(tmp_path, generated=generated)
 
-    with pytest.raises(RuntimeError, match="ALS_APG_BASE_URL") as excinfo:
+    with pytest.raises(RuntimeError, match=_GATEWAY_WITHOUT_ENDPOINT_VAR) as excinfo:
         env_production.ensure_env_production(config, tmp_path)
 
     message = str(excinfo.value)
-    assert "als-apg" in message
+    assert a_gateway_that_ships_no_endpoint in message
     assert "operator" in message
     assert "persona-secret" not in message
     assert (tmp_path / ".env.users").read_text(encoding="utf-8") == text
@@ -733,7 +778,9 @@ def test_env_production_existing_file_with_the_endpoint_in_the_chain_is_not_refu
     assert env_production.parse_dotenv_file(written)["ALS_APG_BASE_URL"] == "https://gw.test/v1"
 
 
-def test_the_preflight_report_carries_the_missing_endpoint_of_an_existing_file(tmp_path):
+def test_the_preflight_report_carries_the_missing_endpoint_of_an_existing_file(
+    tmp_path, a_gateway_that_ships_no_endpoint
+):
     """The collect-all pass reports what the gate raises on, for an existing
     file as much as for a render it would refuse to generate."""
     from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
@@ -743,7 +790,7 @@ def test_the_preflight_report_carries_the_missing_endpoint_of_an_existing_file(t
     blocking, _advisories = web_terminal_preflight_report(config, repo_root=tmp_path)
 
     problems = [problem for problem, _remedy in blocking]
-    assert any("ALS_APG_BASE_URL" in problem for problem in problems), problems
+    assert any(_GATEWAY_WITHOUT_ENDPOINT_VAR in problem for problem in problems), problems
     assert all("persona-secret" not in problem for problem in problems)
 
 
