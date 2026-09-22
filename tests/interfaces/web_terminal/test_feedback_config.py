@@ -47,7 +47,7 @@ def _config_reader(overrides: dict | None = None):
     """
     mapping = overrides or {}
 
-    def _get(path: str, default=None, config_path=None):
+    def _get(path: str, default=None, _config_path=None):
         return mapping.get(path, default)
 
     return _get
@@ -158,7 +158,7 @@ class TestFeedbackConfigDefaults:
     def test_config_read_failure_falls_open_to_defaults(self, project_dir, shared_root):
         """A broken config must never keep the server from starting."""
 
-        def _explode(path: str, default=None, config_path=None):
+        def _explode(_path: str, _default=None, _config_path=None):
             raise RuntimeError("config.yml is unreadable")
 
         with _lifespan_client(project_dir, shared_root, config_reader=_explode) as (_client, app):

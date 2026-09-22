@@ -336,8 +336,9 @@ def test_get_turn_state_is_none_when_nothing_was_reported():
 # ---- The credential the hook actually carries ----
 
 
+# ``shared_root`` pins the agent-data root the transcript map writes into.
 @pytest.fixture
-def panel_token_client(shared_root):
+def panel_token_client(shared_root):  # noqa: ARG001
     """The router behind the real auth middleware, with a known panel token.
 
     Every test using it carries ``no_auth_seam``: the suite-wide seam injects

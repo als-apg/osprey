@@ -122,7 +122,9 @@ class TestDesignSystemProxyRewrite:
             '<script src="/design-system/js/theme-boot.js"></script>'
         )
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=html_body,
@@ -142,7 +144,9 @@ class TestDesignSystemProxyRewrite:
 
         css_body = "body { background: url('/design-system/img/noise.png'); }"
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=css_body,

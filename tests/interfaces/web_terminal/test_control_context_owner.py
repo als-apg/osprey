@@ -138,7 +138,7 @@ async def test_the_owner_is_reasserted_on_every_write(context_owner, record_file
 async def test_an_exception_from_the_callable_leaves_the_record_alone(context_owner, record_file):
     before = record_file.read_bytes()
 
-    def explode(record):
+    def explode(_record):
         raise ValueError("no")
 
     with pytest.raises(ValueError):
@@ -231,7 +231,8 @@ async def test_an_unresolvable_root_is_store_unavailable(monkeypatch):
 async def test_a_failed_write_is_store_unavailable(context_owner, record_file, monkeypatch):
     before = record_file.read_bytes()
 
-    def refuse(record, *, path=None):
+    # ``write_record``'s signature: the owner names ``path`` on every write.
+    def refuse(_record, *, path=None):  # noqa: ARG001
         raise OSError("read-only file system")
 
     monkeypatch.setattr(owner_module, "write_record", refuse)
@@ -347,7 +348,7 @@ async def test_a_blocked_job_does_not_stall_the_event_loop(context_owner):
             ticks += 1
             await asyncio.sleep(0.01)
 
-    def park(record):
+    def park(_record):
         entered.set()
         assert release.wait(5), "the job was never released"
         return Mutation.unchanged(None)

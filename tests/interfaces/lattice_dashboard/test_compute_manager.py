@@ -35,7 +35,8 @@ class FakePopen:
 
     instances: list[FakePopen] = []
 
-    def __init__(self, cmd, stdout=None, stderr=None, poll_result=None):
+    # ``subprocess.Popen``'s signature: the launcher names ``stdout`` and ``stderr``.
+    def __init__(self, cmd, stdout=None, stderr=None, poll_result=None):  # noqa: ARG002
         self.cmd = cmd
         self.pid = 12345
         self._poll_result = poll_result
@@ -52,10 +53,12 @@ class FakePopen:
     def kill(self):
         self.killed = True
 
-    def wait(self, timeout=None):
+    # ``Popen.wait``'s signature: the caller names ``timeout``.
+    def wait(self, timeout=None):  # noqa: ARG002
         return 0
 
-    def communicate(self, timeout=None):
+    # ``subprocess.Popen``'s signature: the caller names ``timeout``.
+    def communicate(self, timeout=None):  # noqa: ARG002
         return (b"", b"")
 
 
@@ -224,7 +227,8 @@ class TestMonitorWorker:
         proc = FakePopen(["x"])
         proc.returncode = 1
 
-        def communicate(timeout=None):
+        # ``subprocess.Popen``'s signature: the caller names ``timeout``.
+        def communicate(timeout=None):  # noqa: ARG001
             return (b"", b"boom traceback")
 
         proc.communicate = communicate

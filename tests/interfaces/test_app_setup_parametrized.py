@@ -75,7 +75,7 @@ def _build_artifacts(tmp_path: Path) -> FastAPI:
     return create_app(workspace_root=tmp_path)
 
 
-def _build_ariel(tmp_path: Path) -> FastAPI:
+def _build_ariel(_tmp_path: Path) -> FastAPI:
     from osprey.interfaces.ariel.app import create_app
 
     # Mirrors tests/interfaces/ariel/test_app.py::test_create_app_basic. The
@@ -99,21 +99,21 @@ def _build_lattice_dashboard(tmp_path: Path) -> FastAPI:
     return create_app(workspace_root=tmp_path)
 
 
-def _build_health(tmp_path: Path) -> FastAPI:
+def _build_health(_tmp_path: Path) -> FastAPI:
     from osprey.interfaces.health.app import create_app
 
     # config_path=None is guaranteed-constructible (guarded fallback).
     return create_app()
 
 
-def _build_okf_panel(tmp_path: Path) -> FastAPI:
+def _build_okf_panel(_tmp_path: Path) -> FastAPI:
     from osprey.interfaces.okf_panel.app import create_app
 
     # bundle_path=None → guarded app; the app is still fully assembled.
     return create_app()
 
 
-def _build_theme_lab(tmp_path: Path) -> FastAPI:
+def _build_theme_lab(_tmp_path: Path) -> FastAPI:
     # The Theme Lab's factory lives in the CLI module, not under
     # osprey/interfaces/ — it serves the packaged design system and nothing
     # project-specific, so it needs no arguments.
@@ -122,7 +122,7 @@ def _build_theme_lab(tmp_path: Path) -> FastAPI:
     return create_app()
 
 
-def _build_bluesky_web(tmp_path: Path) -> FastAPI:
+def _build_bluesky_web(_tmp_path: Path) -> FastAPI:
     # bluesky_web assembles its app at MODULE scope, not via a create_app()
     # factory, so importing the module runs configure_interface_app — and thus
     # get_web_credentials — at import time. Seed an operator secret first so

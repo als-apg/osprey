@@ -229,7 +229,7 @@ async def _never_receive():  # pragma: no cover - lifespan test never reads
     raise AssertionError("lifespan receive should be handed straight to the app")
 
 
-async def _drop_send(message):  # pragma: no cover - the stub app sends nothing
+async def _drop_send(_message):  # pragma: no cover - the stub app sends nothing
     return None
 
 
@@ -1109,7 +1109,7 @@ def client(credentials):
     from starlette.routing import Route, WebSocketRoute
     from starlette.testclient import TestClient
 
-    async def config(request):
+    async def config(_request):
         return PlainTextResponse("config")
 
     async def socket(websocket):
@@ -1327,7 +1327,7 @@ def test_replayed_receive_delegates_past_the_buffered_body(app_stub):
     seen: list[dict[str, Any]] = []
 
     class GreedyApp:
-        async def __call__(self, scope, receive, send):
+        async def __call__(self, _scope, receive, send):
             for _ in range(3):
                 seen.append(await receive())
             await send({"type": "http.response.start", "status": 200, "headers": []})

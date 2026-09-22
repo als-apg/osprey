@@ -34,8 +34,9 @@ def project_dir(tmp_path):
     return p
 
 
+# ``fake_home`` redirects ``Path.home()``, which is where the service resolves its directory.
 @pytest.fixture()
-def service(project_dir, fake_home):
+def service(project_dir, fake_home):  # noqa: ARG001
     """Create a ClaudeMemoryService for the fake project."""
     return ClaudeMemoryService(project_dir)
 

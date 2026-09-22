@@ -198,7 +198,7 @@ def test_chat_companions_publish_the_port_before_the_first_launch(monkeypatch, t
 
     seen: list[str | None] = []
 
-    def _record(key: str) -> None:
+    def _record(_key: str) -> None:
         import os
 
         seen.append(os.environ.get(WEB_PORT_ENV))

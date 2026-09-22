@@ -109,7 +109,7 @@ def test_get_plan_source_round_trips() -> None:
 
 
 def test_list_runs_round_trips() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(200, [{"run_id": "abc123", "status": "completed"}])
 
     app = _build_app(handler)
@@ -206,7 +206,7 @@ def test_get_run_figure_relays_reason_and_partial_unreshaped() -> None:
     a `reason` and empty panels -- the proxy must not turn that into an error or
     invent panels for it."""
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(
             200,
             {
@@ -256,7 +256,7 @@ def test_get_run_figure_quotes_run_id() -> None:
 
 
 def test_unknown_run_404_passes_through_verbatim() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(404, {"detail": "unknown run 'nope'"})
 
     app = _build_app(handler)
@@ -268,7 +268,7 @@ def test_unknown_run_404_passes_through_verbatim() -> None:
 
 
 def test_run_data_409_passes_through_verbatim() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(409, {"detail": "run 'abc123' has not started; no data yet"})
 
     app = _build_app(handler)
@@ -296,7 +296,7 @@ def test_run_figure_404_passes_through_verbatim() -> None:
 
 
 def test_plan_source_404_passes_through_verbatim() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(404, {"detail": "no source file found for plan 'nope'"})
 
     app = _build_app(handler)

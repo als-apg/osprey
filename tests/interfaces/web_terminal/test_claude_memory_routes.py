@@ -29,8 +29,10 @@ def fake_home(tmp_path, monkeypatch):
     return tmp_path
 
 
+# ``fake_home`` redirects ``Path.home()``, which is where the memory routes resolve their
+# directory.
 @pytest.fixture()
-def client(workspace_dir, fake_home):
+def client(workspace_dir, fake_home):  # noqa: ARG001
     with patch(
         "osprey.interfaces.web_terminal.app._load_web_config",
         return_value={"watch_dir": str(workspace_dir)},
@@ -40,8 +42,9 @@ def client(workspace_dir, fake_home):
             yield c
 
 
+# ``fake_home`` redirects ``Path.home()``, which is where the service resolves this directory.
 @pytest.fixture()
-def memory_dir(client, fake_home):
+def memory_dir(client, fake_home):  # noqa: ARG001
     """Create the memory directory that the service will resolve to."""
     # The app's project_cwd is set by create_app; we need to figure out
     # the encoded path. Get it via the service.

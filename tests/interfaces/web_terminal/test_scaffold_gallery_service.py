@@ -1547,7 +1547,7 @@ class TestProfileMode:
 
         message = "Nothing was moved.\n  Rebuild it from a profile, then claim again."
 
-        def _refuse(project_dir, name):
+        def _refuse(_project_dir, _name):
             raise scaffold_cmd.ScaffoldClaimError(message)
 
         monkeypatch.setattr(scaffold_cmd, "claim_into_profile", _refuse)

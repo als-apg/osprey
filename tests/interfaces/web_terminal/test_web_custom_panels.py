@@ -1317,7 +1317,7 @@ class TestSidecarLaunchRouting:
     def test_every_sidecar_id_reaches_the_sidecar_launcher(self, monkeypatch):
         launched: list[str] = []
 
-        async def _record(app, panel_id):
+        async def _record(_app, panel_id):
             launched.append(panel_id)
 
         monkeypatch.setattr(web_terminal_app, "_launch_sidecar", _record)
@@ -1329,7 +1329,7 @@ class TestSidecarLaunchRouting:
     def test_a_disabled_sidecar_is_not_launched(self, monkeypatch):
         launched: list[str] = []
 
-        async def _record(app, panel_id):
+        async def _record(_app, panel_id):
             launched.append(panel_id)
 
         monkeypatch.setattr(web_terminal_app, "_launch_sidecar", _record)

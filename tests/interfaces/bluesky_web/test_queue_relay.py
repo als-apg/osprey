@@ -157,7 +157,7 @@ def test_get_queue_relays_a_running_item_with_progress_verbatim() -> None:
         },
     }
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=snapshot)
 
     app = _build_app(handler)
@@ -215,7 +215,7 @@ def test_get_queue_removals_never_sends_the_launch_token(
 
 
 def test_get_queue_removals_bridge_unreachable_returns_502() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("no route")
 
     app = _build_app(handler)
@@ -1023,7 +1023,7 @@ def test_queue_events_disables_read_timeout() -> None:
 
 
 def test_queue_events_strips_hop_by_hop_headers() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             headers={

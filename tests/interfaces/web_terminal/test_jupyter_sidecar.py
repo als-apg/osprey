@@ -64,8 +64,10 @@ def _running(shared_root: Path, outer_prefix: str = "") -> Iterator[JupyterSidec
         sidecar.stop()
 
 
+# ``config_env`` points the sidecar at an absent config and keeps its tempdirs inside the test
+# tree.
 @pytest.fixture
-def sidecar(config_env: None, shared_root: Path) -> Iterator[JupyterSidecar]:
+def sidecar(config_env: None, shared_root: Path) -> Iterator[JupyterSidecar]:  # noqa: ARG001
     yield from _running(shared_root)
 
 

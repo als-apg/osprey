@@ -153,7 +153,7 @@ class Recorder:
     def __init__(self) -> None:
         self.calls: list[tuple[AcquirePlan, WaitOutcome]] = []
 
-    async def __call__(self, app, plan: AcquirePlan, outcome: WaitOutcome) -> AcquirePlan:
+    async def __call__(self, _app, plan: AcquirePlan, outcome: WaitOutcome) -> AcquirePlan:
         self.calls.append((plan, outcome))
         return plan
 

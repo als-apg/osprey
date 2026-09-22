@@ -37,7 +37,8 @@ class FakePtySession:
             return None
         return 0 if self._exit_code is None else self._exit_code
 
-    def start(self, initial_rows=24, initial_cols=80, extra_env=None, cwd=None):
+    # ``PtySession.start``'s signature: the manager names every argument it passes.
+    def start(self, initial_rows=24, initial_cols=80, extra_env=None, cwd=None):  # noqa: ARG002
         self._last_rows = initial_rows
         self._last_cols = initial_cols
 

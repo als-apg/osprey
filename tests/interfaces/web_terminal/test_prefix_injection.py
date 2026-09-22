@@ -164,8 +164,10 @@ class TestAMountMustBeSpellable:
 class TestPrefixInjection:
     """``OSPREY_TERMINAL_USER=alice`` -> baked ``/u/alice`` prefix everywhere."""
 
+    # ``_PAGES`` is shared with the tests that resolve a page's entrypoint by id; this
+    # one asserts on the prefix every page carries, so the id column is not read here.
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
-    def test_alice_prefix_baked_into_every_page(self, workspace_dir, page_id, path):
+    def test_alice_prefix_baked_into_every_page(self, workspace_dir, page_id, path):  # noqa: ARG002
         cfg = {"watch_dir": str(workspace_dir)}
         with (
             patch(
@@ -291,8 +293,10 @@ class TestHeadAssetAndEntrypointPrefixing:
 class TestPrefixEmptyWhenUnset:
     """Unset/empty ``OSPREY_TERMINAL_USER`` -> empty prefix, unchanged behavior."""
 
+    # ``_PAGES`` is shared with the tests that resolve a page's entrypoint by id; this
+    # one asserts on the prefix every page carries, so the id column is not read here.
     @pytest.mark.parametrize("page_id,path", _PAGES, ids=[p[0] for p in _PAGES])
-    def test_empty_prefix_baked_into_every_page(self, workspace_dir, page_id, path):
+    def test_empty_prefix_baked_into_every_page(self, workspace_dir, page_id, path):  # noqa: ARG002
         cfg = {"watch_dir": str(workspace_dir)}
         with patch(
             "osprey.interfaces.web_terminal.app._load_web_config",

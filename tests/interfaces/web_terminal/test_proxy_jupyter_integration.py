@@ -796,7 +796,7 @@ class _StuckPortal:
     def __init__(self, message: Any | None = None) -> None:
         self._message = message
 
-    def start_task_soon(self, func: Any, *args: Any) -> Future[Any]:
+    def start_task_soon(self, _func: Any, *args: Any) -> Future[Any]:
         future: Future[Any] = Future()
         if self._message is not None:
             future.set_result(self._message)

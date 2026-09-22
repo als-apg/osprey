@@ -249,7 +249,7 @@ class TestLifespanWiring:
             """Mirrors the real keyword-only signature, so a positional
             third argument from ``app.py`` would fail this test."""
 
-            def __init__(self, workspace, broadcaster, *, concealed=()):
+            def __init__(self, workspace, _broadcaster, *, concealed=()):
                 constructed.append((workspace, tuple(concealed)))
 
             def start(self):

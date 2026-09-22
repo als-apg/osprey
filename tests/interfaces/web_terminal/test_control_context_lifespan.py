@@ -343,7 +343,7 @@ async def test_a_blocked_liveness_probe_does_not_stall_the_loop(
     write_control_context(control_context_root, owned_by=fixtures.owner(pid=OTHER_TERMINAL_PID))
     released = threading.Event()
 
-    def parks_for_ever(pid: object) -> bool:
+    def parks_for_ever(_pid: object) -> bool:
         released.wait(10)
         return False
 

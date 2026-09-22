@@ -117,8 +117,9 @@ def shared_root(tmp_path, monkeypatch):
     posture_store.invalidate_cache()
 
 
+# ``shared_root`` stamps the agent-data root the posture store reads.
 @pytest.fixture
-def make_client(workspace_dir, shared_root):
+def make_client(workspace_dir, shared_root):  # noqa: ARG001
     @contextmanager
     def _make():
         with patch(

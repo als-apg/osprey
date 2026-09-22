@@ -217,8 +217,10 @@ def audit_zone(tmp_path, monkeypatch) -> Path:
     return zone
 
 
+# ``audit_zone`` redirects the ledger, so a refusal this client provokes is recorded in the test's
+# tree.
 @pytest.fixture
-def client(project_dir, tmp_path, audit_zone):
+def client(project_dir, tmp_path, audit_zone):  # noqa: ARG001
     """The real web-terminal app over the real render, lifespan and all.
 
     ``create_app`` rather than a bare router, because the activity ring, the

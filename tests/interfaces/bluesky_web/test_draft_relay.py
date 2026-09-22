@@ -80,7 +80,7 @@ def test_get_draft_round_trips_body_and_status() -> None:
 
 
 def test_get_draft_null_draft_round_trips() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(200, {"draft": None, "revision": 0})
 
     app = _build_app(handler)
@@ -117,7 +117,7 @@ def test_patch_draft_forwards_body_verbatim() -> None:
 
 
 def test_patch_draft_no_op_response_round_trips() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(200, {"revision": 4, "changed": [], "plan_name": "orm"})
 
     app = _build_app(handler)
@@ -168,7 +168,7 @@ def test_patch_draft_forwards_query_params() -> None:
 
 
 def test_patch_draft_no_draft_409_passes_through_verbatim() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(409, {"code": "no_draft"})
 
     app = _build_app(handler)
@@ -180,7 +180,7 @@ def test_patch_draft_no_draft_409_passes_through_verbatim() -> None:
 
 
 def test_patch_draft_expected_plan_name_mismatch_409_passes_through() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(409, {"detail": "expected_plan_name mismatch"})
 
     app = _build_app(handler)
@@ -195,7 +195,7 @@ def test_patch_draft_expected_plan_name_mismatch_409_passes_through() -> None:
 
 
 def test_patch_draft_field_validation_422_passes_through() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(
             422, {"detail": [{"loc": ["readbacks"], "msg": "min_length", "type": "value_error"}]}
         )
@@ -212,7 +212,7 @@ def test_patch_draft_field_validation_422_passes_through() -> None:
 
 
 def test_patch_draft_unknown_plan_name_422_passes_through() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return _json_response(422, {"detail": "unknown plan"})
 
     app = _build_app(handler)
@@ -316,7 +316,7 @@ def test_draft_events_disables_read_timeout() -> None:
 
 
 def test_draft_events_strips_hop_by_hop_headers() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             headers={
@@ -341,7 +341,7 @@ def test_draft_events_strips_hop_by_hop_headers() -> None:
 
 
 def test_draft_events_relays_non_200_status() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             503, headers={"content-type": "text/event-stream"}, stream=_DelayedFrames([])
         )
