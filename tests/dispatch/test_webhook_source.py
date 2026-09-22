@@ -45,7 +45,7 @@ def started_source(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_handle_unauthorized_wrong_token(started_source, monkeypatch):
+async def test_handle_unauthorized_wrong_token(started_source):
     source, _, callback = started_source
     body, status = await source._handle("deploy", "Bearer wrong", {})
     assert status == 401

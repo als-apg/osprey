@@ -438,7 +438,7 @@ def test_a_key_miss_is_reported_when_this_session_has_other_stamps(
 
 
 @pytest.mark.usefixtures("state_dir", "no_session")
-def test_a_session_less_server_does_not_report_a_key_miss(approval, root, monkeypatch, caplog):
+def test_a_session_less_server_does_not_report_a_key_miss(approval, root, caplog):
     """With no session, "this server's other stamps" is a question with no answer.
 
     Every session-less process on the checkout files under the same name, so a

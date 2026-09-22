@@ -203,7 +203,7 @@ def test_log_hook_writes_stderr_and_jsonl_when_enabled(tmp_path, capsys, monkeyp
     assert record["detail"] == "writes disabled"
 
 
-def test_log_hook_appends_multiple_records(tmp_path, capsys, monkeypatch):
+def test_log_hook_appends_multiple_records(tmp_path, monkeypatch):
     _hooks_dir(tmp_path)
     monkeypatch.setenv("OSPREY_HOOK_DEBUG", "1")
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))

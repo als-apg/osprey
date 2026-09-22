@@ -702,7 +702,7 @@ def test_retry_non_dict_payload_returns_400(app):
     assert "payload must be an object" in resp.json()["detail"]
 
 
-def test_retry_queue_full_returns_429(app, monkeypatch):
+def test_retry_queue_full_returns_429(app):
     """When the pool is saturated, /retry surfaces 429 from QueueFullError."""
     from osprey.dispatch.pool import QueueFullError
 

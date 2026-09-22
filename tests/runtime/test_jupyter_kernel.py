@@ -45,7 +45,7 @@ KERNEL_ID = "4f1c2a7e0000400080000000000002"
 
 
 @pytest.fixture
-def kernel_env(monkeypatch):
+def kernel_env():
     """This process's environment, restored whole afterwards.
 
     The launcher stamps ``os.environ`` and nothing else: the resolvers it calls
@@ -607,9 +607,7 @@ class TestTheProcessLog:
         assert "Blocked write to a channel" not in cell.getvalue()
         assert "Blocked write to a channel" in capfd.readouterr().err
 
-    def test_a_handler_bound_to_the_replaced_stderr_is_taken_off(
-        self, root_handlers, monkeypatch, capfd
-    ):
+    def test_a_handler_bound_to_the_replaced_stderr_is_taken_off(self, root_handlers, monkeypatch):
         """Otherwise the same record arrives twice, once of them in the cell."""
         cell = io.StringIO()
         monkeypatch.setattr(sys, "stderr", cell)
@@ -620,9 +618,7 @@ class TestTheProcessLog:
 
         assert stale not in root_handlers.handlers
 
-    def test_the_level_the_root_logger_had_is_the_level_it_keeps(
-        self, root_handlers, monkeypatch, capfd
-    ):
+    def test_the_level_the_root_logger_had_is_the_level_it_keeps(self, root_handlers):
         """Routing is a destination change; what is logged at all is not touched."""
         before = root_handlers.level
 
