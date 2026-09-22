@@ -262,7 +262,7 @@ def test_a_stale_version_stamp_alone_is_not_a_change(runner: CliRunner, repo: Pa
     assert "unchanged" in result.output
 
 
-def test_a_moved_repo_rewrites_the_unit(runner: CliRunner, repo: Path, tmp_path: Path) -> None:
+def test_a_moved_repo_rewrites_the_unit(runner: CliRunner, repo: Path) -> None:
     """The paths in the unit are the point, so a real change is written."""
     emit(runner, repo)
     unit = unit_of(repo)

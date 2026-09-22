@@ -1032,7 +1032,7 @@ def _cold_roster_cache():
     channel_roster._roster_cache.clear()
 
 
-def test_a_graph_mode_repo_deploys_a_va_and_the_fact_names_the_corpus(tmp_path_factory, capsys):
+def test_a_graph_mode_repo_deploys_a_va_and_the_fact_names_the_corpus(tmp_path_factory):
     """The whole build: a knowledge graph is a channel source, and it is said.
 
     A graph-mode facility stages no paradigm database at all -- its channels

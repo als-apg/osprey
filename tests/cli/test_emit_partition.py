@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import dataclasses
 import re
-from pathlib import Path
 
 import pytest
 import yaml
@@ -222,7 +221,7 @@ def test_no_key_is_both_active_and_commented(preset: str) -> None:
     assert not active & commented, f"{preset}: both active and templated: {active & commented}"
 
 
-def test_data_emits_active_when_the_resolved_profile_carries_it(tmp_path: Path) -> None:
+def test_data_emits_active_when_the_resolved_profile_carries_it() -> None:
     """Forward-compat for `osprey init` (3.4), which materializes a data tree and
     injects `data` into the resolved dict: the COMMENTED contract is
     active-when-carried, so nothing here may assume `data` renders commented."""

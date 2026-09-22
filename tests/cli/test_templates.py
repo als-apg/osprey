@@ -612,7 +612,7 @@ class TestTemplateManifest:
         rendered = {p.name for p in hooks_dir.iterdir() if p.is_file()}
         assert rendered == expected_hooks
 
-    def test_backward_compat_no_manifest(self, tmp_path):
+    def test_backward_compat_no_manifest(self):
         """If manifest doesn't exist, all files are generated (backward compat)."""
         # get_tracked_files falls back to REGEN_TRACKED_FILES when no manifest
         tracked = manifest.get_tracked_files("nonexistent_template")

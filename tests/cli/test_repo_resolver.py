@@ -264,7 +264,7 @@ def test_missing_repo_surfaces_as_a_clean_cli_error(
     assert "No OSPREY deployment repo found" in result.output
 
 
-def test_repo_option_help_text_is_shared(tmp_path: Path) -> None:
+def test_repo_option_help_text_is_shared() -> None:
     result = CliRunner().invoke(_probe, ["--help"])
 
     assert "--repo" in result.output

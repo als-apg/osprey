@@ -659,9 +659,7 @@ class TestTelemetryCredentialNotIssuedYet:
         assert isinstance(result.exception, ObservabilityCredentialError)
         assert launches == []
 
-    def test_a_resolvable_token_keeps_telemetry_on(
-        self, runner, launches, lifecycle_repo, monkeypatch
-    ):
+    def test_a_resolvable_token_keeps_telemetry_on(self, runner, launches, lifecycle_repo):
         """The deferral is about absence only — once `osprey up` has written the
         token, the same config resolves and the session exports normally."""
         stub_build(lifecycle_repo, config=_telemetry_config("${ZO_INGEST_SA_TOKEN}"))

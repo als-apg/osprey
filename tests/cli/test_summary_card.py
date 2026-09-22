@@ -470,7 +470,7 @@ class TestCardPrinting:
         assert Recorded(buffer).lines[: len(card) + 1] == [""] + card
 
     @pytest.mark.usefixtures("restore_reporter")
-    def test_the_heading_is_styled_on_a_terminal(self, repo: Path, monkeypatch) -> None:
+    def test_the_heading_is_styled_on_a_terminal(self, repo: Path) -> None:
         """The card keeps its bold heading through the renderer. Asserted as
         "carries styling" rather than as an exact escape sequence: which bold
         the theme resolves to is the theme's business."""

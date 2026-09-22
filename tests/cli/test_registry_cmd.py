@@ -107,7 +107,7 @@ class TestDisplayRegistryContents:
         assert "Services" in out
         assert "1" in out
 
-    def test_handles_exceptions_gracefully(self, capsys):
+    def test_handles_exceptions_gracefully(self):
         """Test that exceptions are handled gracefully."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
             with patch("osprey.utils.log_filter.quiet_logger"):

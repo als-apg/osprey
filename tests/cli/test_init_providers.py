@@ -242,7 +242,7 @@ def test_a_catalog_that_does_not_parse_refuses_the_re_init(
 
 
 @pytest.mark.usefixtures("runner")
-def test_the_key_variable_comes_from_the_entry(tmp_path: Path) -> None:
+def test_the_key_variable_comes_from_the_entry() -> None:
     """A gateway OSPREY does not ship has no entry in any code-level registry,
     so its `api_key:` is the only place its variable is named."""
     from osprey.cli.profile_cmd import _catalog_key_variables

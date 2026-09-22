@@ -399,7 +399,7 @@ class TestClaimIntoProfile:
         assert (pair.project / MANIFEST_FILENAME).read_text(encoding="utf-8") == manifest_before
         assert "scaffold" not in pair.config()
 
-    def test_persona_delta_claims_into_its_root_profile(self, pair, tmp_path):
+    def test_persona_delta_claims_into_its_root_profile(self, pair):
         """Convention directories live at the root, so a delta claims there."""
         personas = pair.profile / "personas"
         personas.mkdir()

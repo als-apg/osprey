@@ -158,7 +158,7 @@ def _render(config_path: Path, project: Path, monkeypatch: pytest.MonkeyPatch):
 
 
 @pytest.fixture
-def facility_service(tmp_path: Path):
+def facility_service():
     """A facility-authored service directory, template body supplied per test."""
 
     def _make(project: Path, name: str, environment: dict[str, str], *, network: str | None):

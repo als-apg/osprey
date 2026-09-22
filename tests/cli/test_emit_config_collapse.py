@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import functools
 import re
-from pathlib import Path
 
 import pytest
 import yaml
@@ -197,7 +196,7 @@ def test_scalar_below_the_shallowest_key_is_rejected_naming_the_blocking_path() 
     assert "'modules.web_terminals.enabled.strict'" in message
 
 
-def test_emit_rejects_a_scalar_parent_introduced_by_an_override(tmp_path: Path) -> None:
+def test_emit_rejects_a_scalar_parent_introduced_by_an_override() -> None:
     """The rejection is reachable from the CLI surface, not only from the helper.
 
     The pair has to come from ONE layer to survive as far as the collapse: a
@@ -216,7 +215,7 @@ def test_emit_rejects_a_scalar_parent_introduced_by_an_override(tmp_path: Path) 
         )
 
 
-def test_an_override_scalar_replaces_the_subtree_it_names(tmp_path: Path) -> None:
+def test_an_override_scalar_replaces_the_subtree_it_names() -> None:
     """The other half of the same rule: stated alone, the scalar just wins.
 
     ``config_update_fields`` applies the key verbatim and would replace the

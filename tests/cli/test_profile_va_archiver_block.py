@@ -650,7 +650,7 @@ def test_which_spelling_wins_depends_on_the_order_they_were_written_in(tmp_path:
     assert nested_last["archiver"]["type"] == "mock_archiver"
 
 
-def test_a_profile_spelling_the_archiver_both_ways_is_refused(tmp_path: Path) -> None:
+def test_a_profile_spelling_the_archiver_both_ways_is_refused() -> None:
     """Half of the orderings above render a virtual accelerator onto the mock.
     The build refuses the shape rather than gambling on key order."""
     errors = _pairing_errors(

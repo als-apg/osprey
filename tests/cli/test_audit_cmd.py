@@ -473,7 +473,7 @@ class TestReviewerProvider:
 
 class TestDisplay:
     @pytest.mark.usefixtures("sample_report")
-    def test_display_error_finding(self, capsys):
+    def test_display_error_finding(self):
         from osprey.cli.audit_cmd import _display_report
 
         report = AuditReport(

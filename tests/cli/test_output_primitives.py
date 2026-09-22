@@ -1065,7 +1065,7 @@ def test_a_repeated_ledger_label_prints_once_for_its_run_of_rows(capsys):
     ]
 
 
-def test_a_long_ledger_value_folds_under_its_own_bullet(capsys):
+def test_a_long_ledger_value_folds_under_its_own_bullet():
     """The one block whose values are prose. A value wider than the terminal
     would otherwise wrap back to column zero and land under the file names."""
     console, buffer = recording_console(width=60)
@@ -1095,7 +1095,7 @@ def test_a_long_ledger_value_folds_under_its_own_bullet(capsys):
         assert len(line) <= 60
 
 
-def test_a_url_in_a_printed_line_is_a_terminal_hyperlink(capsys):
+def test_a_url_in_a_printed_line_is_a_terminal_hyperlink():
     """The addresses the CLI prints are the ones a reader wants to act on, so a
     terminal that understands OSC 8 opens them on a click."""
     console, buffer = recording_console(terminal=True)
@@ -1149,7 +1149,7 @@ def test_a_url_reaches_a_pipe_as_plain_text(capsys):
     assert capsys.readouterr().out == f"Open http://127.0.0.1:{_LANDING} to start.\n"
 
 
-def test_a_sentence_ending_in_a_url_keeps_its_full_stop_out_of_the_link(capsys):
+def test_a_sentence_ending_in_a_url_keeps_its_full_stop_out_of_the_link():
     console, buffer = recording_console(terminal=True)
     install_reporter(RecordingReporter(console))
 

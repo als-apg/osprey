@@ -806,7 +806,7 @@ class TestCLIErrorPaths:
         assert len(standalone) >= 1
         assert len(templates) >= 1
 
-    def test_validate_with_pipeline_override(self, runner, tmp_path):
+    def test_validate_with_pipeline_override(self, runner):
         """validate --pipeline hierarchical with a hierarchical DB file."""
         from pathlib import Path
 
