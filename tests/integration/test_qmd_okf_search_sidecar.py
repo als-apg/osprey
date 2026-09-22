@@ -519,11 +519,11 @@ class _RecordingTransport:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def post(self, url, body, headers, timeout):  # pragma: no cover - must never run
+    def post(self, url, body, headers, timeout):  # noqa: ARG002 - the HTTP client surface the sidecar is called through  # pragma: no cover - must never run
         self.calls.append(f"POST {url}")
         raise AssertionError(f"unconfigured client attempted POST {url}")
 
-    def get(self, url, timeout):  # pragma: no cover - must never run
+    def get(self, url, timeout):  # noqa: ARG002 - the HTTP client surface the sidecar is called through  # pragma: no cover - must never run
         self.calls.append(f"GET {url}")
         raise AssertionError(f"unconfigured client attempted GET {url}")
 

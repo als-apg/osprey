@@ -33,7 +33,7 @@ def persist_calls(monkeypatch):
     """Record persisted run_ids and neutralise the on-disk write during tests."""
     calls: list[str] = []
 
-    def _fake_persist(run_id, run):
+    def _fake_persist(run_id, _run):
         calls.append(run_id)
 
     monkeypatch.setattr(dispatch_api, "_persist_run", _fake_persist)
@@ -95,7 +95,7 @@ async def _drive_cancel(monkeypatch, run_id: str) -> None:
         await task
 
 
-async def _drive_sweep(monkeypatch, run_id: str) -> None:
+async def _drive_sweep(_monkeypatch, run_id: str) -> None:
     # A stale *pending* run, created long enough ago to exceed the sweep cutoff.
     stale_age = dispatch_api.DISPATCH_TIMEOUT_SEC + 100
     dispatch_api._runs[run_id] = {"status": "pending", "created_at": time.time() - stale_age}

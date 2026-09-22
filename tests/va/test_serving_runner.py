@@ -418,7 +418,7 @@ class FakeRunLoop:
         self.queue: list[tuple[dict[str, Any], Any]] = []
         self.outputs: list[dict[str, Any]] = []
 
-    def enqueue(self, values: dict[str, Any], done: Any = None, reset: bool = False) -> None:
+    def enqueue(self, values: dict[str, Any], done: Any = None, _reset: bool = False) -> None:
         self.queue.append((values, done))
 
     def drain(self) -> None:

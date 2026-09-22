@@ -233,7 +233,7 @@ class TestTheGuardCanFail:
         """The failure mode of the wheels excluded on other platforms: the
         distribution is present and the extension will not load."""
 
-        def unloadable(name: str) -> Any:
+        def unloadable(_name: str) -> Any:
             raise ImportError("dlopen failed: libc++.1.dylib not found")
 
         with pytest.raises(AssertionError, match="dlopen"):

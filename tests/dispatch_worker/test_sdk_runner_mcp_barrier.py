@@ -42,7 +42,7 @@ class _FakeClient:
         status = "connected" if self.polls > self._connect_after else "connecting"
         return {"mcpServers": [{"name": "controls", "status": status}]}
 
-    async def query(self, prompt: object) -> None:
+    async def query(self, _prompt: object) -> None:
         self._events.append("query")
 
     async def receive_response(self):

@@ -393,7 +393,7 @@ class TestPanelProxyAndFocusUnderPrefix:
 
         captured_headers: dict = {}
 
-        async def capturing_request(*, method, url, headers, content):
+        async def capturing_request(*, method, url, headers, content):  # noqa: ARG001 - the httpx request surface is keyword-only
             captured_headers.update(headers)
             return httpx.Response(
                 status_code=200,

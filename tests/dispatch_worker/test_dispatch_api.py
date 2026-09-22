@@ -49,15 +49,15 @@ def client(monkeypatch):
 
     async def _fake_run_dispatch(
         *,
-        prompt,
-        allowed_tools,
-        max_turns,
+        prompt,  # noqa: ARG001 - the patched run_dispatch is keyword-only
+        allowed_tools,  # noqa: ARG001 - the patched run_dispatch is keyword-only
+        max_turns,  # noqa: ARG001 - the patched run_dispatch is keyword-only
         event_queue,
-        denied_tools=(),
-        run_id=None,
-        surface_prompt=None,
-        surface_tools=None,
-        owner=None,
+        denied_tools=(),  # noqa: ARG001 - the patched run_dispatch is keyword-only
+        run_id=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
+        surface_prompt=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
+        surface_tools=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
+        owner=None,  # noqa: ARG001 - the patched run_dispatch is keyword-only
     ):
         if event_queue is not None:
             await event_queue.put({"type": "done"})

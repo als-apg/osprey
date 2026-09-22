@@ -182,7 +182,7 @@ def _measured_secant(
     columns = {}
     for binding in _actuators(document):
         address = binding.setpoint_address
-        held = _held(bridge, binding)
+        held = _held(binding)
         try:
             bridge.on_setpoint(address, held + _SWEEP / 2)
             high = _read(records, document)
@@ -194,7 +194,7 @@ def _measured_secant(
     return columns
 
 
-def _held(bridge: PhysicsBridge, binding: Binding) -> float:
+def _held(binding: Binding) -> float:
     """Where a corrector idles: the nominal the served tree declares for it.
 
     Not zero. Zero is where a machine with no orbit to correct happens to
@@ -270,7 +270,7 @@ class TestThePlansEstimatorAgreesWithTheOracle:
         actuators = _actuators(document)
         monitors = _monitors(document)
         addresses = [binding.setpoint_address for binding in actuators]
-        idle = {binding.setpoint_address: _held(bridge, binding) for binding in actuators}
+        idle = {binding.setpoint_address: _held(binding) for binding in actuators}
         offsets = np.linspace(-_SWEEP / 2, _SWEEP / 2, _PLAN_POINTS)
 
         rows: list[dict[str, float]] = []

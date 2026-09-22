@@ -3822,7 +3822,7 @@ _HAND_STEPPING_TOOLS = frozenset(
 )
 
 
-def _one_action_approval_policy(tool_name: str, tool_input: dict[str, Any]) -> bool:
+def _one_action_approval_policy(tool_name: str, _tool_input: dict[str, Any]) -> bool:
     """Approve what an operator would; refuse a hand-stepped plan.
 
     The operator this test plays says yes to the arming prompt — that is the
