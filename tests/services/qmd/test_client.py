@@ -94,7 +94,7 @@ class StubTransport:
 
     # -- transport surface -------------------------------------------------
 
-    def get(self, url: str, timeout: float) -> QMDResponse:
+    def get(self, url: str, timeout: float) -> QMDResponse:  # noqa: ARG002 - the HTTP transport signature
         """Answer ``GET /health``."""
         if self.unreachable:
             raise QMDUnavailableError(f"qmd sidecar unreachable at {url}")
@@ -104,7 +104,11 @@ class StubTransport:
         return QMDResponse(status=200, body=json.dumps({"status": "ok", "uptime": 1355}))
 
     def post(
-        self, url: str, body: bytes, headers: Mapping[str, str], timeout: float
+        self,
+        url: str,
+        body: bytes,
+        headers: Mapping[str, str],
+        timeout: float,  # noqa: ARG002 - the HTTP transport signature
     ) -> QMDResponse:
         """Answer one JSON-RPC message on ``POST /mcp``."""
         if self.unreachable:

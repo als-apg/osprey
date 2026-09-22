@@ -92,7 +92,7 @@ class _PagingPool:
     def connection(self) -> _PagingPool:
         return self
 
-    def cursor(self, row_factory: Any = None) -> _PagingPool:
+    def cursor(self, row_factory: Any = None) -> _PagingPool:  # noqa: ARG002 - the psycopg connection cursor signature
         return self
 
     async def __aenter__(self) -> _PagingPool:
@@ -504,7 +504,7 @@ class TestWatchWiring:
         order: list[str] = []
 
         class _Scheduler:
-            def __init__(self, config: Any, repository: Any) -> None:
+            def __init__(self, config: Any, repository: Any) -> None:  # noqa: ARG002 - the IngestionScheduler signature
                 self.polls = 0
 
             async def poll_once(self, *args: Any, **kwargs: Any):
@@ -527,10 +527,10 @@ class TestWatchWiring:
             async def __aexit__(self, *exc: object) -> bool:
                 return False
 
-        async def _create(config: Any):
+        async def _create(_config: Any):
             return _Service()
 
-        async def _resync(config_dict: dict, progress: Any = None):
+        async def _resync(config_dict: dict, progress: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
             order.append("resync")
             return None
 
@@ -565,7 +565,7 @@ class TestQmdResyncCommand:
     def test_runs_the_pass_and_reports_counts(self, monkeypatch) -> None:
         seen: list[dict] = []
 
-        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):
+        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):  # noqa: ARG001 - the run_qmd_resync signature
             seen.append({"rebuild": rebuild})
             return ops.QmdResyncResult(
                 scanned=3,
@@ -594,7 +594,7 @@ class TestQmdResyncCommand:
     def test_rebuild_flag_reaches_the_pass(self, monkeypatch) -> None:
         seen: list[bool] = []
 
-        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):
+        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):  # noqa: ARG001 - the run_qmd_resync signature
             seen.append(rebuild)
             return ops.QmdResyncResult(
                 scanned=0,
@@ -617,7 +617,7 @@ class TestQmdResyncCommand:
         assert re.search(r"Removed before rebuild\s+7", result.output), result.output
 
     def test_disabled_module_reports_rather_than_failing(self, monkeypatch) -> None:
-        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):
+        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):  # noqa: ARG001 - the run_qmd_resync signature
             return None
 
         monkeypatch.setattr(ops, "run_qmd_resync", _fake)
@@ -629,7 +629,7 @@ class TestQmdResyncCommand:
         assert "not enabled" in result.output
 
     def test_misconfiguration_exits_with_the_config_key(self, monkeypatch) -> None:
-        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):
+        async def _fake(config_dict, rebuild=False, page_size=0, progress=None):  # noqa: ARG001 - the run_qmd_resync signature
             raise ValueError("enhancement_modules.qmd_export.mirror_path is required")
 
         monkeypatch.setattr(ops, "run_qmd_resync", _fake)
@@ -648,7 +648,7 @@ class TestPipelinePreStep:
     def _observed(self, monkeypatch) -> list[str]:
         calls: list[str] = []
 
-        async def _fake_resync(config_dict, progress=None):
+        async def _fake_resync(config_dict, progress=None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
             calls.append("resync")
             return None
 

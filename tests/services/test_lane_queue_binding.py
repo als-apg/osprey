@@ -124,16 +124,16 @@ class _Bridges:
             return SimpleNamespace(status_code=200, json=lambda body=body: body)
         raise AssertionError(f"request to an unknown bridge: {url}")
 
-    def get(self, url: str, timeout: float | None = None, **kwargs: Any) -> SimpleNamespace:
+    def get(self, url: str, timeout: float | None = None, **kwargs: Any) -> SimpleNamespace:  # noqa: ARG002 - the HTTP transport signature
         return self._respond("GET", url, kwargs.get("headers"))
 
-    def post(self, url: str, timeout: float | None = None, **kwargs: Any) -> SimpleNamespace:
+    def post(self, url: str, timeout: float | None = None, **kwargs: Any) -> SimpleNamespace:  # noqa: ARG002 - the HTTP transport signature
         return self._respond("POST", url, kwargs.get("headers"))
 
-    def patch(self, url: str, timeout: float | None = None, **kwargs: Any) -> SimpleNamespace:
+    def patch(self, url: str, timeout: float | None = None, **kwargs: Any) -> SimpleNamespace:  # noqa: ARG002 - the HTTP transport signature
         return self._respond("PATCH", url, kwargs.get("headers"))
 
-    def delete(self, url: str, timeout: float | None = None, **kwargs: Any) -> SimpleNamespace:
+    def delete(self, url: str, timeout: float | None = None, **kwargs: Any) -> SimpleNamespace:  # noqa: ARG002 - the HTTP transport signature
         return self._respond("DELETE", url, kwargs.get("headers"))
 
     # -- assertions helpers -------------------------------------------------
@@ -241,7 +241,7 @@ def deployment(tmp_path, monkeypatch):
         monkeypatch.setattr(target_banner, "load_osprey_config", lambda: config)
         monkeypatch.setattr("osprey_connectors.workspace.load_osprey_config", lambda: config)
 
-        def fake_get_config_value(key: str, default: Any = None, config_path: Any = None) -> Any:
+        def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
             # The whole section, not only the deployment-wide flag: write posture
             # is resolved per control target out of `control_system.connector`,
             # so a stub that served one dotted key would answer "unarmed" for
@@ -419,9 +419,9 @@ _ROUTING = [
 ]
 
 
-@pytest.mark.parametrize(("session", "switch", "url", "lane", "token"), _ROUTING)
+@pytest.mark.parametrize(("_session", "switch", "url", "lane", "token"), _ROUTING)
 async def test_queue_add_routes_to_the_lane_serving_the_session(
-    deployment, session, switch, url, lane, token
+    deployment, _session, switch, url, lane, token
 ):
     """The whole point: a switched session queues on the OTHER lane, not nowhere."""
     bridges = deployment("live", "va")

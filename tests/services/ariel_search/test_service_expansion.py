@@ -156,7 +156,7 @@ def _service(
     return ARIELSearchService(config=config, pool=pool, repository=repository)
 
 
-def _enabled(tmp_path: Path, **overrides: Any) -> dict[str, Any]:
+def _enabled(**overrides: Any) -> dict[str, Any]:
     """An enabled vocabulary block with optional overrides."""
     block: dict[str, Any] = {"enabled": True}
     block.update(overrides)
@@ -173,7 +173,7 @@ class TestExpandQueryIsServiceOnly:
     async def test_expand_query_never_in_module_kwargs(self, tmp_path: Path) -> None:
         """A module never receives the ``expand_query`` control itself."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor(
                 "keyword",
@@ -192,7 +192,7 @@ class TestExpandQueryIsServiceOnly:
     async def test_advanced_params_dict_is_not_mutated(self, tmp_path: Path) -> None:
         """The caller's own dict survives the search unchanged (identity too)."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor(
                 "keyword",
@@ -223,7 +223,7 @@ class TestArgumentContract:
         """A parser+expansion descriptor gets both, and the parser runs once."""
         recorder = _Recorder()
         parser = MagicMock(side_effect=parse_keyword_query)
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor("keyword", recorder, accepts_expansion=True, query_parser=parser)
         }
@@ -250,7 +250,7 @@ class TestArgumentContract:
     ) -> None:
         """Default flags: no new kwargs, entries still returned, no expansion."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {"keyword": _descriptor("keyword", recorder)}
 
         with patch("osprey.registry.get_registry", return_value=_registry(descriptors)):
@@ -266,7 +266,7 @@ class TestArgumentContract:
     async def test_parser_without_expansion_opt_in_gets_parsed_only(self, tmp_path: Path) -> None:
         """``parsed=`` is passed for a declared parser even with no expansion."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor("keyword", recorder, query_parser=parse_keyword_query)
         }
@@ -304,7 +304,7 @@ class TestExpansionResolution:
     async def test_expand_query_false_suppresses_expansion(self, tmp_path: Path) -> None:
         """An explicit false wins over ``expand_by_default: true``."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
 
         result = await self._run(service, recorder, advanced_params={"expand_query": False})
 
@@ -315,7 +315,7 @@ class TestExpansionResolution:
     async def test_expand_by_default_true_with_flag_unset(self, tmp_path: Path) -> None:
         """Unset ``expand_query`` follows ``expand_by_default: true``."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path, expand_by_default=True))
+        service = _service(tmp_path, vocabulary=_enabled(expand_by_default=True))
 
         await self._run(service, recorder)
 
@@ -325,7 +325,7 @@ class TestExpansionResolution:
     async def test_expand_by_default_false_with_flag_unset(self, tmp_path: Path) -> None:
         """Unset ``expand_query`` follows ``expand_by_default: false``."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path, expand_by_default=False))
+        service = _service(tmp_path, vocabulary=_enabled(expand_by_default=False))
 
         result = await self._run(service, recorder)
 
@@ -338,7 +338,7 @@ class TestExpansionResolution:
     ) -> None:
         """An explicit true wins over ``expand_by_default: false``."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path, expand_by_default=False))
+        service = _service(tmp_path, vocabulary=_enabled(expand_by_default=False))
 
         await self._run(service, recorder, advanced_params={"expand_query": True})
 
@@ -360,7 +360,7 @@ class TestExpansionResolution:
         recorder = _Recorder()
         service = _service(
             tmp_path,
-            vocabulary=_enabled(tmp_path, expand_modes=["keyword"]),
+            vocabulary=_enabled(expand_modes=["keyword"]),
             modes=("keyword", "semantic"),
         )
 
@@ -375,7 +375,7 @@ class TestExpansionResolution:
         recorder = _Recorder()
         service = _service(
             tmp_path,
-            vocabulary=_enabled(tmp_path, expand_modes=["keyword"]),
+            vocabulary=_enabled(expand_modes=["keyword"]),
             modes=("keyword", "semantic"),
         )
 
@@ -411,7 +411,7 @@ class TestMatchingText:
     @pytest.mark.asyncio
     async def test_field_filter_value_does_not_expand(self, tmp_path: Path) -> None:
         """``author:ts bpm`` expands only ``bpm`` -- the filter value is not text."""
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
 
         expansion = await self._expansion_for(
             service, "author:ts bpm", query_parser=parse_keyword_query
@@ -422,7 +422,7 @@ class TestMatchingText:
     @pytest.mark.asyncio
     async def test_pattern_body_does_not_expand(self, tmp_path: Path) -> None:
         """A ``/regex/`` body contributes nothing to the matching text."""
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
 
         expansion = await self._expansion_for(
             service, "ts /SR01C___BPM[0-9]+/", query_parser=parse_keyword_query
@@ -434,7 +434,7 @@ class TestMatchingText:
     @pytest.mark.asyncio
     async def test_parserless_module_expands_over_the_whole_query(self, tmp_path: Path) -> None:
         """With no parser declared, the whole query is the matching text."""
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
 
         parsed_expansion = await self._expansion_for(
             service, "ts /SR01C___BPM[0-9]+/", query_parser=parse_keyword_query
@@ -450,7 +450,7 @@ class TestMatchingText:
     @pytest.mark.asyncio
     async def test_quoted_phrase_is_part_of_the_matching_text(self, tmp_path: Path) -> None:
         """A quoted phrase still triggers a concept."""
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
 
         expansion = await self._expansion_for(
             service, '"beam position monitor" fault', query_parser=parse_keyword_query
@@ -471,7 +471,7 @@ class TestBooleanOperatorQueries:
     ) -> None:
         """``ts AND bpm`` runs unexpanded and says so."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor(
                 "keyword",
@@ -496,7 +496,7 @@ class TestBooleanOperatorQueries:
     async def test_parserless_boolean_query_still_expands(self, tmp_path: Path) -> None:
         """The skip is keyword-shaped: it needs a parse to be decided."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path), modes=("keyword", "semantic"))
+        service = _service(tmp_path, vocabulary=_enabled(), modes=("keyword", "semantic"))
         descriptors = {"semantic": _descriptor("semantic", recorder, accepts_expansion=True)}
 
         with patch("osprey.registry.get_registry", return_value=_registry(descriptors)):
@@ -516,7 +516,7 @@ class TestExpandedTermsPopulation:
         """On success the groups come from the module's own ``ModuleOutput``."""
         applied = (ExpansionGroup(original="ts", alternatives=("troubleshoot",)),)
         recorder = _Recorder(result=ModuleOutput(entries=[ENTRY_ROW], expansion=applied))
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor(
                 "keyword",
@@ -544,7 +544,7 @@ class TestExpandedTermsPopulation:
             category="fallback",
         )
         recorder = _Recorder(result=ModuleOutput(entries=[ENTRY_ROW], diagnostics=(diagnostic,)))
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {"keyword": _descriptor("keyword", recorder)}
 
         with patch("osprey.registry.get_registry", return_value=_registry(descriptors)):
@@ -556,7 +556,7 @@ class TestExpandedTermsPopulation:
     async def test_bare_list_return_reports_no_expansion(self, tmp_path: Path) -> None:
         """A module that ignored the offered expansion reports empty groups."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor(
                 "keyword",
@@ -583,7 +583,7 @@ class TestFailurePaths:
     async def test_module_error_result_carries_the_resolved_expansion(self, tmp_path: Path) -> None:
         """A failing module yields an error result with the resolved groups."""
         recorder = _Recorder(raises=RuntimeError("boom"))
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor(
                 "keyword",
@@ -607,7 +607,7 @@ class TestFailurePaths:
         """``SearchTimeoutError`` reaches ``ainvoke``'s handler, not the generic one."""
         timeout = SearchTimeoutError("too slow", 10.0, "keyword search")
         recorder = _Recorder(raises=timeout)
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor(
                 "keyword",
@@ -636,7 +636,7 @@ class TestFailurePaths:
         what the MCP tools turn into an ``invalid_pattern`` error envelope.
         """
         recorder = _Recorder(raises=PatternError("invalid regex", pattern="SR0[1-4"))
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         descriptors = {
             "keyword": _descriptor(
                 "keyword",
@@ -663,7 +663,7 @@ class TestFailurePaths:
     async def test_broken_vocabulary_makes_search_raise(self, tmp_path: Path) -> None:
         """A stored vocabulary error kills the search path loudly."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path), yml=MALFORMED_VOCABULARY_YML)
+        service = _service(tmp_path, vocabulary=_enabled(), yml=MALFORMED_VOCABULARY_YML)
         assert service.config.vocabulary_errors
         descriptors = {"keyword": _descriptor("keyword", recorder)}
 
@@ -705,7 +705,7 @@ class TestTruncation:
     async def test_form_past_the_cap_never_expands(self, tmp_path: Path) -> None:
         """A concept form beyond ``MAX_QUERY_LENGTH`` is cut before matching."""
         recorder = _Recorder()
-        service = _service(tmp_path, vocabulary=_enabled(tmp_path))
+        service = _service(tmp_path, vocabulary=_enabled())
         query = ("filler " * 200)[:1195] + " bpm"
         assert len(query) > 1000
         assert query.index("bpm") > 1000

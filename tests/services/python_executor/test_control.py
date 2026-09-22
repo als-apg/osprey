@@ -76,7 +76,7 @@ class TestValidate:
 
 class TestGetExecutionControlConfigFactory:
     def test_reads_writes_enabled_true(self, monkeypatch):
-        def fake_get_config_value(path, default=None, config_path=None):
+        def fake_get_config_value(path, _default=None, _config_path=None):
             assert path == "control_system"
             return {"writes_enabled": True, "type": "mock"}
 
@@ -96,7 +96,7 @@ class TestGetExecutionControlConfigFactory:
         assert cfg.control_system_type == control_mod.MOCK
 
     def test_exception_falls_back_to_safe_defaults(self, monkeypatch):
-        def boom(path, default=None, config_path=None):
+        def boom(_path, _default=None, _config_path=None):
             raise RuntimeError("config unavailable")
 
         monkeypatch.setattr("osprey.utils.config.get_config_value", boom)

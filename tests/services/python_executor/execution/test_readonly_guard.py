@@ -105,17 +105,17 @@ class _RecordingContext:
         self.puts = []
         self.rpcs = []
 
-    def put(self, name, values, request=None, timeout=5.0, **kwargs):
+    def put(self, name, values, request=None, timeout=5.0, **kwargs):  # noqa: ARG002 - p4p Context signature
         self.puts.append((name, values))
         return "put-done"
 
-    def rpc(self, name, value=None, request=None, timeout=5.0):
+    def rpc(self, name, value=None, request=None, timeout=5.0):  # noqa: ARG002 - p4p Context signature
         self.rpcs.append((name, value))
         return "rpc-done"
 
 
 class _AsyncRecordingContext(_RecordingContext):
-    async def put(self, name, values, request=None, timeout=5.0, **kwargs):
+    async def put(self, name, values, request=None, timeout=5.0, **kwargs):  # noqa: ARG002 - p4p Context signature
         self.puts.append((name, values))
         return "put-done"
 
@@ -129,7 +129,7 @@ def _install_fake_epics(monkeypatch):
         writes.append(("ca.put", chid, value))
         return 1
 
-    def caput(pvname, value, wait=False, timeout=60, **kwargs):
+    def caput(pvname, value, wait=False, timeout=60, **kwargs):  # noqa: ARG001 - pyepics caput signature
         writes.append(("caput", pvname, value))
         return 1
 
@@ -137,7 +137,7 @@ def _install_fake_epics(monkeypatch):
         def __init__(self, pvname):
             self.pvname = pvname
 
-        def put(self, value, wait=False, timeout=60, **kwargs):
+        def put(self, value, wait=False, timeout=60, **kwargs):  # noqa: ARG002 - pyepics PV.put signature
             writes.append(("PV.put", self.pvname, value))
             return 1
 
@@ -399,7 +399,7 @@ def test_readonly_refuses_pvaccess_typed_setters(monkeypatch):
         def putDouble(self, value):  # noqa: N802 — pvaPy's own spelling
             writes.append(("putDouble", value))
 
-        def asyncPut(self, value, callback=None):  # noqa: N802 — pvaPy's own spelling
+        def asyncPut(self, value, callback=None):  # noqa: ARG002, N802 - pvaPy asyncPut signature
             writes.append(("asyncPut", value))
 
         def parsePut(self, args):  # noqa: N802 — pvaPy's own spelling
@@ -441,7 +441,7 @@ def test_readonly_refuses_tango_write_attribute(monkeypatch):
         def command_inout(self, command, arg=None):
             writes.append((command, arg))
 
-        def read_attribute(self, attr):
+        def read_attribute(self, attr):  # noqa: ARG002 - PyTango DeviceProxy signature
             return 1.0
 
     mod.DeviceProxy = DeviceProxy
@@ -470,7 +470,7 @@ def test_readonly_refuses_doocs4py_set(monkeypatch):
     def _set(address, value):
         writes.append((address, value))
 
-    def _get(address):
+    def _get(address):  # noqa: ARG001 - the doocs4py get signature
         return 1.0
 
     mod.set = _set
@@ -498,7 +498,7 @@ def test_readonly_refuses_aioca_caput(monkeypatch):
     async def caput(pv, value, **kwargs):
         writes.append((pv, value))
 
-    async def caget(pv, **kwargs):
+    async def caget(pv, **kwargs):  # noqa: ARG001 - the aioca caget signature
         return 1.0
 
     mod.caput = caput

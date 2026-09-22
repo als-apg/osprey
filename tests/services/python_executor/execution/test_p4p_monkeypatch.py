@@ -105,11 +105,11 @@ class RawRecordingContext:
         self.rpcs = []
         self.raw_puts = []
 
-    def put(self, name, handler, builder=None, request=None, get=True):
+    def put(self, name, handler, builder=None, request=None, get=True):  # noqa: ARG002 - p4p raw Context signature
         self.raw_puts.append((name, builder))
         return "raw-put-done"
 
-    def rpc(self, name, handler, value=None, request=None):
+    def rpc(self, name, handler, value=None, request=None):  # noqa: ARG002 - p4p raw Context signature
         self.rpcs.append((name, value))
         return "raw-rpc-done"
 
@@ -126,7 +126,7 @@ class HandlerGetRawContext(RawRecordingContext):
     untested.
     """
 
-    def get(self, name, handler, request=None):
+    def get(self, name, handler, request=None):  # noqa: ARG002 - p4p raw Context signature
         handler(1.0)
         return "raw-get-started"
 
@@ -140,12 +140,12 @@ class RecordingContext:
     the raw class cannot outlive the test that installed it.
     """
 
-    def put(self, name, values, request=None, timeout=5.0, **kwargs):
+    def put(self, name, values, request=None, timeout=5.0, **kwargs):  # noqa: ARG002 - p4p Context signature
         self.puts.append((name, values))
         super().put(name, None, builder=values)
         return "put-done"
 
-    def rpc(self, name, value=None, request=None, timeout=5.0):
+    def rpc(self, name, value=None, request=None, timeout=5.0):  # noqa: ARG002 - p4p Context signature
         self.rpcs.append((name, value))
         return "rpc-done"
 
@@ -153,7 +153,7 @@ class RecordingContext:
 class AsyncRecordingContext(RecordingContext):
     """Stand-in for the asyncio flavor, whose real ``put`` is a coroutine."""
 
-    async def put(self, name, values, request=None, timeout=5.0, **kwargs):
+    async def put(self, name, values, request=None, timeout=5.0, **kwargs):  # noqa: ARG002 - p4p Context signature
         self.puts.append((name, values))
         super(RecordingContext, self).put(name, None, builder=values)
         return "put-done"
@@ -183,10 +183,10 @@ def _make_fake_epics():
     def _ca_create_channel(pvname, **kwargs):
         return _FakeChid(pvname)
 
-    def _ca_put(chid, value, wait=False, timeout=60, **kwargs):
+    def _ca_put(chid, value, wait=False, timeout=60, **kwargs):  # noqa: ARG001 - pyepics ca.put signature
         return 1
 
-    def _ca_get(chid, timeout=60, **kwargs):
+    def _ca_get(chid, timeout=60, **kwargs):  # noqa: ARG001 - pyepics ca.get signature
         return 1.0
 
     ca.name = _ca_name
@@ -251,7 +251,7 @@ def _install_fake_p4p(
         flavor_mod = ModuleType(f"p4p.client.{flavor}")
         if flavor in broken:
 
-            def _boom(attr, _flavor=flavor):
+            def _boom(_attr, _flavor=flavor):
                 raise RuntimeError(f"{_flavor} client is broken")
 
             flavor_mod.__getattr__ = _boom

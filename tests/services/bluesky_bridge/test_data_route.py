@@ -571,7 +571,7 @@ def test_a_table_part_that_cannot_be_read_is_not_swallowed(
     class _VanishedTablePart(_FakeTablePart):
         """Listed by the container, gone by the time its payload is fetched."""
 
-        def read(self, columns: list[str] | None = None):
+        def read(self, _columns: list[str] | None = None):
             raise KeyError("internal")
 
     run_node = _FakeRunNode(
@@ -992,7 +992,7 @@ def test_a_catalog_that_raises_mid_read_is_refused_rather_than_crashed(
     from fastapi.testclient import TestClient
 
     class _VanishingClient(_FakeTiledClient):
-        def search(self, query):
+        def search(self, _query):
             raise OSError("connection reset by peer")
 
     monkeypatch.setenv(_TILED_URI_ENV, "http://tiled:8000")

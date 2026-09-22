@@ -93,7 +93,7 @@ def _patch_scheduler(
             self.stop_calls = 0
             made.append(self)
 
-        async def poll_once(self, dry_run: bool = False, limit: int | None = None):
+        async def poll_once(self, dry_run: bool = False, limit: int | None = None):  # noqa: ARG002 - the poll_once signature
             self.inner_polls += 1
             if order is not None:
                 order.append("poll")
@@ -119,12 +119,12 @@ def _patch_poll_neighbours(
     """Fake the resync pre-step and the enhance cleanup around the poll."""
     enhance_calls: list[dict[str, Any]] = []
 
-    async def _resync(config_dict: dict, progress: Any = None):
+    async def _resync(config_dict: dict, progress: Any = None):  # noqa: ARG001 - the resync_qmd_mirror_best_effort signature
         if order is not None:
             order.append("resync")
         return None
 
-    async def _enhance(config_dict: dict, module=None, force=False, limit=0, progress=None):
+    async def _enhance(config_dict: dict, module=None, force=False, limit=0, progress=None):  # noqa: ARG001 - the run_enhance signature
         if order is not None:
             order.append("enhance")
         enhance_calls.append({"module": module, "force": force, "limit": limit})
@@ -141,7 +141,7 @@ def _patch_sync(monkeypatch: pytest.MonkeyPatch, error: Exception | None = None)
     """Replace the sync half; returns the call log so order can be asserted."""
     order: list[str] = []
 
-    async def _sync(config_dict, limit=None, progress=None):
+    async def _sync(config_dict, limit=None, progress=None):  # noqa: ARG001 - the run_sync signature
         order.append("sync")
         if error is not None:
             raise error
@@ -164,7 +164,7 @@ def _patch_watch(
     drove ``run_watch`` with.
     """
 
-    async def _watch(config_dict, source, adapter, once, interval, dry_run, progress=None, **kw):
+    async def _watch(config_dict, source, adapter, once, interval, dry_run, progress=None, **kw):  # noqa: ARG001 - the run_watch signature
         if order is not None:
             order.append("watch")
         if seen is not None:
@@ -274,7 +274,7 @@ class TestRunSyncWatch:
         started = asyncio.Event()
         reached: list[str] = []
 
-        async def _sync(config_dict, limit=None, progress=None):
+        async def _sync(config_dict, limit=None, progress=None):  # noqa: ARG001 - the run_sync signature
             started.set()
             await asyncio.Event().wait()
 
@@ -351,7 +351,7 @@ class TestSyncWatchCommand:
     def _patch_composite(self, monkeypatch, result: Any = None, error: BaseException | None = None):
         calls: list[dict[str, Any]] = []
 
-        async def _composite(config_dict, progress=None):
+        async def _composite(config_dict, progress=None):  # noqa: ARG001 - the run_sync_watch signature
             calls.append({"config_dict": config_dict})
             if error is not None:
                 raise error
@@ -398,7 +398,7 @@ class TestSyncWatchCommand:
         composite_calls = self._patch_composite(monkeypatch, result=None)
         sync_calls: list[Any] = []
 
-        async def _sync(config_dict, limit=None, progress=None):
+        async def _sync(config_dict, limit=None, progress=None):  # noqa: ARG001 - the run_sync signature
             sync_calls.append(limit)
             return ops.SyncResult(
                 migrations_applied=0,

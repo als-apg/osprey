@@ -148,7 +148,7 @@ def _forbid_service(
     """Make service creation an error, for paths that must not reach it."""
     import osprey.services.ariel_search as ariel_pkg
 
-    async def _fake_create(config):
+    async def _fake_create(_config):
         raise AssertionError(reason)
 
     monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)
@@ -158,7 +158,7 @@ def _patch_adapter(monkeypatch: pytest.MonkeyPatch, adapter: Any) -> None:
     """Route ``get_adapter`` to *adapter*, or raise it if it is an exception."""
     import osprey.services.ariel_search.ingestion as ing
 
-    def _fake_get(config):
+    def _fake_get(_config):
         if isinstance(adapter, Exception):
             raise adapter
         return adapter

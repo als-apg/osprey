@@ -142,7 +142,7 @@ def _install_catalog(monkeypatch: pytest.MonkeyPatch, *specs: PlanSpec[Any]) -> 
     )
 
 
-def _echo_render(window: RowWindow, params: Any) -> Figure:
+def _echo_render(window: RowWindow, _params: Any) -> Figure:
     """A deterministic render built row-by-row from what it was handed.
 
     One series per detector-ish column, y taken verbatim (None survives as a
@@ -487,7 +487,7 @@ def test_schema_drift_is_params_mismatch(
 def test_raising_render_is_render_failed(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def exploding(window: RowWindow, params: Any) -> Figure:
+    def exploding(_window: RowWindow, _params: Any) -> Figure:
         raise RuntimeError("boom")
 
     _install_catalog(monkeypatch, _spec("bad", render=exploding))
@@ -569,7 +569,7 @@ def test_render_is_handed_the_window_with_the_sources_completeness(
     the cap's value and watching that copy go stale."""
     seen: list[RowWindow] = []
 
-    def capturing_render(window: RowWindow, params: Any) -> Figure:
+    def capturing_render(window: RowWindow, _params: Any) -> Figure:
         seen.append(window)
         return Figure(panels=[], partial=True, source="live")
 
@@ -782,7 +782,7 @@ def test_tiled_read_failure_is_source_unavailable_not_a_500(
     pytest.importorskip("tiled")
     monkeypatch.setenv(_TILED_URI_ENV, "http://tiled:8000")
 
-    def broken_from_uri(uri, **kwargs):
+    def broken_from_uri(uri, **kwargs):  # noqa: ARG001 - the tiled from_uri signature
         raise ConnectionError("catalog unreachable")
 
     monkeypatch.setattr("tiled.client.from_uri", broken_from_uri)
@@ -909,7 +909,7 @@ def test_plan_bars_are_decimated_with_categories_kept_aligned(
 ) -> None:
     n = 3000
 
-    def bars_render(window: RowWindow, params: Any) -> Figure:
+    def bars_render(_window: RowWindow, _params: Any) -> Figure:
         return Figure(
             panels=[
                 Panel(
@@ -959,7 +959,7 @@ def test_inconsistent_plan_decimation_truth_is_render_failed(
     `decimate` report a series as larger after decimation than before — plan
     garbage, degraded like any other render failure."""
 
-    def lying_render(window: RowWindow, params: Any) -> Figure:
+    def lying_render(_window: RowWindow, _params: Any) -> Figure:
         figure = _long_lines_figure(2001)
         figure.panels[0].mark.series[0].source_points = 5  # type: ignore[union-attr]
         return figure

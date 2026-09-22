@@ -708,7 +708,7 @@ class TestSearchResultRendering:
         canned = self._keyword_result()
         stub = self._StubService(canned)
 
-        async def fake_create(config):
+        async def fake_create(_config):
             return stub
 
         monkeypatch.setattr(ariel_pkg, "create_ariel_service", fake_create)
@@ -735,7 +735,7 @@ class TestSearchResultRendering:
             lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
         )
 
-        async def fake_run_search(config_dict, query, mode, limit):
+        async def fake_run_search(_config_dict, query, _mode, _limit):
             return {
                 "query": query,
                 "answer": None,
@@ -778,7 +778,7 @@ class TestSearchResultRendering:
             lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
         )
 
-        async def fake_run_search(config_dict, query, mode, limit):
+        async def fake_run_search(_config_dict, query, _mode, _limit):
             return {
                 "query": query,
                 "answer": None,
@@ -922,7 +922,7 @@ class TestVocabCheckCommand:
         """Outside a project directory the config loader raises; PATH must still work."""
         path = self._write(tmp_path, _AMBIGUOUS)
 
-        def _no_project(key, default=None):
+        def _no_project(_key, _default=None):
             raise FileNotFoundError("No config.yml found in current directory")
 
         monkeypatch.setattr("osprey.cli.ariel.get_config_value", _no_project)
@@ -933,7 +933,7 @@ class TestVocabCheckCommand:
         assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
 
     def test_no_path_outside_a_project_still_reports_the_missing_config(self, runner, monkeypatch):
-        def _no_project(key, default=None):
+        def _no_project(_key, _default=None):
             raise FileNotFoundError("No config.yml found in current directory")
 
         monkeypatch.setattr("osprey.cli.ariel.get_config_value", _no_project)
@@ -1005,7 +1005,7 @@ class TestStatusVocabularyLine:
         )
 
     def _patch_status(self, monkeypatch, result):
-        async def fake_get_status(config_dict, *, config_dir=None):
+        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
             return result
 
         monkeypatch.setattr(

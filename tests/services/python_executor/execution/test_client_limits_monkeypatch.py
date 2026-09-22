@@ -139,11 +139,11 @@ def _install_fake_epics(monkeypatch, writes=None):
     def _ca_create_channel(pvname, **kwargs):
         return _FakeChid(pvname)
 
-    def _ca_put(chid, value, wait=False, timeout=60, **kwargs):
+    def _ca_put(chid, value, wait=False, timeout=60, **kwargs):  # noqa: ARG001 - pyepics ca.put signature
         writes.append((ca.name(chid), value))
         return 1
 
-    def _ca_get(chid, timeout=60, **kwargs):
+    def _ca_get(chid, timeout=60, **kwargs):  # noqa: ARG001 - pyepics ca.get signature
         return 1.0
 
     ca.name = _ca_name
@@ -229,19 +229,19 @@ class _RecordingRawContext:
     is what distinguishes a direct raw put from a flavour's own put.
     """
 
-    def __init__(self, provider="pva", **kwargs):
+    def __init__(self, provider="pva", **kwargs):  # noqa: ARG002 - p4p raw Context signature
         self.puts = []
         self.rpcs = []
 
-    def put(self, name, handler, builder=None, request=None, **kwargs):
+    def put(self, name, handler, builder=None, request=None, **kwargs):  # noqa: ARG002 - p4p raw Context signature
         self.puts.append((name, builder))
         return "put-done"
 
-    def rpc(self, name, handler, value=None, **kwargs):
+    def rpc(self, name, handler, value=None, **kwargs):  # noqa: ARG002 - p4p raw Context signature
         self.rpcs.append((name, value))
         return "rpc-done"
 
-    def get(self, name, handler=None, request=None, **kwargs):
+    def get(self, name, handler=None, request=None, **kwargs):  # noqa: ARG002 - p4p raw Context signature
         return 1.0
 
 
@@ -262,15 +262,15 @@ def _install_fake_p4p(monkeypatch):
         """A flavour Context: subclasses raw as p4p's flavours do, and takes
         the flavour ``put`` signature (a name and values, no handler)."""
 
-        def put(self, name, values, request=None, timeout=5.0, **kwargs):
+        def put(self, name, values, request=None, timeout=5.0, **kwargs):  # noqa: ARG002 - p4p Context signature
             self.puts.append((name, values))
             return "put-done"
 
-        def rpc(self, name, value=None, request=None, timeout=5.0):
+        def rpc(self, name, value=None, request=None, timeout=5.0):  # noqa: ARG002 - p4p Context signature
             self.rpcs.append((name, value))
             return "rpc-done"
 
-        def get(self, name, request=None, timeout=5.0):
+        def get(self, name, request=None, timeout=5.0):  # noqa: ARG002 - p4p Context signature
             return 1.0
 
     p4p_mod.client = client_mod
@@ -334,43 +334,43 @@ def _install_fake_pvaccess(monkeypatch, writes=None, reads=None, read=None):
     mod = _fake_module("pvaccess")
 
     class Channel:
-        def __init__(self, name, provider=None):
+        def __init__(self, name, provider=None):  # noqa: ARG002 - pvaPy Channel signature
             self._name = name
             self.current = 1.0
 
         def getName(self):  # noqa: N802 - pvaccess spells it this way
             return self._name
 
-        def get(self, request=""):
+        def get(self, request=""):  # noqa: ARG002 - pvaPy Channel signature
             reads.append(self._name)
             if read is not None:
                 return read(self._name)
             return _FakePvObject({"value": self.current})
 
-        def put(self, value, request=""):
+        def put(self, value, request=""):  # noqa: ARG002 - pvaPy Channel signature
             writes.append((self._name, value))
             return "put-done"
 
-        def putDouble(self, value, request=""):  # noqa: N802
+        def putDouble(self, value, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
             writes.append((self._name, value))
             return "put-done"
 
-        def putGet(self, value, request=""):  # noqa: N802
+        def putGet(self, value, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
             writes.append((self._name, value))
             return _FakePvObject({"value": value})
 
-        def asyncPut(self, value, callback=None, request=""):  # noqa: N802
+        def asyncPut(self, value, callback=None, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
             # pvaPy's asynchronous write: a PvObject first, the completion
             # callback second. A write whose name does not start with "put".
             writes.append((self._name, value))
             return "async-put-done"
 
-        def parsePut(self, args, request=""):  # noqa: N802
+        def parsePut(self, args, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
             # Takes a LIST OF JSON STRINGS, not a value object.
             writes.append((self._name, args))
             return "parse-put-done"
 
-        def parsePutGet(self, args, request=""):  # noqa: N802
+        def parsePutGet(self, args, request=""):  # noqa: ARG002, N802 - pvaPy Channel signature
             writes.append((self._name, args))
             return _FakePvObject({"value": args})
 
@@ -443,7 +443,7 @@ def _install_fake_tango(monkeypatch, writes=None, commands=None, group_calls=Non
     class Connection:
         """The class PyTango really defines the two command spellings on."""
 
-        def command_inout(self, name, cmd_param=None, *, green_mode=None, wait=None, timeout=None):
+        def command_inout(self, name, cmd_param=None, *, green_mode=None, wait=None, timeout=None):  # noqa: ARG002 - PyTango DeviceProxy signature
             commands.append((name, cmd_param))
             return "commanded"
 
@@ -474,12 +474,12 @@ def _install_fake_tango(monkeypatch, writes=None, commands=None, group_calls=Non
             writes.extend(list(name_val))
             return "written"
 
-        def write_attributes_asynch(self, attr_values, cb=None):
+        def write_attributes_asynch(self, attr_values, cb=None):  # noqa: ARG002 - PyTango DeviceProxy signature
             # PyTango names the pairs ``attr_values`` on this spelling alone.
             writes.extend(list(attr_values))
             return 2
 
-        def write_read_attributes(self, name_val, attr_read_names=None):
+        def write_read_attributes(self, name_val, attr_read_names=None):  # noqa: ARG002 - PyTango DeviceProxy signature
             writes.extend(list(name_val))
             return "read-back-many"
 
@@ -524,22 +524,22 @@ def _install_fake_tango(monkeypatch, writes=None, commands=None, group_calls=Non
         def get_name(self):
             return self._name
 
-        def add(self, pattern):
+        def add(self, pattern):  # noqa: ARG002 - PyTango Group signature
             return None
 
-        def write_attribute(self, attr_name, value, forward=True, multi=False):
+        def write_attribute(self, attr_name, value, forward=True, multi=False):  # noqa: ARG002 - PyTango Group signature
             group_calls.append(("write_attribute", attr_name, value))
             return "written"
 
-        def write_attribute_asynch(self, attr_name, value, forward=True, multi=False):
+        def write_attribute_asynch(self, attr_name, value, forward=True, multi=False):  # noqa: ARG002 - PyTango Group signature
             group_calls.append(("write_attribute_asynch", attr_name, value))
             return 1
 
-        def command_inout(self, cmd_name, param=None, forward=True):
+        def command_inout(self, cmd_name, param=None, forward=True):  # noqa: ARG002 - PyTango Group signature
             group_calls.append(("command_inout", cmd_name, param))
             return "commanded"
 
-        def command_inout_asynch(self, cmd_name, param=None, forget=False, forward=True):
+        def command_inout_asynch(self, cmd_name, param=None, forget=False, forward=True):  # noqa: ARG002 - PyTango Group signature
             group_calls.append(("command_inout_asynch", cmd_name, param))
             return 1
 
@@ -619,7 +619,7 @@ def _install_fake_caproto(monkeypatch, writes=None, reads=None, read_kwargs=None
     class Batch:
         """caproto's request batcher: its write carries the PV to drive."""
 
-        def write(self, pv, data, callback=None, **kwargs):
+        def write(self, pv, data, callback=None, **kwargs):  # noqa: ARG002 - caproto Batch write signature
             writes.append((pv.name, data))
             return "batched"
 

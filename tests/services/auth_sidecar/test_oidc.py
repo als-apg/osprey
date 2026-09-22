@@ -129,10 +129,10 @@ class FakeOIDCClient:
         self.redirect_uri = redirect_uri
         return {"url": IDP_AUTHORIZE_URL, "state": self.state, "nonce": "nonce-value"}
 
-    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:
+    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:  # noqa: ARG002 - the OIDC client signature
         self.saved = kwargs
 
-    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:
+    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002 - the OIDC client signature
         # Authlib's own signature takes keyword arguments the callback supplies
         # (claims_options above all, which is what makes it check the audience).
         # Accepting and recording them keeps this stand-in callable wherever the

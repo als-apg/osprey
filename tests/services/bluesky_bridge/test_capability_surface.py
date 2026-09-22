@@ -342,7 +342,7 @@ def test_sidecar_relays_the_health_document_verbatim() -> None:
 
 
 def test_sidecar_reports_an_unreachable_bridge_as_502() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
     with TestClient(_sidecar(handler)) as client:
@@ -362,7 +362,7 @@ def test_sidecar_health_is_its_own_and_the_bridges_is_one_level_down() -> None:
     """
     from osprey.interfaces.bluesky_web.app import app as sidecar_app
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"status": "ok", "capability": {"from": "bridge"}})
 
     # Set the state the lifespan would; `TestClient` is used without its
