@@ -196,7 +196,7 @@ class TestAuditModels:
 def _make_mock_query(report_json: str):
     """Create a mock async generator that yields an AssistantMessage with report JSON."""
 
-    async def mock_query(prompt, options):
+    async def mock_query(prompt, options):  # noqa: ARG001 - the SDK query signature this stands in for
         msg = MagicMock()
         msg.__class__.__name__ = "AssistantMessage"
         # Make isinstance check work
@@ -439,7 +439,7 @@ class TestReviewerProvider:
         mock_asyncio.run.return_value = (sample_report.model_dump_json(), 0.01, 5)
         seen: dict = {}
 
-        def fake_resolve(project_dir, tier="haiku"):
+        def fake_resolve(project_dir, tier="haiku"):  # noqa: ARG001 - the tier keyword audit_cmd resolves a model with
             seen["project_dir"] = project_dir
             return "resolved-model"
 

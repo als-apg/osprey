@@ -50,7 +50,7 @@ DIGEST_PREFIX_LEN = 12
 def _patch_config(monkeypatch: pytest.MonkeyPatch, block: object) -> None:
     """Make ``services.graphdb`` read as *block* wherever the verb looks it up."""
 
-    def _get_config_value(path: str, default: object = None, config_path: object = None) -> object:
+    def _get_config_value(path: str, default: object = None, _config_path: object = None) -> object:
         if path == "services.graphdb":
             return block
         if path == "services.graphdb.ttl_path":

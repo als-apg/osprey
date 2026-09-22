@@ -861,7 +861,7 @@ def _database_only_addresses(repo: Path) -> list[str]:
     return [address for address in _channel_addresses(database) if address not in served]
 
 
-def _emitted_tree(repo: Path) -> None:
+def _emitted_tree() -> None:
     """Emit once, so the documents this tree's scenarios are judged against exist."""
     result = _emit()
     assert result.exit_code == 0, result.output
@@ -875,7 +875,7 @@ def _served_scenario(repo: Path, name: str) -> Path:
     stated against the machine it will meet rather than against a name typed
     here.
     """
-    _emitted_tree(repo)
+    _emitted_tree()
     channels = _machine_channels(repo)
     assert channels, "the emitted machine carries no channel"
     return _write_scenario(repo, name, channels[0])
@@ -1319,7 +1319,7 @@ class TestVirtualAcceleratorLane:
         # against the machine, so an address that is in the database and not on
         # the machine -- a readback, typically -- is one the simulation would
         # stop on however well it reads.
-        _emitted_tree(va_repo)
+        _emitted_tree()
         absent = _database_only_addresses(va_repo)
         assert absent, "this export seeds every address the database carries"
         _write_scenario(va_repo, "readback-probe", absent[0], key="overrides")

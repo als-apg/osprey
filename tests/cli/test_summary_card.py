@@ -489,7 +489,7 @@ class TestCardPrinting:
         successful deploy with an error."""
         from osprey.deployment import deploy_summary
 
-        def boom(root):
+        def boom(_root):
             raise RuntimeError("build/ moved under us")
 
         monkeypatch.setattr(deploy_summary, "as_built_endpoint_entries", boom)

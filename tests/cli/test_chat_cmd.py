@@ -159,7 +159,7 @@ class TestAgentChildEnvironment:
 
         # Simulate the companions having minted and published both credentials
         # into os.environ, exactly as the real _launch_companion_servers does.
-        def fake_launch(project_dir):
+        def fake_launch(_project_dir):
             os.environ["OSPREY_TERMINAL_SECRET"] = "operator-secret-value"
             os.environ["OSPREY_PANEL_TOKEN"] = "panel-token-value"
             return [("Artifact Gallery", "http://127.0.0.1:8199/?token=operator-secret-value")]
@@ -168,7 +168,7 @@ class TestAgentChildEnvironment:
 
         captured: dict[str, object] = {}
 
-        def fake_run(argv, *args, **kwargs):
+        def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
             captured["env"] = kwargs.get("env")
             return SimpleNamespace(returncode=0)
 
@@ -207,7 +207,7 @@ class TestAgentChildEnvironment:
         )
         monkeypatch.setattr(web_auth, "_CREDENTIALS", holder)
 
-        def fake_launch(project_dir):
+        def fake_launch(_project_dir):
             # A companion started and announced — but by the time chat() runs,
             # the carrier has been closed again by an app construction.
             os.environ.pop("OSPREY_PANEL_TOKEN", None)
@@ -217,7 +217,7 @@ class TestAgentChildEnvironment:
 
         captured: dict[str, object] = {}
 
-        def fake_run(argv, *args, **kwargs):
+        def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
             captured["env"] = kwargs.get("env")
             return SimpleNamespace(returncode=0)
 
@@ -245,7 +245,7 @@ class TestAgentChildEnvironment:
 
         captured: dict[str, object] = {}
 
-        def fake_run(argv, *args, **kwargs):
+        def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
             captured["env"] = kwargs.get("env")
             return SimpleNamespace(returncode=0)
 
@@ -266,7 +266,7 @@ class TestAgentChildEnvironment:
 
         captured: dict[str, object] = {}
 
-        def fake_run(argv, *args, **kwargs):
+        def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
             captured["env"] = kwargs.get("env")
             return SimpleNamespace(returncode=0)
 

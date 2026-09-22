@@ -250,9 +250,9 @@ def _partition(render: Mapping[str, Any], document: Mapping[str, Any]) -> dict[s
     return sets
 
 
-@pytest.mark.parametrize(("preset", "mode", "directory"), _cells())
+@pytest.mark.parametrize(("preset", "_mode", "directory"), _cells())
 def test_root_render_is_partitioned_between_its_sources(
-    preset: str, mode: str | None, directory: str
+    preset: str, _mode: str | None, directory: str
 ) -> None:
     """Every rendered key has exactly one source, and the union is the render."""
     render = _render(directory)
@@ -307,9 +307,9 @@ def test_root_render_is_partitioned_between_its_sources(
     assert not {key for key in config if _under(key, _block_derived_prefixes(document))}
 
 
-@pytest.mark.parametrize(("preset", "mode", "directory"), _cells())
+@pytest.mark.parametrize(("preset", "_mode", "directory"), _cells())
 def test_preset_values_reach_the_render_unchanged(
-    preset: str, mode: str | None, directory: str
+    preset: str, _mode: str | None, directory: str
 ) -> None:
     """A stated value is the rendered value, except where the build resolves it."""
     render = _render(directory)
@@ -331,9 +331,9 @@ def test_preset_values_reach_the_render_unchanged(
         assert render[key] == value, f"{directory}: {key}: preset {value!r}, render {render[key]!r}"
 
 
-@pytest.mark.parametrize(("preset", "mode", "directory"), _cells())
+@pytest.mark.parametrize(("preset", "_mode", "directory"), _cells())
 def test_ports_are_the_layout_fill_and_nothing_else(
-    preset: str, mode: str | None, directory: str
+    preset: str, _mode: str | None, directory: str
 ) -> None:
     """The preset spells no port; the layout fill supplies exactly the render's."""
     render = _render(directory)
@@ -348,9 +348,9 @@ def test_ports_are_the_layout_fill_and_nothing_else(
         assert render[key] == port, f"{directory}: {key} renders {render[key]}, layout says {port}"
 
 
-@pytest.mark.parametrize(("preset", "mode", "directory"), _cells())
+@pytest.mark.parametrize(("preset", "_mode", "directory"), _cells())
 def test_provider_catalog_covers_the_render(
-    preset: str, mode: str | None, directory: str, tmp_path: Path
+    preset: str, _mode: str | None, directory: str, tmp_path: Path
 ) -> None:
     """The packaged catalog carries every provider the old render had.
 

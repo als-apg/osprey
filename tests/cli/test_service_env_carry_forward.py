@@ -136,7 +136,7 @@ def test_a_declared_passthrough_survives_the_injector(tmp_path, name, inject, de
 
 
 @pytest.mark.parametrize(("name", "inject", "derived"), _INJECTORS, ids=_INJECTOR_IDS)
-def test_a_service_that_declares_nothing_gets_no_env_key(tmp_path, name, inject, derived):
+def test_a_service_that_declares_nothing_gets_no_env_key(tmp_path, name, inject, derived):  # noqa: ARG001 - a column of the shared _INJECTORS table
     """No empty ``env: []`` may appear in a config.yml that never carried one.
 
     The axis is additive by construction — the macro renders nothing for a

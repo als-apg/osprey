@@ -1169,7 +1169,7 @@ def test_importing_the_module_stays_off_the_heavy_chain() -> None:
     assert completed.stdout.split() == ["False", "False"]
 
 
-def _completed_reset(repo_root, **kw):
+def _completed_reset(repo_root, **kw):  # noqa: ARG001 - the repo position reset_for_reinit is called at
     """A reset that ran and removed what it planned, without a runtime."""
     from osprey.deployment.reset import ResetOutcome
 
@@ -1245,7 +1245,7 @@ class TestResetFlag:
         ]
         error = _foreign_refusal("demo", "0123456789ab", foreign)
 
-        def _raise(repo_root, **kw):
+        def _raise(repo_root, **kw):  # noqa: ARG001 - the repo position reset_for_reinit is called at
             raise error
 
         monkeypatch.setattr("osprey.deployment.reset.reset_for_reinit", _raise)

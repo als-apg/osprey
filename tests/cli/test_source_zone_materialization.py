@@ -1173,7 +1173,7 @@ def test_failure_after_mkdir_removes_the_target(
 
     boom = RuntimeError("disk went away mid-copy")
 
-    def explode(src, dst, *args, **kwargs):
+    def explode(src, dst, *args, **kwargs):  # noqa: ARG001 - the source and destination positions shutil.copytree is called at
         raise boom
 
     monkeypatch.setattr(shutil_mod, "copytree", explode)

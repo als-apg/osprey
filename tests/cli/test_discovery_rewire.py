@@ -388,7 +388,7 @@ def query_call(monkeypatch: pytest.MonkeyPatch) -> QueryCall:
 
     call = QueryCall()
 
-    async def _record(project_dir, prompt, **_kwargs):
+    async def _record(project_dir, prompt, **_kwargs):  # noqa: ARG001 - the prompt position run_query is called at
         call.project_dir = Path(project_dir)
         return SDKWorkflowResult()
 

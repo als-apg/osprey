@@ -96,7 +96,7 @@ def offered(monkeypatch):
 def _answer(monkeypatch, reporter, answer=True):
     """Answer the prompt, recording where in the seam it was asked."""
 
-    def _confirm(text, **kwargs):
+    def _confirm(text, **kwargs):  # noqa: ARG001 - the message position click.confirm is called at
         reporter.events.append("prompt")
         if isinstance(answer, BaseException):
             raise answer

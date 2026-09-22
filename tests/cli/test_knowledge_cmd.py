@@ -536,7 +536,7 @@ def graph_ttl(tmp_path: Path) -> Path:
 def _patch_config(monkeypatch: pytest.MonkeyPatch, block: object) -> None:
     """Make ``services.graphdb`` read as *block* wherever the verb looks it up."""
 
-    def _get_config_value(path: str, default: object = None, config_path: object = None) -> object:
+    def _get_config_value(path: str, default: object = None, _config_path: object = None) -> object:
         if path == "services.graphdb":
             return block
         if path == "services.graphdb.ttl_path":
@@ -644,7 +644,7 @@ def baked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[Path]:
 
     calls: list[Path] = []
 
-    def _bake(session: object, render_dir: Path) -> list[Path]:
+    def _bake(_session: object, render_dir: Path) -> list[Path]:
         calls.append(render_dir)
         return [render_dir / ".claude" / "agents" / "facility-knowledge-graph.md"]
 
@@ -714,7 +714,7 @@ def test_seed_graph_survives_a_failed_bake(
     (render / "config.yml").write_text("project_name: demo\n", encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
 
-    def _boom(session: object, render_dir: Path) -> list[Path]:
+    def _boom(_session: object, _render_dir: Path) -> list[Path]:
         raise RuntimeError("render is read-only")
 
     monkeypatch.setattr(prompt_snapshot, "bake_snapshot", _boom)
