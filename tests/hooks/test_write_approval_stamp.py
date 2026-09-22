@@ -173,7 +173,8 @@ def reason_of(output):
 # ---------------------------------------------------------------------------
 
 
-def test_a_channel_write_ask_stamps_the_binding_it_rendered(approval, root, state_dir, session):
+@pytest.mark.usefixtures("session")
+def test_a_channel_write_ask_stamps_the_binding_it_rendered(approval, root, state_dir):
     """The ask carries the target line; the stamp carries the same record."""
     publish(root, target="live", generation=7)
 
@@ -189,7 +190,8 @@ def test_a_channel_write_ask_stamps_the_binding_it_rendered(approval, root, stat
     assert stamps[0]["tool"] == "channel_write"
 
 
-def test_the_stamp_names_the_audit_session_that_rendered_it(approval, root, state_dir, session):
+@pytest.mark.usefixtures("session")
+def test_the_stamp_names_the_audit_session_that_rendered_it(approval, root, state_dir):
     """``session`` is the third field of the key, and it comes off the environment.
 
     The server compares it with its own `posture_session()`, so a stamp that
@@ -203,7 +205,8 @@ def test_the_stamp_names_the_audit_session_that_rendered_it(approval, root, stat
     assert stamps_in(state_dir)[0]["session"] == SESSION_A
 
 
-def test_a_session_less_render_stamps_a_null_session(approval, root, state_dir, no_session):
+@pytest.mark.usefixtures("no_session")
+def test_a_session_less_render_stamps_a_null_session(approval, root, state_dir):
     """A bare ``claude`` has no audit session, and the stamp says so plainly.
 
     ``None`` is a claim of its own — "nothing can attribute this stamp" — and
@@ -216,7 +219,8 @@ def test_a_session_less_render_stamps_a_null_session(approval, root, state_dir, 
     assert stamps_in(state_dir)[0]["session"] is None
 
 
-def test_the_stamp_carries_no_process_identity(approval, root, state_dir, session):
+@pytest.mark.usefixtures("session")
+def test_the_stamp_carries_no_process_identity(approval, root, state_dir):
     """No pid in the stamp: the context is the deployment's, not a process tree's.
 
     The pid that used to sit here was the one field of the old stamp that a
@@ -230,9 +234,8 @@ def test_the_stamp_carries_no_process_identity(approval, root, state_dir, sessio
     assert "server_pid" not in stamps_in(state_dir)[0]
 
 
-def test_an_unpublished_deployment_stamps_an_unpublished_binding(
-    approval, root, state_dir, session
-):
+@pytest.mark.usefixtures("root", "session")
+def test_an_unpublished_deployment_stamps_an_unpublished_binding(approval, state_dir):
     """A prompt that could not name the target still records what it showed.
 
     The operator was told the target is unknown. That is a claim, and the server
@@ -256,9 +259,8 @@ def test_an_unpublished_deployment_stamps_an_unpublished_binding(
 
 
 @pytest.mark.parametrize("confirm", [_UNSET, True, False])
-def test_the_stamp_is_filed_under_the_name_the_server_looks_it_up_by(
-    approval, root, state_dir, session, confirm
-):
+@pytest.mark.usefixtures("state_dir", "session")
+def test_the_stamp_is_filed_under_the_name_the_server_looks_it_up_by(approval, root, confirm):
     """One derivation, stated twice: the two spellings must find one file.
 
     The hook cannot import the server's module — it runs outside that venv — so
@@ -310,7 +312,8 @@ def test_the_file_name_carries_the_session_as_well_as_the_payload(
     assert {stamp["session"] for stamp in stamps_in(state_dir)} == {SESSION_A, SESSION_B}
 
 
-def test_session_less_siblings_share_one_file(approval, root, state_dir, no_session):
+@pytest.mark.usefixtures("no_session")
+def test_session_less_siblings_share_one_file(approval, root, state_dir):
     """Two unattributed renders of the same write collide, and that is benign.
 
     Nothing distinguishes one session-less process from another — that is what
@@ -409,8 +412,9 @@ def test_a_stamp_from_another_session_is_not_compared_against(
     assert tool._read_approval_stamp(tool_input["operations"], None) == (False, None)
 
 
+@pytest.mark.usefixtures("state_dir")
 def test_a_key_miss_is_reported_when_this_session_has_other_stamps(
-    approval, root, state_dir, monkeypatch, caplog
+    approval, root, monkeypatch, caplog
 ):
     """The one failure mode of a two-party hash that nothing else would surface.
 
@@ -433,9 +437,8 @@ def test_a_key_miss_is_reported_when_this_session_has_other_stamps(
     assert "deriving different keys" in caplog.text
 
 
-def test_a_session_less_server_does_not_report_a_key_miss(
-    approval, root, state_dir, monkeypatch, caplog, no_session
-):
+@pytest.mark.usefixtures("state_dir", "no_session")
+def test_a_session_less_server_does_not_report_a_key_miss(approval, root, monkeypatch, caplog):
     """With no session, "this server's other stamps" is a question with no answer.
 
     Every session-less process on the checkout files under the same name, so a
@@ -462,7 +465,8 @@ def test_a_session_less_server_does_not_report_a_key_miss(
 # ---------------------------------------------------------------------------
 
 
-def test_other_tools_are_not_stamped(approval, root, state_dir, session):
+@pytest.mark.usefixtures("session")
+def test_other_tools_are_not_stamped(approval, root, state_dir):
     """Only a write binds itself to a target; every other ask leaves nothing."""
     publish(root)
 
@@ -473,7 +477,8 @@ def test_other_tools_are_not_stamped(approval, root, state_dir, session):
     assert stamps_in(state_dir) == []
 
 
-def test_the_legacy_single_channel_payload_is_not_stamped(approval, root, state_dir, session):
+@pytest.mark.usefixtures("session")
+def test_the_legacy_single_channel_payload_is_not_stamped(approval, root, state_dir):
     """A payload shape the tool does not accept cannot be correlated with a call.
 
     The hook still renders these (it describes them for the human), but the MCP
@@ -490,8 +495,9 @@ def test_the_legacy_single_channel_payload_is_not_stamped(approval, root, state_
     assert stamps_in(state_dir) == []
 
 
+@pytest.mark.usefixtures("session")
 def test_an_unwritable_state_directory_still_renders_the_prompt(
-    approval, reader, session, monkeypatch, tmp_path
+    approval, reader, monkeypatch, tmp_path
 ):
     """Fail-open: no stamp is a missed cross-check, a lost prompt is a lost gate."""
     missing = tmp_path / "nope" / "control_target"
@@ -508,7 +514,8 @@ def test_an_unwritable_state_directory_still_renders_the_prompt(
 # ---------------------------------------------------------------------------
 
 
-def test_expired_stamps_are_swept_when_a_new_one_is_written(approval, root, state_dir, session):
+@pytest.mark.usefixtures("session")
+def test_expired_stamps_are_swept_when_a_new_one_is_written(approval, root, state_dir):
     """The directory must not grow one file per write for the life of a project."""
     publish(root)
     stale = state_dir / "write_approval_deadbeef_cafe.json"
@@ -522,7 +529,8 @@ def test_expired_stamps_are_swept_when_a_new_one_is_written(approval, root, stat
     assert len(stamps_in(state_dir)) == 1
 
 
-def test_a_stamp_is_neither_the_record_nor_a_server_report(approval, root, state_dir, session):
+@pytest.mark.usefixtures("session")
+def test_a_stamp_is_neither_the_record_nor_a_server_report(approval, root, state_dir):
     """The readers glob ``server_*.json`` and name ``control_context.json``.
 
     A stamp picked up as a report would be a server with no pid answering for a
@@ -622,9 +630,8 @@ def render_start(approval, monkeypatch, *, snapshot, lane=None, config=None):
     )
 
 
-def test_a_queue_start_render_stamps_the_lane_and_the_queue_token(
-    approval, root, state_dir, session, bridge, monkeypatch
-):
+@pytest.mark.usefixtures("root", "session", "bridge")
+def test_a_queue_start_render_stamps_the_lane_and_the_queue_token(approval, state_dir, monkeypatch):
     """The prompt listed a queue; the stamp says which lane's, and at which token."""
     lines = render_start(approval, monkeypatch, snapshot=queue_snapshot("uid-1"))
 
@@ -637,8 +644,9 @@ def test_a_queue_start_render_stamps_the_lane_and_the_queue_token(
     assert "EVERY pending item" in "\n".join(lines)
 
 
+@pytest.mark.usefixtures("root", "session", "bridge")
 def test_two_lanes_prompted_in_one_turn_leave_one_queue_start_stamp_each(
-    approval, root, state_dir, session, bridge, monkeypatch
+    approval, state_dir, monkeypatch
 ):
     """Parallel tool calls render both prompts before either tool runs.
 
@@ -674,8 +682,9 @@ def test_two_lanes_prompted_in_one_turn_leave_one_queue_start_stamp_each(
     }
 
 
+@pytest.mark.usefixtures("root", "session", "bridge")
 def test_an_unreachable_bridge_nulls_every_queue_start_stamp_of_the_session(
-    approval, root, state_dir, session, bridge, monkeypatch
+    approval, state_dir, monkeypatch
 ):
     """A prompt that showed no queue must leave no token behind it.
 
@@ -709,8 +718,9 @@ def test_an_unreachable_bridge_nulls_every_queue_start_stamp_of_the_session(
     assert "the bridge could not be reached" in "\n".join(lines)
 
 
+@pytest.mark.usefixtures("root", "session", "bridge")
 def test_a_start_naming_no_lane_nulls_every_queue_start_stamp_of_the_session(
-    approval, root, state_dir, session, bridge, monkeypatch
+    approval, state_dir, monkeypatch
 ):
     """The multi-lane no-lane return shows no queue either — and is the one a
     session reaches without the bridge ever being asked."""
@@ -730,8 +740,9 @@ def test_a_start_naming_no_lane_nulls_every_queue_start_stamp_of_the_session(
     assert "Queue contents: not shown" in "\n".join(lines)
 
 
+@pytest.mark.usefixtures("root", "session", "bridge")
 def test_an_unaddressable_lane_nulls_every_queue_start_stamp_of_the_session(
-    approval, root, state_dir, session, bridge, monkeypatch
+    approval, state_dir, monkeypatch
 ):
     """A config that publishes no port for the lane lists nothing, so it binds
     nothing."""
@@ -755,9 +766,8 @@ def test_an_unaddressable_lane_nulls_every_queue_start_stamp_of_the_session(
     assert "publishes no port" in "\n".join(lines)
 
 
-def test_nulling_leaves_another_sessions_queue_start_stamps_alone(
-    approval, root, state_dir, bridge, monkeypatch
-):
+@pytest.mark.usefixtures("root", "bridge")
+def test_nulling_leaves_another_sessions_queue_start_stamps_alone(approval, state_dir, monkeypatch):
     """Two sessions share one agent-data root. One's empty queue is not the
     other's."""
     monkeypatch.setenv("OSPREY_POSTURE_SESSION", SESSION_A)
@@ -772,9 +782,8 @@ def test_nulling_leaves_another_sessions_queue_start_stamps_alone(
     assert stamps[queue_stamp_name(approval, SESSION_B, "bluesky")]["plan_queue_uid"] is None
 
 
-def test_a_session_less_render_writes_no_queue_start_stamp(
-    approval, root, state_dir, no_session, bridge, monkeypatch
-):
+@pytest.mark.usefixtures("root", "no_session", "bridge")
+def test_a_session_less_render_writes_no_queue_start_stamp(approval, state_dir, monkeypatch):
     """The write stamp's `anon` collision is benign because that name is the
     write's own hash. A queue token is nobody's in particular, so an
     unattributed process leaves none at all rather than one every other
@@ -784,8 +793,9 @@ def test_a_session_less_render_writes_no_queue_start_stamp(
     assert queue_stamps_in(state_dir) == {}
 
 
+@pytest.mark.usefixtures("root", "session", "bridge")
 def test_expired_queue_start_stamps_are_swept_when_a_new_one_is_written(
-    approval, root, state_dir, session, bridge, monkeypatch
+    approval, state_dir, monkeypatch
 ):
     """Queue-start stamps share the write stamps' TTL and their pruning."""
     stale = state_dir / "queue_start_approval_deadbeefdeadbeef_bluesky_va.json"
@@ -799,8 +809,9 @@ def test_expired_queue_start_stamps_are_swept_when_a_new_one_is_written(
     assert len(queue_stamps_in(state_dir)) == 1
 
 
+@pytest.mark.usefixtures("session", "bridge")
 def test_a_queue_start_render_leaves_write_approval_stamps_alone(
-    approval, root, state_dir, session, bridge, monkeypatch
+    approval, root, state_dir, monkeypatch
 ):
     """Two stamp kinds, two prefixes, one directory: neither the prune nor the
     null pass may reach across, or an approved write loses the binding a start

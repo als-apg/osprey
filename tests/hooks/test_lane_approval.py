@@ -365,8 +365,9 @@ def test_two_lane_queue_add_names_the_live_lane_with_its_endpoint(
     assert {url for url, _ in bridge_calls} == {LANE_ONE_URL}
 
 
+@pytest.mark.usefixtures("state_dir")
 def test_two_lane_queue_add_without_state_says_the_lane_is_unresolved(
-    approval, fake_bridge, bridge_calls, state_dir
+    approval, fake_bridge, bridge_calls
 ):
     """With no readable state there is no active lane, so there is no honest
     queue to show: the prompt says which lanes exist and that it cannot tell
@@ -527,8 +528,9 @@ def test_queue_start_naming_a_lane_this_deployment_does_not_render(
     assert bridge_calls == []
 
 
+@pytest.mark.usefixtures("state_dir")
 def test_queue_start_without_state_names_the_lane_but_claims_no_mismatch(
-    approval, fake_bridge, bridge_calls, state_dir
+    approval, fake_bridge, bridge_calls
 ):
     """Unknown is not the same claim as mismatched. With no readable state the
     lane is still real and its queue is still its own, so both are shown — what

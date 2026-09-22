@@ -469,7 +469,8 @@ class TestThePostureClampRecordsAndMarks:
         assert _all_records(project) == []
         assert dedup.recorded_decision() is None
 
-    def test_an_unwritable_audit_zone_still_refuses_and_still_marks(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    def test_an_unwritable_audit_zone_still_refuses_and_still_marks(self, monkeypatch):
         """Recording never costs the refusal — and never costs the defer either."""
         monkeypatch.setenv(gates.POSTURE_ENV_VAR, gates.SANDBOX_POSTURE)
 
@@ -734,7 +735,8 @@ class TestAnInnerRecordThatDidNotLand:
 
         assert _all_records(project) == []
 
-    def test_a_failed_write_marks_the_decision_as_unstored(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    def test_a_failed_write_marks_the_decision_as_unstored(self, monkeypatch):
         def boom():
             raise OSError("no audit zone")
 
@@ -753,7 +755,8 @@ class TestAnInnerRecordThatDidNotLand:
         assert marked is not None
         assert marked.stored is False
 
-    def test_a_landed_write_marks_the_decision_as_stored(self, project):
+    @pytest.mark.usefixtures("project")
+    def test_a_landed_write_marks_the_decision_as_stored(self):
         dedup.record_and_mark(
             decision=DECISION_REFUSED,
             reason="runtime_guard",

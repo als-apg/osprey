@@ -143,7 +143,8 @@ def test_generation_zero_is_a_real_generation(state_dir):
 # ---------------------------------------------------------------------------
 
 
-def test_absent_record_yields_baseline_marker(state_dir):
+@pytest.mark.usefixtures("state_dir")
+def test_absent_record_yields_baseline_marker():
     result = reader.read_target()
 
     assert reader.is_baseline(result)
@@ -255,7 +256,8 @@ def test_selected_target_tolerates_any_shape():
 # ---------------------------------------------------------------------------
 
 
-def test_view_folds_the_live_servers_metadata_onto_the_record(state_dir, alive_everything):
+@pytest.mark.usefixtures("alive_everything")
+def test_view_folds_the_live_servers_metadata_onto_the_record(state_dir):
     write_record(state_dir)
     write_report(state_dir, 5150)
 
@@ -270,7 +272,8 @@ def test_view_folds_the_live_servers_metadata_onto_the_record(state_dir, alive_e
     assert reader.target_metadata(view, "live")["real_machine"] is True
 
 
-def test_view_without_a_record_is_no_view(state_dir, alive_everything):
+@pytest.mark.usefixtures("alive_everything")
+def test_view_without_a_record_is_no_view(state_dir):
     write_report(state_dir, 5150)
 
     assert reader.read_target_view() is None
@@ -308,7 +311,8 @@ def test_a_live_report_answers_past_a_dead_one(state_dir, monkeypatch):
     assert reader.target_metadata(view, "va")["label"] == "live"
 
 
-def test_a_corrupt_report_does_not_hide_a_good_sibling(state_dir, alive_everything):
+@pytest.mark.usefixtures("alive_everything")
+def test_a_corrupt_report_does_not_hide_a_good_sibling(state_dir):
     write_record(state_dir)
     (state_dir / "server_100.json").write_text("{not json", encoding="utf-8")
     write_report(state_dir, 200)
@@ -316,7 +320,8 @@ def test_a_corrupt_report_does_not_hide_a_good_sibling(state_dir, alive_everythi
     assert reader.target_metadata(reader.read_target_view(), "va")["endpoint"] == "pva://vasrv"
 
 
-def test_a_report_with_no_metadata_yet_is_passed_over(state_dir, alive_everything):
+@pytest.mark.usefixtures("alive_everything")
+def test_a_report_with_no_metadata_yet_is_passed_over(state_dir):
     write_record(state_dir)
     write_report(state_dir, 100, targets={})
     write_report(state_dir, 200)
@@ -324,7 +329,8 @@ def test_a_report_with_no_metadata_yet_is_passed_over(state_dir, alive_everythin
     assert reader.target_metadata(reader.read_target_view(), "va") is not None
 
 
-def test_unrelated_files_in_the_directory_are_ignored(state_dir, alive_everything):
+@pytest.mark.usefixtures("alive_everything")
+def test_unrelated_files_in_the_directory_are_ignored(state_dir):
     write_record(state_dir)
     (state_dir / "server_notapid.json").write_text("{}", encoding="utf-8")
     (state_dir / "write_approval_abc.json").write_text("{}", encoding="utf-8")
@@ -386,7 +392,8 @@ def test_a_non_string_posture_key_is_dropped(state_dir):
     assert reader.recorded_posture() == {"7": "sandbox"}
 
 
-def test_no_record_reads_as_no_narrowing(state_dir):
+@pytest.mark.usefixtures("state_dir")
+def test_no_record_reads_as_no_narrowing():
     assert reader.recorded_posture() == {}
     assert reader.target_posture("live") is None
 
@@ -410,31 +417,36 @@ def test_a_targetless_lookup_on_an_unnarrowed_record_is_permissive(state_dir):
 # ---------------------------------------------------------------------------
 
 
-def test_posture_unknown_when_unstamped_and_no_record(state_dir, unstamped):
+@pytest.mark.usefixtures("state_dir", "unstamped")
+def test_posture_unknown_when_unstamped_and_no_record():
     """A bare ``claude`` on a deployment nobody has started yet is refused."""
     assert reader.posture_unknown() is True
 
 
-def test_posture_known_once_the_record_exists(state_dir, unstamped):
+@pytest.mark.usefixtures("unstamped")
+def test_posture_known_once_the_record_exists(state_dir):
     write_record(state_dir)
 
     assert reader.posture_unknown() is False
 
 
-def test_posture_unknown_when_the_record_cannot_be_read(state_dir, unstamped):
+@pytest.mark.usefixtures("unstamped")
+def test_posture_unknown_when_the_record_cannot_be_read(state_dir):
     (state_dir / reader.RECORD_FILENAME).write_text("{not json", encoding="utf-8")
 
     assert reader.posture_unknown() is True
 
 
-def test_a_stamped_root_is_never_unknown(state_dir, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("state_dir")
+def test_a_stamped_root_is_never_unknown(monkeypatch, tmp_path):
     """The stamp IS the evidence that this reader is looking where writes land."""
     monkeypatch.setenv(reader.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
 
     assert reader.posture_unknown() is False
 
 
-def test_posture_unknown_does_not_ask_for_a_session_key(state_dir, unstamped, monkeypatch):
+@pytest.mark.usefixtures("state_dir", "unstamped")
+def test_posture_unknown_does_not_ask_for_a_session_key(monkeypatch):
     """The session key indexes nothing; it cannot make a refusal appear."""
     monkeypatch.delenv(reader.POSTURE_SESSION_ENV_VAR, raising=False)
     assert reader.posture_unknown() is True

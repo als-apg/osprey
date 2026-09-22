@@ -703,7 +703,8 @@ class TestWritesCheckDenies:
         finally:
             blocked.chmod(stat.S_IRWXU)
 
-    def test_the_record_does_not_reach_stdout(self, repo, project_env):
+    @pytest.mark.usefixtures("repo")
+    def test_the_record_does_not_reach_stdout(self, project_env):
         result = run_hook(
             "osprey_writes_check.py",
             {"tool_name": "mcp__controls__channel_write", "tool_input": {}},
