@@ -180,7 +180,7 @@ class MockArchiverConnector(ArchiverConnector):
         start_date: datetime,
         end_date: datetime,
         precision_ms: int = 1000,
-        timeout: int | None = None,
+        timeout: int | None = None,  # noqa: ARG002 - ArchiverConnector.get_data signature; generated samples never wait on a transport
         processing: str = "raw",
     ) -> pd.DataFrame:
         """
