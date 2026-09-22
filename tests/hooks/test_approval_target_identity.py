@@ -1025,8 +1025,8 @@ def test_most_restrictive_posture_is_the_and_over_both_targets(reader, section, 
     assert reader.most_restrictive_posture(section) is expected
 
 
-#: The `control-assistant-va-readwrite` shape: a simulator deployment carrying no
-#: live block at all, armed through the single connector type it builds.
+#: The `control-assistant-readwrite` shape without its pinned epics block: a
+#: simulator deployment armed through the single connector type it builds.
 VA_ONLY_ARMED_SECTION = {
     "type": "virtual_accelerator",
     "writes_enabled": False,

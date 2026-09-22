@@ -295,7 +295,8 @@ config:
   # control_system.connector.virtual_accelerator.noise_level: 0.01
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
-  # `control-assistant-va-readwrite` persona is exactly this key.
+  # `control-assistant-readwrite` and `control-assistant-admin` personas write
+  # this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
   # Channel the target switch reads to prove this target is reachable before
   # making it active. Served by the simulation machine model.

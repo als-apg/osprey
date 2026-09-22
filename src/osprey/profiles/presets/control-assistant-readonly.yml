@@ -12,9 +12,8 @@
 # it. Reads, the channel finder, the archiver, logbook search, and the bluesky
 # panels all work unchanged.
 #
-# The write-capable counterparts are `control-assistant-readwrite` (armed on
-# every machine) and `control-assistant-va-readwrite` (armed on the simulator
-# alone).
+# The write-capable counterpart is `control-assistant-readwrite`, armed on the
+# simulator alone, with `control-assistant-admin` beside it.
 
 name: Control Assistant (Read-Only)
 

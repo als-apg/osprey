@@ -438,7 +438,8 @@ config:
   # control_system.connector.virtual_accelerator.noise_level: 0.01
   # Write posture for the simulator alone. Uncomment to arm writes here while
   # the master switch keeps the live machine read-only; the shipped
-  # `control-assistant-va-readwrite` persona is exactly this key.
+  # `control-assistant-readwrite` and `control-assistant-admin` personas write
+  # this key.
   # control_system.connector.virtual_accelerator.writes_enabled: true
   # Channel the target switch reads to prove this target is reachable before
   # making it active. Served by the simulation machine model.
@@ -1854,12 +1855,15 @@ web_panels:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins. It is the inherited posture rather
-  # than a verdict: a `control_system.connector.<type>.writes_enabled` key
-  # anywhere in the chain answers for that type instead, which is how the
-  # simulator-only tier is built. With none written, every type reads this key,
-  # so it must not drift silently if the base's default ever changes.
-  control_system.writes_enabled: true
+  # The tier boundary, and it takes three keys. Armed on the simulator alone.
+  # The flat key is what every connector type inherits when its own block says
+  # nothing, so its false is what the stand-in reads. The epics block is pinned
+  # by name so a per-type `true` added anywhere lower in the chain cannot lift
+  # the live machine's ceiling. Only a literal `true` arms a type, and a
+  # per-type value never falls back to the flat key.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: true
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
   # than left to the server default, for the same reason writes_enabled is.
@@ -1927,14 +1931,16 @@ skills:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The admin tier sits above readwrite: it keeps the write-armed control
-  # posture and adds deployment editing on top. This is the posture every
-  # connector type inherits when its own
-  # `control_system.connector.<type>.writes_enabled` block says nothing, and
-  # none is written here, so it is the answer for every machine the session can
-  # be pointed at. Pinned like the tiers beneath it pin their own side, so the
-  # boundary cannot drift if the base's default ever changes.
-  control_system.writes_enabled: true
+  # The admin tier carries readwrite's control posture exactly: armed on the
+  # simulator, read-only on both hardware-shaped targets. The flat key is what
+  # every connector type inherits when its own block says nothing, the epics
+  # block is pinned by name so no per-type `true` lower in the chain can lift
+  # the live ceiling, and the simulator's block is the one type armed. What
+  # makes this the admin tier is the deployment-editing block below, not a
+  # wider write surface.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: true
   # The axis this tier is defined by: the three privileges the base floors, all
   # lifted here and nowhere else.
   #

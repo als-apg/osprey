@@ -103,6 +103,14 @@ PINNED_PRESET_HASHES: dict[str, str] = {
     # so the staleness advisory firing on already-deployed projects is the
     # correct signal. The six `extends` children inherit it; every preset that
     # declares no `dispatch:` block stands still.
+    # The eleventh move, and two presets: the write-capable tiers,
+    # control-assistant-readwrite and control-assistant-admin, went from one
+    # posture key to three — the flat key false, the epics block pinned false
+    # by name, the virtual_accelerator block armed. A rebuilt project refuses a
+    # write on both hardware-shaped targets, so the staleness advisory firing on
+    # already-deployed projects is the correct signal. Every other preset
+    # stands still: the edits to the root and read-only presets are comments,
+    # which the hash does not see.
     "ariel-standalone": ("sha256:389fad6bd826efc4b53ea263800110585867aab31c92d9931206897c75548643"),
     "channel-finder-standalone": (
         "sha256:2dfc06f64433fcb1d8393931dccf76550e75ac76dc12f5011029010e02aa9448"
@@ -111,7 +119,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:4d0535dedc232b7789bccc7c8dd3b5a69b75f14c12e1298238c20389697f4079"
     ),
     "control-assistant-admin": (
-        "sha256:1db4d29c24d03ed8a23a4c3a64c880d56efa063ff3e651b7b51139eea1c41e58"
+        "sha256:d2cc5d9da991752274c6421241dfdcb455fa3d30d9060e71b2b8690f263a4d1b"
     ),
     "control-assistant-knowledge": (
         "sha256:d1ae41025ee01bc4b869601e597eeabd4e9ab89faa6244d0aad271385b00c609"
@@ -123,10 +131,7 @@ PINNED_PRESET_HASHES: dict[str, str] = {
         "sha256:f0e722d9ed690a96b851694fa6107c3587c341954808f580b346ee176c1fd72a"
     ),
     "control-assistant-readwrite": (
-        "sha256:b89110ccb97fe18e5a89a1aae7c5e541cac04ca6d43826b067a7538eb4b05087"
-    ),
-    "control-assistant-va-readwrite": (
-        "sha256:6f78bbc4db54c0bfb3b4855f84a0b2444ce4d960367d9e868ed6f1ae72247129"
+        "sha256:707c877d0ce45d9db0f80d35f7946128b00cba8e1f5842c56f1941aa63a5edc1"
     ),
     "hello-world": ("sha256:3ce9623f1874a11a5500eb0a2b5a29bbfc324cf0e6ed95678ea13feadfefecb4"),
 }

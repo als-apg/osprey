@@ -489,6 +489,45 @@ def _dispatch_host_network_deltas() -> tuple[Delta, ...]:
     )
 
 
+def _tier_write_posture_deltas() -> tuple[Delta, ...]:
+    """The write-capable tiers' posture, now armed on the simulator alone.
+
+    ``readwrite`` and ``admin`` stated their posture with the flat
+    ``control_system.writes_enabled: true``, which every connector type inherits
+    when its own block says nothing, so both were armed on every target. They
+    now pin the flat key false, the epics block false by name, and arm the
+    virtual_accelerator block. The fixtures were frozen under the flat key, so
+    each of the two documents reads as one leaf flipped and two gained.
+
+    Returns:
+        Three deltas for each of the two write-capable documents.
+    """
+    return tuple(
+        delta
+        for document in ("admin", "readwrite")
+        for delta in (
+            Delta(
+                document=document,
+                path="control_system.writes_enabled",
+                fixture=True,
+                live=False,
+            ),
+            Delta(
+                document=document,
+                path="control_system.connector.epics.writes_enabled",
+                fixture=ABSENT,
+                live=False,
+            ),
+            Delta(
+                document=document,
+                path="control_system.connector.virtual_accelerator.writes_enabled",
+                fixture=ABSENT,
+                live=True,
+            ),
+        )
+    )
+
+
 #: The documents a control-assistant cell renders: the root config plus one per
 #: persona in the preset's roster.
 _CONTROL_ASSISTANT_DOCUMENTS = (
@@ -566,7 +605,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_max_turns_deltas()
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas(),
+    + _persona_corpus_deltas()
+    + _tier_write_posture_deltas(),
     "control-assistant/hierarchical": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -574,7 +614,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_max_turns_deltas()
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas(),
+    + _persona_corpus_deltas()
+    + _tier_write_posture_deltas(),
     "control-assistant/middle_layer": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -582,7 +623,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_max_turns_deltas()
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas(),
+    + _persona_corpus_deltas()
+    + _tier_write_posture_deltas(),
     "control-assistant/graph": _control_assistant_persona_deltas()
     + _entry_publish_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
     + _rail_tool_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
@@ -590,7 +632,8 @@ CELL_DELTAS: dict[str, tuple[Delta, ...]] = {
     + _dispatch_max_turns_deltas()
     + _dispatch_host_network_deltas()
     + _query_max_rows_deltas(*_CONTROL_ASSISTANT_DOCUMENTS)
-    + _persona_corpus_deltas(),
+    + _persona_corpus_deltas()
+    + _tier_write_posture_deltas(),
 }
 
 

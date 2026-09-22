@@ -50,10 +50,6 @@ PINNED_PRESET_WRITE_GATES: dict[str, tuple[str, ...]] = {
     "control-assistant-logbook": ("approval",),
     "control-assistant-readonly": ("approval", "writes-check"),
     "control-assistant-readwrite": ("approval", "writes-check"),
-    # The simulator-write rung selects both gates like the tiers either side of
-    # it: it is armed on one target and not the other, and it is the gates that
-    # decide which — a tier that shed them would be armed everywhere.
-    "control-assistant-va-readwrite": ("approval", "writes-check"),
     "hello-world": ("approval", "writes-check"),
 }
 
