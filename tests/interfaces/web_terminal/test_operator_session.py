@@ -747,7 +747,7 @@ class FakeStreamClient:
     async def __aexit__(self, *exc):
         return False
 
-    async def query(self, prompt):
+    async def query(self, _prompt):
         self.query_calls += 1
 
     async def interrupt(self):

@@ -98,8 +98,9 @@ def _create_unauthorized_dashboard_app() -> FastAPI:
 
     # Every data endpoint rejects, exactly as the real dispatcher does for a
     # request that carries no bearer.
+    # The route declares ``{path:path}``, so FastAPI binds this parameter by name.
     @app.get("/{path:path}")
-    async def unauthorized(path: str) -> JSONResponse:
+    async def unauthorized(path: str) -> JSONResponse:  # noqa: ARG001
         return JSONResponse({"detail": "Unauthorized"}, status_code=401)
 
     return app

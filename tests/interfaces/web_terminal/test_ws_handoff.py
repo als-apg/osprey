@@ -131,7 +131,7 @@ def _patch_spawn(app, *, failing: str | None = None) -> list[Spawn]:
     """
     spawns: list[Spawn] = []
 
-    def tracked_spawn(command, rows, cols, extra_env, cwd=None):
+    def tracked_spawn(command, rows, cols, _extra_env, _cwd=None):
         if failing is not None and failing in command:
             raise OSError("cannot spawn")
         session = ObservedPty()
@@ -466,7 +466,8 @@ def test_a_resize_landing_after_the_spawn_is_applied_after_the_door(app, session
     sid = _uuid()
     (sessions_dir / f"{sid}.jsonl").write_text("")
 
-    async def spawn_then_linger(app_, key, surface, channel, *, interrupt=False, spawn=None):
+    # ``acquire_surface``'s signature: the websocket route names ``interrupt``.
+    async def spawn_then_linger(app_, key, _surface, channel, *, interrupt=False, spawn=None):  # noqa: ARG001
         session = await spawn(SimpleNamespace(key=key, resume_id=None, transcript_id=key))
         app_.state.pty_registry.attach_session(key, channel)
         # The door is still busy after the spawn; the client's resize lands now.

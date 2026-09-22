@@ -1242,7 +1242,7 @@ class TestTheRouteCanOwnTheDecision:
     def recording_route(dedup, *, status: int = 200, raises: bool = False):
         """An ``async def``-equivalent route that refuses and records it itself."""
 
-        async def route(scope, receive, send):
+        async def route(_scope, _receive, send):
             dedup.record_and_mark(
                 decision=DECISION_REFUSED,
                 reason="protected_key",
@@ -1330,7 +1330,7 @@ class TestTheRouteCanOwnTheDecision:
                 subject="POST /api/config",
             )
 
-        async def route(scope, receive, send):
+        async def route(_scope, _receive, send):
             await run_in_threadpool(sync_route_body)
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"refused"})
@@ -1361,7 +1361,7 @@ class TestTheRouteCanOwnTheDecision:
         """A record that never landed plus a 4xx would otherwise be total silence."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
 
-        async def route(scope, receive, send):
+        async def route(_scope, _receive, send):
             dedup.mark_recorded(DECISION_REFUSED, "protected_key", stored=False)
             await send({"type": "http.response.start", "status": 403, "headers": []})
             await send({"type": "http.response.body", "body": b"refused"})
@@ -1381,7 +1381,7 @@ class TestTheRouteCanOwnTheDecision:
         """Never ``allowed`` over a refusal, even one that reached no ledger."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
 
-        async def route(scope, receive, send):
+        async def route(_scope, _receive, send):
             dedup.mark_recorded(DECISION_REFUSED, "protected_key", stored=False)
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"ok"})

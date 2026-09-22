@@ -487,8 +487,10 @@ class TestARealReadOnlyStore:
     having written nothing — the silent failure this rung exists to prevent.
     """
 
+    # ``client`` runs the lifespan that creates the store; the directory is only made
+    # unwritable afterwards.
     @pytest.fixture
-    def readonly_store(self, client, store_dir):
+    def readonly_store(self, client, store_dir):  # noqa: ARG002
         """The resolved store directory, present and not writable."""
         store_dir.mkdir(parents=True, exist_ok=True)
         store_dir.chmod(0o500)

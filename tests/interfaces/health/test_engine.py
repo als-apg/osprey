@@ -181,7 +181,9 @@ async def test_envelope_shape_and_appended_rows() -> None:
 async def test_suite_run_is_unfiltered_and_never_on_demand(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
-    async def fake_suite(records: Any, **kwargs: Any) -> Any:
+    # ``run_health_suite``'s signature, and a variadic tail: the body asserts on what arrived
+    # in ``kwargs``, so the leading parameter only has to be accepted.
+    async def fake_suite(records: Any, **kwargs: Any) -> Any:  # noqa: ARG001
         captured.update(kwargs)
         from osprey.health.models import CheckReport
 

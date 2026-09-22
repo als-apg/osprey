@@ -475,7 +475,7 @@ class TestLifespanConcealsBothStores:
         constructed: list[tuple] = []
 
         class RecordingWatcher:
-            def __init__(self, workspace, broadcaster, *, concealed=()):
+            def __init__(self, workspace, _broadcaster, *, concealed=()):
                 constructed.append((workspace, tuple(concealed)))
 
             def start(self):

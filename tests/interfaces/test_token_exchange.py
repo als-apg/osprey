@@ -480,7 +480,7 @@ def _run_gate(scope, credentials, downstream=None) -> list[dict[str, Any]]:
     stub_app = SimpleNamespace(state=SimpleNamespace(web_credentials=credentials))
     scope = {**scope, "app": stub_app}
 
-    async def _default(scope, receive, send):  # pragma: no cover - overridden below
+    async def _default(_scope, _receive, send):  # pragma: no cover - overridden below
         await send({"type": "http.response.start", "status": 200, "headers": []})
         await send({"type": "http.response.body", "body": b"ok"})
 
@@ -513,7 +513,7 @@ def test_valid_query_token_does_exactly_one_operator_comparison():
 
     reached: list[bool] = []
 
-    async def _downstream(scope, receive, send):  # pragma: no cover - must not run
+    async def _downstream(_scope, _receive, _send):  # pragma: no cover - must not run
         reached.append(True)
 
     sent = _run_gate(
@@ -540,7 +540,7 @@ def test_wrong_query_token_is_refused_by_the_gate():
     credentials = WebCredentials(operator_secret=OPERATOR_SECRET, panel_token=PANEL_TOKEN)
     reached: list[bool] = []
 
-    async def _downstream(scope, receive, send):  # pragma: no cover - must not run
+    async def _downstream(_scope, _receive, _send):  # pragma: no cover - must not run
         reached.append(True)
 
     sent = _run_gate(

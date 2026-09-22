@@ -1244,7 +1244,7 @@ def test_population_survives_a_store_read_that_raises(
     with no restored sessions rather than not serve at all.
     """
 
-    def explode(self):
+    def explode(_self):
         raise RuntimeError("the volume went away mid-read")
 
     monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(tmp_path / "web_terminal"))
@@ -1312,7 +1312,7 @@ def test_population_never_writes_to_the_store(monkeypatch: pytest.MonkeyPatch, t
     _write_store(store_dir / "sessions.json", {"live": live})
     monkeypatch.setenv(SESSION_STORE_DIR_ENV, str(store_dir))
 
-    def explode(self, snapshot, seq):
+    def explode(_self, _snapshot, _seq):
         raise AssertionError("population wrote to the store")
 
     monkeypatch.setattr(SessionStore, "save", explode)
@@ -1335,7 +1335,7 @@ def test_a_slow_save_does_not_block_verification(tmp_path) -> None:
     release = threading.Event()
 
     class BlockingStore(SessionStore):
-        def save(self, snapshot, seq):
+        def save(self, _snapshot, _seq):
             inside_save.set()
             release.wait(5)
 
@@ -1370,7 +1370,7 @@ def test_a_slow_load_does_not_block_another_holders_verification(
     inside_load = threading.Event()
     release = threading.Event()
 
-    def blocking_load(self):
+    def blocking_load(_self):
         inside_load.set()
         release.wait(5)
         return {}
@@ -1786,7 +1786,7 @@ def test_a_websocket_to_the_dispatcher_route_is_refused() -> None:
     credentials = WebCredentials(operator_secret=mint_secret(), panel_token=mint_secret())
     reached: list[dict] = []
 
-    async def downstream(scope, receive, send) -> None:
+    async def downstream(scope, _receive, _send) -> None:
         reached.append(scope)
 
     middleware = common_middleware.WebAuthMiddleware(downstream, cookie_name="osprey_session")
@@ -1838,7 +1838,7 @@ def _drive_dispatcher_hop(method: str) -> tuple[list[dict], list[dict]]:
     reached: list[dict] = []
     sent: list[dict] = []
 
-    async def downstream(scope, receive, send) -> None:
+    async def downstream(scope, _receive, send) -> None:
         reached.append(scope)
         await send({"type": "http.response.start", "status": 200, "headers": []})
         await send({"type": "http.response.body", "body": b""})

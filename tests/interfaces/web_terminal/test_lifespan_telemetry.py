@@ -43,7 +43,8 @@ def injected(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     """The specs the lifespan handed to ``inject_provider_env``, injection stubbed."""
     seen: list[Any] = []
 
-    def _record(env, spec, *, project_dir=None):
+    # ``inject_provider_env``'s signature: the lifespan names ``project_dir``.
+    def _record(_env, spec, *, project_dir=None):  # noqa: ARG001
         seen.append(spec)
         return []
 

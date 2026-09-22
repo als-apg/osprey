@@ -208,8 +208,9 @@ class TestStoreOutsideTheWorkspace:
     """With ``web_terminal.watch_dir`` set, the store sits outside the served
     tree — the routes must then behave exactly as they did before."""
 
+    # ``workspace`` creates the agent-data directory this store has to sit outside of.
     @pytest.fixture
-    def outside_store(self, workspace, tmp_path):
+    def outside_store(self, workspace, tmp_path):  # noqa: ARG002
         outside = tmp_path / "shared_data" / "feedback"
         outside.mkdir(parents=True)
         (outside / "fb-xyz.json").write_text("{}")

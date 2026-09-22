@@ -196,7 +196,7 @@ class _SubtreeExtractor(HTMLParser):
         if self._depth:
             self._chunks.append(self.get_starttag_text() or "")
 
-    def handle_startendtag(self, tag, attrs):
+    def handle_startendtag(self, _tag, _attrs):
         if self._depth:
             self._chunks.append(self.get_starttag_text() or "")
 

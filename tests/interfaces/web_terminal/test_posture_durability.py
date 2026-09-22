@@ -131,8 +131,9 @@ def workspace_dir(tmp_path):
     return ws
 
 
+# ``agent_data_root`` stamps the root every app this factory builds resolves against.
 @pytest.fixture
-def make_client(agent_data_root, workspace_dir, tmp_path):
+def make_client(agent_data_root, workspace_dir, tmp_path):  # noqa: ARG001
     """Build an app + TestClient, repeatably, over the same stamped root.
 
     Repeatably is the point: a "restart" here is a second ``_make()``, which

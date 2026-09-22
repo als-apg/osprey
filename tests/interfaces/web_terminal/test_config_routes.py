@@ -158,8 +158,10 @@ def audit_zone(tmp_path, monkeypatch):
     return zone
 
 
+# ``audit_zone`` redirects the ledger, so a refusal this client provokes is recorded in the test's
+# tree.
 @pytest.fixture
-def client(built_project, audit_zone):
+def client(built_project, audit_zone):  # noqa: ARG001
     app = FastAPI()
     app.include_router(router)
     app.state.config_path = built_project / "config.yml"
@@ -450,7 +452,7 @@ class TestConfigRouteRegen:
     def test_patch_fails_open_when_regen_raises(self, client, built_project, monkeypatch):
         """A regen error must never undo a config write that already succeeded."""
 
-        def boom(self, project_dir):
+        def boom(_self, _project_dir):
             raise RuntimeError("regen exploded")
 
         monkeypatch.setattr(TemplateManager, "regen_if_drift", boom)
@@ -520,7 +522,7 @@ class TestRenderZoneReadonlyRegen:
         """
         calls = []
 
-        def record(self, project_dir):
+        def record(_self, project_dir):
             calls.append(project_dir)
             return ["settings.json"]
 

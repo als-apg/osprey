@@ -38,10 +38,10 @@ _PROVIDER_WITH_TIERS = {
 def _resolve(config: dict[str, Any], providers: dict[str, dict], model: str | None = None):
     """Resolve with *config* as the dotted-path config store and *providers* as api.providers."""
 
-    def fake_get_config_value(path: str, default: Any = None, config_path: str | None = None):
+    def fake_get_config_value(path: str, default: Any = None, _config_path: str | None = None):
         return config.get(path, default)
 
-    def fake_get_provider_config(name: str, config_path: str | None = None):
+    def fake_get_provider_config(name: str, _config_path: str | None = None):
         return providers.get(name, {})
 
     with (

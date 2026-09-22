@@ -85,7 +85,9 @@ class TestProxyPrefixIntegration:
 
         captured_headers = {}
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             captured_headers.update(headers)
             return httpx.Response(
                 status_code=200,
@@ -105,7 +107,9 @@ class TestProxyPrefixIntegration:
 
         captured_headers = {}
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             captured_headers.update(headers)
             return httpx.Response(
                 status_code=200,
@@ -125,7 +129,9 @@ class TestProxyPrefixIntegration:
 
         js_body = 'var x = "/static/js/foo.js";'
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=js_body,
@@ -145,7 +151,9 @@ class TestProxyPrefixIntegration:
 
         js_body = 'var x = "/static/js/foo.js";'
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=js_body,

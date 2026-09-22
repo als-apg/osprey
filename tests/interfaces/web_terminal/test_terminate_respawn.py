@@ -89,8 +89,9 @@ def shared_root(tmp_path, monkeypatch):
     posture_store.invalidate_cache()
 
 
+# ``shared_root`` stamps the agent-data root the app under test reads.
 @pytest.fixture
-def client(workspace_dir, shared_root):
+def client(workspace_dir, shared_root):  # noqa: ARG001
     with patch(
         "osprey.interfaces.web_terminal.app._load_web_config",
         return_value={"watch_dir": str(workspace_dir)},
@@ -370,7 +371,16 @@ class TestChatRouteMapsTheRefusal:
         class _Registry:
             chats = _PoolFace()
 
-            async def get_or_create_chat_session(self, chat_id, cwd, env=None, *, resume_id=None):
+            # ``OperatorRegistry.get_or_create_chat_session``'s signature: the route
+            # names ``resume_id``.
+            async def get_or_create_chat_session(
+                self,
+                _chat_id,
+                _cwd,
+                _env=None,
+                *,
+                resume_id=None,  # noqa: ARG002
+            ):
                 raise ChatSessionTerminatedError("terminated while starting")
 
         request = _chat_request(
@@ -620,7 +630,9 @@ class TestTheEnvIsReadUnderThePoolLock:
         class _Registry:
             chats = _PoolFace()
 
-            async def get_or_create_chat_session(self, chat_id, cwd, env=None, *, resume_id=None):
+            # ``OperatorRegistry.get_or_create_chat_session``'s signature: the route
+            # names ``resume_id``.
+            async def get_or_create_chat_session(self, chat_id, _cwd, env=None, *, resume_id=None):  # noqa: ARG002
                 captured["env"] = env
                 session = SimpleNamespace(acquire_turn=lambda: 1)
                 self.chats.sessions[chat_id] = session

@@ -95,12 +95,12 @@ _EMBEDDED_PANELS = [
 
 
 @pytest.mark.parametrize(
-    ("panel_name", "launch"),
+    ("_panel_name", "launch"),
     _EMBEDDED_PANELS,
     ids=[name for name, _ in _EMBEDDED_PANELS],
 )
 def test_query_params_configure_embedded_and_theme(
-    panel_name, launch, tmp_path, monkeypatch, chromium_browser
+    _panel_name, launch, tmp_path, monkeypatch, chromium_browser
 ):
     """``?embedded=true`` adds ``body.embedded``; ``?theme=dark`` applies data-theme -- every panel.
 
@@ -473,7 +473,7 @@ _CHROME_CONTRACT_PANELS = [
 ]
 
 _CHROME_CONTRACT_ARGNAMES = (
-    "panel_name",
+    "_panel_name",
     "launch",
     "path",
     "branding_selector",
@@ -489,7 +489,7 @@ _CHROME_CONTRACT_IDS = [entry[0] for entry in _CHROME_CONTRACT_PANELS]
     ids=_CHROME_CONTRACT_IDS,
 )
 def test_embedded_hides_branding_and_switcher(
-    panel_name,
+    _panel_name,
     launch,
     path,
     branding_selector,
@@ -545,7 +545,7 @@ def test_embedded_hides_branding_and_switcher(
     ids=_CHROME_CONTRACT_IDS,
 )
 def test_switcher_present_and_toggles_theme_standalone(
-    panel_name,
+    _panel_name,
     launch,
     path,
     branding_selector,
@@ -588,7 +588,7 @@ def test_switcher_present_and_toggles_theme_standalone(
     ids=_CHROME_CONTRACT_IDS,
 )
 def test_theme_toggle_strips_stale_query_param_and_survives_reload(
-    panel_name,
+    _panel_name,
     launch,
     path,
     branding_selector,
