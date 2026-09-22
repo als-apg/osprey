@@ -123,6 +123,15 @@ _RETIRED_SINCE_THE_FREEZE = frozenset(
     {"web.docs_url", "web.feedback.email", "web.feedback.github_repo"}
 )
 
+#: Leaves a preset still states whose VALUE moved since the freeze, mapped to
+#: the value the frozen renders carry. ``control-assistant`` baselined its
+#: sessions on the live stand-in when the fixtures were frozen and opens them on
+#: the sandbox simulator now, so the frozen render holds the old value. The
+#: frozen value is asserted before the key is skipped, so the exception proves
+#: the freeze rather than blinding the comparison; the difference itself is
+#: pinned in ``test_explicit_config_equivalence.CELL_DELTAS``.
+_VALUE_MOVED_SINCE_THE_FREEZE = {"control_system.type": "live_standin"}
+
 #: The same, for a leaf one cell alone retired, keyed by fixture directory.
 #:
 #: ``hello-world`` gates the two ARIEL logbook tools while disabling the server
@@ -318,6 +327,11 @@ def test_preset_values_reach_the_render_unchanged(
         if key not in render:
             continue
         if _VALUE_REWRITTEN_BY_INIT_PATTERN.match(key):
+            continue
+        if key in _VALUE_MOVED_SINCE_THE_FREEZE and render[key] != value:
+            assert render[key] == _VALUE_MOVED_SINCE_THE_FREEZE[key], (
+                f"{directory}: {key}: frozen {render[key]!r}"
+            )
             continue
         if key == "container_runtime":
             assert value == "auto"

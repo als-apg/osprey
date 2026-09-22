@@ -217,13 +217,12 @@ def test_epics_and_virtual_accelerator_prohibited_sections_still_match(tmp_path)
 def test_non_epics_branches_have_no_p4p_lines(tmp_path):
     """Tango, OPC-UA, LabVIEW and the generic branch are unchanged -- p4p is an
     EPICS-family library and naming it elsewhere would be noise."""
-    for cs_type in ("tango", "opcua", "labview", None):
-        label = cs_type or "mock"
-        content = _render_safety_rule(tmp_path / label, f"p4p-{label}", cs_type)
+    for cs_type in ("tango", "opcua", "labview", "mock"):
+        content = _render_safety_rule(tmp_path / cs_type, f"p4p-{cs_type}", cs_type)
 
-        assert "p4p" not in content, f"{label}: p4p leaked outside the EPICS branch"
+        assert "p4p" not in content, f"{cs_type}: p4p leaked outside the EPICS branch"
         for marker in P4P_MARKERS:
-            assert marker not in content, f"{label}: unexpected p4p marker {marker!r}"
+            assert marker not in content, f"{cs_type}: unexpected p4p marker {marker!r}"
 
 
 def test_existing_pyepics_prohibitions_survive(tmp_path):

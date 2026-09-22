@@ -107,12 +107,12 @@ def clean_connector_factory():
         yield
 
 
-class TestFreshProjectDefaultsToTheLiveStandin:
-    """State 1: a freshly scaffolded project starts on the live stand-in."""
+class TestFreshProjectDefaultsToTheSimulator:
+    """State 1: a freshly scaffolded project starts on the sandbox simulator."""
 
-    def test_default_control_system_type_is_the_live_standin(self, scaffolded_repo: Path):
+    def test_default_control_system_type_is_the_simulator(self, scaffolded_repo: Path):
         config = _load_config(scaffolded_repo)
-        assert config["control_system"]["type"] == "live_standin"
+        assert config["control_system"]["type"] == "virtual_accelerator"
 
     def test_mock_and_virtual_accelerator_and_epics_blocks_all_present(self, scaffolded_repo: Path):
         """The three authored connector blocks are fully materialized even
@@ -136,7 +136,7 @@ class TestSwitchingToMockEngagesTheConnector:
 
     def test_the_set_alone_does_not_move_the_render(self, runner: CliRunner, scaffolded_repo: Path):
         """`osprey set` edits the source and nothing else: until a build runs,
-        the deployment still answers as the live stand-in it was scaffolded on.
+        the deployment still answers as the simulator it was scaffolded on.
         This is the property the flip test above depends on, so it is asserted
         rather than assumed."""
         result = runner.invoke(set_cmd, ["--repo", str(scaffolded_repo), "connector=mock"])
@@ -145,7 +145,7 @@ class TestSwitchingToMockEngagesTheConnector:
         assert "control_system.type: mock" in (scaffolded_repo / "profile.yml").read_text(
             encoding="utf-8"
         )
-        assert _load_config(scaffolded_repo)["control_system"]["type"] == "live_standin"
+        assert _load_config(scaffolded_repo)["control_system"]["type"] == "virtual_accelerator"
 
     @pytest.mark.asyncio
     async def test_scaffolded_mock_config_block_resolves_to_mock_connector(

@@ -46,16 +46,15 @@ def test_all_connector_blocks_coexist():
     assert "epics" in connector
 
 
-def test_type_selects_the_live_standin():
-    """The preset's connector type is the live stand-in.
+def test_type_selects_the_simulator():
+    """The preset's connector type is the sandbox simulator.
 
-    Its own connector block is not spelled here: the build assembles
-    ``connector.live_standin`` for a deploying render, while the three blocks
-    above are the ones the preset carries verbatim for the operator to switch
-    to.
+    The stand-in's own connector block is not spelled here: the build
+    assembles ``connector.live_standin`` for a deploying render, while the
+    three blocks above are the ones the preset carries verbatim.
     """
     control_system = _control_system_config()
-    assert control_system["type"] == "live_standin"
+    assert control_system["type"] == "virtual_accelerator"
     assert "live_standin" not in control_system["connector"]
 
 

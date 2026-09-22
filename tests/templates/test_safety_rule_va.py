@@ -125,8 +125,8 @@ def test_epics_and_virtual_accelerator_prohibited_sections_match(tmp_path):
 
 
 def test_mock_keeps_current_generic_text(tmp_path):
-    """mock (the default) must be unaffected by this change."""
-    content = _render_safety_rule(tmp_path, "safety-mock", None)
+    """The mock branch renders the generic text and no EPICS-family lines."""
+    content = _render_safety_rule(tmp_path, "safety-mock", "mock")
 
     assert "Control System" in content
     assert "direct hardware library calls" in content
@@ -154,7 +154,7 @@ def test_test_ioc_rule_renders_for_epics_family(tmp_path):
 def test_test_ioc_rule_absent_for_mock(tmp_path):
     """The template's EPICS-family gate renders empty for mock, and the
     empty-file cleanup must remove it rather than leave a blank rule."""
-    rules_dir = _rendered_rules_dir(tmp_path, "ioc-mock", None)
+    rules_dir = _rendered_rules_dir(tmp_path, "ioc-mock", "mock")
     assert not (rules_dir / "test-ioc-safety.md").exists()
 
 

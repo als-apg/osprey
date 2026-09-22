@@ -77,12 +77,10 @@ LIVE_LABEL = "LIVE MACHINE"
 def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
     """A seeded exemplar repo, stand-in key set or removed, built for real.
 
-    Removing the key takes the baseline with it: the exemplar is baselined
-    ``control_system.type: live_standin``, and the build refuses that type on
-    a deployment that stands no stand-in up — the baseline would name a
-    machine nothing serves. So the no-stand-in variant is the same repo
-    pointed back at the facility's own machine, which is exactly the edit the
-    profile's own comment describes.
+    The no-stand-in variant is the same repo with the stand-in removed and
+    pointed at the facility's own machine, which is exactly the edit the
+    profile's own comment describes for a deployment that stands no stand-in
+    up.
 
     Returns:
         The repo root. ``build/`` is under it, and the repo root is also what
@@ -101,6 +99,7 @@ def _build_exemplar(dest: Path, *, standin: int | None) -> Path:
         profile["config"]["control_system.type"] = "epics"
     else:
         block["live_standin"] = standin
+        profile["config"]["control_system.type"] = "live_standin"
     with profile_path.open("w", encoding="utf-8") as handle:
         ruamel.dump(profile, handle)
 

@@ -345,13 +345,14 @@ config:
   # registry_path: project/registry.py
 
   # ── Control system ─────────────────────────────────────────────────────────
-  # Which machine a session starts on. "live_standin" is the stand-in declared
-  # above, so this deployment's baseline is a facility-shaped soft IOC that
-  # behaves like hardware and moves nothing. "virtual_accelerator" is the
-  # sandbox simulator, "epics" your own control system, "mock" needs no
-  # containers but cannot complete a plan. "doocs" and "tango" reach those
-  # control systems in place of Channel Access. Those five are every type
-  # `osprey init` will materialize; `osprey config --defaults` lists them too.
+  # Which machine a session starts on. "virtual_accelerator" is the sandbox
+  # simulator, and this deployment's baseline: it is the one machine here where
+  # a write is harmless, while "live_standin", the stand-in declared above, is
+  # a target the operator switches to on purpose. "epics" is your own control
+  # system, "mock" needs no containers but cannot complete a plan. "doocs" and
+  # "tango" reach those control systems in place of Channel Access. Those five
+  # are every type `osprey init` will materialize; `osprey config --defaults`
+  # lists them too.
   # `control_target_set live` moves a session onto the machine authored under
   # `epics:`. The template ships that block unconfigured — author its
   # `gateways` and `probe_channel` first — then the switch probes that target,
@@ -361,15 +362,15 @@ config:
   # while this deployment records its own archive from the stand-in, because
   # that store's history is the stand-in's (see `va_archiver:` above).
   # `osprey set connector=epics` makes your facility's machine the session
-  # baseline again, in place of the stand-in — together with
+  # baseline, in place of the simulator — together with
   # `osprey set config.archiver.type=epics_archiver` and
   # `osprey set va_archiver=null`, because the recorded archive goes with it.
-  control_system.type: live_standin
+  control_system.type: virtual_accelerator
   # Master write switch, the FIRST guard in the write-safety chain: while
   # false, every hardware write is refused before the limits check or the
-  # approval prompt is consulted. On here because the baseline is the stand-in,
-  # which cannot move a magnet; the read-only persona pins it off. Write
-  # posture is per connector type: a `control_system.connector.<type>.
+  # approval prompt is consulted. On here because the baseline is the
+  # simulator, which cannot move a magnet; the read-only persona pins it off.
+  # Write posture is per connector type: a `control_system.connector.<type>.
   # writes_enabled` overrides this for that type alone, and only a literal
   # `true` arms writes at either level.
   control_system.writes_enabled: true
@@ -390,9 +391,11 @@ config:
   # The limits file, relative to the build directory. It is a build copy: edit
   # the one in data/ beside this file and rebuild.
   control_system.limits_checking.database_path: data/channel_limits.json
-  # The sandbox simulator is the exception, and it states the exception as a
-  # whole block: a per-type posture REPLACES the pair above for that connector
-  # type rather than merging with it, so both leaves are written out here.
+  # The sandbox simulator is the exception, and the machine a session starts
+  # on, so this block is the posture a session opens under. It states the
+  # exception as a whole block: a per-type posture REPLACES the pair above for
+  # that connector type rather than merging with it, so both leaves are written
+  # out here.
   # Writes to the simulator are still checked against the same file; what
   # changes is that a channel the file does not list is allowed through
   # instead of refused, because on a scratch machine an unlisted channel is a

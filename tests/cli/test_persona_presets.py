@@ -761,17 +761,18 @@ class TestControlAssistantPersonas:
         overrides — a representative base override survives both merges.
 
         The representative is the base's session baseline, which is the
-        stand-in: the hosting preset declares ``virtual_accelerator.
-        live_standin`` and baselines itself on the soft IOC that behaves like
-        hardware. No persona names ``control_system.type``, so every tier
-        inherits that baseline through ``extends``."""
+        sandbox simulator: the one machine on this deployment where a write is
+        harmless, while the stand-in the preset also declares is a target the
+        operator switches to on purpose. No persona names
+        ``control_system.type``, so every tier inherits that baseline through
+        ``extends``."""
         for name in (
             "control-assistant-readonly",
             "control-assistant-readwrite",
             "control-assistant-admin",
         ):
             profile = resolve_preset(name)
-            assert profile.config.get("control_system.type") == "live_standin"
+            assert profile.config.get("control_system.type") == "virtual_accelerator"
 
     def test_personas_differ_only_on_the_tier_contract(self) -> None:
         readonly = resolve_preset("control-assistant-readonly")
@@ -1007,13 +1008,9 @@ class TestControlAssistantPersonas:
                 "database_name": host["services"]["postgresql"]["database_name"],
             },
             "openobserve": {"port": host["services"]["openobserve"]["port"]},
-            # `target` rides along because the hosting render's single lane
-            # declares one: the preset baselines on the stand-in, and that lane
-            # is pointed at it explicitly rather than left to the VA fallback.
-            "bluesky": {
-                "port": host["services"]["bluesky"]["port"],
-                "target": host["services"]["bluesky"]["target"],
-            },
+            # The single lane declares no `target`: it is addressed by the
+            # fallback, the simulator the baseline names.
+            "bluesky": {"port": host["services"]["bluesky"]["port"]},
             "virtual_accelerator": {"port": host["services"]["virtual_accelerator"]["port"]},
             "live_standin": {"port": host["services"]["live_standin"]["port"]},
             "archiver_recorder": {"path": host["services"]["archiver_recorder"]["path"]},
@@ -1174,10 +1171,10 @@ PINNED_TARGET_WRITE_POSTURE: dict[str, dict[str, bool]] = {
     "channel-finder-standalone": {"live": False, "va": False, "standin": False},
     # The hosting preset arms the flat key and pins no per-type block, so every
     # target inherits the arming — the stand-in included, which is the point:
-    # its baseline IS the stand-in, and a stand-in that refused writes could
-    # not rehearse anything. The read-only tier is what pins it back off, and
-    # this row is what makes that tier's pin load-bearing rather than
-    # decorative.
+    # the stand-in is a target the operator switches to in order to rehearse,
+    # and a stand-in that refused writes could not rehearse anything. The
+    # read-only tier is what pins it back off, and this row is what makes that
+    # tier's pin load-bearing rather than decorative.
     "control-assistant": {"live": True, "va": True, "standin": True},
     "hello-world": {"live": False, "va": False, "standin": False},
     # The write-capable tiers. Their flat key is ``false`` and the simulator's

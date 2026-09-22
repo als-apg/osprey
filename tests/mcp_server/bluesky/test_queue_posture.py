@@ -88,9 +88,9 @@ def _configure(
 ) -> None:
     """Render a project whose single plan lane declares *lane_target*.
 
-    The shipped control-assistant render declares ``services.bluesky.target:
-    standin``, which is why the store term is exercised by the DEFAULT
-    deployment and not only by a two-lane one.
+    The shipped control-assistant render's single lane declares no target and
+    is addressed by the fallback, so *lane_target* is what exercises the store
+    term here — the shape a deployment baselined on its stand-in renders.
     """
     project = tmp_path / "project"
     project.mkdir(exist_ok=True)
