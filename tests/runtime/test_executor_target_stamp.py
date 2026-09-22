@@ -770,7 +770,7 @@ class TestSandboxRouting:
         assert _FakeConnector.last_config == {"timeout": 1.0}
 
     @pytest.mark.usefixtures("clear_stamp", "fake_registry", "clear_runtime_state")
-    def test_unstamped_resolution_is_unchanged(self, monkeypatch):
+    def test_unstamped_resolution_is_unchanged(self):
         """No stamp means the factory loads the section itself, as it always did."""
         import osprey.runtime as runtime
 

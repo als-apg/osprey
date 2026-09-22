@@ -239,7 +239,7 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
         assert _records(audit_root, SURFACE_SCAFFOLD_RESTORE), "the refusal is still durable"
         assert dedup.recorded_decision() is None
 
-    def test_the_restore_call_site_itself_asks_not_to_claim(self, audit_root, tmp_path):
+    def test_the_restore_call_site_itself_asks_not_to_claim(self, audit_root):
         """The site, not just the funnel: ``ownership`` must pass ``claim=False``.
 
         The test above pins what the funnel does when asked. This one drives
@@ -378,7 +378,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
 
 class TestTheSetupPatchToolRecordsPerKey:
     @pytest.fixture
-    def render(self, audit_root, tmp_path, monkeypatch):
+    def render(self, audit_root, tmp_path):
         """The minimal render ``setup_patch`` resolves its root from."""
         from unittest.mock import patch as mock_patch
 
