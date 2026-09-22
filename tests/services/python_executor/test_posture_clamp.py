@@ -358,7 +358,8 @@ def test_an_unnarrowed_session_runs(session, _audit_zone):
     assert enforce_posture_clamp("readwrite", tool="execute") is None
 
 
-def test_no_record_at_all_is_not_a_deployment_wide_clamp(session, _audit_zone):
+@pytest.mark.usefixtures("session")
+def test_no_record_at_all_is_not_a_deployment_wide_clamp(_audit_zone):
     """No record: the process cannot say which machine it is about.
 
     Refusing here would refuse writes on targets nobody narrowed. The

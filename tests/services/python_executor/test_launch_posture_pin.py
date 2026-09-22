@@ -205,7 +205,8 @@ class TestLaunchPinAnddedWithTheStore:
         assert posture_store.store_permits("standin") is False
         assert posture_store.store_permits("va") is True
 
-    def test_the_pin_refuses_before_the_store_is_read(self, data_root, monkeypatch):
+    @pytest.mark.usefixtures("data_root")
+    def test_the_pin_refuses_before_the_store_is_read(self, monkeypatch):
         """A narrow run does not need a readable store to keep refusing.
 
         The pin is one environment read, deliberately ahead of the file read, so
@@ -281,7 +282,8 @@ class TestExecutorStampsThePin:
 
         assert host_executor._launch_posture(None) == "*=writes"
 
-    def test_an_unreadable_store_fails_closed(self, data_root, monkeypatch):
+    @pytest.mark.usefixtures("data_root")
+    def test_an_unreadable_store_fails_closed(self, monkeypatch):
         """Every way of not being able to answer costs a readwrite run its writes."""
 
         def boom(*args, **kwargs):
@@ -389,7 +391,8 @@ class TestDeploymentGateStoreTerm:
         # Act / Assert — no raise
         gates.enforce_deployment_writes_gate("readwrite", None)
 
-    def test_an_unreadable_store_does_not_wedge_every_run(self, data_root, monkeypatch):
+    @pytest.mark.usefixtures("data_root")
+    def test_an_unreadable_store_does_not_wedge_every_run(self, monkeypatch):
         """This gate degrades; the sandbox's reference monitor is the barrier."""
         # Arrange
         self._arm_the_deployment(monkeypatch)

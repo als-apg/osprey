@@ -450,7 +450,8 @@ def test_a_malformed_payload_is_rejected(payload: object, match: str) -> None:
         SessionCodec(SECRET).decode(sign_payload(payload))
 
 
-def test_a_payload_without_users_decodes_as_empty(codec: SessionCodec) -> None:
+@pytest.mark.usefixtures("codec")
+def test_a_payload_without_users_decodes_as_empty() -> None:
     encoded = sign_payload({"v": PAYLOAD_VERSION, "sid": "s", "iat": 0.0})
 
     assert SessionCodec(SECRET).decode(encoded).users == ()
