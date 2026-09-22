@@ -2,6 +2,9 @@
 {% if cs_type == 'epics' %}
 {% set protocol_name = 'EPICS' %}
 {% set protocol_long = 'EPICS Channel Access' %}
+{% elif cs_type == 'doocs' %}
+{% set protocol_name = 'DOOCS' %}
+{% set protocol_long = 'DOOCS' %}
 {% elif cs_type == 'tango' %}
 {% set protocol_name = 'Tango' %}
 {% set protocol_long = 'Tango Controls' %}
@@ -60,6 +63,15 @@ payload, so limits checking cannot apply to it — there is nothing for the
 approval workflow to check. It is refused at runtime in every readonly run
 and wherever limits checking is enabled. Use `write_channel` for the write
 you actually need.
+{% elif cs_type == 'doocs' %}
+```python
+# DO NOT use these — they bypass safety controls
+import doocs4py
+doocs4py.get("FACILITY/DEVICE/LOCATION/PROPERTY")           # Bypasses audit logging
+doocs4py.set("FACILITY/DEVICE/LOCATION/SETPOINT", 150.0)    # Bypasses limits + approval
+address = doocs4py.Address("FACILITY/DEVICE/LOCATION/PROPERTY")
+doocs4py.subscribe(address, callback)                       # Bypasses audit logging
+```
 {% elif cs_type == 'tango' %}
 ```python
 # DO NOT use these — they bypass safety controls
