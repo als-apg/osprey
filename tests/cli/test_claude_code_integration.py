@@ -1221,6 +1221,40 @@ class TestProtocolAwareSafetyRules:
         assert "osprey.runtime" in content
         assert "EPICS" not in content
 
+    def test_doocs_renders_doocs_content(self, tmp_path):
+        """DOOCS config produces DOOCS-specific safety rules."""
+        manager = TemplateManager()
+        project_dir = _create_project(
+            manager,
+            project_name="safety-doocs",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+            data_root=_bundle_data_root("control_assistant"),
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("control_system", {})["type"] = "doocs"
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        from osprey.cli.templates import claude_code
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        claude_code.create_claude_code_integration(
+            manager.template_root, manager.jinja_env, project_dir, ctx
+        )
+
+        content = (project_dir / ".claude" / "rules" / "control-system-safety.md").read_text()
+        assert "Control System Safety — DOOCS" in content
+        assert "import doocs4py" in content
+        assert "doocs4py.get" in content
+        assert "doocs4py.set" in content
+        assert "doocs4py.subscribe" in content
+        assert "osprey.runtime" in content
+        assert "EPICS" not in content
+
     def test_opcua_renders_opcua_content(self, tmp_path):
         """OPC-UA config produces OPC-UA-specific safety rules."""
         manager = TemplateManager()
@@ -1289,7 +1323,7 @@ class TestProtocolAwareSafetyRules:
         manager = TemplateManager()
         from osprey.cli.templates import claude_code
 
-        for protocol in ["epics", "tango", "opcua", "labview", "mock"]:
+        for protocol in ["epics", "doocs", "tango", "opcua", "labview", "mock"]:
             project_dir = _create_project(
                 manager,
                 project_name=f"safety-{protocol}",
