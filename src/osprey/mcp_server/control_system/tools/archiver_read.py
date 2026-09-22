@@ -101,7 +101,7 @@ def _parse_time(time_str: str) -> datetime:
             try:
                 return datetime.now(tz) - timedelta(**{kwarg: float(amount_unit[:-1])})
             except ValueError:
-                pass  # unparseable amount — fall through to dateutil below
+                pass  # unparseable amount — the ISO branch refuses it
 
     dt = datetime.fromisoformat(time_str.strip())
     if dt.tzinfo is None:
