@@ -55,7 +55,8 @@ class TestAPrereleasePin:
         assert cmd[:3] == ["/opt/bin/uv", "pip", "install"]
         assert "--prerelease" in cmd and cmd[cmd.index("--prerelease") + 1] == "allow"
 
-    def test_the_record_admits_prereleases_for_a_later_sync(self, calls, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_the_record_admits_prereleases_for_a_later_sync(self, tmp_path):
         data = _build(tmp_path / "project", "osprey-framework==2026.9.0b1")
 
         assert data["tool"]["uv"]["prerelease"] == "allow"

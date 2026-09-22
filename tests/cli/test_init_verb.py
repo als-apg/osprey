@@ -667,7 +667,8 @@ def test_every_file_a_rendered_repo_ships_is_in_a_named_category(
     assert uncategorised == []
 
 
-def test_ci_emitted_paths_match_the_scaffolding_engine(runner: CliRunner) -> None:
+@pytest.mark.usefixtures("runner")
+def test_ci_emitted_paths_match_the_scaffolding_engine() -> None:
     """The CI category's paths are the engine's, spelled locally to keep TR-2.
 
     ``deploy_scaffold`` drags the build-profile chain in with it, so the paths
@@ -1140,7 +1141,8 @@ def test_init_is_registered_on_the_cli(runner: CliRunner) -> None:
     assert "init" in result.output
 
 
-def test_init_carries_no_repo_flag(runner: CliRunner) -> None:
+@pytest.mark.usefixtures("runner")
+def test_init_carries_no_repo_flag() -> None:
     """``init`` CREATES repos, so it is repo-free: there is none to point at."""
     from osprey.cli.repo_resolver import is_repo_free
 

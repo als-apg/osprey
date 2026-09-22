@@ -254,7 +254,8 @@ def test_interrupt_without_spool_prints_one_line(sink):
     assert "partial output" not in lines[1]
 
 
-def test_current_phase_tracks_the_open_phase(sink):
+@pytest.mark.usefixtures("sink")
+def test_current_phase_tracks_the_open_phase():
     reporter = PhaseReporter(color=False)
     assert reporter.current_phase is None
     with reporter.phase("Repo created") as phase:

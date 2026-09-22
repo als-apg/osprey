@@ -176,9 +176,8 @@ def test_preset_data_bundle_accepts_either_cli_spelling(fake_presets: Path) -> N
 
 
 @pytest.mark.parametrize("name", [None, "", "no-such-preset"])
-def test_preset_data_bundle_falls_back_when_there_is_no_preset(
-    fake_presets: Path, name: str | None
-) -> None:
+@pytest.mark.usefixtures("fake_presets")
+def test_preset_data_bundle_falls_back_when_there_is_no_preset(name: str | None) -> None:
     """No preset, or one this installation does not ship, is not an error here.
 
     The bundle only decides which packaged data tree is copied; a caller with

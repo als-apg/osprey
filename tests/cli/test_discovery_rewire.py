@@ -273,7 +273,8 @@ def spawned(monkeypatch: pytest.MonkeyPatch):
 class TestDetachedServerHandle:
     """The PID/log pair belongs to the repo, and ``stop`` looks where ``start`` wrote."""
 
-    def test_pid_and_log_land_in_the_state_zone(self, runner, lifecycle_repo, spawned):
+    @pytest.mark.usefixtures("spawned")
+    def test_pid_and_log_land_in_the_state_zone(self, runner, lifecycle_repo):
         build = stub_build(lifecycle_repo)
 
         result = run_web_cmd(runner, ["--detach"], nested(lifecycle_repo))
@@ -286,8 +287,9 @@ class TestDetachedServerHandle:
         assert not (build / PID_FILE).exists()
         assert not (build / LOG_FILE).exists()
 
+    @pytest.mark.usefixtures("spawned")
     def test_a_running_server_leaves_the_repo_git_clean(
-        self, runner, lifecycle_repo_factory, tmp_path, spawned
+        self, runner, lifecycle_repo_factory, tmp_path
     ):
         """SC-1's clean `git status` has to survive a detached server.
 
@@ -471,7 +473,8 @@ class TestQueryWarnsOnDrift:
         assert "⚠" in result.output
         assert query_call.project_dir == build
 
-    def test_unverifiable_build_warns_and_still_answers(self, runner, lifecycle_repo, query_call):
+    @pytest.mark.usefixtures("query_call")
+    def test_unverifiable_build_warns_and_still_answers(self, runner, lifecycle_repo):
         stub_build(lifecycle_repo, stamped_hash=None)
 
         result = run_query_cmd(runner, ["anything"], nested(lifecycle_repo))
@@ -479,7 +482,8 @@ class TestQueryWarnsOnDrift:
         assert result.exit_code == 0, result.output
         assert "⚠" in result.output
 
-    def test_version_skew_warns_independently(self, runner, lifecycle_repo, query_call):
+    @pytest.mark.usefixtures("query_call")
+    def test_version_skew_warns_independently(self, runner, lifecycle_repo):
         """A build can be a faithful render and still predate the framework."""
         stub_build(lifecycle_repo, version="2000.1.0")
 
@@ -488,7 +492,8 @@ class TestQueryWarnsOnDrift:
         assert result.exit_code == 0, result.output
         assert "⚠" in result.output
 
-    def test_a_clean_build_says_nothing(self, runner, lifecycle_repo, query_call):
+    @pytest.mark.usefixtures("query_call")
+    def test_a_clean_build_says_nothing(self, runner, lifecycle_repo):
         stub_build(lifecycle_repo)
 
         result = run_query_cmd(runner, ["anything"], nested(lifecycle_repo))

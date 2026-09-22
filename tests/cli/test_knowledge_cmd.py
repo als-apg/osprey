@@ -654,12 +654,9 @@ def baked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[Path]:
     return calls
 
 
+@pytest.mark.usefixtures("graph")
 def test_seed_graph_bakes_the_prompt_snapshot_after_seeding(
-    graph: _GraphStub,
-    graph_ttl: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    baked: list[Path],
-    tmp_path: Path,
+    graph_ttl: Path, monkeypatch: pytest.MonkeyPatch, baked: list[Path], tmp_path: Path
 ) -> None:
     """A successful seed refreshes the rendered agent prompt from the store."""
     _patch_config(monkeypatch, {})
@@ -987,8 +984,9 @@ def test_seed_graph_unreachable_store_is_a_clean_error(
     assert "Traceback" not in result.output
 
 
+@pytest.mark.usefixtures("graph")
 def test_seed_graph_names_a_missing_n10s_plugin(
-    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+    graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A store without the plugin is reported in those words — not as a
     missing stored procedure, and not as a connection failure."""

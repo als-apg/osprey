@@ -72,13 +72,15 @@ class TestCustomBaseInterpreter:
         assert venv_cmd[:3] == [with_uv, "venv", str(tmp_path / ".venv")]
         assert venv_cmd[venv_cmd.index("--python") + 1] == str(base)
 
-    def test_uv_branch_defaults_to_build_interpreter(self, calls, with_uv, tmp_path):
+    @pytest.mark.usefixtures("with_uv")
+    def test_uv_branch_defaults_to_build_interpreter(self, calls, tmp_path):
         _create_project_venv(tmp_path, _profile())
 
         venv_cmd = calls[0]
         assert venv_cmd[venv_cmd.index("--python") + 1] == sys.executable
 
-    def test_stdlib_branch_uses_custom_base(self, calls, without_uv, tmp_path):
+    @pytest.mark.usefixtures("without_uv")
+    def test_stdlib_branch_uses_custom_base(self, calls, tmp_path):
         base = tmp_path / "bare" / "bin" / "python3.12"
 
         _create_project_venv(tmp_path, _profile(python=str(base)))
@@ -86,12 +88,14 @@ class TestCustomBaseInterpreter:
         venv_cmd = calls[0]
         assert venv_cmd == [str(base), "-m", "venv", str(tmp_path / ".venv")]
 
-    def test_stdlib_branch_defaults_to_build_interpreter(self, calls, without_uv, tmp_path):
+    @pytest.mark.usefixtures("without_uv")
+    def test_stdlib_branch_defaults_to_build_interpreter(self, calls, tmp_path):
         _create_project_venv(tmp_path, _profile())
 
         assert calls[0] == [sys.executable, "-m", "venv", str(tmp_path / ".venv")]
 
-    def test_tilde_in_base_is_expanded(self, calls, with_uv, tmp_path, monkeypatch):
+    @pytest.mark.usefixtures("with_uv")
+    def test_tilde_in_base_is_expanded(self, calls, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path / "home"))
 
         _create_project_venv(tmp_path, _profile(python="~/envs/rig/bin/python"))
@@ -101,7 +105,8 @@ class TestCustomBaseInterpreter:
             Path("~/envs/rig/bin/python").expanduser()
         )
 
-    def test_venv_base_takes_the_same_path_as_a_bare_interpreter(self, calls, with_uv, tmp_path):
+    @pytest.mark.usefixtures("with_uv")
+    def test_venv_base_takes_the_same_path_as_a_bare_interpreter(self, calls, tmp_path):
         """A venv's python is just an interpreter — no mode flag, no branch."""
         venv_root = tmp_path / "base-venv"
         (venv_root / "bin").mkdir(parents=True)
@@ -139,7 +144,8 @@ class TestEnvironmentPackages:
             "h5py==3.11.0",
         ]
 
-    def test_stdlib_install_carries_dependencies_and_packages(self, calls, without_uv, tmp_path):
+    @pytest.mark.usefixtures("without_uv")
+    def test_stdlib_install_carries_dependencies_and_packages(self, calls, tmp_path):
         _create_project_venv(
             tmp_path, _profile(dependencies=["numpy>=1.24"], packages=["cothread"])
         )
@@ -149,12 +155,14 @@ class TestEnvironmentPackages:
         assert install_cmd[0] == str(tmp_path / ".venv" / "bin" / "python")
         assert install_cmd[-3:] == ["osprey-framework==1.2.3", "numpy>=1.24", "cothread"]
 
-    def test_packages_alone_reach_the_resolver(self, calls, with_uv, tmp_path):
+    @pytest.mark.usefixtures("with_uv")
+    def test_packages_alone_reach_the_resolver(self, calls, tmp_path):
         _create_project_venv(tmp_path, _profile(packages=["pyepics"]))
 
         assert calls[1][-2:] == ["osprey-framework==1.2.3", "pyepics"]
 
-    def test_empty_environment_block_changes_nothing(self, calls, with_uv, tmp_path):
+    @pytest.mark.usefixtures("with_uv")
+    def test_empty_environment_block_changes_nothing(self, calls, tmp_path):
         _create_project_venv(tmp_path, _profile(dependencies=["pandas"]))
 
         assert calls[1][-2:] == ["osprey-framework==1.2.3", "pandas"]

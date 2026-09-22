@@ -513,7 +513,8 @@ def test_a_tree_with_no_channel_databases_refuses_the_build(tmp_path, capsys):
     assert _DEAD_FALLBACK_SENTENCE not in _printed(capsys)
 
 
-def test_a_tree_missing_its_scenario_seed_refuses_and_names_the_file(partial_tree, tmp_path):
+@pytest.mark.usefixtures("partial_tree")
+def test_a_tree_missing_its_scenario_seed_refuses_and_names_the_file(tmp_path):
     """Databases alone are not a tree: what is missing is named, not guessed at."""
     root = _facility_tree(tmp_path / "seedless" / "data")
     (root / "simulation" / "machine.json").unlink()

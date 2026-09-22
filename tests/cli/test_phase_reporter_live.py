@@ -966,7 +966,9 @@ def log_handler():
 
 
 @pytest.fixture
-def live_over_logging(log_handler):
+def live_over_logging(
+    log_handler,  # noqa: ARG001 - the handler this reporter must be mounted after
+):
     """A live reporter mounted AFTER the log handler is on the root logger.
 
     The ordering is the point, and is why these tests do not reuse ``live``:

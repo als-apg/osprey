@@ -106,7 +106,8 @@ def run_validate(monkeypatch: pytest.MonkeyPatch, in_context_database: str):
 class TestNoPrivateLevelPins:
     """Neither the registry init nor a whole command sets a logger level."""
 
-    def test_registry_init_pins_nothing(self, unpinned_loggers, stub_registry):
+    @pytest.mark.usefixtures("unpinned_loggers", "stub_registry")
+    def test_registry_init_pins_nothing(self):
         from osprey.cli.channel_finder_cmd import _initialize_registry
 
         _initialize_registry()
@@ -116,7 +117,8 @@ class TestNoPrivateLevelPins:
             logging.NOTSET,
         ]
 
-    def test_a_command_run_pins_nothing(self, unpinned_loggers, stub_registry, run_validate):
+    @pytest.mark.usefixtures("unpinned_loggers", "stub_registry")
+    def test_a_command_run_pins_nothing(self, run_validate):
         result = run_validate()
 
         # The command reached its own work — otherwise it could pin nothing for
@@ -127,7 +129,8 @@ class TestNoPrivateLevelPins:
             logging.NOTSET,
         ]
 
-    def test_the_loggers_inherit_the_run_level(self, unpinned_loggers, stub_registry, run_validate):
+    @pytest.mark.usefixtures("unpinned_loggers", "stub_registry")
+    def test_the_loggers_inherit_the_run_level(self, run_validate):
         """NOTSET is not merely "unset": it is the run's level, inherited."""
         run_validate()
 
@@ -172,26 +175,16 @@ class TestGatePolicyStillHolds:
             _run_validation,
         )
 
-    def test_warning_still_renders(
-        self,
-        unpinned_loggers,
-        stub_registry,
-        noisy_validation,
-        run_validate,
-        terminal_probe: TerminalProbe,
-    ):
+    @pytest.mark.usefixtures("unpinned_loggers", "stub_registry", "noisy_validation")
+    def test_warning_still_renders(self, run_validate, terminal_probe: TerminalProbe):
         run_validate()
 
         assert gate_installed() is True
         assert WARNING_MARKER in terminal_probe.rendered_text
 
+    @pytest.mark.usefixtures("unpinned_loggers", "stub_registry", "noisy_validation")
     def test_info_does_not_render_but_is_still_emitted(
-        self,
-        unpinned_loggers,
-        stub_registry,
-        noisy_validation,
-        run_validate,
-        terminal_probe: TerminalProbe,
+        self, run_validate, terminal_probe: TerminalProbe
     ):
         """The honest form of the claim: gated from the terminal, not destroyed.
 
@@ -206,13 +199,9 @@ class TestGatePolicyStillHolds:
         assert INFO_MARKER not in terminal_probe.rendered_text
         assert INFO_MARKER in terminal_probe.messages
 
+    @pytest.mark.usefixtures("unpinned_loggers", "stub_registry", "noisy_validation")
     def test_the_gated_record_keeps_its_level_and_name(
-        self,
-        unpinned_loggers,
-        stub_registry,
-        noisy_validation,
-        run_validate,
-        terminal_probe: TerminalProbe,
+        self, run_validate, terminal_probe: TerminalProbe
     ):
         run_validate()
 

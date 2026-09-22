@@ -56,7 +56,8 @@ def test_compute_preset_hash_sees_extends_parent_change(presets_dir):
     assert build_profile.compute_preset_hash("child") != before
 
 
-def test_compute_preset_hash_unknown_preset_returns_none(presets_dir):
+@pytest.mark.usefixtures("presets_dir")
+def test_compute_preset_hash_unknown_preset_returns_none():
     assert build_profile.compute_preset_hash("no-such-preset") is None
 
 
