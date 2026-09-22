@@ -45,9 +45,8 @@ async def reset_capability_singleton():
 class TestCapabilityIntegration:
     """Test capability factory creates real service."""
 
-    async def test_get_ariel_search_service_creates_real_service(
-        self, database_url, reset_capability_singleton
-    ):
+    @pytest.mark.usefixtures("reset_capability_singleton")
+    async def test_get_ariel_search_service_creates_real_service(self, database_url):
         """get_ariel_search_service creates ARIELSearchService (not mock).
 
         Steps:
@@ -77,9 +76,8 @@ class TestCapabilityIntegration:
         assert healthy is True
         assert isinstance(message, str)
 
-    async def test_get_ariel_search_service_returns_singleton(
-        self, database_url, reset_capability_singleton
-    ):
+    @pytest.mark.usefixtures("reset_capability_singleton")
+    async def test_get_ariel_search_service_returns_singleton(self, database_url):
         """get_ariel_search_service returns same instance on multiple calls."""
         from osprey.services.ariel_search.capability import get_ariel_search_service
 
@@ -96,7 +94,8 @@ class TestCapabilityIntegration:
         # Should be same instance
         assert service1 is service2
 
-    async def test_get_ariel_search_service_raises_without_config(self, reset_capability_singleton):
+    @pytest.mark.usefixtures("reset_capability_singleton")
+    async def test_get_ariel_search_service_raises_without_config(self):
         """get_ariel_search_service raises ConfigurationError when not configured."""
         from osprey.services.ariel_search import ConfigurationError
         from osprey.services.ariel_search.capability import get_ariel_search_service
@@ -107,9 +106,8 @@ class TestCapabilityIntegration:
 
         assert "not configured" in str(exc_info.value).lower()
 
-    async def test_reset_ariel_service_clears_singleton(
-        self, database_url, reset_capability_singleton
-    ):
+    @pytest.mark.usefixtures("reset_capability_singleton")
+    async def test_reset_ariel_service_clears_singleton(self, database_url):
         """reset_ariel_service clears the cached instance."""
         from osprey.services.ariel_search.capability import (
             close_ariel_service,
@@ -136,9 +134,8 @@ class TestCapabilityIntegration:
 class TestCapabilityWithRealService:
     """Test capability factory integration with real service operations."""
 
-    async def test_service_can_count_entries(
-        self, database_url, migrated_pool, reset_capability_singleton
-    ):
+    @pytest.mark.usefixtures("migrated_pool", "reset_capability_singleton")
+    async def test_service_can_count_entries(self, database_url):
         """Service from capability can count database entries."""
         from osprey.services.ariel_search.capability import get_ariel_search_service
 
@@ -155,13 +152,9 @@ class TestCapabilityWithRealService:
         assert isinstance(count, int)
         assert count >= 0
 
+    @pytest.mark.usefixtures("migrated_pool", "reset_capability_singleton")
     async def test_service_can_store_and_retrieve_entry(
-        self,
-        database_url,
-        migrated_pool,
-        seed_entry_factory,
-        reset_capability_singleton,
-        seeded_prefixes,
+        self, database_url, seed_entry_factory, seeded_prefixes
     ):
         """Service from capability can store and retrieve entries."""
         from osprey.services.ariel_search.capability import get_ariel_search_service
@@ -188,9 +181,8 @@ class TestCapabilityWithRealService:
         assert retrieved is not None
         assert retrieved["entry_id"] == "cap-integ-001"
 
-    async def test_service_search_returns_result_object(
-        self, database_url, migrated_pool, reset_capability_singleton
-    ):
+    @pytest.mark.usefixtures("migrated_pool", "reset_capability_singleton")
+    async def test_service_search_returns_result_object(self, database_url):
         """Service search method returns ARIELSearchResult."""
         from osprey.services.ariel_search.capability import get_ariel_search_service
         from osprey.services.ariel_search.models import ARIELSearchResult
@@ -215,9 +207,8 @@ class TestCapabilityWithRealService:
 class TestCapabilityConfig:
     """Test capability handles different config scenarios."""
 
-    async def test_capability_with_all_modules_enabled(
-        self, database_url, migrated_pool, reset_capability_singleton
-    ):
+    @pytest.mark.usefixtures("migrated_pool", "reset_capability_singleton")
+    async def test_capability_with_all_modules_enabled(self, database_url):
         """Capability works with all search modules enabled."""
         from osprey.services.ariel_search.capability import get_ariel_search_service
 
@@ -244,9 +235,8 @@ class TestCapabilityConfig:
         assert service.config.is_search_module_enabled("keyword")
         assert service.config.is_search_module_enabled("semantic")
 
-    async def test_capability_with_minimal_config(
-        self, database_url, migrated_pool, reset_capability_singleton
-    ):
+    @pytest.mark.usefixtures("migrated_pool", "reset_capability_singleton")
+    async def test_capability_with_minimal_config(self, database_url):
         """Capability works with minimal config (just database)."""
         from osprey.services.ariel_search.capability import get_ariel_search_service
 

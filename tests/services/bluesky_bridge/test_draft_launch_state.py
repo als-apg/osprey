@@ -110,7 +110,8 @@ async def test_check_launchable_stale_on_revision_mismatch(client: TestClient) -
 
 
 @pytest.mark.asyncio
-async def test_check_launchable_stale_on_empty_draft(client: TestClient) -> None:
+@pytest.mark.usefixtures("client")
+async def test_check_launchable_stale_on_empty_draft() -> None:
     # No draft has ever been created; revision is still 0.
     result = await draft.check_launchable(0)
 

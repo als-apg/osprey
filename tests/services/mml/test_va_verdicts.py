@@ -872,9 +872,8 @@ class TestTheCavityItBuilds:
         verdict = propose(export, empty, _views(objects), None)["RF"]
         assert (verdict.verdict, verdict.reason) == ("latch", "the deck holds no cavity")
 
-    def test_the_nominal_is_read_through_the_family_own_conversion(
-        self, export: dict, objects: dict
-    ) -> None:
+    @pytest.mark.usefixtures("objects")
+    def test_the_nominal_is_read_through_the_family_own_conversion(self, export: dict) -> None:
         """The channel is hardware, so the megahertz on it are hertz here."""
         export["families"]["RF"]["nominals"]["Setpoint"]["values"] = 500.0
         export["families"]["RF"]["Setpoint"]["calibration"] = {

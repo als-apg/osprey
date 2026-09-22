@@ -48,7 +48,8 @@ def all_channels(tree_data: dict) -> list[dict]:
 class TestExpandHierarchy:
     """Tests for expand_hierarchy()."""
 
-    def test_expand_hierarchy(self, tree_data: dict, all_channels: list[dict]) -> None:
+    @pytest.mark.usefixtures("tree_data")
+    def test_expand_hierarchy(self, all_channels: list[dict]) -> None:
         """Expand template and verify total count and entry structure."""
         # Tier 3 is the unfiltered superset: filtering must be a no-op.
         assert len(all_channels) == len(filter_channels(all_channels, TIER_3))
@@ -204,7 +205,8 @@ class TestGenerateDescription:
 class TestTierSpecs:
     """Tests for tier specifications and filter_channels()."""
 
-    def test_tier_specs(self, tree_data: dict, all_channels: list[dict]) -> None:
+    @pytest.mark.usefixtures("tree_data")
+    def test_tier_specs(self, all_channels: list[dict]) -> None:
         """The flat filter and the in_context envelope agree on each tier's size."""
         for tier_spec in (TIER_1, TIER_3):
             filtered = filter_channels(all_channels, tier_spec)
@@ -260,7 +262,8 @@ class TestTierSpecs:
 class TestFormatInContext:
     """Tests for format_in_context()."""
 
-    def test_format_in_context(self, tree_data: dict, all_channels: list[dict]) -> None:
+    @pytest.mark.usefixtures("tree_data")
+    def test_format_in_context(self, all_channels: list[dict]) -> None:
         """Verify in-context envelope format structure and channel count."""
         for tier_spec in (TIER_1, TIER_3):
             expected_count = len(filter_channels(all_channels, tier_spec))
@@ -406,7 +409,8 @@ class TestFormatHierarchical:
 class TestFormatMiddleLayer:
     """Tests for format_middle_layer()."""
 
-    def test_format_middle_layer(self, tree_data: dict, all_channels: list[dict]) -> None:
+    @pytest.mark.usefixtures("tree_data")
+    def test_format_middle_layer(self, all_channels: list[dict]) -> None:
         """Verify middle-layer format structure and total channel count."""
         for tier_spec in (TIER_1, TIER_3):
             expected_count = len(filter_channels(all_channels, tier_spec))

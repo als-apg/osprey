@@ -106,14 +106,17 @@ class TestGrownInventory:
                 f"{family} in {db.__class__.__name__} did not grow to {count} devices"
             )
 
-    def test_bpm_hcm_vcm_grow_to_72(self, generated: Path):
+    @pytest.mark.usefixtures("generated")
+    def test_bpm_hcm_vcm_grow_to_72(self):
         for family in ("BPM", "HCM", "VCM"):
             assert _GROWN_COUNTS[family] == 72
 
-    def test_dipole_grows_to_36(self, generated: Path):
+    @pytest.mark.usefixtures("generated")
+    def test_dipole_grows_to_36(self):
         assert _GROWN_COUNTS["DIPOLE"] == 36
 
-    def test_remaining_magnet_families_grow_to_24(self, generated: Path):
+    @pytest.mark.usefixtures("generated")
+    def test_remaining_magnet_families_grow_to_24(self):
         for family in ("QF", "QD", "QFA", "SF", "SD", "SHF", "SHD"):
             assert _GROWN_COUNTS[family] == 24
 

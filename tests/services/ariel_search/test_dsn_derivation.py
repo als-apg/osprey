@@ -278,9 +278,8 @@ def test_overrides_leave_an_explicit_uri_verbatim() -> None:
     assert uri == external
 
 
-def test_overrides_leave_the_legacy_connection_string_verbatim(
-    rearmed_connection_string_warning,
-) -> None:
+@pytest.mark.usefixtures("rearmed_connection_string_warning")
+def test_overrides_leave_the_legacy_connection_string_verbatim() -> None:
     """The retired alias is an authored DSN too, and is redirected no more."""
     legacy = "postgresql://ariel:pw@logbook-db.example.org:5432/ariel"
 
@@ -417,9 +416,8 @@ def test_the_panel_leaves_an_explicit_uri_alone(tmp_path, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_legacy_connection_string_is_honored_as_the_uri(
-    caplog, rearmed_connection_string_warning
-) -> None:
+@pytest.mark.usefixtures("rearmed_connection_string_warning")
+def test_legacy_connection_string_is_honored_as_the_uri(caplog) -> None:
     """The retired alias still reaches the database it names.
 
     The shim that copied ``connection_string`` into ``uri`` lived in the MCP
@@ -445,9 +443,8 @@ def test_legacy_connection_string_is_honored_as_the_uri(
     )
 
 
-def test_legacy_connection_string_warns_once_per_process(
-    caplog, rearmed_connection_string_warning
-) -> None:
+@pytest.mark.usefixtures("rearmed_connection_string_warning")
+def test_legacy_connection_string_warns_once_per_process(caplog) -> None:
     """A CLI that parses the config repeatedly says it once, not once per parse."""
     ariel_section = {"database": {"connection_string": "postgresql://ariel:pw@db:5432/ariel"}}
 
@@ -465,7 +462,8 @@ def test_legacy_connection_string_warns_once_per_process(
     )
 
 
-def test_deriving_the_dsn_stays_silent(caplog, rearmed_connection_string_warning) -> None:
+@pytest.mark.usefixtures("rearmed_connection_string_warning")
+def test_deriving_the_dsn_stays_silent(caplog) -> None:
     """Deriving is the normal path — it is not a deprecation event."""
     with caplog.at_level(logging.DEBUG, logger="osprey"):
         ARIELConfig.from_dict({}, {"username": "ariel", "database_name": "ariel"})

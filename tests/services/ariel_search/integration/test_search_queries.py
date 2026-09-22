@@ -342,9 +342,8 @@ class TestSemanticSearchWithRealEmbeddings:
                 # Beam-related entries should have higher similarity
                 assert max(beam_scores) >= max(vacuum_scores)
 
-    async def test_embedding_dimension_is_768(
-        self, seeded_repository_with_embeddings, migrated_pool
-    ):
+    @pytest.mark.usefixtures("seeded_repository_with_embeddings")
+    async def test_embedding_dimension_is_768(self, migrated_pool):
         """nomic-embed-text embeddings have 768 dimensions."""
         async with migrated_pool.connection() as conn:
             result = await conn.execute("""

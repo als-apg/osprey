@@ -210,13 +210,9 @@ class TestEnhancementWithOllama:
 class TestMultipleEmbeddingModels:
     """Test enhancement with multiple embedding models."""
 
+    @pytest.mark.usefixtures("integration_ariel_config")
     async def test_multiple_models_generate_embeddings(
-        self,
-        repository,
-        migrated_pool,
-        seed_entry_factory,
-        integration_ariel_config,
-        seeded_prefixes,
+        self, repository, migrated_pool, seed_entry_factory, seeded_prefixes
     ):
         """Enhancement module can use multiple embedding models."""
         if not is_ollama_available():

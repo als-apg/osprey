@@ -123,8 +123,9 @@ async def search(service: Any, query: str, **advanced: Any) -> ARIELSearchResult
 class TestExpansionEffect:
     """Vocabulary expansion against seeded canonical-only prose."""
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_shorthand_query_finds_canonical_entry_with_positive_rank(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`ts bpm` reaches a canonical-only entry and it ranks above zero.
 
@@ -144,8 +145,9 @@ class TestExpansionEffect:
             ("bpm", ("beam position monitor",)),
         ]
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_third_term_discriminates_between_seeded_entries(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`ts bpm undulator` keeps the AND semantics of the unexpanded query."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -156,8 +158,9 @@ class TestExpansionEffect:
         assert THREE_TERM_NEEDLE_ID in ids(result)
         assert SHORT_NEEDLE_ID not in ids(result)
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_expand_query_false_finds_nothing_and_reports_nothing(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """The per-request off switch reaches the SQL, not just the report."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -169,8 +172,9 @@ class TestExpansionEffect:
         assert THREE_TERM_NEEDLE_ID not in ids(result)
         assert result.expanded_terms == ()
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_ambiguous_form_yields_one_group_with_both_canonicals(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, ambiguous_vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, ambiguous_vocabulary_file
     ):
         """A form bound twice reports ONE group listing both bindings."""
         config = vocabulary_config_factory(ambiguous_vocabulary_file)
@@ -184,8 +188,9 @@ class TestExpansionEffect:
 class TestDirectionGates:
     """`canonical_to_acronym` decides whether prose reaches acronym-only rows."""
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_gate_on_reaches_acronym_only_entry(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """With the gate on, `beam position monitor` also searches `bpm`."""
         config = vocabulary_config_factory(vocabulary_file, canonical_to_acronym=True)
@@ -196,8 +201,9 @@ class TestDirectionGates:
         assert ACRONYM_ONLY_ID in ids(result)
         assert groups(result) == [("beam position monitor", ("bpm", "bpms"))]
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_gate_off_leaves_acronym_only_entry_unreachable(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """With the gate off the query is searched exactly as typed."""
         config = vocabulary_config_factory(vocabulary_file, canonical_to_acronym=False)
@@ -214,9 +220,8 @@ class TestDirectionGates:
 class TestExpandByDefault:
     """`expand_by_default` resolves expansion when the request says nothing."""
 
-    async def test_unset_expands(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
-    ):
+    @pytest.mark.usefixtures("prose_repository")
+    async def test_unset_expands(self, migrated_pool, vocabulary_config_factory, vocabulary_file):
         """Omitting the key keeps the documented default (expansion on)."""
         from osprey.services.ariel_search.capabilities import get_capabilities
 
@@ -229,8 +234,9 @@ class TestExpandByDefault:
         assert SHORT_NEEDLE_ID in ids(result)
         assert get_capabilities(config)["vocabulary"]["expand_by_default"] is True
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_false_runs_the_unexpanded_sql(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`expand_by_default: false` with no request flag searches as typed."""
         from osprey.services.ariel_search.capabilities import get_capabilities
@@ -246,8 +252,9 @@ class TestExpandByDefault:
         assert "troubleshoot" not in recorder.bound_params
         assert get_capabilities(config)["vocabulary"]["expand_by_default"] is False
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_request_flag_overrides_expand_by_default_false(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """An explicit `expand_query=True` wins over the deployment default."""
         config = vocabulary_config_factory(vocabulary_file, expand_by_default=False)
@@ -267,8 +274,9 @@ class TestExpandByDefault:
 class TestGlobSemantics:
     """Glob and regex tokens executed as real ``raw_text ~* %s`` predicates."""
 
+    @pytest.mark.usefixtures("glob_repository")
     async def test_star_matches_suffix_and_bare_name_but_not_a_prefixed_one(
-        self, glob_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`SR01C___BPM*` is word-anchored at the front, open at the back."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -280,8 +288,9 @@ class TestGlobSemantics:
         assert GLOB_BARE_ID in found
         assert GLOB_PREFIXED_ID not in found
 
+    @pytest.mark.usefixtures("glob_repository")
     async def test_question_mark_inside_a_glob_is_one_character(
-        self, glob_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`SR0?C___BPM*` matches one sector digit, never two."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -293,8 +302,9 @@ class TestGlobSemantics:
         assert GLOB_SR02_ID in found
         assert GLOB_SR011_ID not in found
 
+    @pytest.mark.usefixtures("glob_repository")
     async def test_trailing_question_token_is_searched_as_text(
-        self, glob_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`SR01C___BPM?` carries no `*`, so it never becomes a predicate."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -305,8 +315,9 @@ class TestGlobSemantics:
         assert recorder.pattern_clause_count == 0
         assert GLOB_BARE_ID in ids(result)
 
+    @pytest.mark.usefixtures("glob_repository")
     async def test_regex_spans_match_including_one_containing_a_space(
-        self, glob_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         r"""`/SR0[1-4]C___BPM\d+/` and `/beam loss/` both run as predicates."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -316,8 +327,9 @@ class TestGlobSemantics:
         assert GLOB_BEAM_LOSS_ID in ids(await search(service, "/beam loss/"))
 
     @pytest.mark.parametrize("query", ["BPM (SR01)", "C++", "did the BPM trip?"])
+    @pytest.mark.usefixtures("glob_repository")
     async def test_ordinary_punctuation_is_never_read_as_a_pattern(
-        self, query, glob_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, query, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """Parentheses, `+` and a trailing `?` produce no predicate and no notice."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -328,8 +340,9 @@ class TestGlobSemantics:
         assert recorder.pattern_clause_count == 0
         assert "pattern" not in categories(result)
 
+    @pytest.mark.usefixtures("glob_repository")
     async def test_empty_pattern_is_dropped_with_an_info_diagnostic(
-        self, glob_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`//` is the one form whose text disappears -- with a notice."""
         from osprey.services.ariel_search.models import DiagnosticLevel
@@ -348,8 +361,9 @@ class TestGlobSemantics:
         ]
         assert [d.message for d in notices] == [EMPTY_PATTERN_NOTICE]
 
+    @pytest.mark.usefixtures("glob_repository")
     async def test_trailing_question_after_a_regex_span_keeps_the_body(
-        self, glob_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         r"""`/…/?` yields exactly one predicate bound to the body without the `?`."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -361,8 +375,9 @@ class TestGlobSemantics:
         assert r"SR0[1-4]C___BPM\d+" in recorder.bound_params
         assert GLOB_BPM3_ID in ids(result)
 
+    @pytest.mark.usefixtures("glob_repository")
     async def test_internal_question_mark_survives_in_a_regex_body(
-        self, glob_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`/BPMs?/` keeps its optional-`s` quantifier."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -377,8 +392,9 @@ class TestGlobSemantics:
 class TestSlashFormCollision:
     """Facility shorthand containing `/` must not open a pattern span."""
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_two_slash_forms_expand_and_open_no_span(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`t/s i/o` is two vocabulary forms, not a regex."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -392,8 +408,9 @@ class TestSlashFormCollision:
             ("i/o", ("input output",)),
         ]
 
+    @pytest.mark.usefixtures("glob_repository")
     async def test_slash_form_beside_a_real_regex_span(
-        self, glob_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         r"""`t/s /…/` expands the form AND runs the span."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -409,8 +426,9 @@ class TestSlashFormCollision:
 class TestLiteralRunRule:
     """A pattern too generic for the trigram index is re-inserted as text."""
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_short_body_is_searched_as_text(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """`/ab/` produces the INFO notice, no predicate, and an FTS leg for `ab`."""
         from osprey.services.ariel_search.models import DiagnosticLevel
@@ -438,8 +456,9 @@ class TestLiteralRunRule:
         "query",
         ["test UNION SELECT * FROM users --", "5 * 3"],
     )
+    @pytest.mark.usefixtures("prose_repository")
     async def test_bare_star_never_becomes_a_predicate(
-        self, query, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, query, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """A lone `*` has no literal run at all, so it stays ordinary text."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -459,8 +478,9 @@ class TestLiteralRunRule:
 class TestFuzzyFallback:
     """The `pg_trgm` fallback, and the rule that expansion may only add hits."""
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_short_entry_is_reached_only_with_expansion(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """A zero-FTS-row query reaches the short entry via the flattened probe.
 
@@ -478,8 +498,9 @@ class TestFuzzyFallback:
         assert SHORT_NEEDLE_ID in ids(with_expansion)
         assert SHORT_NEEDLE_ID not in ids(without)
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_expansion_never_removes_a_fuzzy_hit(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """The original probe runs first, so expansion is strictly additive."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -501,8 +522,9 @@ class TestFuzzyFallback:
 class TestTimeoutMechanism:
     """`SET LOCAL statement_timeout` engages inside the transaction only."""
 
+    @pytest.mark.usefixtures("glob_repository")
     async def test_timeout_is_set_inside_and_reverted_after(
-        self, glob_repository, migrated_pool, integration_ariel_config
+        self, migrated_pool, integration_ariel_config
     ):
         """The configured value is live inside the block and gone afterwards.
 
@@ -547,8 +569,9 @@ class TestTimeoutMechanism:
         assert after == before
         assert after != "2500ms"
 
+    @pytest.mark.usefixtures("prose_repository")
     async def test_pattern_free_search_opens_no_transaction(
-        self, prose_repository, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """An ordinary keyword search runs exactly as it always has."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -569,8 +592,9 @@ class TestTimeoutEffect:
     #: match work proportional to the row text.
     PATTERN = r"/SR01C___BPM[0-9]+ trip [a-z]{4,}/"
 
+    @pytest.mark.usefixtures("bulky_pattern_rows")
     async def test_default_timeout_completes(
-        self, bulky_pattern_rows, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """With the shipped 10 s budget the pattern search returns rows."""
         config = vocabulary_config_factory(vocabulary_file)
@@ -582,8 +606,9 @@ class TestTimeoutEffect:
         assert "timeout" not in categories(result)
         assert groups(result) == [("ts", ("troubleshoot",))]
 
+    @pytest.mark.usefixtures("bulky_pattern_rows")
     async def test_one_millisecond_budget_reports_a_timeout_with_its_expansion(
-        self, bulky_pattern_rows, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """The same search under a 1 ms budget degrades to a timeout diagnostic."""
         from osprey.services.ariel_search.models import DiagnosticLevel
@@ -605,8 +630,9 @@ class TestTimeoutEffect:
         # fuzzy fallback never ran (it is skipped for pattern queries).
         assert groups(result) == [("ts", ("troubleshoot",))]
 
+    @pytest.mark.usefixtures("bulky_pattern_rows")
     async def test_invalid_regex_reports_the_pattern_and_the_expansion(
-        self, bulky_pattern_rows, migrated_pool, vocabulary_config_factory, vocabulary_file
+        self, migrated_pool, vocabulary_config_factory, vocabulary_file
     ):
         """A body PostgreSQL refuses to compile names itself in the diagnostic.
 
@@ -674,8 +700,9 @@ ariel:
 """
 
 
+@pytest.mark.usefixtures("prose_repository")
 async def test_relative_vocabulary_path_resolves_against_the_config_file(
-    prose_repository, database_url, tmp_path, monkeypatch
+    database_url, tmp_path, monkeypatch
 ):
     """`CONFIG_FILE` outside the CWD still finds the vocabulary beside it.
 

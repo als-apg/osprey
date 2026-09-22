@@ -1744,7 +1744,8 @@ def test_abort_needs_no_token_even_on_an_armed_bridge(
     assert "re_abort" in manager.method_names()
 
 
-def test_abort_declares_no_launch_token_header(client: TestClient) -> None:
+@pytest.mark.usefixtures("client")
+def test_abort_declares_no_launch_token_header() -> None:
     """Structural, not behavioural: the route takes no token parameter at all,
     so there is nothing for a later "make it consistent with start" edit to
     gate. Read off the OpenAPI schema rather than the source so a header added

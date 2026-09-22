@@ -111,7 +111,8 @@ class TestDirectionSource:
 class TestResolveLimitsPath:
     """Which limits file the generator reads, and how it says so."""
 
-    def test_explicit_path_wins_over_config(self, tmp_path, no_ambient_config):
+    @pytest.mark.usefixtures("no_ambient_config")
+    def test_explicit_path_wins_over_config(self, tmp_path):
         """An explicit path is used even when the config names a different file."""
         explicit = _write_limits(tmp_path / "explicit.json", {})
         other = _write_limits(tmp_path / "config.json", {})
@@ -133,7 +134,8 @@ class TestResolveLimitsPath:
 
         assert str(missing) in str(excinfo.value)
 
-    def test_absolute_config_path_is_used_as_is(self, tmp_path, no_ambient_config):
+    @pytest.mark.usefixtures("no_ambient_config")
+    def test_absolute_config_path_is_used_as_is(self, tmp_path):
         """An absolute database_path needs no anchoring."""
         limits = _write_limits(tmp_path / "limits.json", {})
 
@@ -187,7 +189,8 @@ class TestResolveLimitsPath:
 
         assert path == limits
 
-    def test_relative_path_falls_back_to_project_root(self, tmp_path, no_ambient_config):
+    @pytest.mark.usefixtures("no_ambient_config")
+    def test_relative_path_falls_back_to_project_root(self, tmp_path):
         """project_root is the last resort when nothing else names a config."""
         root = tmp_path / "project"
         (root / "data").mkdir(parents=True)
@@ -205,16 +208,16 @@ class TestResolveLimitsPath:
 
         assert path == limits
 
-    def test_unset_key_returns_no_path_and_names_the_key(self, no_ambient_config):
+    @pytest.mark.usefixtures("no_ambient_config")
+    def test_unset_key_returns_no_path_and_names_the_key(self):
         """Nothing configured: no path, and the message says which key was read."""
         path, message = resolve_limits_path(None, config_lookup=_lookup({}))
 
         assert path is None
         assert LIMITS_DATABASE_CONFIG_KEY in message
 
-    def test_configured_but_absent_file_returns_no_path_and_names_it(
-        self, tmp_path, no_ambient_config
-    ):
+    @pytest.mark.usefixtures("no_ambient_config")
+    def test_configured_but_absent_file_returns_no_path_and_names_it(self, tmp_path):
         """A configured path that does not exist degrades to the grammar, legibly."""
         missing = tmp_path / "gone" / "channel_limits.json"
 
@@ -386,7 +389,8 @@ class TestAssignDirections:
 class TestResolveAndAssign:
     """The one call the CLI verb makes."""
 
-    def test_chains_resolution_into_assignment(self, tmp_path, no_ambient_config):
+    @pytest.mark.usefixtures("no_ambient_config")
+    def test_chains_resolution_into_assignment(self, tmp_path):
         """A configured, existing limits file produces a limits-sourced report."""
         limits = _write_limits(tmp_path / "limits.json", {"SR:MAG:DIPOLE:01:CURRENT:SP": {}})
 
@@ -399,7 +403,8 @@ class TestResolveAndAssign:
         assert report.source is DirectionSource.LIMITS
         assert _directions(annotated) == {("DIPOLE", "CURRENT", "SP"): DIRECTION_WRITE}
 
-    def test_unresolvable_config_degrades_to_the_grammar(self, no_ambient_config):
+    @pytest.mark.usefixtures("no_ambient_config")
+    def test_unresolvable_config_degrades_to_the_grammar(self):
         """No configured file: grammar, with the key named in the message."""
         annotated, report = resolve_and_assign(
             _model(["SR:MAG:DIPOLE:01:CURRENT:SP"]),
