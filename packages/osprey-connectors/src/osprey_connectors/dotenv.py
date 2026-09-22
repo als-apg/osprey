@@ -433,6 +433,55 @@ def _append_profile_env_locked(
     )
 
 
+def replace_profile_env_value(
+    profile_env_path: Path,
+    key: str,
+    old_value: str,
+    new_value: str,
+) -> bool:
+    """Swap one key's value in a profile ``.env``, and only if it reads as expected.
+
+    The narrow exception to :func:`append_profile_env`'s "the value on file
+    always wins". A writer reaches for this when it can name, exactly, the
+    value it is entitled to replace — a spelling its own earlier versions
+    wrote, which now resolves to nothing. *old_value* is that entitlement:
+    anything else on file is somebody's pin and comes out untouched, which is
+    also the answer for a key that is absent and for a file that is not there.
+
+    Comparison is against the value the parser reads, so a quoted assignment
+    matches the bare string it yields, and the replacement is rendered through
+    :func:`format_env_line` so it reads back as given. Exactly one line changes:
+    the assignment :func:`parse_dotenv_text` resolves the key to — the last one,
+    when a file assigns it twice. Every other byte of the file, comments and
+    blank lines included, survives the rewrite.
+
+    Concurrency and permissions are :func:`append_profile_env`'s: the sibling
+    ``<name>.lock`` serializes the read-modify-write across processes, and the
+    new contents land through :func:`atomic_write` at :data:`ENV_FILE_MODE`.
+
+    :param profile_env_path: The ``.env`` to edit.
+    :param key: The variable whose value is being replaced.
+    :param old_value: The value the caller expects to find, as the parser reads
+        it. The write is refused when the file says anything else.
+    :param new_value: What to write in its place.
+    :returns: Whether the file was rewritten.
+    :raises ValueError: when *new_value* cannot be written to a ``.env`` line
+        (see :func:`format_env_line`).
+    """
+    with env_file_lock(profile_env_path):
+        if not profile_env_path.is_file():
+            return False
+        text = profile_env_path.read_text(encoding="utf-8")
+        if parse_dotenv_text(text).get(key) != old_value:
+            return False
+        lines = text.splitlines(keepends=True)
+        target = max(index for index, line in enumerate(lines) if dotenv_line_var(line) == key)
+        ending = "\n" if lines[target].endswith("\n") else ""
+        lines[target] = format_env_line(key, new_value) + ending
+        atomic_write(profile_env_path, "".join(lines))
+        return True
+
+
 def atomic_write(path: Path, text: str) -> None:
     """Write ``text`` to ``path`` via a same-directory temp file + ``os.replace``.
 

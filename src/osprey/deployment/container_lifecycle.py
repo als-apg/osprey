@@ -3727,9 +3727,15 @@ def _preflight_build_derived_env(
     :param environ: The environment to check against. ``None`` reads the live
         one overlaid with the shell values the CLI's entry-time ``.env`` load
         replaced, matching what the stack is actually started with.
+    A value that is present but names no file in the render is refused on the
+    same reasoning. ``VA_LATTICE`` is a file's name inside the tree the
+    container mounts, looked up verbatim, and the entrypoint exits FATAL on a
+    name it cannot find — after every image in the stack has been built. The
+    name is checked here against that same tree instead.
+
     :raises RuntimeError: The manifest exists, some compose file interpolates
         a build-derived key, and neither the chain nor the environment gives
-        it a value.
+        it a value -- or gives it the name of a file the render does not carry.
     """
     from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
     from osprey.utils.dotenv import BUILD_DERIVED_KEYS
@@ -3757,6 +3763,7 @@ def _preflight_build_derived_env(
         if not (chain.get(name) or "").strip() and not (process_env.get(name) or "").strip()
     ]
     if not missing:
+        _preflight_served_lattice(wanted, root, chain, process_env)
         return
 
     names = ", ".join(missing)
@@ -3778,6 +3785,65 @@ def _preflight_build_derived_env(
     raise RuntimeError(
         f"build-derived env preflight failed: {names} is unset while {manifest} exists "
         "(see report above). Run `osprey build`, then `osprey up`."
+    )
+
+
+def _preflight_served_lattice(
+    wanted: Sequence[str],
+    root: Path,
+    chain: Mapping[str, str],
+    process_env: Mapping[str, str],
+) -> None:
+    """Refuse the deploy when ``VA_LATTICE`` names no file in the render.
+
+    The value is a lattice file's name relative to the virtual accelerator's
+    data directory, which is the ``build/data/simulation`` the compose service
+    mounts, and the container's entrypoint resolves it there verbatim — case
+    included — exiting FATAL on a name that is not in the tree it was handed.
+    :data:`~osprey.utils.dotenv.VA_LATTICE_DEFAULT` is the one value naming no
+    file, and an absolute value names a path in the container's filesystem that
+    this host cannot speak for; neither is a name to look up.
+
+    The refusal names the path it checked, because the fix depends on what the
+    operator meant by the value and only they can say which.
+
+    :param wanted: The build-derived keys the rendered compose files
+        interpolate. A stack no reader of the lattice deploys is not refused.
+    :param root: The deployment repo root, holding the render.
+    :param chain: The merged env chain, as the caller read it.
+    :param process_env: The environment the stack is started with.
+    :raises RuntimeError: The value names a file the render does not carry.
+    """
+    from osprey.utils.dotenv import VA_LATTICE_DEFAULT, VA_LATTICE_KEY
+
+    if VA_LATTICE_KEY not in wanted:
+        return
+    name = (chain.get(VA_LATTICE_KEY) or process_env.get(VA_LATTICE_KEY) or "").strip()
+    if not name or name == VA_LATTICE_DEFAULT or Path(name).is_absolute():
+        return
+
+    served = Path(BUILD_DIRNAME) / "data" / "simulation" / name
+    if (root / served).is_file():
+        return
+
+    logger.error(
+        "Build-derived env stale: %s=%s names no file in the render (%s is not there).\n"
+        "  The accelerator looks the name up verbatim in the directory it mounts and refuses "
+        "to start when it misses, so the stack would be built and then fail to boot.\n"
+        "  Delete the %s line from %s and run `osprey build`, which re-derives the lattice "
+        "this project's tree serves; or set %s=%s to serve the manifest's channels without "
+        "physics.",
+        VA_LATTICE_KEY,
+        name,
+        served,
+        VA_LATTICE_KEY,
+        ENV_LOCAL_FILENAME,
+        VA_LATTICE_KEY,
+        VA_LATTICE_DEFAULT,
+    )
+    raise RuntimeError(
+        f"build-derived env preflight failed: {VA_LATTICE_KEY}={name} names no file in "
+        f"{served} (see report above)."
     )
 
 

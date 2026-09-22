@@ -72,6 +72,7 @@ from osprey.deployment.container_lifecycle import (
     _report_chain_overrides,
 )
 from osprey.deployment.runtime_helper import ComposeProvider
+from osprey.utils.dotenv import ENV_LOCAL_FILENAME
 
 _PINNED = "p1nnedvaluefromtherepostore"
 _EXPORTED = "d1vergentexportvaluenotfromthisrepo"
@@ -2269,6 +2270,130 @@ def test_a_missing_compose_file_is_skipped_not_raised_here_too(tmp_path):
 def test_a_lost_key_refuses_the_deploy_before_the_image_build(tmp_path, monkeypatch):
     """On the deploy path, and ahead of the build: the whole point is to be told early."""
     repo = _repo(tmp_path, "VA_LATTICE=builtin\n", _VA_COMPOSE)
+    _manifest(repo)
+
+    order: list[str] = []
+    ran = _stub_runtime(monkeypatch, order)
+
+    with pytest.raises(RuntimeError):
+        container_lifecycle._start_stack(
+            {"project_name": "proj", "deployed_services": ["virtual_accelerator"]},
+            _files(),
+            repo,
+            detached=True,
+            env_path=repo / ".env",
+        )
+
+    assert order == []
+    assert not any("up" in cmd for cmd in ran)
+
+
+# ---------------------------------------------------------------------------
+# A build-derived key that names no file: a refusal, because the container's is
+# a FATAL 45 minutes of image builds later
+# ---------------------------------------------------------------------------
+
+
+def _lattice(root: Path, name: str) -> Path:
+    """A lattice file in the served tree, under the name the chain would pin."""
+    path = root / "build" / "data" / "simulation" / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{}", encoding="utf-8")
+    return path
+
+
+def test_a_lattice_name_no_served_file_carries_refuses(tmp_path, caplog):
+    """The entrypoint looks the name up verbatim and exits FATAL when it misses.
+
+    Nothing between the build and the boot had checked that the name resolves,
+    so the first check was the container's — after every image in the stack had
+    been built.
+    """
+    repo = _repo(
+        tmp_path, "VA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=gone.json\n", _VA_COMPOSE
+    )
+    _manifest(repo)
+
+    with caplog.at_level(logging.ERROR), pytest.raises(RuntimeError) as excinfo:
+        _preflight_build_derived_env(_files(), repo)
+
+    assert "VA_LATTICE" in str(excinfo.value)
+    assert "gone.json" in caplog.text
+    assert "build/data/simulation/gone.json" in caplog.text.replace("\\", "/")
+    # Both ways out, because which one is right depends on what the operator meant.
+    assert "none" in caplog.text
+    assert ENV_LOCAL_FILENAME in caplog.text
+
+
+def test_a_lattice_the_served_tree_carries_is_silent(tmp_path, caplog):
+    repo = _repo(
+        tmp_path, "VA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=ring.json\n", _VA_COMPOSE
+    )
+    _manifest(repo)
+    _lattice(repo, "ring.json")
+
+    with caplog.at_level(logging.INFO):
+        _preflight_build_derived_env(_files(), repo)
+
+    assert caplog.text == ""
+
+
+def test_no_lattice_at_all_is_a_value_not_a_stale_name(tmp_path, caplog):
+    """``none`` is the one value naming no file, and it is not a pointer to check."""
+    repo = _repo(tmp_path, "VA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=none\n", _VA_COMPOSE)
+    _manifest(repo)
+
+    with caplog.at_level(logging.INFO):
+        _preflight_build_derived_env(_files(), repo)
+
+    assert caplog.text == ""
+
+
+def test_a_stale_name_from_a_shell_export_refuses_too(tmp_path, monkeypatch):
+    """The export reaches the container as surely as the chain does."""
+    repo = _repo(tmp_path, "VA_CHANNELS_FILE=channel_manifest.json\n", _VA_COMPOSE)
+    _manifest(repo)
+    monkeypatch.setenv("VA_LATTICE", "gone.json")
+
+    with pytest.raises(RuntimeError, match="VA_LATTICE"):
+        _preflight_build_derived_env(_files(), repo)
+
+
+def test_a_lattice_no_compose_file_reads_is_not_this_checks_business(tmp_path, caplog):
+    recorder = (
+        "services:\n  archiver-recorder:\n    image: rec:local\n    environment:\n"
+        '      VA_CHANNELS_FILE: "${VA_CHANNELS_FILE:-}"\n'
+    )
+    repo = _repo(
+        tmp_path, "VA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=gone.json\n", recorder
+    )
+    _manifest(repo)
+
+    with caplog.at_level(logging.INFO):
+        _preflight_build_derived_env(_files(), repo)
+
+    assert caplog.text == ""
+
+
+def test_an_absolute_name_is_the_containers_to_resolve(tmp_path, caplog):
+    """An absolute path names a place in the container's filesystem, not this host's."""
+    repo = _repo(
+        tmp_path,
+        "VA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=/opt/rings/ring.json\n",
+        _VA_COMPOSE,
+    )
+    _manifest(repo)
+
+    with caplog.at_level(logging.INFO):
+        _preflight_build_derived_env(_files(), repo)
+
+    assert caplog.text == ""
+
+
+def test_a_stale_name_refuses_the_deploy_before_the_image_build(tmp_path, monkeypatch):
+    repo = _repo(
+        tmp_path, "VA_CHANNELS_FILE=channel_manifest.json\nVA_LATTICE=gone.json\n", _VA_COMPOSE
+    )
     _manifest(repo)
 
     order: list[str] = []

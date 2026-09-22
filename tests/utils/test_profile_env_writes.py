@@ -1,4 +1,4 @@
-"""Tests for ``append_profile_env`` — the atomic, append-only profile ``.env`` write.
+"""Tests for the profile ``.env`` writes — atomic, and append-only by default.
 
 ``osprey up`` persists the secrets it minted back into the profile that owns
 them. Two properties carry the safety here:
@@ -9,6 +9,10 @@ them. Two properties carry the safety here:
 * **Atomic.** Lock file + temp file + ``os.replace``, so two deploys racing on
   the same profile both land their keys and no reader ever sees a half-written
   file.
+
+``replace_profile_env_value`` is the one exception to the first property, and
+its tests pin the narrowness that makes it safe: it changes a single key, only
+when the value on file is the exact one the caller expected to find there.
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from osprey.utils.dotenv import (
     ENV_LOCAL_BANNER,
     append_profile_env,
     parse_dotenv_file,
+    replace_profile_env_value,
 )
 
 
@@ -230,3 +235,80 @@ class TestConcurrentAppends:
         assignments = [ln for ln in lines if ln.strip() and not ln.strip().startswith("#")]
         assert len(assignments) == len(parsed)
         assert not list(tmp_path.glob(".env*.tmp"))
+
+
+class TestReplacingOneValue:
+    """``replace_profile_env_value`` — the narrow, expectation-checked rewrite."""
+
+    def test_the_expected_value_is_replaced(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text("VA_LATTICE=builtin\n", encoding="utf-8")
+
+        assert replace_profile_env_value(env_path, "VA_LATTICE", "builtin", "ring.json") is True
+        assert parse_dotenv_file(env_path)["VA_LATTICE"] == "ring.json"
+
+    def test_a_different_value_on_file_is_left_alone(self, tmp_path):
+        """The caller's expectation is the whole authorization to rewrite."""
+        env_path = tmp_path / ".env"
+        env_path.write_text("VA_LATTICE=my-own.json\n", encoding="utf-8")
+
+        assert replace_profile_env_value(env_path, "VA_LATTICE", "builtin", "ring.json") is False
+        assert env_path.read_text(encoding="utf-8") == "VA_LATTICE=my-own.json\n"
+
+    def test_an_absent_key_is_left_alone(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text("OTHER=x\n", encoding="utf-8")
+
+        assert replace_profile_env_value(env_path, "VA_LATTICE", "builtin", "ring.json") is False
+        assert env_path.read_text(encoding="utf-8") == "OTHER=x\n"
+
+    def test_a_missing_file_is_not_created(self, tmp_path):
+        env_path = tmp_path / ".env"
+
+        assert replace_profile_env_value(env_path, "VA_LATTICE", "builtin", "ring.json") is False
+        assert not env_path.exists()
+
+    def test_every_other_line_comes_out_byte_identical(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text(
+            "# a note\n\nANTHROPIC_API_KEY='sk with spaces'\nVA_LATTICE=builtin\n# trailing\n",
+            encoding="utf-8",
+        )
+
+        replace_profile_env_value(env_path, "VA_LATTICE", "builtin", "ring.json")
+
+        assert env_path.read_text(encoding="utf-8") == (
+            "# a note\n\nANTHROPIC_API_KEY='sk with spaces'\nVA_LATTICE=ring.json\n# trailing\n"
+        )
+
+    def test_a_quoted_value_is_matched_as_the_parser_reads_it(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text('VA_LATTICE="builtin"\n', encoding="utf-8")
+
+        assert replace_profile_env_value(env_path, "VA_LATTICE", "builtin", "ring.json") is True
+        assert parse_dotenv_file(env_path)["VA_LATTICE"] == "ring.json"
+
+    def test_the_assignment_the_parser_reads_is_the_one_rewritten(self, tmp_path):
+        """A duplicated key resolves to the last line, so that is the one that moves."""
+        env_path = tmp_path / ".env"
+        env_path.write_text("VA_LATTICE=first\nVA_LATTICE=builtin\n", encoding="utf-8")
+
+        assert replace_profile_env_value(env_path, "VA_LATTICE", "builtin", "ring.json") is True
+        assert env_path.read_text(encoding="utf-8") == "VA_LATTICE=first\nVA_LATTICE=ring.json\n"
+
+    def test_the_file_keeps_its_secret_permissions(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text("VA_LATTICE=builtin\n", encoding="utf-8")
+        os.chmod(env_path, 0o600)
+
+        replace_profile_env_value(env_path, "VA_LATTICE", "builtin", "ring.json")
+
+        assert stat.S_IMODE(env_path.stat().st_mode) == 0o600
+
+    def test_a_value_needing_quotes_round_trips(self, tmp_path):
+        env_path = tmp_path / ".env"
+        env_path.write_text("VA_LATTICE=builtin\n", encoding="utf-8")
+
+        replace_profile_env_value(env_path, "VA_LATTICE", "builtin", "ring with space.json")
+
+        assert parse_dotenv_file(env_path)["VA_LATTICE"] == "ring with space.json"

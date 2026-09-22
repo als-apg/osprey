@@ -153,10 +153,9 @@ def has_anthropic_api_key() -> bool:
 def has_als_apg_api_key() -> bool:
     """Check if ALS_APG_API_KEY is set.
 
-    The als-apg gateway (named by `ALS_APG_BASE_URL`) authenticates with this
-    token; the safety/SDK E2E suite skip-gates on it because the Claude Code
-    CLI subprocess reaches the gateway via the project's `.env` and
-    `provider=als-apg` defaults landed in 8c541cc9.
+    The als-apg gateway authenticates with this token; the safety/SDK E2E
+    suite skip-gates on it because the Claude Code CLI subprocess reaches the
+    gateway through the project's `.env`.
     """
     return bool(os.environ.get("ALS_APG_API_KEY"))
 

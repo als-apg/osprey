@@ -638,8 +638,8 @@ def _provider_endpoint_var(cfg: dict, provider: str) -> tuple[str, bool] | None:
 
     Two sources, in the order the launch paths read them. The config's own
     ``api.providers.<provider>.base_url`` comes first when it holds an env
-    reference — the shipped catalog spells gateway endpoints that way
-    (``base_url: ${ALS_APG_BASE_URL}``), and a deployment that points the same
+    reference — a config may spell a gateway endpoint that way
+    (``base_url: ${SITE_GATEWAY_URL}``), and a deployment that points a
     provider at a variable of its own is answered with that name rather than a
     spelling this module decided. A config that names no reference falls back
     to the variable the provider itself declares, which is the break-glass

@@ -47,6 +47,7 @@ from osprey.cli.reset_cmd import reset as reset_command
 from osprey.deployment import reset as reset_mod
 from osprey.deployment.compose_generator import REPO_ID_LABEL, repo_identity
 from osprey.deployment.reset import (
+    DERIVED_ENV_BANNER,
     MINTED_ENV_BANNERS,
     ForeignCheckoutError,
     ResetOutcome,
@@ -56,7 +57,7 @@ from osprey.deployment.reset import (
     partition_by_identity,
     plan_reset,
     reset_deployment,
-    strip_minted_env_blocks,
+    strip_env_blocks,
 )
 
 PROJECT = "als-exemplar"
@@ -955,7 +956,7 @@ def test_every_minted_block_shape_is_stripped():
     """All three blocks a deploy writes, including the bluesky ones."""
     text = "".join(f"# {banner}\nKEY_{i}=v\n" for i, banner in enumerate(MINTED_ENV_BANNERS))
     planned = {f"KEY_{i}" for i in range(len(MINTED_ENV_BANNERS))}
-    stripped, removed = strip_minted_env_blocks("KEEP=1\n" + text, planned)
+    stripped, removed = strip_env_blocks("KEEP=1\n" + text, planned)
 
     assert stripped == "KEEP=1\n"
     assert removed == [f"KEY_{i}" for i in range(len(MINTED_ENV_BANNERS))]
@@ -1000,7 +1001,7 @@ def test_a_surviving_key_keeps_the_banner_that_explains_it(repo):
         f"# {MINTED_ENV_BANNERS[0]}\nPLANNED_TOKEN=a\nUNPLANNED_TOKEN=b\n",
         encoding="utf-8",
     )
-    stripped, removed = strip_minted_env_blocks(
+    stripped, removed = strip_env_blocks(
         (repo / ".env").read_text(encoding="utf-8"), {"PLANNED_TOKEN"}
     )
 
@@ -1058,6 +1059,88 @@ def test_the_plan_counts_the_provider_keys_it_is_keeping(repo):
     plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
 
     assert plan.env_kept_keys == ("ANTHROPIC_API_KEY",)
+
+
+# ---------------------------------------------------------------------------
+# The build's derived section: pointers, not secrets, and every build makes them
+# ---------------------------------------------------------------------------
+
+
+def _with_derived_block(repo: Path) -> Path:
+    """Give a repo the ``.env`` section ``osprey build`` writes its pointers into."""
+    env = repo / ".env"
+    env.write_text(
+        env.read_text(encoding="utf-8")
+        + f"\n# {DERIVED_ENV_BANNER}\n"
+        + "VA_CHANNELS_FILE=channel_manifest.json\n"
+        + "VA_LATTICE=lattice.json\n",
+        encoding="utf-8",
+    )
+    return env
+
+
+def test_the_build_derived_pointers_go_with_the_deployment(repo, no_down):
+    """A discarded deployment keeps no pointer into the build tree it discarded.
+
+    The next build re-derives both from the project's own content, and a value
+    surviving the reset wins over the fresh one — the file is append-only — so
+    the stack would come back up aimed at a tree that no longer exists.
+    """
+    env = _with_derived_block(repo)
+
+    run_reset(repo, FakeRuntime())
+
+    text = env.read_text(encoding="utf-8")
+    assert "VA_LATTICE" not in text
+    assert "VA_CHANNELS_FILE" not in text
+    assert DERIVED_ENV_BANNER not in text
+
+
+def test_the_operators_keys_survive_the_derived_strip(repo, no_down):
+    env = _with_derived_block(repo)
+
+    run_reset(repo, FakeRuntime())
+
+    assert "ANTHROPIC_API_KEY=sk-provider-secret" in env.read_text(encoding="utf-8")
+
+
+def test_a_pointer_pinned_outside_the_builds_section_is_the_operators(repo, no_down):
+    """The banner is what makes a line the build's. A line above it is not."""
+    (repo / ".env").write_text(
+        "VA_LATTICE=my-own-ring.json\nANTHROPIC_API_KEY=sk-x\n", encoding="utf-8"
+    )
+
+    run_reset(repo, FakeRuntime())
+
+    assert "VA_LATTICE=my-own-ring.json" in (repo / ".env").read_text(encoding="utf-8")
+
+
+def test_the_plan_names_the_derived_pointers_it_will_remove(repo):
+    _with_derived_block(repo)
+
+    rendered = "\n".join(plan_reset(repo, probe=make_probe(FakeRuntime())).render())
+
+    assert "VA_LATTICE" in rendered
+    assert "VA_CHANNELS_FILE" in rendered
+
+
+def test_the_confirmation_counts_the_pointers_apart_from_the_secrets(repo):
+    """Two nouns, because the two sections cost an operator different things."""
+    _with_derived_block(repo)
+
+    summary = plan_reset(repo, probe=make_probe(FakeRuntime())).confirmation_summary()
+
+    assert "2 minted values" in summary
+    assert "2 build-derived pointers" in summary
+
+
+def test_the_closing_report_counts_the_pointers_apart_too(repo):
+    _with_derived_block(repo)
+    plan = plan_reset(repo, probe=make_probe(FakeRuntime()))
+
+    reported = "\n".join(reset_mod._condensed_outcome_lines(plan))
+
+    assert "stripped 2 minted values, 2 build-derived pointers" in reported
 
 
 def test_every_banner_the_deploy_writes_is_one_reset_knows_about():

@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pytest
 
-from osprey.cli.build_cmd import _wire_build_derived_env
+from osprey.cli.build_cmd import _VA_LATTICE_RETIRED, _wire_build_derived_env
+from osprey.services.virtual_accelerator import entrypoint
 from osprey.services.virtual_accelerator.manifest.build import MANIFEST_FILENAME
 from osprey.utils.dotenv import (
     BUILD_DERIVED_BANNER,
@@ -201,3 +202,79 @@ class TestABuildThatGeneratedNothing:
 
         assert "VA_LATTICE" in caplog.text
         assert "VA_CHANNELS_FILE" in caplog.text
+
+
+class TestTheRetiredSpellingIsMigrated:
+    """``VA_LATTICE`` naming no file is a FATAL the container raises at boot.
+
+    The spelling an older build wrote for the framework's bundled demo ring is
+    now looked up in the served tree like any other name, so a deployment that
+    upgraded past that fallback carries a pointer at nothing. It sits under the
+    build's own banner, so the build is the writer entitled to correct it.
+    """
+
+    def test_it_becomes_the_name_this_tree_serves(self, repo):
+        (repo / ".env").write_text(f"VA_LATTICE={_VA_LATTICE_RETIRED}\n", encoding="utf-8")
+
+        assert _wire(repo)["VA_LATTICE"] == LATTICE_NAME
+
+    def test_a_tree_with_no_model_migrates_it_to_no_lattice(self, latticeless_repo):
+        (latticeless_repo / ".env").write_text(
+            f"VA_LATTICE={_VA_LATTICE_RETIRED}\n", encoding="utf-8"
+        )
+
+        assert _wire(latticeless_repo)["VA_LATTICE"] == "none"
+
+    def test_the_migration_is_reported(self, repo, caplog):
+        (repo / ".env").write_text(f"VA_LATTICE={_VA_LATTICE_RETIRED}\n", encoding="utf-8")
+
+        with caplog.at_level(logging.INFO):
+            _wire(repo)
+
+        assert _VA_LATTICE_RETIRED in caplog.text
+        assert LATTICE_NAME in caplog.text
+
+    def test_the_other_key_still_lands(self, repo):
+        (repo / ".env").write_text(f"VA_LATTICE={_VA_LATTICE_RETIRED}\n", encoding="utf-8")
+
+        assert _wire(repo)["VA_CHANNELS_FILE"] == MANIFEST_FILENAME
+
+    def test_a_served_file_of_that_name_is_a_lattice_like_any_other(self, repo, caplog):
+        """The spelling is only retired where it names nothing."""
+        (repo / "build" / "data" / "simulation" / _VA_LATTICE_RETIRED).write_text("{}")
+        (repo / ".env").write_text(f"VA_LATTICE={_VA_LATTICE_RETIRED}\n", encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING):
+            env = _wire(repo)
+
+        assert env["VA_LATTICE"] == _VA_LATTICE_RETIRED
+        assert "disagrees" in caplog.text
+
+    def test_any_other_pinned_name_is_still_the_operators(self, repo, caplog):
+        (repo / ".env").write_text("VA_LATTICE=my-own-ring.json\n", encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING):
+            env = _wire(repo)
+
+        assert env["VA_LATTICE"] == "my-own-ring.json"
+        assert "disagrees" in caplog.text
+
+    def test_a_build_that_generated_nothing_migrates_nothing(self, barren_repo, caplog):
+        """No manifest, no derived answer to migrate to — the leftover is named."""
+        (barren_repo / ".env").write_text(f"VA_LATTICE={_VA_LATTICE_RETIRED}\n", encoding="utf-8")
+
+        with caplog.at_level(logging.WARNING):
+            env = _wire(barren_repo)
+
+        assert env["VA_LATTICE"] == _VA_LATTICE_RETIRED
+
+    def test_the_container_gives_the_spelling_no_meaning_of_its_own(self, tmp_path, monkeypatch):
+        """What makes the migration necessary, pinned against the entrypoint itself.
+
+        Were the served side to grow a sentinel back, the build would be
+        rewriting a value that works.
+        """
+        monkeypatch.setenv("VA_LATTICE", _VA_LATTICE_RETIRED)
+
+        with pytest.raises(SystemExit):
+            entrypoint._resolve_lattice(tmp_path)

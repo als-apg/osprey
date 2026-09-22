@@ -33,10 +33,11 @@ def _default_provider_config(provider: str) -> dict[str, str] | None:
     """
     if provider == "als-apg":
         api_key = os.environ.get("ALS_APG_API_KEY")
-        # The gateway has no built-in endpoint — it is a deployment's own host,
-        # named by ALS_APG_BASE_URL. Without both halves there is nothing to
-        # call, so the judge has no self-contained config and falls back to
-        # whatever config.yml the run supplies.
+        # The judge addresses the gateway itself rather than through the
+        # provider catalog, so ALS_APG_BASE_URL is what makes it a route here.
+        # Without both halves there is nothing to call, and the judge has no
+        # self-contained config: it falls back to whatever config.yml the run
+        # supplies.
         base_url = os.environ.get("ALS_APG_BASE_URL")
         if not api_key or not base_url:
             return None

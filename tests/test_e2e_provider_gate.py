@@ -210,10 +210,25 @@ def test_a_catalog_entry_that_defers_to_a_shell_names_no_address(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An entry whose ``base_url`` is an unexpanded reference states where the
-    address comes from, not what it is. With nothing exported the lane has no
-    route to offer; with the variable set the same call returns what it holds."""
+    address comes from, not what it is. ``argo`` stands for that case: with
+    nothing exported the lane has no route to offer, and with the variable set
+    the same call returns what it holds."""
+    monkeypatch.delenv("ARGO_BASE_URL", raising=False)
+    assert gateway_base_url("argo", "ARGO_BASE_URL") is None
+    monkeypatch.setenv("ARGO_BASE_URL", "https://gateway.example.org/v1")
+    assert gateway_base_url("argo", "ARGO_BASE_URL") == "https://gateway.example.org/v1"
+
+
+def test_an_override_replaces_the_address_an_entry_does_name(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``als-apg`` stands for the other case: its entry carries a host, and an
+    exported variable is the runner saying it reaches that gateway elsewhere."""
     monkeypatch.delenv("ALS_APG_BASE_URL", raising=False)
-    assert gateway_base_url("als-apg", "ALS_APG_BASE_URL") is None
+    assert (
+        gateway_base_url("als-apg", "ALS_APG_BASE_URL")
+        == load_provider_catalog(None).entries["als-apg"]["base_url"]
+    )
     monkeypatch.setenv("ALS_APG_BASE_URL", "https://gateway.example.org/v1")
     assert gateway_base_url("als-apg", "ALS_APG_BASE_URL") == "https://gateway.example.org/v1"
 

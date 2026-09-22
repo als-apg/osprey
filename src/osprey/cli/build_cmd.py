@@ -2960,6 +2960,15 @@ def _render_container_projects(
 #: Pinned by test against the entrypoint's own.
 _VA_LATTICE_NONE = "none"
 
+#: A ``VA_LATTICE`` spelling with no meaning of its own on either side: the
+#: served tree is searched for a file of this name like any other, and
+#: :data:`_VA_LATTICE_NONE` is the only value naming no file. So a value on
+#: file reading exactly this, over a tree carrying no such file, points the
+#: container at nothing and is rewritten to the name this build derived. A
+#: served file of that name makes it a lattice like any other, and is pinned
+#: by the operator the way every other name is.
+_VA_LATTICE_RETIRED = "builtin"
+
 
 def _served_lattice(data_root: Path, manifest_path: Path) -> str:
     """The ``VA_LATTICE`` value a published data tree earns.
@@ -3111,6 +3120,7 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
     # build cannot import (it pulls in the whole serving stack), so it is
     # respelled above and pinned by test against `entrypoint.LATTICE_NONE`.
     lattice = _served_lattice(data_root, manifest)
+    _migrate_retired_lattice_pointer(env_path, data_root, lattice)
     entries = {
         "VA_CHANNELS_FILE": MANIFEST_FILENAME,
         VA_LATTICE_KEY: lattice,
@@ -3147,6 +3157,40 @@ def _wire_build_derived_env(repo_root: Path, build_dir: Path) -> None:
             conflict.key,
             env_path,
         )
+
+
+def _migrate_retired_lattice_pointer(env_path: Path, data_root: Path, derived: str) -> None:
+    """Repoint a ``VA_LATTICE`` reading :data:`_VA_LATTICE_RETIRED` at *derived*.
+
+    The one value in this section the build rewrites rather than reports. It is
+    not a hole in append-only: the line sits under the build's own banner, in
+    the section whose whole promise is that every build regenerates it, and the
+    spelling it carries resolves to no file in any served tree. Left alone it
+    would WIN over the value derived above — the append never replaces — and
+    the container refuses to boot on a lattice name it cannot find, which is a
+    worse place to learn it than a build line.
+
+    Every other value is the operator's, including this spelling over a tree
+    that does carry a file of that name: there the pointer resolves, so there
+    is nothing to correct.
+
+    Args:
+        env_path: The deployment repo's ``.env``.
+        data_root: The published ``data/`` tree, whose ``simulation/`` directory
+            is the one the container mounts and looks the name up in.
+        derived: The value :func:`_served_lattice` earned from that tree.
+    """
+    from osprey.utils.dotenv import VA_LATTICE_KEY, replace_profile_env_value
+
+    if (data_root / "simulation" / _VA_LATTICE_RETIRED).is_file():
+        return
+    if not replace_profile_env_value(env_path, VA_LATTICE_KEY, _VA_LATTICE_RETIRED, derived):
+        return
+    _report_fact(
+        f"Repointed {VA_LATTICE_KEY}={_VA_LATTICE_RETIRED} in {env_path.name} at {derived}, "
+        f"the lattice this build's tree serves: {_VA_LATTICE_RETIRED} names no file there, "
+        "and the accelerator refuses to start on a name it cannot find"
+    )
 
 
 def _build_repo(

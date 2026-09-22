@@ -158,6 +158,7 @@ DENIED: tuple[Denied, ...] = (
                 "docs/source/how-to/llm-providers/configure-providers.rst",
                 "docs/source/how-to/llm-providers/run-open-models.rst",
                 "src/osprey/build/claude_code_resolver.py",
+                "src/osprey/models/providers/als_apg.py",
                 "src/osprey/models/providers/cborg.py",
                 "src/osprey/profiles/providers.yml",
                 "src/osprey/services/ariel_search/ingestion/adapters/als.py",
@@ -174,6 +175,7 @@ DENIED: tuple[Denied, ...] = (
                 "tests/cli/test_provider_isolation.py",
                 "tests/cli/test_resolver_cborg_oss.py",
                 "tests/deployment/goldens/exemplar-profile/providers.yml",
+                "tests/models/test_completion.py",
                 "tests/models/test_providers_litellm_delegating.py",
                 # The harness and the live lanes that call that gateway, where
                 # the address is the endpoint under test rather than an example.

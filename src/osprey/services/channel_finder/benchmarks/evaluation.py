@@ -116,8 +116,9 @@ def llm_judge_coverage(response_text: str, expected: list[str]) -> tuple[list[st
 
     # Resolve provider. Preference order: direct Anthropic, then ALS-APG
     # (works off-VPN), then CBORG (LBLnet/VPN-only — last resort because
-    # off-VPN traffic gets IP-blocked). ALS-APG has no default endpoint, so it
-    # is only a candidate when its gateway URL is exported alongside its key.
+    # off-VPN traffic gets IP-blocked). This lane names the ALS-APG gateway
+    # explicitly rather than relying on the shipped one, so ALS-APG is a
+    # candidate only when its URL is exported alongside its key.
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     provider = "anthropic"
     model_id = "claude-haiku-4-5-20251001"

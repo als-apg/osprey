@@ -203,9 +203,9 @@ class TestLlmJudgeCoverage:
 
     @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
     def test_als_apg_needs_its_gateway_url_to_be_a_candidate(self, mock_completion, monkeypatch):
-        """The gateway has no built-in endpoint, so a key on its own names no
-        reachable server — the judge falls through to the next provider rather
-        than calling one it cannot address."""
+        """The judge addresses the gateway itself, so a key on its own names no
+        reachable server — it falls through to the next provider rather than
+        calling one it cannot address."""
         self._judge_env(monkeypatch, ALS_APG_API_KEY="key", CBORG_API_KEY="cborg-key")
         mock_completion.return_value = ChannelExtractionResult(
             covered_expected_indices=[], extra_recommended=[], reasoning=""

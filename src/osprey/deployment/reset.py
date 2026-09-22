@@ -118,7 +118,7 @@ from osprey.deployment.web_terminals.env_production import (
     USERS_ENV_FILENAME,
 )
 from osprey.deployment.web_terminals.lifecycle import confirm_destroy
-from osprey.utils.dotenv import parse_dotenv_text
+from osprey.utils.dotenv import BUILD_DERIVED_BANNER, parse_dotenv_text
 from osprey.utils.logger import get_logger
 from osprey.utils.workspace import STATE_DIR_NAME
 
@@ -233,6 +233,24 @@ MINTED_ENV_BANNERS: tuple[str, ...] = (
     "Auto-generated service auth tokens (osprey up)",
     "Auto-generated bluesky RE manager control-socket keypair (osprey up)",
 )
+
+#: Header comment of the ``.env`` block ``osprey build`` writes, in the same
+#: banner-without-its-``# `` spelling :data:`MINTED_ENV_BANNERS` uses. Derived
+#: from the writer's own constant rather than copied, because the build owns
+#: that text and a copy here could drift out from under the files on disk.
+#:
+#: The section holds pointers at artifacts in ``build/``, which reset deletes,
+#: and every build regenerates them from the project's own content — so a
+#: discarded deployment keeps none of them. Leaving one behind is worse than
+#: cosmetic: the ``.env`` is append-only, so the survivor WINS over the value
+#: the next build derives, and the stack comes back up aimed at a tree that is
+#: not there.
+DERIVED_ENV_BANNER = BUILD_DERIVED_BANNER.removeprefix("# ")
+
+#: Every banner whose block reset strips — what OSPREY itself wrote into the
+#: operator's ``.env``, minted secrets and derived pointers alike. Anything
+#: under no banner at all is the operator's and is never touched.
+STRIPPED_ENV_BANNERS: tuple[str, ...] = (*MINTED_ENV_BANNERS, DERIVED_ENV_BANNER)
 
 
 def confirmation_token(repo_root: Path) -> str:
@@ -683,7 +701,7 @@ def _is_absent(stderr: str) -> bool:
 
 @dataclass(frozen=True)
 class EnvBlock:
-    """One minted ``.env`` block reset will strip, named but never quoted.
+    """One OSPREY-written ``.env`` block reset will strip, named but never quoted.
 
     ``keys`` are variable names only. Their values are secrets and are never
     printed, logged, or carried anywhere — the same "log which keys, never what
@@ -692,6 +710,17 @@ class EnvBlock:
 
     banner: str
     keys: tuple[str, ...]
+
+    @property
+    def is_build_derived(self) -> bool:
+        """Whether the BUILD wrote this block, rather than a deploy.
+
+        The two are counted and named apart everywhere an operator reads them:
+        a minted value is a secret nothing can reproduce, a derived pointer is
+        an address the next build writes again. Reporting a pointer as a lost
+        secret would make the plan sound more expensive than it is.
+        """
+        return self.banner == DERIVED_ENV_BANNER
 
 
 @dataclass
@@ -753,11 +782,24 @@ class ResetPlan:
             if count:
                 parts.append(f"{count} {noun}{'' if count == 1 else 's'}")
         parts.extend(_relative_to(path, self.repo_root) for path in self.paths)
-        if self.env_blocks:
-            minted = sum(len(block.keys) for block in self.env_blocks)
-            plural = "" if minted == 1 else "s"
-            parts.append(f"{minted} minted value{plural} in {COMPOSE_ENV_FILENAME}")
+        for count, noun in self._env_counts():
+            parts.append(f"{count} {noun}{'' if count == 1 else 's'} in {COMPOSE_ENV_FILENAME}")
         return ", ".join(parts) if parts else "nothing"
+
+    def _env_counts(self) -> list[tuple[int, str]]:
+        """How many entries leave ``.env``, per section, with the noun for each.
+
+        Empty sections are skipped rather than reported as zero, the way every
+        other count in the plan behaves.
+        """
+        counts = []
+        for derived, noun in ((False, "minted value"), (True, "build-derived pointer")):
+            entries = sum(
+                len(block.keys) for block in self.env_blocks if block.is_build_derived is derived
+            )
+            if entries:
+                counts.append((entries, noun))
+        return counts
 
     def render(self) -> list[str]:
         """The plan an operator reads before typing the confirmation.
@@ -791,7 +833,8 @@ class ResetPlan:
             lines.append(f"    {_relative_to(path, self.repo_root)}{self._path_note(path)}")
         for block in self.env_blocks:
             keys = ", ".join(block.keys)
-            lines.append(f"    {COMPOSE_ENV_FILENAME}  minted block '{block.banner}' — {keys}")
+            kind = "build-derived" if block.is_build_derived else "minted"
+            lines.append(f"    {COMPOSE_ENV_FILENAME}  {kind} block '{block.banner}' — {keys}")
 
         lines.extend(
             [
@@ -1182,33 +1225,31 @@ def _candidate_image_tags(repo_root: Path, project: str) -> list[str]:
     return tags
 
 
-def _minted_env_blocks(env_path: Path) -> tuple[list[EnvBlock], tuple[str, ...]]:
-    """The minted blocks in *env_path*, and the names of everything that survives.
+def _env_file_blocks(env_path: Path) -> tuple[list[EnvBlock], tuple[str, ...]]:
+    """The OSPREY-written blocks in *env_path*, and the names of what survives.
 
     The kept names are read off the text that WOULD remain rather than by
-    subtracting the minted names from a parse of the whole file. The two differ
-    whenever an operator's own line happens to share a name with a minted one —
-    subtraction drops their entry from the count even though the strip leaves it
-    exactly where it is, so the plan would under-report what it is keeping.
-    Deriving both halves from :func:`strip_minted_env_blocks` means the count and
+    subtracting the block's names from a parse of the whole file. The two differ
+    whenever an operator's own line happens to share a name with one inside a
+    block — subtraction drops their entry from the count even though the strip
+    leaves it exactly where it is, so the plan would under-report what it keeps.
+    Deriving both halves from :func:`strip_env_blocks` means the count and
     the edit cannot disagree, whatever the file looks like.
     """
     if not env_path.is_file():
         return [], ()
     text = env_path.read_text(encoding="utf-8")
-    blocks = [
-        EnvBlock(banner, tuple(keys)) for banner, keys in _scan_minted_blocks(text.splitlines())
-    ]
-    minted = {key for block in blocks for key in block.keys}
-    surviving, _ = strip_minted_env_blocks(text, minted)
+    blocks = [EnvBlock(banner, tuple(keys)) for banner, keys in _scan_env_blocks(text.splitlines())]
+    planned = {key for block in blocks for key in block.keys}
+    surviving, _ = strip_env_blocks(text, planned)
     return blocks, tuple(parse_dotenv_text(surviving))
 
 
-def _scan_minted_blocks(lines: Sequence[str]) -> list[tuple[str, list[str]]]:
-    """Find each minted block and the variable names inside it.
+def _scan_env_blocks(lines: Sequence[str]) -> list[tuple[str, list[str]]]:
+    """Find each OSPREY-written block and the variable names inside it.
 
     A block is the header comment (``# `` plus one of
-    :data:`MINTED_ENV_BANNERS`) and the ``KEY=value`` lines that follow it, up to
+    :data:`STRIPPED_ENV_BANNERS`) and the ``KEY=value`` lines that follow it, up to
     the next comment, the next blank line, or the end of the file — which is
     exactly the shape ``container_lifecycle._append_env_block`` writes.
 
@@ -1219,7 +1260,7 @@ def _scan_minted_blocks(lines: Sequence[str]) -> list[tuple[str, list[str]]]:
     while index < len(lines):
         stripped = lines[index].strip()
         banner = stripped[1:].strip() if stripped.startswith("#") else None
-        if banner not in MINTED_ENV_BANNERS:
+        if banner not in STRIPPED_ENV_BANNERS:
             index += 1
             continue
         keys: list[str] = []
@@ -1234,18 +1275,18 @@ def _scan_minted_blocks(lines: Sequence[str]) -> list[tuple[str, list[str]]]:
     return found
 
 
-def strip_minted_env_blocks(text: str, planned_keys: set[str]) -> tuple[str, list[str]]:
-    """Remove the *planned* minted values from ``.env`` *text*, and nothing else.
+def strip_env_blocks(text: str, planned_keys: set[str]) -> tuple[str, list[str]]:
+    """Remove the *planned* block entries from ``.env`` *text*, and nothing else.
 
     Pure, and the only thing that decides what leaves the file. Two rules, and
     the second is the one that makes this safe to run after a confirmation:
 
-    * Lines outside a minted block — the operator's provider keys, their
+    * Lines outside a block — the operator's provider keys, their
       comments, their blank lines — come out byte-identical. ``.env`` is a file
       an operator reads and edits by hand, and a reset has no business
       reformatting it.
-    * Inside a minted block, a key is dropped only if it is in *planned_keys*.
-      A value minted after the plan was printed survives, because the operator
+    * Inside a block, a key is dropped only if it is in *planned_keys*.
+      A value written after the plan was printed survives, because the operator
       never saw it and so never agreed to it. Its banner survives with it: a
       block is only removed entirely when every key under it was planned, so a
       surviving key is never orphaned from the header that explains where it
@@ -1261,7 +1302,7 @@ def strip_minted_env_blocks(text: str, planned_keys: set[str]) -> tuple[str, lis
     while index < len(lines):
         stripped = lines[index].strip()
         banner = stripped[1:].strip() if stripped.startswith("#") else None
-        if banner not in MINTED_ENV_BANNERS:
+        if banner not in STRIPPED_ENV_BANNERS:
             kept.append(lines[index])
             index += 1
             continue
@@ -1358,7 +1399,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
     # that does not exist would add a scary entry for nothing.
     external = [] if contained or not agent_data.exists() else [agent_data]
 
-    env_blocks, env_kept = _minted_env_blocks(repo_root / COMPOSE_ENV_FILENAME)
+    env_blocks, env_kept = _env_file_blocks(repo_root / COMPOSE_ENV_FILENAME)
 
     return ResetPlan(
         repo_root=repo_root,
@@ -1638,13 +1679,13 @@ def _strip_env_file(env_path: Path, planned_keys: set[str]) -> None:
         return
     original_mode = env_path.stat().st_mode
     text = env_path.read_text(encoding="utf-8")
-    stripped, removed = strip_minted_env_blocks(text, planned_keys)
+    stripped, removed = strip_env_blocks(text, planned_keys)
     env_path.write_text(stripped, encoding="utf-8")
     os.chmod(env_path, original_mode)
     if removed:
         # Names only, never values — the same rule the mint side follows.
         logger.key_info(
-            "Stripped %d deploy-minted value(s) from %s: %s. Every other entry, including "
+            "Stripped %d value(s) OSPREY wrote into %s: %s. Every other entry, including "
             "your provider keys, is untouched.",
             len(removed),
             env_path,
@@ -1823,12 +1864,11 @@ def _condensed_outcome_lines(plan: ResetPlan) -> list[str]:
     if plan.paths:
         cleared = ", ".join(_relative_to(path, plan.repo_root) for path in plan.paths)
         lines.append(f"cleared {cleared}")
-    if plan.env_blocks:
-        minted = sum(len(block.keys) for block in plan.env_blocks)
-        lines.append(
-            f"stripped {minted} minted value{'' if minted == 1 else 's'} "
-            f"from {COMPOSE_ENV_FILENAME}"
-        )
+    stripped = ", ".join(
+        f"{count} {noun}{'' if count == 1 else 's'}" for count, noun in plan._env_counts()
+    )
+    if stripped:
+        lines.append(f"stripped {stripped} from {COMPOSE_ENV_FILENAME}")
     lines.append(
         f"kept the audit log, {COMPOSE_ENV_FILENAME} provider keys "
         f"({len(plan.env_kept_keys)} entr{'y' if len(plan.env_kept_keys) == 1 else 'ies'}) "

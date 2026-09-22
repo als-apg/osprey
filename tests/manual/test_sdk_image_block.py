@@ -77,7 +77,7 @@ import pytest
 # --------------------------------------------------------------------------
 # Each entry is (key variable, endpoint variable or literal URL, model). An
 # entry whose endpoint names a variable is skipped when that variable is unset:
-# als-apg fronts a site's own gateway and has no endpoint to default to.
+# this module addresses each gateway itself rather than reading a catalog.
 _PROVIDERS = [
     ("ALS_APG_API_KEY", ("env", "ALS_APG_BASE_URL"), "claude-haiku-4-5-20251001"),
     ("CBORG_API_KEY", ("url", "https://api.cborg.lbl.gov"), "claude-haiku-4-5"),
