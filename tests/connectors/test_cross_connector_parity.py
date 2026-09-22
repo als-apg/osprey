@@ -165,7 +165,7 @@ async def _run_mock(scenario: Scenario, monkeypatch) -> WriteRun:
 
     if scenario is VALUE_DIFFERS:
 
-        def clamping_put(channel_address, value):
+        def clamping_put(channel_address, _value):
             connector._state[channel_address] = VALUE_HELD_INSTEAD
 
         monkeypatch.setattr(connector, "_put", clamping_put)
@@ -264,7 +264,7 @@ def _fake_doocs4py(observed):
     return d
 
 
-async def _run_doocs(scenario: Scenario, monkeypatch) -> WriteRun:
+async def _run_doocs(scenario: Scenario, _monkeypatch) -> WriteRun:
     """Drive DOOCSConnector through ``scenario`` against a fake doocs4py."""
     observed = VALUE_HELD_INSTEAD if scenario is VALUE_DIFFERS else VALUE_SENT
     mock_d4py = _fake_doocs4py(observed)
@@ -327,7 +327,7 @@ def _fake_tango(observed):
     return t, proxy
 
 
-async def _run_tango(scenario: Scenario, monkeypatch) -> WriteRun:
+async def _run_tango(scenario: Scenario, _monkeypatch) -> WriteRun:
     """Drive TangoConnector through ``scenario`` against a fake tango module."""
     observed = VALUE_HELD_INSTEAD if scenario is VALUE_DIFFERS else VALUE_SENT
     mock_tango, proxy = _fake_tango(observed)

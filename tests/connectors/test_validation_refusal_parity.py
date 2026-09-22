@@ -67,7 +67,7 @@ async def _run_mock(monkeypatch) -> WriteRun:
     return WriteRun(result=result, client_call=put)
 
 
-async def _run_doocs(monkeypatch) -> WriteRun:
+async def _run_doocs(_monkeypatch) -> WriteRun:
     doocs4py = MagicMock()
     doocs4py.__version__ = "2.0.0"
     doocs4py.names.return_value = [("FACILITY", "XFEL")]
@@ -89,7 +89,7 @@ async def _run_doocs(monkeypatch) -> WriteRun:
     return WriteRun(result=result, client_call=doocs4py.set)
 
 
-async def _run_tango(monkeypatch) -> WriteRun:
+async def _run_tango(_monkeypatch) -> WriteRun:
     proxy = MagicMock()
     tango = MagicMock()
     tango.__version__ = "10.0.0"

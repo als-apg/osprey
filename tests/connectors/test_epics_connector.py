@@ -338,7 +338,7 @@ class TestReadChannel:
         """read_multiple_channels returns only the channels that read successfully."""
         good = ChannelValue(value=1.0, timestamp=None, metadata=ChannelMetadata())
 
-        async def fake_read(addr, timeout=None):
+        async def fake_read(addr, timeout=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
             if addr == "BAD":
                 raise ConnectionError("nope")
             return good

@@ -667,7 +667,7 @@ class TestMockWriteConfirmationContract:
 
     @staticmethod
     def _raising_read(message):
-        async def _read(channel_address):
+        async def _read(_channel_address):
             raise RuntimeError(message)
 
         return _read
@@ -719,7 +719,7 @@ class TestMockWriteConfirmationContract:
         """
         connector = await self._connected_mock(monkeypatch)
 
-        def _clamping_put(channel_address, value):
+        def _clamping_put(channel_address, _value):
             connector._state[channel_address] = 10.0
 
         monkeypatch.setattr(connector, "_put", _clamping_put)

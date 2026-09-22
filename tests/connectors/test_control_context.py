@@ -523,7 +523,7 @@ def test_parse_record_accepts_text_and_objects():
 def _kill_with_dead(dead_pids):
     """An ``os.kill`` that reports *dead_pids* gone and everything else alive."""
 
-    def fake_kill(pid, sig):
+    def fake_kill(pid, _sig):
         if pid in dead_pids:
             raise ProcessLookupError(pid)
         return None
@@ -541,7 +541,7 @@ def test_a_gone_pid_is_not_alive(monkeypatch):
 
 
 def test_a_process_we_may_not_signal_counts_as_alive(monkeypatch):
-    def denied(pid, sig):
+    def denied(pid, _sig):
         raise PermissionError(pid)
 
     monkeypatch.setattr(os, "kill", denied)
@@ -549,7 +549,7 @@ def test_a_process_we_may_not_signal_counts_as_alive(monkeypatch):
 
 
 def test_an_unexpected_os_error_counts_as_alive(monkeypatch):
-    def odd(pid, sig):
+    def odd(_pid, _sig):
         raise OSError("platform oddity")
 
     monkeypatch.setattr(os, "kill", odd)
@@ -560,7 +560,7 @@ def test_an_unexpected_os_error_counts_as_alive(monkeypatch):
 def test_nothing_but_a_positive_int_names_a_process(monkeypatch, value):
     """``True`` is ``1`` to ``os.kill``, and PID 1 is always alive."""
 
-    def explode(pid, sig):  # pragma: no cover - must not be called
+    def explode(pid, _sig):  # pragma: no cover - must not be called
         raise AssertionError(f"os.kill called with {pid!r}")
 
     monkeypatch.setattr(os, "kill", explode)
@@ -730,7 +730,7 @@ def test_live_report_payloads_drop_a_report_whose_server_pid_is_a_bool(data_root
     """``True`` would reach ``os.kill(1, 0)`` and read as alive forever."""
     _write_report(data_root, 4321, _report_payload(True))
 
-    def explode(pid, sig):  # pragma: no cover - must not be called
+    def explode(pid, _sig):  # pragma: no cover - must not be called
         raise AssertionError(f"os.kill called with {pid!r}")
 
     monkeypatch.setattr(os, "kill", explode)
