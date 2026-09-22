@@ -69,7 +69,7 @@ class _RaisingPath:
     def exists(self) -> bool:
         return True
 
-    def read_text(self, encoding: str = "utf-8") -> str:
+    def read_text(self, encoding: str = "utf-8") -> str:  # noqa: ARG002 - Path.read_text takes encoding by keyword
         raise OSError("vanished")
 
     def stat(self):

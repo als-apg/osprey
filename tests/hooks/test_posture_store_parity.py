@@ -215,14 +215,14 @@ def expected_answer(section, target):
 @pytest.mark.parametrize(
     "target", TARGETS, ids=["target-live", "target-va", "target-standin", "target-none"]
 )
-@pytest.mark.parametrize("posture_name,posture", POSTURES)
-@pytest.mark.parametrize("ceiling_name,section", CEILINGS)
+@pytest.mark.parametrize("_posture_name,posture", POSTURES)
+@pytest.mark.parametrize("_ceiling_name,section", CEILINGS)
 def test_the_hook_answers_what_the_connector_module_answers(
     stamped_root,
     monkeypatch,
-    ceiling_name,
+    _ceiling_name,
     section,
-    posture_name,
+    _posture_name,
     posture,
     target,
     readonly_run,
@@ -243,9 +243,9 @@ def test_the_hook_answers_what_the_connector_module_answers(
 @pytest.mark.parametrize(
     "target", TARGETS, ids=["target-live", "target-va", "target-standin", "target-none"]
 )
-@pytest.mark.parametrize("ceiling_name,section", CEILINGS)
+@pytest.mark.parametrize("_ceiling_name,section", CEILINGS)
 def test_the_narrowing_reaches_a_process_that_carries_no_session_key(
-    stamped_root, monkeypatch, ceiling_name, section, target
+    stamped_root, monkeypatch, _ceiling_name, section, target
 ):
     """The narrowing is the deployment's, so nothing has to be addressed.
 

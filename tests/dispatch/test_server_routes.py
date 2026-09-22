@@ -141,7 +141,7 @@ def test_webhook_unconfigured_token_fails_closed_503(triggers_yml, monkeypatch):
     monkeypatch.setenv("TRIGGERS_YML", str(triggers_yml))
     monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
 
-    def fake_entry_points(*, group):
+    def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
         return [_FakeEntryPoint("webhook", WebhookSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
@@ -279,7 +279,7 @@ def test_stream_accepts_header_token(app, monkeypatch):
     Authorization header passes the auth gate (200), not 401.
     """
 
-    async def _fake_stream(url, token, run_id):
+    async def _fake_stream(_url, _token, _run_id):
         yield b"data: {}\n\n"
 
     monkeypatch.setattr(server, "proxy_worker_stream", _fake_stream)
@@ -310,7 +310,7 @@ def test_check_auth_routes_reject_unconfigured_token(triggers_yml, monkeypatch):
     monkeypatch.setenv("TRIGGERS_YML", str(triggers_yml))
     monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
 
-    def fake_entry_points(*, group):
+    def fake_entry_points(*, group):  # noqa: ARG001 - entry_points takes group by keyword
         return [_FakeEntryPoint("webhook", WebhookSource)]
 
     monkeypatch.setattr("osprey.dispatch.source_registry.entry_points", fake_entry_points)
@@ -386,7 +386,7 @@ async def test_dispatch_with_policy_injects_payload_into_prompt(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
         captured["prompt"] = prompt
         return {"run_id": "r1", "status": "ok"}
 
@@ -410,7 +410,7 @@ async def test_dispatch_with_policy_empty_payload_no_injection(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
         captured["prompt"] = prompt
         return {"run_id": "r1", "status": "ok"}
 
@@ -439,7 +439,7 @@ async def test_dispatch_with_policy_forwards_surface_prompt(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
         captured.update(kwargs)
         return {"run_id": "r1", "status": "ok"}
 
@@ -466,7 +466,7 @@ async def test_dispatch_with_policy_forwards_surface_tools(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
         captured.update(kwargs)
         return {"run_id": "r1", "status": "ok"}
 
@@ -500,7 +500,7 @@ async def test_dispatch_with_policy_absent_surface_fields_forward_as_none(monkey
 
     captured: dict = {}
 
-    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
         captured["prompt"] = prompt
         captured["allowed_tools"] = allowed_tools
         captured.update(kwargs)
@@ -539,7 +539,7 @@ async def test_dispatch_with_policy_retries_with_backoff_on_dispatch_error(monke
 
     attempts = {"dispatch": 0}
 
-    async def always_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+    async def always_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
         attempts["dispatch"] += 1
         raise WorkerUnreachableError("worker unreachable")
 
@@ -601,7 +601,7 @@ async def test_dispatch_with_policy_alert_records_and_returns_none(monkeypatch):
     from osprey.dispatch.trigger_config import TriggerConfig
     from osprey.dispatch.worker_client import WorkerUnreachableError
 
-    async def always_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+    async def always_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
         raise WorkerUnreachableError("worker unreachable")
 
     monkeypatch.setattr(server, "dispatch_to_worker", always_fails)
@@ -628,7 +628,7 @@ async def test_dispatch_with_policy_auth_rejected_flows_through_policy(monkeypat
     from osprey.dispatch.trigger_config import TriggerConfig
     from osprey.dispatch.worker_client import WorkerAuthRejectedError
 
-    async def auth_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+    async def auth_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
         raise WorkerAuthRejectedError("Unauthorized (401)")
 
     monkeypatch.setattr(server, "dispatch_to_worker", auth_fails)
@@ -649,7 +649,7 @@ async def test_dispatch_with_policy_generic_exception_propagates(monkeypatch):
     from osprey.dispatch.registry import TriggerRegistry
     from osprey.dispatch.trigger_config import TriggerConfig
 
-    async def boom(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+    async def boom(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):  # noqa: ARG001 - dispatch_to_worker is called by keyword
         raise RuntimeError("genuine bug")
 
     monkeypatch.setattr(server, "dispatch_to_worker", boom)
@@ -666,7 +666,7 @@ def test_dashboard_state_surfaces_worker_error(app, monkeypatch):
     """When the worker is unreachable, /dashboard/state carries a worker_error marker."""
     from osprey.dispatch.worker_client import WorkerUnreachableError
 
-    async def fetch_fails(url, token, timeout=10.0):
+    async def fetch_fails(_url, _token, _timeout=10.0):
         raise WorkerUnreachableError("Connection error")
 
     monkeypatch.setattr(server, "fetch_worker_runs", fetch_fails)
@@ -681,7 +681,7 @@ def test_dashboard_state_surfaces_worker_error(app, monkeypatch):
 def test_dashboard_runs_worker_down_returns_502(app, monkeypatch):
     from osprey.dispatch.worker_client import WorkerUnreachableError
 
-    async def fetch_fails(url, token, timeout=10.0):
+    async def fetch_fails(_url, _token, _timeout=10.0):
         raise WorkerUnreachableError("Connection error")
 
     monkeypatch.setattr(server, "fetch_worker_runs", fetch_fails)
@@ -729,7 +729,7 @@ def test_dashboard_cancel_requires_auth(app):
 def test_dashboard_cancel_proxies_to_worker(app, monkeypatch):
     """A valid cancel proxies to the worker client and returns its result."""
 
-    async def fake_cancel(url, token, run_id):
+    async def fake_cancel(_url, _token, run_id):
         return {"run_id": run_id, "cancelled": True}
 
     monkeypatch.setattr(server, "cancel_worker_run", fake_cancel)
@@ -749,7 +749,7 @@ def test_dashboard_clear_history_proxies_to_worker(app, monkeypatch):
     """A bodyless clear proxies through with no age floor."""
     seen = {}
 
-    async def fake_clear(url, token, older_than_days):
+    async def fake_clear(_url, _token, older_than_days):
         seen["older_than_days"] = older_than_days
         return {"cleared": 4, "records_deleted": 4, "older_than_days": older_than_days}
 
@@ -764,7 +764,7 @@ def test_dashboard_clear_history_proxies_to_worker(app, monkeypatch):
 def test_dashboard_clear_history_forwards_the_age_floor(app, monkeypatch):
     seen = {}
 
-    async def fake_clear(url, token, older_than_days):
+    async def fake_clear(_url, _token, older_than_days):
         seen["older_than_days"] = older_than_days
         return {"cleared": 1}
 
@@ -783,7 +783,7 @@ def test_dashboard_clear_history_forwards_the_age_floor(app, monkeypatch):
 def test_dashboard_clear_history_rejects_a_bad_age_floor(app, monkeypatch, bad):
     """A nonsense horizon is a 400, never a silent clear-everything."""
 
-    async def fake_clear(url, token, older_than_days):  # pragma: no cover - must not run
+    async def fake_clear(_url, _token, _older_than_days):  # pragma: no cover - must not run
         raise AssertionError("worker should not be called")
 
     monkeypatch.setattr(server, "clear_worker_history", fake_clear)
@@ -799,7 +799,7 @@ def test_dashboard_clear_history_rejects_a_bad_age_floor(app, monkeypatch, bad):
 def test_dashboard_clear_history_worker_auth_failure_returns_502(app, monkeypatch):
     from osprey.dispatch.worker_client import WorkerAuthRejectedError
 
-    async def fake_clear(url, token, older_than_days):
+    async def fake_clear(_url, _token, _older_than_days):
         raise WorkerAuthRejectedError("nope")
 
     monkeypatch.setattr(server, "clear_worker_history", fake_clear)
@@ -811,7 +811,7 @@ def test_dashboard_clear_history_worker_auth_failure_returns_502(app, monkeypatc
 def test_dashboard_cancel_worker_auth_failure_returns_502(app, monkeypatch):
     from osprey.dispatch.worker_client import WorkerAuthRejectedError
 
-    async def fake_cancel(url, token, run_id):
+    async def fake_cancel(_url, _token, _run_id):
         raise WorkerAuthRejectedError("nope")
 
     monkeypatch.setattr(server, "cancel_worker_run", fake_cancel)

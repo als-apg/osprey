@@ -108,10 +108,10 @@ class _FakeSource:
         self.stop_count = 0
         self.routes_registered = False
 
-    def register_routes(self, mcp_app) -> None:
+    def register_routes(self, _mcp_app) -> None:
         self.routes_registered = True
 
-    async def start(self, triggers, fire_callback) -> None:
+    async def start(self, triggers, _fire_callback) -> None:
         self.started_with = list(triggers)
         self.start_count += 1
 
@@ -133,7 +133,7 @@ async def test_start_all_routes_triggers_per_source_and_skips_unregistered():
     other_c = _make_trigger("c", "other")
     orphan = _make_trigger("d", "unregistered")
 
-    async def fire_callback(trigger, payload):  # pragma: no cover - not invoked here
+    async def fire_callback(_trigger, _payload):  # pragma: no cover - not invoked here
         return "x"
 
     # Factory phase: instantiate + register routes; orphan skipped.
@@ -168,7 +168,7 @@ async def test_stop_all_stops_every_instance():
     reg = SourceRegistry()
     reg._source_classes = {"fake": _FakeSource, "other": _OtherFakeSource}
 
-    async def fire_callback(trigger, payload):  # pragma: no cover
+    async def fire_callback(_trigger, _payload):  # pragma: no cover
         return "x"
 
     reg.setup([_make_trigger("a", "fake"), _make_trigger("b", "other")], mcp_app=object())

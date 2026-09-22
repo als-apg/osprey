@@ -131,7 +131,7 @@ async def test_manual_fire_invokes_fire_callback_and_returns_dispatch_id():
     registry = await _registry_with(_trigger("deploy"))
     seen: dict = {}
 
-    async def spy_fire(trigger, payload, owner):
+    async def spy_fire(trigger, payload, _owner):
         seen["trigger"] = trigger
         seen["payload"] = payload
         return "dispatch-123"
@@ -154,7 +154,7 @@ async def test_manual_fire_disabled_trigger_is_refused():
     registry = await _registry_with(_trigger("deploy"))
     await registry.set_status("deploy", "disabled")
 
-    async def fire_honoring_disabled(trigger, payload, owner):
+    async def fire_honoring_disabled(trigger, payload, _owner):
         # Mirror the server's fire_callback disabled short-circuit.
         if registry._status.get(trigger.name) == "disabled":
             await registry.record_event(trigger.name, payload, "ignored: disabled")
@@ -178,7 +178,7 @@ async def test_manual_fire_unknown_trigger_errors():
     registry = await _registry_with(_trigger("deploy"))
     called = {"n": 0}
 
-    async def spy_fire(trigger, payload, owner):
+    async def spy_fire(_trigger, _payload, _owner):
         called["n"] += 1
         return "x"
 
@@ -193,7 +193,7 @@ async def test_manual_fire_unknown_trigger_errors():
 async def test_manual_fire_queue_full_errors():
     registry = await _registry_with(_trigger("deploy"))
 
-    async def fire_queue_full(trigger, payload, owner):
+    async def fire_queue_full(_trigger, _payload, _owner):
         raise QueueFullError("Queue depth 1 exceeded for trigger 'deploy'")
 
     tools = await _get_tools(
@@ -250,7 +250,7 @@ async def _fire_capturing_owner(registry, header: str | None, monkeypatch):
     """Fire 'deploy' with *header* in scope; return (result dict, owner seen)."""
     seen: dict = {}
 
-    async def spy_fire(trigger, payload, owner):
+    async def spy_fire(_trigger, _payload, owner):
         seen["owner"] = owner
         return "dispatch-123"
 
@@ -336,7 +336,7 @@ async def test_manual_fire_over_the_mcp_transport_credits_the_header_owner(monke
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", token)
     seen: dict = {}
 
-    async def spy_fire(trigger, payload, owner):
+    async def spy_fire(_trigger, _payload, owner):
         seen["owner"] = owner
         return "dispatch-123"
 

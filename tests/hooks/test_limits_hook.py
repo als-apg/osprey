@@ -853,12 +853,12 @@ def _stand_in_validator_class(calls, per_target_api=True, checks=None, step_chec
                 f"('{self._key}' does not allow unlisted channels)"
             )
 
-        def validate(self, channel, value):
+        def validate(self, channel, _value):
             self._checked("validate", channel)
 
     if step_check_api:
 
-        def validate_without_step_check(self, channel, value):
+        def validate_without_step_check(self, channel, _value):
             self._checked("validate_without_step_check", channel)
 
         _StandIn.validate_without_step_check = validate_without_step_check
@@ -869,17 +869,17 @@ def _stand_in_validator_class(calls, per_target_api=True, checks=None, step_chec
 
     if per_target_api:
 
-        def from_config(cls, *, connector_type=None, target=None):
+        def from_config(_cls, *, connector_type=None, target=None):  # noqa: ARG001 - the per-target LimitsValidator.from_config declares connector_type
             return _built("target", target)
 
-        def from_config_most_restrictive(cls):
+        def from_config_most_restrictive(_cls):
             return _built("most_restrictive", None)
 
         _StandIn.from_config = classmethod(from_config)
         _StandIn.from_config_most_restrictive = classmethod(from_config_most_restrictive)
     else:
 
-        def old_from_config(cls):
+        def old_from_config(_cls):
             return _built("deployment_wide", None)
 
         _StandIn.from_config = classmethod(old_from_config)
@@ -954,7 +954,7 @@ def test_a_raising_state_reader_takes_the_most_restrictive_posture(
     # Arrange
     hook = hook_module("osprey_limits")
 
-    def _boom(hook_input=None):
+    def _boom(_hook_input=None):
         raise RuntimeError("the record vanished mid-read")
 
     monkeypatch.setattr(hook._target_state, "read_target", _boom)
