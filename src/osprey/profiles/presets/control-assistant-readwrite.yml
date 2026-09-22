@@ -2,18 +2,20 @@
 # Write-capable persona — the operations tier of the control-assistant
 # multi-user stack.
 #
-# This preset inherits everything from `control-assistant` and keeps the write
-# gate armed on every machine the session can be pointed at: write posture is
-# per connector type, and `control_system.writes_enabled: true` is what a type
-# inherits when its own block says nothing, so no type here says otherwise.
+# This preset inherits everything from `control-assistant` and arms the write
+# gate on the sandbox simulator alone: write posture is per connector type, so
+# the session writes on the virtual accelerator and is read-only on both
+# hardware-shaped targets, the live machine and its stand-in. Which of them a
+# call reaches is the deployment's control TARGET, so the target switch arms and
+# disarms this tier while nothing in the profile changes.
 #
 # Armed does NOT mean unguarded: every channel write still passes the
 # writes-check hook, per-channel min/max limits, and the mandatory human
 # approval prompt before the connector executes it. The tier difference is
 # whether the write path exists at all, not whether it is supervised.
 #
-# The read-only counterpart is `control-assistant-readonly`. Between the two
-# sits `control-assistant-va-readwrite`, armed on the simulator alone.
+# The read-only counterpart is `control-assistant-readonly`. The admin tier,
+# `control-assistant-admin`, carries this same posture plus deployment editing.
 
 name: Control Assistant (Read-Write)
 
@@ -36,12 +38,15 @@ web_panels:
 # ── Config overrides ─────────────────────────────────────────────────────────
 # Dotted keys ONLY — see the base profile's block.
 config:
-  # The single axis this persona hard-pins. It is the inherited posture rather
-  # than a verdict: a `control_system.connector.<type>.writes_enabled` key
-  # anywhere in the chain answers for that type instead, which is how the
-  # simulator-only tier is built. With none written, every type reads this key,
-  # so it must not drift silently if the base's default ever changes.
-  control_system.writes_enabled: true
+  # The tier boundary, and it takes three keys. Armed on the simulator alone.
+  # The flat key is what every connector type inherits when its own block says
+  # nothing, so its false is what the stand-in reads. The epics block is pinned
+  # by name so a per-type `true` added anywhere lower in the chain cannot lift
+  # the live machine's ceiling. Only a literal `true` arms a type, and a
+  # per-type value never falls back to the flat key.
+  control_system.writes_enabled: false
+  control_system.connector.epics.writes_enabled: false
+  control_system.connector.virtual_accelerator.writes_enabled: true
   # Full split-pane terminal + workspace layout for the write-armed operator.
   # Pinned on both sides of the tier boundary (readonly pins `simple`) rather
   # than left to the server default, for the same reason writes_enabled is.

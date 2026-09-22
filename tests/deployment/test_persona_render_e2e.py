@@ -54,9 +54,11 @@ pytestmark = pytest.mark.slow
 #: about, and a real dependency install would dominate their runtime.
 CI_FLAGS = ["--skip-deps", "--skip-lifecycle"]
 
-#: The exemplar's two personas, and the ``control_system.writes_enabled`` value
-#: each delta pins. That key IS the tier boundary between them, which makes it
-#: the one field that proves a render came from the right delta.
+#: The exemplar's two personas, and the simulator's own
+#: ``control_system.connector.virtual_accelerator.writes_enabled`` value each
+#: delta pins. That leaf IS the tier boundary between them — both pin the flat
+#: key off — which makes it the one field that proves a render came from the
+#: right delta.
 PERSONA_WRITES = {"readonly": False, "readwrite": True}
 
 
@@ -135,7 +137,9 @@ def test_build_renders_a_project_for_every_persona_delta(built_repo):
         assert rendered["project_name"] == f"{EXEMPLAR_DIRNAME}-{persona}"
         # From the delta: the tier boundary, and the web tier this render must
         # not try to stand up a second copy of.
-        assert rendered["control_system"]["writes_enabled"] is writes_enabled
+        assert rendered["control_system"]["writes_enabled"] is False
+        connector = rendered["control_system"]["connector"]
+        assert connector["virtual_accelerator"]["writes_enabled"] is writes_enabled
         assert rendered["modules"]["web_terminals"]["enabled"] is False
         # From the root profile: the facility identity, the connector the
         # deployment runs, the data tree the agent reads, its conventions.

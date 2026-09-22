@@ -1718,7 +1718,7 @@ def _check_readonly_persona_inherits_writes(
     **This is the one check that must be keyed on the AUTHORED file rather than
     the merged one**, which is why the layers carry both. In the merge, an
     inherited ``true`` and a deliberate one are the same key with the same
-    value — the shipped ``control-assistant-va-readwrite`` tier is exactly the
+    value — the shipped ``control-assistant-readwrite`` tier is exactly the
     deliberate case, and it pins the global key false beside the one block it
     arms on purpose. What separates the two is which file the ``true`` is
     written in, and that fact only exists before the layers are folded.

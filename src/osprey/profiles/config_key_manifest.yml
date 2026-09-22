@@ -1107,8 +1107,9 @@ keys:
       Per-connector-type override of `control_system.writes_enabled`. The
       presets that carry a virtual_accelerator block write it commented, so no
       preset's resolved config carries it and `rendered` stays false;
-      the shipped presets `control-assistant-va-readwrite` (true) and
-      `control-assistant-readonly` (false) DO write it into a project's real
+      the shipped presets `control-assistant-readwrite` and
+      `control-assistant-admin` (true) and `control-assistant-readonly` and
+      `control-assistant-knowledge` (false) DO write it into a project's real
       config.yml when applied, so an audit of a built deployment will find it.
       Tri-state: absent inherits the global key, literally `true` arms writes
       for this type, and any other value leaves them unarmed without
@@ -1128,8 +1129,8 @@ keys:
       epics block, likewise written commented in `control-assistant` so no
       preset's resolved config carries it. Arming writes against a live machine is a facility
       decision that cannot ship pre-made, so no shipped preset ever sets this
-      one true; `control-assistant-readonly` writes it false into an applied
-      project's config.yml, which is the one way a build produces it.
+      one true; the control-assistant tiers that pin it write it false into an
+      applied project's config.yml, which is the one way a build produces it.
     default: derived
     default_note: falls through to control_system.writes_enabled
   control_system.connector.doocs.writes_enabled:
