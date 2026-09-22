@@ -308,9 +308,7 @@ def test_main_validation_failure_returns_one_and_prints_every_error(
     assert "validation error(s)" in err
 
 
-def test_main_validation_failure_also_fails_under_check(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_main_validation_failure_also_fails_under_check(tmp_path: Path) -> None:
     tokens_dir = tmp_path / "tokens"
     tokens_dir.mkdir()
     _write_invalid_tokens(tokens_dir)
