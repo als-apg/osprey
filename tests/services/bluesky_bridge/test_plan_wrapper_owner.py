@@ -139,13 +139,13 @@ class _Params(BaseModel):
     steps: int = 2
 
 
-def _owner_probe_plan(devices: Any, params: Any) -> Any:
+def _owner_probe_plan(_devices: Any, params: Any) -> Any:
     """Yield who the run belongs to, once per step."""
     for _ in range(params.steps):
         yield current_owner()
 
 
-def _refusing_plan(devices: Any, params: Any) -> Any:
+def _refusing_plan(_devices: Any, _params: Any) -> Any:
     """Run one message, then meet a gated write that refuses."""
     yield current_owner()
     refuse_a_narrowed_write()
@@ -195,7 +195,7 @@ def build_plan(devices, params):
 _FAILURE_OUTCOME = "MISMATCH"
 
 
-def _failing_plan(devices: Any, params: Any) -> Any:
+def _failing_plan(_devices: Any, _params: Any) -> Any:
     """Run one message, then meet a write the channel did not confirm."""
     yield current_owner()
     raise ChannelWriteFailedError(_CHANNEL, _FAILURE_OUTCOME)
@@ -541,7 +541,7 @@ class _RefusingConnector(FakeConnector):
     def __init__(self) -> None:
         super().__init__(readbacks={_CHANNEL: 0.0})
 
-    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):
+    async def write_channel_checked(self, channel_address: str, value: Any, **kwargs: Any):  # noqa: ARG002 - the connector write signature
         refuse_a_narrowed_write()
 
 
@@ -684,7 +684,7 @@ _PROMPT_S = 5.0
 class _CancellingStatus:
     """A status-like whose report of what failed is itself a cancellation."""
 
-    def exception(self, timeout: float | None = None) -> BaseException:
+    def exception(self, timeout: float | None = None) -> BaseException:  # noqa: ARG002 - the status protocol signature
         """Never answers, and raises the one failure that is not an ``Exception``."""
         raise asyncio.CancelledError
 
@@ -734,7 +734,7 @@ def make_status_like(kind: str) -> Any:
 def _status_like_plan(kind: str) -> Any:
     """A catalog plan that fails carrying the named status-like."""
 
-    def plan(devices: Any, params: Any) -> Any:
+    def plan(_devices: Any, _params: Any) -> Any:
         """Run one message, then fail with something that is not a refusal."""
         yield current_owner()
         raise RuntimeError(make_status_like(kind))

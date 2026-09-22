@@ -155,7 +155,7 @@ def connector(monkeypatch: pytest.MonkeyPatch):
     """Set (or break) the ``control_system.type`` the capability check resolves."""
 
     def _set(value: str | Exception) -> None:
-        def fake_get_config_value(key: str, default: Any = None) -> Any:
+        def fake_get_config_value(_key: str, _default: Any = None) -> Any:
             if isinstance(value, Exception):
                 raise value
             return value
@@ -492,7 +492,7 @@ def test_post_enqueue_bookkeeping_failure_releases_the_reservation(
     _install(manager)
     revision = _make_draft(client)
 
-    async def _boom(*, run_id: str, revision: int) -> None:
+    async def _boom(*, run_id: str, revision: int) -> None:  # noqa: ARG001 - the record_and_broadcast_launch signature
         raise RuntimeError("bookkeeping exploded")
 
     monkeypatch.setattr(queue.draft, "record_and_broadcast_launch", _boom)
@@ -599,7 +599,7 @@ def test_validation_gate_refusal_releases_the_reservation(
     _install(manager)
     revision = _make_draft(client)
 
-    def _reject(request: Any) -> None:
+    def _reject(_request: Any) -> None:
         raise HTTPException(status_code=409, detail="session plan has no passing record")
 
     monkeypatch.setattr(queue, "_validate_launchable_request", _reject)
@@ -1406,7 +1406,7 @@ def test_start_is_refused_when_a_queued_session_plan_is_stale(
     )
     _install(manager)
 
-    async def _reject(names: Any) -> None:
+    async def _reject(_names: Any) -> None:
         raise SessionPlanNotReadyError("record died with a bridge restart", plan="session_sweep")
 
     monkeypatch.setattr(queue, "check_session_plans_ready", _reject)

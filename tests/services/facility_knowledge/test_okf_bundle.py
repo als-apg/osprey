@@ -37,12 +37,12 @@ class _RecordingTransport:
     def __init__(self) -> None:
         self.calls: list[str] = []
 
-    def get(self, url: str, timeout: float) -> QMDResponse:
+    def get(self, url: str, timeout: float) -> QMDResponse:  # noqa: ARG002 - the HTTP transport signature
         """Record a GET that should never happen."""
         self.calls.append(f"GET {url}")
         raise AssertionError(f"unconfigured client issued GET {url}")
 
-    def post(self, url: str, body: bytes, headers: object, timeout: float) -> QMDResponse:
+    def post(self, url: str, body: bytes, headers: object, timeout: float) -> QMDResponse:  # noqa: ARG002 - the HTTP transport signature
         """Record a POST that should never happen."""
         self.calls.append(f"POST {url}")
         raise AssertionError(f"unconfigured client issued POST {url}")

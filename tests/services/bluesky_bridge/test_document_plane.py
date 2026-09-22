@@ -217,7 +217,7 @@ def _stop_doc(run_uid: str, num_events: int) -> dict[str, Any]:
     }
 
 
-def _establish_link(publisher, plane: DocumentPlane) -> None:
+def _establish_link(publisher) -> None:
     """Publish probe runs until one lands, so a later silence means rejection.
 
     0MQ PUB sockets drop messages published before the subscriber's handshake
@@ -240,7 +240,7 @@ def _establish_link(publisher, plane: DocumentPlane) -> None:
 def test_rows_land_under_the_osprey_run_id(plane, certificates, publishers):
     """A worker's documents become live rows keyed by the enqueued run id."""
     publisher = _publisher(publishers, plane, certificates)
-    _establish_link(publisher, plane)
+    _establish_link(publisher)
 
     run_uid = "run-engine-uid-1"
     descriptor_uid = "descriptor-1"
@@ -307,7 +307,7 @@ def _assert_refused(forged, authorized, label: str) -> None:
 def test_documents_without_the_client_key_are_rejected(plane, certificates, publishers):
     """CurveZMQ, not network placement, is what protects the in-side socket."""
     authorized = _publisher(publishers, plane, certificates)
-    _establish_link(authorized, plane)
+    _establish_link(authorized)
 
     _assert_refused(_publisher(publishers, plane, certificates=None), authorized, "unkeyed")
 
@@ -329,7 +329,7 @@ def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates, pu
     it does.
     """
     authorized = _publisher(publishers, plane, certificates)
-    _establish_link(authorized, plane)
+    _establish_link(authorized)
 
     intruder = _publisher(
         publishers,
@@ -345,7 +345,7 @@ def test_documents_from_an_unpinned_keypair_are_rejected(plane, certificates, pu
 def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certificates, publishers):
     """A worker driven outside the queue is still recorded — under its only identity."""
     publisher = _publisher(publishers, plane, certificates)
-    _establish_link(publisher, plane)
+    _establish_link(publisher)
 
     run_uid = "unmanaged-run-uid"
     publisher("start", _start_doc(run_uid))
@@ -361,7 +361,7 @@ def test_a_run_without_an_osprey_run_id_falls_back_to_its_run_uid(plane, certifi
 def test_a_run_that_declares_its_point_count_gets_a_denominator(plane, certificates, publishers):
     """A run's own declaration of its extent is what progress divides by."""
     publisher = _publisher(publishers, plane, certificates)
-    _establish_link(publisher, plane)
+    _establish_link(publisher)
 
     run_uid = "declared-run-uid"
     publisher("start", _start_doc(run_uid, run_id="declared-run", num_points=4))
@@ -402,7 +402,7 @@ def test_the_worker_publisher_and_this_proxy_speak_the_same_configuration(
     )
     assert publisher is not None
     publishers.append(publisher)
-    _establish_link(publisher, plane)
+    _establish_link(publisher)
 
     run_uid = "worker-built-run-uid"
     publisher("start", _start_doc(run_uid, run_id="worker-built-run"))
@@ -461,7 +461,7 @@ class TestTheDocumentPlaneSurvivesBeingRestarted:
             opened: list[Any] = []
             try:
                 publisher = _publisher(opened, plane, certificates)
-                _establish_link(publisher, plane)
+                _establish_link(publisher)
                 run_id = f"restart-cycle-{cycle}"
                 publisher("start", _start_doc(f"{run_id}-uid", run_id=run_id))
                 delivered = _wait_until(lambda key=run_id: live_rows.get(key) is not None)
@@ -548,7 +548,7 @@ def test_start_from_env_degrades_when_the_socket_cannot_be_brought_up(
 ):
     """A taken port costs the operator live rows, never the whole bridge."""
 
-    def _explode(self):
+    def _explode(self):  # noqa: ARG001 - it stands in for a DocumentPlane method
         raise OSError("address already in use")
 
     monkeypatch.setattr(DocumentPlane, "start", _explode)

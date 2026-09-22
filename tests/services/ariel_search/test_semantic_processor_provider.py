@@ -31,7 +31,7 @@ def provider_models(monkeypatch) -> None:
     """Give ``cborg`` a tier map so tier aliases resolve to a concrete model ID."""
     import osprey.models.config as models_config
 
-    def fake_provider_config(provider: str, config_path: str | None = None) -> dict[str, Any]:
+    def fake_provider_config(provider: str, _config_path: str | None = None) -> dict[str, Any]:
         if provider == "cborg":
             return {"models": {"haiku": "anthropic/claude-haiku"}}
         return {}
@@ -95,7 +95,7 @@ class TestModuleProviderDrivesBothUses:
 
         captured: dict[str, Any] = {}
 
-        def fake_completion(message: str, model_config: dict[str, Any] | None = None, **kwargs):
+        def fake_completion(message: str, model_config: dict[str, Any] | None = None, **kwargs):  # noqa: ARG001 - the get_chat_completion signature
             captured["model_config"] = model_config
             return '{"keywords": ["vacuum"], "summary": "Pump swapped."}'
 
@@ -282,7 +282,7 @@ class TestTheInputBudgetIsAConfigKey:
 
         captured: dict[str, Any] = {}
 
-        def fake_completion(message: str, model_config: Any = None) -> str:
+        def fake_completion(message: str, model_config: Any = None) -> str:  # noqa: ARG001 - the get_chat_completion signature
             captured["message"] = message
             return '{"keywords": [], "summary": ""}'
 

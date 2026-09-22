@@ -722,8 +722,8 @@ class _FakeEmbeddingProvider:
         self,
         api_key: str | None = None,
         base_url: str | None = None,
-        model_id: str | None = None,
-        timeout: float = 10.0,
+        model_id: str | None = None,  # noqa: ARG002 - the provider health probe signature
+        timeout: float = 10.0,  # noqa: ARG002 - the provider health probe signature
     ) -> tuple[bool, str]:
         self.calls.append({"check_health": True, "api_key": api_key, "base_url": base_url})
         return self.healthy

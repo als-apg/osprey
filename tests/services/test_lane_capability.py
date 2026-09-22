@@ -86,7 +86,7 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
         if connector is not None:
             control_system["connector"] = connector
 
-        def fake_get_config_value(key: str, default: Any = None, config_path: Any = None) -> Any:
+        def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
             if key == "control_system.type":
                 return control_system_type
             if key == "control_system":
@@ -207,7 +207,7 @@ async def test_an_unreadable_config_still_yields_a_lane_identity(monkeypatch) ->
     reading `lane_target` off it must find a string, not a hole.
     """
 
-    def raising_get_config_value(key: str, default: Any = None, config_path: Any = None) -> Any:
+    def raising_get_config_value(_key: str, _default: Any = None, _config_path: Any = None) -> Any:
         raise FileNotFoundError("no config.yml found")
 
     monkeypatch.delenv(qb.LANE_ENV, raising=False)

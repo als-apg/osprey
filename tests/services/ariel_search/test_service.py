@@ -368,7 +368,7 @@ class TestServiceRouting:
         )
 
         # Patch keyword_search to call repository directly
-        async def fake_keyword_search(query, repo, config, **kwargs):
+        async def fake_keyword_search(query, repo, config, **kwargs):  # noqa: ARG001 - the keyword_search signature
             return await repo.keyword_search(query)
 
         # Dispatch runs the real keyword module with keyword_search stubbed.
@@ -522,7 +522,7 @@ class TestServiceRouting:
 
         seen_embedders = []
 
-        async def fake_semantic_search(query, repository, config, embedder, **kwargs):
+        async def fake_semantic_search(query, repository, config, embedder, **kwargs):  # noqa: ARG001 - the semantic_search signature
             seen_embedders.append(embedder)
             return [
                 ({"entry_id": "entry-sem-001", "raw_text": "RF cavity trip"}, 0.91),

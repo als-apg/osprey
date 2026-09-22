@@ -690,7 +690,7 @@ def test_the_monitor_panel_is_absent_when_no_monitors_were_requested() -> None:
 def test_one_panel_failing_does_not_take_the_figure_with_it(monkeypatch) -> None:
     """`_panel_or_none` exercised rather than assumed: the other three still serve."""
 
-    def _boom(sweep, params):
+    def _boom(_sweep, _params):
         raise RuntimeError("miss detection blew up")
 
     monkeypatch.setattr(bump, "_misses", _boom)
@@ -752,7 +752,7 @@ def test_a_non_finite_reading_is_a_gap_not_a_raise() -> None:
 def test_a_failure_below_every_panel_serves_an_empty_figure(monkeypatch) -> None:
     """The outer catch: `render` is total even when the row resolution itself goes."""
 
-    def _boom(rows, params):
+    def _boom(_rows, _params):
         raise RuntimeError("row attribution blew up")
 
     monkeypatch.setattr(bump, "_prepare", _boom)

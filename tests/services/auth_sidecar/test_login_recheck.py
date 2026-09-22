@@ -205,17 +205,17 @@ class FakeOIDCClient:
             "userinfo": userinfo if userinfo is not None else {"sub": ALICE_SUBJECT},
         }
 
-    async def create_authorization_url(self, redirect_uri: str | None = None) -> dict[str, Any]:
+    async def create_authorization_url(self, _redirect_uri: str | None = None) -> dict[str, Any]:
         return {
             "url": f"https://idp.example.org/authorize?state={FLOW_STATE}",
             "state": FLOW_STATE,
             "nonce": "nonce-value",
         }
 
-    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:
+    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:  # noqa: ARG002 - the OIDC client signature
         return None
 
-    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:
+    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002 - the OIDC client signature
         return self.token
 
 

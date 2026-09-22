@@ -97,7 +97,7 @@ def connector(monkeypatch: pytest.MonkeyPatch):
     """
 
     def _set(value: str | Exception) -> None:
-        def fake_get_config_value(key: str, default: Any = None) -> Any:
+        def fake_get_config_value(_key: str, _default: Any = None) -> Any:
             if isinstance(value, Exception):
                 raise value
             return value

@@ -1327,7 +1327,7 @@ def _trims(tmp_path: Path, block: dict, **kwargs):
     return _findings(tmp_path, block, **kwargs).trims
 
 
-def _findings(tmp_path: Path, block: dict, *, views=None, **kwargs):
+def _findings(tmp_path: Path, block: dict, *, views=None, **kwargs):  # noqa: ARG001 - the sibling _trims helper passes the same leading arguments
     """What the bindings emitter decided over one quadrupole block."""
     return lane_findings(
         {(SYSTEM, "QF"): _coupled()},

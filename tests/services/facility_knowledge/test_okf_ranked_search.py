@@ -576,7 +576,7 @@ class TestNormalisedPathRecovery:
             """,
         )
 
-        def refuse(root: Path) -> dict[str, list[str]]:
+        def refuse(_root: Path) -> dict[str, list[str]]:
             raise AssertionError("swept the bundle for a search that needed no recovery")
 
         monkeypatch.setattr(bundle_module, "_normalised_concept_index", refuse)

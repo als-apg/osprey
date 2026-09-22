@@ -104,7 +104,7 @@ def _patch_service(monkeypatch, service):
     """Route ``create_ariel_service`` to return *service*."""
     import osprey.services.ariel_search as ariel_pkg
 
-    async def _fake_create(config):
+    async def _fake_create(_config):
         return service
 
     monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)
@@ -114,7 +114,7 @@ def _patch_service_raises(monkeypatch, exc):
     """Route ``create_ariel_service`` to raise *exc*."""
     import osprey.services.ariel_search as ariel_pkg
 
-    async def _fake_create(config):
+    async def _fake_create(_config):
         raise exc
 
     monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)
@@ -622,7 +622,7 @@ class TestRunIngestDryRun:
         class _Adapter:
             source_system_name = "TestSource"
 
-            async def fetch_entries(self, since=None, limit=None):
+            async def fetch_entries(self, since=None, limit=None):  # noqa: ARG002 - the ingestion adapter fetch_entries signature
                 for i in range(3):
                     yield {"entry_id": f"E{i}"}
 
@@ -653,7 +653,7 @@ class TestRunIngestDryRun:
         class _Adapter:
             source_system_name = "TestSource"
 
-            async def fetch_entries(self, since=None, limit=None):
+            async def fetch_entries(self, since=None, limit=None):  # noqa: ARG002 - the ingestion adapter fetch_entries signature
                 if False:
                     yield  # empty async generator
 
