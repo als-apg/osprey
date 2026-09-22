@@ -714,7 +714,7 @@ class TestSetRefusals:
         configured: str | None,
         presented: str | None,
         values: dict[str, float],
-        reason: str,
+        reason: str,  # noqa: ARG002 - a column of the shared REFUSED_SETS table
     ) -> None:
         surface = _writer(_writable_model(), records, model_write_token=configured)
 

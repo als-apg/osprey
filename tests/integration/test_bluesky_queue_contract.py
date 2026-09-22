@@ -1486,7 +1486,7 @@ def test_health_publishes_the_capability_record_the_refusal_carries(
     manager: MockQueueServer,
     connector: Callable[[str | Exception], None],
     reason: str,
-    expected_status: int,
+    expected_status: int,  # noqa: ARG001 - a column of the shared _FAIL_CLOSED_CASES table
 ) -> None:
     """The cross-surface half of the contract: whatever `/health` says about
     this deployment is exactly what a refusal carries, and liveness never
