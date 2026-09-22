@@ -688,12 +688,6 @@ ignore-variadic-names = true
 "tests/hooks/*" = ["ARG001", "ARG002"]
 "tests/audit/*" = ["ARG001", "ARG002"]
 
-"tests/e2e/*" = ["ARG001", "ARG002"]
-"tests/va/*" = ["ARG001", "ARG002"]
-"tests/dispatch_worker/*" = ["ARG001", "ARG002"]
-"tests/integration/*" = ["ARG001", "ARG002"]
-"tests/benchmark/*" = ["ARG001", "ARG002"]
-
 [tool.ruff.lint.isort]
 known-first-party = ["osprey", "configs", "applications", "interfaces", "deployment"]
 
