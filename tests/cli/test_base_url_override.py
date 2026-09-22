@@ -66,7 +66,7 @@ class TestBuiltInProviderOverride:
         assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
 
     def test_als_apg_ships_its_gateway_when_config_names_no_base_url(self):
-        """als-apg fronts an ALS-owned gateway, shipped the way cborg's is.
+        """als-apg ships the address of the gateway it fronts, as cborg does.
 
         A deployment that names no endpoint reaches it without configuration.
         This is the test that catches a silent revert to "no default", which
