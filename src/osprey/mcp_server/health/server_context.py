@@ -197,7 +197,10 @@ class HealthServerContext:
         """
         return self._loader
 
-    async def get_poll_report(self, categories: Iterable[str] | None = None) -> PollReportResult:
+    async def get_poll_report(
+        self,
+        categories: Iterable[str] | None = None,  # noqa: ARG002 - mirrors the health tool's parameter; the cached report covers every category and the tool filters it
+    ) -> PollReportResult:
         """Return the poll-tier report, refreshing it inline only when required.
 
         The cache always holds the full poll suite; ``categories`` is accepted for

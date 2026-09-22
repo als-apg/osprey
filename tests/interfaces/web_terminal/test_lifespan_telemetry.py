@@ -43,7 +43,8 @@ def injected(monkeypatch: pytest.MonkeyPatch) -> list[Any]:
     """The specs the lifespan handed to ``inject_provider_env``, injection stubbed."""
     seen: list[Any] = []
 
-    def _record(env, spec, *, project_dir=None):
+    # ``inject_provider_env``'s signature: the lifespan names ``project_dir``.
+    def _record(_env, spec, *, project_dir=None):  # noqa: ARG001
         seen.append(spec)
         return []
 
@@ -113,10 +114,10 @@ def test_an_unissued_store_credential_serves_without_telemetry(
     assert injected[0].env_block["ANTHROPIC_MODEL"]
 
 
+@pytest.mark.usefixtures("injected")
 def test_the_operator_is_told_which_verb_issues_it(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    injected: list[Any],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """Silence would read as "this deployment has no telemetry configured"."""

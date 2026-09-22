@@ -347,7 +347,7 @@ async def pending_reviews_clear(request: Request, confirm: bool = False):
 
 
 @router.get("/artifacts/{filename}")
-async def serve_artifact(filename: str, request: Request):
+async def serve_artifact(filename: str, _request: Request):
     """Serve an artifact file from the workspace artifacts directory.
 
     Guards against path traversal by rejecting filenames containing

@@ -112,7 +112,14 @@ def fake_runtime(monkeypatch):
     """Patch subprocess.run + get_runtime_command; return the list of captured argvs."""
     calls: list[list[str]] = []
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
+    def _fake_run(
+        argv,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         calls.append(list(argv))
         return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
 
@@ -135,7 +142,14 @@ def fake_runtime_prune(monkeypatch):
     calls: list[list[str]] = []
     listing: dict[str, list[str]] = {"containers": [], "volumes": []}
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
+    def _fake_run(
+        argv,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             stdout = "\n".join(listing["containers"])
@@ -174,7 +188,14 @@ def fake_runtime_nuke(monkeypatch):
     down_result = {"returncode": 0, "stderr": ""}
     image_labels: dict[str, str | None] = {}
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
+    def _fake_run(
+        argv,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             return subprocess.CompletedProcess(
@@ -372,9 +393,8 @@ def test_decommission_purge_generic_yes_does_not_confirm(tmp_path, monkeypatch, 
 # =============================================================================
 
 
-def test_decommission_migrates_legacy_roster_and_freezes_survivor_index(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_decommission_migrates_legacy_roster_and_freezes_survivor_index(tmp_path, monkeypatch):
     """Decommissioning a mid-list user in a legacy bare roster must freeze indices:
     the later survivor keeps its ORIGINAL positional index, not a renumbered one."""
     monkeypatch.chdir(tmp_path)
@@ -1328,8 +1348,11 @@ def recreate_calls(monkeypatch):
     return calls
 
 
+@pytest.mark.usefixtures("fake_runtime")
 def test_passwd_stores_the_new_hash_and_recreates_the_sidecar(
-    tmp_path, monkeypatch, fake_runtime, recreate_calls
+    tmp_path,
+    monkeypatch,
+    recreate_calls,
 ):
     """The hash is replaced AND the sidecar is recreated — a stored hash the
     running sidecar never re-reads would leave the operator with a password
@@ -1354,9 +1377,8 @@ def test_passwd_stores_the_new_hash_and_recreates_the_sidecar(
     assert kwargs["repo_root"] == tmp_path
 
 
-def test_passwd_emits_no_runtime_argv_of_its_own(
-    tmp_path, monkeypatch, fake_runtime, recreate_calls
-):
+@pytest.mark.usefixtures("recreate_calls")
+def test_passwd_emits_no_runtime_argv_of_its_own(tmp_path, monkeypatch, fake_runtime):
     """Changing a password touches no container directly: no per-user terminal
     is bounced, nothing is removed, and the only runtime action is the delegated
     single-service recreate."""
@@ -1396,9 +1418,8 @@ def _capture_recreate_argv(monkeypatch) -> list[list[str]]:
     return calls
 
 
-def test_passwd_carries_the_env_file_fragment_into_the_recreate(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_passwd_carries_the_env_file_fragment_into_the_recreate(tmp_path, monkeypatch):
     """The recreate resolves the same variables as every other web-stack
     invocation — omitting the fragment would make this a differently-configured
     `up`."""
@@ -1429,8 +1450,11 @@ def test_passwd_carries_the_env_file_fragment_into_the_recreate(
     ]
 
 
+@pytest.mark.usefixtures("fake_runtime")
 def test_passwd_before_the_stack_is_deployed_warns_and_does_not_raise(
-    tmp_path, monkeypatch, fake_runtime, caplog
+    tmp_path,
+    monkeypatch,
+    caplog,
 ):
     """A password can be set before the stack has ever been brought up: with no
     rendered docker-compose.web.yml there is no container to recreate, and
@@ -1448,9 +1472,8 @@ def test_passwd_before_the_stack_is_deployed_warns_and_does_not_raise(
     assert verify_password("alices-new-password", _read_hash(tmp_path, "ALICE"))
 
 
-def test_passwd_recreate_carries_no_env_file_argument_without_a_dotenv(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_passwd_recreate_carries_no_env_file_argument_without_a_dotenv(tmp_path, monkeypatch):
     """No `.env` at the project root means no `--env-file` argument at all —
     compose rejects one pointing at a file that does not exist."""
     monkeypatch.chdir(tmp_path)
@@ -1552,8 +1575,11 @@ def test_passwd_refuses_before_writing_when_the_runtime_is_down(tmp_path, monkey
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()
 
 
+@pytest.mark.usefixtures("fake_runtime")
 def test_passwd_does_not_recreate_when_the_credential_write_failed(
-    tmp_path, monkeypatch, fake_runtime, recreate_calls
+    tmp_path,
+    monkeypatch,
+    recreate_calls,
 ):
     """A failed write must abort loudly, not recreate a sidecar around an
     unchanged file and report success."""
@@ -1571,9 +1597,8 @@ def test_passwd_does_not_recreate_when_the_credential_write_failed(
     assert recreate_calls == []
 
 
-def test_passwd_reports_a_failed_recreate_as_a_password_that_DID_change(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_passwd_reports_a_failed_recreate_as_a_password_that_DID_change(tmp_path, monkeypatch):
     """The mirror of the write-failure case, and the harder half to get right.
 
     By the time the recreate runs the hash is already stored, so a bare failure
@@ -1601,9 +1626,8 @@ def test_passwd_reports_a_failed_recreate_as_a_password_that_DID_change(
     assert verify_password("alices-new-password", _read_hash(tmp_path, "ALICE"))
 
 
-def test_passwd_reports_a_spooled_recreate_failure_the_same_way(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_passwd_reports_a_spooled_recreate_failure_the_same_way(tmp_path, monkeypatch):
     """The recreate's compose output is spooled, so this is the type it raises.
 
     ``CalledProcessError`` above is the shape the guard was written for;
@@ -1633,9 +1657,8 @@ def test_passwd_reports_a_spooled_recreate_failure_the_same_way(
     assert str(spool) in message, "the spooled output is unreadable if nothing names it"
 
 
-def test_passwd_never_logs_or_prints_the_password(
-    tmp_path, monkeypatch, fake_runtime, capsys, caplog
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_passwd_never_logs_or_prints_the_password(tmp_path, monkeypatch, capsys, caplog):
     monkeypatch.chdir(tmp_path)
     config_path = _write_config(tmp_path, _auth_config(["alice"]))
 
@@ -1694,9 +1717,8 @@ def _seed_env_auth(tmp_path, **hashes) -> None:
     (tmp_path / AUTH_ENV_FILENAME).write_text("".join(lines), encoding="utf-8")
 
 
-def test_decommission_purges_the_departed_users_auth_credentials(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
-):
+@pytest.mark.usefixtures("fake_runtime", "auth_reconcile_runtime")
+def test_decommission_purges_the_departed_users_auth_credentials(tmp_path, monkeypatch):
     """A re-added same-name user must be minted a FRESH password, never inherit
     the departed user's. Leaving the hash behind would silently hand the next
     holder of that name the previous holder's credential."""
@@ -1711,8 +1733,11 @@ def test_decommission_purges_the_departed_users_auth_credentials(
     assert stored[f"{PW_HASH_VAR_PREFIX}BOB"] == "scrypt.bob"  # untouched
 
 
+@pytest.mark.usefixtures("auth_reconcile_runtime")
 def test_decommission_reloads_nginx_and_recreates_the_auth_sidecar(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+    tmp_path,
+    monkeypatch,
+    fake_runtime,
 ):
     """Re-rendering the artifacts is not enough: nginx still serves the previous
     config, and the sidecar holds the old roster and hashes baked in at its
@@ -1732,9 +1757,8 @@ def test_decommission_reloads_nginx_and_recreates_the_auth_sidecar(
     assert recreates[0][-3:] == ["-d", "--force-recreate", "auth"]
 
 
-def test_decommission_with_auth_off_touches_no_auth_state(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
-):
+@pytest.mark.usefixtures("auth_reconcile_runtime")
+def test_decommission_with_auth_off_touches_no_auth_state(tmp_path, monkeypatch, fake_runtime):
     """`auth.method: none` has no sidecar, no .env.auth and no perimeter to
     reconcile — the verb must behave exactly as it did before auth existed."""
     monkeypatch.chdir(tmp_path)
@@ -1746,8 +1770,11 @@ def test_decommission_with_auth_off_touches_no_auth_state(
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()
 
 
+@pytest.mark.usefixtures("auth_reconcile_runtime")
 def test_prune_purges_off_roster_auth_credentials_and_recreates(
-    tmp_path, monkeypatch, fake_runtime_prune, auth_reconcile_runtime
+    tmp_path,
+    monkeypatch,
+    fake_runtime_prune,
 ):
     """An orphan was hand-edited off the roster, so nothing re-renders — but
     their hash is still in .env.auth and would be inherited by the next user of
@@ -1769,8 +1796,11 @@ def test_prune_purges_off_roster_auth_credentials_and_recreates(
     assert [cmd for cmd in _web_stack_cmds(calls) if "--force-recreate" in cmd]
 
 
+@pytest.mark.usefixtures("auth_reconcile_runtime")
 def test_prune_with_no_auth_entries_to_purge_recreates_nothing(
-    tmp_path, monkeypatch, fake_runtime_prune, auth_reconcile_runtime
+    tmp_path,
+    monkeypatch,
+    fake_runtime_prune,
 ):
     """Nothing changed in .env.auth and nothing was re-rendered, so there is
     nothing to put into force — bouncing the sidecar would drop every live
@@ -1790,8 +1820,11 @@ def test_prune_with_no_auth_entries_to_purge_recreates_nothing(
     assert _web_stack_cmds(calls) == []
 
 
+@pytest.mark.usefixtures("fake_runtime", "auth_reconcile_runtime")
 def test_decommission_warns_when_a_departed_users_plaintext_auth_password_survives(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime, caplog
+    tmp_path,
+    monkeypatch,
+    caplog,
 ):
     """Purging .env.auth is only half the story: `ensure_auth_credentials` also
     hashes `OSPREY_AUTH_PW_<SUFFIX>` out of the project .env whenever no hash is
@@ -1812,8 +1845,12 @@ def test_decommission_warns_when_a_departed_users_plaintext_auth_password_surviv
     assert "hunter2" not in caplog.text  # names the variable, never its value
 
 
+@pytest.mark.usefixtures("auth_reconcile_runtime")
 def test_an_unreadable_env_does_not_become_a_recreate_failure(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime, caplog
+    tmp_path,
+    monkeypatch,
+    fake_runtime,
+    caplog,
 ):
     """The plaintext-survival check only READS the project `.env`, so a failure
     to read it says nothing about the sidecar. It must not be reported as a
@@ -1837,8 +1874,11 @@ def test_an_unreadable_env_does_not_become_a_recreate_failure(
     assert "could not be recreated" not in caplog.text
 
 
+@pytest.mark.usefixtures("auth_reconcile_runtime")
 def test_decommission_auth_recreate_failure_is_fatal_after_the_volume_policy_runs(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+    tmp_path,
+    monkeypatch,
+    fake_runtime,
 ):
     """A failed recreate is fatal — the removed user's session may still be live,
     which is the whole point of the verb — but it is raised only AFTER the
@@ -1874,9 +1914,8 @@ def test_decommission_auth_recreate_failure_is_fatal_after_the_volume_policy_run
     assert [cmd for cmd in fake_runtime if cmd[1:3] == ["volume", "rm"]]
 
 
-def test_decommission_reports_a_spooled_recreate_failure_the_same_way(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
-):
+@pytest.mark.usefixtures("fake_runtime", "auth_reconcile_runtime")
+def test_decommission_reports_a_spooled_recreate_failure_the_same_way(tmp_path, monkeypatch):
     """The reconcile guard meets the spooled type too, and must still name both.
 
     Which user was removed, and where the compose output that explains the
@@ -1905,9 +1944,8 @@ def test_decommission_reports_a_spooled_recreate_failure_the_same_way(
     assert str(spool) in message, "the spooled output is unreadable if nothing names it"
 
 
-def test_prune_auth_recreate_failure_is_fatal_too(
-    tmp_path, monkeypatch, fake_runtime_prune, auth_reconcile_runtime
-):
+@pytest.mark.usefixtures("auth_reconcile_runtime")
+def test_prune_auth_recreate_failure_is_fatal_too(tmp_path, monkeypatch, fake_runtime_prune):
     """The prune path reaches the same guard — a decommission-only test would
     miss half of it."""
     from osprey.deployment.web_terminals import provision
@@ -1930,8 +1968,11 @@ def test_prune_auth_recreate_failure_is_fatal_too(
     assert f"{PW_HASH_VAR_PREFIX}CAROL" not in parse_dotenv_file(tmp_path / AUTH_ENV_FILENAME)
 
 
+@pytest.mark.usefixtures("auth_reconcile_runtime")
 def test_decommission_purge_failure_names_the_user_whose_credential_survives(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+    tmp_path,
+    monkeypatch,
+    fake_runtime,
 ):
     """An unwritable .env.auth surfaced as a bare PermissionError after the
     container was already removed, with nothing saying the credential survived
@@ -1964,8 +2005,11 @@ def test_decommission_purge_failure_names_the_user_whose_credential_survives(
     assert any(cmd[-4:] == ["nginx", "nginx", "-s", "reload"] for cmd in fake_runtime)
 
 
+@pytest.mark.usefixtures("auth_reconcile_runtime")
 def test_prune_partial_purge_failure_still_forces_the_earlier_removals_into_effect(
-    tmp_path, monkeypatch, fake_runtime_prune, auth_reconcile_runtime
+    tmp_path,
+    monkeypatch,
+    fake_runtime_prune,
 ):
     """The failure this guard exists to prevent, and the reason the purge loop
     has a guard of its own.
@@ -2101,9 +2145,8 @@ def _resolved_by_name(config_path):
     return {entry["name"]: entry for entry in resolved}
 
 
-def test_decommission_keeps_each_survivors_persona_in_the_rewritten_roster(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_decommission_keeps_each_survivors_persona_in_the_rewritten_roster(tmp_path, monkeypatch):
     """The rewritten roster carries every survivor's ``persona:`` key.
 
     It is written back from the AUTHORED entries, not from the render-facing
@@ -2130,9 +2173,8 @@ def test_decommission_keeps_each_survivors_persona_in_the_rewritten_roster(
     ]
 
 
-def test_decommission_leaves_survivors_resolving_to_their_own_persona_image(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_decommission_leaves_survivors_resolving_to_their_own_persona_image(tmp_path, monkeypatch):
     """The consequence that roster text stands for: after the removal each
     survivor still resolves to the image their own persona names — the
     non-default ``readonly`` user is NOT moved onto the default persona."""
@@ -2158,9 +2200,8 @@ def test_decommission_leaves_survivors_resolving_to_their_own_persona_image(
     assert resolved["bob"]["image"] == "registry.example.org/web-terminal:latest"
 
 
-def test_decommission_preserves_survivor_keys_the_normalizer_does_not_read(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_decommission_preserves_survivor_keys_the_normalizer_does_not_read(tmp_path, monkeypatch):
     """Removing one user rewrites the whole roster, so it must write back what
     the operator authored about the OTHERS rather than a projection of it.
     ``persona`` is the key that made this a safety problem; the rule is general,
@@ -2216,9 +2257,8 @@ def _repo_with_config(tmp_path, config):
     return repo, path
 
 
-def test_archive_tarballs_land_under_the_repo_not_the_working_directory(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_archive_tarballs_land_under_the_repo_not_the_working_directory(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # NOT the repo root
     repo, config_path = _repo_with_config(tmp_path, _config(["alice"]))
 
@@ -2228,8 +2268,10 @@ def test_archive_tarballs_land_under_the_repo_not_the_working_directory(
     assert not (tmp_path / "var").exists()
 
 
+@pytest.mark.usefixtures("fake_runtime", "auth_reconcile_runtime")
 def test_credential_purge_reads_the_repos_env_auth_not_the_working_directorys(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+    tmp_path,
+    monkeypatch,
 ):
     """A purge resolving ``.env.auth`` against the cwd would report success
     having cleared nothing — the departed user's hash would stay in the file the
@@ -2247,7 +2289,8 @@ def test_credential_purge_reads_the_repos_env_auth_not_the_working_directorys(
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()
 
 
-def test_artifacts_are_rerendered_into_the_repos_build_zone(tmp_path, monkeypatch, fake_runtime):
+@pytest.mark.usefixtures("fake_runtime")
+def test_artifacts_are_rerendered_into_the_repos_build_zone(tmp_path, monkeypatch):
     """The re-render follows the resolved repo, not the cwd.
 
     Rendered anywhere else, the compose file and nginx.conf the running stack
@@ -2264,9 +2307,8 @@ def test_artifacts_are_rerendered_into_the_repos_build_zone(tmp_path, monkeypatc
     assert not (tmp_path / "build" / "docker-compose.web.yml").exists()
 
 
-def test_nginx_reload_argv_addresses_the_repos_compose_file(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
-):
+@pytest.mark.usefixtures("auth_reconcile_runtime")
+def test_nginx_reload_argv_addresses_the_repos_compose_file(tmp_path, monkeypatch, fake_runtime):
     """The reload has to name the compose file that was just re-rendered.
 
     Pointed at a repo with no rendered stack, the reload is a no-op against a
@@ -2290,9 +2332,8 @@ def test_nginx_reload_argv_addresses_the_repos_compose_file(
     assert compose_file == str(repo / "build" / "docker-compose.web.yml")
 
 
-def test_passwd_writes_the_hash_into_the_repos_env_auth(
-    tmp_path, monkeypatch, fake_runtime, recreate_calls
-):
+@pytest.mark.usefixtures("fake_runtime", "recreate_calls")
+def test_passwd_writes_the_hash_into_the_repos_env_auth(tmp_path, monkeypatch):
     """The hash lands in the repo's ``.env.auth`` — the file the sidecar reads.
 
     That file is what the rendered stack mounts, so a hash stored beside the cwd
@@ -2312,8 +2353,11 @@ def test_passwd_writes_the_hash_into_the_repos_env_auth(
     assert not (tmp_path / AUTH_ENV_FILENAME).exists()
 
 
+@pytest.mark.usefixtures("auth_reconcile_runtime")
 def test_passwd_recreate_argv_addresses_the_repos_web_stack_from_any_directory(
-    tmp_path, monkeypatch, fake_runtime, auth_reconcile_runtime
+    tmp_path,
+    monkeypatch,
+    fake_runtime,
 ):
     """The rotation is only in force once the sidecar that serves it is recreated.
 
@@ -2477,9 +2521,8 @@ def test_decommission_refuses_before_touching_the_roster_when_open_mode_is_unsaf
     assert [c for c in fake_runtime if c[1] == "rm"] == []
 
 
-def test_decommission_of_the_open_mode_offenders_own_user_still_succeeds(
-    tmp_path, monkeypatch, fake_runtime
-):
+@pytest.mark.usefixtures("fake_runtime")
+def test_decommission_of_the_open_mode_offenders_own_user_still_succeeds(tmp_path, monkeypatch):
     """The same escape hatch, on the same POST-removal roster: removing the
     offending persona's last user drops it from the referenced set, and that
     removal is the one remediation needing no image rebuild."""
@@ -2589,7 +2632,14 @@ def test_up_reconcile_reports_a_failed_removal_instead_of_raising(
     config = _config(["alice"])
     listing["containers"] = ["dls-web-eve"]
 
-    def _refusing_run(argv, capture_output=True, text=True, env=None, check=False, **kwargs):
+    def _refusing_run(
+        argv,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         calls.append(list(argv))
         if argv[1] == "rm":
             return subprocess.CompletedProcess(argv, returncode=1, stdout="", stderr="busy")

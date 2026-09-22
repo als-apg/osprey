@@ -1110,7 +1110,7 @@ class TestHonestMetadataWithoutDocker:
         connector._collection = MagicMock()
         calls = []
 
-        def _find_one(query, projection, sort):
+        def _find_one(query, projection, sort):  # noqa: ARG001 - stands in for the collection's find_one, whose caller names sort
             calls.append(sort)
             if oldest is None:
                 return None

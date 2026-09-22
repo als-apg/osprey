@@ -24,6 +24,8 @@ answer from whatever record the developer's own deployment left in the checkout.
 
 from __future__ import annotations
 
+import pytest
+
 from osprey.mcp_server.control_system import target_banner
 from osprey_connectors import control_context
 
@@ -32,7 +34,8 @@ from osprey_connectors import control_context
 SENTINEL = "no-answer"
 
 
-def test_no_record_answers_the_baseline(control_context_root):
+@pytest.mark.usefixtures("control_context_root")
+def test_no_record_answers_the_baseline():
     """An empty root is the ordinary state of a deployment nobody has switched."""
     assert target_banner.resolve_control_target(SENTINEL) == SENTINEL
 

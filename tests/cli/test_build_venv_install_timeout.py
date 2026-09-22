@@ -59,7 +59,8 @@ def with_uv(monkeypatch) -> str:
     return uv
 
 
-def test_install_timeout_allows_a_full_dependency_download(with_uv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("with_uv")
+def test_install_timeout_allows_a_full_dependency_download(monkeypatch, tmp_path):
     """The install subprocess gets a cap sized for a >1 GB download."""
     seen: list[tuple[list[str], dict]] = []
 
@@ -81,7 +82,8 @@ def test_install_timeout_allows_a_full_dependency_download(with_uv, monkeypatch,
     )
 
 
-def test_install_timeout_is_reported_as_an_actionable_build_error(with_uv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("with_uv")
+def test_install_timeout_is_reported_as_an_actionable_build_error(monkeypatch, tmp_path):
     """A timed-out install raises BuildProfileError naming the step and a remedy."""
 
     def fake_run(cmd, **kwargs):
@@ -101,7 +103,8 @@ def test_install_timeout_is_reported_as_an_actionable_build_error(with_uv, monke
     assert "install" in message.lower(), message
 
 
-def test_venv_creation_failure_still_reports_its_own_error(with_uv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("with_uv")
+def test_venv_creation_failure_still_reports_its_own_error(monkeypatch, tmp_path):
     """Guard: the install-timeout handling does not swallow venv-creation errors."""
 
     def fake_run(cmd, **kwargs):
@@ -115,7 +118,8 @@ def test_venv_creation_failure_still_reports_its_own_error(with_uv, monkeypatch,
         _create_project_venv(Path(tmp_path), _profile())
 
 
-def test_a_failed_install_mentioning_litellm_fails_closed(with_uv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("with_uv")
+def test_a_failed_install_mentioning_litellm_fails_closed(monkeypatch, tmp_path):
     """A failed install is a build error — never a link to the build env's packages.
 
     An install that fails is a failed install whatever its output says. Matching

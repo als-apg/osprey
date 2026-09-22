@@ -1317,7 +1317,7 @@ class TestSidecarLaunchRouting:
     def test_every_sidecar_id_reaches_the_sidecar_launcher(self, monkeypatch):
         launched: list[str] = []
 
-        async def _record(app, panel_id):
+        async def _record(_app, panel_id):
             launched.append(panel_id)
 
         monkeypatch.setattr(web_terminal_app, "_launch_sidecar", _record)
@@ -1329,7 +1329,7 @@ class TestSidecarLaunchRouting:
     def test_a_disabled_sidecar_is_not_launched(self, monkeypatch):
         launched: list[str] = []
 
-        async def _record(app, panel_id):
+        async def _record(_app, panel_id):
             launched.append(panel_id)
 
         monkeypatch.setattr(web_terminal_app, "_launch_sidecar", _record)
@@ -1462,7 +1462,7 @@ class TestSidecarCredentialThroughTheProxy:
         seen: list[str | None] = []
 
         class _Handler(BaseHTTPRequestHandler):
-            def do_GET(self):  # noqa: N802 — BaseHTTPRequestHandler's own spelling
+            def do_GET(self):
                 seen.append(self.headers.get("authorization"))
                 self.send_response(200)
                 self.send_header("content-type", "application/json")

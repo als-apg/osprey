@@ -576,7 +576,8 @@ class TestDatabaseErrorConditions:
         error_str = str(exc_info.value).lower()
         assert "syntax" in error_str or "error" in error_str
 
-    async def test_repository_wraps_query_errors(self, repository, seed_entry_factory):
+    @pytest.mark.usefixtures("seed_entry_factory")
+    async def test_repository_wraps_query_errors(self, repository):
         """Repository methods wrap database errors in DatabaseQueryError."""
         from osprey.services.ariel_search.exceptions import DatabaseQueryError
 

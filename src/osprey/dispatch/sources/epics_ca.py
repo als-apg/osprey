@@ -86,7 +86,12 @@ class _PvWatcher:
         # "both"
         return (prev < self._threshold <= curr) or (prev > self._threshold >= curr)
 
-    def _on_change(self, pvname: str | None = None, value: Any = None, **kw: Any) -> None:
+    def _on_change(
+        self,
+        pvname: str | None = None,  # noqa: ARG002 - Channel Access monitor callbacks arrive by keyword; the threshold reads the value
+        value: Any = None,
+        **kw: Any,
+    ) -> None:
         """pyepics CA-thread callback. Schedules the fire coroutine on the loop."""
         if value is None:
             return
@@ -160,7 +165,7 @@ class EpicsCaSource:
     def __init__(self) -> None:
         self._watchers: list[_PvWatcher] = []
 
-    def register_routes(self, mcp_app: FastMCP) -> None:
+    def register_routes(self, mcp_app: FastMCP) -> None:  # noqa: ARG002 - trigger-source lifecycle signature; a source with no routes registers nothing
         """EPICS CA source has no HTTP routes."""
         return None
 

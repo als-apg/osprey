@@ -559,7 +559,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_stack_boots_and_binds_loopback(deployed_stack: DeployedStack) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_stack_boots_and_binds_loopback() -> None:
     for container in (BRIDGE_CONTAINER, BLUESKY_WEB_CONTAINER, VA_CONTAINER):
         ports = _docker_port(container)
         assert "127.0.0.1" in ports, f"{container}: expected a 127.0.0.1 bind, got: {ports!r}"
@@ -572,7 +573,8 @@ def test_stack_boots_and_binds_loopback(deployed_stack: DeployedStack) -> None:
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_panels_served_200(deployed_stack: DeployedStack) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_panels_served_200() -> None:
     """The panel bundle serves at its mount."""
     status, body = _get_html("/bluesky/")
     assert status == 200, f"GET /bluesky/ failed: {status}"
@@ -580,7 +582,8 @@ def test_panels_served_200(deployed_stack: DeployedStack) -> None:
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_sidecar_refuses_unauthenticated_requests(deployed_stack: DeployedStack) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_sidecar_refuses_unauthenticated_requests() -> None:
     """The deployed sidecar's gate refuses a request carrying no credential.
 
     Every other test here authenticates with the minted operator secret; this
@@ -748,7 +751,8 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
 # order pytest schedules it without affecting the plan tests above.
 
 
-def test_sidecar_runs_surface_is_read_only(deployed_stack: DeployedStack) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_sidecar_runs_surface_is_read_only() -> None:
     """Nothing under ``/runs`` is POSTable on the sidecar -- every write is a queue write.
 
     ``/runs`` used to carry the sidecar's one write (``POST /runs/launch``).

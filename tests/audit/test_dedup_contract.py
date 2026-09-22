@@ -137,7 +137,7 @@ def _context(tool: str) -> MiddlewareContext:
     )
 
 
-def _inner_refusal(audit_root, *, reason: str = "runtime_guard"):
+def _inner_refusal(*, reason: str = "runtime_guard"):
     """A ``call_next`` whose tool refuses internally yet answers successfully.
 
     The shape the invariant exists for: the runtime guard fires inside the
@@ -228,9 +228,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         contradicting a refusal that really happened.
         """
         monkeypatch.setenv(am.POSTURE_ENV, "readonly")
-        result = await am.AuditMiddleware().on_call_tool(
-            _context("execute"), _inner_refusal(project)
-        )
+        result = await am.AuditMiddleware().on_call_tool(_context("execute"), _inner_refusal())
 
         assert result == "execute-result"
         records = _all_records(project)
@@ -257,12 +255,12 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         monkeypatch.setenv(am.POSTURE_ENV, "readonly")
         alerts: list[str] = []
 
-        async def _alert(tool, kind, *, detail):
+        async def _alert(_tool, _kind, *, detail):
             alerts.append(detail)
 
         monkeypatch.setattr(gates, "notify_agent_activity_async", _alert)
 
-        async def call_next(context):
+        async def call_next(_context):
             # The runtime guard fires inside the subprocess: all that reaches
             # the tool is a marked line on stderr, and the tool still answers
             # with whatever the script produced before the refusal.
@@ -304,7 +302,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
 
         alerts: list[str] = []
 
-        async def _alert(tool, kind, *, detail):
+        async def _alert(_tool, _kind, *, detail):
             alerts.append(detail)
 
         monkeypatch.setattr(gates, "notify_agent_activity_async", _alert)
@@ -322,7 +320,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         assert alerts == ["BLOCKED a control-system write in readwrite mode (runtime_guard)"]
 
     async def test_the_middleware_records_the_call_when_no_inner_layer_did(self, project):
-        async def call_next(context):
+        async def call_next(_context):
             return "ran"
 
         await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
@@ -333,7 +331,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         ]
 
     async def test_a_tool_error_the_inner_layer_recorded_is_not_recorded_twice(self, project):
-        async def call_next(context):
+        async def call_next(_context):
             dedup.record_and_mark(
                 decision=DECISION_REFUSED,
                 reason=am.REASON_POSTURE,
@@ -353,7 +351,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         assert _records(project, SURFACE_EXECUTOR)[0]["reason"] == am.REASON_POSTURE
 
     async def test_a_tool_error_no_inner_layer_recorded_is_still_recorded(self, project):
-        async def call_next(context):
+        async def call_next(_context):
             raise ToolError("refused with no record")
 
         with pytest.raises(ToolError):
@@ -368,9 +366,9 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         monkeypatch.setenv(am.POSTURE_ENV, "readonly")
         mw = am.AuditMiddleware()
 
-        await mw.on_call_tool(_context("execute"), _inner_refusal(project))
+        await mw.on_call_tool(_context("execute"), _inner_refusal())
 
-        async def clean(context):
+        async def clean(_context):
             return "ran"
 
         await mw.on_call_tool(_context("execute"), clean)
@@ -382,7 +380,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
         """A marker set outside any call must not silence the next one."""
         dedup.mark_recorded(DECISION_REFUSED, "stale")
 
-        async def call_next(context):
+        async def call_next(_context):
             return "ran"
 
         await am.AuditMiddleware().on_call_tool(_context("execute"), call_next)
@@ -394,7 +392,7 @@ class TestTheMiddlewareDefersToTheInnerLayer:
     ):
         """A forked child inherits the context but is not the layer that decided."""
 
-        async def call_next(context):
+        async def call_next(_context):
             dedup.mark_recorded(DECISION_REFUSED, "runtime_guard")
             monkeypatch.setattr(dedup, "_current_pid", lambda: 424242)
             return "ran"
@@ -469,7 +467,8 @@ class TestThePostureClampRecordsAndMarks:
         assert _all_records(project) == []
         assert dedup.recorded_decision() is None
 
-    def test_an_unwritable_audit_zone_still_refuses_and_still_marks(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    def test_an_unwritable_audit_zone_still_refuses_and_still_marks(self, monkeypatch):
         """Recording never costs the refusal — and never costs the defer either."""
         monkeypatch.setenv(gates.POSTURE_ENV_VAR, gates.SANDBOX_POSTURE)
 
@@ -565,7 +564,7 @@ class TestTheDeferralIsTransitive:
         outer_mw = am.AuditMiddleware()
 
         async def through_the_inner_middleware(context):
-            return await inner_mw.on_call_tool(context, _inner_refusal(project))
+            return await inner_mw.on_call_tool(context, _inner_refusal())
 
         result = await outer_mw.on_call_tool(_context("execute"), through_the_inner_middleware)
 
@@ -580,7 +579,7 @@ class TestTheDeferralIsTransitive:
         inner_mw = am.AuditMiddleware()
         outer_mw = am.AuditMiddleware()
 
-        async def call_next(context):
+        async def call_next(_context):
             dedup.record_and_mark(
                 decision=DECISION_REFUSED,
                 reason=am.REASON_POSTURE,
@@ -606,7 +605,7 @@ class TestTheDeferralIsTransitive:
         inner_mw = am.AuditMiddleware()
         outer_mw = am.AuditMiddleware()
 
-        async def call_next(context):
+        async def call_next(_context):
             return "ran"
 
         async def through_the_inner_middleware(context):
@@ -648,7 +647,7 @@ class TestTheInnerRecorderMustBeOnTheAwaitingTask:
                 subject=PYTHON_EXECUTE,
             )
 
-        async def call_next(context):
+        async def call_next(_context):
             await asyncio.gather(asyncio.create_task(refuse_on_a_child_task()))
             return "ran"
 
@@ -676,7 +675,7 @@ class TestTheInnerRecorderMustBeOnTheAwaitingTask:
                 subject=PYTHON_EXECUTE,
             )
 
-        async def call_next(context):
+        async def call_next(_context):
             await refuse()
             return "ran"
 
@@ -712,7 +711,7 @@ class TestAnInnerRecordThatDidNotLand:
     async def test_a_tool_error_over_an_unstored_marker_is_recorded_by_the_middleware(
         self, project
     ):
-        async def call_next(context):
+        async def call_next(_context):
             dedup.mark_recorded(DECISION_REFUSED, "runtime_guard", stored=False)
             raise ToolError("refused, and the inner write never landed")
 
@@ -726,7 +725,7 @@ class TestAnInnerRecordThatDidNotLand:
     async def test_a_successful_call_over_an_unstored_marker_is_still_deferred(self, project):
         """Never ``allowed`` over a refusal, even when the refusal is unrecorded."""
 
-        async def call_next(context):
+        async def call_next(_context):
             dedup.mark_recorded(DECISION_REFUSED, "runtime_guard", stored=False)
             return "ran"
 
@@ -734,7 +733,8 @@ class TestAnInnerRecordThatDidNotLand:
 
         assert _all_records(project) == []
 
-    def test_a_failed_write_marks_the_decision_as_unstored(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    def test_a_failed_write_marks_the_decision_as_unstored(self, monkeypatch):
         def boom():
             raise OSError("no audit zone")
 
@@ -753,7 +753,8 @@ class TestAnInnerRecordThatDidNotLand:
         assert marked is not None
         assert marked.stored is False
 
-    def test_a_landed_write_marks_the_decision_as_stored(self, project):
+    @pytest.mark.usefixtures("project")
+    def test_a_landed_write_marks_the_decision_as_stored(self):
         dedup.record_and_mark(
             decision=DECISION_REFUSED,
             reason="runtime_guard",

@@ -235,7 +235,7 @@ class TestThePlatformsThatMustRunIt:
         assert on_pva_platform("linux", "X86_64") is True
 
     @pytest.mark.parametrize(
-        ("name", "sys_platform", "machine"),
+        ("_name", "sys_platform", "machine"),
         [
             ("linux-aarch64", "linux", "aarch64"),
             ("linux-armv7l", "linux", "armv7l"),
@@ -243,7 +243,7 @@ class TestThePlatformsThatMustRunIt:
         ],
     )
     def test_the_venue_is_not_required_elsewhere(
-        self, name: str, sys_platform: str, machine: str
+        self, _name: str, sys_platform: str, machine: str
     ) -> None:
         """No p4p wheel exists on any of these -- bare-metal arm64 linux would
         have to build p4p, pvxslibs and epicscorelibs from source -- so an
@@ -285,14 +285,14 @@ class TestTheGuardCanFail:
         return object()
 
     @pytest.mark.parametrize(
-        ("name", "sys_platform", "machine"),
+        ("_name", "sys_platform", "machine"),
         [
             ("linux-x86_64", "linux", "x86_64"),
             ("macos-arm64", "darwin", "arm64"),
         ],
     )
     def test_a_required_venue_that_is_missing_is_rejected(
-        self, name: str, sys_platform: str, machine: str
+        self, _name: str, sys_platform: str, machine: str
     ) -> None:
         with pytest.raises(AssertionError, match="SKIP"):
             check_venue(sys_platform=sys_platform, machine=machine, import_module=self._absent)
@@ -305,7 +305,7 @@ class TestTheGuardCanFail:
         """The failure mode a metadata-only check would miss: the distribution
         is present and its extension module will not load."""
 
-        def unloadable(name: str) -> Any:
+        def unloadable(_name: str) -> Any:
             raise ImportError("dlopen failed: libpvxs.so.1.3 not found")
 
         with pytest.raises(AssertionError, match="dlopen"):
@@ -339,11 +339,11 @@ class TestTheGuardCanFail:
         )
 
     @pytest.mark.parametrize(
-        ("name", "sys_platform", "machine"),
+        ("_name", "sys_platform", "machine"),
         [("linux-aarch64", "linux", "aarch64"), ("windows-x86_64", "win32", "AMD64")],
     )
     def test_a_missing_venue_is_tolerated_where_it_is_not_required(
-        self, name: str, sys_platform: str, machine: str
+        self, _name: str, sys_platform: str, machine: str
     ) -> None:
         """Bare-metal arm64 linux has no wheel; its skip must stay honest."""
         check_venue(sys_platform=sys_platform, machine=machine, import_module=self._absent)
@@ -352,7 +352,7 @@ class TestTheGuardCanFail:
         """The exact hole this module exists for: the suite's own
         ``importorskip`` firing on a platform that must run it."""
 
-        def skipping(name: str) -> Any:
+        def skipping(_name: str) -> Any:
             raise pytest.skip.Exception("could not import 'p4p'")
 
         with pytest.raises(AssertionError, match="silent hole"):
@@ -361,14 +361,14 @@ class TestTheGuardCanFail:
     def test_a_live_suite_that_cannot_import_is_rejected(self) -> None:
         """A collection error is as blind as a skip -- neither runs the wire."""
 
-        def broken(name: str) -> Any:
+        def broken(_name: str) -> Any:
             raise ImportError("cannot import name 'NTNDArray' from 'p4p.nt'")
 
         with pytest.raises(AssertionError, match="NTNDArray"):
             check_live_suite_runs(sys_platform="linux", machine="x86_64", import_module=broken)
 
     def test_a_skipped_live_suite_is_tolerated_where_it_is_not_required(self) -> None:
-        def skipping(name: str) -> Any:
+        def skipping(_name: str) -> Any:
             raise pytest.skip.Exception("could not import 'p4p'")
 
         check_live_suite_runs(sys_platform="linux", machine="aarch64", import_module=skipping)

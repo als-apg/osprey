@@ -102,7 +102,8 @@ class TestLedgerRouting:
         assert written == audit_root / "sidecar" / "http_config.jsonl"
         assert written.is_file()
 
-    def test_terminal_user_outranks_the_service_identity(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_terminal_user_outranks_the_service_identity(self, monkeypatch):
         """The writer's file ladder is the identity module's ladder, not a copy."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "shared-service")
         monkeypatch.setenv(TERMINAL_USER_ENV, "alice")
@@ -136,7 +137,8 @@ class TestLedgerRouting:
 
         assert sorted(p.name for p in audit_root.iterdir()) == ["alice", "bob"]
 
-    def test_the_identity_is_read_per_call(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_the_identity_is_read_per_call(self, monkeypatch):
         """Not cached at import: the markers are set per process, and a value
         frozen at import time would be whatever the first importer saw."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "before")
@@ -211,7 +213,8 @@ class TestSuppliedIdentity:
         assert len(path.parent.name.encode("utf-8")) <= 255
         assert audit_root in path.parents
 
-    def test_a_record_under_a_too_long_identity_still_lands(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_record_under_a_too_long_identity_still_lands(self, monkeypatch):
         """Behavioural half: the record is stored, under the shortened name."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "x" * 300)
 
@@ -221,7 +224,8 @@ class TestSuppliedIdentity:
         assert written.is_file()
         assert len(written.parent.name.encode("utf-8")) <= 255
 
-    def test_a_non_ascii_identity_is_shortened_by_bytes(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_non_ascii_identity_is_shortened_by_bytes(self, monkeypatch):
         """``NAME_MAX`` counts bytes, so the cut is on the encoded form and
         never leaves a partial character behind."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "é" * 200)
@@ -247,7 +251,8 @@ class TestSuppliedIdentity:
 class TestRecordShape:
     """The line is exactly the envelope's own JSON, one per line."""
 
-    def test_line_is_the_envelope_to_dict(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_line_is_the_envelope_to_dict(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         envelope = make_envelope(detail="channel=config", role="operator")
 
@@ -256,7 +261,8 @@ class TestRecordShape:
         (record,) = _records(written)
         assert record == envelope.to_dict()
 
-    def test_session_is_present_even_when_null(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_session_is_present_even_when_null(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         written = writer.record_envelope(make_envelope(session=None))
@@ -284,7 +290,8 @@ class TestRecordShape:
         assert [r.get("ts") for r in _records(path)][0] == "old"
         assert len(_records(path)) == 2
 
-    def test_every_line_ends_with_a_newline(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_every_line_ends_with_a_newline(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         written = writer.record_envelope(make_envelope())
@@ -295,7 +302,8 @@ class TestRecordShape:
 class TestKwargsEntryPoint:
     """``record(**fields)`` builds the envelope inside the never-raises boundary."""
 
-    def test_builds_and_writes(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_builds_and_writes(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         written = writer.record(
@@ -311,7 +319,8 @@ class TestKwargsEntryPoint:
         (record,) = _records(written)
         assert record["subject"] == "mcp__python__execute"
 
-    def test_actor_defaults_to_the_acting_identity(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_actor_defaults_to_the_acting_identity(self, monkeypatch):
         """No emitter re-implements the ladder: an omitted actor is resolved
         by the same helper that names the file."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "dispatch-worker-1")
@@ -329,7 +338,8 @@ class TestKwargsEntryPoint:
         (record,) = _records(written)
         assert record["actor"] == "dispatch-worker-1"
 
-    def test_an_explicit_actor_wins(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_an_explicit_actor_wins(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "sidecar")
 
         written = writer.record(
@@ -365,7 +375,8 @@ class TestKwargsEntryPoint:
         )
         assert not audit_root.exists()
 
-    def test_a_missing_required_field_degrades(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_missing_required_field_degrades(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         assert writer.record(surface="http_config") is None
@@ -402,7 +413,8 @@ class TestMaintenanceRouting:
 
         assert written == audit_root / "alice" / "maintenance.jsonl"
 
-    def test_the_record_still_names_the_real_surface(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_the_record_still_names_the_real_surface(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         monkeypatch.setenv(writer.AUDIT_WRITER_ENV, writer.WRITER_MAINTENANCE)
 
@@ -411,7 +423,8 @@ class TestMaintenanceRouting:
         (record,) = _records(written)
         assert record["surface"] == "scaffold_restore"
 
-    def test_the_marker_does_not_move_the_identity(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_the_marker_does_not_move_the_identity(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         monkeypatch.setenv(writer.AUDIT_WRITER_ENV, writer.WRITER_MAINTENANCE)
 
@@ -430,7 +443,8 @@ class TestMaintenanceRouting:
         assert len(_records(audit_root / "alice" / "maintenance.jsonl")) == 2
 
     @pytest.mark.parametrize("value", ["", "   "], ids=["empty", "blank"])
-    def test_an_unset_shaped_marker_routes_normally(self, audit_root, monkeypatch, value):
+    @pytest.mark.usefixtures("audit_root")
+    def test_an_unset_shaped_marker_routes_normally(self, monkeypatch, value):
         """A rendered-but-blank ``environment:`` entry is the unset case."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         monkeypatch.setenv(writer.AUDIT_WRITER_ENV, value)
@@ -464,7 +478,8 @@ class TestOneUidPerFile:
             reason="reserved_path",
         )
 
-    def test_root_phase_and_app_run_land_in_different_files(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_root_phase_and_app_run_land_in_different_files(self, monkeypatch):
         """Same container, same identity, same surface — split by the marker,
         which is exactly what makes each file single-uid."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "operator")
@@ -479,7 +494,8 @@ class TestOneUidPerFile:
         assert root_run.name == "maintenance.jsonl"
         assert app_run.name == "scaffold_restore.jsonl"
 
-    def test_different_process_identities_land_in_different_files(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_different_process_identities_land_in_different_files(self, monkeypatch):
         """The other topology: no marker, but the ladder resolves the root
         process and the app process to different names."""
         monkeypatch.setattr(writer, "acting_identity", lambda: "root")
@@ -500,7 +516,7 @@ class TestAppendMechanics:
         """The seam for a caller that owns the path raises rather than swallows:
         that caller owns the degrade, and a ``try`` added here would take it away."""
 
-        def exploding_open(path, flags, mode=0o777):
+        def exploding_open(_path, _flags, _mode=0o777):
             raise OSError("the audit zone is gone")
 
         monkeypatch.setattr(writer.os, "open", exploding_open)
@@ -512,7 +528,8 @@ class TestAppendMechanics:
         path = audit_root / "alice" / "x.jsonl"
         assert writer.append_envelope(path, make_envelope()) is False
 
-    def test_one_write_call_per_record(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_one_write_call_per_record(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         calls = []
         real_write = os.write
@@ -527,7 +544,8 @@ class TestAppendMechanics:
         assert len(calls) == 1
         assert calls[0].endswith(b"\n")
 
-    def test_the_descriptor_is_opened_append_only(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_the_descriptor_is_opened_append_only(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         seen = {}
         real_open = os.open
@@ -542,7 +560,8 @@ class TestAppendMechanics:
         assert seen["flags"] & os.O_APPEND
         assert seen["flags"] & os.O_CREAT
 
-    def test_no_fsync(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_no_fsync(self, monkeypatch):
         """A durable-by-construction zone does not buy an fsync per record."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
@@ -560,7 +579,8 @@ class TestAppendMechanics:
 
         assert (audit_root / "alice").is_dir()
 
-    def test_a_short_write_is_reported_rather_than_claimed(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_short_write_is_reported_rather_than_claimed(self, monkeypatch):
         """A torn line is not a stored record; the caller learns so."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         real_write = os.write
@@ -573,7 +593,8 @@ class TestAppendMechanics:
 
         assert writer.record_envelope(make_envelope()) is None
 
-    def test_a_torn_line_does_not_swallow_the_next_record(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_torn_line_does_not_swallow_the_next_record(self, monkeypatch):
         """One torn write costs one record, never the records after it.
 
         Without a terminator the next record is appended straight onto the
@@ -600,7 +621,8 @@ class TestAppendMechanics:
         assert len(lines) == 2
         assert json.loads(lines[-1])["subject"] == "intact"
 
-    def test_the_ledger_is_created_without_a_second_writer(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_the_ledger_is_created_without_a_second_writer(self, monkeypatch):
         """Group READ is the point of the mode; group write would let anyone
         in the shared audit group forge a record the ledger attributes to
         another uid."""
@@ -666,14 +688,16 @@ class TestAppendMechanics:
 class TestRecordBound:
     """≤2 KB per line, with one documented exception."""
 
-    def test_an_ordinary_record_is_well_inside_the_bound(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_an_ordinary_record_is_well_inside_the_bound(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         written = writer.record_envelope(make_envelope(detail="channel=config"))
 
         assert len(written.read_bytes()) <= writer.MAX_RECORD_BYTES
 
-    def test_an_oversize_detail_is_dropped_to_fit(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_an_oversize_detail_is_dropped_to_fit(self, monkeypatch):
         """``detail`` is supplementary by contract, so it is what gives way.
 
         It takes long identifiers *and* a full ``detail`` to reach the bound —
@@ -698,7 +722,8 @@ class TestRecordBound:
         assert len(written.read_bytes()) <= writer.MAX_RECORD_BYTES
         assert record["subject"] == "connectors.epics.writes_enabled"
 
-    def test_identifiers_are_never_sacrificed_to_the_bound(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_identifiers_are_never_sacrificed_to_the_bound(self, monkeypatch):
         """A record whose identifiers were trimmed would name the wrong thing;
         over-budget-but-true beats in-budget-but-wrong."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
@@ -719,7 +744,8 @@ class TestRecordBound:
         assert record["subject"] == long_name
         assert record["reason"] == long_name
 
-    def test_executor_source_is_written_whole(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_executor_source_is_written_whole(self, monkeypatch):
         """The documented exception: on the executor surface the refused code
         IS the artifact, so the record keeps it and stays a single write()."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
@@ -734,9 +760,8 @@ class TestRecordBound:
         assert record["source"] == code
         assert record["detail"] == "tool=execute"
 
-    def test_an_executor_record_drops_its_detail_before_its_atomicity(
-        self, audit_root, monkeypatch
-    ):
+    @pytest.mark.usefixtures("audit_root")
+    def test_an_executor_record_drops_its_detail_before_its_atomicity(self, monkeypatch):
         """The executor exception buys the SOURCE, not the detail. An executor
         record whose source is small fits once the supplementary field gives
         way, so it keeps the interleave-proof append the module promises."""
@@ -762,7 +787,8 @@ class TestRecordBound:
         assert record["detail"] == writer.DETAIL_DROPPED
         assert len(written.read_bytes()) <= writer.MAX_RECORD_BYTES
 
-    def test_a_truncated_source_still_says_so(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_truncated_source_still_says_so(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         written = writer.record_envelope(
@@ -773,7 +799,8 @@ class TestRecordBound:
         assert record["source_truncated"] is True
         assert len(record["source"]) == MAX_SOURCE_CHARS
 
-    def test_an_oversize_record_is_still_one_line(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_an_oversize_record_is_still_one_line(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         written = writer.record_envelope(
@@ -782,8 +809,9 @@ class TestRecordBound:
 
         assert len(written.read_text().splitlines()) == 1
 
+    @pytest.mark.usefixtures("audit_root")
     def test_an_identifier_only_record_over_budget_is_written_and_flagged(
-        self, audit_root, monkeypatch, caplog
+        self, monkeypatch, caplog
     ):
         """Reachable with every bounded field at its maximum (~2.2 KB). The
         record is stored whole and the log says the append was oversize, so an
@@ -834,7 +862,8 @@ class TestSurfaceRouting:
         (record,) = _records(written)
         assert record["surface"] == surface
 
-    def test_a_surface_too_long_for_a_file_name_is_shortened(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_surface_too_long_for_a_file_name_is_shortened(self, monkeypatch):
         """The envelope bounds a surface at 256 characters — one longer than a
         file name may be. Shortening the stem keeps the record; refusing the
         name would lose it, and the envelope still says which surface it was.
@@ -849,7 +878,8 @@ class TestSurfaceRouting:
         (record,) = _records(written)
         assert record["surface"] == surface
 
-    def test_a_non_ascii_surface_is_shortened_by_bytes(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_non_ascii_surface_is_shortened_by_bytes(self, monkeypatch):
         """``NAME_MAX`` counts BYTES. A 200-character surface is a 400-byte
         name: APFS takes it, ext4 and overlayfs — what the containers actually
         mount — raise ENAMETOOLONG, and the never-raises boundary would swallow
@@ -869,7 +899,8 @@ class TestSurfaceRouting:
 class TestNeverRaises:
     """Nothing the audit zone can do may reach the operation being recorded."""
 
-    def test_an_unwritable_zone_degrades_to_none(self, audit_root, monkeypatch, tmp_path):
+    @pytest.mark.usefixtures("audit_root")
+    def test_an_unwritable_zone_degrades_to_none(self, monkeypatch, tmp_path):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         blocker = tmp_path / "blocker"
         blocker.write_text("not a directory")
@@ -877,7 +908,8 @@ class TestNeverRaises:
 
         assert writer.record_envelope(make_envelope()) is None
 
-    def test_a_broken_audit_dir_resolver_degrades_to_none(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_broken_audit_dir_resolver_degrades_to_none(self, monkeypatch):
         def explode():
             raise RuntimeError("no project root here")
 
@@ -885,7 +917,8 @@ class TestNeverRaises:
 
         assert writer.record_envelope(make_envelope()) is None
 
-    def test_a_failing_open_degrades_to_none(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_failing_open_degrades_to_none(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         def explode(*args, **kwargs):
@@ -895,7 +928,8 @@ class TestNeverRaises:
 
         assert writer.record_envelope(make_envelope()) is None
 
-    def test_a_failing_write_degrades_to_none(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_failing_write_degrades_to_none(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         def explode(*args, **kwargs):
@@ -905,7 +939,8 @@ class TestNeverRaises:
 
         assert writer.record_envelope(make_envelope()) is None
 
-    def test_the_descriptor_is_closed_even_when_the_write_fails(self, audit_root, monkeypatch):
+    @pytest.mark.usefixtures("audit_root")
+    def test_the_descriptor_is_closed_even_when_the_write_fails(self, monkeypatch):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
         closed = []
         real_close = os.close
@@ -923,7 +958,8 @@ class TestNeverRaises:
 
         assert len(closed) == 1
 
-    def test_a_non_envelope_argument_degrades_to_none(self, audit_root):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_non_envelope_argument_degrades_to_none(self):
         assert writer.record_envelope("not an envelope") is None
 
 
@@ -931,7 +967,8 @@ class TestServerLogCarriesTheEvent:
     """Logged before the durable write, so a broken zone downgrades rather
     than erases the trail — the invariant ``refusal_audit`` established."""
 
-    def test_a_refusal_warns_even_when_the_write_fails(self, audit_root, monkeypatch, caplog):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_refusal_warns_even_when_the_write_fails(self, monkeypatch, caplog):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")
 
         def explode(*args, **kwargs):
@@ -943,7 +980,8 @@ class TestServerLogCarriesTheEvent:
 
         assert "connectors.epics.writes_enabled" in caplog.text
 
-    def test_an_allowed_record_does_not_warn(self, audit_root, monkeypatch, caplog):
+    @pytest.mark.usefixtures("audit_root")
+    def test_an_allowed_record_does_not_warn(self, monkeypatch, caplog):
         """The middleware records every admitted tool call; a warning apiece
         would drown the log the refusals need to stand out in."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "alice")

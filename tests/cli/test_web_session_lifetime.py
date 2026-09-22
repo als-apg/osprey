@@ -458,7 +458,7 @@ class TestStoreDirectoryPublication:
             def poll(self):
                 return None
 
-        def _fake_popen(cmd, **_kwargs):
+        def _fake_popen(cmd, **_kwargs):  # noqa: ARG001 - the command position subprocess.Popen is called at
             # Popen inherits os.environ, so the environment at spawn time IS
             # the child's environment.
             child_env.update(os.environ)

@@ -1357,7 +1357,8 @@ def _backend_unavailable():
     return BackendUnavailableError("no window manager", ["Install wmctrl."])
 
 
-async def test_setup_patch_emits_config_activity(setup_project):
+@pytest.mark.usefixtures("setup_project")
+async def test_setup_patch_emits_config_activity():
     """A landed patch reports the file and key path under the 'config' kind."""
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         result = await _get_setup_patch()(file="config.yml", key_path="ui.theme", value="dark")
@@ -1366,7 +1367,8 @@ async def test_setup_patch_emits_config_activity(setup_project):
     notify.assert_called_once_with("setup_patch", "config", detail="config.yml: ui.theme")
 
 
-async def test_setup_patch_emits_for_json_target(setup_project):
+@pytest.mark.usefixtures("setup_project")
+async def test_setup_patch_emits_for_json_target():
     """The `.mcp.json` branch reports too — it is the same mutation."""
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         await _get_setup_patch()(
@@ -1417,7 +1419,8 @@ async def test_setup_patch_marks_control_system_keys_as_safety_config():
     )
 
 
-async def test_setup_patch_safety_prefix_is_exact_case(setup_project):
+@pytest.mark.usefixtures("setup_project")
+async def test_setup_patch_safety_prefix_is_exact_case():
     """The prefix match is case-sensitive, like the hot/cold key lookups.
 
     Nothing normalises `key_path`, so both spellings are pinned: the canonical
@@ -1434,7 +1437,8 @@ async def test_setup_patch_safety_prefix_is_exact_case(setup_project):
     )
 
 
-async def test_setup_patch_unpatchable_file_no_emit(setup_project):
+@pytest.mark.usefixtures("setup_project")
+async def test_setup_patch_unpatchable_file_no_emit():
     """A file outside the whitelist was never opened — emit nothing."""
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="validation_error"):
@@ -1444,7 +1448,8 @@ async def test_setup_patch_unpatchable_file_no_emit(setup_project):
 
 
 @pytest.mark.parametrize("key_path", ["", "../../etc/passwd", "/abs/path", "has space"])
-async def test_setup_patch_invalid_key_path_no_emit(setup_project, key_path):
+@pytest.mark.usefixtures("setup_project")
+async def test_setup_patch_invalid_key_path_no_emit(key_path):
     """A rejected key path changed nothing — emit nothing."""
     with patch(f"{_SETUP_MOD}.notify_agent_activity_async") as notify:
         with assert_raises_error(error_type="validation_error"):

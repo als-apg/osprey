@@ -109,7 +109,8 @@ class TestSpoolFile:
 class TestRetention:
     """Old spools are pruned at entry, never failing the run."""
 
-    def test_prunes_to_the_newest_twenty(self, tmp_path, recorded_run):
+    @pytest.mark.usefixtures("recorded_run")
+    def test_prunes_to_the_newest_twenty(self, tmp_path):
         logs = tmp_path / "var" / "logs"
         logs.mkdir(parents=True)
         for index in range(22):
@@ -129,7 +130,7 @@ class TestRetention:
         assert any(name.startswith("new-") for name in names)
 
     def test_unreadable_spool_does_not_fail_the_run(self, tmp_path, monkeypatch):
-        def boom(self):
+        def boom(_self):
             raise OSError("nope")
 
         monkeypatch.setattr(Path, "unlink", boom)
@@ -245,9 +246,8 @@ class TestOnLine:
         assert excinfo.value.spool_path == _spools(tmp_path)[0]
         assert excinfo.value.spool_path.read_text() == "partial\n"
 
-    def test_verbose_mode_streams_raw_and_never_calls_back(
-        self, tmp_path, recorded_run, verbose_reporter
-    ):
+    @pytest.mark.usefixtures("verbose_reporter")
+    def test_verbose_mode_streams_raw_and_never_calls_back(self, tmp_path, recorded_run):
         """Verbose already puts the child's own lines on the terminal; step
         lines derived from the same stream would only duplicate them."""
         seen: list[str] = []
@@ -265,7 +265,8 @@ class TestOnLine:
 class TestVerbosePassThrough:
     """SC7: verbose runs the identical argv with inherited stdio."""
 
-    def test_same_argv_and_no_redirection_kwargs(self, tmp_path, recorded_run, verbose_reporter):
+    @pytest.mark.usefixtures("verbose_reporter")
+    def test_same_argv_and_no_redirection_kwargs(self, tmp_path, recorded_run):
         argv = ["docker", "build", "."]
 
         run_captured(argv, env={"A": "1"}, spool_name="build", repo_root=tmp_path)
@@ -276,7 +277,8 @@ class TestVerbosePassThrough:
         assert "stderr" not in kwargs
         assert kwargs["env"] == {"A": "1"}
 
-    def test_writes_no_spool_file(self, tmp_path, recorded_run, verbose_reporter):
+    @pytest.mark.usefixtures("recorded_run", "verbose_reporter")
+    def test_writes_no_spool_file(self, tmp_path):
         run_captured(["docker", "build", "."], spool_name="build", repo_root=tmp_path)
 
         assert not (tmp_path / "var" / "logs").exists()
@@ -291,9 +293,8 @@ class TestVerbosePassThrough:
         assert kwargs["stderr"] is subprocess.STDOUT
         assert Path(kwargs["stdout"].name) == _spools(tmp_path)[0]
 
-    def test_failure_still_raises_captured_error_without_a_spool(
-        self, tmp_path, monkeypatch, verbose_reporter
-    ):
+    @pytest.mark.usefixtures("verbose_reporter")
+    def test_failure_still_raises_captured_error_without_a_spool(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
             "osprey.deployment.subprocess_capture.subprocess.run",
             lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 7),
@@ -323,7 +324,8 @@ class TestSpoolPathOnTheResult:
         assert completed.spool_path == _spools(tmp_path)[0]
         assert completed.spool_path.read_text() == "hello\n"
 
-    def test_verbose_mode_result_carries_none(self, tmp_path, recorded_run, verbose_reporter):
+    @pytest.mark.usefixtures("recorded_run", "verbose_reporter")
+    def test_verbose_mode_result_carries_none(self, tmp_path):
         completed = run_captured(["docker", "build", "."], spool_name="build", repo_root=tmp_path)
 
         # Nothing was spooled — the output already went to the terminal.
@@ -355,7 +357,8 @@ class TestWorkingDirectory:
         spool = _spools(repo)[0]
         assert Path(spool.read_text().strip()).resolve() == elsewhere.resolve()
 
-    def test_verbose_mode_forwards_cwd(self, tmp_path, recorded_run, verbose_reporter):
+    @pytest.mark.usefixtures("verbose_reporter")
+    def test_verbose_mode_forwards_cwd(self, tmp_path, recorded_run):
         run_captured(
             ["bash", "scripts/verify.sh"],
             cwd=tmp_path,

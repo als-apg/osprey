@@ -263,7 +263,7 @@ def test_a_past_timestamp_is_kept_as_sent():
 # ---- The transcript id: recorded and persisted ----
 
 
-def test_a_diverged_transcript_is_recorded_and_persisted(shared_root):
+def test_a_diverged_transcript_is_recorded_and_persisted():
     """``session_id != pool_key`` moves the key's mapping, on disk as well."""
     client = _make_client()
     _post(client, session_id=TRANSCRIPT, pool_key=KEY, state="idle")
@@ -273,7 +273,7 @@ def test_a_diverged_transcript_is_recorded_and_persisted(shared_root):
     assert written == {KEY: TRANSCRIPT}
 
 
-def test_a_transcript_equal_to_the_key_clears_a_stale_mapping(shared_root):
+def test_a_transcript_equal_to_the_key_clears_a_stale_mapping():
     """Returning to the key's own transcript must not leave the old pointer.
 
     The map stores only real divergence, so an id equal to the key removes the
@@ -287,7 +287,7 @@ def test_a_transcript_equal_to_the_key_clears_a_stale_mapping(shared_root):
     assert json.loads(transcript_map.store_path().read_text(encoding="utf-8")) == {}
 
 
-def test_a_dropped_report_never_touches_the_map(shared_root):
+def test_a_dropped_report_never_touches_the_map():
     """The surface filter gates the map write too, not only the state write."""
     client = _make_client()
     _post(client, session_id=TRANSCRIPT, pool_key=KEY, surface="simple")
@@ -309,7 +309,7 @@ def test_reset_turn_state_marks_a_key_idle():
     assert isinstance(entry["ts"], float)
 
 
-def test_reset_turn_state_keeps_the_key_pointed_at_its_transcript(shared_root):
+def test_reset_turn_state_keeps_the_key_pointed_at_its_transcript():
     """The reset clears the turn, not the conversation the key is holding."""
     app = SimpleNamespace(state=SimpleNamespace())
     transcript_map.set(app, KEY, TRANSCRIPT)
@@ -336,8 +336,9 @@ def test_get_turn_state_is_none_when_nothing_was_reported():
 # ---- The credential the hook actually carries ----
 
 
+# ``shared_root`` pins the agent-data root the transcript map writes into.
 @pytest.fixture
-def panel_token_client(shared_root):
+def panel_token_client(shared_root):  # noqa: ARG001
     """The router behind the real auth middleware, with a known panel token.
 
     Every test using it carries ``no_auth_seam``: the suite-wide seam injects

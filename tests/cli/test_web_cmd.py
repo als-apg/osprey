@@ -146,7 +146,7 @@ class TestResolveWebShellCommand:
         mock_resolve.assert_called_once_with("harness")
 
     @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/harness")
-    def test_shell_flag_keeps_its_arguments(self, mock_resolve):
+    def test_shell_flag_keeps_its_arguments(self, _mock_resolve):
         cmd = _resolve_web_shell_command({}, "harness --profile ops", {})
 
         assert cmd == ["/abs/harness", "--profile", "ops"]
@@ -283,11 +283,11 @@ class TestDeploymentResolution:
     @patch("osprey.cli.web_cmd.get_config_value", return_value={})
     def test_repo_flag_resolves_a_deployment_from_elsewhere(
         self,
-        mock_config,
+        _mock_config,
         fake_subprocess,
-        mock_wait,
-        mock_preflight,
-        mock_resolve,
+        _mock_wait,
+        _mock_preflight,
+        _mock_resolve,
         tmp_path,
         runner,
         deployment,
@@ -311,11 +311,11 @@ class TestDeploymentResolution:
     @patch("osprey.cli.web_cmd.get_config_value", return_value={})
     def test_detach_child_argv_always_carries_the_repo(
         self,
-        mock_config,
+        _mock_config,
         fake_subprocess,
-        mock_wait,
-        mock_preflight,
-        mock_resolve,
+        _mock_wait,
+        _mock_preflight,
+        _mock_resolve,
         monkeypatch,
         runner,
         deployment,
@@ -345,11 +345,11 @@ class TestDeploymentResolution:
     @patch("osprey.cli.web_cmd.get_config_value", return_value={})
     def test_banner_names_the_repo_and_the_render(
         self,
-        mock_config,
+        _mock_config,
         fake_subprocess,
-        mock_wait,
-        mock_preflight,
-        mock_resolve,
+        _mock_wait,
+        _mock_preflight,
+        _mock_resolve,
         monkeypatch,
         runner,
         deployment,
@@ -439,11 +439,11 @@ class TestDeploymentResolution:
 @patch_subprocess("osprey.cli.web_cmd", popen=True)
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
 def test_detach_spawns_subprocess(
-    mock_config,
+    _mock_config,
     fake_subprocess,
-    mock_wait,
-    mock_preflight,
-    mock_resolve,
+    _mock_wait,
+    _mock_preflight,
+    _mock_resolve,
     monkeypatch,
     runner,
     deployment,
@@ -467,11 +467,11 @@ def test_detach_spawns_subprocess(
 @patch_subprocess("osprey.cli.web_cmd", popen=True)
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
 def test_detach_writes_pid_file_into_the_state_zone(
-    mock_config,
+    _mock_config,
     fake_subprocess,
-    mock_wait,
-    mock_preflight,
-    mock_resolve,
+    _mock_wait,
+    _mock_preflight,
+    _mock_resolve,
     monkeypatch,
     runner,
     deployment,
@@ -499,7 +499,7 @@ def test_detach_writes_pid_file_into_the_state_zone(
 @patch("osprey.cli.web_cmd._read_pid", return_value=99999)
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
 def test_detach_idempotent_when_running(
-    mock_config, mock_read_pid, mock_preflight, mock_resolve, monkeypatch, runner, deployment
+    _mock_config, _mock_read_pid, _mock_preflight, _mock_resolve, monkeypatch, runner, deployment
 ):
     monkeypatch.chdir(deployment)
     result = runner.invoke(web, ["--detach"])
@@ -514,11 +514,11 @@ def test_detach_idempotent_when_running(
 @patch_subprocess("osprey.cli.web_cmd", popen=True)
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
 def test_detach_cleans_stale_pid(
-    mock_config,
+    _mock_config,
     fake_subprocess,
-    mock_wait,
-    mock_preflight,
-    mock_resolve,
+    _mock_wait,
+    _mock_preflight,
+    _mock_resolve,
     monkeypatch,
     runner,
     deployment,
@@ -545,11 +545,11 @@ def test_detach_cleans_stale_pid(
 @patch_subprocess("osprey.cli.web_cmd", popen=True)
 @patch("osprey.cli.web_cmd.get_config_value", return_value={})
 def test_detach_shows_url_and_pid(
-    mock_config,
+    _mock_config,
     fake_subprocess,
-    mock_wait,
-    mock_preflight,
-    mock_resolve,
+    _mock_wait,
+    _mock_preflight,
+    _mock_resolve,
     monkeypatch,
     runner,
     deployment,
@@ -672,7 +672,7 @@ def _preflight_at(root: Path):
     once instead of at every Probe-1 call site, which cares about neither.
     """
     build = root / "build"
-    return _preflight({}, root, build, build / "config.yml", "127.0.0.1", WEB_PORT)
+    return _preflight(root, build, build / "config.yml")
 
 
 class TestPreflightCompanionPortCollision:
@@ -1246,7 +1246,7 @@ class TestDetachSkipsPreflightInChild:
     @patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
     @patch_subprocess("osprey.cli.web_cmd", popen=True)
     def test_child_argv_gets_skip_preflight(
-        self, fake_subprocess, mock_wait, tmp_path, monkeypatch
+        self, fake_subprocess, _mock_wait, tmp_path, monkeypatch
     ):
         mock_proc = MagicMock()
         mock_proc.pid = 4242
@@ -1364,9 +1364,8 @@ class TestRepoFlagIsAuthoritative:
         )
         return result, observed, repo, port
 
-    def test_repo_dotenv_is_loaded(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
-    ):
+    @pytest.mark.usefixtures("restore_env_and_cwd")
+    def test_repo_dotenv_is_loaded(self, tmp_path, lifecycle_repo, runner, monkeypatch):
         """The deployment's .env reaches os.environ before the server starts.
 
         This is the reported bug: without it, the render's ${VAR} placeholders
@@ -1381,8 +1380,9 @@ class TestRepoFlagIsAuthoritative:
         assert result.exit_code == 0
         assert observed["key"] == "sk-from-project-dotenv"
 
+    @pytest.mark.usefixtures("restore_env_and_cwd")
     def test_the_render_becomes_the_working_directory(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
+        self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """The agent CLI treats its cwd as the project root, and the render is it.
 
@@ -1395,8 +1395,9 @@ class TestRepoFlagIsAuthoritative:
 
         assert Path(observed["cwd"]).resolve() == (repo / "build").resolve()
 
+    @pytest.mark.usefixtures("restore_env_and_cwd")
     def test_render_web_terminal_port_is_honored(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
+        self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """web_terminal.port from the *resolved* render, not the layout default."""
         _result, observed, _repo, port = self._invoke_from_elsewhere(
@@ -1405,8 +1406,9 @@ class TestRepoFlagIsAuthoritative:
 
         assert observed["kwargs"]["port"] == port
 
+    @pytest.mark.usefixtures("restore_env_and_cwd")
     def test_osprey_config_points_at_the_render(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
+        self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """Child processes (PTY shells, MCP servers) resolve config via OSPREY_CONFIG."""
         _result, observed, repo, _port = self._invoke_from_elsewhere(
@@ -1416,8 +1418,9 @@ class TestRepoFlagIsAuthoritative:
         expected = (repo / "build" / "config.yml").resolve()
         assert Path(observed["osprey_config"]).resolve() == expected
 
+    @pytest.mark.usefixtures("restore_env_and_cwd")
     def test_explicit_flag_beats_stale_osprey_config_export(
-        self, tmp_path, lifecycle_repo, runner, monkeypatch, restore_env_and_cwd
+        self, tmp_path, lifecycle_repo, runner, monkeypatch
     ):
         """A stale OSPREY_CONFIG in the shell must not defeat an explicit --repo."""
         stale = tmp_path / "stale"
@@ -1598,11 +1601,11 @@ class TestOperatorLoginUrl:
     @patch("osprey.cli.web_cmd.get_config_value", return_value={})
     def test_detach_parent_announces_and_child_argv_is_tokenless(
         self,
-        mock_config,
+        _mock_config,
         fake_subprocess,
-        mock_wait,
-        mock_preflight,
-        mock_resolve,
+        _mock_wait,
+        _mock_preflight,
+        _mock_resolve,
         monkeypatch,
         runner,
         deployment,

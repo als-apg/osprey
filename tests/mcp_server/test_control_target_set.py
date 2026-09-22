@@ -302,7 +302,7 @@ def allow_every_target(monkeypatch):
     """
     from osprey.mcp_server.control_system.target_eligibility import TargetAvailability
 
-    def available(config, target, control_target, baseline_target, **kwargs):
+    def available(config, target, control_target, baseline_target, **kwargs):  # noqa: ARG001 - target_availability fixes this stand-in's signature
         return TargetAvailability(
             target=target,
             eligible=True,
@@ -577,8 +577,9 @@ class TestTheGateRefusals:
 
         assert ctx["envelope"]["details"]["reason"] == REASON_TARGET_UNREACHABLE
 
+    @pytest.mark.usefixtures("emitted")
     async def test_a_refusal_is_a_record_write_that_moves_nothing_else(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """The owner files its refusals in the record, target and generation intact.
 
@@ -639,8 +640,9 @@ class TestTheStandinIsGatedAsAThirdTarget:
         )
         assert [call["reason"] for call in emitted] == [REASON_LIMITS_POSTURE]
 
+    @pytest.mark.usefixtures("emitted")
     async def test_the_standin_is_never_asked_for_the_operator_acknowledgment(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """Strict limits and no acknowledgment: the gate lets the stand-in through.
 
@@ -686,8 +688,9 @@ class TestTheStandinIsGatedAsAThirdTarget:
         # The operator's line says where the deployment actually is.
         assert [call["from_target"] for call in emitted] == ["standin"]
 
+    @pytest.mark.usefixtures("emitted")
     async def test_going_live_from_a_standin_baseline_also_wants_the_limits_posture(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """Same direction, the earlier of the two away-gates, and target-worded."""
         raw = config_with_a_standin(
@@ -710,8 +713,9 @@ class TestTheStandinIsGatedAsAThirdTarget:
             in (envelope["error_message"])
         )
 
+    @pytest.mark.usefixtures("emitted")
     async def test_a_recorded_standin_archive_refuses_the_live_machine(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """The last gate, and the stand-in's alone to create.
 
@@ -752,8 +756,9 @@ class TestTheNoMintAnswer:
     did not happen.
     """
 
+    @pytest.mark.usefixtures("emitted")
     async def test_the_target_of_record_is_answered_where_it_stands(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
@@ -789,8 +794,9 @@ class TestTheNoMintAnswer:
         assert target_state.read_file(target_state.request_file_path()) is None
         assert emitted == []
 
+    @pytest.mark.usefixtures("emitted")
     async def test_a_follower_answers_it_without_asking_the_owner(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """The owner would answer it the same way, so there is nothing to ask.
 
@@ -841,8 +847,9 @@ class TestTheOwningServerAnswersItself:
             {"from_target": "live", "to_target": "va", "outcome": "success", "generation": 4}
         ]
 
+    @pytest.mark.usefixtures("emitted")
     async def test_the_tool_switches_no_connector_host_itself(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """The record's owner mints; the reconcile loop swaps. Neither is this call.
 
@@ -866,8 +873,9 @@ class TestTheOwningServerAnswersItself:
         assert payload["summary"]["generation"] == 1
         assert manager.active_generation() == 0, "the manager minted a generation of its own"
 
+    @pytest.mark.usefixtures("emitted")
     async def test_the_answer_waits_for_this_servers_own_report(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """The record moving is not yet this session's connector.
 
@@ -927,8 +935,9 @@ class TestTheOwningServerAnswersItself:
         record = control_context.read_record()
         assert (record.target, record.generation) == ("va", 1)
 
+    @pytest.mark.usefixtures("emitted")
     async def test_a_swap_that_never_lands_is_bounded_and_says_so(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """An ``applying`` block that never resolves must not hang the tool.
 
@@ -957,8 +966,9 @@ class TestTheOwningServerAnswersItself:
         assert envelope["details"]["reason"] == control_target.REASON_SWAP_INCOMPLETE
         assert "the swap did not complete" in envelope["error_message"]
 
+    @pytest.mark.usefixtures("emitted")
     async def test_a_server_with_no_child_lands_as_soon_as_it_has_adopted(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """A silent adoption publishes nothing, and is still a landing.
 
@@ -980,8 +990,9 @@ class TestTheOwningServerAnswersItself:
         assert payload["summary"]["generation"] == 1
         assert payload["access_details"]["connector_host_alive"] is False
 
+    @pytest.mark.usefixtures("emitted")
     async def test_an_unsettled_deployment_refuses_naming_the_pids(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """A second terminus mid-swap would overwrite the answer somebody wants.
 
@@ -1018,8 +1029,9 @@ class TestTheOwningServerAnswersItself:
 class TestAFollowerFilesARequest:
     """Another process owns the record, so this server asks and waits."""
 
+    @pytest.mark.usefixtures("emitted")
     async def test_the_request_body_is_the_five_fields_a_consumer_reads(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """Named for the requester, so it is swept with the session waiting on it."""
         manager = make_manager(raw=config_with_gateways())
@@ -1108,8 +1120,9 @@ class TestAFollowerFilesARequest:
         record = control_context.read_record()
         assert (record.target, record.generation) == ("live", 1)
 
+    @pytest.mark.usefixtures("emitted")
     async def test_the_local_gate_refuses_before_anything_is_filed(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """A read-only run is a claim about THIS run, and only this run can see it.
 
@@ -1131,8 +1144,9 @@ class TestAFollowerFilesARequest:
         # A follower writes nothing to the record, refusal included.
         assert control_context.read_record().last_switch is None
 
+    @pytest.mark.usefixtures("emitted")
     async def test_an_unsettled_deployment_withdraws_the_request(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """Filed, then found to be unanswerable: the request is taken back.
 
@@ -1194,8 +1208,9 @@ class TestAFollowerFilesARequest:
 
 
 class TestOneSwitchAtATime:
+    @pytest.mark.usefixtures("emitted")
     async def test_a_second_concurrent_call_waits_and_re_reads(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, record_root
     ):
         """Two calls, one switch, and the second answers about the world it finds.
 
@@ -1258,7 +1273,7 @@ class TestEveryDeclineIsVisible:
         ]
 
     async def test_a_deployment_with_no_record_is_refused_rather_than_guessed_at(
-        self, make_manager, monkeypatch, emitted, record_root
+        self, make_manager, monkeypatch, emitted
     ):
         """No record is no target of record, and nothing to switch from.
 
@@ -1319,7 +1334,8 @@ class TestInFlightMarkerContract:
         with py_executor._in_flight_marker("va"):
             pass  # no exception is the assertion
 
-    def test_a_failed_write_leaves_no_temp_file_behind(self, monkeypatch, state_root):
+    @pytest.mark.usefixtures("state_root")
+    def test_a_failed_write_leaves_no_temp_file_behind(self, monkeypatch):
         """The rename never happened, so the temp file is this writer's to clean up.
 
         Without this the state directory would collect one orphan per failed
@@ -1328,7 +1344,7 @@ class TestInFlightMarkerContract:
         directory = target_state.state_dir()
         directory.mkdir(parents=True, exist_ok=True)
 
-        def fail_to_rename(src, dst):
+        def fail_to_rename(_src, _dst):
             raise OSError("rename refused")
 
         monkeypatch.setattr(py_executor.os, "replace", fail_to_rename)
@@ -1338,7 +1354,8 @@ class TestInFlightMarkerContract:
 
         assert sorted(p.name for p in directory.iterdir()) == []
 
-    def test_an_unreadable_marker_is_neither_reported_nor_deleted(self, state_root):
+    @pytest.mark.usefixtures("state_root")
+    def test_an_unreadable_marker_is_neither_reported_nor_deleted(self):
         """It says nothing, and it is not this reader's file to remove."""
         directory = target_state.state_dir()
         directory.mkdir(parents=True, exist_ok=True)

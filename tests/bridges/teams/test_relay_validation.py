@@ -132,7 +132,7 @@ def _metadata_source(record, *, payload: bytes | None = None, error: Exception |
 def _jwks_source(record, *, payload: bytes | None = None, error: Exception | None = None):
     """A stand-in for ``urllib.request.urlopen``: PyJWT's JWKS GET."""
 
-    def _open(request, timeout=None, context=None):
+    def _open(request, timeout=None, context=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
         record.jwks.append((request.full_url, timeout))
         if error is not None:
             raise error
@@ -150,7 +150,7 @@ def network(monkeypatch):
         record.metadata.append((url, timeout))
         raise AssertionError(f"unexpected metadata fetch: {url}")
 
-    def _jwks_fetch(request, timeout=None, context=None):
+    def _jwks_fetch(request, timeout=None, context=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
         record.jwks.append((request.full_url, timeout))
         raise AssertionError(f"unexpected JWKS fetch: {request.full_url}")
 
@@ -193,7 +193,8 @@ def test_a_valid_token_yields_the_parsed_activity(served):
     ]
 
 
-def test_a_token_not_yet_valid_within_the_skew_allowance_is_accepted(served):
+@pytest.mark.usefixtures("served")
+def test_a_token_not_yet_valid_within_the_skew_allowance_is_accepted():
     """A relay clock a minute behind the issuer must not reject live traffic."""
     token = _token(nbf=int(time.time()) + 60)
 
@@ -203,21 +204,24 @@ def test_a_token_not_yet_valid_within_the_skew_allowance_is_accepted(served):
 # --- what a bad token looks like -------------------------------------------
 
 
-def test_a_token_for_another_bot_is_rejected(served):
+@pytest.mark.usefixtures("served")
+def test_a_token_for_another_bot_is_rejected():
     token = _token(aud="99999999-0000-0000-0000-000000000000")
 
     with pytest.raises(validation.ValidationError):
         validation.validate_activity(_body(), token, cloud="commercial", app_id=APP_ID)
 
 
-def test_a_token_from_another_issuer_is_rejected(served):
+@pytest.mark.usefixtures("served")
+def test_a_token_from_another_issuer_is_rejected():
     token = _token(iss="https://login.example.test")
 
     with pytest.raises(validation.ValidationError):
         validation.validate_activity(_body(), token, cloud="commercial", app_id=APP_ID)
 
 
-def test_a_token_that_expired_past_the_skew_allowance_is_rejected(served):
+@pytest.mark.usefixtures("served")
+def test_a_token_that_expired_past_the_skew_allowance_is_rejected():
     now = int(time.time())
     token = _token(iat=now - 400, nbf=now - 400, exp=now - 360)
 
@@ -225,14 +229,16 @@ def test_a_token_that_expired_past_the_skew_allowance_is_rejected(served):
         validation.validate_activity(_body(), token, cloud="commercial", app_id=APP_ID)
 
 
-def test_a_token_naming_a_different_serviceurl_than_the_activity_is_rejected(served):
+@pytest.mark.usefixtures("served")
+def test_a_token_naming_a_different_serviceurl_than_the_activity_is_rejected():
     token = _token(serviceurl="https://smba.trafficmanager.net/emea/")
 
     with pytest.raises(validation.ValidationError):
         validation.validate_activity(_body(), token, cloud="commercial", app_id=APP_ID)
 
 
-def test_a_token_signed_with_another_algorithm_is_rejected(served):
+@pytest.mark.usefixtures("served")
+def test_a_token_signed_with_another_algorithm_is_rejected():
     """The allow-list is pinned in code, never read from the token or metadata."""
     token = _token("a shared secret is not a signature", algorithm="HS256")
 
@@ -242,7 +248,8 @@ def test_a_token_signed_with_another_algorithm_is_rejected(served):
         validation.validate_activity(_body(), token, cloud="commercial", app_id=APP_ID)
 
 
-def test_a_bad_signature_under_a_known_kid_stays_a_validation_error(served):
+@pytest.mark.usefixtures("served")
+def test_a_bad_signature_under_a_known_kid_stays_a_validation_error():
     """The key source answered; the token simply is not what it claims to be."""
     token = _token(_IMPOSTOR_KEY)
 
@@ -316,10 +323,10 @@ def test_a_jwks_failure_is_reported_as_an_outage(monkeypatch, network, case):
         validation.validate_activity(_body(), _token(), cloud="commercial", app_id=APP_ID)
 
 
-def test_an_unexpected_key_source_failure_is_not_masked_as_an_outage(monkeypatch, network):
+def test_an_unexpected_key_source_failure_is_not_masked_as_an_outage(monkeypatch):
     """Stage B's boundary is the stated exception tuple, not a bare ``except``."""
 
-    def _explode(name, cloud):
+    def _explode(_name, _cloud):
         raise RuntimeError("a bug in the relay, not an outage")
 
     monkeypatch.setattr(validation, "_key_source", _explode)

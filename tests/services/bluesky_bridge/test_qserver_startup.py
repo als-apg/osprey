@@ -1334,7 +1334,7 @@ def test_a_document_callback_that_raises_degrades_instead_of_aborting_the_run(
 ) -> None:
     import bluesky.callbacks.zmq as zmq_module
 
-    def _explode(name: str, doc: dict[str, Any]) -> None:
+    def _explode(_name: str, _doc: dict[str, Any]) -> None:
         raise RuntimeError("proxy is gone")
 
     monkeypatch.setattr(zmq_module, "Publisher", lambda address, **_: _explode)
@@ -1358,7 +1358,7 @@ def test_a_publisher_that_cannot_be_built_never_fails_the_environment_open(
 ) -> None:
     import bluesky.callbacks.zmq as zmq_module
 
-    def _raise(address: str, **_: Any) -> Any:
+    def _raise(address: str, **_: Any) -> Any:  # noqa: ARG001 - the bluesky zmq Publisher signature
         raise RuntimeError("cannot bind")
 
     monkeypatch.setattr(zmq_module, "Publisher", _raise)

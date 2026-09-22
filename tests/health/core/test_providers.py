@@ -40,10 +40,10 @@ def _provider(result: tuple[bool, str] = (True, "ok"), sleep: float = 0.0) -> ty
     class _Fake:
         def check_health(
             self,
-            api_key: str | None,
-            base_url: str | None,
-            timeout: float = 5.0,
-            model_id: str | None = None,
+            _api_key: str | None,
+            _base_url: str | None,
+            _timeout: float = 5.0,
+            _model_id: str | None = None,
         ) -> tuple[bool, str]:
             if sleep:
                 time.sleep(sleep)
@@ -120,8 +120,8 @@ async def test_api_key_and_base_url_flow_from_config(monkeypatch: Any) -> None:
             self,
             api_key: str | None,
             base_url: str | None,
-            timeout: float = 5.0,
-            model_id: str | None = None,
+            _timeout: float = 5.0,
+            _model_id: str | None = None,
         ) -> tuple[bool, str]:
             captured.append({"api_key": api_key, "base_url": base_url})
             return (True, "ok")

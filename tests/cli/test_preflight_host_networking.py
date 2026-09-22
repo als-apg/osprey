@@ -52,9 +52,8 @@ def _setting(monkeypatch: pytest.MonkeyPatch, value: bool | None) -> None:
 
 
 class TestWhenItSpeaks:
-    def test_a_disabled_forwarder_is_reported_before_anything_is_built(
-        self, monkeypatch, warned, on_desktop
-    ):
+    @pytest.mark.usefixtures("on_desktop")
+    def test_a_disabled_forwarder_is_reported_before_anything_is_built(self, monkeypatch, warned):
         """The whole point: the operator hears this while it is still cheap."""
         _setting(monkeypatch, False)
 
@@ -66,9 +65,8 @@ class TestWhenItSpeaks:
         assert str(default_port("nginx")) in detail
         assert "Enable host networking" in remedy
 
-    def test_the_warning_says_the_rest_of_the_deployment_is_fine(
-        self, monkeypatch, warned, on_desktop
-    ):
+    @pytest.mark.usefixtures("on_desktop")
+    def test_the_warning_says_the_rest_of_the_deployment_is_fine(self, monkeypatch, warned):
         """Only the host-networked tier is affected. Everything else publishes
         its ports and works, and an operator deciding whether to stop and fix
         this now needs to know that."""
@@ -80,14 +78,16 @@ class TestWhenItSpeaks:
 
 
 class TestWhenItStaysQuiet:
-    def test_an_enabled_forwarder_says_nothing(self, monkeypatch, warned, on_desktop):
+    @pytest.mark.usefixtures("on_desktop")
+    def test_an_enabled_forwarder_says_nothing(self, monkeypatch, warned):
         _setting(monkeypatch, True)
 
         deploy_cmd._warn_if_host_networking_is_off(_WITH_WEB_TERMINALS)
 
         assert warned == []
 
-    def test_a_setting_that_cannot_be_read_says_nothing(self, monkeypatch, warned, on_desktop):
+    @pytest.mark.usefixtures("on_desktop")
+    def test_a_setting_that_cannot_be_read_says_nothing(self, monkeypatch, warned):
         """The discipline that keeps this warning worth reading. Guessing here
         would warn on every host this reader cannot interrogate, and the post-up
         probe still catches the real thing by testing the port."""
@@ -129,9 +129,8 @@ class TestWhenItStaysQuiet:
             pytest.param({"modules": None}, id="null-modules"),
         ],
     )
-    def test_a_deployment_without_web_terminals_says_nothing(
-        self, monkeypatch, warned, on_desktop, config
-    ):
+    @pytest.mark.usefixtures("on_desktop")
+    def test_a_deployment_without_web_terminals_says_nothing(self, monkeypatch, warned, config):
         """Nothing in such a deployment binds a host-networked port, so the
         setting cannot affect it."""
         _setting(monkeypatch, False)
@@ -142,7 +141,8 @@ class TestWhenItStaysQuiet:
 
 
 class TestItRefusesNothing:
-    def test_the_check_returns_rather_than_raising(self, monkeypatch, warned, on_desktop):
+    @pytest.mark.usefixtures("warned", "on_desktop")
+    def test_the_check_returns_rather_than_raising(self, monkeypatch):
         """An operator who wants the backend services has a working deploy even
         with the web terminals dark, so this is advisory like the probe it
         front-runs. Pinned because turning a warning into a refusal is a

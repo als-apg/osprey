@@ -158,9 +158,8 @@ def spools(repo: Path) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 
-def test_a_failed_captured_step_replays_its_spool_before_the_error(
-    monkeypatch, capfd, wide, stubs, errors_on_stdout, repo
-):
+@pytest.mark.usefixtures("wide", "stubs", "errors_on_stdout", "repo")
+def test_a_failed_captured_step_replays_its_spool_before_the_error(monkeypatch, capfd):
     """The order is the whole point.
 
     An error message that arrives before the output it is about leaves the
@@ -180,7 +179,8 @@ def test_a_failed_captured_step_replays_its_spool_before_the_error(
     assert out.index(POISON) < out.index("✗ Could not stop this deployment")
 
 
-def test_the_error_message_names_the_spool_it_replayed(monkeypatch, capfd, wide, stubs, repo):
+@pytest.mark.usefixtures("wide", "stubs")
+def test_the_error_message_names_the_spool_it_replayed(monkeypatch, capfd, repo):
     """The replay is for now; the path is for the operator who comes back later.
 
     Read off stderr, where the failure is rendered. This used to read the log
@@ -200,9 +200,8 @@ def test_the_error_message_names_the_spool_it_replayed(monkeypatch, capfd, wide,
     assert str(spool) in capfd.readouterr().err
 
 
-def test_a_failed_captured_step_replays_its_spool_only_once(
-    monkeypatch, capfd, wide, stubs, errors_on_stdout, repo
-):
+@pytest.mark.usefixtures("wide", "stubs", "errors_on_stdout", "repo")
+def test_a_failed_captured_step_replays_its_spool_only_once(monkeypatch, capfd):
     """The phase teardown replays. A handler that replayed too would print the
     whole log twice, which for a compose build is thousands of duplicated
     lines — and would read as two separate failures."""
@@ -216,9 +215,8 @@ def test_a_failed_captured_step_replays_its_spool_only_once(
     assert capfd.readouterr().out.count(POISON) == 1
 
 
-def test_a_start_that_fails_on_a_captured_child_replays_it_too(
-    monkeypatch, capfd, wide, stubs, errors_on_stdout, repo
-):
+@pytest.mark.usefixtures("wide", "stubs", "errors_on_stdout", "repo")
+def test_a_start_that_fails_on_a_captured_child_replays_it_too(monkeypatch, capfd):
     """Same property on the other verb, whose phase is opened separately."""
     from osprey.deployment import container_lifecycle
 
@@ -292,8 +290,9 @@ def alarm_sigint():
 
 
 @pytest.mark.skipif(not hasattr(signal, "SIGALRM"), reason="POSIX signal delivery")
+@pytest.mark.usefixtures("wide", "stubs")
 def test_an_interrupted_capture_names_its_partial_spool_and_does_not_replay_it(
-    monkeypatch, capfd, wide, stubs, alarm_sigint, repo
+    monkeypatch, capfd, alarm_sigint, repo
 ):
     """Ctrl-C is a decision, not a diagnosis.
 
@@ -342,7 +341,8 @@ def test_an_interrupted_capture_names_its_partial_spool_and_does_not_replay_it(
 # ---------------------------------------------------------------------------
 
 
-def test_a_dev_refusal_prints_one_failure_marker(monkeypatch, capfd, wide, stubs, repo):
+@pytest.mark.usefixtures("wide", "stubs", "repo")
+def test_a_dev_refusal_prints_one_failure_marker(monkeypatch, capfd):
     """The ✗ belongs to the phase that stopped, and there is one of those.
 
     The handler's job is the reason and the remedy; a second ✗ in front of them
@@ -373,7 +373,8 @@ def test_a_dev_refusal_prints_one_failure_marker(monkeypatch, capfd, wide, stubs
     assert "osprey build --dev" in err
 
 
-def test_an_unexpected_error_wears_its_own_marker(monkeypatch, capfd, wide, stubs, repo):
+@pytest.mark.usefixtures("wide", "stubs", "repo")
+def test_an_unexpected_error_wears_its_own_marker(monkeypatch, capfd):
     """A refusal continues the phase's mark; an unexpected error does not.
 
     The two cases differ in what the handler has to say. A refusal restates the

@@ -108,8 +108,12 @@ def _config(**overrides) -> dict:
 
 
 @pytest.mark.parametrize("execution_method", _SUBPROCESS_METHODS)
+@pytest.mark.usefixtures("captured_argv")
 def test_both_bluesky_tokens_mint_when_writes_enabled_and_subprocess_execution(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path, execution_method
+    _clean_token_env,
+    monkeypatch,
+    tmp_path,
+    execution_method,
 ):
     """The exact configuration the deleted guard withheld under. Both vars mint.
 
@@ -132,9 +136,8 @@ def test_both_bluesky_tokens_mint_when_writes_enabled_and_subprocess_execution(
     assert env["BLUESKY_TILED_API_KEY"] != env["BLUESKY_LAUNCH_TOKEN"]
 
 
-def test_both_bluesky_tokens_mint_under_read_only_posture(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_both_bluesky_tokens_mint_under_read_only_posture(_clean_token_env, monkeypatch, tmp_path):
     """``writes_enabled: False`` is a connector-level posture, not a mint input.
 
     The bridge still needs to authenticate its callers for read-only browsing
@@ -154,8 +157,11 @@ def test_both_bluesky_tokens_mint_under_read_only_posture(
     assert env.get("BLUESKY_TILED_API_KEY")
 
 
+@pytest.mark.usefixtures("captured_argv")
 def test_both_bluesky_tokens_mint_with_no_execution_or_control_system_block(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
+    _clean_token_env,
+    monkeypatch,
+    tmp_path,
 ):
     """A config carrying neither section mints the same set as one carrying both.
 
@@ -206,8 +212,12 @@ def test_minted_key_set_is_identical_across_every_posture(_clean_token_env, tmp_
     )
 
 
+@pytest.mark.usefixtures("captured_argv")
 def test_mint_logs_no_withholding_warning_under_any_posture(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path, caplog
+    _clean_token_env,
+    monkeypatch,
+    tmp_path,
+    caplog,
 ):
     """The operator-facing half must be silent too.
 
@@ -244,8 +254,11 @@ def test_mint_logs_no_withholding_warning_under_any_posture(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("captured_argv")
 def test_dispatch_tokens_mint_alongside_bluesky_under_writes_enabled_local(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
+    _clean_token_env,
+    monkeypatch,
+    tmp_path,
 ):
     """A multi-service deploy mints the full union of its services' declared vars."""
     config = _config(
@@ -264,8 +277,11 @@ def test_dispatch_tokens_mint_alongside_bluesky_under_writes_enabled_local(
     assert env.get("DISPATCH_WORKER_TOKEN")
 
 
+@pytest.mark.usefixtures("captured_argv")
 def test_a_new_services_token_mints_without_being_triaged_first(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
+    _clean_token_env,
+    monkeypatch,
+    tmp_path,
 ):
     """Declaring a var is sufficient — there is no allowlist to be added to.
 
@@ -295,9 +311,8 @@ def test_a_new_services_token_mints_without_being_triaged_first(
     assert env.get("BLUESKY_TILED_API_KEY")
 
 
-def test_undeployed_service_vars_are_still_not_minted(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_undeployed_service_vars_are_still_not_minted(_clean_token_env, monkeypatch, tmp_path):
     """ "Unconditional" is scoped to *deployed* services, not to the whole map.
 
     Without this, a mint path that ignored ``deployed_services`` entirely would
@@ -338,9 +353,8 @@ def test_bluesky_declared_vars_are_pinned():
 # ---------------------------------------------------------------------------
 
 
-def test_existing_env_value_is_never_overwritten(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_existing_env_value_is_never_overwritten(_clean_token_env, monkeypatch, tmp_path):
     """A user-set token is a deliberate override; the mint neither reads nor clobbers it."""
     (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=manually-set\n", encoding="utf-8")
     config = _config(
@@ -357,9 +371,8 @@ def test_existing_env_value_is_never_overwritten(
     assert env.get("BLUESKY_TILED_API_KEY")
 
 
-def test_an_explicitly_empty_dotenv_value_is_minted_over(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_an_explicitly_empty_dotenv_value_is_minted_over(_clean_token_env, monkeypatch, tmp_path):
     """``TOKEN=`` in ``.env`` is a blank, not a decision — the mint fills it.
 
     This replaces the opposite expectation. A minted service token has no
@@ -395,8 +408,11 @@ def test_an_explicitly_empty_dotenv_value_is_minted_over(
     assert os.environ["BLUESKY_LAUNCH_TOKEN"] == minted
 
 
+@pytest.mark.usefixtures("captured_argv")
 def test_an_exported_empty_value_is_left_alone_because_a_mint_cannot_reach_it(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
+    _clean_token_env,
+    monkeypatch,
+    tmp_path,
 ):
     """The bound on the exception above: an export the ``.env`` cannot outrank.
 

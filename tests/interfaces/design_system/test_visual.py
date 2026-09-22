@@ -271,7 +271,7 @@ def _artifacts_server(tmp_path: Path):
     return _run_app_server(create_app(workspace_root=tmp_path / "artifacts_ws"))
 
 
-def _ariel_server(tmp_path: Path):
+def _ariel_server(_tmp_path: Path):
     from osprey.interfaces.ariel.app import create_app
 
     # No config.yml passed: the app gracefully degrades to a DB-less mode
@@ -307,15 +307,15 @@ def _lattice_dashboard_server(tmp_path: Path):
     return _run_app_server(create_app(workspace_root=tmp_path / "lattice_ws"))
 
 
-def _dispatch_dashboard_server(tmp_path: Path):
+def _dispatch_dashboard_server(_tmp_path: Path):
     return _run_app_server(_create_dispatch_dashboard_app())
 
 
-def _multi_user_landing_server(tmp_path: Path):
+def _multi_user_landing_server(_tmp_path: Path):
     return _run_app_server(_create_multi_user_landing_app())
 
 
-def _okf_panel_server(tmp_path: Path):
+def _okf_panel_server(_tmp_path: Path):
     from osprey.interfaces.okf_panel.app import create_app
 
     # Reuse the okf_panel suite's on-disk fixture bundle so the baseline shows
@@ -337,7 +337,7 @@ def _okf_panel_server(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def _bluesky_web_server(tmp_path: Path):
+def _bluesky_web_server(_tmp_path: Path):
     from osprey.interfaces.bluesky_web.app import app as bluesky_web_app
 
     # Being a module-level singleton, this app's gate keeps whatever credential

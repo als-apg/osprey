@@ -111,7 +111,9 @@ def test_render_zone_readonly_marker_fails_open_when_preview_raises(
     """A failing dry-run preview must not stop the server coming up."""
     monkeypatch.setenv("OSPREY_RENDER_ZONE_READONLY", "1")
 
-    def boom(self, pd, dry_run=False, **kw):
+    # ``TemplateManager.regenerate_claude_code``'s signature, and a variadic tail: the body
+    # raises before it could read anything.
+    def boom(self, pd, dry_run=False, **kw):  # noqa: ARG001
         raise RuntimeError("preview exploded")
 
     monkeypatch.setattr(TemplateManager, "regenerate_claude_code", boom)
@@ -149,7 +151,8 @@ def test_marker_absent_regenerates_and_restores_as_before(project, startup_spies
     assert startup_spies["dry_run"] == []
 
 
-def test_marker_absent_state_flag_is_readable_via_getattr(project, startup_spies, monkeypatch):
+@pytest.mark.usefixtures("startup_spies")
+def test_marker_absent_state_flag_is_readable_via_getattr(project, monkeypatch):
     """Downstream routes read the flag defensively; it is always present."""
     monkeypatch.delenv("OSPREY_RENDER_ZONE_READONLY", raising=False)
 

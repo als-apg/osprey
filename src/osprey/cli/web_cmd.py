@@ -761,9 +761,7 @@ def _probe_config_validity(build_dir: Path, config_path: Path) -> list[str]:
     return failures
 
 
-def _preflight(
-    config: dict, repo_root: Path, build_dir: Path, config_path: Path, host: str, port: int
-) -> tuple[list[str], list[str]]:
+def _preflight(repo_root: Path, build_dir: Path, config_path: Path) -> tuple[list[str], list[str]]:
     """Run fast, synchronous, zero-network pre-flight probes before the server binds.
 
     Each probe appends its findings to one shared failures/warnings pair so
@@ -775,9 +773,8 @@ def _preflight(
 
     ``repo_root``/``build_dir``/``config_path`` are what ``_resolve_render()``
     settled on — every probe sees the SAME deployment the server will serve.
-    ``config``/``host``/``port`` are threaded through for probes that need
-    them; none currently do. Probe 1 (companion port collisions) reads its own
-    panel/port config directly; Probes 2-3 use the resolved paths.
+    Probe 1 (companion port collisions) reads its own panel/port config
+    directly; Probes 2-3 use the resolved paths.
     """
     failures: list[str] = []
     warnings: list[str] = []
@@ -1053,11 +1050,7 @@ def web(
         raise SystemExit(1) from e
 
     if not skip_preflight:
-        from osprey.utils.workspace import load_osprey_config
-
-        failures, warnings = _preflight(
-            load_osprey_config(), repo_root, build_dir, project_config, host, port
-        )
+        failures, warnings = _preflight(repo_root, build_dir, project_config)
         for warning in warnings:
             output.warn(warning)
         if failures:

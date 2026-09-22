@@ -195,7 +195,7 @@ async def test_retention_prunes_with_the_configured_window(tmp_path, monkeypatch
     """A successful save is followed by the per-channel retention sweep."""
     calls: list[tuple] = []
 
-    def fake_prune(self, address, keep):
+    def fake_prune(_self, address, keep):
         calls.append((address, keep))
         return []
 

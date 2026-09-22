@@ -171,17 +171,17 @@ class FakeOIDCClient:
             "userinfo": userinfo if userinfo is not None else {"sub": ALICE_SUBJECT},
         }
 
-    async def create_authorization_url(self, redirect_uri: str | None = None) -> dict[str, Any]:
+    async def create_authorization_url(self, _redirect_uri: str | None = None) -> dict[str, Any]:
         return {
             "url": f"https://idp.example.org/authorize?state={FLOW_STATE}",
             "state": FLOW_STATE,
             "nonce": "nonce-value",
         }
 
-    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:
+    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:  # noqa: ARG002 - the OIDC client signature
         return None
 
-    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:
+    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002 - the OIDC client signature
         return self.token
 
 
@@ -577,9 +577,8 @@ class TestTheEmitterNeverCostsTheDecision:
             assert _login(client).status_code == 303
         assert len(_records(zone)) == 1
 
-    def test_a_seam_that_raises_costs_nothing(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    @pytest.mark.usefixtures("zone")
+    def test_a_seam_that_raises_costs_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _explode(*args: Any, **kwargs: Any) -> None:
             raise OSError("the audit zone is gone")
 
@@ -680,8 +679,9 @@ class TestTheDegradeLadderIsMonotone:
             audit.REASON_BAD_CREDENTIAL
         )
 
+    @pytest.mark.usefixtures("zone")
     def test_a_torn_append_logs_the_record_too(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         """The quietest failure of the three: ``_append`` returns False, nothing
         raises, and the writer's own warning names the path rather than the
@@ -693,10 +693,11 @@ class TestTheDegradeLadderIsMonotone:
             record.getMessage() for record in caplog.records if "unfiled" in record.getMessage()
         ]
 
+    @pytest.mark.usefixtures("zone")
     def test_a_seam_that_raises_logs_the_record_too(
-        self, zone: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        def _explode(path: Path, line: bytes) -> bool:
+        def _explode(_path: Path, _line: bytes) -> bool:
             raise OSError("the audit zone is gone")
 
         monkeypatch.setattr(writer, "_append", _explode)
@@ -935,7 +936,8 @@ class TestThePreExchangeRefusalsAreBounded:
         assert len(_records(zone)) == 1
         assert _records(zone)[0]["reason"] == REASON_UNMAPPED_USER
 
-    def test_the_refusal_itself_is_unchanged(self, zone: Path) -> None:
+    @pytest.mark.usefixtures("zone")
+    def test_the_refusal_itself_is_unchanged(self) -> None:
         """Bounding the record must not bound the decision: the caller gets the
         same 403 and the same message however many times they ask."""
         app = _oidc_app(UNMAPPED_OIDC_ENV)
@@ -1030,7 +1032,8 @@ class TestTheLedgerWindowIsNotTheLoginThrottle:
     def test_an_unconfigured_app_builds_neither(self) -> None:
         assert create_app({}).state.audit_throttle is None
 
-    def test_unevaluated_refusals_never_touch_the_login_window(self, zone: Path) -> None:
+    @pytest.mark.usefixtures("zone")
+    def test_unevaluated_refusals_never_touch_the_login_window(self) -> None:
         """The reviewer's measurement, inverted: eight free GETs used to leave
         ``retry_after('bob') > 0`` on the window that decides logins."""
         app = _oidc_app(UNMAPPED_OIDC_ENV)
@@ -1134,7 +1137,8 @@ class TestAFoldedRefusalIsCountable:
             ("bob", f"{FOLDED_DETAIL_KEY}=3"),
         ]
 
-    def test_a_folded_refusal_still_costs_the_caller_the_same_answer(self, zone: Path) -> None:
+    @pytest.mark.usefixtures("zone")
+    def test_a_folded_refusal_still_costs_the_caller_the_same_answer(self) -> None:
         """Counting what was folded changes the ledger, never the response."""
         app = _oidc_app(UNMAPPED_OIDC_ENV)
         _with_movable_audit_window(app)
@@ -1165,7 +1169,8 @@ class TestATokenWithNoIdToken:
         assert response.status_code == 502
         assert _records(zone)[0]["subject"] == "alice"
 
-    def test_no_session_is_minted(self, zone: Path) -> None:
+    @pytest.mark.usefixtures("zone")
+    def test_no_session_is_minted(self) -> None:
         app = _oidc_app()
         app.state.oidc_client.token = {"userinfo": {"sub": ALICE_SUBJECT}}
         response = _callback(app)

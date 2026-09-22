@@ -311,7 +311,7 @@ class TranscriptReader:
                     if include_subagents:
                         self._collect_task_meta(task_meta, block, content, ts)
                     else:
-                        events.extend(self._make_task_events(block, content, is_err, ts))
+                        events.extend(self._make_task_events(block, content, ts))
 
             elif entry_type == "user":
                 message = entry.get("message", {})
@@ -333,7 +333,7 @@ class TranscriptReader:
                         if include_subagents:
                             self._collect_task_meta(task_meta, tu_block, content, ts)
                         else:
-                            events.extend(self._make_task_events(tu_block, content, is_err, ts))
+                            events.extend(self._make_task_events(tu_block, content, ts))
 
         # In-flight Tasks (tool_use seen but no result yet) still carry
         # subagent_type in their input, so include them in task_meta so the
@@ -890,7 +890,6 @@ class TranscriptReader:
         self,
         task_use_block: dict,
         content: str | list,
-        is_error: bool,
         timestamp: str,
     ) -> list[dict]:
         """Build agent_start and agent_stop events from a Task tool_use/result pair."""

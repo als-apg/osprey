@@ -193,7 +193,7 @@ def _element_bindings(binding: Binding) -> list[ElementBinding]:
 def _setpoint_variable(
     binding: Binding,
     deck_energy_gev: float,
-    channel: dict,
+    channel: dict,  # noqa: ARG001 - variable-factory signature; a factory binding variables to lattice elements derives the element and attribute from the channel
     **scalar_kwargs: Unpack[ScalarFields],
 ) -> PyATWritableScalarVariable:
     """Build one hardware setpoint: a strength, a kick or the rf frequency.
@@ -224,7 +224,7 @@ def _setpoint_variable(
 
 def _monitor_variable(
     binding: Binding,
-    channel: dict,
+    channel: dict,  # noqa: ARG001 - variable-factory signature; a factory binding variables to lattice elements derives the element and attribute from the channel
     **scalar_kwargs: Unpack[ScalarFields],
 ) -> MonitorVariable:
     """Build one orbit reading, on the axis and monitor the binding names.
@@ -245,7 +245,7 @@ def _monitor_variable(
 def _energy_variable(
     binding: Binding,
     deck_energy_gev: float,
-    channel: dict,
+    channel: dict,  # noqa: ARG001 - variable-factory signature; a factory binding variables to lattice elements derives the element and attribute from the channel
     **scalar_kwargs: Unpack[ScalarFields],
 ) -> EnergyVariable:
     """Build the ring's energy knob from the bend's own energy table.

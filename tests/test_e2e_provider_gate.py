@@ -133,7 +133,7 @@ class _StubConfig:
     def getoption(self, name: str, default: object = None) -> object:
         return self._collect_only if name == "collectonly" else default
 
-    def addinivalue_line(self, name: str, line: str) -> None:
+    def addinivalue_line(self, _name: str, line: str) -> None:
         self.markers.append(line)
 
 

@@ -85,8 +85,9 @@ def shared_root(tmp_path, monkeypatch):
         posture_store.invalidate_cache()
 
 
+# ``shared_root`` rebinds the agent-data resolver the app under test reads.
 @pytest.fixture
-def client(workspace_dir, shared_root):
+def client(workspace_dir, shared_root):  # noqa: ARG001
     @contextmanager
     def _make():
         with patch(

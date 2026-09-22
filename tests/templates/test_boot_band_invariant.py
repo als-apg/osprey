@@ -260,7 +260,8 @@ class TestAnEmittedTreeBootsInsideItsBands:
         ]
         assert not violations, "boot-band invariant violated:\n" + "\n".join(violations)
 
-    def test_a_nominal_outside_the_exported_range_widened_its_band(self, emitted, emitted_join):
+    @pytest.mark.usefixtures("emitted_join")
+    def test_a_nominal_outside_the_exported_range_widened_its_band(self, emitted):
         """The reason the widening rule exists: where an export states an
         operating ``Range`` its own device nominal sits outside, the band gives
         way to the nominal rather than the tree refusing to boot. Each such

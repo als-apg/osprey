@@ -467,9 +467,7 @@ def test_framework_pattern_no_false_positive_dict(tmp_path, hook_runner, make_co
     assert _is_allow(result)  # No approval needed
 
 
-def test_framework_pattern_detection_import_fallback(
-    tmp_path, hook_runner, make_config, monkeypatch
-):
+def test_framework_pattern_detection_import_fallback(tmp_path, hook_runner, make_config):
     """When osprey is not importable, fallback patterns still catch basic writes."""
     config = make_config(
         {

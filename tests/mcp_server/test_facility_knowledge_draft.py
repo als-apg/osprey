@@ -206,7 +206,8 @@ class TestDraftConceptWrite:
         assert doc.frontmatter["title"] == "Correct Title"
 
     @pytest.mark.asyncio
-    async def test_result_contains_absolute_path(self, fixture_bundle: Path):
+    @pytest.mark.usefixtures("fixture_bundle")
+    async def test_result_contains_absolute_path(self):
         from osprey.mcp_server.facility_knowledge.server import draft_concept
 
         result = json.loads(
@@ -254,7 +255,7 @@ class TestConcurrentDraftCollision:
     """A second concurrent draft for the same concept ID returns an error."""
 
     @pytest.mark.asyncio
-    async def test_concurrent_draft_same_id_raises_conflict(self, monkeypatch):
+    async def test_concurrent_draft_same_id_raises_conflict(self):
         import osprey.mcp_server.facility_knowledge.server as srv
         from osprey.mcp_server.facility_knowledge.server import draft_concept
 
@@ -273,7 +274,8 @@ class TestConcurrentDraftCollision:
         assert "accelerator_overview" in ctx["envelope"]["error_message"]
 
     @pytest.mark.asyncio
-    async def test_different_concept_ids_do_not_conflict(self, fixture_bundle: Path):
+    @pytest.mark.usefixtures("fixture_bundle")
+    async def test_different_concept_ids_do_not_conflict(self):
         """Two concurrent drafts for DIFFERENT IDs must both succeed."""
         import osprey.mcp_server.facility_knowledge.server as srv
         from osprey.mcp_server.facility_knowledge.server import draft_concept
@@ -295,7 +297,8 @@ class TestConcurrentDraftCollision:
         assert result["status"] == "written"
 
     @pytest.mark.asyncio
-    async def test_in_flight_set_cleared_after_success(self, fixture_bundle: Path):
+    @pytest.mark.usefixtures("fixture_bundle")
+    async def test_in_flight_set_cleared_after_success(self):
         """The in-flight lock is released after a successful write."""
         import osprey.mcp_server.facility_knowledge.server as srv
         from osprey.mcp_server.facility_knowledge.server import draft_concept
@@ -311,7 +314,7 @@ class TestConcurrentDraftCollision:
         assert "my_concept" not in srv._drafts_in_flight
 
     @pytest.mark.asyncio
-    async def test_in_flight_set_cleared_after_error(self, fixture_bundle: Path, monkeypatch):
+    async def test_in_flight_set_cleared_after_error(self, fixture_bundle: Path):
         """The in-flight lock is released even when the tool raises an error."""
         # Force an error mid-write by making the bundle root read-only.
         import os
@@ -389,7 +392,8 @@ class TestDraftConceptValidation:
         assert not (fixture_bundle / "bad_doc.md").exists()
 
     @pytest.mark.asyncio
-    async def test_invalid_extra_frontmatter_json_rejected(self, fixture_bundle: Path):
+    @pytest.mark.usefixtures("fixture_bundle")
+    async def test_invalid_extra_frontmatter_json_rejected(self):
         from osprey.mcp_server.facility_knowledge.server import draft_concept
 
         with assert_raises_error(error_type="validation_error"):
@@ -403,7 +407,8 @@ class TestDraftConceptValidation:
             )
 
     @pytest.mark.asyncio
-    async def test_extra_frontmatter_array_rejected(self, fixture_bundle: Path):
+    @pytest.mark.usefixtures("fixture_bundle")
+    async def test_extra_frontmatter_array_rejected(self):
         from osprey.mcp_server.facility_knowledge.server import draft_concept
 
         with assert_raises_error(error_type="validation_error"):

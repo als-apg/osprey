@@ -795,7 +795,8 @@ def _run_host_ca_op(
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_p1_co_deploy_health_binding_and_ordering(deployed_stack: DeployedStack) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_p1_co_deploy_health_binding_and_ordering() -> None:
     status, body = _get("/health")
     assert status == 200 and body.get("status") == "ok", f"bridge /health: {status} {body}"
 
@@ -844,7 +845,8 @@ def test_p1_co_deploy_health_binding_and_ordering(deployed_stack: DeployedStack)
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_p2_full_manifest_liveness(deployed_stack: DeployedStack) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_p2_full_manifest_liveness() -> None:
     # Runs scripts/va/sweep_check.py as its OWN subprocess/CA client, exactly
     # as it's meant to be invoked against a host-published container (see its
     # module docstring) — never in-process here: this process also acts as an
@@ -1132,8 +1134,9 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("deployed_stack")
 def test_p6_model_rpc_refuses_untokened_write_then_takes_the_other(
-    deployed_stack: DeployedStack, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The model surface, reached the way an operator's client reaches it.
 

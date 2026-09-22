@@ -763,7 +763,7 @@ class TestSemanticProcessorConfigureModelResolution:
     def test_configure_without_provider_raises_before_resolution(self, monkeypatch):
         """No provider is an error, not a silent fall-through to a default."""
 
-        def boom(provider, model_id):
+        def boom(_provider, _model_id):
             raise AssertionError("resolve_model_id must not run without a provider")
 
         monkeypatch.setattr("osprey.models.tiers.resolve_model_id", boom)
@@ -775,7 +775,7 @@ class TestSemanticProcessorConfigureModelResolution:
     def test_configure_with_provider_but_no_model_id_skips_resolution(self, monkeypatch):
         """A provider alone is not enough — resolution needs a model_id too."""
 
-        def boom(provider, model_id):
+        def boom(_provider, _model_id):
             raise AssertionError("resolve_model_id must not run without a model_id")
 
         monkeypatch.setattr("osprey.models.tiers.resolve_model_id", boom)
@@ -823,7 +823,7 @@ class TestSemanticProcessorProcessText:
         """Entry text is clipped to 8000 characters before prompting."""
         calls = []
 
-        def fake_completion(message, model_config=None):
+        def fake_completion(message, model_config=None):  # noqa: ARG001 - the get_chat_completion signature
             calls.append(message)
             return '{"keywords": [], "summary": "s"}'
 
@@ -860,7 +860,7 @@ class TestSemanticProcessorProcessText:
         """An unconfigured module sends model_config=None, not an empty dict."""
         calls = []
 
-        def fake_completion(message, model_config=None):
+        def fake_completion(message, model_config=None):  # noqa: ARG001 - the get_chat_completion signature
             calls.append(model_config)
             return '{"keywords": [], "summary": "s"}'
 
@@ -888,7 +888,7 @@ class TestSemanticProcessorProcessText:
     async def test_process_text_llm_failure_returns_none(self, module, monkeypatch, caplog):
         """An LLM exception is logged and reported as no result."""
 
-        def boom(message, model_config=None):
+        def boom(message, model_config=None):  # noqa: ARG001 - the get_chat_completion signature
             raise RuntimeError("model server down")
 
         monkeypatch.setattr("osprey.models.completion.get_chat_completion", boom)
@@ -1017,7 +1017,7 @@ class TestSemanticProcessorHealthCheckBranches:
         """A truthy completion reports healthy."""
         calls = []
 
-        def fake_completion(message, model_config=None):
+        def fake_completion(message, model_config=None):  # noqa: ARG001 - the get_chat_completion signature
             calls.append(message)
             return "OK"
 
@@ -1056,7 +1056,7 @@ class TestSemanticProcessorHealthCheckBranches:
     async def test_health_check_unhealthy_on_llm_error(self, monkeypatch):
         """An LLM exception surfaces as the unhealthy message."""
 
-        def boom(message, model_config=None):
+        def boom(message, model_config=None):  # noqa: ARG001 - the get_chat_completion signature
             raise RuntimeError("no route to host")
 
         monkeypatch.setattr("osprey.models.completion.get_chat_completion", boom)
@@ -1310,7 +1310,7 @@ class TestTextEmbeddingHealthCheckBranches:
     async def test_health_check_unhealthy_when_provider_lookup_fails(self, monkeypatch):
         """A provider that cannot be loaded reports unhealthy rather than raising."""
 
-        def boom(name):
+        def boom(_name):
             raise ValueError("unknown embedding provider 'fake'")
 
         monkeypatch.setattr("osprey.models.embeddings.get_embedding_provider", boom)
@@ -1449,7 +1449,7 @@ class TestQmdExportModule:
         """A marker that cannot be written is logged; the mirrored file still stands."""
         module = self._module(tmp_path)
 
-        def boom(path, text):
+        def boom(_path, _text):
             raise OSError("read-only file system")
 
         target = "osprey.services.ariel_search.enhancement.qmd_export.exporter._atomic_write_text"

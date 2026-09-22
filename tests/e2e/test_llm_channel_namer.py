@@ -148,7 +148,7 @@ def get_first_available_provider():
 
 
 @pytest.fixture(autouse=True)
-def setup_llm_test_environment(test_config, tmp_path):
+def setup_llm_test_environment(test_config):
     """Set up test environment with provider configurations.
 
     Follows the pattern from test_llm_providers.py.

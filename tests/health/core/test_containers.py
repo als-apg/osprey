@@ -74,7 +74,7 @@ def _patch(
 def _echo_probe(captured: list[dict] | None = None):
     """A fake container probe that echoes its spec into an ``ok`` result."""
 
-    async def probe(spec, ctx):  # noqa: ANN001, ANN202 - test double
+    async def probe(spec, _ctx):  # noqa: ANN001, ANN202 - test double
         if captured is not None:
             captured.append(dict(spec))
         return CheckResult(
@@ -88,7 +88,7 @@ def _echo_probe(captured: list[dict] | None = None):
     return probe
 
 
-async def _boom_probe(spec, ctx):  # noqa: ANN001, ANN202 - test double
+async def _boom_probe(_spec, _ctx):  # noqa: ANN001, ANN202 - test double
     raise AssertionError("container probe should not be called")
 
 

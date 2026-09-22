@@ -134,7 +134,7 @@ def test_syntax_error_stays_quiet(roots):
     assert path_policy_issues("open('build/x', 'w'", **roots) == []
 
 
-def test_no_protected_roots_means_no_issues(tmp_path):
+def test_no_protected_roots_means_no_issues():
     assert path_policy_issues("open('build/config.yml', 'w')", protected_roots=[]) == []
 
 

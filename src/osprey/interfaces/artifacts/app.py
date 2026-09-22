@@ -670,7 +670,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         broadcaster.broadcast({"type": "artifact_deleted", "id": entry.id})
 
     @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         register_artifact_listener(_on_artifact_saved)
         register_artifact_delete_listener(_on_artifact_deleted)
         index_watcher.start()
@@ -929,7 +929,10 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         return {"status": "ok", "artifact_id": req.artifact_id}
 
     @app.get("/files/{artifact_id}/{filename}")
-    async def serve_file(artifact_id: str, filename: str):
+    async def serve_file(
+        artifact_id: str,
+        filename: str,  # noqa: ARG001 - route path parameter; the download name comes from the artifact entry
+    ):
         entry = store.get_entry(artifact_id)
         if not entry:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")

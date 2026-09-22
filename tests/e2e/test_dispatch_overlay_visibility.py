@@ -686,7 +686,8 @@ def _diagnostics(dispatch_id: str, run: dict, record: dict, artifact_body: str) 
 
 
 @pytest.mark.flaky(reruns=2)
-def test_overlay_skill_and_data_visible_in_worker(deployed_stack: Path) -> None:
+@pytest.mark.usefixtures("deployed_stack")
+def test_overlay_skill_and_data_visible_in_worker() -> None:
     """A dispatched agent can invoke an overlay skill and read a rendered data file.
 
     Proves the unified worker image carries the facility ``.claude`` overlays and

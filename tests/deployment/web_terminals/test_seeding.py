@@ -94,7 +94,14 @@ def fake_runtime(monkeypatch):
     # ``subprocess.run`` is by then this very fake.
     real_run = subprocess.run
 
-    def _fake_run(argv, capture_output=True, text=False, env=None, check=False, input=None):
+    def _fake_run(
+        argv,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=False,  # noqa: ARG001 - subprocess.run's keywords
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,
+        input=None,
+    ):
         calls.append(list(argv))
         inputs.append(input)
         if argv[1] == "inspect":

@@ -180,7 +180,7 @@ def fake_runtime(monkeypatch):
     calls: list[list[str]] = []
     listing: dict[str, list[str]] = {"containers": [], "volumes": []}
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False):
+    def _fake_run(argv, capture_output=True, text=True, env=None, check=False):  # noqa: ARG001 - the keywords subprocess.run is called with
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             stdout = "\n".join(listing["containers"])
@@ -384,7 +384,8 @@ class TestEngineWiring:
         assert user == "alice"
         assert kwargs == {"archive": True, "purge": False, "assume_yes": False}
 
-    def test_remove_forwards_yes_to_the_typed_gate(self, cli_runner, repo_root):
+    @pytest.mark.usefixtures("repo_root")
+    def test_remove_forwards_yes_to_the_typed_gate(self, cli_runner):
         patcher, mocks = _fake_web_terminals()
         with patcher:
             result = cli_runner.invoke(users, ["remove", "alice", "--purge", "--yes"])
@@ -403,7 +404,8 @@ class TestEngineWiring:
         assert Path(config_path) == repo_root / "build" / "config.yml"
         assert kwargs == {"dry_run": True, "archive": False, "purge": True, "assume_yes": True}
 
-    def test_prune_defaults_leave_the_gate_armed(self, cli_runner, repo_root):
+    @pytest.mark.usefixtures("repo_root")
+    def test_prune_defaults_leave_the_gate_armed(self, cli_runner):
         patcher, mocks = _fake_web_terminals()
         with patcher:
             result = cli_runner.invoke(users, ["prune"])
@@ -442,14 +444,16 @@ class TestPasswd:
         assert Path(config_path) == repo_root / "build" / "config.yml"
         assert (user, password) == ("alice", "s3cret")
 
-    def test_the_password_is_never_echoed(self, cli_runner, repo_root):
+    @pytest.mark.usefixtures("repo_root")
+    def test_the_password_is_never_echoed(self, cli_runner):
         patcher, _mocks = _fake_web_terminals()
         with patcher:
             result = cli_runner.invoke(users, ["passwd", "alice"], input="s3cret\ns3cret\n")
 
         assert "s3cret" not in result.output
 
-    def test_a_mistyped_confirmation_rotates_nothing(self, cli_runner, repo_root):
+    @pytest.mark.usefixtures("repo_root")
+    def test_a_mistyped_confirmation_rotates_nothing(self, cli_runner):
         patcher, mocks = _fake_web_terminals()
         with patcher:
             result = cli_runner.invoke(users, ["passwd", "alice"], input="s3cret\ntypo\n")
@@ -467,9 +471,8 @@ class TestTypedGates:
     true no-op.
     """
 
-    def test_remove_purge_demands_the_username_typed_out(
-        self, cli_runner, tmp_path, monkeypatch, fake_runtime
-    ):
+    @pytest.mark.usefixtures("fake_runtime")
+    def test_remove_purge_demands_the_username_typed_out(self, cli_runner, tmp_path, monkeypatch):
         repo_root = _make_repo(tmp_path, _config([{"name": "alice", "index": 0}]))
         monkeypatch.chdir(repo_root)
         prompts: list[str] = []
@@ -873,9 +876,8 @@ class TestProfileRosterWrite:
 
         assert "explicit 'index:' values" not in _flat(result.output)
 
-    def test_without_the_resume_branch_the_real_engine_would_refuse(
-        self, tmp_path, monkeypatch, fake_runtime
-    ):
+    @pytest.mark.usefixtures("fake_runtime")
+    def test_without_the_resume_branch_the_real_engine_would_refuse(self, tmp_path, monkeypatch):
         """Why the branch above exists, pinned against the real engine.
 
         In the interrupted state the engine has nothing to act on and raises,
@@ -909,8 +911,9 @@ class TestProfileRosterWrite:
         assert mocks["decommission_user"].called
         assert "not present" in _flat(result.output)
 
+    @pytest.mark.usefixtures("fake_runtime")
     def test_a_declined_typed_gate_leaves_the_profile_untouched(
-        self, cli_runner, tmp_path, monkeypatch, fake_runtime
+        self, cli_runner, tmp_path, monkeypatch
     ):
         """The gate guards the profile write too, because the engine runs first."""
         config = _config([{"name": "alice", "index": 0}, {"name": "bob", "index": 1}])

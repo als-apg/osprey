@@ -175,11 +175,11 @@ def fake_bridge(approval, bridge_calls, monkeypatch):
     """
 
     def _install(routes: dict[str, object]):
-        def _get(base_url, path, timeout=3.0):
+        def _get(base_url, path, _timeout=3.0):
             bridge_calls.append((base_url, path))
             return routes.get(path)
 
-        def _post(base_url, path, body, timeout):
+        def _post(base_url, path, _body, _timeout):
             bridge_calls.append((base_url, path))
             return routes.get(path)
 
@@ -288,7 +288,7 @@ def test_a_single_lane_describer_never_reads_the_state_file(approval, fake_bridg
     belongs to the `Target:` line, which happens later and only once."""
     fake_bridge({"/queue": QUEUE_ROUTE, "/draft": DRAFT_ROUTE, "/plans": []})
 
-    def refuse(hook_input=None):
+    def refuse(_hook_input=None):
         raise AssertionError("a single-lane describer read the target state")
 
     monkeypatch.setattr(approval, "_read_record_once", refuse)
@@ -365,8 +365,9 @@ def test_two_lane_queue_add_names_the_live_lane_with_its_endpoint(
     assert {url for url, _ in bridge_calls} == {LANE_ONE_URL}
 
 
+@pytest.mark.usefixtures("state_dir")
 def test_two_lane_queue_add_without_state_says_the_lane_is_unresolved(
-    approval, fake_bridge, bridge_calls, state_dir
+    approval, fake_bridge, bridge_calls
 ):
     """With no readable state there is no active lane, so there is no honest
     queue to show: the prompt says which lanes exist and that it cannot tell
@@ -527,8 +528,9 @@ def test_queue_start_naming_a_lane_this_deployment_does_not_render(
     assert bridge_calls == []
 
 
+@pytest.mark.usefixtures("state_dir")
 def test_queue_start_without_state_names_the_lane_but_claims_no_mismatch(
-    approval, fake_bridge, bridge_calls, state_dir
+    approval, fake_bridge, bridge_calls
 ):
     """Unknown is not the same claim as mismatched. With no readable state the
     lane is still real and its queue is still its own, so both are shown — what

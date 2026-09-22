@@ -135,7 +135,7 @@ def initialize_connectors(
     *,
     config: RegistryConfig,
     registries: dict[str, dict[str, Any]],  # noqa: ARG001 - dispatch contract; see below
-    excluded_provider_names: list[str],
+    excluded_provider_names: list[str],  # noqa: ARG001 - dispatch contract; only the provider initializer filters on the exclusion list
 ) -> None:
     """Initialize control system and archiver connectors from registry config.
 
@@ -196,7 +196,7 @@ def initialize_ariel_search_modules(
     *,
     config: RegistryConfig,
     registries: dict[str, dict[str, Any]],
-    excluded_provider_names: list[str],
+    excluded_provider_names: list[str],  # noqa: ARG001 - dispatch contract; only the provider initializer filters on the exclusion list
 ) -> None:
     """Initialize ARIEL search modules from registry configuration.
 
@@ -244,7 +244,7 @@ def initialize_ariel_enhancement_modules(
     *,
     config: RegistryConfig,
     registries: dict[str, dict[str, Any]],
-    excluded_provider_names: list[str],
+    excluded_provider_names: list[str],  # noqa: ARG001 - dispatch contract; only the provider initializer filters on the exclusion list
 ) -> None:
     """Initialize ARIEL enhancement modules from registry configuration.
 
@@ -291,7 +291,7 @@ def initialize_ariel_ingestion_adapters(
     *,
     config: RegistryConfig,
     registries: dict[str, dict[str, Any]],
-    excluded_provider_names: list[str],
+    excluded_provider_names: list[str],  # noqa: ARG001 - dispatch contract; only the provider initializer filters on the exclusion list
 ) -> None:
     """Initialize ARIEL ingestion adapters from registry configuration.
 
@@ -338,7 +338,7 @@ def initialize_services(
     *,
     config: RegistryConfig,
     registries: dict[str, dict[str, Any]],
-    excluded_provider_names: list[str],
+    excluded_provider_names: list[str],  # noqa: ARG001 - dispatch contract; only the provider initializer filters on the exclusion list
 ) -> None:
     """Initialize service registry.
 

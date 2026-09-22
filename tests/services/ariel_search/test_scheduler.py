@@ -67,7 +67,7 @@ def _mock_adapter(entries: list[dict] | None = None):
     adapter = MagicMock()
     adapter.source_system_name = "test_system"
 
-    async def _fetch(since=None, until=None, limit=None):
+    async def _fetch(since=None, until=None, limit=None):  # noqa: ARG001 - the ingestion adapter fetch_entries signature
         for entry in entries or []:
             yield entry
 
@@ -299,7 +299,7 @@ class TestIngestionScheduler:
         adapter = MagicMock()
         adapter.source_system_name = "test_system"
 
-        async def _fetch(since=None, until=None, limit=None):
+        async def _fetch(since=None, until=None, limit=None):  # noqa: ARG001 - the ingestion adapter fetch_entries signature
             fetch_calls.append(since)
             return
             yield  # make it a generator  # noqa: E501
@@ -552,7 +552,7 @@ class TestIngestionScheduler:
                 since=None,
             )
 
-            async def _poll_sequence(dry_run=False):
+            async def _poll_sequence(dry_run=False):  # noqa: ARG001 - the poll_once signature
                 nonlocal call_count
                 call_count += 1
                 if call_count == 1:
@@ -626,7 +626,7 @@ class TestIngestionScheduler:
             since=None,
         )
 
-        async def _poll(dry_run=False):
+        async def _poll(dry_run=False):  # noqa: ARG001 - the poll_once signature
             await scheduler.stop()
             return poll_result
 

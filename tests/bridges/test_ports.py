@@ -60,23 +60,23 @@ def test_protocol_is_structural_not_inheritance():
     subclass anything from the core package."""
 
     class MinimalOps:
-        def parse_event(self, event: Any) -> InboundEvent | None:
+        def parse_event(self, _event: Any) -> InboundEvent | None:
             return None
 
-        def resolve_reply_context(self, event: InboundEvent) -> ReplyContext | None:
+        def resolve_reply_context(self, _event: InboundEvent) -> ReplyContext | None:
             return None
 
         def post_ack(self, entry: Mapping[str, Any]) -> None:
             pass
 
-        def download_inputs(self, entry: Mapping[str, Any]) -> InputDownload:
+        def download_inputs(self, _entry: Mapping[str, Any]) -> InputDownload:
             return InputDownload()
 
         def post_answer(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
             pass
 
         def deliver_files(
-            self, entry: Mapping[str, Any], result: Mapping[str, Any]
+            self, _entry: Mapping[str, Any], _result: Mapping[str, Any]
         ) -> Mapping[str, str]:
             return {}
 
@@ -89,7 +89,7 @@ def test_protocol_is_structural_not_inheritance():
         def post_superseded(self, entry: Mapping[str, Any]) -> None:
             pass
 
-        def coalesce_key(self, entry: Mapping[str, Any]) -> str | Sequence[str]:
+        def coalesce_key(self, _entry: Mapping[str, Any]) -> str | Sequence[str]:
             return ""
 
     assert isinstance(MinimalOps(), ChannelOps)
@@ -97,7 +97,7 @@ def test_protocol_is_structural_not_inheritance():
 
 def test_incomplete_class_does_not_satisfy_protocol():
     class NotOps:
-        def parse_event(self, event: Any) -> None:
+        def parse_event(self, _event: Any) -> None:
             return None
 
     assert not isinstance(NotOps(), ChannelOps)

@@ -165,7 +165,8 @@ def test_app_template_refusal_names_expand(tmp_path: Path) -> None:
     assert "valid keys are:" not in message
 
 
-def test_app_template_is_refused_through_extends_too(fake_presets: Path, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("fake_presets")
+def test_app_template_is_refused_through_extends_too(tmp_path: Path) -> None:
     """Inheritance is not a laundering path for the retired key either.
 
     A hand-written parent profile is an ordinary profile document, so the key

@@ -71,7 +71,7 @@ async def _drain(queue: asyncio.Queue) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_happy_path(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(content=[TextBlock(text="hello world")], model="m")
         yield _result_message(cost_usd=0.5, num_turns=4)
 
@@ -100,7 +100,7 @@ async def test_tool_result_in_user_message_is_captured(monkeypatch):
     must pair them with the originating ToolUseBlock (permission-denial
     messages surface this way; the parity e2e depends on seeing them)."""
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(
             content=[ToolUseBlock(id="tu1", name="mcp__x__y", input={})], model="m"
         )
@@ -152,7 +152,7 @@ async def test_tool_policy_wiring(monkeypatch, tmp_path):
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         captured["options"] = options
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
@@ -224,7 +224,7 @@ async def test_config_file_env_points_at_the_render(monkeypatch):
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):
+    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         captured["options"] = options
         captured["render_dir"] = render_dir
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
@@ -248,7 +248,7 @@ async def test_worker_trusts_the_config_file_its_service_sets(monkeypatch):
     monkeypatch.setenv("CONFIG_FILE", "/srv/staged/config.yml")
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):
+    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         captured["options"] = options
         captured["render_dir"] = render_dir
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
@@ -288,7 +288,7 @@ async def test_subagent_surfaces_are_discovered_from_the_render(tmp_path, monkey
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):
+    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         captured["options"] = options
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
@@ -315,7 +315,7 @@ async def test_no_discoverable_agents_denies_every_delegation(tmp_path, monkeypa
     monkeypatch.setenv("CONFIG_FILE", str(tmp_path / "build" / "config.yml"))
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):
+    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         captured["options"] = options
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
@@ -348,7 +348,7 @@ async def test_subagent_delegation_runs_in_the_foreground(monkeypatch):
     """
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         captured["options"] = options
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
@@ -376,7 +376,7 @@ async def test_sdk_missing(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_cancellation_propagates(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(content=[TextBlock(text="partial")], model="m")
         raise asyncio.CancelledError
 
@@ -388,7 +388,7 @@ async def test_cancellation_propagates(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_error_path_does_not_raise(monkeypatch):
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         raise Exception("boom")
         yield  # pragma: no cover - makes this an async generator
 
@@ -417,7 +417,7 @@ async def test_inactivity_timeout_aborts_with_clear_error(monkeypatch):
     stalling silently to the outer dispatch timeout."""
     monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.2, raising=False)
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         await asyncio.sleep(30)  # hang — never yields a message
         yield  # pragma: no cover - never reached
 
@@ -447,7 +447,7 @@ async def test_inactivity_timeout_after_partial_progress(monkeypatch):
     then stalls is still aborted, with the partial text preserved."""
     monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.2, raising=False)
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(content=[TextBlock(text="working...")], model="m")
         await asyncio.sleep(30)  # then hang
         yield  # pragma: no cover - never reached
@@ -486,7 +486,7 @@ def test_scrub_replaces_secret_values():
 async def test_oversized_text_output_is_truncated(monkeypatch):
     huge = "y" * (sdk_runner._MAX_TEXT_OUTPUT + 10000)
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(content=[TextBlock(text=huge)], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
@@ -502,7 +502,7 @@ async def test_secret_scrubbed_from_text_output(monkeypatch):
     secret = "tok-abcdef-1234567890"  # len >= 12
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", secret)
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(content=[TextBlock(text=f"leaked {secret} here")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
@@ -518,7 +518,7 @@ async def test_tool_use_and_result_are_captured(monkeypatch):
     """A ToolUseBlock + matching ToolResultBlock land in tool_calls with the result."""
     from claude_agent_sdk import ToolResultBlock, ToolUseBlock
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(
             content=[ToolUseBlock(id="tu1", name="Read", input={"path": "f"})], model="m"
         )
@@ -563,7 +563,7 @@ async def test_surface_prompt_forwarded_to_build_system_prompt(monkeypatch):
         _spy_build_system_prompt,
     )
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
@@ -592,7 +592,7 @@ async def test_surface_prompt_omitted_leaves_system_prompt_unchanged(monkeypatch
         _spy_build_system_prompt,
     )
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
 
@@ -610,7 +610,7 @@ async def test_oversized_tool_result_is_truncated(monkeypatch):
 
     huge = "z" * (sdk_runner._MAX_TOOL_RESULT + 5000)
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         yield AssistantMessage(content=[ToolUseBlock(id="tu1", name="Read", input={})], model="m")
         yield AssistantMessage(
             content=[ToolResultBlock(tool_use_id="tu1", content=huge)], model="m"
@@ -641,7 +641,7 @@ async def test_mcp_not_ready_is_an_infrastructure_error(monkeypatch):
         {"name": "osprey_workspace", "status": "pending", "tools": 0, "error": None},
     ]
 
-    async def fake_query(options, project_dir, prompt, **kw):
+    async def fake_query(options, project_dir, prompt, **kw):  # noqa: ARG001 - matches the SDK query signature
         kw["mcp_snapshot"][:] = snapshot
         raise sdk_runner.McpNotReadyError("MCP server 'osprey_workspace' not connected (pending)")
         yield  # pragma: no cover - makes this an async generator
@@ -667,7 +667,7 @@ async def test_run_record_carries_the_mcp_snapshot(monkeypatch):
     INFRA (server not connected) or MODEL (tool registered, agent ignored it)."""
     snapshot = [{"name": "controls", "status": "connected", "tools": 6, "error": None}]
 
-    async def fake_query(options, project_dir, prompt, **kw):
+    async def fake_query(options, project_dir, prompt, **kw):  # noqa: ARG001 - matches the SDK query signature
         kw["mcp_snapshot"][:] = snapshot
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
@@ -683,7 +683,7 @@ async def test_run_record_carries_the_mcp_snapshot(monkeypatch):
 async def test_required_servers_are_the_allow_listed_ones(monkeypatch):
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **kw):
+    async def fake_query(options, project_dir, prompt, **kw):  # noqa: ARG001 - matches the SDK query signature
         captured.update(kw)
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
@@ -706,7 +706,7 @@ async def test_cli_mcp_startup_limit_matches_the_barrier(monkeypatch):
     ``MCP_TIMEOUT`` wins."""
     captured: dict = {}
 
-    async def fake_query(options, project_dir, prompt, **_kw):
+    async def fake_query(options, project_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         captured["env"] = options.env
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)
@@ -731,7 +731,7 @@ async def _env_of_run(monkeypatch, **kwargs) -> dict[str, str]:
     """Run a dispatch through a stub stream and return the agent's environment."""
     captured: dict = {}
 
-    async def fake_query(options, render_dir, prompt, **_kw):
+    async def fake_query(options, render_dir, prompt, **_kw):  # noqa: ARG001 - matches the SDK query signature
         captured["env"] = options.env
         yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
         yield _result_message(cost_usd=0.1, num_turns=1)

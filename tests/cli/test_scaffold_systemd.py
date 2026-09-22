@@ -262,7 +262,7 @@ def test_a_stale_version_stamp_alone_is_not_a_change(runner: CliRunner, repo: Pa
     assert "unchanged" in result.output
 
 
-def test_a_moved_repo_rewrites_the_unit(runner: CliRunner, repo: Path, tmp_path: Path) -> None:
+def test_a_moved_repo_rewrites_the_unit(runner: CliRunner, repo: Path) -> None:
     """The paths in the unit are the point, so a real change is written."""
     emit(runner, repo)
     unit = unit_of(repo)
@@ -467,8 +467,9 @@ def test_an_autofs_home_gets_it_too(runner: CliRunner, repo: Path, home: Path, f
     assert f"RequiresMountsFor={home}" in flat(result)
 
 
+@pytest.mark.usefixtures("home")
 def test_the_warning_does_not_replace_the_install_instructions(
-    runner: CliRunner, repo: Path, home: Path, findmnt
+    runner: CliRunner, repo: Path, findmnt
 ) -> None:
     """It is a warning beside them, not a different set of instructions."""
     findmnt("nfs4")
@@ -491,9 +492,8 @@ def test_the_home_is_the_path_findmnt_is_asked_about(
     assert calls == [["/usr/bin/findmnt", "-T", str(home), "-no", "FSTYPE"]]
 
 
-def test_a_local_home_says_nothing_extra(
-    runner: CliRunner, repo: Path, home: Path, findmnt
-) -> None:
+@pytest.mark.usefixtures("home")
+def test_a_local_home_says_nothing_extra(runner: CliRunner, repo: Path, findmnt) -> None:
     findmnt("ext4")
 
     result = emit(runner, repo)
@@ -503,7 +503,8 @@ def test_a_local_home_says_nothing_extra(
     assert "loginctl enable-linger" in result.output
 
 
-def test_no_findmnt_says_nothing_extra(runner: CliRunner, repo: Path, home: Path, findmnt) -> None:
+@pytest.mark.usefixtures("home")
+def test_no_findmnt_says_nothing_extra(runner: CliRunner, repo: Path, findmnt) -> None:
     """macOS and minimal containers have no findmnt, and get no guesswork."""
     findmnt(present=False)
 
@@ -513,9 +514,8 @@ def test_no_findmnt_says_nothing_extra(runner: CliRunner, repo: Path, home: Path
     assert "RequiresMountsFor" not in flat(result)
 
 
-def test_a_findmnt_that_fails_says_nothing_extra(
-    runner: CliRunner, repo: Path, home: Path, findmnt
-) -> None:
+@pytest.mark.usefixtures("home")
+def test_a_findmnt_that_fails_says_nothing_extra(runner: CliRunner, repo: Path, findmnt) -> None:
     findmnt("nfs", returncode=1)
 
     result = emit(runner, repo)
@@ -524,9 +524,8 @@ def test_a_findmnt_that_fails_says_nothing_extra(
     assert "RequiresMountsFor" not in flat(result)
 
 
-def test_a_refusal_prints_no_drop_in_either(
-    runner: CliRunner, repo: Path, home: Path, findmnt
-) -> None:
+@pytest.mark.usefixtures("home")
+def test_a_refusal_prints_no_drop_in_either(runner: CliRunner, repo: Path, findmnt) -> None:
     """The unit was refused, so there is no install for a mount to undo.
 
     The hook beside it is still written — the two files have independent
@@ -580,8 +579,9 @@ def test_a_hand_written_hook_still_leaves_the_unit_fully_explained(
     assert "HOME=/" not in text
 
 
+@pytest.mark.usefixtures("home")
 def test_a_network_home_says_how_to_wire_the_hook_up(
-    runner: CliRunner, repo: Path, home: Path, findmnt
+    runner: CliRunner, repo: Path, findmnt
 ) -> None:
     """The no-root route: the hook's full path, and both crontab lines.
 
@@ -606,8 +606,9 @@ def test_a_network_home_says_how_to_wire_the_hook_up(
     assert "export HOME=" in text
 
 
+@pytest.mark.usefixtures("home")
 def test_the_drop_in_is_scoped_to_mounts_systemd_manages(
-    runner: CliRunner, repo: Path, home: Path, findmnt
+    runner: CliRunner, repo: Path, findmnt
 ) -> None:
     """A home served by the autofs daemon has no mount unit to order against.
 
@@ -628,9 +629,8 @@ def test_the_drop_in_is_scoped_to_mounts_systemd_manages(
     assert text.index("RequiresMountsFor") < text.index("@reboot")
 
 
-def test_a_local_home_never_mentions_the_hook(
-    runner: CliRunner, repo: Path, home: Path, findmnt
-) -> None:
+@pytest.mark.usefixtures("home")
+def test_a_local_home_never_mentions_the_hook(runner: CliRunner, repo: Path, findmnt) -> None:
     """The hook is written either way, but wiring it up here is noise."""
     findmnt("ext4")
 
@@ -682,7 +682,7 @@ def test_an_unrunnable_findmnt_is_not_an_error(home: Path, monkeypatch: pytest.M
         lambda name: "/usr/bin/findmnt" if name == "findmnt" else None,
     )
 
-    def unrunnable(argv, **kwargs):
+    def unrunnable(argv, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
         raise OSError("Permission denied")
 
     monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", unrunnable)

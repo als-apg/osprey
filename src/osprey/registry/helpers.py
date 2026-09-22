@@ -107,7 +107,7 @@ def get_framework_defaults() -> RegistryConfig:
 def generate_explicit_registry_code(
     app_class_name: str,
     app_display_name: str,
-    package_name: str,
+    package_name: str,  # noqa: ARG001 - the generated registry module names the registry class and its display name
     services: list[ServiceRegistration] | None = None,
 ) -> str:
     """Generate explicit registry Python code with all framework + app components.

@@ -134,7 +134,7 @@ def _serve_on_port(app: FastAPI, port: int) -> Iterator[str]:
     def _serve() -> None:
         try:
             server.run(sockets=[sock])
-        except BaseException as exc:  # noqa: BLE001 - surfaced to the caller as the cause
+        except BaseException as exc:
             # Includes the SystemExit uvicorn raises when startup fails; without
             # this the thread dies silently and the caller only learns the
             # server "never became ready".

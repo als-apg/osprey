@@ -143,14 +143,15 @@ def test_manifest_without_preset_hash_skips_content_check(tmp_path, presets_dir,
     assert staleness.staleness_reasons(tmp_path) == []
 
 
-def test_removed_preset_is_silent_on_content_check(tmp_path, presets_dir, monkeypatch):
+@pytest.mark.usefixtures("presets_dir")
+def test_removed_preset_is_silent_on_content_check(tmp_path, monkeypatch):
     """A preset that no longer ships must not crash or false-positive."""
     monkeypatch.setattr(staleness, "_installed_version", lambda: "2026.7.0")
     _write_manifest(tmp_path, creation={"preset_hash": "sha256:deadbeef"})
     assert staleness.staleness_reasons(tmp_path) == []
 
 
-def test_an_edited_profile_reports_the_render_stale(tmp_path, monkeypatch):
+def test_an_edited_profile_reports_the_render_stale(tmp_path):
     """The edit the advisory most needs to see, on a real deployment repo.
 
     A build renders ``build/`` from the repo's ``profile.yml``, so editing that
@@ -320,7 +321,7 @@ def test_warn_if_project_stale_is_quiet_when_fresh(tmp_path, monkeypatch, _captu
 def test_warn_if_project_stale_never_raises(tmp_path, monkeypatch):
     """Advisory means advisory: internal failure must not break a deploy."""
 
-    def _boom(project_dir):
+    def _boom(_project_dir):
         raise RuntimeError("staleness exploded")
 
     monkeypatch.setattr(staleness, "staleness_reasons", _boom)

@@ -96,24 +96,24 @@ class RecordingMigration(StubMigration):
         self.down_error = down_error
         self.events: list[str] = []
 
-    async def is_applied(self, conn) -> bool:
+    async def is_applied(self, _conn) -> bool:
         self.events.append("is_applied")
         return self.applied
 
-    async def up(self, conn) -> None:
+    async def up(self, _conn) -> None:
         self.events.append("up")
         if self.up_error is not None:
             raise self.up_error
 
-    async def down(self, conn) -> None:
+    async def down(self, _conn) -> None:
         self.events.append("down")
         if self.down_error is not None:
             raise self.down_error
 
-    async def mark_applied(self, conn) -> None:
+    async def mark_applied(self, _conn) -> None:
         self.events.append("mark_applied")
 
-    async def mark_unapplied(self, conn) -> None:
+    async def mark_unapplied(self, _conn) -> None:
         self.events.append("mark_unapplied")
 
 
@@ -269,7 +269,7 @@ class TestRequiresModule:
         repo = ARIELRepository(MockPool(), config)  # type: ignore[arg-type]
 
         @requires_module("enhancement", "text_embedding")
-        def test_method(self: ARIELRepository) -> str:
+        def test_method(self: ARIELRepository) -> str:  # noqa: ARG001 - the decorator reads the receiver
             return "success"
 
         with pytest.raises(ModuleNotEnabledError, match="text_embedding"):
@@ -300,7 +300,7 @@ class TestRequiresModule:
         repo = ARIELRepository(MockPool(), config)  # type: ignore[arg-type]
 
         @requires_module("enhancement", "text_embedding")
-        def test_method(self: ARIELRepository) -> str:
+        def test_method(self: ARIELRepository) -> str:  # noqa: ARG001 - the decorator reads the receiver
             return "success"
 
         result = test_method(repo)
@@ -327,7 +327,7 @@ class TestRequiresModule:
         repo = ARIELRepository(MockPool(), config)  # type: ignore[arg-type]
 
         @requires_module("search", "keyword")
-        def test_method(self: ARIELRepository) -> str:
+        def test_method(self: ARIELRepository) -> str:  # noqa: ARG001 - the decorator reads the receiver
             return "success"
 
         with pytest.raises(ModuleNotEnabledError, match="keyword"):
@@ -349,7 +349,7 @@ class TestRequiresModule:
         repo = ARIELRepository(MockPool(), config)  # type: ignore[arg-type]
 
         @requires_module("unknown_type", "some_module")
-        def test_method(self: ARIELRepository) -> str:
+        def test_method(self: ARIELRepository) -> str:  # noqa: ARG001 - the decorator reads the receiver
             return "success"
 
         with pytest.raises(ModuleNotEnabledError, match="some_module"):

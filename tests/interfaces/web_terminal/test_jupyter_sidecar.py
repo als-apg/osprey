@@ -64,8 +64,10 @@ def _running(shared_root: Path, outer_prefix: str = "") -> Iterator[JupyterSidec
         sidecar.stop()
 
 
+# ``config_env`` points the sidecar at an absent config and keeps its tempdirs inside the test
+# tree.
 @pytest.fixture
-def sidecar(config_env: None, shared_root: Path) -> Iterator[JupyterSidecar]:
+def sidecar(config_env: None, shared_root: Path) -> Iterator[JupyterSidecar]:  # noqa: ARG001
     yield from _running(shared_root)
 
 
@@ -160,8 +162,9 @@ def test_the_root_redirects_to_jupyterlab_not_the_server_landing_page(
     assert b"A Jupyter Server is running" not in body
 
 
+@pytest.mark.usefixtures("config_env")
 @spawns
-def test_the_outer_prefix_is_part_of_the_base_url(config_env: None, shared_root: Path) -> None:
+def test_the_outer_prefix_is_part_of_the_base_url(shared_root: Path) -> None:
     for prefixed in _running(shared_root, "/u/alice"):
         assert prefixed.url.endswith("/u/alice/panel/jupyter")
         status, _ = _get(f"{prefixed.url}/api/status", prefixed.auth_headers)
@@ -200,10 +203,9 @@ def test_the_kernelspec_runs_the_agent_interpreter_with_the_two_env_keys(
     assert sidecar.notebooks_dir.is_dir()
 
 
+@pytest.mark.usefixtures("config_env")
 @spawns
-def test_stop_leaves_no_process_and_removes_the_tempdir(
-    config_env: None, shared_root: Path
-) -> None:
+def test_stop_leaves_no_process_and_removes_the_tempdir(shared_root: Path) -> None:
     sidecar = JupyterSidecar(shared_root, "", None)
     sidecar.stop()  # nothing spawned yet: a no-op
     sidecar.spawn()
@@ -236,8 +238,9 @@ def test_preflight_names_the_missing_config(monkeypatch: pytest.MonkeyPatch) -> 
     assert str(failure.value) == "OSPREY_CONFIG is not set"
 
 
+@pytest.mark.usefixtures("config_env")
 def test_preflight_names_an_interpreter_that_cannot_import(
-    config_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = tmp_path / "python"
     fake.write_text(
@@ -255,13 +258,15 @@ def test_preflight_names_an_interpreter_that_cannot_import(
     assert message.endswith("ModuleNotFoundError: No module named 'ipykernel'")
 
 
-def test_preflight_passes_with_the_real_interpreter(config_env: None, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("config_env")
+def test_preflight_passes_with_the_real_interpreter(tmp_path: Path) -> None:
     JupyterSidecar(tmp_path / "shared", "", None).preflight()
 
 
+@pytest.mark.usefixtures("config_env")
 @spawns
 def test_an_early_exit_surfaces_the_stderr_tail(
-    config_env: None, shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     fake = tmp_path / "python"
     fake.write_text('#!/bin/sh\necho "first line" >&2\necho "the reason" >&2\nexit 3\n')
@@ -299,10 +304,9 @@ _PARENT_SCRIPT = textwrap.dedent(
 )
 
 
+@pytest.mark.usefixtures("config_env")
 @spawns
-def test_the_sidecar_exits_when_its_parent_is_killed(
-    config_env: None, shared_root: Path, tmp_path: Path
-) -> None:
+def test_the_sidecar_exits_when_its_parent_is_killed(shared_root: Path, tmp_path: Path) -> None:
     script = tmp_path / "parent.py"
     script.write_text(_PARENT_SCRIPT)
     parent = subprocess.Popen(
@@ -652,9 +656,10 @@ def test_on_exit_registered_after_the_death_fires_at_once(sidecar: JupyterSideca
     assert late.is_set()
 
 
+@pytest.mark.usefixtures("config_env")
 @spawns
 def test_stop_reports_no_exit_and_fires_no_callback(
-    config_env: None, shared_root: Path, caplog: pytest.LogCaptureFixture
+    shared_root: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     sidecar = JupyterSidecar(shared_root, "", None)
     fired = threading.Event()
@@ -680,9 +685,10 @@ _ORPHAN_SCRIPT = (
 )
 
 
+@pytest.mark.usefixtures("config_env")
 @spawns
 def test_stop_returns_while_an_orphan_still_holds_the_stderr_pipe(
-    config_env: None, shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    shared_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     pid_file = tmp_path / "orphan.pid"
     script = tmp_path / "orphan.py"
@@ -984,7 +990,7 @@ class _Sessions(http.server.BaseHTTPRequestHandler):
     status: int = 200
     seen: list[tuple[str, str]] = []
 
-    def do_GET(self) -> None:  # noqa: N802 — BaseHTTPRequestHandler's spelling
+    def do_GET(self) -> None:
         type(self).seen.append((self.path, self.headers.get("Authorization", "")))
         self.send_response(self.status)
         self.send_header("Content-Type", "application/json")

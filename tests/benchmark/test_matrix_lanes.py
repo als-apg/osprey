@@ -99,7 +99,7 @@ class TestLaneGateReadsTheCollectorsVerdict:
     def _violations(self, monkeypatch, returncode: int, stderr: str) -> list[str]:
         gate = _load("check_e2e_coverage")
 
-        def _run(cmd, cwd=None, env=None, capture_output=False, text=False):
+        def _run(cmd, cwd=None, env=None, capture_output=False, text=False):  # noqa: ARG001 - subprocess.run is called with these by keyword
             Path(env["OSPREY_E2E_LANES"]).write_text(
                 json.dumps({self._NODEID: "agentic"}), encoding="utf-8"
             )

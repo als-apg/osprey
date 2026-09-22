@@ -111,7 +111,7 @@ def handoff(monkeypatch: pytest.MonkeyPatch) -> list[Handoff]:
     """Record the output-policy state instead of starting an agent."""
     recorded: list[Handoff] = []
 
-    def fake_run(argv, *args, **kwargs):
+    def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
         recorded.append(
             Handoff(
                 gate_installed=gate_installed(),
@@ -129,17 +129,20 @@ def handoff(monkeypatch: pytest.MonkeyPatch) -> list[Handoff]:
 class TestTheSwitchItself:
     """Called directly, with no verb around it."""
 
-    def test_it_lifts_the_gate(self, gated: None) -> None:
+    @pytest.mark.usefixtures("gated")
+    def test_it_lifts_the_gate(self) -> None:
         _stand_down_output_policy()
         assert gate_installed() is False
 
-    def test_it_installs_the_quiet_reporter(self, gated: None) -> None:
+    @pytest.mark.usefixtures("gated")
+    def test_it_installs_the_quiet_reporter(self) -> None:
         _stand_down_output_policy()
         reporter = current_reporter()
         assert isinstance(reporter, NullReporter)
         assert reporter.verbose is False
 
-    def test_it_touches_no_logger_level(self, gated: None) -> None:
+    @pytest.mark.usefixtures("gated")
+    def test_it_touches_no_logger_level(self) -> None:
         """Standing down is about painting, not about what is emitted."""
         before = logging.getLogger().level
         _stand_down_output_policy()
@@ -157,8 +160,9 @@ class TestTheSwitchItself:
 class TestAtTheHandoff:
     """The state the agent process is actually started in."""
 
+    @pytest.mark.usefixtures("gated")
     def test_the_gate_is_lifted_before_the_agent_starts(
-        self, runner: CliRunner, gated: None, handoff: list[Handoff], lifecycle_repo: Path
+        self, runner: CliRunner, handoff: list[Handoff], lifecycle_repo: Path
     ) -> None:
         stub_build(lifecycle_repo)
 
@@ -168,8 +172,9 @@ class TestAtTheHandoff:
         assert len(handoff) == 1
         assert handoff[0].gate_installed is False
 
+    @pytest.mark.usefixtures("gated")
     def test_the_root_logger_is_not_pinned_to_critical(
-        self, runner: CliRunner, gated: None, handoff: list[Handoff], lifecycle_repo: Path
+        self, runner: CliRunner, handoff: list[Handoff], lifecycle_repo: Path
     ) -> None:
         """The hack this replaced set the root logger to CRITICAL right here."""
         stub_build(lifecycle_repo)
@@ -181,8 +186,9 @@ class TestAtTheHandoff:
         assert handoff[0].root_level != logging.CRITICAL
         assert handoff[0].root_level == before
 
+    @pytest.mark.usefixtures("gated")
     def test_the_reporter_is_the_quiet_one(
-        self, runner: CliRunner, gated: None, handoff: list[Handoff], lifecycle_repo: Path
+        self, runner: CliRunner, handoff: list[Handoff], lifecycle_repo: Path
     ) -> None:
         stub_build(lifecycle_repo)
 
@@ -267,8 +273,9 @@ class TestAgentTextPassesThrough:
         assert isinstance(kwargs.get("env", {}), dict)
         assert len(fake.run.call_args.args) == 1
 
+    @pytest.mark.usefixtures("gated")
     def test_agent_text_reaches_the_reader_unchanged(
-        self, runner: CliRunner, gated: None, lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
+        self, runner: CliRunner, lifecycle_repo: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Byte-for-byte, including what the renderer would have eaten.
 
@@ -281,7 +288,7 @@ class TestAgentTextPassesThrough:
         stub_build(lifecycle_repo)
         monkeypatch.setattr("osprey.cli.chat_cmd._launch_companion_servers", lambda p: [])
 
-        def fake_run(argv, *args, **kwargs):
+        def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
             sys.stdout.write(agent_line + "\n")
             return SimpleNamespace(returncode=0)
 

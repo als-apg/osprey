@@ -99,7 +99,8 @@ def legacy_config_path(tmp_path, monkeypatch) -> Path:
     return config_path
 
 
-def test_load_zero_errors_zero_warnings(legacy_config_path, caplog):
+@pytest.mark.usefixtures("legacy_config_path")
+def test_load_zero_errors_zero_warnings(caplog):
     """A config full of retired keys loads cleanly and silently."""
     caplog.set_level(logging.DEBUG, logger="osprey")
 
@@ -123,7 +124,8 @@ def test_load_zero_errors_zero_warnings(legacy_config_path, caplog):
     )
 
 
-def test_fixture_still_carries_every_retired_key(legacy_config_path):
+@pytest.mark.usefixtures("legacy_config_path")
+def test_fixture_still_carries_every_retired_key():
     """The fixture is the coverage — a retired key vanishing from it is a regression."""
     config = load_osprey_config()
 
@@ -148,7 +150,8 @@ def _has(config: dict[str, Any], path: str) -> bool:
     return True
 
 
-def test_retired_keys_keep_their_misleading_values(legacy_config_path):
+@pytest.mark.usefixtures("legacy_config_path")
+def test_retired_keys_keep_their_misleading_values():
     """The safety knobs are carried at the values that would be dangerous if honored."""
     config = load_osprey_config()
 

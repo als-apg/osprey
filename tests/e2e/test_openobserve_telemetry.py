@@ -498,7 +498,8 @@ def _synthetic_event(now_ns: int) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def test_synthetic_otlp_roundtrip_via_computed_header(deployed_openobserve: Path) -> None:
+@pytest.mark.usefixtures("deployed_openobserve")
+def test_synthetic_otlp_roundtrip_via_computed_header() -> None:
     """Ingest a synthetic metric + event with the resolver's Basic header; assert both land."""
     auth = _auth_header_from_resolver()
     assert auth.startswith("Basic "), f"resolver did not produce a Basic header: {auth!r}"
@@ -567,7 +568,8 @@ def test_synthetic_otlp_roundtrip_via_computed_header(deployed_openobserve: Path
     assert event_total >= 1, "no claude_code event record visible in OpenObserve after ingest"
 
 
-def test_bad_credentials_are_rejected(deployed_openobserve: Path) -> None:
+@pytest.mark.usefixtures("deployed_openobserve")
+def test_bad_credentials_are_rejected() -> None:
     """Sanity: OpenObserve enforces auth, so a green round-trip really proves auth."""
     bad = "Basic " + base64.b64encode(b"wrong@user.local:nope").decode()
     status, _ = _otlp_post(f"/api/{OO_ORG}/v1/logs", _synthetic_event(1), bad)

@@ -41,7 +41,8 @@ def service(project_dir):
 class TestGetContentReadsDisk:
     """get_content() should always return the file on disk, not a re-rendered template."""
 
-    def test_get_content_reads_disk_for_framework_artifacts(self, service, project_dir):
+    @pytest.mark.usefixtures("service")
+    def test_get_content_reads_disk_for_framework_artifacts(self, project_dir):
         """Framework artifact: get_content returns what's on disk, not re-rendered.
 
         We modify the file on disk to have a known marker. If get_content
@@ -69,7 +70,8 @@ class TestGetContentReadsDisk:
         assert result["content"].startswith(marker)
         assert result["source"] == "framework"
 
-    def test_get_content_falls_back_to_render_when_file_missing(self, service, project_dir):
+    @pytest.mark.usefixtures("service")
+    def test_get_content_falls_back_to_render_when_file_missing(self, project_dir):
         """When the on-disk file is missing, get_content falls back to _render_framework."""
         from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 

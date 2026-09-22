@@ -405,7 +405,7 @@ def test_a_slow_fetch_does_not_block_readers():
     in_flight = threading.Event()
     release = threading.Event()
 
-    def handler(request):
+    def handler(_request):
         in_flight.set()
         release.wait(timeout=5)
         return _ocs(GROUP_ROOM)

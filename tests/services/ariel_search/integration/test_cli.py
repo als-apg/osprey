@@ -152,8 +152,9 @@ class TestCLIIngestCommand:
         assert "Dry run complete" in result.output
         assert "entries would be ingested" in result.output
 
+    @pytest.mark.usefixtures("migrated_pool")
     def test_ingest_command_stores_entries(
-        self, database_url, sample_entries_path, migrated_pool, seeded_prefixes
+        self, database_url, sample_entries_path, seeded_prefixes
     ):
         """Ingest command stores entries in database."""
         if not sample_entries_path.exists():
@@ -223,7 +224,8 @@ class TestCLIIngestCommand:
 class TestCLIModelsCommand:
     """Test 'osprey ariel models' command."""
 
-    def test_models_command_lists_tables(self, database_url, migrated_pool):
+    @pytest.mark.usefixtures("migrated_pool")
+    def test_models_command_lists_tables(self, database_url):
         """Models command lists embedding tables."""
         from osprey.cli.ariel import ariel_group
 

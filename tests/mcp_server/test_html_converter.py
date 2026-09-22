@@ -127,7 +127,7 @@ class TestChromiumAutoInstall:
     """Auto-install is reactive, at-most-once, and never masks other errors."""
 
     @pytest.fixture(autouse=True)
-    def _install_calls(self, monkeypatch, tmp_path):
+    def _install_calls(self, monkeypatch):
         """Record install subprocesses instead of running them; reset the cache."""
         calls: list[list[str]] = []
 

@@ -50,7 +50,7 @@ def test_lifespan_fails_open_when_regen_raises(tmp_path, monkeypatch):
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
     monkeypatch.chdir(project)
 
-    def boom(self, pd):
+    def boom(_self, _pd):
         raise RuntimeError("regen exploded")
 
     monkeypatch.setattr(TemplateManager, "regen_if_drift", boom)

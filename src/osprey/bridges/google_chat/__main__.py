@@ -315,7 +315,7 @@ def install_signal_handlers(stop: threading.Event) -> None:
     why :func:`main` installs these and :func:`run` does not.
     """
 
-    def _handler(signum: int, frame: FrameType | None) -> None:
+    def _handler(signum: int, _frame: FrameType | None) -> None:
         logger.info("received %s; shutting down", signal.Signals(signum).name)
         stop.set()
 

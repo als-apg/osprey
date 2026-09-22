@@ -63,7 +63,7 @@ class InContextBackend(Backend):
             "OSPREY_CONFIG": str(project_dir / "config.yml"),
         }
 
-    async def run_query(self, prompt: str, pipeline_mode: str) -> WorkflowOutput:
+    async def run_query(self, prompt: str, _pipeline_mode: str) -> WorkflowOutput:
         async with mcp_client_session(self.project_dir, "in_context", env=self._env) as client:
             tool_result = await client.call_tool("ask_channels", {"question": prompt})
 

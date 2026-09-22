@@ -42,7 +42,7 @@ from osprey.services.channel_finder.graph_index.builder import (
 from osprey.services.channel_finder.graph_index.schema import META_KEYS, SCHEMA_VERSION
 
 
-def _meta(parsed: ParsedCorpus, channels: list[ChannelRow], **overrides) -> dict:
+def _meta(parsed: ParsedCorpus, channels: list[ChannelRow], **overrides) -> dict:  # noqa: ARG001 - it mirrors the build_from_rows row arguments
     """A ``meta`` mapping for ``parsed``, as the corpus build will state it."""
     values = {
         "corpus_sha256": "0" * 64,
@@ -347,7 +347,7 @@ class TestAtomicity:
     ):
         path, before = existing
 
-        def boom(src, dst):
+        def boom(_src, _dst):
             raise OSError("replace refused")
 
         monkeypatch.setattr(os, "replace", boom)

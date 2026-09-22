@@ -468,7 +468,7 @@ def written_config(tmp_path):
 
 
 @pytest.fixture
-async def make_manager(state_root, endpoints, written_config, tmp_path):
+async def make_manager(state_root, endpoints, written_config, tmp_path):  # noqa: ARG001 - the stamped state root exists before a manager is built over it
     """Managers whose children are all reaped when the test ends."""
     created: list[ConnectorHostManager] = []
 
@@ -929,9 +929,8 @@ class TestAnApprovedWriteIsRefusedAfterASwitch:
 
     OPERATIONS = [{"channel": CORRECTOR_SP, "value": 0.5}]
 
-    async def test_the_write_is_refused_naming_both_bindings(
-        self, make_manager, served_context, quiet_switch_notifications
-    ):
+    @pytest.mark.usefixtures("quiet_switch_notifications")
+    async def test_the_write_is_refused_naming_both_bindings(self, make_manager, served_context):
         manager = await started_on(make_manager, "va")
         served_context(manager)
         approved = manager.active_binding()
@@ -951,9 +950,8 @@ class TestAnApprovedWriteIsRefusedAfterASwitch:
         ) == manager.active_binding()
         assert details["approved_target"] != details["current_target"]
 
-    async def test_nothing_reached_either_machine(
-        self, make_manager, served_context, quiet_switch_notifications
-    ):
+    @pytest.mark.usefixtures("quiet_switch_notifications")
+    async def test_nothing_reached_either_machine(self, make_manager, served_context):
         manager = await started_on(make_manager, "va")
         served_context(manager)
         write_approval_stamp(self.OPERATIONS, manager.active_binding())
@@ -1050,7 +1048,7 @@ os._exit(0)
 
 
 @pytest.fixture
-def sandbox(tmp_path, endpoints, state_root):
+def sandbox(tmp_path, endpoints, state_root):  # noqa: ARG001 - the stamped state root is what the sandbox subprocess resolves
     """Run stamped agent code the way the executor runs it: another process.
 
     The deployment is written to ``config.yml`` in ``tmp_path`` so that the
@@ -1164,8 +1162,9 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
     happens to match it.
     """
 
+    @pytest.mark.usefixtures("quiet_switch_notifications")
     async def test_the_refusal_names_the_running_target_and_nothing_moves(
-        self, make_manager, served_context, quiet_switch_notifications
+        self, make_manager, served_context
     ):
         manager = await started_on(make_manager, "va")
         served_context(manager)
@@ -1187,8 +1186,9 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
         assert manager.active_generation() == 0
         assert manager.status()["child_pid"] == child_before
 
+    @pytest.mark.usefixtures("quiet_switch_notifications")
     async def test_the_same_switch_succeeds_once_the_execution_ends(
-        self, make_manager, served_context, quiet_switch_notifications, reconciling
+        self, make_manager, served_context, reconciling
     ):
         """Anti-vacuous control: the marker is what refused, not the deployment."""
         manager = await started_on(make_manager, "va")
@@ -1208,8 +1208,9 @@ class TestASwitchIsRefusedWhileAnExecutionIsInFlight:
         assert manager.active_target() == "live"
         assert isinstance(await reading(manager, LIVE_PROBE), float)
 
+    @pytest.mark.usefixtures("quiet_switch_notifications")
     async def test_a_marker_from_a_dead_executor_does_not_wedge_the_switch(
-        self, make_manager, served_context, quiet_switch_notifications, reconciling
+        self, make_manager, served_context, reconciling
     ):
         """Residue from a killed executor is swept, not honoured.
 
@@ -1284,9 +1285,8 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
         yield
         bluesky_context.reset_server_context()
 
-    async def test_queue_add_refuses_and_never_reaches_the_bridge(
-        self, make_manager, lane_deployment
-    ):
+    @pytest.mark.usefixtures("lane_deployment")
+    async def test_queue_add_refuses_and_never_reaches_the_bridge(self, make_manager):
         manager = await started_on(make_manager, "live")
         assert manager.baseline == "live"
         claim_the_record(manager)
@@ -1305,9 +1305,8 @@ class TestTheSingleBlueskyLaneRefusesWhileTheSessionIsSwitched:
         assert envelope["details"]["control_target"] == "va"
         assert "va" in envelope["error_message"] and "live" in envelope["error_message"]
 
-    async def test_the_lane_is_usable_again_once_the_session_comes_home(
-        self, make_manager, lane_deployment
-    ):
+    @pytest.mark.usefixtures("lane_deployment")
+    async def test_the_lane_is_usable_again_once_the_session_comes_home(self, make_manager):
         """Anti-vacuous control: the refusal is the switch, not the arming.
 
         With the session back on the deployment's baseline the same call reaches
@@ -1364,8 +1363,9 @@ class TestTheSwitchIsBoundByItsDrainDeadline:
     why, which is the failure this attribution exists to prevent.
     """
 
+    @pytest.mark.usefixtures("quiet_switch_notifications")
     async def test_five_consecutive_switches_stay_within_the_drain_bound(
-        self, make_manager, served_context, quiet_switch_notifications, endpoints, reconciling
+        self, make_manager, served_context, endpoints, reconciling
     ):
         manager = await started_on(
             make_manager,

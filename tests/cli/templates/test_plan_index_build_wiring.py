@@ -275,7 +275,7 @@ def test_build_succeeds_with_no_plan_dir_configured(tmp_path):
 def test_builder_failure_never_aborts_the_build(tmp_path, monkeypatch, caplog):
     """Even an unexpected raise from the builder is a warning, not a failure."""
 
-    def boom(config, repo_root):
+    def boom(_config, _repo_root):
         raise RuntimeError("builder exploded")
 
     monkeypatch.setattr("osprey.cli.templates.plan_index.build_plan_index", boom)

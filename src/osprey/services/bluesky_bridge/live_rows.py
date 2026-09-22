@@ -230,7 +230,7 @@ class LiveRowRecorder:
                 buf["rows"].append([data.get(col) for col in buf["columns"]])
             _buffers.move_to_end(self._uid)
 
-    def _on_stop(self, doc: dict[str, Any]) -> None:
+    def _on_stop(self, _doc: dict[str, Any]) -> None:
         if not self._uid:
             return
         with _lock:

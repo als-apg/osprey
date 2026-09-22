@@ -195,29 +195,34 @@ def _sandbox(monkeypatch) -> None:
 
 
 class TestPostureClamp:
-    async def test_a_write_tool_is_refused_under_the_sandbox_posture(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_a_write_tool_is_refused_under_the_sandbox_posture(self, monkeypatch):
         _sandbox(monkeypatch)
         error = await _refused(am.AuditMiddleware(), "channel_write")
         envelope = json.loads(str(error))
         assert envelope["error_type"] == "safety_error"
 
-    async def test_a_write_tool_runs_under_the_writes_posture(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_a_write_tool_runs_under_the_writes_posture(self, monkeypatch):
         monkeypatch.setenv(am.POSTURE_ENV, "readwrite")
         result, seen = await _call(am.AuditMiddleware(), "channel_write")
         assert seen == ["channel_write"]
         assert result == "channel_write-result"
 
-    async def test_an_absent_posture_marker_is_not_a_sandbox(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_an_absent_posture_marker_is_not_a_sandbox(self, monkeypatch):
         monkeypatch.delenv(am.POSTURE_ENV, raising=False)
         _, seen = await _call(am.AuditMiddleware(), "channel_write")
         assert seen == ["channel_write"]
 
-    async def test_a_read_tool_runs_under_the_sandbox_posture(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_a_read_tool_runs_under_the_sandbox_posture(self, monkeypatch):
         _sandbox(monkeypatch)
         _, seen = await _call(am.AuditMiddleware(), "channel_read")
         assert seen == ["channel_read"]
 
-    async def test_a_mixed_tool_runs_under_the_sandbox_posture(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_a_mixed_tool_runs_under_the_sandbox_posture(self, monkeypatch):
         """``execute`` is read/write; its in-tool clamp owns the posture, not this."""
         _sandbox(monkeypatch)
         monkeypatch.setenv(am.TOOL_PREFIX_ENV, "python")
@@ -437,7 +442,8 @@ class TestDegradedHookConfig:
 
 
 class TestConfigAnchor:
-    async def test_an_unset_osprey_config_degrades_loudly(self, project, monkeypatch, caplog):
+    @pytest.mark.usefixtures("project")
+    async def test_an_unset_osprey_config_degrades_loudly(self, monkeypatch, caplog):
         monkeypatch.delenv(am.CONFIG_ENV, raising=False)
         _sandbox(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=am.logger.name):
@@ -446,7 +452,8 @@ class TestConfigAnchor:
             r.getMessage() for r in caplog.records
         ]
 
-    async def test_an_unset_osprey_config_warns_once(self, project, monkeypatch, caplog):
+    @pytest.mark.usefixtures("project")
+    async def test_an_unset_osprey_config_warns_once(self, monkeypatch, caplog):
         monkeypatch.delenv(am.CONFIG_ENV, raising=False)
         mw = am.AuditMiddleware()
         with caplog.at_level(logging.WARNING, logger=am.logger.name):
@@ -454,8 +461,9 @@ class TestConfigAnchor:
             await _call(mw, "channel_read")
         assert len([r for r in caplog.records if am.CONFIG_ENV in r.getMessage()]) == 1
 
+    @pytest.mark.usefixtures("project")
     async def test_the_repo_root_is_never_read_when_osprey_config_is_unset(
-        self, project, monkeypatch, tmp_path
+        self, monkeypatch, tmp_path
     ):
         """A repo-root hook config must not be picked up as a consolation prize."""
         repo_hooks = tmp_path / ".claude" / "hooks"
@@ -479,7 +487,8 @@ class TestConfigAnchor:
     def test_the_path_is_anchored_on_the_config_directory(self, project):
         assert am.hook_config_path() == project.hook_config
 
-    def test_the_path_is_none_without_the_env_var(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    def test_the_path_is_none_without_the_env_var(self, monkeypatch):
         monkeypatch.delenv(am.CONFIG_ENV, raising=False)
         assert am.hook_config_path() is None
 
@@ -488,7 +497,8 @@ class TestConfigAnchor:
         monkeypatch.setenv(am.CONFIG_ENV, f"  {project.hook_config.parents[2] / 'config.yml'}  ")
         assert am.hook_config_path() == project.hook_config
 
-    def test_a_relative_env_value_is_refused_not_guessed(self, project, monkeypatch, caplog):
+    @pytest.mark.usefixtures("project")
+    def test_a_relative_env_value_is_refused_not_guessed(self, monkeypatch, caplog):
         """A relative OSPREY_CONFIG resolves against the cwd — the one guess forbidden."""
         monkeypatch.setenv(am.CONFIG_ENV, "build/config.yml")
         with caplog.at_level(logging.WARNING, logger=am.logger.name):
@@ -497,8 +507,9 @@ class TestConfigAnchor:
             r.getMessage() for r in caplog.records
         ]
 
+    @pytest.mark.usefixtures("project")
     async def test_a_relative_env_value_degrades_without_claiming_it_is_unset(
-        self, project, monkeypatch, caplog
+        self, monkeypatch, caplog
     ):
         """One warning, and the accurate one: the env var is set, just unusable."""
         monkeypatch.setenv(am.CONFIG_ENV, "build/config.yml")
@@ -511,8 +522,9 @@ class TestConfigAnchor:
         assert "not an absolute path" in messages[0]
         assert "is unset" not in messages[0]
 
+    @pytest.mark.usefixtures("project")
     async def test_a_relative_env_value_does_not_read_the_working_directory(
-        self, project, monkeypatch, tmp_path
+        self, monkeypatch, tmp_path
     ):
         """The cwd's own render must not be picked up as a consolation prize."""
         stray = tmp_path / "stray"
@@ -549,7 +561,8 @@ class TestFreshness:
         )
         await _refused(mw, "shutter_open")
 
-    async def test_an_unchanged_file_is_parsed_once(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_an_unchanged_file_is_parsed_once(self, monkeypatch):
         parses: list[Path] = []
         original = am._read_hook_config
 
@@ -644,7 +657,8 @@ class TestToolPrefix:
         await _call(am.AuditMiddleware(), "channel_read")
         assert _records(project, surface=am.SURFACE_UNPREFIXED)[-1]["subject"] == "channel_read"
 
-    async def test_an_unset_prefix_warns_once(self, project, monkeypatch, caplog):
+    @pytest.mark.usefixtures("project")
+    async def test_an_unset_prefix_warns_once(self, monkeypatch, caplog):
         monkeypatch.delenv(am.TOOL_PREFIX_ENV, raising=False)
         mw = am.AuditMiddleware()
         with caplog.at_level(logging.WARNING, logger=am.logger.name):
@@ -653,7 +667,8 @@ class TestToolPrefix:
         hits = [r for r in caplog.records if am.TOOL_PREFIX_ENV in r.getMessage()]
         assert len(hits) == 1
 
-    async def test_an_unset_prefix_still_clamps_the_floor_by_bare_name(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_an_unset_prefix_still_clamps_the_floor_by_bare_name(self, monkeypatch):
         """Fail closed: an unstamped server is exactly the case not to trust."""
         monkeypatch.delenv(am.TOOL_PREFIX_ENV, raising=False)
         _sandbox(monkeypatch)
@@ -738,9 +753,7 @@ class TestToolPrefix:
         _, seen = await _call(am.AuditMiddleware(), "channel_write")
         assert seen == ["channel_write"]
 
-    async def test_a_prefix_absent_from_server_prefixes_warns_once(
-        self, project, monkeypatch, caplog
-    ):
+    async def test_a_prefix_absent_from_server_prefixes_warns_once(self, project, caplog):
         project.write(server_prefixes=["mcp__sitectl__"], write_tools=[], mixed=[])
         mw = am.AuditMiddleware()
         with caplog.at_level(logging.WARNING, logger=am.logger.name):
@@ -779,7 +792,7 @@ class TestToolPrefix:
 
 
 class TestAuditRecord:
-    async def test_an_allowed_call_is_recorded(self, project, monkeypatch):
+    async def test_an_allowed_call_is_recorded(self, project):
         await _call(am.AuditMiddleware(), "channel_read")
         record = _records(project)[-1]
         assert record["decision"] == DECISION_ALLOWED
@@ -897,7 +910,8 @@ class TestToolErrors:
         blob = json.dumps(_records(project)[-1])
         assert "hunter2" not in blob and "SETPOINT" not in blob
 
-    async def test_a_tool_raised_error_is_re_raised_unchanged(self, project):
+    @pytest.mark.usefixtures("project")
+    async def test_a_tool_raised_error_is_re_raised_unchanged(self):
         raised = ToolError("original")
         with pytest.raises(ToolError) as excinfo:
             await _call(am.AuditMiddleware(), "channel_write", raises=raised)
@@ -908,7 +922,8 @@ class TestToolErrors:
             await _call(am.AuditMiddleware(), "channel_read", raises=ValueError("boom"))
         assert [r for r in _records(project) if r["reason"] == am.REASON_TOOL_ERROR] == []
 
-    async def test_an_ordinary_exception_still_propagates(self, project):
+    @pytest.mark.usefixtures("project")
+    async def test_an_ordinary_exception_still_propagates(self):
         with pytest.raises(ValueError, match="boom"):
             await _call(am.AuditMiddleware(), "channel_read", raises=ValueError("boom"))
 
@@ -931,7 +946,7 @@ class TestAnUnstoredInnerRecordIsNotSubstituted:
     async def test_a_tool_error_over_an_unstored_marker_files_the_middlewares_own_record(
         self, project
     ):
-        async def call_next(context):
+        async def call_next(_context):
             mark_recorded(DECISION_REFUSED, "runtime_guard", stored=False)
             raise ToolError("refused, and the inner write never landed")
 
@@ -945,7 +960,7 @@ class TestAnUnstoredInnerRecordIsNotSubstituted:
     async def test_a_successful_call_over_an_unstored_marker_files_no_substitute_record(
         self, project
     ):
-        async def call_next(context):
+        async def call_next(_context):
             mark_recorded(DECISION_REFUSED, "runtime_guard", stored=False)
             return "ran"
 
@@ -964,7 +979,8 @@ class TestTheClampDecisionFailsClosed:
     this file would notice.
     """
 
-    async def test_a_raising_state_resolve_never_reaches_the_tool(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_a_raising_state_resolve_never_reaches_the_tool(self, monkeypatch):
         def boom():
             raise RuntimeError("the hook config exploded")
 
@@ -980,7 +996,8 @@ class TestTheClampDecisionFailsClosed:
             await am.AuditMiddleware().on_call_tool(_context("channel_write"), call_next)
         assert seen == [], "an error in the clamp decision let the write through"
 
-    async def test_a_raising_membership_test_never_reaches_the_tool(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_a_raising_membership_test_never_reaches_the_tool(self, monkeypatch):
         def boom(*_args, **_kwargs):
             raise RuntimeError("the clamp exploded")
 
@@ -1002,7 +1019,8 @@ class TestAuditNeverCostsTheOperation:
     boundary the middleware relies on, so what is pinned is the real path an
     unwritable zone takes and not a seam the middleware happens to call."""
 
-    async def test_an_unwritable_ledger_does_not_break_an_allowed_call(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_an_unwritable_ledger_does_not_break_an_allowed_call(self, monkeypatch):
         reached: list[Path] = []
 
         def explode(path, _line):
@@ -1014,7 +1032,8 @@ class TestAuditNeverCostsTheOperation:
         assert seen == ["channel_read"]
         assert reached, "the writer's append boundary was never reached"
 
-    async def test_an_unwritable_ledger_does_not_lift_the_clamp(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_an_unwritable_ledger_does_not_lift_the_clamp(self, monkeypatch):
         reached: list[Path] = []
 
         def explode(path, _line):
@@ -1116,7 +1135,8 @@ class TestSpellings:
 
 
 class TestResetSeam:
-    async def test_reset_clears_the_parsed_state(self, project, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_reset_clears_the_parsed_state(self, monkeypatch):
         parses: list[Path] = []
         original = am._read_hook_config
         monkeypatch.setattr(am, "_read_hook_config", lambda p: (parses.append(p), original(p))[1])
@@ -1280,9 +1300,8 @@ class TestTheRefusalNamesItsOwnSource:
     actually fired.
     """
 
-    async def test_a_deployment_wide_run_does_not_send_the_operator_to_the_chip(
-        self, project, monkeypatch
-    ):
+    @pytest.mark.usefixtures("project")
+    async def test_a_deployment_wide_run_does_not_send_the_operator_to_the_chip(self, monkeypatch):
         """The environment source is the DEPLOYMENT's switch, not the chip narrowing.
 
         ``posture()`` short-circuits to the environment answer before the store
@@ -1298,7 +1317,8 @@ class TestTheRefusalNamesItsOwnSource:
         assert "every session" in envelope["error_message"]
         assert "OSPREY_EXECUTION_MODE=readonly" in " ".join(envelope["suggestions"])
 
-    async def test_a_narrowed_target_is_named_in_the_refusal(self, project, session):
+    @pytest.mark.usefixtures("project")
+    async def test_a_narrowed_target_is_named_in_the_refusal(self, session):
         """The store source is the operator's own narrowing of ONE machine.
 
         So the refusal names it. "This terminal session is in the sandbox
@@ -1315,7 +1335,8 @@ class TestTheRefusalNamesItsOwnSource:
         assert "applies deployment-wide" in envelope["error_message"]
         assert "terminal session is in the sandbox posture" not in envelope["error_message"]
 
-    async def test_an_unnameable_target_invents_no_machine(self, project, session, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_an_unnameable_target_invents_no_machine(self, session, monkeypatch):
         """The degraded cell: the clamp fired, but the target cannot be named.
 
         ``posture()`` resolved a target and clamped; this refusal resolves it
@@ -1338,7 +1359,8 @@ class TestTheRefusalNamesItsOwnSource:
         assert "most restrictive" in envelope["error_message"]
         assert "'live'" not in envelope["error_message"]
 
-    async def test_a_raising_resolver_still_refuses(self, project, session, monkeypatch):
+    @pytest.mark.usefixtures("project")
+    async def test_a_raising_resolver_still_refuses(self, session, monkeypatch):
         """Naming the target is a convenience; refusing is the contract.
 
         This middleware exists so that an internal error can never become an
@@ -1361,7 +1383,8 @@ class TestTheRefusalNamesItsOwnSource:
 
 
 class TestPerTargetPostureClamp:
-    async def test_a_write_tool_is_refused_on_a_narrowed_target(self, project, session):
+    @pytest.mark.usefixtures("project")
+    async def test_a_write_tool_is_refused_on_a_narrowed_target(self, session):
         """No environment variable says sandbox; the store does, for this target."""
         session.on("live")
         session.narrow(live="sandbox")
@@ -1400,7 +1423,8 @@ class TestPerTargetPostureClamp:
         assert _records(project)[-1]["decision"] == DECISION_ALLOWED
         assert _records(project)[-1]["posture"] == am.POSTURE_WRITES
 
-    async def test_a_read_tool_runs_on_a_narrowed_target(self, project, session):
+    @pytest.mark.usefixtures("project")
+    async def test_a_read_tool_runs_on_a_narrowed_target(self, session):
         session.on("live")
         session.narrow(live="sandbox")
 
@@ -1408,7 +1432,8 @@ class TestPerTargetPostureClamp:
 
         assert seen == ["channel_read"]
 
-    async def test_an_unnarrowed_session_runs(self, project, session):
+    @pytest.mark.usefixtures("project")
+    async def test_an_unnarrowed_session_runs(self, session):
         session.on("live")
         session.narrow()
 
@@ -1416,7 +1441,8 @@ class TestPerTargetPostureClamp:
 
         assert seen == ["channel_write"]
 
-    async def test_a_narrowing_lands_without_a_respawn(self, project, session):
+    @pytest.mark.usefixtures("project")
+    async def test_a_narrowing_lands_without_a_respawn(self, session):
         """One process, two answers: the store is re-read when its signature moves."""
         session.on("live")
         session.narrow()
@@ -1428,7 +1454,8 @@ class TestPerTargetPostureClamp:
 
         await _refused(middleware, "channel_write")
 
-    async def test_no_record_leaves_the_server_unclamped(self, project, session):
+    @pytest.mark.usefixtures("project", "session")
+    async def test_no_record_leaves_the_server_unclamped(self):
         """With no record at all there is no narrowing to enforce.
 
         A narrowing cannot arrive without a target any more — they are two
@@ -1441,8 +1468,9 @@ class TestPerTargetPostureClamp:
 
         assert seen == ["channel_write"]
 
+    @pytest.mark.usefixtures("project")
     async def test_a_narrowed_target_reaches_a_server_carrying_no_session(
-        self, project, session, monkeypatch
+        self, session, monkeypatch
     ):
         """The narrowing is the deployment's, so nothing has to be addressed.
 

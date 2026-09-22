@@ -24,7 +24,7 @@ def runtime():
     return HealthRuntime({})
 
 
-async def _fake_probe(spec, ctx):
+async def _fake_probe(spec, _ctx):
     """Controllable stand-in probe driven by check params.
 
     Params recognized: ``result_status`` (default ok), ``sleep`` (seconds),
@@ -382,7 +382,7 @@ async def test_sync_callable_asking_for_runtime_is_refused(runtime) -> None:
     """A sync category cannot own the connector's loop, so it is not invoked."""
     called = False
 
-    def _cat(runtime):
+    def _cat(runtime):  # noqa: ARG001 - a health category is invoked with runtime as a keyword
         nonlocal called
         called = True
         return []

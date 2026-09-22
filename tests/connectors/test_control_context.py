@@ -109,7 +109,8 @@ def test_record_lives_beside_the_posture_store(data_root, monkeypatch):
     assert control_context.state_dir() == posture_store.state_dir()
 
 
-def test_record_path_is_none_without_a_root(rootless):
+@pytest.mark.usefixtures("rootless")
+def test_record_path_is_none_without_a_root():
     assert control_context.record_path() is None
     assert control_context.state_dir() is None
 
@@ -117,7 +118,8 @@ def test_record_path_is_none_without_a_root(rootless):
 # --- writing ---------------------------------------------------------------
 
 
-def test_write_then_read_round_trips(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_write_then_read_round_trips():
     record = control_context.ControlContext(
         target="va",
         generation=7,
@@ -137,7 +139,8 @@ def test_write_creates_the_state_directory(data_root):
     assert control_context.record_path().parent == control_context.state_dir()
 
 
-def test_write_payload_carries_exactly_the_record_contract(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_write_payload_carries_exactly_the_record_contract():
     control_context.write_record(
         control_context.ControlContext(
             target="standin",
@@ -153,7 +156,8 @@ def test_write_payload_carries_exactly_the_record_contract(data_root):
     assert payload["last_switch"] is None
 
 
-def test_write_replaces_atomically_and_leaves_no_litter(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_write_replaces_atomically_and_leaves_no_litter():
     first = control_context.write_record(
         control_context.ControlContext(target="live", generation=0)
     )
@@ -163,7 +167,8 @@ def test_write_replaces_atomically_and_leaves_no_litter(data_root):
     assert [p.name for p in control_context.state_dir().iterdir()] == ["control_context.json"]
 
 
-def test_a_written_record_is_group_readable_and_not_owner_only(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_a_written_record_is_group_readable_and_not_owner_only():
     """Mode 0640 exactly: the worker uid reads the record through the shared group."""
     state = control_context.state_dir()
     state.mkdir(parents=True)
@@ -174,7 +179,8 @@ def test_a_written_record_is_group_readable_and_not_owner_only(data_root):
     assert stat.S_IMODE(path.stat().st_mode) == 0o640
 
 
-def test_every_state_dir_file_is_written_group_readable_mode(data_root, tmp_path):
+@pytest.mark.usefixtures("data_root")
+def test_every_state_dir_file_is_written_group_readable_mode(tmp_path):
     """Not just the record — reports and switch requests take the same mode."""
     target = tmp_path / "state" / "server_4242.json"
 
@@ -183,7 +189,8 @@ def test_every_state_dir_file_is_written_group_readable_mode(data_root, tmp_path
     assert stat.S_IMODE(target.stat().st_mode) == 0o640
 
 
-def test_a_writer_created_state_dir_is_exactly_mode_2770(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_a_writer_created_state_dir_is_exactly_mode_2770():
     """Setgid group-shared, and never left world-readable by the writer."""
     control_context.write_record(control_context.ControlContext(target="live", generation=0))
 
@@ -206,7 +213,8 @@ def test_every_level_the_writer_creates_is_exactly_mode_2770(data_root):
     assert stat.S_IMODE(tree_root.stat().st_mode) == 0o2770
 
 
-def test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with():
     """Only a directory the writer creates gets a mode; deployment owns the rest.
 
     The provisioned directory is this identity's own — the one the record lands
@@ -223,12 +231,14 @@ def test_an_existing_state_dir_keeps_the_mode_it_was_provisioned_with(data_root)
     assert stat.S_IMODE(state.stat().st_mode) == 0o2750
 
 
-def test_write_raises_when_the_record_has_nowhere_to_live(rootless):
+@pytest.mark.usefixtures("rootless")
+def test_write_raises_when_the_record_has_nowhere_to_live():
     with pytest.raises(RuntimeError):
         control_context.write_record(control_context.ControlContext(target="live", generation=0))
 
 
-def test_refusal_terminus_moves_nothing_else(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_refusal_terminus_moves_nothing_else():
     import dataclasses
 
     applied = control_context.ControlContext(
@@ -289,11 +299,13 @@ def test_read_accepts_an_explicit_path(tmp_path):
 # --- reading: degraded outcomes are all None -------------------------------
 
 
-def test_missing_record_reads_as_none(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_missing_record_reads_as_none():
     assert control_context.read_record() is None
 
 
-def test_unresolvable_root_reads_as_none(rootless):
+@pytest.mark.usefixtures("rootless")
+def test_unresolvable_root_reads_as_none():
     assert control_context.read_record() is None
 
 
@@ -469,7 +481,8 @@ def test_an_unchanged_signature_is_not_re_parsed(data_root):
     assert control_context.read_record().generation == 8
 
 
-def test_an_atomic_replace_is_seen_even_at_the_same_mtime_and_size(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_an_atomic_replace_is_seen_even_at_the_same_mtime_and_size():
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     path = control_context.record_path()
     before = path.stat()
@@ -485,7 +498,8 @@ def test_an_atomic_replace_is_seen_even_at_the_same_mtime_and_size(data_root):
     assert control_context.read_record().generation == 2
 
 
-def test_a_removed_record_stops_being_served_from_the_cache(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_a_removed_record_stops_being_served_from_the_cache():
     control_context.write_record(control_context.ControlContext(target="va", generation=1))
     assert control_context.read_record() is not None
     control_context.record_path().unlink()
@@ -509,7 +523,7 @@ def test_parse_record_accepts_text_and_objects():
 def _kill_with_dead(dead_pids):
     """An ``os.kill`` that reports *dead_pids* gone and everything else alive."""
 
-    def fake_kill(pid, sig):
+    def fake_kill(pid, _sig):
         if pid in dead_pids:
             raise ProcessLookupError(pid)
         return None
@@ -527,7 +541,7 @@ def test_a_gone_pid_is_not_alive(monkeypatch):
 
 
 def test_a_process_we_may_not_signal_counts_as_alive(monkeypatch):
-    def denied(pid, sig):
+    def denied(pid, _sig):
         raise PermissionError(pid)
 
     monkeypatch.setattr(os, "kill", denied)
@@ -535,7 +549,7 @@ def test_a_process_we_may_not_signal_counts_as_alive(monkeypatch):
 
 
 def test_an_unexpected_os_error_counts_as_alive(monkeypatch):
-    def odd(pid, sig):
+    def odd(_pid, _sig):
         raise OSError("platform oddity")
 
     monkeypatch.setattr(os, "kill", odd)
@@ -546,7 +560,7 @@ def test_an_unexpected_os_error_counts_as_alive(monkeypatch):
 def test_nothing_but_a_positive_int_names_a_process(monkeypatch, value):
     """``True`` is ``1`` to ``os.kill``, and PID 1 is always alive."""
 
-    def explode(pid, sig):  # pragma: no cover - must not be called
+    def explode(pid, _sig):  # pragma: no cover - must not be called
         raise AssertionError(f"os.kill called with {pid!r}")
 
     monkeypatch.setattr(os, "kill", explode)
@@ -592,7 +606,8 @@ def test_reports_live_beside_the_record(data_root):
     assert expected.parent == control_context.record_path().parent
 
 
-def test_report_path_is_none_without_a_root(rootless):
+@pytest.mark.usefixtures("rootless")
+def test_report_path_is_none_without_a_root():
     assert control_context.report_path(4321) is None
     assert control_context.report_paths() == []
 
@@ -715,7 +730,7 @@ def test_live_report_payloads_drop_a_report_whose_server_pid_is_a_bool(data_root
     """``True`` would reach ``os.kill(1, 0)`` and read as alive forever."""
     _write_report(data_root, 4321, _report_payload(True))
 
-    def explode(pid, sig):  # pragma: no cover - must not be called
+    def explode(pid, _sig):  # pragma: no cover - must not be called
         raise AssertionError(f"os.kill called with {pid!r}")
 
     monkeypatch.setattr(os, "kill", explode)
@@ -758,7 +773,8 @@ def test_the_kept_file_is_never_probed(data_root, monkeypatch):
     assert own.exists()
 
 
-def test_a_filename_that_encodes_no_pid_is_swept(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_a_filename_that_encodes_no_pid_is_swept():
     directory = control_context.state_dir()
     directory.mkdir(parents=True)
     junk = directory / "server_notapid.json"
@@ -781,7 +797,8 @@ def test_salvage_sees_the_file_before_it_goes(data_root, monkeypatch):
     assert [r.server_pid for r in seen] == [4321]
 
 
-def test_a_missing_directory_sweeps_to_empty(data_root):
+@pytest.mark.usefixtures("data_root")
+def test_a_missing_directory_sweeps_to_empty():
     assert not control_context.state_dir().exists()
     assert _sweep(control_context.state_dir()) == []
 
@@ -1060,7 +1077,8 @@ def test_converged_reads_a_one_shot_iterable_of_reports_once():
     assert control_context.blocking_pids(record, reports, "sess-1") == (4321,)
 
 
-def test_converged_reads_no_files(rootless):
+@pytest.mark.usefixtures("rootless")
+def test_converged_reads_no_files():
     """A pure judgement over parsed data: sandboxes and kernels call it hot."""
     record = _context()
     assert control_context.converged(record, [_report(4321)], "sess-1") is True

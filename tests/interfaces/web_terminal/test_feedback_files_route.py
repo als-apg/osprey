@@ -163,10 +163,9 @@ class TestContentReturns404:
         resp = _make_client(workspace, store).get("/api/files/content/alias/fb-abc123.json")
         assert resp.status_code == 404
 
+    @pytest.mark.usefixtures("case_insensitive_fs")
     @pytest.mark.parametrize("spelling", ["FEEDBACK", "Feedback", "fEeDbAcK"])
-    def test_case_variant_spellings_cannot_bypass_the_guard(
-        self, case_insensitive_fs, workspace, store, spelling
-    ):
+    def test_case_variant_spellings_cannot_bypass_the_guard(self, workspace, store, spelling):
         """On a case-insensitive filesystem (APFS, NTFS) ``FEEDBACK/fb-1.json``
         opens the very same record, and ``Path.resolve`` does not canonicalize
         case — so a parts-based containment check would serve it.
@@ -209,19 +208,22 @@ class TestStoreOutsideTheWorkspace:
     """With ``web_terminal.watch_dir`` set, the store sits outside the served
     tree — the routes must then behave exactly as they did before."""
 
+    # ``workspace`` creates the agent-data directory this store has to sit outside of.
     @pytest.fixture
-    def outside_store(self, workspace, tmp_path):
+    def outside_store(self, workspace, tmp_path):  # noqa: ARG002
         outside = tmp_path / "shared_data" / "feedback"
         outside.mkdir(parents=True)
         (outside / "fb-xyz.json").write_text("{}")
         return outside
 
-    def test_tree_is_unchanged(self, workspace, store, outside_store):
+    @pytest.mark.usefixtures("store")
+    def test_tree_is_unchanged(self, workspace, outside_store):
         """A workspace directory named ``feedback`` is NOT the store here."""
         client = _make_client(workspace, outside_store)
         assert "feedback" in _child_names(client.get("/api/files/tree").json())
 
-    def test_content_is_unchanged(self, workspace, store, outside_store):
+    @pytest.mark.usefixtures("store")
+    def test_content_is_unchanged(self, workspace, outside_store):
         resp = _make_client(workspace, outside_store).get(
             "/api/files/content/feedback/fb-abc123.json"
         )
@@ -230,18 +232,21 @@ class TestStoreOutsideTheWorkspace:
 
 
 class TestFeedbackDirUnset:
-    def test_tree_and_content_behave_as_before(self, workspace, store):
+    @pytest.mark.usefixtures("store")
+    def test_tree_and_content_behave_as_before(self, workspace):
         client = _make_client(workspace, None, set_state=False)
         assert "feedback" in _child_names(client.get("/api/files/tree").json())
         resp = client.get("/api/files/content/feedback/fb-abc123.json")
         assert resp.status_code == 200
 
-    def test_a_none_valued_feedback_dir_is_also_a_no_op(self, workspace, store):
+    @pytest.mark.usefixtures("store")
+    def test_a_none_valued_feedback_dir_is_also_a_no_op(self, workspace):
         client = _make_client(workspace, None)
         assert "feedback" in _child_names(client.get("/api/files/tree").json())
         assert client.get("/api/files/content/feedback/fb-abc123.json").status_code == 200
 
-    def test_an_unusable_value_fails_open_but_says_so(self, workspace, store, caplog):
+    @pytest.mark.usefixtures("store")
+    def test_an_unusable_value_fails_open_but_says_so(self, workspace, caplog):
         """A non-path value cannot be compared against, so the browser keeps
         working — but a privacy control that quietly switches itself off is
         indistinguishable from one that is working, so it must log."""

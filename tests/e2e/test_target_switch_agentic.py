@@ -2281,7 +2281,7 @@ async def test_a_denied_switch_leaves_the_session_where_it_was(
     """
     before = caget(switch_deployment.bench_port, CORRECTOR_SP)
 
-    def deny_the_switch(tool_name: str, tool_input: dict) -> bool:
+    def deny_the_switch(tool_name: str, _tool_input: dict) -> bool:
         return tool_name != CONTROL_TARGET_SET_TOOL
 
     result = await run_switch_session(

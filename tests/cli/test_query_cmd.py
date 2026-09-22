@@ -203,7 +203,7 @@ class TestWriteToolSafety:
         mock_result = _make_result(mcp_servers=_connected_servers("controls"))
         captured: list[list[str]] = []
 
-        async def capturing_run_query(project_dir, prompt, *, disallowed_tools, **kwargs):
+        async def capturing_run_query(project_dir, prompt, *, disallowed_tools, **kwargs):  # noqa: ARG001 - the leading positions run_query is called at
             captured.append(list(disallowed_tools))
             return mock_result
 

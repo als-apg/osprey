@@ -31,9 +31,9 @@ class WatermarkSearchInput(BaseModel):
 
 
 async def watermark_search(
-    query: str,
+    query: str,  # noqa: ARG001 - the search-module interface names the tool's own fields
     repository: ARIELRepository,
-    config: ARIELConfig,
+    config: ARIELConfig,  # noqa: ARG001 - the search-module interface names the tool's own fields
     *,
     max_results: int = 10,
     **kwargs: Any,

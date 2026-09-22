@@ -77,7 +77,14 @@ def runtime(monkeypatch):
         lambda *a, **k: record.setdefault("built", True),
     )
 
-    def _fake_run(cmd, env=None, check=False, capture_output=False, text=False, **kwargs):
+    def _fake_run(
+        cmd,
+        env=None,  # noqa: ARG001 - subprocess.run's keywords
+        check=False,  # noqa: ARG001 - subprocess.run's keywords
+        capture_output=False,  # noqa: ARG001 - subprocess.run's keywords
+        text=False,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         # ``**kwargs`` swallows the redirection keywords ``run_captured`` passes
         # (``cwd``/``stdout``/``stderr``): a captured child's output goes to a
         # spool file, and nothing here writes any, so they are ignored.
@@ -147,7 +154,8 @@ def verbs_in_order(record: dict) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_down_stops_the_compose_files_the_build_left(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_down_stops_the_compose_files_the_build_left(lifecycle_repo, runtime):
     render_build(lifecycle_repo)
 
     result = run_down(lifecycle_repo)
@@ -159,7 +167,8 @@ def test_down_stops_the_compose_files_the_build_left(lifecycle_repo, runtime, no
     assert str(build / "event_dispatcher" / "docker-compose.yml") in argv
 
 
-def test_down_pins_the_project_directory_and_env_file_to_the_repo(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_down_pins_the_project_directory_and_env_file_to_the_repo(lifecycle_repo, runtime):
     """The invocation contract, on the stop path too.
 
     A ``down`` that resolved its project directory anywhere else would target a
@@ -177,7 +186,8 @@ def test_down_pins_the_project_directory_and_env_file_to_the_repo(lifecycle_repo
     assert env_files[-1] == str(lifecycle_repo / ".env")
 
 
-def test_down_never_removes_volumes(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_down_never_removes_volumes(lifecycle_repo, runtime):
     """Stopping a deployment is not a way to lose its data."""
     render_build(lifecycle_repo)
 
@@ -189,7 +199,8 @@ def test_down_never_removes_volumes(lifecycle_repo, runtime, no_web):
     assert "--rmi" not in argv
 
 
-def test_down_stops_the_web_stack_before_the_services(lifecycle_repo, runtime, monkeypatch):
+@pytest.mark.usefixtures("runtime")
+def test_down_stops_the_web_stack_before_the_services(lifecycle_repo, monkeypatch):
     """Web first, or its containers keep host-global names the next deploy wants.
 
     The two stacks are separate compose invocations against one project, and the
@@ -218,7 +229,8 @@ def test_down_stops_the_web_stack_before_the_services(lifecycle_repo, runtime, m
     assert order == ["web", "services"]
 
 
-def test_down_leaves_the_web_stack_alone_when_it_is_not_enabled(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("runtime")
+def test_down_leaves_the_web_stack_alone_when_it_is_not_enabled(lifecycle_repo, no_web):
     render_build(lifecycle_repo)
 
     run_down(lifecycle_repo)
@@ -226,7 +238,8 @@ def test_down_leaves_the_web_stack_alone_when_it_is_not_enabled(lifecycle_repo, 
     assert no_web == []
 
 
-def test_down_is_correct_from_a_subdirectory(lifecycle_repo, runtime, no_web, monkeypatch):
+@pytest.mark.usefixtures("no_web")
+def test_down_is_correct_from_a_subdirectory(lifecycle_repo, runtime, monkeypatch):
     render_build(lifecycle_repo)
     inside = lifecycle_repo / "profiles"
     inside.mkdir(exist_ok=True)
@@ -239,7 +252,8 @@ def test_down_is_correct_from_a_subdirectory(lifecycle_repo, runtime, no_web, mo
     assert argv[argv.index("--project-directory") + 1] == str(lifecycle_repo)
 
 
-def test_the_working_directory_survives_a_down(lifecycle_repo, runtime, no_web, tmp_path):
+@pytest.mark.usefixtures("runtime", "no_web")
+def test_the_working_directory_survives_a_down(lifecycle_repo):
     """``down`` chdirs into the repo and does not execvpe away; it must restore."""
     render_build(lifecycle_repo)
     before = Path.cwd()
@@ -249,9 +263,8 @@ def test_the_working_directory_survives_a_down(lifecycle_repo, runtime, no_web, 
     assert Path.cwd() == before
 
 
-def test_a_failed_compose_down_says_the_containers_may_still_be_running(
-    lifecycle_repo, runtime, no_web
-):
+@pytest.mark.usefixtures("no_web")
+def test_a_failed_compose_down_says_the_containers_may_still_be_running(lifecycle_repo, runtime):
     render_build(lifecycle_repo)
     runtime["fail"]["down"] = 1
 
@@ -268,7 +281,8 @@ def test_a_failed_compose_down_says_the_containers_may_still_be_running(
 # ---------------------------------------------------------------------------
 
 
-def test_a_wiped_build_falls_back_to_stopping_by_label(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_a_wiped_build_falls_back_to_stopping_by_label(lifecycle_repo, runtime):
     """The CC-3 stranding recovery: no compose files, but containers are running.
 
     Without this the containers are unreachable by any OSPREY verb — ``compose
@@ -288,7 +302,8 @@ def test_a_wiped_build_falls_back_to_stopping_by_label(lifecycle_repo, runtime, 
     assert argv_for(runtime, "rm")[2:] == ["abc123", "def456"]
 
 
-def test_the_label_filter_is_the_identity_the_render_baked_in(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_the_label_filter_is_the_identity_the_render_baked_in(lifecycle_repo, runtime):
     """One spelling of the repo identity, shared with the render.
 
     If the sweep derived the identity any other way, it would select nothing on a
@@ -305,7 +320,8 @@ def test_the_label_filter_is_the_identity_the_render_baked_in(lifecycle_repo, ru
     assert "-aq" in argv
 
 
-def test_the_label_sweep_is_scoped_to_this_checkout_only(tmp_path, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_the_label_sweep_is_scoped_to_this_checkout_only(tmp_path, runtime):
     """Two checkouts of one deployment must not stop each other's containers."""
     one = build_exemplar_repo(tmp_path / "one")
     two = build_exemplar_repo(tmp_path / "two")
@@ -319,7 +335,8 @@ def test_the_label_sweep_is_scoped_to_this_checkout_only(tmp_path, runtime, no_w
     assert repo_identity(two) not in " ".join(argv)
 
 
-def test_the_label_sweep_removes_no_volumes(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_the_label_sweep_removes_no_volumes(lifecycle_repo, runtime):
     render_build(lifecycle_repo)
     runtime["ps_stdout"] = "abc123\n"
     (lifecycle_repo / "build" / "config.yml").unlink()
@@ -332,8 +349,11 @@ def test_the_label_sweep_removes_no_volumes(lifecycle_repo, runtime, no_web):
     assert "--volumes" not in flat
 
 
+@pytest.mark.usefixtures("no_web")
 def test_finding_no_labelled_container_does_not_claim_the_stack_is_down(
-    lifecycle_repo, runtime, no_web, caplog
+    lifecycle_repo,
+    runtime,
+    caplog,
 ):
     """The honest limit, said out loud rather than implied by silence.
 
@@ -369,9 +389,8 @@ def test_finding_no_labelled_container_does_not_claim_the_stack_is_down(
     assert "osprey build" in text
 
 
-def test_a_failed_label_listing_refuses_rather_than_reporting_success(
-    lifecycle_repo, runtime, no_web
-):
+@pytest.mark.usefixtures("no_web")
+def test_a_failed_label_listing_refuses_rather_than_reporting_success(lifecycle_repo, runtime):
     render_build(lifecycle_repo)
     runtime["fail"]["ps"] = 1
     (lifecycle_repo / "build" / "config.yml").unlink()
@@ -384,9 +403,8 @@ def test_a_failed_label_listing_refuses_rather_than_reporting_success(
     assert verbs_in_order(runtime) == ["ps"]
 
 
-def test_a_failed_label_stop_says_the_containers_may_still_be_running(
-    lifecycle_repo, runtime, no_web
-):
+@pytest.mark.usefixtures("no_web")
+def test_a_failed_label_stop_says_the_containers_may_still_be_running(lifecycle_repo, runtime):
     render_build(lifecycle_repo)
     runtime["ps_stdout"] = "abc123\n"
     runtime["fail"]["stop"] = 1
@@ -399,9 +417,8 @@ def test_a_failed_label_stop_says_the_containers_may_still_be_running(
     assert "may still be running" not in result.stdout
 
 
-def test_a_build_with_a_config_but_no_compose_files_still_stops_by_label(
-    lifecycle_repo, runtime, no_web
-):
+@pytest.mark.usefixtures("no_web")
+def test_a_build_with_a_config_but_no_compose_files_still_stops_by_label(lifecycle_repo, runtime):
     """The config survived; the rendered compose files did not. Same recovery."""
     render_build(lifecycle_repo, with_compose=False)
     runtime["ps_stdout"] = "abc123\n"
@@ -412,7 +429,8 @@ def test_a_build_with_a_config_but_no_compose_files_still_stops_by_label(
     assert verbs_in_order(runtime) == ["ps", "stop", "rm"]
 
 
-def test_the_label_sweep_stops_before_it_removes(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_the_label_sweep_stops_before_it_removes(lifecycle_repo, runtime):
     """``stop`` then ``rm``, as ``compose down`` does it.
 
     A bare ``rm -f`` would SIGKILL the containers instead of giving them the
@@ -433,7 +451,8 @@ def test_the_label_sweep_stops_before_it_removes(lifecycle_repo, runtime, no_web
 # ---------------------------------------------------------------------------
 
 
-def test_restart_stops_and_then_starts(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_restart_stops_and_then_starts(lifecycle_repo, runtime):
     """Recreate, do not resume.
 
     ``compose restart`` restarts each container against the definition it was
@@ -451,7 +470,8 @@ def test_restart_stops_and_then_starts(lifecycle_repo, runtime, no_web):
     assert order.index("down") < order.index("up")
 
 
-def test_restart_never_renders_the_services_stack(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("runtime", "no_web")
+def test_restart_never_renders_the_services_stack(lifecycle_repo):
     """The ``prepare_compose_files`` stub in the fixture raises if it is reached."""
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
@@ -461,7 +481,8 @@ def test_restart_never_renders_the_services_stack(lifecycle_repo, runtime, no_we
     assert result.exit_code == 0, result.output
 
 
-def test_restart_starts_the_compose_files_the_build_left(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_restart_starts_the_compose_files_the_build_left(lifecycle_repo, runtime):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
 
@@ -476,7 +497,8 @@ def test_restart_starts_the_compose_files_the_build_left(lifecycle_repo, runtime
 # ---------------------------------------------------------------------------
 
 
-def test_drift_refuses_the_restart_and_stops_nothing(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_drift_refuses_the_restart_and_stops_nothing(lifecycle_repo, runtime):
     """The property that makes the gate worth having on this verb.
 
     A restart that stopped the stack and *then* discovered it could not start it
@@ -495,7 +517,8 @@ def test_drift_refuses_the_restart_and_stops_nothing(lifecycle_repo, runtime, no
     assert "osprey restart --build" not in result.stdout
 
 
-def test_the_drift_refusal_names_this_verb_not_up(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("runtime", "no_web")
+def test_the_drift_refusal_names_this_verb_not_up(lifecycle_repo):
     """The remedies have to be commands the operator can actually type."""
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo, stamped_hash="stale")
@@ -505,7 +528,8 @@ def test_the_drift_refusal_names_this_verb_not_up(lifecycle_repo, runtime, no_we
     assert "osprey up --build" not in result.output
 
 
-def test_as_built_restarts_the_drifted_build_and_says_so(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_as_built_restarts_the_drifted_build_and_says_so(lifecycle_repo, runtime):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo, stamped_hash="stale")
 
@@ -517,12 +541,11 @@ def test_as_built_restarts_the_drifted_build_and_says_so(lifecycle_repo, runtime
     assert "Starting build/ as it was rendered (--as-built)" not in result.stdout
 
 
-def test_build_chains_the_render_then_stops_and_starts(
-    lifecycle_repo, runtime, no_web, monkeypatch
-):
+@pytest.mark.usefixtures("no_web")
+def test_build_chains_the_render_then_stops_and_starts(lifecycle_repo, runtime, monkeypatch):
     chained: list = []
 
-    def _fake_chain(ctx, repo_root, *, dev=False):
+    def _fake_chain(_ctx, repo_root, *, dev=False):  # noqa: ARG001 - _chain_build's dev keyword
         chained.append(repo_root)
 
     import osprey.cli.deploy_cmd as deploy_cmd
@@ -538,7 +561,8 @@ def test_build_chains_the_render_then_stops_and_starts(
     assert verbs_in_order(runtime).index("down") < verbs_in_order(runtime).index("up")
 
 
-def test_build_and_as_built_are_refused_together(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_build_and_as_built_are_refused_together(lifecycle_repo, runtime):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
 
@@ -549,7 +573,8 @@ def test_build_and_as_built_are_refused_together(lifecycle_repo, runtime, no_web
     assert runtime["cmds"] == []
 
 
-def test_a_missing_build_refuses_and_stops_nothing(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_a_missing_build_refuses_and_stops_nothing(lifecycle_repo, runtime):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
 
     result = run_restart(lifecycle_repo, "-d")
@@ -560,7 +585,8 @@ def test_a_missing_build_refuses_and_stops_nothing(lifecycle_repo, runtime, no_w
     assert "run `osprey build` first" not in result.stdout
 
 
-def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, runtime):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
 
     result = run_restart(lifecycle_repo, "-d", "--as-built")
@@ -571,7 +597,8 @@ def test_as_built_is_not_an_escape_from_having_no_build(lifecycle_repo, runtime,
     assert "--as-built starts a build that already exists" not in result.stdout
 
 
-def test_dev_mode_refuses_before_anything_is_stopped(lifecycle_repo, runtime, no_web, monkeypatch):
+@pytest.mark.usefixtures("no_web")
+def test_dev_mode_refuses_before_anything_is_stopped(lifecycle_repo, runtime, monkeypatch):
     """A ``--dev`` that cannot stage a wheel must not take the stack down first."""
     from osprey.deployment.errors import DevModeUnavailableError
 
@@ -590,7 +617,8 @@ def test_dev_mode_refuses_before_anything_is_stopped(lifecycle_repo, runtime, no
     assert "Nothing was stopped" not in result.stdout
 
 
-def test_a_missing_env_refuses_before_anything_is_stopped(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("no_web")
+def test_a_missing_env_refuses_before_anything_is_stopped(lifecycle_repo, runtime):
     render_build(lifecycle_repo)
 
     result = run_restart(lifecycle_repo, "-d")
@@ -651,9 +679,8 @@ def test_the_top_level_verb_takes_no_project_flag(name):
 # ---------------------------------------------------------------------------
 
 
-def test_restart_mints_into_the_repo_env_from_any_directory(
-    lifecycle_repo, runtime, no_web, monkeypatch
-):
+@pytest.mark.usefixtures("no_web")
+def test_restart_mints_into_the_repo_env_from_any_directory(lifecycle_repo, runtime, monkeypatch):
     """Carry-forward from ``up``: the mint path is passed explicitly.
 
     ``_ensure_service_tokens`` falls back to a cwd-relative ``.env``. If restart
@@ -681,7 +708,8 @@ def test_restart_mints_into_the_repo_env_from_any_directory(
     assert env_files[-1] == str(lifecycle_repo / ".env")
 
 
-def test_the_working_directory_survives_a_restart(lifecycle_repo, runtime, no_web):
+@pytest.mark.usefixtures("runtime", "no_web")
+def test_the_working_directory_survives_a_restart(lifecycle_repo):
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
     render_build(lifecycle_repo)
     before = Path.cwd()

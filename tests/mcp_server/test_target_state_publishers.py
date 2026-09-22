@@ -74,7 +74,7 @@ REPORT_FIELDS = {
 
 
 @pytest.fixture
-def started(state_root):
+def started(state_root):  # noqa: ARG001 - the report it writes lands under the anchored root
     """A server whose report exists, so a merge has something to merge into."""
     target_state.write_server_record(TARGETS_META, server_pid=os.getpid(), session="sess-1")
     return os.getpid()
@@ -84,7 +84,7 @@ def _dead_pid(monkeypatch, dead):
     """Make ``is_process_alive`` report *dead* as gone and everything else alive."""
     real = os.kill
 
-    def fake_kill(pid, sig):
+    def fake_kill(pid, _sig):
         if pid in dead:
             raise ProcessLookupError
         return real(os.getpid(), 0)
@@ -120,7 +120,7 @@ class TestRequestFileContract:
             / "switch_request_4321.json"
         )
 
-    def test_path_defaults_to_this_process(self, state_root):
+    def test_path_defaults_to_this_process(self):
         assert target_state.request_file_path().name == f"switch_request_{os.getpid()}.json"
 
     def test_glob_matches_the_file_the_writer_produces(self, state_root):
@@ -131,7 +131,8 @@ class TestRequestFileContract:
             "switch_request_4321.json"
         ]
 
-    def test_request_glob_never_matches_a_report(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_request_glob_never_matches_a_report(self):
         directory = target_state.state_dir()
         assert list(directory.glob(target_state.REQUEST_FILE_GLOB)) == []
 
@@ -143,7 +144,7 @@ class TestRequestFileContract:
 
 
 class TestWriteRequest:
-    def test_round_trips_the_record(self, state_root):
+    def test_round_trips_the_record(self):
         record = {
             "request_id": "req-1",
             "target": "standin",
@@ -157,7 +158,7 @@ class TestWriteRequest:
         assert json.loads(path.read_text(encoding="utf-8")) == record
         assert target_state.read_file(target_state.request_file_path(4321)) == record
 
-    def test_a_session_less_requester_writes_a_null_session(self, state_root):
+    def test_a_session_less_requester_writes_a_null_session(self):
         """A bare ``claude`` asks the same way every other process does."""
         target_state.write_request(
             {"request_id": "r", "target": "va", "session": None, "requested_by_pid": 4321}
@@ -165,7 +166,7 @@ class TestWriteRequest:
 
         assert target_state.read_file(target_state.request_file_path(4321))["session"] is None
 
-    def test_requested_at_is_stamped_when_the_caller_omits_it(self, state_root):
+    def test_requested_at_is_stamped_when_the_caller_omits_it(self):
         """A request that cannot be aged could never expire, so it is never written."""
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
 
@@ -180,7 +181,7 @@ class TestWriteRequest:
 
         assert state_dir_under(state_root).is_dir()
 
-    def test_a_second_request_replaces_the_first(self, state_root):
+    def test_a_second_request_replaces_the_first(self):
         target_state.write_request({"request_id": "one", "target": "va", "requested_by_pid": 4321})
         target_state.write_request(
             {"request_id": "two", "target": "live", "requested_by_pid": 4321}
@@ -198,11 +199,11 @@ class TestWriteRequest:
             "not a mapping",
         ],
     )
-    def test_a_request_from_nobody_is_a_programming_error(self, record, state_root):
+    def test_a_request_from_nobody_is_a_programming_error(self, record):
         with pytest.raises(ValueError):
             target_state.write_request(record)
 
-    def test_the_addressed_server_is_no_longer_part_of_the_record(self, state_root):
+    def test_the_addressed_server_is_no_longer_part_of_the_record(self):
         """A request says what was asked for, never which server must answer it."""
         with pytest.raises(ValueError):
             target_state.write_request({"request_id": "r", "target": "va", "server_pid": 4321})
@@ -233,7 +234,7 @@ class TestRequestReadBack:
     it. Only the second is a supersession.
     """
 
-    def test_a_request_consumed_before_the_read_back_still_landed(self, state_root, monkeypatch):
+    def test_a_request_consumed_before_the_read_back_still_landed(self, monkeypatch):
         real_read = target_state.read_file
 
         def consume(path):
@@ -249,7 +250,7 @@ class TestRequestReadBack:
         assert path == target_state.request_file_path(4321)
         assert not path.exists()
 
-    def test_a_different_request_id_in_the_slot_is_superseded(self, state_root, monkeypatch):
+    def test_a_different_request_id_in_the_slot_is_superseded(self, monkeypatch):
         monkeypatch.setattr(target_state, "read_file", lambda path: {"request_id": "theirs"})
 
         with pytest.raises(target_state.RequestSuperseded):
@@ -257,7 +258,7 @@ class TestRequestReadBack:
                 {"request_id": "mine", "target": "va", "requested_by_pid": 4321}
             )
 
-    def test_an_unreadable_slot_is_not_superseded(self, state_root, monkeypatch):
+    def test_an_unreadable_slot_is_not_superseded(self, monkeypatch):
         """Nothing readable says another id won; the caller waits on the record."""
         monkeypatch.setattr(target_state, "read_file", lambda path: None)
 
@@ -265,7 +266,7 @@ class TestRequestReadBack:
 
 
 class TestReadAndRemoveRequest:
-    def test_absent_request_reads_as_none(self, state_root):
+    def test_absent_request_reads_as_none(self):
         assert target_state.read_file(target_state.request_file_path(4321)) is None
 
     def test_corrupt_request_reads_as_none(self, state_root):
@@ -275,25 +276,25 @@ class TestReadAndRemoveRequest:
 
         assert target_state.read_file(target_state.request_file_path(4321)) is None
 
-    def test_read_defaults_to_this_process(self, state_root):
+    def test_read_defaults_to_this_process(self):
         target_state.write_request(
             {"request_id": "mine", "target": "va", "requested_by_pid": os.getpid()}
         )
 
         assert target_state.read_file(target_state.request_file_path())["request_id"] == "mine"
 
-    def test_remove_deletes_the_request(self, state_root):
+    def test_remove_deletes_the_request(self):
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
 
         target_state.remove_request(4321)
 
         assert target_state.read_file(target_state.request_file_path(4321)) is None
 
-    def test_remove_is_idempotent(self, state_root):
+    def test_remove_is_idempotent(self):
         target_state.remove_request(4321)
         target_state.remove_request(4321)  # no exception is the assertion
 
-    def test_remove_only_touches_the_named_requester(self, state_root):
+    def test_remove_only_touches_the_named_requester(self):
         target_state.write_request({"request_id": "a", "target": "va", "requested_by_pid": 4321})
         target_state.write_request({"request_id": "b", "target": "va", "requested_by_pid": 4322})
 
@@ -309,7 +310,7 @@ class TestRequestFreshness:
     def test_ttl_is_thirty_seconds(self):
         assert target_state.REQUEST_TTL_S == 30
 
-    def test_a_just_written_request_is_fresh(self, state_root):
+    def test_a_just_written_request_is_fresh(self):
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
 
         pending = target_state.read_file(target_state.request_file_path(4321))
@@ -354,7 +355,7 @@ class TestRequestFreshness:
 
 
 class TestRequestSweep:
-    def test_sweep_removes_a_request_from_a_dead_requester(self, state_root, monkeypatch):
+    def test_sweep_removes_a_request_from_a_dead_requester(self, monkeypatch):
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
         _dead_pid(monkeypatch, {4321})
 
@@ -362,7 +363,7 @@ class TestRequestSweep:
 
         assert target_state.read_file(target_state.request_file_path(4321)) is None
 
-    def test_sweep_leaves_a_request_from_a_live_requester_alone(self, state_root, monkeypatch):
+    def test_sweep_leaves_a_request_from_a_live_requester_alone(self, monkeypatch):
         target_state.write_request({"request_id": "r", "target": "va", "requested_by_pid": 4321})
         _dead_pid(monkeypatch, set())
 
@@ -380,7 +381,7 @@ class TestRequestSweep:
 
         assert not junk.exists()
 
-    def test_a_swept_request_contributes_no_orphans(self, state_root, monkeypatch):
+    def test_a_swept_request_contributes_no_orphans(self, monkeypatch):
         """Requests are not reports: they own no connector-host children."""
         target_state.write_request(
             {"request_id": "r", "target": "va", "requested_by_pid": 4321, "children": [777]}
@@ -400,7 +401,7 @@ class TestRequestSweep:
 
         assert marker.exists(), "the marker's own reader sweeps it; the report sweep must not"
 
-    def test_writing_the_report_drops_a_request_this_pid_left_behind(self, state_root):
+    def test_writing_the_report_drops_a_request_this_pid_left_behind(self):
         """Only a dead predecessor can have left one: this server has asked for nothing."""
         target_state.write_request(
             {"request_id": "stale", "target": "live", "requested_by_pid": os.getpid()}
@@ -429,7 +430,7 @@ class TestReportFileContract:
             state_root / target_state.STATE_DIR_NAME / acting_identity() / "server_4321.json"
         )
 
-    def test_path_defaults_to_this_process(self, state_root):
+    def test_path_defaults_to_this_process(self):
         assert target_state.report_file_path().name == f"server_{os.getpid()}.json"
 
     def test_the_writer_and_the_library_name_the_same_file(self, state_root, started):
@@ -446,18 +447,18 @@ class TestReportFileContract:
 
 
 class TestWriteServerRecord:
-    def test_writes_exactly_the_fields_the_library_parses(self, state_root):
+    def test_writes_exactly_the_fields_the_library_parses(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         assert set(target_state.read(1234)) == REPORT_FIELDS
 
-    def test_the_payload_round_trips_through_parse_report(self, state_root):
+    def test_the_payload_round_trips_through_parse_report(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234, session="s")
 
         payload = target_state.read(1234)
         assert control_context.parse_report(payload).to_payload() == payload
 
-    def test_a_fresh_report_has_reached_nothing(self, state_root):
+    def test_a_fresh_report_has_reached_nothing(self):
         """Null is not the baseline: this server has launched no child yet, and a
         reader that took a start-time guess for an observation would count an
         unconverged fleet as converged."""
@@ -467,49 +468,49 @@ class TestWriteServerRecord:
         assert report["applied_target"] is None
         assert report["applied_generation"] is None
 
-    def test_the_report_names_its_own_server(self, state_root):
+    def test_the_report_names_its_own_server(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         assert target_state.read(1234)["server_pid"] == 1234
 
-    def test_server_pid_defaults_to_this_process(self, state_root):
+    def test_server_pid_defaults_to_this_process(self):
         target_state.write_server_record(TARGETS_META)
 
         assert target_state.read()["server_pid"] == os.getpid()
 
-    def test_the_session_comes_from_the_environment(self, state_root, monkeypatch):
+    def test_the_session_comes_from_the_environment(self, monkeypatch):
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", "sess-from-env")
 
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         assert target_state.read(1234)["session"] == "sess-from-env"
 
-    def test_an_explicit_session_wins(self, state_root, monkeypatch):
+    def test_an_explicit_session_wins(self, monkeypatch):
         monkeypatch.setenv("OSPREY_POSTURE_SESSION", "sess-from-env")
 
         target_state.write_server_record(TARGETS_META, server_pid=1234, session="explicit")
 
         assert target_state.read(1234)["session"] == "explicit"
 
-    def test_a_bare_claude_reports_no_session(self, state_root):
+    def test_a_bare_claude_reports_no_session(self):
         """A server nobody stamped reports the same way every other one does."""
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         assert target_state.read(1234)["session"] is None
 
-    def test_every_target_slot_is_always_present(self, state_root):
+    def test_every_target_slot_is_always_present(self):
         target_state.write_server_record({"live": {"label": "Live"}}, server_pid=1234)
 
         targets = target_state.read(1234)["targets"]
         assert set(targets) == set(target_state.TARGET_NAMES)
         assert targets["va"] == {"label": "", "endpoint": "", "real_machine": False}
 
-    def test_children_known_at_start_are_recorded(self, state_root):
+    def test_children_known_at_start_are_recorded(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234, children=[901, 901, 902])
 
         assert target_state.read(1234)["children"] == [901, 902]
 
-    def test_updated_at_is_stamped(self, state_root):
+    def test_updated_at_is_stamped(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         stamp = target_state.read(1234)["updated_at"]
@@ -526,38 +527,43 @@ class TestWriteServerRecord:
 class TestPublishSwitch:
     """The one publisher that ends the null: a child has answered its init frame."""
 
-    def test_publishes_what_the_child_reached(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_publishes_what_the_child_reached(self):
         assert target_state.publish_switch("live", 4) is True
 
         report = target_state.read()
         assert report["applied_target"] == "live"
         assert report["applied_generation"] == 4
 
-    def test_it_can_carry_the_child_pids(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_it_can_carry_the_child_pids(self):
         target_state.publish_switch("live", 1, children=[901, 902])
 
         assert target_state.read()["children"] == [901, 902]
 
-    def test_the_children_are_left_alone_when_the_caller_says_nothing(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_the_children_are_left_alone_when_the_caller_says_nothing(self):
         target_state.record_child_pids([901])
 
         target_state.publish_switch("live", 1)
 
         assert target_state.read()["children"] == [901]
 
-    def test_a_standin_binding_round_trips(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_a_standin_binding_round_trips(self):
         target_state.publish_switch("standin", 2)
 
         assert _reparsed().applied_target == "standin"
 
-    def test_updated_at_advances(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_updated_at_advances(self):
         before = target_state.read()["updated_at"]
 
         target_state.publish_switch("live", 1)
 
         assert target_state.read()["updated_at"] >= before
 
-    def test_without_a_report_writes_nothing(self, state_root):
+    def test_without_a_report_writes_nothing(self):
         assert target_state.publish_switch("live", 1) is False
         assert target_state.read() is None
 
@@ -584,7 +590,7 @@ class TestPublishersAreSynchronous:
 class TestApplyingBound:
     """The deadline no reader can compute: the timeouts are this server's."""
 
-    def test_the_spawn_and_probe_pair_counts_twice(self, state_root):
+    def test_the_spawn_and_probe_pair_counts_twice(self):
         """A probe failure is retried once through the read-only gateway."""
         bound = target_state.applying_bound_s(
             spawn_timeout_s=10, probe_timeout_s=4, drain_timeout_s=5
@@ -592,7 +598,7 @@ class TestApplyingBound:
 
         assert bound == 5 + 2 * (10 + 4)
 
-    def test_a_launch_that_cannot_retry_counts_the_pair_once(self, state_root):
+    def test_a_launch_that_cannot_retry_counts_the_pair_once(self):
         bound = target_state.applying_bound_s(
             spawn_timeout_s=10, probe_timeout_s=4, drain_timeout_s=5, fallback_retry=False
         )
@@ -601,7 +607,8 @@ class TestApplyingBound:
 
 
 class TestPublishLastSwitch:
-    def test_publishes_a_terminus(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_publishes_a_terminus(self):
         outcome = {
             "generation": 4,
             "status": target_state.SWITCH_APPLIED,
@@ -613,20 +620,23 @@ class TestPublishLastSwitch:
         assert target_state.publish_last_switch(outcome) is True
         assert target_state.read()["last_switch"] == outcome
 
-    def test_the_generation_travels_with_the_block(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_the_generation_travels_with_the_block(self):
         """A reader matches a server's progress by generation, never by target:
         two servers can be on the same target at different generations."""
         target_state.publish_last_switch({"generation": 9, "status": target_state.SWITCH_FAILED})
 
         assert target_state.read()["last_switch"]["generation"] == 9
 
-    def test_at_is_stamped_when_the_caller_omits_it(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_at_is_stamped_when_the_caller_omits_it(self):
         target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_FAILED})
 
         block = target_state.read()["last_switch"]
         datetime.fromisoformat(block["at"])
 
-    def test_a_failure_reason_travels_verbatim(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_a_failure_reason_travels_verbatim(self):
         """The vocabulary is the switch lifecycle's; this module never edits it."""
         target_state.publish_last_switch(
             {
@@ -641,7 +651,8 @@ class TestPublishLastSwitch:
         assert block["reason"] == "spawn_failed"
         assert block["detail"] == "the child never answered"
 
-    def test_an_applying_block_carries_its_own_deadline(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_an_applying_block_carries_its_own_deadline(self):
         """Every other process only ever sees this file, so the bound is written
         into it by the one process that knows its own timeouts."""
         target_state.publish_last_switch(
@@ -656,7 +667,8 @@ class TestPublishLastSwitch:
         block = target_state.read()["last_switch"]
         assert block["expires_at"] == "2026-08-30T10:00:33+00:00"
 
-    def test_the_deadline_is_measured_from_the_stamp_it_publishes(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_the_deadline_is_measured_from_the_stamp_it_publishes(self):
         target_state.publish_last_switch(
             {"generation": 3, "status": target_state.SWITCH_APPLYING}, expires_in_s=30
         )
@@ -665,7 +677,8 @@ class TestPublishLastSwitch:
         span = datetime.fromisoformat(block["expires_at"]) - datetime.fromisoformat(block["at"])
         assert span == timedelta(seconds=30)
 
-    def test_a_caller_supplied_deadline_is_kept(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_a_caller_supplied_deadline_is_kept(self):
         target_state.publish_last_switch(
             {
                 "generation": 3,
@@ -677,7 +690,8 @@ class TestPublishLastSwitch:
 
         assert target_state.read()["last_switch"]["expires_at"] == "2027-01-01T00:00:00+00:00"
 
-    def test_an_applying_block_without_a_bound_stays_unbounded(self, started, caplog):
+    @pytest.mark.usefixtures("started")
+    def test_an_applying_block_without_a_bound_stays_unbounded(self, caplog):
         """A reader with no deadline keeps waiting — the fail-closed outcome —
         and this module does not invent timeouts it does not hold."""
         with caplog.at_level("WARNING"):
@@ -689,12 +703,14 @@ class TestPublishLastSwitch:
         assert any("expires_at" in record.message for record in caplog.records)
 
     @pytest.mark.parametrize("status", ["applied", "failed"])
-    def test_a_terminus_gets_no_deadline(self, started, status):
+    @pytest.mark.usefixtures("started")
+    def test_a_terminus_gets_no_deadline(self, status):
         target_state.publish_last_switch({"generation": 3, "status": status}, expires_in_s=30)
 
         assert "expires_at" not in target_state.read()["last_switch"]
 
-    def test_none_clears_the_block(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_none_clears_the_block(self):
         target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_APPLIED})
 
         target_state.publish_last_switch(None)
@@ -709,7 +725,7 @@ class TestPublishLastSwitch:
         assert report["session"] == "sess-1"
         assert report["targets"] == TARGETS_META
 
-    def test_without_a_report_writes_nothing(self, state_root):
+    def test_without_a_report_writes_nothing(self):
         assert target_state.publish_last_switch({"generation": 1}) is False
         assert target_state.read() is None
 
@@ -727,14 +743,16 @@ class TestPublishReachability:
         },
     }
 
-    def test_publishes_every_role_of_every_target(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_publishes_every_role_of_every_target(self):
         assert target_state.publish_reachability(self.ROWS) is True
 
         published = target_state.read()["reachability"]["targets"]
         assert published["live"]["epics"]["state"] == "reached"
         assert published["va"]["epics"]["detail"] == "refused"
 
-    def test_not_applicable_is_preserved_not_collapsed(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_not_applicable_is_preserved_not_collapsed(self):
         """It is a decision from configuration, not a prober that failed to look."""
         target_state.publish_reachability(self.ROWS)
 
@@ -742,7 +760,8 @@ class TestPublishReachability:
             "not_applicable"
         )
 
-    def test_probed_at_survives_so_a_reader_can_compute_age(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_probed_at_survives_so_a_reader_can_compute_age(self):
         """The reader is in another process, so the block carries an instant, not an age."""
         probed_at = (datetime.now(UTC) - timedelta(seconds=5)).isoformat()
         target_state.publish_reachability(
@@ -753,20 +772,23 @@ class TestPublishReachability:
         age_s = (datetime.now(UTC) - datetime.fromisoformat(row["probed_at"])).total_seconds()
         assert 5 <= age_s < 60
 
-    def test_the_sweep_is_stamped(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_the_sweep_is_stamped(self):
         target_state.publish_reachability(self.ROWS)
 
         stamp = target_state.read()["reachability"]["published_at"]
         assert (datetime.now(UTC) - datetime.fromisoformat(stamp)).total_seconds() < 60
 
-    def test_each_sweep_replaces_the_last(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_each_sweep_replaces_the_last(self):
         target_state.publish_reachability(self.ROWS)
         target_state.publish_reachability({"live": {"epics": {"state": "down"}}})
 
         published = target_state.read()["reachability"]["targets"]
         assert published == {"live": {"epics": {"state": "down"}}}
 
-    def test_advancing_probes_advance_the_published_stamp(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_advancing_probes_advance_the_published_stamp(self):
         target_state.publish_reachability(self.ROWS)
         first = target_state.read()["reachability"]["published_at"]
 
@@ -786,7 +808,8 @@ class TestPublishReachability:
             {"live": {"epics": {"state": ""}}},
         ],
     )
-    def test_a_sweep_that_measured_nothing_clears_the_block(self, rows, started):
+    @pytest.mark.usefixtures("started")
+    def test_a_sweep_that_measured_nothing_clears_the_block(self, rows):
         """Empty, not null: the field always holds the mapping a reader parses,
         and "this server has not probed" renders ``unknown`` rather than down."""
         target_state.publish_reachability(self.ROWS)
@@ -796,36 +819,40 @@ class TestPublishReachability:
         assert target_state.read()["reachability"] == {}
         assert _reparsed().reachability == {}
 
-    def test_without_a_report_writes_nothing(self, state_root):
+    def test_without_a_report_writes_nothing(self):
         assert target_state.publish_reachability(self.ROWS) is False
 
 
 class TestPublishPostureRealign:
-    def test_publishes_pending_then_done(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_publishes_pending_then_done(self):
         assert target_state.publish_posture_realign({"state": "pending"}) is True
         assert target_state.read()["last_posture_realign"]["state"] == "pending"
 
         target_state.publish_posture_realign({"state": "done"})
         assert target_state.read()["last_posture_realign"]["state"] == "done"
 
-    def test_at_is_stamped_when_the_caller_omits_it(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_at_is_stamped_when_the_caller_omits_it(self):
         target_state.publish_posture_realign({"state": "pending"})
 
         datetime.fromisoformat(target_state.read()["last_posture_realign"]["at"])
 
-    def test_a_supplied_at_is_kept(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_a_supplied_at_is_kept(self):
         target_state.publish_posture_realign({"state": "done", "at": "2026-08-30T10:00:00+00:00"})
 
         assert target_state.read()["last_posture_realign"]["at"] == "2026-08-30T10:00:00+00:00"
 
-    def test_none_clears_the_block(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_none_clears_the_block(self):
         target_state.publish_posture_realign({"state": "pending"})
 
         target_state.publish_posture_realign(None)
 
         assert target_state.read()["last_posture_realign"] is None
 
-    def test_without_a_report_writes_nothing(self, state_root):
+    def test_without_a_report_writes_nothing(self):
         assert target_state.publish_posture_realign({"state": "pending"}) is False
 
 
@@ -850,14 +877,16 @@ class TestPublishTargets:
         "standin": {"label": "Live stand-in", "endpoint": "localhost:5084"},
     }
 
-    def test_publishes_the_new_block(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_publishes_the_new_block(self):
         assert target_state.publish_targets(self.NARROWED) is True
 
         targets = target_state.read()["targets"]
         assert targets["live"]["endpoint"] == "gw:5065"
         assert targets["live"]["selected_role"] == "read_only"
 
-    def test_an_omitted_slot_is_written_empty_not_dropped(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_an_omitted_slot_is_written_empty_not_dropped(self):
         """A slot the caller does not name still exists, emptied of the old render."""
         target_state.publish_targets({"live": {"label": "Live", "endpoint": "gw:5065"}})
 
@@ -866,7 +895,8 @@ class TestPublishTargets:
         assert targets["va"] == {"label": "", "endpoint": "", "real_machine": False}
         assert targets["standin"] == {"label": "", "endpoint": "", "real_machine": False}
 
-    def test_the_sibling_blocks_survive(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_the_sibling_blocks_survive(self):
         target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_APPLIED})
         target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
         target_state.publish_posture_realign({"state": "done"})
@@ -891,12 +921,13 @@ class TestPublishTargets:
         assert report["applied_generation"] == 4
         assert report["server_pid"] == started
 
-    def test_an_empty_selected_role_is_dropped(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_an_empty_selected_role_is_dropped(self):
         target_state.publish_targets({"live": {"label": "Live", "selected_role": ""}})
 
         assert "selected_role" not in target_state.read()["targets"]["live"]
 
-    def test_without_a_report_writes_nothing(self, state_root):
+    def test_without_a_report_writes_nothing(self):
         assert target_state.publish_targets(self.NARROWED) is False
         assert target_state.read() is None
 
@@ -904,7 +935,8 @@ class TestPublishTargets:
 class TestBlocksDoNotClobberOneAnother:
     """Several publishers merge into one file; each must be blind to the others."""
 
-    def test_every_block_survives_every_other_publisher(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_every_block_survives_every_other_publisher(self):
         target_state.publish_last_switch({"generation": 3, "status": target_state.SWITCH_APPLIED})
         target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
         target_state.publish_posture_realign({"state": "pending"})
@@ -921,7 +953,8 @@ class TestBlocksDoNotClobberOneAnother:
         assert report["targets"] == TARGETS_META
         assert set(report) == REPORT_FIELDS
 
-    def test_publish_switch_does_not_clear_the_blocks(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_publish_switch_does_not_clear_the_blocks(self):
         target_state.publish_last_switch(
             {"generation": 1, "status": target_state.SWITCH_APPLYING}, expires_in_s=30
         )
@@ -932,7 +965,7 @@ class TestBlocksDoNotClobberOneAnother:
 
 
 class TestWriteServerRecordResetsThePublications:
-    def test_a_fresh_report_carries_no_publications(self, state_root):
+    def test_a_fresh_report_carries_no_publications(self):
         target_state.write_server_record(TARGETS_META, server_pid=1234)
 
         report = target_state.read(1234)
@@ -940,7 +973,8 @@ class TestWriteServerRecordResetsThePublications:
         assert report["reachability"] == {}
         assert report["last_posture_realign"] is None
 
-    def test_a_restart_drops_the_predecessors_publications(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_a_restart_drops_the_predecessors_publications(self):
         target_state.publish_last_switch({"generation": 1, "status": target_state.SWITCH_APPLIED})
         target_state.publish_reachability({"live": {"epics": {"state": "reached"}}})
         target_state.publish_posture_realign({"state": "pending"})
@@ -981,7 +1015,8 @@ class TestTheLibraryReadsWhatThisWrites:
         assert report.reachability["targets"]["live"]["epics"]["state"] == "reached"
         assert report.updated_at
 
-    def test_a_fresh_report_parses_as_having_reached_nothing(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_a_fresh_report_parses_as_having_reached_nothing(self):
         report = _reparsed()
 
         assert report.applied_target is None
@@ -994,9 +1029,7 @@ class TestTheLibraryReadsWhatThisWrites:
 
         assert [report.server_pid for report in reports] == [started]
 
-    def test_a_dead_servers_report_is_swept_and_its_children_salvaged(
-        self, state_root, monkeypatch
-    ):
+    def test_a_dead_servers_report_is_swept_and_its_children_salvaged(self, monkeypatch):
         target_state.write_server_record(TARGETS_META, server_pid=4321, session="gone")
         target_state.publish_switch("live", 2, children=[777], server_pid=4321)
         _dead_pid(monkeypatch, {4321})
@@ -1025,21 +1058,21 @@ class TestInFlightExecutionsMoved:
         assert control_target.INFLIGHT_FILE_GLOB is target_state.INFLIGHT_FILE_GLOB
         assert control_target.in_flight_executions is target_state.in_flight_executions
 
-    def test_a_live_marker_is_reported(self, state_root):
+    def test_a_live_marker_is_reported(self):
         self._write_marker(os.getpid())
 
         live = target_state.in_flight_executions()
 
         assert [row["pid"] for row in live] == [os.getpid()]
 
-    def test_a_dead_writers_marker_is_swept(self, state_root, monkeypatch):
+    def test_a_dead_writers_marker_is_swept(self, monkeypatch):
         path = self._write_marker(4321)
         _dead_pid(monkeypatch, {4321})
 
         assert target_state.in_flight_executions() == []
         assert not path.exists()
 
-    def test_an_unreadable_marker_is_neither_reported_nor_deleted(self, state_root):
+    def test_an_unreadable_marker_is_neither_reported_nor_deleted(self):
         directory = target_state.state_dir()
         directory.mkdir(parents=True, exist_ok=True)
         junk = directory / f"{target_state.INFLIGHT_FILE_PREFIX}nonsense.json"
@@ -1048,15 +1081,16 @@ class TestInFlightExecutionsMoved:
         assert target_state.in_flight_executions() == []
         assert junk.exists()
 
-    def test_a_missing_state_dir_reads_as_no_executions(self, state_root):
+    def test_a_missing_state_dir_reads_as_no_executions(self):
         assert target_state.in_flight_executions() == []
 
-    def test_a_request_file_is_not_mistaken_for_a_marker(self, state_root):
+    def test_a_request_file_is_not_mistaken_for_a_marker(self):
         target_state.write_request(
             {"request_id": "r", "target": "va", "requested_by_pid": os.getpid()}
         )
 
         assert target_state.in_flight_executions() == []
 
-    def test_a_report_is_not_mistaken_for_a_marker(self, started):
+    @pytest.mark.usefixtures("started")
+    def test_a_report_is_not_mistaken_for_a_marker(self):
         assert target_state.in_flight_executions() == []

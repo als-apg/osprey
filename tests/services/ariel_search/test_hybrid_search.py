@@ -716,7 +716,7 @@ class BlockingClient:
         time.sleep(self._probe)
         return True
 
-    def query(self, collection: str | None, text: str, **kwargs: Any) -> list[QMDSearchResult]:
+    def query(self, collection: str | None, text: str, **kwargs: Any) -> list[QMDSearchResult]:  # noqa: ARG002 - the QMD client query signature
         self.threads["query"] = threading.current_thread().name
         time.sleep(self._query)
         return []

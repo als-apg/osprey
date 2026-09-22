@@ -366,7 +366,8 @@ class TestPyatSpecialistClaudeMd:
     def _render(self, tm, ctx: dict) -> str:
         return tm.jinja_env.get_template("claude_code/CLAUDE.md.j2").render(**ctx)
 
-    def test_pyat_specialist_enabled_in_default_build(self, template_manager):
+    @pytest.mark.usefixtures("template_manager")
+    def test_pyat_specialist_enabled_in_default_build(self):
         """Sanity: the default build enables pyat-specialist (python server on)."""
         ctx = self._full_ctx()
         assert "pyat-specialist" in ctx["enabled_agents"]

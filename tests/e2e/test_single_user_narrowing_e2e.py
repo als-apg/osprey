@@ -809,9 +809,8 @@ def test_the_build_accounts_record_is_group_readable_on_a_deployed_stack(
     )
 
 
-def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing(
-    single_user_stack: Path,
-) -> None:
+@pytest.mark.usefixtures("single_user_stack")
+def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing() -> None:
     """S2: in a single-user deployment the chip gates a dispatch job's writes.
 
     The property this module exists for. The build account is narrowed to
@@ -861,9 +860,8 @@ def test_an_owned_jobs_first_write_is_refused_by_the_build_accounts_narrowing(
     )
 
 
-def test_an_owner_less_job_is_held_to_the_deployment_ceiling(
-    single_user_stack: Path,
-) -> None:
+@pytest.mark.usefixtures("single_user_stack")
+def test_an_owner_less_job_is_held_to_the_deployment_ceiling() -> None:
     """S3: the control for S2 — an owner-less job reads nobody's narrowing.
 
     The build account is narrowed; a cron-shaped fire of the same probe must not

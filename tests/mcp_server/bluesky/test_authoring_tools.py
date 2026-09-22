@@ -235,9 +235,7 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def test_write_session_plan_persists_generated_metadata_plus_body(
-    client: TestClient, tmp_path: Path
-):
+def test_write_session_plan_persists_generated_metadata_plus_body(client: TestClient):
     resp = client.post(
         "/plans/session",
         json={

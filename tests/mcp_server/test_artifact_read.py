@@ -55,7 +55,8 @@ class TestDataRead:
         assert result["units"] == "mA"
 
     @pytest.mark.asyncio
-    async def test_read_missing_entry(self, store, read_tool):
+    @pytest.mark.usefixtures("store")
+    async def test_read_missing_entry(self, read_tool):
         with assert_raises_error(error_type="not_found") as _exc_ctx:
             await read_tool(artifact_id="nonexistent_id")
         result = _exc_ctx["envelope"]
@@ -286,7 +287,7 @@ class TestDataRead:
     ):
         """An unexpected store exception surfaces as internal_error, not a raw traceback."""
 
-        def _boom(artifact_id):
+        def _boom(_artifact_id):
             raise RuntimeError("index corrupted")
 
         monkeypatch.setattr(store, "get_entry", _boom)

@@ -495,7 +495,7 @@ def _handle_plain(seam: str, args: list[str], remainder: list[str]) -> bool:
             print(name, file=out)
         return True
     if seam in ("image inspect", "container inspect", "inspect"):
-        _handle_inspect(seam, args, remainder)
+        _handle_inspect(args, remainder)
         return True
     if seam in ("image rm", "rmi"):
         for tag in _positional(remainder, frozenset()):
@@ -567,7 +567,7 @@ def _handle_ps(args: list[str]) -> None:
         )
 
 
-def _handle_inspect(seam: str, args: list[str], remainder: list[str]) -> None:
+def _handle_inspect(args: list[str], remainder: list[str]) -> None:
     """``inspect`` for images, containers, and the bare ``--type container`` form.
 
     Go templates are answered by what they ask for rather than by rendering

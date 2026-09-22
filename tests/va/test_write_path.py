@@ -478,7 +478,7 @@ class FakeRunLoop:
         self.queue: list[tuple[dict[str, Any], Any]] = []
         self.offered: list[dict[str, Any]] = []
 
-    def enqueue(self, values: dict[str, Any], done: Any = None, reset: bool = False) -> None:
+    def enqueue(self, values: dict[str, Any], done: Any = None, _reset: bool = False) -> None:
         self.queue.append((values, done))
 
     def drain(self) -> None:
@@ -819,7 +819,7 @@ class TestNoReadbackCostsAClientItsCompletion:
         )
 
     def test_a_conversion_that_raises_leaves_the_setpoint_published(self, records) -> None:
-        def explode(value: Any) -> Any:
+        def explode(_value: Any) -> Any:
             raise ArithmeticError("the curve could not be evaluated")
 
         path, driver = self._path(records, explode)

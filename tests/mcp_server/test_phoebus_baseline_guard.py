@@ -75,7 +75,7 @@ def switched(tmp_path, monkeypatch, control_context_root, write_control_context)
 
 
 @pytest.fixture
-def on_baseline(tmp_path, monkeypatch, control_context_root):
+def on_baseline(tmp_path, monkeypatch, control_context_root):  # noqa: ARG001 - the baseline is the absence of a record under that root
     """Baseline ``live`` with no record at all — nothing to announce."""
     set_config(tmp_path, monkeypatch, {"type": "epics"})
 
@@ -111,7 +111,8 @@ def test_baseline_target_follows_the_shared_resolver(
 # are actually rendered from.
 
 
-def test_situation_is_not_switched_without_a_record(control_context_root):
+@pytest.mark.usefixtures("control_context_root")
+def test_situation_is_not_switched_without_a_record():
     """No record at all — the switch has never run, so nothing is announced."""
     assert not target_banner.resolve_target_situation().switched
 
@@ -203,7 +204,8 @@ def test_prepend_line_puts_the_line_first():
 
 
 # ── phoebus_drive: refusal ──────────────────────────────────────────────────
-async def test_drive_refuses_while_switched(switched):
+@pytest.mark.usefixtures("switched")
+async def test_drive_refuses_while_switched():
     with patch(f"{_BRIDGE_MOD}._http_post_drive") as post:
         with assert_raises_error(error_type="target_switched") as ctx:
             await bridge_fn("phoebus_drive")(widget="SetButton", verb="click")
@@ -216,13 +218,15 @@ async def test_drive_refuses_while_switched(switched):
     assert any("control_target_set(target='live')" in s for s in ctx["envelope"]["suggestions"])
 
 
-async def test_drive_refusal_precedes_argument_validation(switched):
+@pytest.mark.usefixtures("switched")
+async def test_drive_refusal_precedes_argument_validation():
     """An operator on the wrong target learns that, not that their verb is bad."""
     with assert_raises_error(error_type="target_switched"):
         await bridge_fn("phoebus_drive")(widget="0", verb="frobnicate")
 
 
-async def test_drive_proceeds_on_baseline(on_baseline):
+@pytest.mark.usefixtures("on_baseline")
+async def test_drive_proceeds_on_baseline():
     with patch(
         f"{_BRIDGE_MOD}._http_post_drive", return_value=(200, {"fired": True, "detail": "ok"})
     ) as post:
@@ -291,7 +295,7 @@ async def _call_snapshot_without_artifact_store(tmp_path):
         return await bridge_fn("phoebus_snapshot")(widget="Setpoint")
 
 
-async def _call_open_databrowser(tmp_path):
+async def _call_open_databrowser(_tmp_path):
     with patch(f"{_DB_MOD}._http_post_open", return_value=(200, {"id": "d-1", "ready": True})):
         return await get_tool_fn(databrowser_tools.phoebus_open_databrowser)(channels=["SR:DCCT"])
 
@@ -306,7 +310,8 @@ _READ_CALLS = {
 
 
 @pytest.mark.parametrize("tool", sorted(_READ_CALLS))
-async def test_read_tools_prepend_the_line_while_switched(tmp_path, tool, switched):
+@pytest.mark.usefixtures("switched")
+async def test_read_tools_prepend_the_line_while_switched(tmp_path, tool):
     result = await _READ_CALLS[tool](tmp_path)
     line, payload = _split_label(result)
     assert line == _EXPECTED_LINE
@@ -314,7 +319,8 @@ async def test_read_tools_prepend_the_line_while_switched(tmp_path, tool, switch
 
 
 @pytest.mark.parametrize("tool", sorted(_READ_CALLS))
-async def test_read_tools_add_nothing_on_baseline(tmp_path, tool, on_baseline):
+@pytest.mark.usefixtures("on_baseline")
+async def test_read_tools_add_nothing_on_baseline(tmp_path, tool):
     """On the baseline the result is exactly the JSON it has always been."""
     result = await _READ_CALLS[tool](tmp_path)
     assert result.startswith("{")

@@ -269,7 +269,8 @@ class TestTheFactoryMapping:
         """
         assert set(factories) == {QUAD_SP, CORR_SP, CAVITY_SP, BPM_Y, BEND_SP}
 
-    def test_a_monitor_is_keyed_by_the_address_it_publishes_on(self, factories: dict) -> None:
+    @pytest.mark.usefixtures("factories")
+    def test_a_monitor_is_keyed_by_the_address_it_publishes_on(self) -> None:
         """A read-only binding carries its address in ``setpoint_address``.
 
         It has no setpoint at all: the schema puts the monitor's own address

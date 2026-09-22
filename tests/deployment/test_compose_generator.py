@@ -3352,7 +3352,10 @@ def test_two_projects_render_disjoint_local_image_tag_sets() -> None:
     ("rel_path", "service_key", "env_var", "suffix"), _PREFIXED_IMAGE_SERVICES, ids=_PREFIXED_IDS
 )
 def test_service_build_args_carry_project_name_and_dev_flag(
-    rel_path: str, service_key: str, env_var: str, suffix: str
+    rel_path: str,
+    service_key: str,
+    env_var: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table
+    suffix: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table,
 ) -> None:
     """build.args always carry OSPREY_PROJECT_NAME; OSPREY_DEV renders as "1"
     iff dev mode, and is entirely absent otherwise."""
@@ -3374,7 +3377,10 @@ def test_service_build_args_carry_project_name_and_dev_flag(
     ("rel_path", "service_key", "env_var", "suffix"), _PREFIXED_IMAGE_SERVICES, ids=_PREFIXED_IDS
 )
 def test_service_build_args_carry_the_prerelease_flag_only_for_a_prerelease_pin(
-    rel_path: str, service_key: str, env_var: str, suffix: str
+    rel_path: str,
+    service_key: str,
+    env_var: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table
+    suffix: str,  # noqa: ARG001 - a column of the shared _PREFIXED_IMAGE_SERVICES table,
 ) -> None:
     """A beta pin renders ``OSPREY_PIP_PRE: "1"`` beside ``OSPREY_VERSION`` so
     the recipe's pip resolve admits the paired connectors beta; a stable pin
@@ -3723,7 +3729,7 @@ def test_failed_wheel_staging_aborts_the_deploy(
     from osprey.deployment import compose_generator
     from osprey.deployment.errors import DevModeUnavailableError
 
-    def _staging_fails(out_dir):  # type: ignore[no-untyped-def]
+    def _staging_fails(_out_dir):  # type: ignore[no-untyped-def]
         raise DevModeUnavailableError("staging failed", "fix it")
 
     monkeypatch.setattr(compose_generator, "_copy_local_framework_for_override", _staging_fails)
@@ -3774,8 +3780,10 @@ def test_dev_deploy_aborts_on_build_failure_and_stages_nothing(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("spy_wheel_build")
 def test_wheel_cache_dir_creation_registers_atexit_cleanup(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spy_wheel_build: list
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from osprey.deployment import compose_generator, wheel_build
     from osprey.deployment.compose_generator import (
@@ -4006,9 +4014,8 @@ def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_local_requirements_manifest_written_next_to_wheel(
-    tmp_path: Path, spy_wheel_build: list
-) -> None:
+@pytest.mark.usefixtures("spy_wheel_build")
+def test_local_requirements_manifest_written_next_to_wheel(tmp_path: Path) -> None:
     """The REAL staging helper writes the manifest with exactly the expected
     content: extra-gated deps excluded, python_version marker kept verbatim,
     sorted, trailing newline."""
@@ -4024,9 +4031,8 @@ def test_local_requirements_manifest_written_next_to_wheel(
     assert list(ctx.glob("*.whl")), "the wheel itself must still be staged"
 
 
-def test_local_requirements_manifest_is_deterministic(
-    tmp_path: Path, spy_wheel_build: list
-) -> None:
+@pytest.mark.usefixtures("spy_wheel_build")
+def test_local_requirements_manifest_is_deterministic(tmp_path: Path) -> None:
     """Two stagings of the same wheel produce byte-identical manifests —
     anything else busts BuildKit's content-hashed deps-layer cache on every
     deploy."""
@@ -4073,8 +4079,10 @@ def test_staging_fails_closed_when_manifest_cannot_be_derived(
     assert not (ctx / "osprey-local-requirements.txt").exists()
 
 
+@pytest.mark.usefixtures("spy_wheel_build")
 def test_staging_fails_closed_when_manifest_write_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spy_wheel_build: list
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Even with a valid wheel, a failed manifest WRITE must abort staging
     and remove the already-copied wheel."""
@@ -4082,7 +4090,7 @@ def test_staging_fails_closed_when_manifest_write_fails(
     from osprey.deployment.compose_generator import _copy_local_framework_for_override
     from osprey.deployment.errors import DevModeUnavailableError
 
-    def _boom(cached_wheel, out_dir):  # type: ignore[no-untyped-def]
+    def _boom(_cached_wheel, _out_dir):  # type: ignore[no-untyped-def]
         raise OSError("disk full")
 
     monkeypatch.setattr(wheel_build, "_write_local_requirements_manifest", _boom)
@@ -6479,7 +6487,8 @@ def _render_bridge_with_axis(
 
 @pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
 def test_bridge_without_the_axis_renders_todays_network_blocks(
-    config_key: str, service_key: str
+    config_key: str,
+    service_key: str,  # noqa: ARG001 - a column of the shared _AXIS_BRIDGES table
 ) -> None:
     """An undeclared axis reproduces the pre-macro bytes exactly.
 
@@ -6634,7 +6643,9 @@ def _bridge_pair_urls(config_key: str, service_key: str, **kwargs: object) -> tu
 @pytest.mark.parametrize("network", [None, "bridge"], ids=["unset", "bridge"])
 @pytest.mark.parametrize(("config_key", "service_key"), _AXIS_BRIDGES)
 def test_bridge_on_a_network_addresses_the_pair_by_its_compose_keys(
-    config_key: str, service_key: str, network: str | None
+    config_key: str,
+    service_key: str,  # noqa: ARG001 - a column of the shared _AXIS_BRIDGES table
+    network: str | None,
 ) -> None:
     """A network-joined bridge keeps the service-key addresses, byte for byte.
 
@@ -7883,7 +7894,10 @@ def cold_roster_cache() -> Iterator[None]:
 
 
 @pytest.fixture
-def devices_facts(monkeypatch: pytest.MonkeyPatch, cold_roster_cache: None) -> list[str]:
+def devices_facts(
+    monkeypatch: pytest.MonkeyPatch,
+    cold_roster_cache: None,  # noqa: ARG001 - the roster cache is cold before the render reads it
+) -> list[str]:
     """Collect the operator-facing facts the staging step reports.
 
     Patched on the module, the way ``test_stage_graphdb_store`` reads facts:
@@ -8079,9 +8093,8 @@ def _plan(config: dict):
     return _plan_derived_devices(config)
 
 
-def test_the_predicate_derives_for_a_relative_absent_file_with_a_roster(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
+@pytest.mark.usefixtures("cold_roster_cache")
+def test_the_predicate_derives_for_a_relative_absent_file_with_a_roster(tmp_path: Path) -> None:
     """The whole predicate in its true case: a facility that says which
     channels it has, and a deployment that authored no device file."""
     _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
@@ -8093,9 +8106,8 @@ def test_the_predicate_derives_for_a_relative_absent_file_with_a_roster(
     assert plan.roster is not None and plan.roster.source is not None
 
 
-def test_the_predicate_never_reads_a_roster_for_a_mock_control_system(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
+@pytest.mark.usefixtures("cold_roster_cache")
+def test_the_predicate_never_reads_a_roster_for_a_mock_control_system(tmp_path: Path) -> None:
     """A mock drives no channels, so the corpus is not parsed for it at all."""
     _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
 
@@ -8105,9 +8117,8 @@ def test_the_predicate_never_reads_a_roster_for_a_mock_control_system(
     assert plan.roster is None, "the mock decision is made before any source is read"
 
 
-def test_the_predicate_never_reads_a_roster_when_a_file_is_authored(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
+@pytest.mark.usefixtures("cold_roster_cache")
+def test_the_predicate_never_reads_a_roster_when_a_file_is_authored(tmp_path: Path) -> None:
     """An authored file wins, and the build does not second-guess it."""
     _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
     _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
@@ -8118,9 +8129,8 @@ def test_the_predicate_never_reads_a_roster_when_a_file_is_authored(
     assert plan.roster is None
 
 
-def test_the_predicate_refuses_to_derive_around_an_absolute_path(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
+@pytest.mark.usefixtures("cold_roster_cache")
+def test_the_predicate_refuses_to_derive_around_an_absolute_path(tmp_path: Path) -> None:
     """An absolute path is operator-owned: absent means "not staged yet"."""
     _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
 
@@ -8132,9 +8142,8 @@ def test_the_predicate_refuses_to_derive_around_an_absolute_path(
     assert plan.roster is None
 
 
-def test_the_predicate_does_not_derive_without_a_roster_source(
-    tmp_path: Path, cold_roster_cache: None
-) -> None:
+@pytest.mark.usefixtures("cold_roster_cache")
+def test_the_predicate_does_not_derive_without_a_roster_source(tmp_path: Path) -> None:
     """No source, no derivation -- and the absence travels with the answer,
     so the caller reporting it does not have to re-derive why."""
     plan = _plan(_devices_config(tmp_path))
@@ -8185,9 +8194,8 @@ def test_mock_control_system_stages_nothing_even_with_an_authored_file(
     assert devices_facts == ["bluesky plans browse-only: a mock control system drives no channels"]
 
 
-def test_mock_control_system_removes_a_file_an_earlier_render_staged(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_mock_control_system_removes_a_file_an_earlier_render_staged(tmp_path: Path) -> None:
     """Switching a deployment to the mock takes its devices away.
 
     The incremental path reuses the build context, so a file left by the render
@@ -8203,9 +8211,8 @@ def test_mock_control_system_removes_a_file_an_earlier_render_staged(
     assert not (out_dir / "bluesky_devices.yml").exists()
 
 
-def test_control_system_block_without_a_type_is_treated_as_the_mock(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_control_system_block_without_a_type_is_treated_as_the_mock(tmp_path: Path) -> None:
     """An unset connector type resolves to the mock, here as everywhere.
 
     Read through ``resolve_control_system_type`` rather than compared against
@@ -8252,9 +8259,8 @@ def test_authored_device_file_is_copied_into_the_build_context(
     )
 
 
-def test_authored_device_file_under_a_custom_name_is_staged_too(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_authored_device_file_under_a_custom_name_is_staged_too(tmp_path: Path) -> None:
     """A project that named its own file gets it staged under the mount name."""
     authored = _write_device_file(tmp_path / "devices" / "beamline.yml", _VALID_DEVICE_DOCUMENT)
     out_dir = _devices_out_dir(tmp_path)
@@ -8265,9 +8271,8 @@ def test_authored_device_file_under_a_custom_name_is_staged_too(
     assert (out_dir / "bluesky_devices.yml").read_bytes() == authored.read_bytes()
 
 
-def test_authored_device_file_is_resolved_against_the_config_directory(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_authored_device_file_is_resolved_against_the_config_directory(tmp_path: Path) -> None:
     """A relative path is authored against the CONFIG, not the repo root.
 
     The build renders from a staging tree whose config sits below the repo
@@ -8289,9 +8294,8 @@ def test_authored_device_file_is_resolved_against_the_config_directory(
     )
 
 
-def test_authored_device_file_is_read_from_any_lane_that_names_one(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_authored_device_file_is_read_from_any_lane_that_names_one(tmp_path: Path) -> None:
     """A second-lane deploy stages one file, from whichever lane carries it.
 
     The device set is a property of the facility, so both lanes carry the same
@@ -8307,8 +8311,9 @@ def test_authored_device_file_is_read_from_any_lane_that_names_one(
     assert (out_dir / "bluesky_devices.yml").read_bytes() == authored.read_bytes()
 
 
+@pytest.mark.usefixtures("devices_facts")
 def test_malformed_authored_file_refuses_the_render_naming_the_key_and_the_entry(
-    tmp_path: Path, devices_facts: list[str]
+    tmp_path: Path,
 ) -> None:
     """A file the worker would half-load refuses the build, precisely.
 
@@ -8337,9 +8342,8 @@ def test_malformed_authored_file_refuses_the_render_naming_the_key_and_the_entry
     )
 
 
-def test_refusal_lists_every_problem_rather_than_the_first(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_refusal_lists_every_problem_rather_than_the_first(tmp_path: Path) -> None:
     """Both halves of a bad file are reported in one pass.
 
     A 13k-entry file has to be repairable without bisecting it, which means one
@@ -8366,7 +8370,8 @@ def test_refusal_lists_every_problem_rather_than_the_first(
     assert "readables[0]" in excinfo.value.reason
 
 
-def test_unknown_top_level_key_refuses_the_render(tmp_path: Path, devices_facts: list[str]) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_unknown_top_level_key_refuses_the_render(tmp_path: Path) -> None:
     """A typo'd section name is refused, not partially loaded.
 
     ``readable:`` for ``readables:`` is how this presents itself, and the
@@ -8386,9 +8391,8 @@ def test_unknown_top_level_key_refuses_the_render(tmp_path: Path, devices_facts:
     assert DEVICES_KEY in excinfo.value.reason
 
 
-def test_unparseable_authored_file_refuses_the_render(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_unparseable_authored_file_refuses_the_render(tmp_path: Path) -> None:
     """A file that is not YAML/JSON at all refuses too.
 
     The worker treats it as an empty device set, which is the same
@@ -8494,9 +8498,8 @@ def test_the_same_demo_tree_in_hierarchical_mode_derives_the_same_machine(
     )
 
 
-def test_a_settable_the_roster_could_not_pair_carries_no_readback_key(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_a_settable_the_roster_could_not_pair_carries_no_readback_key(tmp_path: Path) -> None:
     """A readback is emitted only where the roster actually found a sibling.
 
     Restating the setpoint as its own readback would claim a pairing the
@@ -8652,9 +8655,8 @@ def test_a_roster_that_states_no_direction_at_all_stages_nothing(
     ]
 
 
-def test_a_directionless_roster_removes_a_file_an_earlier_render_derived(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_a_directionless_roster_removes_a_file_an_earlier_render_derived(tmp_path: Path) -> None:
     """And the stale file goes with it, as for every other non-staging decision."""
     _directionless_corpus(tmp_path / "data" / "demo_machine.ttl", {}, unstated=["A:B:C:SP"])
     out_dir = _devices_out_dir(tmp_path)
@@ -8664,9 +8666,8 @@ def test_a_directionless_roster_removes_a_file_an_earlier_render_derived(
     assert not (out_dir / "bluesky_devices.yml").exists()
 
 
-def test_a_live_target_lane_derives_from_the_roster_too(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_a_live_target_lane_derives_from_the_roster_too(tmp_path: Path) -> None:
     """Deriving for a live lane is deliberate, not an oversight.
 
     No virtual accelerator is required, and this step never asks which target a
@@ -8694,9 +8695,8 @@ def test_a_live_target_lane_derives_from_the_roster_too(
     assert [entry["name"] for entry in _staged_document(out_dir)["settables"]] == ["A:B:C:SP"]
 
 
-def test_the_derived_file_names_its_source_in_its_own_header(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_the_derived_file_names_its_source_in_its_own_header(tmp_path: Path) -> None:
     """A reader of the staged file can see what it is a projection of."""
     corpus = _corpus(tmp_path / "data" / "demo_machine.ttl", {"A:B:C:SP": "writesSignal"})
     out_dir = _devices_out_dir(tmp_path)
@@ -8741,9 +8741,8 @@ def test_an_absent_absolute_devices_file_is_never_derived_around(
     ]
 
 
-def test_an_absolute_devices_file_that_exists_is_staged(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_an_absolute_devices_file_that_exists_is_staged(tmp_path: Path) -> None:
     """The other half of the absolute-path rule: present means used, as written."""
     absolute = _write_device_file(tmp_path / "facility" / "devices.yml", _VALID_DEVICE_DOCUMENT)
     config = _devices_config(tmp_path, devices_file=str(absolute))
@@ -8776,9 +8775,8 @@ def test_no_roster_source_at_all_is_browse_only_not_a_refusal(
     ]
 
 
-def test_a_stale_device_file_is_removed_when_nothing_is_staged(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_a_stale_device_file_is_removed_when_nothing_is_staged(tmp_path: Path) -> None:
     """Dropping the VA takes the previous render's devices away with it.
 
     The gate and the file are one decision: leaving the file behind would let a
@@ -8868,9 +8866,8 @@ def test_a_roster_source_that_enumerates_nothing_is_browse_only(
     ]
 
 
-def test_an_index_that_is_there_and_unreadable_refuses_the_render(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_an_index_that_is_there_and_unreadable_refuses_the_render(tmp_path: Path) -> None:
     """Fail-closed on a corrupt source -- the other half of the three-way rule.
 
     An absent source is a facility this project did not describe. One that is
@@ -8966,9 +8963,8 @@ def test_the_two_lane_double_render_stages_identical_bytes(
     assert devices_facts[0] == devices_facts[1], "each lane reports the same device set"
 
 
-def test_the_double_render_is_idempotent_for_an_authored_file(
-    tmp_path: Path, devices_facts: list[str]
-) -> None:
+@pytest.mark.usefixtures("devices_facts")
+def test_the_double_render_is_idempotent_for_an_authored_file(tmp_path: Path) -> None:
     """Same property on the copy path, where the second write overwrites."""
     authored = _write_device_file(tmp_path / DEFAULT_DEVICES_RELPATH, _VALID_DEVICE_DOCUMENT)
     config = _devices_config(tmp_path, lanes=("bluesky", "bluesky_live"))
@@ -8982,8 +8978,10 @@ def test_the_double_render_is_idempotent_for_an_authored_file(
     )
 
 
+@pytest.mark.usefixtures("devices_facts")
 def test_the_roster_source_is_read_once_across_both_lanes_and_the_snapshot(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, devices_facts: list[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """One build, one parse of the facility's corpus.
 
@@ -9099,8 +9097,11 @@ def _render_devices_service(entry_point: str, repo: Path, config: dict) -> Path:
 
 
 @pytest.mark.parametrize("entry_point", ["full", "incremental"])
+@pytest.mark.usefixtures("devices_facts")
 def test_both_render_paths_stage_the_file_and_carry_the_gate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, devices_facts: list[str], entry_point: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    entry_point: str,
 ) -> None:
     """``bluesky_devices`` reaches the template from either renderer.
 
@@ -9121,8 +9122,11 @@ def test_both_render_paths_stage_the_file_and_carry_the_gate(
 
 
 @pytest.mark.parametrize("entry_point", ["full", "incremental"])
+@pytest.mark.usefixtures("devices_facts")
 def test_both_render_paths_gate_the_mount_off_when_nothing_is_staged(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, devices_facts: list[str], entry_point: str
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    entry_point: str,
 ) -> None:
     """Fail-closed in both: no file staged, no mount rendered."""
     repo = _devices_render_repo(tmp_path, monkeypatch)
@@ -9135,8 +9139,10 @@ def test_both_render_paths_gate_the_mount_off_when_nothing_is_staged(
     assert "bluesky_devices.yml" not in (out_dir / "docker-compose.yml").read_text(encoding="utf-8")
 
 
+@pytest.mark.usefixtures("devices_facts")
 def test_the_real_render_context_carries_the_gate_key(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, devices_facts: list[str]
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The key is typed by the renderer, not defaulted by the template.
 
@@ -9225,8 +9231,10 @@ class TestImagePinVersion:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("cold_roster_cache")
 def test_an_armed_lane_that_checks_no_limits_builds_with_a_derived_device_set(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, cold_roster_cache: None
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The render that derives the device set does not second-guess the posture.
 

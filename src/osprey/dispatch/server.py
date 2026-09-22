@@ -369,7 +369,7 @@ mcp = FastMCP(
 
 
 @mcp.custom_route("/health", methods=["GET"])
-async def health(request: Request) -> JSONResponse:
+async def health(_request: Request) -> JSONResponse:
     """Liveness probe — returns pool status and trigger count."""
     # Registry and pool are available after create_server() initializes them
     _registry = getattr(mcp, "_dispatcher_registry", None)
@@ -617,7 +617,7 @@ def create_server() -> FastMCP:
     # -----------------------------------------------------------------------
 
     @mcp.custom_route("/dashboard", methods=["GET"])
-    async def dashboard(request: Request) -> HTMLResponse:
+    async def dashboard(_request: Request) -> HTMLResponse:
         """Serve the unified dashboard HTML with runtime config injected.
 
         Ungated on purpose (see the security-model note above): the shell carries

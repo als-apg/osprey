@@ -633,10 +633,10 @@ class _WriteAdapter:
         self._refetch = refetch
         self.created_id = "facility-9001"
 
-    async def create_entry(self, request) -> str:
+    async def create_entry(self, request) -> str:  # noqa: ARG002 - the ingestion-adapter base fixes this signature
         return self.created_id
 
-    async def fetch_entries(self, since=None):
+    async def fetch_entries(self, since=None):  # noqa: ARG002 - the ingestion-adapter base fixes this signature
         if self._refetch is None:
             return
         yield {

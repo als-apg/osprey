@@ -561,7 +561,7 @@ class _FakeProc:
         return self._stdout, b""
 
 
-async def _probe(spec, ctx):  # noqa: ANN001, ANN202 - test double
+async def _probe(spec, _ctx):  # noqa: ANN001, ANN202 - test double
     return CheckResult(spec["name"], spec["category"], Status.OK, f"{spec['container']}: running")
 
 

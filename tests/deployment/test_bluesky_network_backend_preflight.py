@@ -49,7 +49,8 @@ def podman(monkeypatch):
     )
 
 
-def test_refuses_bluesky_on_cni(podman, monkeypatch):
+@pytest.mark.usefixtures("podman")
+def test_refuses_bluesky_on_cni(monkeypatch):
     """The one case this preflight exists for: bluesky + podman + cni."""
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("cni\n"))
 
@@ -64,14 +65,16 @@ def test_refuses_bluesky_on_cni(podman, monkeypatch):
     assert "bluesky-redis" in message
 
 
-def test_allows_bluesky_on_netavark(podman, monkeypatch):
+@pytest.mark.usefixtures("podman")
+def test_allows_bluesky_on_netavark(monkeypatch):
     """The supported host passes silently."""
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("netavark\n"))
 
     _preflight_bluesky_network_backend(_config("bluesky"))
 
 
-def test_skips_when_bluesky_is_not_deployed(podman, monkeypatch):
+@pytest.mark.usefixtures("podman")
+def test_skips_when_bluesky_is_not_deployed(monkeypatch):
     """Every other stack in this project runs fine on cni, so cni alone is not a refusal."""
 
     def unexpected(cmd, **kwargs):
@@ -112,14 +115,16 @@ def test_skips_on_docker(monkeypatch):
         ),
     ],
 )
-def test_unreadable_backend_lets_the_deploy_through(podman, monkeypatch, kwargs):
+@pytest.mark.usefixtures("podman")
+def test_unreadable_backend_lets_the_deploy_through(monkeypatch, kwargs):
     """No answer means no opinion: never block a deploy on a host we cannot read."""
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe(**kwargs))
 
     _preflight_bluesky_network_backend(_config("bluesky"))
 
 
-def test_unknown_backend_warns_rather_than_refuses(podman, monkeypatch):
+@pytest.mark.usefixtures("podman")
+def test_unknown_backend_warns_rather_than_refuses(monkeypatch):
     """A backend nobody here has seen gets a warning, not a guess dressed as a refusal."""
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _probe("slirp-of-the-future\n"))
     warnings = []
@@ -138,7 +143,7 @@ def test_unknown_backend_warns_rather_than_refuses(podman, monkeypatch):
 def test_no_runtime_defers_to_the_runtime_check(monkeypatch):
     """A host with no usable runtime is diagnosed by verify_runtime_is_running, not here."""
 
-    def no_runtime(config):
+    def no_runtime(_config):
         raise RuntimeError("No container runtime found")
 
     monkeypatch.setattr(container_lifecycle, "get_runtime_command", no_runtime)

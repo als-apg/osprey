@@ -417,8 +417,8 @@ class SubscriberSeam:
 
     # -- the seam itself ----------------------------------------------------
 
-    def __call__(self, cfg: Any) -> SubscriberSeam:
-        """Build the client. ``cfg`` is deliberately unread — the emulator's address is
+    def __call__(self, _cfg: Any) -> SubscriberSeam:
+        """Build the client. ``_cfg`` is deliberately unread — the emulator's address is
         the test's, and ``cfg.sa_key`` names a file that does not exist."""
         with self._lock:
             if self._client is None:

@@ -231,7 +231,7 @@ class _Probe:
 
 
 @pytest.fixture
-def probe(restore_root_logging):
+def probe(restore_root_logging):  # noqa: ARG001 - root logging is restored around the handler
     """Capture the printed stream and the painted log stream of one call.
 
     A local instrument rather than ``tests/cli``'s ``terminal_probe`` fixture,
@@ -383,7 +383,7 @@ def test_a_tier_with_nothing_in_it_is_not_printed(probe, compose_file):
 def test_a_failed_summary_prints_nothing_and_is_recorded(probe, monkeypatch):
     """A summary that cannot be derived stays silent on the operator's terminal."""
 
-    def boom(config, compose_files):
+    def boom(_config, _compose_files):
         raise RuntimeError("no compose files")
 
     monkeypatch.setattr(deploy_summary, "endpoint_entries", boom)
@@ -1143,23 +1143,23 @@ def test_a_roster_user_the_catalog_cannot_place_degrades_the_whole_tier(tmp_path
     )
 
 
-def _unparseable_persona_config(tmp_path, config):
+def _unparseable_persona_config(tmp_path, _config):
     """A rendered ``config.yml`` that is not YAML — a build interrupted mid-write."""
     path = tmp_path / "build" / "demo-readonly" / "config.yml"
     path.write_text("web: [unclosed\n", encoding="utf-8")
 
 
-def _catalog_entry_without_a_project_path(tmp_path, config):
+def _catalog_entry_without_a_project_path(_tmp_path, config):
     """A persona declared but never pointed at a project."""
     config["modules"]["web_terminals"]["personas"]["readonly"].pop("project_path")
 
 
-def _roster_entry_that_is_not_a_user(tmp_path, config):
+def _roster_entry_that_is_not_a_user(_tmp_path, config):
     """A bare scalar where a roster entry belongs — a hand-edited config, or ``--no-lint``."""
     config["modules"]["web_terminals"]["users"] = [*_SPLIT_ROSTER, 42]
 
 
-def _authorization_stanza_that_does_not_parse(tmp_path, config):
+def _authorization_stanza_that_does_not_parse(_tmp_path, config):
     """A declared role that names no persona — one of the parser's refusals.
 
     Not a scalar ``authorization: 42``: that one parses to the inert defaults

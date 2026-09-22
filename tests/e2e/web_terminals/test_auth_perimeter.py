@@ -557,7 +557,8 @@ def deployment(tmp_path_factory: pytest.TempPathFactory) -> Iterator[dict[str, A
         _teardown()
 
 
-def test_up_builds_the_real_sidecar_image(deployment: dict[str, Any]) -> None:
+@pytest.mark.usefixtures("deployment")
+def test_up_builds_the_real_sidecar_image() -> None:
     """T1: the DEPLOYED Dockerfile builds, and the tag carries this project's label.
 
     The image is what every other assertion in this file runs against, and it is
@@ -585,7 +586,8 @@ def test_the_sidecar_runs_and_reports_itself_configured(deployment: dict[str, An
     )
 
 
-def test_a_terminal_is_refused_without_a_session(deployment: dict[str, Any]) -> None:
+@pytest.mark.usefixtures("deployment")
+def test_a_terminal_is_refused_without_a_session() -> None:
     """T3: nginx refuses an unauthenticated request for a user's terminal.
 
     Asked with a *program's* ``Accept`` so the answer is a bare 401 rather than
@@ -597,7 +599,8 @@ def test_a_terminal_is_refused_without_a_session(deployment: dict[str, Any]) -> 
     assert status == 401, f"unauthenticated request was not refused (got {status})"
 
 
-def test_a_real_login_reaches_that_users_own_upstream(deployment: dict[str, Any]) -> None:
+@pytest.mark.usefixtures("deployment")
+def test_a_real_login_reaches_that_users_own_upstream() -> None:
     """T4: login → cookie → auth_request → prefix-stripped proxy, end to end.
 
     The response body must be the one ALICE'S container serves. A 200 alone

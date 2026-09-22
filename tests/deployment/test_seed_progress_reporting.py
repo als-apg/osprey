@@ -31,7 +31,11 @@ class RecordingReporter(PhaseReporter):
         super().__init__(color=False)
         self.lines: list[str] = []
 
-    def emit(self, text: str, style: str | None = None) -> None:
+    def emit(
+        self,
+        text: str,
+        style: str | None = None,  # noqa: ARG002 - PhaseReporter.emit's style argument
+    ) -> None:
         self.lines.append(text)
 
 
@@ -46,7 +50,7 @@ def restore_reporter():
 
 
 @pytest.fixture
-def phase(restore_reporter):
+def phase(restore_reporter):  # noqa: ARG001 - the module reporter handle is put back afterwards
     """A recording reporter with a phase open, as a verb would leave it."""
     recording = RecordingReporter()
     install_reporter(recording)
@@ -111,7 +115,8 @@ def test_the_rate_limit_swallows_the_burst_of_per_chunk_firings(phase):
     assert steps(phase) == []
 
 
-def test_a_callback_outside_a_verb_reports_nothing(restore_reporter, monkeypatch):
+@pytest.mark.usefixtures("restore_reporter")
+def test_a_callback_outside_a_verb_reports_nothing(monkeypatch):
     """Seeding also runs from ``sim apply`` and from tests, with no phase open."""
     monkeypatch.setattr(container_lifecycle, "_ARCHIVER_PROGRESS_INTERVAL_S", 0.0)
     recording = RecordingReporter()
@@ -122,7 +127,8 @@ def test_a_callback_outside_a_verb_reports_nothing(restore_reporter, monkeypatch
     assert recording.lines == []
 
 
-def test_progress_prints_nothing_under_a_null_reporter(restore_reporter, monkeypatch, capsys):
+@pytest.mark.usefixtures("restore_reporter")
+def test_progress_prints_nothing_under_a_null_reporter(monkeypatch, capsys):
     """Under ``--verbose`` the raw seeder output is what the operator watches."""
     monkeypatch.setattr(container_lifecycle, "_ARCHIVER_PROGRESS_INTERVAL_S", 0.0)
     null = NullReporter(verbose=True)

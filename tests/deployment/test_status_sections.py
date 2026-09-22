@@ -96,7 +96,13 @@ def runtime(monkeypatch):
     )
     monkeypatch.setattr(status_display, "get_runtime_command", lambda config=None: ["docker"])
 
-    def _fake_run(cmd, capture_output=True, text=True, timeout=None, **kwargs):
+    def _fake_run(
+        cmd,
+        capture_output=True,  # noqa: ARG001 - subprocess.run's keywords
+        text=True,  # noqa: ARG001 - subprocess.run's keywords
+        timeout=None,  # noqa: ARG001 - subprocess.run's keywords
+        **kwargs,
+    ):
         argv = list(cmd)
         record["cmds"].append(argv)
         if argv[:2] == ["docker", "ps"]:
@@ -157,7 +163,8 @@ def report(repo: Path, **kwargs) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_a_clean_build_is_reported_as_in_sync(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_a_clean_build_is_reported_as_in_sync(lifecycle_repo):
     render_build(lifecycle_repo)
 
     text = report(lifecycle_repo)
@@ -165,7 +172,8 @@ def test_a_clean_build_is_reported_as_in_sync(lifecycle_repo, runtime):
     assert "in sync with profile.yml" in text
 
 
-def test_drift_names_what_moved_and_that_the_start_verbs_refuse(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_drift_names_what_moved_and_that_the_start_verbs_refuse(lifecycle_repo):
     """The same verdict ``up`` refuses on, so a refusal is never a surprise here."""
     render_build(lifecycle_repo)
     profile = lifecycle_repo / "profile.yml"
@@ -193,7 +201,8 @@ def test_a_repo_with_no_build_says_so_and_still_shows_its_containers(lifecycle_r
     assert "from the directory name" in text
 
 
-def test_the_version_line_is_printed_when_there_is_no_skew(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_the_version_line_is_printed_when_there_is_no_skew(lifecycle_repo):
     """A build rendered by the installed version still reports which one that was.
 
     ``version_skew`` is populated only when the two versions DIFFER, so a report
@@ -209,7 +218,8 @@ def test_the_version_line_is_printed_when_there_is_no_skew(lifecycle_repo, runti
     assert f"rendered by osprey {get_framework_release_version()} (installed)" in text
 
 
-def test_version_skew_is_reported_as_skew(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_version_skew_is_reported_as_skew(lifecycle_repo):
     render_build(lifecycle_repo, version="1900.1.0")
 
     text = report(lifecycle_repo)
@@ -218,7 +228,8 @@ def test_version_skew_is_reported_as_skew(lifecycle_repo, runtime):
     assert "Re-run `osprey build`" in text
 
 
-def test_a_build_that_records_no_version_says_it_recorded_none(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_a_build_that_records_no_version_says_it_recorded_none(lifecycle_repo):
     """Not the same as "matches", and not something to leave unsaid."""
     build = render_build(lifecycle_repo)
     manifest_path = build / ".osprey-manifest.json"
@@ -337,7 +348,8 @@ def test_a_failed_runtime_query_is_not_reported_as_an_empty_deployment(lifecycle
 # ---------------------------------------------------------------------------
 
 
-def test_endpoints_come_from_the_rendered_compose_files(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_endpoints_come_from_the_rendered_compose_files(lifecycle_repo):
     render_build(lifecycle_repo)
 
     text = report(lifecycle_repo)
@@ -346,7 +358,8 @@ def test_endpoints_come_from_the_rendered_compose_files(lifecycle_repo, runtime)
     assert "127.0.0.1:18020" in text
 
 
-def test_the_endpoint_list_does_not_claim_anything_is_answering(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_the_endpoint_list_does_not_claim_anything_is_answering(lifecycle_repo):
     """It is read out of build/, not probed. Saying otherwise would be the run's defect."""
     render_build(lifecycle_repo)
 
@@ -360,9 +373,8 @@ def test_the_endpoint_list_does_not_claim_anything_is_answering(lifecycle_repo, 
 # ---------------------------------------------------------------------------
 
 
-def test_a_credential_that_lives_only_in_the_repo_env_counts_as_found(
-    lifecycle_repo, runtime, monkeypatch
-):
+@pytest.mark.usefixtures("runtime")
+def test_a_credential_that_lives_only_in_the_repo_env_counts_as_found(lifecycle_repo, monkeypatch):
     """``.env`` is the deployment's secret store; a check against os.environ alone lies.
 
     Every container reads its credentials from this file. A status that only
@@ -380,7 +392,8 @@ def test_a_credential_that_lives_only_in_the_repo_env_counts_as_found(
     assert "sk-secret" not in text
 
 
-def test_a_credential_that_is_nowhere_is_reported_missing(lifecycle_repo, runtime, monkeypatch):
+@pytest.mark.usefixtures("runtime")
+def test_a_credential_that_is_nowhere_is_reported_missing(lifecycle_repo, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     render_build(lifecycle_repo)
 
@@ -392,7 +405,8 @@ def test_a_credential_that_is_nowhere_is_reported_missing(lifecycle_repo, runtim
     assert ".env" in text
 
 
-def test_a_credential_in_the_shared_file_is_found_and_flagged(lifecycle_repo, runtime, monkeypatch):
+@pytest.mark.usefixtures("runtime")
+def test_a_credential_in_the_shared_file_is_found_and_flagged(lifecycle_repo, monkeypatch):
     """The chain is `.env.shared` then `.env`, and the spec beside this row
     expands `${VAR}` through the whole chain. Reporting only `.env` calls a
     resolvable credential missing. It is still the wrong file for a secret —
@@ -408,7 +422,8 @@ def test_a_credential_in_the_shared_file_is_found_and_flagged(lifecycle_repo, ru
     assert "sk-shared" not in text
 
 
-def test_the_local_env_wins_over_the_shared_one(lifecycle_repo, runtime, monkeypatch):
+@pytest.mark.usefixtures("runtime")
+def test_the_local_env_wins_over_the_shared_one(lifecycle_repo, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     render_build(lifecycle_repo)
     (lifecycle_repo / ".env.shared").write_text("ANTHROPIC_API_KEY=sk-shared\n", encoding="utf-8")
@@ -420,7 +435,8 @@ def test_the_local_env_wins_over_the_shared_one(lifecycle_repo, runtime, monkeyp
     assert "committed file" not in text
 
 
-def test_an_unset_provider_names_the_key_the_operator_sets(lifecycle_repo, runtime, monkeypatch):
+@pytest.mark.usefixtures("runtime")
+def test_an_unset_provider_names_the_key_the_operator_sets(lifecycle_repo, monkeypatch):
     """`claude_code.provider` is a rendered key the build derives; writing it
     by hand is refused. The remedy names the profile field that sets it."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -444,8 +460,10 @@ def _config_with_telemetry(block: str) -> str:
     return _RENDERED_CONFIG + block
 
 
+@pytest.mark.usefixtures("runtime")
 def test_a_missing_observability_credential_is_not_blamed_on_the_provider(
-    lifecycle_repo, runtime, monkeypatch
+    lifecycle_repo,
+    monkeypatch,
 ):
     """The provider is fine; the observability backend has no password.
 
@@ -478,8 +496,10 @@ def test_a_missing_observability_credential_is_not_blamed_on_the_provider(
     assert "not-a-real-password" not in text
 
 
+@pytest.mark.usefixtures("runtime")
 def test_an_unresolved_observability_credential_reports_names_not_the_raw_error(
-    lifecycle_repo, runtime, monkeypatch
+    lifecycle_repo,
+    monkeypatch,
 ):
     """The credential's own text never reaches the report.
 
@@ -507,8 +527,10 @@ def test_an_unresolved_observability_credential_reports_names_not_the_raw_error(
     assert "refusing to encode" not in text
 
 
+@pytest.mark.usefixtures("runtime")
 def test_a_telemetry_endpoint_failure_still_reads_as_a_provider_problem(
-    lifecycle_repo, runtime, monkeypatch
+    lifecycle_repo,
+    monkeypatch,
 ):
     """Only the credential case is re-framed.
 
@@ -550,9 +572,8 @@ def _telemetry_report(repo: Path, monkeypatch) -> str:
     return report(repo)
 
 
-def test_the_observability_authorization_header_is_never_printed(
-    lifecycle_repo, runtime, monkeypatch
-):
+@pytest.mark.usefixtures("runtime")
+def test_the_observability_authorization_header_is_never_printed(lifecycle_repo, monkeypatch):
     """The env block is printed key AND value, and one of those values is a credential.
 
     ``OTEL_EXPORTER_OTLP_HEADERS`` carries HTTP Basic auth for the observability
@@ -567,7 +588,8 @@ def test_the_observability_authorization_header_is_never_printed(
     assert "Basic " not in text
 
 
-def test_the_headers_variable_is_still_reported_as_configured(lifecycle_repo, runtime, monkeypatch):
+@pytest.mark.usefixtures("runtime")
+def test_the_headers_variable_is_still_reported_as_configured(lifecycle_repo, monkeypatch):
     """Masking the value must not delete the row.
 
     Whether the exporter is authenticated at all is a fact an operator came to
@@ -579,9 +601,8 @@ def test_the_headers_variable_is_still_reported_as_configured(lifecycle_repo, ru
     assert "value not shown" in text
 
 
-def test_the_rest_of_the_telemetry_block_still_shows_its_values(
-    lifecycle_repo, runtime, monkeypatch
-):
+@pytest.mark.usefixtures("runtime")
+def test_the_rest_of_the_telemetry_block_still_shows_its_values(lifecycle_repo, monkeypatch):
     """Only the credential-bearing variable is masked, not the block around it.
 
     Ten of the eleven telemetry variables are ordinary configuration, and a mask
@@ -618,8 +639,10 @@ def test_the_mask_is_a_rule_and_not_one_remembered_variable(name, masked):
     assert (shown != "the-value") is masked
 
 
+@pytest.mark.usefixtures("runtime")
 def test_the_artifact_check_mirrors_the_arguments_the_build_renders_with(
-    lifecycle_repo, runtime, monkeypatch
+    lifecycle_repo,
+    monkeypatch,
 ):
     """A dry run that does not reproduce the build's own render arguments reports
     drift that does not exist.
@@ -660,9 +683,8 @@ def test_the_artifact_check_mirrors_the_arguments_the_build_renders_with(
     ]
 
 
-def test_a_config_without_project_root_falls_back_to_the_repo_root(
-    lifecycle_repo, runtime, monkeypatch
-):
+@pytest.mark.usefixtures("runtime")
+def test_a_config_without_project_root_falls_back_to_the_repo_root(lifecycle_repo, monkeypatch):
     """The fallback, tested as a fallback rather than as an accident.
 
     A render that recorded no ``project_root`` — an older build, or one written
@@ -690,9 +712,8 @@ def test_a_config_without_project_root_falls_back_to_the_repo_root(
     assert calls[0]["project_root_override"] == str(lifecycle_repo)
 
 
-def test_a_container_targeted_build_is_not_told_to_probe_a_host_venv(
-    lifecycle_repo, runtime, monkeypatch
-):
+@pytest.mark.usefixtures("runtime")
+def test_a_container_targeted_build_is_not_told_to_probe_a_host_venv(lifecycle_repo, monkeypatch):
     """``--runtime-root`` records a path inside a container, which has no venv here."""
     render_build(
         lifecycle_repo,
@@ -701,7 +722,11 @@ def test_a_container_targeted_build_is_not_told_to_probe_a_host_venv(
     calls: list[dict] = []
 
     class _Manager:
-        def regenerate_claude_code(self, project_dir, **kwargs):
+        def regenerate_claude_code(
+            self,
+            project_dir,  # noqa: ARG002 - the template manager's signature, the rest in **kwargs
+            **kwargs,
+        ):
             calls.append(kwargs)
             return {"changed": [], "unchanged": []}
 
@@ -713,11 +738,16 @@ def test_a_container_targeted_build_is_not_told_to_probe_a_host_venv(
     assert calls[0]["runtime_venv_dir"] is None
 
 
-def test_out_of_sync_artifacts_name_the_rebuild(lifecycle_repo, runtime, monkeypatch):
+@pytest.mark.usefixtures("runtime")
+def test_out_of_sync_artifacts_name_the_rebuild(lifecycle_repo, monkeypatch):
     render_build(lifecycle_repo)
 
     class _Manager:
-        def regenerate_claude_code(self, project_dir, **kwargs):
+        def regenerate_claude_code(
+            self,
+            project_dir,  # noqa: ARG002 - the template manager's signature, the rest in **kwargs
+            **kwargs,
+        ):
             return {"changed": [".claude/settings.json"], "unchanged": []}
 
     monkeypatch.setattr("osprey.cli.templates.manager.TemplateManager", lambda: _Manager())
@@ -729,14 +759,17 @@ def test_out_of_sync_artifacts_name_the_rebuild(lifecycle_repo, runtime, monkeyp
     assert ".claude/settings.json" in text
 
 
-def test_an_artifact_check_that_cannot_run_is_not_a_passing_one(
-    lifecycle_repo, runtime, monkeypatch
-):
+@pytest.mark.usefixtures("runtime")
+def test_an_artifact_check_that_cannot_run_is_not_a_passing_one(lifecycle_repo, monkeypatch):
     """A template that will not render is a fact about the build, not a clean bill."""
     render_build(lifecycle_repo)
 
     class _Manager:
-        def regenerate_claude_code(self, project_dir, **kwargs):
+        def regenerate_claude_code(
+            self,
+            project_dir,  # noqa: ARG002 - the template manager's signature, the rest in **kwargs
+            **kwargs,
+        ):
             raise RuntimeError("template exploded")
 
     monkeypatch.setattr("osprey.cli.templates.manager.TemplateManager", lambda: _Manager())
@@ -750,7 +783,8 @@ def test_an_artifact_check_that_cannot_run_is_not_a_passing_one(
     assert "in sync (" not in text
 
 
-def test_the_per_agent_model_table_is_opt_in(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_the_per_agent_model_table_is_opt_in(lifecycle_repo):
     """A dozen model rows would bury the two lines an operator came for."""
     render_build(lifecycle_repo)
 
@@ -762,7 +796,8 @@ def test_the_per_agent_model_table_is_opt_in(lifecycle_repo, runtime):
     assert "model tiers" in default
 
 
-def test_the_agent_table_lists_every_framework_agent(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_the_agent_table_lists_every_framework_agent(lifecycle_repo):
     """The table is the agent catalog, not the subset the tier map names.
 
     An agent absent from ``AGENT_DEFAULT_TIERS`` still runs — it takes the
@@ -792,7 +827,8 @@ def _tree(root: Path) -> dict[str, bytes]:
     }
 
 
-def test_status_writes_nothing_into_the_repo(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_status_writes_nothing_into_the_repo(lifecycle_repo):
     """Including the artifact check, which renders into a temporary directory."""
     render_build(lifecycle_repo)
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
@@ -803,9 +839,8 @@ def test_status_writes_nothing_into_the_repo(lifecycle_repo, runtime):
     assert _tree(lifecycle_repo) == before
 
 
-def test_status_never_announces_creating_the_files_it_did_not_create(
-    lifecycle_repo, runtime, capsys
-):
+@pytest.mark.usefixtures("runtime")
+def test_status_never_announces_creating_the_files_it_did_not_create(lifecycle_repo, capsys):
     """The artifact renderer must not narrate itself inside a read-only report.
 
     Rendering into a temporary directory still runs the writer. Any "Created N
@@ -854,7 +889,8 @@ def logs_argv(repo: Path, **kwargs) -> list[str]:
     return cmd
 
 
-def test_logs_is_built_through_the_pinned_compose_contract(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_logs_is_built_through_the_pinned_compose_contract(lifecycle_repo):
     """One base for every invocation: project directory, repo-anchored -f, env file."""
     render_build(lifecycle_repo)
     (lifecycle_repo / ".env").write_text("ANTHROPIC_API_KEY=x\n", encoding="utf-8")
@@ -870,14 +906,16 @@ def test_logs_is_built_through_the_pinned_compose_contract(lifecycle_repo, runti
     assert argv[-1] == "logs"
 
 
-def test_follow_is_passed_through(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_follow_is_passed_through(lifecycle_repo):
     render_build(lifecycle_repo)
 
     assert "--follow" in logs_argv(lifecycle_repo, follow=True)
     assert "--follow" not in logs_argv(lifecycle_repo)
 
 
-def test_tail_is_passed_through_and_otherwise_left_to_the_runtime(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_tail_is_passed_through_and_otherwise_left_to_the_runtime(lifecycle_repo):
     """No invented default: an unset ``--tail`` means compose's own behaviour."""
     render_build(lifecycle_repo)
 
@@ -887,7 +925,8 @@ def test_tail_is_passed_through_and_otherwise_left_to_the_runtime(lifecycle_repo
     assert "--tail" not in logs_argv(lifecycle_repo)
 
 
-def test_a_named_service_is_the_last_argument(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_a_named_service_is_the_last_argument(lifecycle_repo):
     render_build(lifecycle_repo)
 
     argv = logs_argv(lifecycle_repo, service="event-dispatcher", follow=True)
@@ -895,7 +934,8 @@ def test_a_named_service_is_the_last_argument(lifecycle_repo, runtime):
     assert argv[-1] == "event-dispatcher"
 
 
-def test_the_web_stack_is_carried_when_the_deployment_has_one(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_the_web_stack_is_carried_when_the_deployment_has_one(lifecycle_repo):
     """Two compose invocations start the deployment; one reads its logs.
 
     They are a single compose project, so a ``logs`` that carried only the
@@ -911,7 +951,8 @@ def test_the_web_stack_is_carried_when_the_deployment_has_one(lifecycle_repo, ru
     assert str(web_compose_file(lifecycle_repo)) in logs_argv(lifecycle_repo)
 
 
-def test_logs_does_not_warn_about_services_starting(lifecycle_repo, runtime, caplog):
+@pytest.mark.usefixtures("runtime")
+def test_logs_does_not_warn_about_services_starting(lifecycle_repo, caplog):
     """The shared ``--env-file`` resolver warns about a missing ``.env`` in terms
     of what the stack will come up with. Nothing comes up here.
 
@@ -927,7 +968,8 @@ def test_logs_does_not_warn_about_services_starting(lifecycle_repo, runtime, cap
     assert "will start" not in caplog.text
 
 
-def test_logs_pins_the_compose_project_name(lifecycle_repo, runtime):
+@pytest.mark.usefixtures("runtime")
+def test_logs_pins_the_compose_project_name(lifecycle_repo):
     """Left unset, compose derives a project from the directory and finds nothing —
     which prints an empty log and looks like a deployment that logs nothing."""
     render_build(lifecycle_repo)
@@ -946,7 +988,8 @@ def test_logs_without_a_build_refuses_and_names_the_remedy(lifecycle_repo):
     assert "osprey build" in excinfo.value.remedy
 
 
-def test_logs_renders_nothing(lifecycle_repo, runtime, monkeypatch):
+@pytest.mark.usefixtures("runtime")
+def test_logs_renders_nothing(lifecycle_repo, monkeypatch):
     """A read verb that re-rendered would answer about a stack that was never started."""
     from osprey.deployment import container_lifecycle
 

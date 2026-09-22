@@ -473,7 +473,7 @@ def deployment(bench_endpoint, va_endpoint, limits_database) -> dict[str, Any]: 
 
 
 @pytest.fixture
-async def make_manager(written_config, state_root):
+async def make_manager(written_config, state_root):  # noqa: ARG001 - the stamped state root exists before a manager is built over it
     """Managers whose children are all reaped when the test ends."""
     created: list[ConnectorHostManager] = []
 
@@ -610,8 +610,9 @@ class TestASwitchToTheBenchMachine:
     it is told to switch to, and FR-8 is what decides whether it is told.
     """
 
+    @pytest.mark.usefixtures("quiet_switch_notifications")
     async def test_the_tool_switches_onto_the_bench_and_the_reads_follow(
-        self, make_manager, deployment, served_context, quiet_switch_notifications, reconciling
+        self, make_manager, deployment, served_context, reconciling
     ):
         manager = await started_on(make_manager, deployment, "va")
         served_context(manager)

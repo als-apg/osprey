@@ -92,9 +92,8 @@ def _fake_pyepics(monkeypatch):
 
 class TestShutdownHook:
     @pytest.mark.asyncio
-    async def test_connect_switches_pyepics_finalizer_off_before_libca_loads(
-        self, monkeypatch, clean_epics_env
-    ):
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_connect_switches_pyepics_finalizer_off_before_libca_loads(self, monkeypatch):
         _patch_writes_enabled(monkeypatch, False)
         ca = _fake_pyepics(monkeypatch)
 
@@ -105,9 +104,8 @@ class TestShutdownHook:
         assert ca.seen_at_first_libca_use == [False]
 
     @pytest.mark.asyncio
-    async def test_connect_unregisters_a_finalizer_libca_already_installed(
-        self, monkeypatch, clean_epics_env
-    ):
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_connect_unregisters_a_finalizer_libca_already_installed(self, monkeypatch):
         """A process whose libca loaded earlier already carries the hook: take it out."""
         import atexit
 
@@ -197,7 +195,8 @@ class TestConfigurePyepicsLibca:
 
 class TestConnect:
     @pytest.mark.asyncio
-    async def test_missing_pyepics_raises_with_install_hint(self, monkeypatch, clean_epics_env):
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_missing_pyepics_raises_with_install_hint(self, monkeypatch):
         """A missing pyepics raises ImportError naming the pip install command."""
         monkeypatch.setitem(sys.modules, "epics", None)
 
@@ -206,7 +205,8 @@ class TestConnect:
             await connector.connect({"gateways": {}})
 
     @pytest.mark.asyncio
-    async def test_name_server_branch_sets_and_clears_env(self, monkeypatch, clean_epics_env):
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_name_server_branch_sets_and_clears_env(self, monkeypatch):
         """use_name_server routes via EPICS_CA_NAME_SERVERS and clears CA_ADDR_LIST."""
         _patch_writes_enabled(monkeypatch, False)
 
@@ -228,9 +228,8 @@ class TestConnect:
         assert os.environ["EPICS_CA_AUTO_ADDR_LIST"] == "NO"
 
     @pytest.mark.asyncio
-    async def test_limits_validator_initialized_when_config_present(
-        self, monkeypatch, clean_epics_env
-    ):
+    @pytest.mark.usefixtures("clean_epics_env")
+    async def test_limits_validator_initialized_when_config_present(self, monkeypatch):
         """A configured limits validator is stored on the connector after connect."""
         _patch_writes_enabled(monkeypatch, False)
         sentinel = MagicMock(name="limits_validator")
@@ -339,7 +338,7 @@ class TestReadChannel:
         """read_multiple_channels returns only the channels that read successfully."""
         good = ChannelValue(value=1.0, timestamp=None, metadata=ChannelMetadata())
 
-        async def fake_read(addr, timeout=None):
+        async def fake_read(addr, timeout=None):  # noqa: ARG001 - the control-system connector interface fixes this signature
             if addr == "BAD":
                 raise ConnectionError("nope")
             return good

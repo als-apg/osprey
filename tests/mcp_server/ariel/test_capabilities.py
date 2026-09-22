@@ -222,7 +222,7 @@ async def test_capabilities_reports_expand_by_default_off(tmp_path, monkeypatch)
     assert expand["default"] is False
 
 
-async def test_capabilities_docstring_explains_the_vocabulary_block(tmp_path, monkeypatch):
+async def test_capabilities_docstring_explains_the_vocabulary_block():
     """The docstring is a prompt surface: it must name what it now returns."""
     from osprey.mcp_server.ariel.tools.capabilities import capabilities
 

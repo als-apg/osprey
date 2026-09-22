@@ -358,17 +358,17 @@ def run_benchmark(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
 class TestChannelFinderBenchmarkVerbose:
     """``benchmark -v`` composes the gate lift with its DEBUG emission floor."""
 
-    def test_verbose_renders_the_transcript(
-        self, run_benchmark, unpinned_osprey_logger, terminal_probe: TerminalProbe
-    ):
+    @pytest.mark.usefixtures("unpinned_osprey_logger")
+    def test_verbose_renders_the_transcript(self, run_benchmark, terminal_probe: TerminalProbe):
         result = run_benchmark("-v")
 
         assert result.exit_code == 1, result.output
         assert INFO_MARKER in terminal_probe.rendered_text
         assert gate_installed() is False
 
+    @pytest.mark.usefixtures("unpinned_osprey_logger")
     def test_a_default_run_renders_no_transcript(
-        self, run_benchmark, unpinned_osprey_logger, terminal_probe: TerminalProbe
+        self, run_benchmark, terminal_probe: TerminalProbe
     ):
         result = run_benchmark()
 
@@ -378,9 +378,8 @@ class TestChannelFinderBenchmarkVerbose:
         assert INFO_MARKER not in terminal_probe.rendered_text
         assert INFO_MARKER in terminal_probe.messages
 
-    def test_verbose_still_lowers_the_emission_floor(
-        self, run_benchmark, unpinned_osprey_logger, terminal_probe: TerminalProbe
-    ):
+    @pytest.mark.usefixtures("unpinned_osprey_logger", "terminal_probe")
+    def test_verbose_still_lowers_the_emission_floor(self, run_benchmark):
         """The lift is the render half; the level floor stays what it was.
 
         Lifting the gate alone would surface INFO and no more — the framework

@@ -137,7 +137,7 @@ def _refusal_records(audit_zone):
 
 
 @BOTH_MODES
-async def test_execute_refuses_render_zone_write_in_every_mode(execution_mode, audit_zone):
+async def test_execute_refuses_render_zone_write_in_every_mode(execution_mode):
     """readwrite is not a way around the policy — both modes refuse."""
     with assert_raises_error(error_type="safety_error") as ctx:
         await _execute()(
@@ -152,7 +152,7 @@ async def test_execute_refuses_render_zone_write_in_every_mode(execution_mode, a
 
 
 @BOTH_MODES
-async def test_readwrite_wording_does_not_blame_readonly_mode(execution_mode, audit_zone):
+async def test_readwrite_wording_does_not_blame_readonly_mode(execution_mode):
     """The refusal must not send a readwrite caller back to try readwrite."""
     with assert_raises_error(error_type="safety_error") as ctx:
         await _execute()(
@@ -209,7 +209,7 @@ class TestTheProseCheckIsBlindToTheCheckoutName:
 
 
 @BOTH_MODES
-async def test_execute_file_matches_execute(execution_mode, script_root, audit_zone):
+async def test_execute_file_matches_execute(execution_mode, script_root):
     """The same code through the file tool gives the same refusal."""
     script = _script(script_root, RENDER_ZONE_WRITE + "\n")
     with assert_raises_error(error_type="safety_error") as file_ctx:
@@ -420,7 +420,8 @@ def _assert_posture_envelope(envelope, *, source="deployment"):
     assert not any("writes_enabled" in s for s in envelope["suggestions"])
 
 
-async def test_execute_readwrite_is_refused_under_a_read_only_run(readonly_run):
+@pytest.mark.usefixtures("readonly_run")
+async def test_execute_readwrite_is_refused_under_a_read_only_run():
     with assert_raises_error(error_type="safety_error") as ctx:
         await _execute()(
             code=CLEAN_READWRITE_CODE,
@@ -431,7 +432,8 @@ async def test_execute_readwrite_is_refused_under_a_read_only_run(readonly_run):
     _assert_posture_envelope(ctx["envelope"])
 
 
-async def test_execute_file_readwrite_is_refused_under_a_read_only_run(readonly_run, script_root):
+@pytest.mark.usefixtures("readonly_run")
+async def test_execute_file_readwrite_is_refused_under_a_read_only_run(script_root):
     script = _script(script_root, CLEAN_READWRITE_CODE)
     with assert_raises_error(error_type="safety_error") as file_ctx:
         await _execute_file()(
@@ -451,7 +453,8 @@ async def test_execute_file_readwrite_is_refused_under_a_read_only_run(readonly_
     assert file_ctx["envelope"]["suggestions"] == code_ctx["envelope"]["suggestions"]
 
 
-async def test_a_read_only_run_does_not_send_the_operator_to_the_chip(readonly_run):
+@pytest.mark.usefixtures("readonly_run")
+async def test_a_read_only_run_does_not_send_the_operator_to_the_chip():
     """The deployment-wide source names the variable, never the chip as a fix.
 
     The chip already reads writes for this session — the run itself is what
@@ -471,7 +474,8 @@ async def test_a_read_only_run_does_not_send_the_operator_to_the_chip(readonly_r
     assert "OSPREY_EXECUTION_MODE=readonly" in " ".join(envelope["suggestions"])
 
 
-async def test_a_narrowed_target_sends_the_operator_to_the_chip(narrowed_session):
+@pytest.mark.usefixtures("narrowed_session")
+async def test_a_narrowed_target_sends_the_operator_to_the_chip():
     """The store-derived source is the operator's own narrowing, so it points at
     the chip that made it — the sentence the deployment-wide branch must not
     borrow — and names the ONE target it narrowed, never the session."""
@@ -532,7 +536,8 @@ async def _run_clean_readwrite(tmp_path, monkeypatch):
         )
 
 
-async def test_readonly_still_runs_under_a_read_only_run(readonly_run, tmp_path, monkeypatch):
+@pytest.mark.usefixtures("readonly_run")
+async def test_readonly_still_runs_under_a_read_only_run(tmp_path, monkeypatch):
     """The posture clamps writes, not reads — ordinary work must be unaffected."""
     monkeypatch.chdir(tmp_path)
 
@@ -683,8 +688,9 @@ def _assert_refused_for_the_live_machine(envelope, expected_target):
     assert envelope["details"]["writes_enabled_key"] == LIVE_BLOCK_KEY
 
 
+@pytest.mark.usefixtures("mixed_posture")
 async def test_readwrite_runs_on_a_target_whose_block_arms_writes(
-    tmp_path, monkeypatch, mixed_posture, control_target
+    tmp_path, monkeypatch, control_target
 ):
     """A global false does not disarm a VA block that says true."""
     control_target("va")
@@ -695,9 +701,8 @@ async def test_readwrite_runs_on_a_target_whose_block_arms_writes(
     assert data["execution_mode"] == "readwrite"
 
 
-async def test_readwrite_is_refused_on_the_live_target(
-    tmp_path, monkeypatch, mixed_posture, control_target
-):
+@pytest.mark.usefixtures("mixed_posture")
+async def test_readwrite_is_refused_on_the_live_target(tmp_path, monkeypatch, control_target):
     """The same deployment, the other target: the machine's own block refuses."""
     control_target("live")
 
@@ -707,8 +712,9 @@ async def test_readwrite_is_refused_on_the_live_target(
     _assert_refused_for_the_live_machine(ctx["envelope"], "live")
 
 
+@pytest.mark.usefixtures("mixed_posture")
 async def test_an_unstamped_run_is_answered_for_the_baseline_target(
-    tmp_path, monkeypatch, mixed_posture, control_target
+    tmp_path, monkeypatch, control_target
 ):
     """No session record means the baseline — which here is the live machine."""
     control_target(None)
@@ -719,8 +725,9 @@ async def test_an_unstamped_run_is_answered_for_the_baseline_target(
     _assert_refused_for_the_live_machine(ctx["envelope"], "live")
 
 
+@pytest.mark.usefixtures("mixed_posture")
 async def test_a_failing_target_read_answers_the_baseline_rather_than_skipping(
-    tmp_path, monkeypatch, mixed_posture
+    tmp_path, monkeypatch
 ):
     """Not knowing the target narrows the question; it never drops the gate.
 

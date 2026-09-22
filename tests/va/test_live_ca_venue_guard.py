@@ -178,7 +178,7 @@ class TestThePlatformThatMustRunIt:
         assert on_live_ca_platform("linux", "X86_64") is True
 
     @pytest.mark.parametrize(
-        ("name", "sys_platform", "machine"),
+        ("_name", "sys_platform", "machine"),
         [
             ("macos-arm64", "darwin", "arm64"),
             ("macos-x86_64", "darwin", "x86_64"),
@@ -187,7 +187,7 @@ class TestThePlatformThatMustRunIt:
         ],
     )
     def test_the_venue_is_not_required_elsewhere(
-        self, name: str, sys_platform: str, machine: str
+        self, _name: str, sys_platform: str, machine: str
     ) -> None:
         """No loadable wheel exists on any of these, so an honest skip is the
         right outcome and this guard must not turn it into a red lane."""
@@ -233,7 +233,7 @@ class TestTheGuardCanFail:
         """The failure mode of the wheels excluded on other platforms: the
         distribution is present and the extension will not load."""
 
-        def unloadable(name: str) -> Any:
+        def unloadable(_name: str) -> Any:
             raise ImportError("dlopen failed: libc++.1.dylib not found")
 
         with pytest.raises(AssertionError, match="dlopen"):
@@ -267,11 +267,11 @@ class TestTheGuardCanFail:
         )
 
     @pytest.mark.parametrize(
-        ("name", "sys_platform", "machine"),
+        ("_name", "sys_platform", "machine"),
         [("macos-arm64", "darwin", "arm64"), ("linux-aarch64", "linux", "aarch64")],
     )
     def test_a_missing_venue_is_tolerated_where_it_is_not_required(
-        self, name: str, sys_platform: str, machine: str
+        self, _name: str, sys_platform: str, machine: str
     ) -> None:
         """The developer skip on this very host, which must stay honest."""
         check_venue(sys_platform=sys_platform, machine=machine, import_module=self._absent)

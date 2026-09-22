@@ -96,7 +96,7 @@ def offered(monkeypatch):
 def _answer(monkeypatch, reporter, answer=True):
     """Answer the prompt, recording where in the seam it was asked."""
 
-    def _confirm(text, **kwargs):
+    def _confirm(text, **kwargs):  # noqa: ARG001 - the message position click.confirm is called at
         reporter.events.append("prompt")
         if isinstance(answer, BaseException):
             raise answer
@@ -105,7 +105,8 @@ def _answer(monkeypatch, reporter, answer=True):
     monkeypatch.setattr(deploy_cmd.click, "confirm", _confirm)
 
 
-def test_the_seed_prompt_is_asked_with_the_terminal_given_back(offered, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("offered")
+def test_the_seed_prompt_is_asked_with_the_terminal_given_back(monkeypatch, tmp_path):
     """The question and the region want the same rows of the same terminal.
 
     Ordering is the whole assertion: a prompt asked before the region came
@@ -121,7 +122,8 @@ def test_the_seed_prompt_is_asked_with_the_terminal_given_back(offered, monkeypa
     assert reporter.events == ["stop", "prompt", "start"]
 
 
-def test_an_accepted_offer_still_seeds_the_file(offered, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("offered")
+def test_an_accepted_offer_still_seeds_the_file(monkeypatch, tmp_path):
     """The wrap changes where the question is asked, and nothing else.
 
     The seed is the point of the prompt: a refactor that suspended the
@@ -140,7 +142,8 @@ def test_an_accepted_offer_still_seeds_the_file(offered, monkeypatch, tmp_path):
     assert stat.S_IMODE(env_path.stat().st_mode) == 0o600
 
 
-def test_a_declined_offer_refuses_with_the_terminal_back(offered, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("offered")
+def test_a_declined_offer_refuses_with_the_terminal_back(monkeypatch, tmp_path):
     """The refusal that follows a "no" is a plain message, printed after the
     region is back under the reporter's own control rather than into the
     middle of a frame."""
@@ -156,7 +159,8 @@ def test_a_declined_offer_refuses_with_the_terminal_back(offered, monkeypatch, t
     assert not (repo / ".env").exists()
 
 
-def test_an_abandoned_prompt_still_gives_the_terminal_back(offered, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("offered")
+def test_an_abandoned_prompt_still_gives_the_terminal_back(monkeypatch, tmp_path):
     """A prompt the operator Ctrl-Cs is exactly the one that must not leave
     the rest of the run rendering nothing — so the wrap has to be a ``with``
     block, not a stop-then-start pair around the call."""
@@ -170,7 +174,8 @@ def test_an_abandoned_prompt_still_gives_the_terminal_back(offered, monkeypatch,
     assert reporter.events == ["stop", "prompt", "start"]
 
 
-def test_the_prompt_path_is_a_no_op_with_nothing_rendering(offered, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("offered")
+def test_the_prompt_path_is_a_no_op_with_nothing_rendering(monkeypatch, tmp_path):
     """Off a terminal, under ``--verbose``, or from a library caller there is
     no region to take down. The call site asks no questions about which
     reporter it got, so the seam has to put back exactly what it took away —
@@ -188,7 +193,8 @@ def test_the_prompt_path_is_a_no_op_with_nothing_rendering(offered, monkeypatch,
     assert (repo / ".env").exists()
 
 
-def test_the_default_reporter_survives_the_prompt(offered, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("offered")
+def test_the_default_reporter_survives_the_prompt(monkeypatch, tmp_path):
     """The seams live on the base class, so the quiet default answers them too.
 
     This is the shape every non-verb caller reaches the prompt with — a

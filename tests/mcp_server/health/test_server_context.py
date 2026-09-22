@@ -65,7 +65,7 @@ class _StubLifecycle:
         self.notice_rows: list[CheckResult] = []
         self.runtime: Any = _StubRuntime()
 
-    def reconcile(self, expanded: Any) -> list[CheckResult]:
+    def reconcile(self, _expanded: Any) -> list[CheckResult]:
         self.reconcile_calls += 1
         return list(self.notice_rows)
 
@@ -96,12 +96,12 @@ def env(monkeypatch):
         lifecycles.append(lifecycle)
         return lifecycle
 
-    async def _run_sync(fn, *args, timeout_s):
+    async def _run_sync(fn, *args, timeout_s):  # noqa: ARG001 - offload.run_sync fixes this keyword-only parameter
         # Yield once so single-flight contention is genuinely exercised.
         await asyncio.sleep(0)
         return fn(*args)
 
-    async def _run_health_suite(records, **kwargs):
+    async def _run_health_suite(records, **kwargs):  # noqa: ARG001 - run_health_suite fixes this stand-in's signature
         state["suite_calls"] += 1
         return CheckReport(results=[CheckResult("suite", "suite", Status.OK, "ok")])
 
@@ -290,7 +290,8 @@ async def test_shutdown_delegates_once_even_when_called_twice(env):
 # --- singleton --------------------------------------------------------------
 
 
-async def test_singleton_lifecycle(env):
+@pytest.mark.usefixtures("env")
+async def test_singleton_lifecycle():
     with pytest.raises(RuntimeError):
         get_server_context()
 

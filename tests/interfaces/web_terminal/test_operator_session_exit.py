@@ -190,7 +190,8 @@ class _FakeChatSession:
         self.teardown_calls = 0
         self.process_exited: bool | None = None
 
-    async def start(self, *, resume_id=None):
+    # ``OperatorSession.start``'s signature: the registry names ``resume_id``.
+    async def start(self, *, resume_id=None):  # noqa: ARG002
         return None
 
     async def teardown(self):
@@ -243,7 +244,8 @@ class TestTerminateReturnsTheSession:
         started = asyncio.Event()
 
         class _SlowSession(_FakeChatSession):
-            async def start(self, *, resume_id=None):
+            # ``OperatorSession.start``'s signature: the registry names ``resume_id``.
+            async def start(self, *, resume_id=None):  # noqa: ARG002
                 started.set()
                 await asyncio.sleep(0.05)
 

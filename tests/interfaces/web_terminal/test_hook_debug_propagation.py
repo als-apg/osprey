@@ -365,7 +365,7 @@ class TestHookDebugEndpoints:
             assert resp.status_code == 200
             assert resp.json()["entries"] == []
 
-    def test_hook_debug_toggle_via_config_patch(self, _app, tmp_path):
+    def test_hook_debug_toggle_via_config_patch(self, _app):
         from fastapi.testclient import TestClient
 
         with TestClient(_app) as client:

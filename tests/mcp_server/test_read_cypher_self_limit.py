@@ -33,7 +33,7 @@ class _FakeContext:
     def __init__(self, rows: list[dict[str, Any]], truncated: bool) -> None:
         self._result = QueryResult(rows=rows, truncated=truncated)
 
-    def run_read(self, query: str, params: dict[str, Any] | None = None) -> QueryResult:
+    def run_read(self, _query: str, _params: dict[str, Any] | None = None) -> QueryResult:
         return self._result
 
     def is_empty(self) -> bool:

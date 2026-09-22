@@ -63,7 +63,7 @@ def deployment(monkeypatch: pytest.MonkeyPatch):
 
         declared = {f"services.{key}.target": value for key, value in (targets or {}).items()}
 
-        def fake_get_config_value(key: str, default: Any = None, config_path: Any = None) -> Any:
+        def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
             if key == "control_system":
                 return section
             if key == "control_system.type":

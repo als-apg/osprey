@@ -241,7 +241,11 @@ def rag_config_env(e2e_config_file):
 
 @pytest.fixture(scope="module")
 async def seeded_ariel_db(
-    require_ollama, e2e_database_url, e2e_migrated_pool, e2e_ariel_config, e2e_config_file
+    require_ollama,  # noqa: ARG001 - the embedding service is reachable
+    e2e_database_url,  # noqa: ARG001 - the database exists before the ingest runs
+    e2e_migrated_pool,
+    e2e_ariel_config,
+    e2e_config_file,  # noqa: ARG001 - the ingest's config file exists before it runs
 ):
     """Database with test entries and embeddings.
 
@@ -660,9 +664,8 @@ async def _keyword_search_envelope(expand_query):
 
 
 @pytest.mark.harness_benchmark
-async def test_vocabulary_expansion_through_mcp_keyword_search(
-    vocabulary_seeded_entry, vocabulary_mcp_context
-):
+@pytest.mark.usefixtures("vocabulary_seeded_entry")
+async def test_vocabulary_expansion_through_mcp_keyword_search(vocabulary_mcp_context):
     """``ts bpm`` finds a canonical-only entry, and only with expansion on."""
     context = vocabulary_mcp_context
     assert context.config.vocabulary_active, (
@@ -811,7 +814,7 @@ def readonly_role(e2e_database_url: str, tmp_path):
 
 
 @pytest.fixture
-def owner_tables(e2e_database_url: str, readonly_role: str):
+def owner_tables(e2e_database_url: str, readonly_role: str):  # noqa: ARG001 - the read-only role exists before the tables are created
     """One table created before the script ran and one created after it.
 
     The second is the case the ``ALTER DEFAULT PRIVILEGES`` clause exists for:

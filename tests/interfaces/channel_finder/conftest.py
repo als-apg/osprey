@@ -51,8 +51,9 @@ def mock_registry():
         yield init_mock
 
 
+# ``mock_registry`` installs the in-context registry patch the app is created under.
 @pytest.fixture()
-def app(mock_config, mock_registry, monkeypatch):
+def app(mock_config, mock_registry, monkeypatch):  # noqa: ARG001
     """Create a test Channel Finder FastAPI app with mocked dependencies."""
     _patch_config(monkeypatch, mock_config)
     from osprey.interfaces.channel_finder.app import create_app
@@ -68,8 +69,9 @@ def client(app):
         yield c
 
 
+# ``mock_registry`` installs the in-context registry patch the app is created under.
 @pytest.fixture()
-def feedback_client(mock_config, mock_registry, tmp_path, monkeypatch):
+def feedback_client(mock_config, mock_registry, tmp_path, monkeypatch):  # noqa: ARG001
     """Create a TestClient with a real FeedbackStore on tmp_path."""
     from osprey.services.channel_finder.feedback.store import FeedbackStore
 
@@ -83,8 +85,9 @@ def feedback_client(mock_config, mock_registry, tmp_path, monkeypatch):
         yield c
 
 
+# ``mock_registry`` installs the in-context registry patch the app is created under.
 @pytest.fixture()
-def pending_review_client(mock_config, mock_registry, tmp_path, monkeypatch):
+def pending_review_client(mock_config, mock_registry, tmp_path, monkeypatch):  # noqa: ARG001
     """Create a TestClient with real PendingReviewStore + FeedbackStore."""
     from osprey.services.channel_finder.feedback.pending_store import PendingReviewStore
     from osprey.services.channel_finder.feedback.store import FeedbackStore

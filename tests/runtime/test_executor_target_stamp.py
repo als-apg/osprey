@@ -170,7 +170,7 @@ MOCK_ONLY_SECTION = {"type": "mock", "connector": {"mock": {}}}
 def _section_reader(section):
     """A ``get_config_value`` stand-in serving *section* as ``control_system``."""
 
-    def get_config_value(path, default=None, config_path=None):
+    def get_config_value(path, default=None, _config_path=None):
         return section if path == "control_system" else default
 
     return get_config_value
@@ -247,7 +247,8 @@ class TestDeploymentRecordLookup:
         assert record.target == "va"
         assert record.generation == 3
 
-    def test_no_record_is_not_an_error(self, state_root):
+    @pytest.mark.usefixtures("state_root")
+    def test_no_record_is_not_an_error(self):
         assert host_executor._deployment_record() is None
 
     def test_corrupt_record_is_ignored(self, state_root):
@@ -283,7 +284,8 @@ class TestDeploymentRecordLookup:
 class TestStampApplication:
     """What ``_apply_target_stamp`` puts in — and takes out of — the sandbox env."""
 
-    def test_the_target_and_generation_are_stamped(self, state_root, deployment_config):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_the_target_and_generation_are_stamped(self, state_root):
         write_record(state_root, target="va", generation=7)
         env: dict[str, str] = {}
 
@@ -291,9 +293,8 @@ class TestStampApplication:
         assert env[host_executor.ENV_CONTROL_TARGET] == "va"
         assert env[host_executor.ENV_CONTROL_TARGET_GENERATION] == "7"
 
-    def test_the_retired_state_pid_stamp_is_cleared_not_written(
-        self, state_root, deployment_config
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_the_retired_state_pid_stamp_is_cleared_not_written(self, state_root):
         """A stamped run carries no state-file identity.
 
         The sandbox pins against the record now. The name the stamp used to
@@ -307,14 +308,16 @@ class TestStampApplication:
         assert not hasattr(host_executor, "ENV_CONTROL_TARGET_STATE_PID")
         assert "OSPREY_CONTROL_TARGET_STATE_PID" not in env
 
-    def test_no_record_omits_every_name(self, state_root, deployment_config):
+    @pytest.mark.usefixtures("state_root", "deployment_config")
+    def test_no_record_omits_every_name(self):
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == host_executor.CONTROL_TARGET_BASELINE
         for name in host_executor._STAMP_ENV_NAMES:
             assert name not in env
 
-    def test_inherited_stamp_is_stripped_when_unresolvable(self, state_root, deployment_config):
+    @pytest.mark.usefixtures("state_root", "deployment_config")
+    def test_inherited_stamp_is_stripped_when_unresolvable(self):
         """An ancestor's stamp must not be passed through as if it were ours.
 
         The host inherits its own environment from Claude Code, so a stale
@@ -375,14 +378,16 @@ class TestLaunchPostureStamp:
     only that the executor stamps it, and stamps it every time.
     """
 
-    def test_the_posture_is_stamped_beside_the_target(self, state_root, deployment_config):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_the_posture_is_stamped_beside_the_target(self, state_root):
         write_record(state_root, target="va", generation=7)
         env: dict[str, str] = {}
 
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=writes"
 
-    def test_a_narrowed_target_is_stamped_sandboxed(self, state_root, deployment_config):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_a_narrowed_target_is_stamped_sandboxed(self, state_root):
         write_record(state_root, target="va", generation=7, posture={"va": "sandbox"})
         env: dict[str, str] = {}
 
@@ -406,9 +411,8 @@ class TestLaunchPostureStamp:
             assert name not in env
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "*=sandbox"
 
-    def test_an_inherited_posture_pin_is_overwritten_not_trusted(
-        self, state_root, deployment_config
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_an_inherited_posture_pin_is_overwritten_not_trusted(self, state_root):
         """A stale value in the parent's environment must not survive the launch.
 
         The routing names are POPPED for the same reason; this one is always
@@ -440,9 +444,8 @@ class TestConvergenceGate:
     def _pids() -> tuple[int, int]:
         return os.getpid(), os.getppid()
 
-    def test_a_server_applying_this_generation_refuses_every_session(
-        self, state_root, deployment_config, monkeypatch
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_a_server_applying_this_generation_refuses_every_session(self, state_root, monkeypatch):
         """A swap in flight stops the deployment, not just the session running it."""
         server_a, _ = self._pids()
         write_record(state_root, target="va", generation=4)
@@ -458,9 +461,8 @@ class TestConvergenceGate:
         # Nothing was stamped: the run is refused, not routed somewhere else.
         assert host_executor.ENV_CONTROL_TARGET not in env
 
-    def test_the_refusal_names_every_blocking_server(
-        self, state_root, deployment_config, monkeypatch
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_the_refusal_names_every_blocking_server(self, state_root, monkeypatch):
         """An operator has to be told which processes to wait for, not one of them."""
         server_a, server_b = self._pids()
         write_record(state_root, target="va", generation=4)
@@ -473,9 +475,8 @@ class TestConvergenceGate:
 
         assert excinfo.value.pids == tuple(sorted((server_a, server_b)))
 
-    def test_a_null_bound_fresh_report_does_not_block(
-        self, state_root, deployment_config, monkeypatch
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_a_null_bound_fresh_report_does_not_block(self, state_root, monkeypatch):
         """A server that has not launched a child yet is not "somewhere else".
 
         Its binding is null because it has nothing to bind, and a first launch
@@ -491,9 +492,8 @@ class TestConvergenceGate:
         assert host_executor._apply_target_stamp(env) == "va"
         assert env[host_executor.ENV_CONTROL_TARGET_GENERATION] == "4"
 
-    def test_a_failed_report_refuses_only_its_own_session(
-        self, state_root, deployment_config, monkeypatch
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_a_failed_report_refuses_only_its_own_session(self, state_root, monkeypatch):
         """SC-81: A failed at this generation, B applied. Only A's runs stop.
 
         That is the whole cost of a failed swap — the session whose server could
@@ -519,8 +519,9 @@ class TestConvergenceGate:
             host_executor._apply_target_stamp({})
         assert excinfo.value.pids == (server_a,)
 
+    @pytest.mark.usefixtures("deployment_config")
     def test_a_session_less_client_is_not_blocked_by_another_sessions_failure(
-        self, state_root, deployment_config, monkeypatch
+        self, state_root, monkeypatch
     ):
         """SC-81: a bare ``claude`` owns no report, so only a live swap stops it."""
         server_a, _ = self._pids()
@@ -530,9 +531,8 @@ class TestConvergenceGate:
 
         assert host_executor._apply_target_stamp({}) == "va"
 
-    def test_a_session_less_client_is_still_blocked_by_a_live_swap(
-        self, state_root, deployment_config, monkeypatch
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_a_session_less_client_is_still_blocked_by_a_live_swap(self, state_root, monkeypatch):
         """The other half of the same rule: owning no report is not an exemption."""
         server_a, _ = self._pids()
         write_record(state_root, target="va", generation=4)
@@ -542,9 +542,8 @@ class TestConvergenceGate:
         with pytest.raises(host_executor._SwitchInProgress):
             host_executor._apply_target_stamp({})
 
-    def test_a_swap_at_another_generation_does_not_block(
-        self, state_root, deployment_config, monkeypatch
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_a_swap_at_another_generation_does_not_block(self, state_root, monkeypatch):
         """The generation is the only thing the fleet coordinates on."""
         server_a, _ = self._pids()
         write_record(state_root, target="va", generation=4)
@@ -560,7 +559,8 @@ class TestConvergenceGate:
 
         assert host_executor._apply_target_stamp({}) == "va"
 
-    def test_no_record_is_not_gated(self, state_root, deployment_config, monkeypatch):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_no_record_is_not_gated(self, state_root, monkeypatch):
         """With nothing to converge on there is nothing to wait for.
 
         A deployment that has never written a record runs unstamped on the
@@ -573,7 +573,8 @@ class TestConvergenceGate:
 
         assert host_executor._apply_target_stamp({}) == host_executor.CONTROL_TARGET_BASELINE
 
-    def test_an_unreadable_fleet_admits_the_run(self, state_root, deployment_config, monkeypatch):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_an_unreadable_fleet_admits_the_run(self, state_root, monkeypatch):
         """Not being able to ask is not the same as being told to stop.
 
         Refusing here would make one unreadable directory refuse every execution
@@ -630,9 +631,8 @@ class TestExecuteViaLocalStamping:
         )
         return captured.get("env", {}), result
 
-    def test_sandbox_env_carries_the_stamp(
-        self, state_root, deployment_config, tmp_path, monkeypatch
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_sandbox_env_carries_the_stamp(self, state_root, tmp_path, monkeypatch):
         write_record(state_root, target="va", generation=5)
 
         env, result = self._run(tmp_path, monkeypatch)
@@ -644,9 +644,8 @@ class TestExecuteViaLocalStamping:
         assert env["OSPREY_EXECUTION_MODE"] == "readonly"
         assert result.control_target == "va"
 
-    def test_sandbox_env_carries_the_launch_posture(
-        self, state_root, deployment_config, tmp_path, monkeypatch
-    ):
+    @pytest.mark.usefixtures("deployment_config")
+    def test_sandbox_env_carries_the_launch_posture(self, state_root, tmp_path, monkeypatch):
         """The pin reaches the child, and the marker states the same thing.
 
         Both halves of FR15 through the real launch path: the sandbox reads the
@@ -673,17 +672,17 @@ class TestExecuteViaLocalStamping:
         assert env[host_executor.ENV_LAUNCH_POSTURE] == "va=sandbox"
         assert [marker["launch_posture"] for marker in seen[0]] == ["va=sandbox"]
 
-    def test_unstamped_run_records_the_baseline(
-        self, state_root, deployment_config, tmp_path, monkeypatch
-    ):
+    @pytest.mark.usefixtures("state_root", "deployment_config")
+    def test_unstamped_run_records_the_baseline(self, tmp_path, monkeypatch):
         env, result = self._run(tmp_path, monkeypatch)
 
         for name in host_executor._STAMP_ENV_NAMES:
             assert name not in env
         assert result.control_target == host_executor.CONTROL_TARGET_BASELINE
 
+    @pytest.mark.usefixtures("deployment_config")
     def test_a_switch_in_flight_fails_the_run_without_spawning(
-        self, state_root, deployment_config, tmp_path, monkeypatch
+        self, state_root, tmp_path, monkeypatch
     ):
         """The refusal is a result, not a traceback, and nothing was executed.
 
@@ -731,7 +730,7 @@ class _FakeConnector:
 
 
 @pytest.fixture
-def fake_registry(deployment_config):
+def fake_registry(deployment_config):  # noqa: ARG001 - deployment_config serves the control_system section this registry answers for
     """Register the fake connector under every type this deployment can select."""
     from osprey_connectors.factory import ConnectorFactory, isolated_connector_registries
 
@@ -748,9 +747,8 @@ def fake_registry(deployment_config):
 class TestSandboxRouting:
     """The stamp, not ``control_system.type``, selects the connector block."""
 
-    def test_va_stamp_builds_the_virtual_accelerator_block(
-        self, monkeypatch, fake_registry, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
+    def test_va_stamp_builds_the_virtual_accelerator_block(self, monkeypatch):
         monkeypatch.setenv("OSPREY_CONTROL_TARGET", "va")
 
         import osprey.runtime as runtime
@@ -761,9 +759,8 @@ class TestSandboxRouting:
         # control_system.connector.virtual_accelerator and not the mock block.
         assert _FakeConnector.last_config == {"timeout": 9.0}
 
-    def test_live_stamp_builds_the_deployments_real_machine_block(
-        self, monkeypatch, fake_registry, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
+    def test_live_stamp_builds_the_deployments_real_machine_block(self, monkeypatch):
         monkeypatch.setenv("OSPREY_CONTROL_TARGET", "live")
 
         import osprey.runtime as runtime
@@ -772,9 +769,8 @@ class TestSandboxRouting:
 
         assert _FakeConnector.last_config == {"timeout": 1.0}
 
-    def test_unstamped_resolution_is_unchanged(
-        self, monkeypatch, clear_stamp, fake_registry, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("clear_stamp", "fake_registry", "clear_runtime_state")
+    def test_unstamped_resolution_is_unchanged(self):
         """No stamp means the factory loads the section itself, as it always did."""
         import osprey.runtime as runtime
 
@@ -784,16 +780,16 @@ class TestSandboxRouting:
 
         assert _FakeConnector.last_config == {"response_delay_ms": 0}
 
-    def test_blank_stamp_counts_as_absent(self, monkeypatch, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_blank_stamp_counts_as_absent(self, monkeypatch):
         monkeypatch.setenv("OSPREY_CONTROL_TARGET", "   ")
 
         import osprey.runtime as runtime
 
         assert runtime._target_connector_config() is None
 
-    def test_unresolvable_live_target_refuses_rather_than_falling_back(
-        self, monkeypatch, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_unresolvable_live_target_refuses_rather_than_falling_back(self, monkeypatch):
         """A deployment that never named its real machine gets an error, not the mock.
 
         The host declines to stamp this combination in the first place (see
@@ -819,9 +815,8 @@ class TestConnectorRebuild:
     the old target would keep talking to the old machine's gateways.
     """
 
-    def test_the_same_stamp_reuses_the_connector(
-        self, monkeypatch, fake_registry, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
+    def test_the_same_stamp_reuses_the_connector(self, monkeypatch):
         """Building once is what makes the write pin, and not a reconnect, the rule."""
         stamp_env(monkeypatch, target="va", generation="3")
 
@@ -833,9 +828,8 @@ class TestConnectorRebuild:
         assert first is second
         assert _FakeConnector.disconnected == []
 
-    def test_a_moved_target_rebuilds_on_the_new_one(
-        self, monkeypatch, fake_registry, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
+    def test_a_moved_target_rebuilds_on_the_new_one(self, monkeypatch):
         """One disconnect of the old connector, and the new block is read."""
         stamp_env(monkeypatch, target="va", generation="3")
 
@@ -850,9 +844,8 @@ class TestConnectorRebuild:
         # 1.0 is the real machine's block; 9.0 would be the VA's.
         assert _FakeConnector.last_config == {"timeout": 1.0}
 
-    def test_a_moved_generation_alone_rebuilds_too(
-        self, monkeypatch, fake_registry, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
+    def test_a_moved_generation_alone_rebuilds_too(self, monkeypatch):
         """The same machine at a new generation is still a switch that landed."""
         stamp_env(monkeypatch, target="va", generation="3")
 
@@ -865,9 +858,8 @@ class TestConnectorRebuild:
         assert second is not first
         assert _FakeConnector.disconnected == [first]
 
-    def test_the_rebuild_does_not_wait_on_its_own_lock(
-        self, monkeypatch, fake_registry, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
+    def test_the_rebuild_does_not_wait_on_its_own_lock(self, monkeypatch):
         """``_connector_lock`` is not reentrant, so the rebuild disconnects locked.
 
         A rebuild routed through ``cleanup_runtime`` would take the lock it is
@@ -894,9 +886,8 @@ class TestConnectorRebuild:
 class TestWritePin:
     """Writes refuse once the deployment's target or generation moves."""
 
-    def test_matching_generation_lets_the_write_through(
-        self, state_root, monkeypatch, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_matching_generation_lets_the_write_through(self, state_root, monkeypatch):
         write_record(state_root, target="va", generation=3)
         stamp_env(monkeypatch, target="va", generation="3")
 
@@ -904,9 +895,8 @@ class TestWritePin:
 
         runtime._assert_target_pin()  # does not raise
 
-    def test_moved_generation_refuses_and_names_both(
-        self, state_root, monkeypatch, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_moved_generation_refuses_and_names_both(self, state_root, monkeypatch):
         write_record(state_root, target="va", generation=4)
         stamp_env(monkeypatch, target="va", generation="3")
 
@@ -920,9 +910,8 @@ class TestWritePin:
         assert "generation 4" in message
         assert "never reconnect" in message
 
-    def test_moved_target_refuses_at_the_same_generation(
-        self, state_root, monkeypatch, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_moved_target_refuses_at_the_same_generation(self, state_root, monkeypatch):
         write_record(state_root, target="live", generation=3)
         stamp_env(monkeypatch, target="va", generation="3")
 
@@ -934,7 +923,8 @@ class TestWritePin:
         assert "'va'" in str(excinfo.value)
         assert "'live'" in str(excinfo.value)
 
-    def test_stamped_but_no_record_refuses(self, state_root, monkeypatch, clear_runtime_state):
+    @pytest.mark.usefixtures("state_root", "clear_runtime_state")
+    def test_stamped_but_no_record_refuses(self, monkeypatch):
         """No record: the current generation is unknowable, so the write fails closed."""
         stamp_env(monkeypatch, target="va", generation="3")
 
@@ -943,9 +933,8 @@ class TestWritePin:
         with pytest.raises(ControlTargetChangedError, match="missing or unreadable"):
             runtime._assert_target_pin()
 
-    def test_stamped_but_generation_unparseable_refuses(
-        self, state_root, monkeypatch, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_stamped_but_generation_unparseable_refuses(self, state_root, monkeypatch):
         write_record(state_root, target="va", generation=3)
         stamp_env(monkeypatch, target="va", generation="not-a-number")
 
@@ -954,9 +943,8 @@ class TestWritePin:
         with pytest.raises(ControlTargetChangedError, match="generation unknown"):
             runtime._assert_target_pin()
 
-    def test_the_pin_does_not_evaluate_convergence(
-        self, state_root, monkeypatch, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_the_pin_does_not_evaluate_convergence(self, state_root, monkeypatch):
         """A swap in flight does not retro-refuse a process already holding a connector.
 
         Convergence gates ADMISSION — the executor's stamp, the kernel's cell
@@ -973,7 +961,8 @@ class TestWritePin:
 
         runtime._assert_target_pin()  # does not raise
 
-    def test_unstamped_process_is_not_pinned(self, state_root, clear_stamp, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_stamp", "clear_runtime_state")
+    def test_unstamped_process_is_not_pinned(self, state_root):
         """Baseline routing claimed no target, so there is nothing to drift from."""
         write_record(state_root, target="va", generation=99)
 
@@ -981,9 +970,8 @@ class TestWritePin:
 
         runtime._assert_target_pin()  # does not raise
 
-    def test_write_channel_refuses_before_touching_the_connector(
-        self, state_root, monkeypatch, fake_registry, clear_runtime_state
-    ):
+    @pytest.mark.usefixtures("fake_registry", "clear_runtime_state")
+    def test_write_channel_refuses_before_touching_the_connector(self, state_root, monkeypatch):
         """The refusal happens on the write path itself, not only in the helper."""
         write_record(state_root, target="va", generation=4)
         stamp_env(monkeypatch, target="va", generation="3")
@@ -998,7 +986,8 @@ class TestWritePin:
         # Nothing was built, so nothing could have been written.
         assert _FakeConnector.last_config is None
 
-    def test_reads_are_not_pinned(self, state_root, monkeypatch, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_reads_are_not_pinned(self, state_root, monkeypatch):
         """FR-7 pins writes only: a run may keep reading the machine it started on."""
         write_record(state_root, target="va", generation=4)
         stamp_env(monkeypatch, target="va", generation="3")
@@ -1006,7 +995,7 @@ class TestWritePin:
         import osprey.runtime as runtime
 
         class _Reader:
-            async def read_channel(self, channel_address, **kwargs):
+            async def read_channel(self, channel_address, **kwargs):  # noqa: ARG002 - a connector's read_channel names the channel it reads
                 class _Value:
                     value = 42.0
 

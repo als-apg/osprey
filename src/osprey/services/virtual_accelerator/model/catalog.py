@@ -100,7 +100,10 @@ def _load_limit_bands(path: Path, *, setpoints: Container[str]) -> dict[str, tup
     return bands
 
 
-def _plain_scalar_variable(channel: dict, **scalar_kwargs) -> ScalarVariable:
+def _plain_scalar_variable(
+    channel: dict,  # noqa: ARG001 - variable-factory signature; a factory binding variables to lattice elements derives the element and attribute from the channel
+    **scalar_kwargs,
+) -> ScalarVariable:
     """The default variable factory: a plain ``ScalarVariable``, ignoring the
     channel it was derived from."""
     from lume.variables import ScalarVariable

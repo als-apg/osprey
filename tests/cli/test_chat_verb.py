@@ -318,7 +318,8 @@ DRIFT_HEADLINE = "profile.yml or a file it points at"
 class TestDriftWarning:
     """Drift is reported and then launched through — chat never refuses on it."""
 
-    def test_clean_build_says_nothing_about_drift(self, runner, launches, lifecycle_repo):
+    @pytest.mark.usefixtures("launches")
+    def test_clean_build_says_nothing_about_drift(self, runner, lifecycle_repo):
         stub_build(lifecycle_repo)
 
         result = runner.invoke(chat, ["--repo", str(lifecycle_repo)])
@@ -600,7 +601,8 @@ class TestTelemetryCredentialNotIssuedYet:
         assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in launches[0].env
         assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in launches[0].env
 
-    def test_the_operator_is_told_which_verb_issues_it(self, runner, launches, lifecycle_repo):
+    @pytest.mark.usefixtures("launches")
+    def test_the_operator_is_told_which_verb_issues_it(self, runner, lifecycle_repo):
         """Silence would read as "this deployment has no telemetry configured"."""
         stub_build(lifecycle_repo, config=_telemetry_config("${ZO_INGEST_SA_TOKEN}"))
 
@@ -657,9 +659,7 @@ class TestTelemetryCredentialNotIssuedYet:
         assert isinstance(result.exception, ObservabilityCredentialError)
         assert launches == []
 
-    def test_a_resolvable_token_keeps_telemetry_on(
-        self, runner, launches, lifecycle_repo, monkeypatch
-    ):
+    def test_a_resolvable_token_keeps_telemetry_on(self, runner, launches, lifecycle_repo):
         """The deferral is about absence only — once `osprey up` has written the
         token, the same config resolves and the session exports normally."""
         stub_build(lifecycle_repo, config=_telemetry_config("${ZO_INGEST_SA_TOKEN}"))

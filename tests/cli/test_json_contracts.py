@@ -159,7 +159,7 @@ def _audit_report() -> AuditReport:
 
 
 def _invoke_audit(
-    runner: CliRunner, tmp_path: Path, repo: Path, hook: Callable[[], None]
+    runner: CliRunner, tmp_path: Path, _repo: Path, hook: Callable[[], None]
 ) -> Result:
     """Run ``audit --json`` over a minimal project with the agent faked."""
     project = _audit_project(tmp_path)
@@ -187,7 +187,7 @@ def _invoke_audit(
 
 
 def _invoke_health(
-    runner: CliRunner, tmp_path: Path, repo: Path, hook: Callable[[], None]
+    runner: CliRunner, tmp_path: Path, _repo: Path, hook: Callable[[], None]
 ) -> Result:
     """Run ``health --json`` with the check suite faked."""
     project = tmp_path / "proj"
@@ -214,7 +214,7 @@ def _invoke_health(
 
 
 def _invoke_query(
-    runner: CliRunner, tmp_path: Path, repo: Path, hook: Callable[[], None]
+    runner: CliRunner, _tmp_path: Path, repo: Path, hook: Callable[[], None]
 ) -> Result:
     """Run ``query --json`` over a stub build with the agent faked."""
     build = stub_build(repo, config="api:\n  providers: {}\n")
@@ -282,14 +282,14 @@ class _StubService:
 def _install_ariel_service(service: _StubService) -> Any:
     """Return a patch context routing ``create_ariel_service`` to *service*."""
 
-    async def _create(config: Any) -> _StubService:
+    async def _create(_config: Any) -> _StubService:
         return service
 
     return patch("osprey.services.ariel_search.create_ariel_service", new=_create)
 
 
 def _invoke_ariel_status(
-    runner: CliRunner, tmp_path: Path, repo: Path, hook: Callable[[], None]
+    runner: CliRunner, _tmp_path: Path, _repo: Path, hook: Callable[[], None]
 ) -> Result:
     """Run ``ariel status --json`` against a stub repository."""
 
@@ -319,7 +319,7 @@ def _invoke_ariel_status(
 
 
 def _invoke_ariel_search(
-    runner: CliRunner, tmp_path: Path, repo: Path, hook: Callable[[], None]
+    runner: CliRunner, _tmp_path: Path, _repo: Path, hook: Callable[[], None]
 ) -> Result:
     """Run ``ariel search --json`` against a stub service."""
     search_result = SimpleNamespace(

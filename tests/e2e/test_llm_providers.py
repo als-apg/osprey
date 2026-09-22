@@ -391,7 +391,7 @@ def available_providers():
 
 
 @pytest.fixture(autouse=True)
-def setup_llm_test_environment(test_config, tmp_path):
+def setup_llm_test_environment(test_config):
     """Set up test environment with provider configurations."""
     config = yaml.safe_load(test_config.read_text())
     config["provider_configs"] = {}
@@ -494,11 +494,11 @@ def weather_tool(city: str) -> dict:
 class TestProviderAvailability:
     """Meta-tests for provider detection."""
 
-    def test_at_least_one_provider_available(self, available_providers, setup_llm_test_environment):
+    def test_at_least_one_provider_available(self, available_providers):
         """Ensure at least one provider is available."""
         assert len(available_providers) > 0, "No LLM providers available for testing"
 
-    def test_provider_detection(self, available_providers, setup_llm_test_environment):
+    def test_provider_detection(self, available_providers):
         """Document which providers are available."""
         print(f"\nAvailable: {list(available_providers.keys())}")
 
@@ -508,7 +508,7 @@ class TestExtendedThinking:
     """Test Anthropic extended thinking (provider-specific feature)."""
 
     @handle_quota_errors
-    def test_anthropic_extended_thinking(self, setup_llm_test_environment):
+    def test_anthropic_extended_thinking(self):
         """Test extended thinking returns thinking blocks."""
         config = skip_if_provider_unavailable("anthropic")
 
@@ -539,7 +539,7 @@ class TestLLMMatrix:
 
     @pytest.mark.parametrize("provider_name,model_id", get_matrix_params())
     @handle_quota_errors
-    def test_completion(self, provider_name: str, model_id: str, setup_llm_test_environment):
+    def test_completion(self, provider_name: str, model_id: str):
         """Test basic completion works for each model."""
         config = skip_if_model_unavailable(provider_name, model_id)
 
@@ -560,7 +560,7 @@ class TestLLMMatrix:
 
     @pytest.mark.parametrize("provider_name,model_id", get_structured_output_params())
     @handle_quota_errors
-    def test_structured_output(self, provider_name: str, model_id: str, setup_llm_test_environment):
+    def test_structured_output(self, provider_name: str, model_id: str):
         """Test structured output with Pydantic model."""
         config = skip_if_model_unavailable(provider_name, model_id)
 
@@ -589,7 +589,7 @@ class TestLLMMatrix:
         ],
     )
     @handle_quota_errors
-    def test_react_agent(self, provider_name: str, model_id: str, setup_llm_test_environment):
+    def test_react_agent(self, provider_name: str, model_id: str):
         """Test ReAct agent: planning, tool use, and final answer in one flow."""
         config = skip_if_model_unavailable(provider_name, model_id)
 

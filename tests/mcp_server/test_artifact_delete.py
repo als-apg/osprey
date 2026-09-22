@@ -222,7 +222,8 @@ class TestArtifactDelete:
         assert not file_path.exists()
 
     @pytest.mark.asyncio
-    async def test_missing_artifact_is_not_found(self, store, delete_tool):
+    @pytest.mark.usefixtures("store")
+    async def test_missing_artifact_is_not_found(self, delete_tool):
         with assert_raises_error(error_type="not_found") as ctx:
             await delete_tool(artifact_id="nonexistent_id")
         assert "nonexistent_id" in ctx["envelope"]["error_message"]

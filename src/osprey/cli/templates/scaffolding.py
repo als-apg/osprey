@@ -355,12 +355,12 @@ def copy_services_selective(template_root: Path, project_dir: Path, service_name
 
 
 def copy_template_data(
-    template_root: Path,
+    template_root: Path,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
     project_dir: Path,
-    package_name: str,
-    data_bundle: str,
-    ctx: dict,
-    jinja_env=None,
+    package_name: str,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
+    data_bundle: str,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
+    ctx: dict,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
+    jinja_env=None,  # noqa: ARG001 - template-copier signature; a profile's own data tree is copied verbatim
     data_root: Path | None = None,
 ):
     """Copy the profile's data tree to the project root (no src/ package).

@@ -98,7 +98,7 @@ def test_a_listing_that_fails_is_not_a_failure(repo: Path, monkeypatch: pytest.M
 
 
 def test_no_runtime_is_not_a_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    def _none(config=None):
+    def _none(_config=None):
         raise RuntimeError("no container runtime")
 
     monkeypatch.setattr(container_lifecycle, "get_runtime_command", _none)

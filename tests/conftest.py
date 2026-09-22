@@ -82,7 +82,7 @@ def _ancestor_dotenv_values() -> dict[str, str]:
     return injected
 
 
-def pytest_collection_finish(session):
+def pytest_collection_finish():
     """Undo ancestor-.env injection performed by imports during collection."""
     import time
 
@@ -1074,7 +1074,7 @@ def _no_companion_server_launches(request, monkeypatch):
 
     from osprey.infrastructure.server_launcher import ServerLauncher
 
-    def _no_launch(self, host: str, port: int) -> None:
+    def _no_launch(_self, _host: str, _port: int) -> None:
         return None
 
     monkeypatch.setattr(ServerLauncher, "_launch_in_thread", _no_launch)
@@ -1220,7 +1220,7 @@ _RESOURCE_CHECKS: dict[str, tuple[Callable[[], bool], str | Callable[[], str]]] 
 }
 
 
-def pytest_collection_modifyitems(config, items):
+def pytest_collection_modifyitems(items):
     """Auto-skip items whose `requires_<resource>` marker's resource is missing.
 
     Each predicate is evaluated at most once per pytest run via cache. A
@@ -1293,19 +1293,19 @@ def pytest_configure(config):
         _CI_DIAGNOSTICS.start()
 
 
-def pytest_runtest_logstart(nodeid, location):
+def pytest_runtest_logstart(nodeid):
     """Fires before setup — so a test that never returns is still on record."""
     if _CI_DIAGNOSTICS is not None:
         _CI_DIAGNOSTICS.record("start", nodeid=nodeid)
 
 
-def pytest_runtest_logfinish(nodeid, location):
+def pytest_runtest_logfinish(nodeid):
     """Fires after teardown. A `start` left unmatched is the wedged test."""
     if _CI_DIAGNOSTICS is not None:
         _CI_DIAGNOSTICS.record("finish", nodeid=nodeid)
 
 
-def pytest_unconfigure(config):
+def pytest_unconfigure():
     if _CI_DIAGNOSTICS is not None:
         _CI_DIAGNOSTICS.stop()
 

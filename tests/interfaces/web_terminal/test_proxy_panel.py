@@ -72,7 +72,9 @@ class TestProxyForwardedPrefix:
         captured_headers = {}
 
         # Mock the proxy_client's .request() method (used for non-SSE requests).
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             captured_headers.update(headers)
             return httpx.Response(
                 status_code=200,
@@ -98,7 +100,9 @@ class TestProxyForwardedPrefix:
 
         js_body = 'var x = "/static/js/foo.js";'
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=js_body,
@@ -118,7 +122,9 @@ class TestProxyForwardedPrefix:
 
         js_body = 'var x = "/static/js/foo.js";'
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=js_body,
@@ -146,7 +152,9 @@ class TestProxyForwardedPrefix:
             "</script>"
         )
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text=html_body,
@@ -194,7 +202,9 @@ class TestEventsPanelTokenInjection:
 
         captured = {}
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             captured.update(headers)
             return httpx.Response(
                 200, json={"ok": True}, headers={"content-type": "application/json"}
@@ -212,7 +222,9 @@ class TestEventsPanelTokenInjection:
 
         captured = {}
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             captured.update(headers)
             return httpx.Response(
                 200, json={"ok": True}, headers={"content-type": "application/json"}
@@ -230,7 +242,9 @@ class TestEventsPanelTokenInjection:
 
         captured = {}
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             captured.update(headers)
             return httpx.Response(
                 200, json={"ok": True}, headers={"content-type": "application/json"}
@@ -254,7 +268,9 @@ class TestEventsPanelTokenInjection:
 
         captured = {}
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             captured.update(headers)
             return httpx.Response(
                 200, json={"ok": True}, headers={"content-type": "application/json"}
@@ -276,7 +292,9 @@ class TestProxyCacheControlDefault:
     def test_headerless_upstream_gets_no_cache_default(self, app_and_client):
         app, client = app_and_client
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text="body { color: red; }",
@@ -293,7 +311,9 @@ class TestProxyCacheControlDefault:
         app, client = app_and_client
         immutable = "public, max-age=31536000, immutable"
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             return httpx.Response(
                 status_code=200,
                 text="var x = 1;",
@@ -396,7 +416,9 @@ class TestPanelLaunchCredentialInjection:
     def _capture_request(app):
         captured: dict[str, str] = {}
 
-        async def fake_request(*, method, url, headers, content, follow_redirects=True):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
             captured.update(headers)
             return httpx.Response(
                 200, json={"ok": True}, headers={"content-type": "application/json"}
@@ -783,7 +805,9 @@ class TestDispatcherMcpHop:
         monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", DISPATCHER_TOKEN)
         monkeypatch.setattr(proxy, "_rewrite_content", _refuse_rewrite)
 
-        async def fake_request(*, method, url, headers, content, **_kwargs):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content, **_kwargs):  # noqa: ARG001
             return httpx.Response(
                 200, content=MCP_ANSWER_BODY, headers={"content-type": "application/json"}
             )
@@ -815,7 +839,9 @@ class TestDispatcherMcpHop:
         monkeypatch.setattr(proxy, "_rewrite_content", _refuse_rewrite)
         captured: dict[str, object] = {}
 
-        async def fake_request(*, method, url, headers, content, **_kwargs):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content, **_kwargs):  # noqa: ARG001
             captured["url"] = url
             return httpx.Response(
                 200, content=MCP_ANSWER_BODY, headers={"content-type": "application/json"}

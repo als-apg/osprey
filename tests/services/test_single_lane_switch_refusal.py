@@ -87,7 +87,7 @@ def deployment(tmp_path, monkeypatch):
             target_banner, "load_osprey_config", lambda: {"control_system": control_system}
         )
 
-        def fake_get_config_value(key: str, default: Any = None, config_path: Any = None) -> Any:
+        def fake_get_config_value(key: str, default: Any = None, _config_path: Any = None) -> Any:
             # The whole section, not only the deployment-wide flag: write
             # posture is resolved per control target out of
             # `control_system.connector`, so a stub serving one dotted key would

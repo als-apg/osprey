@@ -153,7 +153,7 @@ def resolved_identity(monkeypatch):
     """Pin the resolver so each branch's wiring is tested in isolation."""
     monkeypatch.setattr(error_handling, "describe_active_target", lambda: dict(IDENTITY))
 
-    async def no_invalidate(connector_name: str) -> None:  # noqa: ARG001
+    async def no_invalidate(connector_name: str) -> None:  # noqa: ARG001 - invalidate_active_connector fixes this stand-in's signature
         return None
 
     monkeypatch.setattr(error_handling, "invalidate_active_connector", no_invalidate)
@@ -166,7 +166,8 @@ async def _envelope_for(exc: BaseException, connector_name: str = "control_syste
     return captured["envelope"]
 
 
-async def test_a_connection_failure_names_the_machine(resolved_identity):
+@pytest.mark.usefixtures("resolved_identity")
+async def test_a_connection_failure_names_the_machine():
     envelope = await _envelope_for(ConnectionError("connect timeout after 1.0s"))
     assert envelope["error_type"] == "connection_error"
     assert CLAUSE in envelope["error_message"]
@@ -175,14 +176,16 @@ async def test_a_connection_failure_names_the_machine(resolved_identity):
     assert "LIVE MACHINE at localhost:5064" in envelope["suggestions"][0]
 
 
-async def test_a_timeout_names_the_machine(resolved_identity):
+@pytest.mark.usefixtures("resolved_identity")
+async def test_a_timeout_names_the_machine():
     envelope = await _envelope_for(TimeoutError("no response"))
     assert envelope["error_type"] == "timeout_error"
     assert CLAUSE in envelope["error_message"]
     assert envelope["details"]["active_target"] == IDENTITY
 
 
-async def test_a_limits_violation_carries_the_target_in_its_details(resolved_identity):
+@pytest.mark.usefixtures("resolved_identity")
+async def test_a_limits_violation_carries_the_target_in_its_details():
     envelope = await _envelope_for(
         ChannelLimitsViolationError(
             channel_address="X:Y:SP",
@@ -195,7 +198,8 @@ async def test_a_limits_violation_carries_the_target_in_its_details(resolved_ide
     assert envelope["details"]["active_target"] == IDENTITY
 
 
-async def test_a_control_system_refusal_names_the_machine_that_refused(resolved_identity):
+@pytest.mark.usefixtures("resolved_identity")
+async def test_a_control_system_refusal_names_the_machine_that_refused():
     envelope = await _envelope_for(ChannelWriteBlockedError("X:Y:SP", "CONTROL_SYSTEM_REFUSED"))
     assert envelope["error_type"] == "write_refused"
     assert CLAUSE in envelope["error_message"]
@@ -203,19 +207,22 @@ async def test_a_control_system_refusal_names_the_machine_that_refused(resolved_
     assert envelope["details"]["reason"] == "CONTROL_SYSTEM_REFUSED"
 
 
-async def test_a_reference_monitor_refusal_carries_the_target(resolved_identity):
+@pytest.mark.usefixtures("resolved_identity")
+async def test_a_reference_monitor_refusal_carries_the_target():
     envelope = await _envelope_for(ChannelWriteBlockedError("X:Y:SP", "WRITES_DISABLED"))
     assert envelope["details"]["active_target"] == IDENTITY
 
 
-async def test_an_internal_error_names_the_machine(resolved_identity):
+@pytest.mark.usefixtures("resolved_identity")
+async def test_an_internal_error_names_the_machine():
     envelope = await _envelope_for(ValueError("surprise"))
     assert envelope["error_type"] == "internal_error"
     assert CLAUSE in envelope["error_message"]
     assert envelope["details"]["active_target"] == IDENTITY
 
 
-async def test_the_archiver_envelope_carries_no_target(resolved_identity, monkeypatch):
+@pytest.mark.usefixtures("resolved_identity")
+async def test_the_archiver_envelope_carries_no_target(monkeypatch):
     """The archiver has no live/VA axis — stamping the control-system target
     onto its failures would attribute an archiver outage to a machine."""
 

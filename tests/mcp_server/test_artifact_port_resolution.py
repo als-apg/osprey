@@ -78,7 +78,8 @@ class TestResolver:
             framework_web_port_default("artifact"),
         )
 
-    def test_env_overrides_config_port(self, artifact_config, monkeypatch):
+    @pytest.mark.usefixtures("artifact_config")
+    def test_env_overrides_config_port(self, monkeypatch):
         monkeypatch.setenv(ENV_VAR, "8601")
 
         host, port = resolve_web_server_address("artifact")
@@ -92,14 +93,14 @@ class TestResolver:
 
         assert resolve_web_server_address("artifact")[1] == 8602
 
-    def test_empty_env_value_is_not_an_override(self, artifact_config, monkeypatch):
+    @pytest.mark.usefixtures("artifact_config")
+    def test_empty_env_value_is_not_an_override(self, monkeypatch):
         monkeypatch.setenv(ENV_VAR, "")
 
         assert resolve_web_server_address("artifact")[1] == 8600
 
-    def test_non_integer_env_value_is_logged_and_ignored(
-        self, artifact_config, monkeypatch, caplog
-    ):
+    @pytest.mark.usefixtures("artifact_config")
+    def test_non_integer_env_value_is_logged_and_ignored(self, monkeypatch, caplog):
         """A typo must not raise out of a URL builder on a tool's hot path."""
         monkeypatch.setenv(ENV_VAR, "not-a-port")
 
@@ -135,11 +136,13 @@ class TestResolver:
 
         assert address == ("10.0.0.1", 8601)
 
-    def test_unknown_server_key_raises(self, artifact_config):
+    @pytest.mark.usefixtures("artifact_config")
+    def test_unknown_server_key_raises(self):
         with pytest.raises(KeyError):
             resolve_web_server_address("no-such-server")
 
-    def test_base_url_wraps_the_address(self, artifact_config, monkeypatch):
+    @pytest.mark.usefixtures("artifact_config")
+    def test_base_url_wraps_the_address(self, monkeypatch):
         monkeypatch.setenv(ENV_VAR, "8601")
 
         assert resolve_web_server_base_url("artifact") == "http://127.0.0.1:8601"
@@ -148,7 +151,8 @@ class TestResolver:
 class TestConsumers:
     """Each consumer's public entry point, with the env var set."""
 
-    def test_gallery_url_follows_env(self, artifact_config, monkeypatch):
+    @pytest.mark.usefixtures("artifact_config")
+    def test_gallery_url_follows_env(self, monkeypatch):
         from osprey.mcp_server.http import gallery_url
 
         monkeypatch.setenv(ENV_VAR, "8601")
@@ -156,7 +160,8 @@ class TestConsumers:
         assert gallery_url() == "http://127.0.0.1:8601"
 
     @pytest.mark.asyncio
-    async def test_focus_tool_posts_to_env_port(self, artifact_config, monkeypatch, tmp_path):
+    @pytest.mark.usefixtures("artifact_config")
+    async def test_focus_tool_posts_to_env_port(self, monkeypatch, tmp_path):
         """The focus POST — the consumer that fails closed on a wrong port."""
         from osprey.mcp_server.workspace.tools import focus_tools
         from osprey.mcp_server.workspace.tools.artifact_register import artifact_register
@@ -185,7 +190,8 @@ class TestConsumers:
         assert posted == ["http://127.0.0.1:8601/api/focus"]
         assert result["gallery_url"] == "http://127.0.0.1:8601#focus"
 
-    def test_artifacts_cli_binds_env_port(self, artifact_config, monkeypatch):
+    @pytest.mark.usefixtures("artifact_config")
+    def test_artifacts_cli_binds_env_port(self, monkeypatch):
         from click.testing import CliRunner
 
         from osprey.cli.artifacts_cmd import web
@@ -202,7 +208,8 @@ class TestConsumers:
         assert result.exit_code == 0, result.output
         assert served == [("127.0.0.1", 8601)]
 
-    def test_artifacts_cli_port_flag_still_wins(self, artifact_config, monkeypatch):
+    @pytest.mark.usefixtures("artifact_config")
+    def test_artifacts_cli_port_flag_still_wins(self, monkeypatch):
         """The override chain ends at the operator's explicit flag."""
         from click.testing import CliRunner
 

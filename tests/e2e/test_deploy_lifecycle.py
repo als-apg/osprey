@@ -447,7 +447,7 @@ def _seed_repo(
 
 
 @pytest.fixture
-def repo(tmp_path: Path, stub_image: str) -> Path:
+def repo(tmp_path: Path, stub_image: str) -> Path:  # noqa: ARG001 - the seeded repo's build/ refers to this image
     """A throwaway deployment repo whose build/ is multi_user_config.yml."""
     return _seed_repo(
         tmp_path / "project",
@@ -791,7 +791,8 @@ def _make_isolation_repo(
     return dest
 
 
-def test_deploy_lifecycle_two_project_isolation(tmp_path: Path, stub_image: str) -> None:
+@pytest.mark.usefixtures("stub_image")
+def test_deploy_lifecycle_two_project_isolation(tmp_path: Path) -> None:
     """Two independent compose projects (A, B) on one host: A's users prune/
     users remove/reset must never name or touch B's resources.
 
@@ -1285,7 +1286,8 @@ def test_deploy_lifecycle_port_tables_bind_every_family_once() -> None:
         assert len(set(bound)) == len(bound), f"{label} binds a host port twice: {sorted(bound)}"
 
 
-def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path, stub_image: str) -> None:
+@pytest.mark.usefixtures("stub_image")
+def test_deploy_lifecycle_heterogeneous_local_mode_up(tmp_path: Path) -> None:
     """The phase-4 flagship: a heterogeneous 2-persona LOCAL-MODE deploy from a
     checkout with only a ``.env`` reaches healthy.
 
@@ -1795,7 +1797,8 @@ def _wait_for_indexed(client: QMDClient, token: str, filename: str, timeout: flo
 
 
 @pytest.mark.qmd
-def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path, stub_image: str) -> None:
+@pytest.mark.usefixtures("stub_image")
+def test_deploy_lifecycle_shared_bundle_and_qmd_sidecar(repo: Path) -> None:
     """One shared knowledge bundle across two web terminals and the sidecar.
 
     Reuses the single-project ``repo``/``stub_image`` infrastructure -- its

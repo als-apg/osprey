@@ -182,7 +182,8 @@ def _fill(document: dict) -> dict:
 
 
 class TestVerbSelection:
-    def test_neither_verb_is_a_usage_error(self, repo: Path) -> None:
+    @pytest.mark.usefixtures("repo")
+    def test_neither_verb_is_a_usage_error(self) -> None:
         result = _map()
 
         assert result.exit_code == 2
@@ -194,7 +195,8 @@ class TestVerbSelection:
         assert result.exit_code == 2
         assert not _mapping_path(repo).exists()
 
-    def test_force_without_init_is_a_usage_error(self, repo: Path) -> None:
+    @pytest.mark.usefixtures("repo")
+    def test_force_without_init_is_a_usage_error(self) -> None:
         assert _map("--init").exit_code == 0
 
         result = _map("--check", "--force")
@@ -294,7 +296,8 @@ class TestInit:
 
 
 class TestCheck:
-    def test_fresh_skeleton_names_each_unfilled_slot(self, repo: Path) -> None:
+    @pytest.mark.usefixtures("repo")
+    def test_fresh_skeleton_names_each_unfilled_slot(self) -> None:
         _map("--init")
 
         result = _map("--check")
@@ -359,7 +362,8 @@ class TestCheck:
         assert result.exit_code != 0
         assert "Traceback" not in result.output
 
-    def test_missing_mapping_points_at_init(self, repo: Path) -> None:
+    @pytest.mark.usefixtures("repo")
+    def test_missing_mapping_points_at_init(self) -> None:
         result = _map("--check")
 
         assert result.exit_code != 0
@@ -406,7 +410,8 @@ class TestInitVirtualAccelerator:
         assert [slot["answer"] for slot in open_slots.values()] == [None, None]
         assert parse_mapping(document).virtual_accelerator is not None
 
-    def test_closing_line_counts_the_open_slots(self, va_repo: Path) -> None:
+    @pytest.mark.usefixtures("va_repo")
+    def test_closing_line_counts_the_open_slots(self) -> None:
         result = _map("--init")
 
         assert result.exit_code == 0, result.output

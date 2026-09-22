@@ -227,7 +227,7 @@ class TestLoadCategoriesFromConfig:
         """When config has no categories key, returns 0."""
 
         class _EmptyConfigBuilder:
-            def get(self, key, default=None):
+            def get(self, _key, default=None):
                 return default
 
         monkeypatch.setattr(

@@ -575,7 +575,7 @@ def test_a_bare_text_error_from_the_create_degrades_rather_than_raising(env_file
     assert "refused to create" in " ".join(capsys.readouterr().err.split())
 
 
-def test_a_root_credential_the_store_rejects_is_named_as_such(env_file, capsys):
+def test_a_root_credential_the_store_rejects_is_named_as_such(env_file):
     """The likeliest real failure here: a data volume kept from an earlier
     deploy still holds the root password it was created with."""
     store = FakeStore(root=("root@example.com", "whatthevolumeactuallyhas"))
@@ -588,7 +588,7 @@ def test_a_root_credential_the_store_rejects_is_named_as_such(env_file, capsys):
     assert token_in(env_file) is None
 
 
-def test_a_store_that_stops_answering_mid_sequence_degrades(env_file, capsys):
+def test_a_store_that_stops_answering_mid_sequence_degrades(env_file):
     """A transport error is not an answer about the credential and must not be
     read as one."""
     store = FakeStore()
@@ -718,7 +718,7 @@ def test_an_environment_that_never_carried_the_name_does_not_gain_it(env_file):
     assert TOKEN_VAR not in os.environ
 
 
-def test_a_token_a_compose_env_file_cannot_carry_is_refused(env_file, capsys):
+def test_a_token_a_compose_env_file_cannot_carry_is_refused(env_file):
     """Compose mangles a `$` on both routes out of this file, so a value
     carrying one reaches the container truncated."""
     store = FakeStore(accounts={INGEST_EMAIL: "has$dollar$sign"})
@@ -749,7 +749,8 @@ def test_the_organization_comes_from_the_setting_the_agent_uses(env_file):
     assert all(path.startswith(("/healthz", "/api/als/")) for path in store.paths)
 
 
-def test_the_organization_is_resolved_the_way_the_agent_resolves_it(env_file):
+@pytest.mark.usefixtures("env_file")
+def test_the_organization_is_resolved_the_way_the_agent_resolves_it():
     """One config, one organization — including where the setting is odd.
 
     The two sides read the same key through different code, so the risk is not a
@@ -779,7 +780,8 @@ def test_the_organization_is_resolved_the_way_the_agent_resolves_it(env_file):
         assert provision.store_org(config) == agent_org(telemetry), telemetry
 
 
-def test_the_address_is_the_one_this_deploy_publishes(env_file):
+@pytest.mark.usefixtures("env_file")
+def test_the_address_is_the_one_this_deploy_publishes():
     """Read the way the health category reads it, so the two cannot disagree."""
     config = {
         **CONFIG,
@@ -792,7 +794,7 @@ def test_the_address_is_the_one_this_deploy_publishes(env_file):
     assert provision.store_org(CONFIG) == "default"
 
 
-def test_an_ingest_account_with_no_name_is_reported(tmp_path, capsys):
+def test_an_ingest_account_with_no_name_is_reported(tmp_path):
     """The token is meaningless without the identity it was issued for."""
     env_path = tmp_path / ".env"
     env_path.write_text(f"ZO_ROOT_USER_PASSWORD={ROOT_PASSWORD}\n", encoding="utf-8")
@@ -805,7 +807,7 @@ def test_an_ingest_account_with_no_name_is_reported(tmp_path, capsys):
     assert store.calls == []
 
 
-def test_a_deployment_with_no_root_credential_is_reported(tmp_path, capsys):
+def test_a_deployment_with_no_root_credential_is_reported(tmp_path):
     """Healing is done AS root. Without one there is nothing to do but say so."""
     env_path = tmp_path / ".env"
     env_path.write_text(f"{EMAIL_VAR}={INGEST_EMAIL}\n", encoding="utf-8")
@@ -818,7 +820,8 @@ def test_a_deployment_with_no_root_credential_is_reported(tmp_path, capsys):
     assert not store.touched("service_accounts")
 
 
-def test_the_identity_variable_is_read_from_the_registry(env_file):
+@pytest.mark.usefixtures("env_file")
+def test_the_identity_variable_is_read_from_the_registry():
     """Spelled once, in the registry that records where the credential comes
     from, rather than again here."""
     from osprey.deployment.container_lifecycle import _STORE_ISSUED_VARS

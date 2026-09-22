@@ -818,7 +818,8 @@ def _capability(lane: str) -> dict:
 # ---------------------------------------------------------------------------
 # 1. The deployment came up as two lanes
 # ---------------------------------------------------------------------------
-def test_both_lanes_deploy_as_separate_stacks(stack: LaneStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_both_lanes_deploy_as_separate_stacks() -> None:
     """Six containers, three per lane, all running. LAYER: containers.
 
     The lane axis turns four single-set resources into per-lane ones; the
@@ -835,7 +836,8 @@ def test_both_lanes_deploy_as_separate_stacks(stack: LaneStack) -> None:
             )
 
 
-def test_each_lane_publishes_its_own_static_identity(stack: LaneStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_each_lane_publishes_its_own_static_identity() -> None:
     """Each bridge says which lane it IS and which target it serves. LAYER: containers.
 
     This is the producer half of the split the lane axis is built on: a bridge
@@ -882,9 +884,8 @@ def test_the_live_lane_addresses_the_endpoint_it_was_given(stack: LaneStack) -> 
 # ---------------------------------------------------------------------------
 # 2. Capability is static per lane; only the host's composed view moves
 # ---------------------------------------------------------------------------
-def test_lane_capability_is_static_across_a_session_switch(
-    stack: LaneStack, bluesky_tools, session_state
-) -> None:
+@pytest.mark.usefixtures("stack", "bluesky_tools")
+def test_lane_capability_is_static_across_a_session_switch(session_state) -> None:
     """A bridge's record does not move when the session does. LAYER: containers.
 
     The whole producer split rests on this: if a lane's published capability
@@ -910,8 +911,9 @@ def test_lane_capability_is_static_across_a_session_switch(
         )
 
 
+@pytest.mark.usefixtures("stack")
 async def test_the_host_composes_the_active_lane_and_moves_it_on_a_switch(
-    stack: LaneStack, bluesky_tools, session_state
+    bluesky_tools, session_state
 ) -> None:
     """Exactly one lane is active, and the switch moves it. LAYER: containers + host.
 

@@ -85,7 +85,7 @@ def _deploy_fixture(monkeypatch, tmp_path, services):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         captured["cmd"] = cmd
         # run_captured re-wraps this result to carry its spool path, so the
         # stand-in has to be a real completed process, and it passes redirection
@@ -139,7 +139,8 @@ def _parse_env(tmp_path):
     return parse_dotenv_file(path) if path.is_file() else {}
 
 
-def test_graphdb_deploy_mints_graphdb_password(captured_argv, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_graphdb_deploy_mints_graphdb_password(tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
     env = _parse_env(tmp_path)
@@ -175,7 +176,8 @@ def test_minted_value_is_never_the_published_default():
         assert _generate_token("GRAPHDB_PASSWORD") != PUBLISHED_DEFAULT
 
 
-def test_graphdb_mint_is_idempotent(captured_argv, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_graphdb_mint_is_idempotent(tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     first = _parse_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -185,7 +187,8 @@ def test_graphdb_mint_is_idempotent(captured_argv, tmp_path):
     assert (tmp_path / ".env").read_text().count("GRAPHDB_PASSWORD=") == 1
 
 
-def test_existing_graphdb_password_is_preserved(captured_argv, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_existing_graphdb_password_is_preserved(tmp_path):
     """The volume that adopted the value outlives any later mint."""
     (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=preexistingvalue\n", encoding="utf-8")
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -204,7 +207,8 @@ def test_existing_graphdb_password_is_preserved(captured_argv, tmp_path):
         "pass wordxx",
     ],
 )
-def test_operator_password_with_reserved_char_is_rejected(captured_argv, tmp_path, bad):
+@pytest.mark.usefixtures("captured_argv")
+def test_operator_password_with_reserved_char_is_rejected(tmp_path, bad):
     """Refuse at the deploy boundary rather than let NEO4J_AUTH mis-split."""
     (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={bad}\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
@@ -212,7 +216,8 @@ def test_operator_password_with_reserved_char_is_rejected(captured_argv, tmp_pat
 
 
 @pytest.mark.parametrize("short", ["a", "short", "sevench"])
-def test_operator_password_under_the_neo4j_minimum_is_rejected(captured_argv, tmp_path, short):
+@pytest.mark.usefixtures("captured_argv")
+def test_operator_password_under_the_neo4j_minimum_is_rejected(tmp_path, short):
     """Neo4j refuses an initial password under 8 characters and crash-loops.
 
     Nothing about a short value is malformed as a URI or as a composite half,
@@ -225,14 +230,16 @@ def test_operator_password_under_the_neo4j_minimum_is_rejected(captured_argv, tm
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
 
-def test_password_at_the_minimum_length_is_accepted(captured_argv, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_password_at_the_minimum_length_is_accepted(tmp_path):
     """Exactly 8 characters is Neo4j's floor, not one over it."""
     (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=eightchr\n", encoding="utf-8")
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     assert _parse_env(tmp_path)["GRAPHDB_PASSWORD"] == "eightchr"
 
 
-def test_published_template_default_is_refused(captured_argv, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_published_template_default_is_refused(tmp_path):
     """The template's ``:-`` fallback is a shared password, not a secret.
 
     It is well-formed by every format rule this var registers — that is exactly
@@ -244,14 +251,16 @@ def test_published_template_default_is_refused(captured_argv, tmp_path):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
 
-def test_rejection_never_echoes_the_password(captured_argv, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_rejection_never_echoes_the_password(tmp_path):
     (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=neo4j/secret\n", encoding="utf-8")
     with pytest.raises(RuntimeError) as excinfo:
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     assert "neo4j/secret" not in str(excinfo.value)
 
 
-def test_forbidden_rejection_never_echoes_the_default(captured_argv, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_forbidden_rejection_never_echoes_the_default(tmp_path):
     (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={PUBLISHED_DEFAULT}\n", encoding="utf-8")
     with pytest.raises(RuntimeError) as excinfo:
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -261,7 +270,8 @@ def test_forbidden_rejection_never_echoes_the_default(captured_argv, tmp_path):
 class TestExternalStore:
     """graphdb not deployed: validated when present, never minted when absent."""
 
-    def test_absent_password_is_never_fabricated(self, external_store_argv, tmp_path):
+    @pytest.mark.usefixtures("external_store_argv")
+    def test_absent_password_is_never_fabricated(self, tmp_path):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
         env = _parse_env(tmp_path)
         assert "GRAPHDB_PASSWORD" not in env
@@ -269,15 +279,15 @@ class TestExternalStore:
         # absence rather than a deploy that did nothing.
         assert env.get("ARIEL_DB_PASSWORD")
 
-    def test_operator_supplied_password_is_preserved(self, external_store_argv, tmp_path):
+    @pytest.mark.usefixtures("external_store_argv")
+    def test_operator_supplied_password_is_preserved(self, tmp_path):
         (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=externalstorepw\n", encoding="utf-8")
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
         assert _parse_env(tmp_path)["GRAPHDB_PASSWORD"] == "externalstorepw"
 
     @pytest.mark.parametrize("bad", ["neo4j/secret", "p@ssword", "short"])
-    def test_malformed_operator_password_is_still_rejected(
-        self, external_store_argv, tmp_path, bad
-    ):
+    @pytest.mark.usefixtures("external_store_argv")
+    def test_malformed_operator_password_is_still_rejected(self, tmp_path, bad):
         """A store this deploy does not run still parses the value the same way.
 
         Without the validate-only registration the var would be invisible to
@@ -561,17 +571,15 @@ class TestExternalStoreForbiddenValue:
     constraint the var registers.
     """
 
-    def test_the_published_default_is_refused_on_the_external_store_path(
-        self, external_store_argv, tmp_path
-    ):
+    @pytest.mark.usefixtures("external_store_argv")
+    def test_the_published_default_is_refused_on_the_external_store_path(self, tmp_path):
         (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={PUBLISHED_DEFAULT}\n", encoding="utf-8")
 
         with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
             container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    def test_the_external_store_refusal_never_echoes_the_default(
-        self, external_store_argv, tmp_path
-    ):
+    @pytest.mark.usefixtures("external_store_argv")
+    def test_the_external_store_refusal_never_echoes_the_default(self, tmp_path):
         """Same no-echo rule the minted path already holds to."""
         (tmp_path / ".env").write_text(f"GRAPHDB_PASSWORD={PUBLISHED_DEFAULT}\n", encoding="utf-8")
 
@@ -580,9 +588,8 @@ class TestExternalStoreForbiddenValue:
 
         assert PUBLISHED_DEFAULT not in str(excinfo.value)
 
-    def test_the_refusal_is_the_forbidden_value_diagnosis_not_a_format_one(
-        self, external_store_argv, tmp_path
-    ):
+    @pytest.mark.usefixtures("external_store_argv")
+    def test_the_refusal_is_the_forbidden_value_diagnosis_not_a_format_one(self, tmp_path):
         """Two failures, two fixes — the message has to name the right one.
 
         "your password is public" and "your password has a bad character" send
@@ -598,16 +605,16 @@ class TestExternalStoreForbiddenValue:
 
         assert _VAR_FORBIDDEN_DESCRIPTIONS["GRAPHDB_PASSWORD"] in message
 
-    def test_a_forbidden_value_from_the_process_env_is_refused_too(
-        self, external_store_argv, tmp_path, monkeypatch
-    ):
+    @pytest.mark.usefixtures("external_store_argv")
+    def test_a_forbidden_value_from_the_process_env_is_refused_too(self, tmp_path, monkeypatch):
         """A shell export outranks ``.env`` for compose, so it must be checked."""
         monkeypatch.setenv("GRAPHDB_PASSWORD", PUBLISHED_DEFAULT)
 
         with pytest.raises(RuntimeError, match="GRAPHDB_PASSWORD"):
             container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
-    def test_a_clean_external_password_still_passes(self, external_store_argv, tmp_path):
+    @pytest.mark.usefixtures("external_store_argv")
+    def test_a_clean_external_password_still_passes(self, tmp_path):
         """The new check must refuse the default and nothing else."""
         (tmp_path / ".env").write_text("GRAPHDB_PASSWORD=notthedefault\n", encoding="utf-8")
 

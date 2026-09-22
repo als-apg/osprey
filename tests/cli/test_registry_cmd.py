@@ -60,7 +60,8 @@ def mock_registry():
 class TestDisplayRegistryContents:
     """Test display_registry_contents function."""
 
-    def test_displays_registry_with_initialized_registry(self, mock_registry, capsys, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_displays_registry_with_initialized_registry(self, mock_registry, capsys):
         """Test displaying registry contents when registry is already initialized."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
             with patch("osprey.utils.log_filter.quiet_logger"):
@@ -75,7 +76,8 @@ class TestDisplayRegistryContents:
                 # Already initialized -- no progress notice
                 assert "Initializing registry" not in capsys.readouterr().out
 
-    def test_initializes_registry_if_not_initialized(self, mock_registry, capsys, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_initializes_registry_if_not_initialized(self, mock_registry, capsys):
         """Test that uninitialized registry gets initialized."""
         mock_registry.get_stats.return_value["initialized"] = False
 
@@ -91,7 +93,8 @@ class TestDisplayRegistryContents:
                 # Cold run announces the load, which is otherwise silent
                 assert "Initializing registry" in capsys.readouterr().out
 
-    def test_summary_prints_the_service_count_as_a_section(self, mock_registry, capsys, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_summary_prints_the_service_count_as_a_section(self, mock_registry, capsys):
         """The counts are facts about the registry, so they print as a section."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
             with patch("osprey.utils.log_filter.quiet_logger"):
@@ -104,7 +107,7 @@ class TestDisplayRegistryContents:
         assert "Services" in out
         assert "1" in out
 
-    def test_handles_exceptions_gracefully(self, capsys):
+    def test_handles_exceptions_gracefully(self):
         """Test that exceptions are handled gracefully."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
             with patch("osprey.utils.log_filter.quiet_logger"):
@@ -147,7 +150,8 @@ class TestDisplayRegistryContents:
         assert panels[0].box is box.ROUNDED
         assert panels[0].expand is False
 
-    def test_verbose_mode_shows_additional_info(self, mock_registry, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_verbose_mode_shows_additional_info(self, mock_registry):
         """Test that verbose mode displays additional information."""
         with patch("osprey.cli.registry_cmd.get_registry") as mock_get_registry:
             with patch("osprey.utils.log_filter.quiet_logger"):
@@ -162,17 +166,18 @@ class TestDisplayRegistryContents:
 class TestDisplayServicesTable:
     """Test _display_services_table function."""
 
-    def test_displays_services(self, mock_registry, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_displays_services(self, mock_registry):
         """Test displaying services table."""
         # Should not raise exception
-        _display_services_table(mock_registry, verbose=False)
+        _display_services_table(mock_registry)
 
         # Should get stats for service names
         assert mock_registry.get_stats.called
 
     def test_table_comes_from_the_shared_factory(self, mock_registry, printed):
         """Re-pinned: the table used to spell ``dim`` for its own border."""
-        _display_services_table(mock_registry, verbose=False)
+        _display_services_table(mock_registry)
 
         tables = [r for r in printed if isinstance(r, Table)]
         assert len(tables) == 1
@@ -182,7 +187,7 @@ class TestDisplayServicesTable:
 
     def test_heading_and_rows_reach_stdout(self, mock_registry, capsys):
         """The heading is the verb's own output, so it survives any reporter."""
-        _display_services_table(mock_registry, verbose=False)
+        _display_services_table(mock_registry)
 
         out = capsys.readouterr().out
         assert "Services" in out
@@ -192,7 +197,8 @@ class TestDisplayServicesTable:
 class TestDisplayProvidersTable:
     """Test _display_providers_table function."""
 
-    def test_displays_providers(self, mock_registry, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_displays_providers(self, mock_registry):
         """Test displaying providers table."""
         providers = ["test_provider", "another_provider"]
 
@@ -217,7 +223,8 @@ class TestDisplayProvidersTable:
             "Description",
         ]
 
-    def test_handles_missing_provider(self, mock_registry, printed):
+    @pytest.mark.usefixtures("printed")
+    def test_handles_missing_provider(self, mock_registry):
         """Test handling of provider that doesn't exist."""
         mock_registry.get_provider.return_value = None
         providers = ["nonexistent_provider"]

@@ -124,7 +124,8 @@ def installed_deps(calls: list[list[str]]) -> list[str]:
 class TestRecordedDependencies:
     """The record covers the frozen base, ``dependencies`` and ``packages``."""
 
-    def test_records_frozen_base_dependencies_and_packages(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_records_frozen_base_dependencies_and_packages(self, base_venv, tmp_path):
         python = base_venv(_record("lmfit", "1.3.2"), _record("cothread", "2.20"))
 
         data = build(
@@ -161,14 +162,16 @@ class TestRecordedDependencies:
         assert len(calls) == 2, "the frozen set must not add a second install pass"
         assert installed_deps(calls) == [OSPREY_SPEC, "lmfit==1.3.2"]
 
-    def test_inherit_exclude_drops_a_package_from_the_record(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_inherit_exclude_drops_a_package_from_the_record(self, base_venv, tmp_path):
         python = base_venv(_record("lmfit", "1.3.2"), _record("Private_Pkg", "0.1.0"))
 
         data = build(tmp_path / "project", _profile(python=python, inherit_exclude=["private-pkg"]))
 
         assert recorded_deps(data) == [OSPREY_SPEC, "lmfit==1.3.2"]
 
-    def test_freeze_is_computed_once(self, calls, monkeypatch, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_freeze_is_computed_once(self, monkeypatch, tmp_path):
         """Two probes mean two chances for the record and the venv to disagree."""
         probes: list[Path] = []
         monkeypatch.setattr(build_environment, "_base_is_venv", lambda _python: True)
@@ -185,7 +188,8 @@ class TestRecordedDependencies:
 
         assert len(probes) == 1
 
-    def test_freeze_failure_aborts_before_anything_is_recorded(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_freeze_failure_aborts_before_anything_is_recorded(self, base_venv, tmp_path):
         """A half-built project with an honest-looking record is the worst outcome."""
         python = base_venv(
             _record("mine", "0.1.0", {"url": "file:///src/mine", "dir_info": {"editable": True}})
@@ -201,7 +205,8 @@ class TestRecordedDependencies:
 class TestNoFrozenBase:
     """Without a venv base to freeze, the record is what it always was."""
 
-    def test_undeclared_base_records_osprey_and_profile_deps_only(self, calls, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_undeclared_base_records_osprey_and_profile_deps_only(self, tmp_path):
         data = build(tmp_path / "project", _profile(dependencies=["numpy>=1.24"]))
 
         assert recorded_deps(data) == [OSPREY_SPEC, "numpy>=1.24"]
@@ -216,9 +221,8 @@ class TestNoFrozenBase:
 
         assert len(calls) == 2, "venv creation and one install — no base probe"
 
-    def test_non_venv_declared_base_records_the_declared_requirements(
-        self, calls, monkeypatch, tmp_path
-    ):
+    @pytest.mark.usefixtures("calls")
+    def test_non_venv_declared_base_records_the_declared_requirements(self, monkeypatch, tmp_path):
         monkeypatch.setattr(build_environment, "_base_is_venv", lambda _python: False)
 
         data = build(
@@ -241,14 +245,16 @@ class TestNoFrozenBase:
 class TestDeduplication:
     """One entry per distribution; the more explicit requirement wins."""
 
-    def test_pin_from_the_freeze_beats_a_bare_profile_name(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_pin_from_the_freeze_beats_a_bare_profile_name(self, base_venv, tmp_path):
         python = base_venv(_record("numpy", "2.2.6"))
 
         data = build(tmp_path / "project", _profile(python=python, dependencies=["numpy"]))
 
         assert recorded_deps(data) == [OSPREY_SPEC, "numpy==2.2.6"]
 
-    def test_pin_beats_a_bare_name_declared_earlier(self, calls, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_pin_beats_a_bare_name_declared_earlier(self, tmp_path):
         data = build(
             tmp_path / "project",
             _profile(dependencies=["numpy"], packages=["numpy==2.1.0"]),
@@ -256,7 +262,8 @@ class TestDeduplication:
 
         assert recorded_deps(data) == [OSPREY_SPEC, "numpy==2.1.0"]
 
-    def test_bare_name_never_displaces_a_pin_declared_earlier(self, calls, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_bare_name_never_displaces_a_pin_declared_earlier(self, tmp_path):
         data = build(
             tmp_path / "project",
             _profile(dependencies=["numpy==2.1.0"], packages=["numpy"]),
@@ -273,7 +280,8 @@ class TestDeduplication:
         assert recorded_deps(data) == [OSPREY_SPEC, "numpy==2.1.0"]
         assert installed_deps(calls) == recorded_deps(data)
 
-    def test_collision_is_by_canonical_name(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_collision_is_by_canonical_name(self, base_venv, tmp_path):
         """``Alpha_Pkg`` and ``alpha-pkg`` are one distribution to the resolver."""
         python = base_venv(_record("Alpha_Pkg", "0.1.0"))
 
@@ -281,14 +289,16 @@ class TestDeduplication:
 
         assert recorded_deps(data) == [OSPREY_SPEC, "Alpha_Pkg==0.1.0"]
 
-    def test_direct_url_requirement_beats_a_bare_name(self, calls, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_direct_url_requirement_beats_a_bare_name(self, tmp_path):
         url_req = "mypkg @ https://example.invalid/mypkg-1.0-py3-none-any.whl"
 
         data = build(tmp_path / "project", _profile(dependencies=["mypkg"], packages=[url_req]))
 
         assert recorded_deps(data) == [OSPREY_SPEC, url_req]
 
-    def test_osprey_requirement_stays_authoritative(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_osprey_requirement_stays_authoritative(self, base_venv, tmp_path):
         """osprey's own spec is recorded once, first, and is never overridden."""
         python = base_venv(_record("lmfit", "1.3.2"))
 
@@ -299,7 +309,8 @@ class TestDeduplication:
 
         assert recorded_deps(data) == [OSPREY_SPEC, "lmfit==1.3.2"]
 
-    def test_every_recorded_entry_parses_as_a_requirement(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_every_recorded_entry_parses_as_a_requirement(self, base_venv, tmp_path):
         """An unparseable entry makes the whole record unusable to any resolver."""
         from packaging.requirements import Requirement
 
@@ -322,7 +333,8 @@ class TestDeduplication:
 class TestFileShape:
     """The file is written whole, and the base interpreter is provenance only."""
 
-    def test_rebuild_rewrites_rather_than_appends(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_rebuild_rewrites_rather_than_appends(self, base_venv, tmp_path):
         """An appended emission would redefine ``[project]`` — a TOML error.
 
         A successful parse of the second build is therefore itself an assertion.
@@ -337,7 +349,8 @@ class TestFileShape:
         assert recorded_deps(data).count("lmfit==1.3.2") == 1
         assert recorded_deps(data).count("numpy>=1.24") == 1
 
-    def test_base_interpreter_is_recorded_as_a_comment(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_base_interpreter_is_recorded_as_a_comment(self, base_venv, tmp_path):
         python = base_venv(_record("lmfit", "1.3.2"))
         project_path = tmp_path / "project"
 
@@ -349,7 +362,8 @@ class TestFileShape:
         assert mentions and all(line.startswith("#") for line in mentions)
         assert python not in json.dumps(data), "provenance must not be a parseable key"
 
-    def test_undeclared_base_records_the_build_interpreter(self, calls, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_undeclared_base_records_the_build_interpreter(self, tmp_path):
         project_path = tmp_path / "project"
 
         build(project_path, _profile())
@@ -357,7 +371,8 @@ class TestFileShape:
 
         assert f"# base interpreter: {sys.executable}" in text
 
-    def test_no_build_system_table(self, calls, base_venv, tmp_path):
+    @pytest.mark.usefixtures("calls")
+    def test_no_build_system_table(self, base_venv, tmp_path):
         """A ``[build-system]`` would make every ``uv run`` try to build the project."""
         python = base_venv(_record("lmfit", "1.3.2"))
 

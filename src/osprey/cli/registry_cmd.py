@@ -38,7 +38,7 @@ def display_registry_contents(verbose: bool = False):
 
         # Display services
         if stats["service_names"]:
-            _display_services_table(registry, verbose)
+            _display_services_table(registry)
 
         # Display providers
         providers = registry.list_providers()
@@ -58,7 +58,7 @@ def display_registry_contents(verbose: bool = False):
     return True
 
 
-def _display_services_table(registry, verbose: bool):
+def _display_services_table(registry):
     """Display services in a formatted table."""
     output.report("Services", style=Styles.HEADER)
     output.report("")

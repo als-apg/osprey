@@ -72,9 +72,8 @@ def corrector_rb(corrector: Binding) -> str:
 
 class TestApprovalSmoke:
     @pytest.mark.asyncio
-    async def test_write_blocked_when_writes_disabled_no_ca_io(
-        self, va_container, corrector_sp, corrector_rb
-    ):
+    @pytest.mark.usefixtures("va_container")
+    async def test_write_blocked_when_writes_disabled_no_ca_io(self, corrector_sp, corrector_rb):
         with e2e_conftest.patched_config(**{"control_system.writes_enabled": False}):
             connector = await e2e_conftest.connect_va()
 
@@ -104,7 +103,8 @@ class TestApprovalSmoke:
         )
 
     @pytest.mark.asyncio
-    async def test_same_write_succeeds_once_writes_enabled(self, va_container, corrector_sp):
+    @pytest.mark.usefixtures("va_container")
+    async def test_same_write_succeeds_once_writes_enabled(self, corrector_sp):
         with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
             connector = await e2e_conftest.connect_va()
 

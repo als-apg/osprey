@@ -32,7 +32,7 @@ class _FakeResponse:
 def _stub_urlopen(monkeypatch, *, payload=None, raises=None, bad_body=False):
     """Point the hook's urlopen at a fake response, an error, or garbage body."""
 
-    def _fake(url, timeout=None):
+    def _fake(url, timeout=None):  # noqa: ARG001 - urlopen takes the url positionally and timeout by keyword
         if raises is not None:
             raise raises
         if bad_body:

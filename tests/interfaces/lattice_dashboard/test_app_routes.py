@@ -197,7 +197,8 @@ class _FinishedProc:
 
     returncode = 0
 
-    def communicate(self, timeout=None):
+    # ``subprocess.Popen``'s signature: the caller names ``timeout``.
+    def communicate(self, timeout=None):  # noqa: ARG002
         return (b"", b"")
 
 

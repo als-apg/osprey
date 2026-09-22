@@ -381,7 +381,7 @@ def test_var_positional_policy_receives_the_context():
 def test_binder_does_not_swallow_type_errors_from_the_policy():
     """A TypeError raised *inside* a policy is a bug, not an arity signal."""
 
-    def policy(tool_name, tool_input, ctx):
+    def policy(_tool_name, _tool_input, _ctx):
         raise TypeError("boom inside the policy")
 
     with pytest.raises(TypeError, match="boom inside the policy"):

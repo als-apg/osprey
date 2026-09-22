@@ -83,7 +83,7 @@ class TestHtmlToPng:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        async def fake_convert(html_path, output_path, **kwargs):
+        async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
             Path(output_path).write_bytes(b"\x89PNG converted")
             return Path(output_path).resolve()
 
@@ -104,7 +104,7 @@ class TestHtmlToPng:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        async def fake_convert(html_path, output_path, **kwargs):
+        async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
             Path(output_path).write_bytes(b"\x89PNG")
             return Path(output_path).resolve()
 
@@ -190,7 +190,7 @@ class TestNotebookToPng:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        async def fake_convert(html_path, output_path, **kwargs):
+        async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
             Path(output_path).write_bytes(b"\x89PNG nb")
             return Path(output_path).resolve()
 
@@ -216,7 +216,7 @@ class TestNotebookToPng:
         output_dir = tmp_path / "output"
         output_dir.mkdir()
 
-        async def fake_convert(html_path, output_path, **kwargs):
+        async def fake_convert(html_path, output_path, **kwargs):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
             Path(output_path).write_bytes(b"\x89PNG")
             return Path(output_path).resolve()
 

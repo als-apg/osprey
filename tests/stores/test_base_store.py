@@ -278,7 +278,7 @@ class TestListeners:
         finally:
             _MiniStore.unregister_listener(received.append)
 
-    def test_registering_on_one_subclass_does_not_leak_to_another(self, tmp_path):
+    def test_registering_on_one_subclass_does_not_leak_to_another(self):
         fn = lambda _e: None  # noqa: E731
         _MiniStore.register_listener(fn)
         try:

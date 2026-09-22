@@ -23,7 +23,8 @@ MIN_COLLECTED_TESTS = 2
 
 
 class TestFullSweep:
-    def test_full_manifest_is_live_over_ca(self, va_container):
+    @pytest.mark.usefixtures("va_container")
+    def test_full_manifest_is_live_over_ca(self):
         addresses = sweep_check.all_manifest_addresses()
         assert len(addresses) > 1000, (
             "sanity check: expected the full manifest (a few thousand addresses), "

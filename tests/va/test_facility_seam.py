@@ -143,7 +143,7 @@ def _run_seam_ioc_subprocess() -> None:
     import importlib.abc
 
     class ATBlocker(importlib.abc.MetaPathFinder):
-        def find_spec(self, fullname, path=None, target=None):
+        def find_spec(self, fullname, path=None, target=None):  # noqa: ARG002 - the importlib.abc.MetaPathFinder signature
             root = fullname.split(".")[0]
             if root in _BLOCKED_ROOTS:
                 raise ImportError(

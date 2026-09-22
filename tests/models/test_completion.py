@@ -281,7 +281,7 @@ class TestGetChatCompletionAcceptsAProviderDefault:
 
         seen: dict = {}
 
-        def fake_execute(self, **kwargs):
+        def fake_execute(self, **kwargs):  # noqa: ARG001 - stands in for the provider adapter's execute, which collects keyword arguments
             seen.update(kwargs)
             return "ok"
 
@@ -350,7 +350,7 @@ class TestGetChatCompletionAcceptsAProviderDefault:
 
         seen: dict = {}
 
-        def fake_execute(self, **kwargs):
+        def fake_execute(self, **kwargs):  # noqa: ARG001 - stands in for the provider adapter's execute, which collects keyword arguments
             seen.update(kwargs)
             return "ok"
 

@@ -75,7 +75,7 @@ _ERR_SNIPPET = 200
 def get_litellm_model_name(
     provider: str,
     model_id: str,
-    base_url: str | None = None,
+    base_url: str | None = None,  # noqa: ARG001 - routing is decided by the adapter's compatibility flag and its litellm prefix
     provider_class: "type[BaseProvider] | None" = None,
 ) -> str:
     """Map Osprey provider/model to LiteLLM model string.

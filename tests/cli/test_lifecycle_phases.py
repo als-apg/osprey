@@ -37,7 +37,7 @@ class RecordingReporter(PhaseReporter):
         super().__init__(color=False)
         self.lines: list[str] = []
 
-    def emit(self, text: str, style: str | None = None) -> None:
+    def emit(self, text: str, style: str | None = None) -> None:  # noqa: ARG002 - the reporter signature this overrides
         self.lines.append(text)
 
 
@@ -155,17 +155,17 @@ class TestInstalledReporter:
     """A verb installs one reporter, and `--verbose` decides which."""
 
     @pytest.mark.parametrize("verb", ["up", "restart", "down"])
-    def test_a_start_or_stop_verb_installs_a_real_reporter(
-        self, runner, deploy_stubs, restore_reporter, verb
-    ):
+    @pytest.mark.usefixtures("restore_reporter")
+    def test_a_start_or_stop_verb_installs_a_real_reporter(self, runner, deploy_stubs, verb):
         result = runner.invoke(cli, [verb])
 
         assert result.exit_code == 0, result.output
         assert deploy_stubs == [(verb, "PhaseReporter", False)]
 
     @pytest.mark.parametrize("verb", ["up", "restart", "down"])
+    @pytest.mark.usefixtures("restore_reporter")
     def test_verbose_installs_a_null_reporter_that_says_it_is_verbose(
-        self, runner, deploy_stubs, restore_reporter, verb
+        self, runner, deploy_stubs, verb
     ):
         """A bare NullReporter would silence the phases AND leave `is_verbose()`
         False, which is what the capture helper reads to decide between
@@ -176,9 +176,8 @@ class TestInstalledReporter:
         assert result.exit_code == 0, result.output
         assert deploy_stubs == [(verb, "NullReporter", True)]
 
-    def test_the_default_handle_is_restored_afterwards(
-        self, runner, deploy_stubs, restore_reporter
-    ):
+    @pytest.mark.usefixtures("deploy_stubs", "restore_reporter")
+    def test_the_default_handle_is_restored_afterwards(self, runner):
         """The install is scoped to the verb: a process that goes on to do
         something else must not keep printing into a finished run's reporter."""
         before = current_reporter()
@@ -204,7 +203,8 @@ class TestInstalledReporter:
 
 
 class TestDeployVerbPhases:
-    def test_up_reports_a_preflight_and_then_the_start(self, runner, deploy_stubs, recorder, repo):
+    @pytest.mark.usefixtures("deploy_stubs")
+    def test_up_reports_a_preflight_and_then_the_start(self, runner, recorder, repo):
         result = runner.invoke(cli, ["up", "-d"])
 
         assert result.exit_code == 0, result.output
@@ -213,9 +213,8 @@ class TestDeployVerbPhases:
         assert closed(recorder)[0].endswith("— build/ and .env are in place")
         assert closed(recorder)[1].startswith(f"✓ Starting {repo.name}")
 
-    def test_restart_reports_the_stop_and_start_as_one_phase(
-        self, runner, deploy_stubs, recorder, repo
-    ):
+    @pytest.mark.usefixtures("deploy_stubs")
+    def test_restart_reports_the_stop_and_start_as_one_phase(self, runner, recorder, repo):
         """`restart` recreates the containers in one call. A ✓ on a separate
         stop phase would read as "it is down now" while the start is still to
         come."""
@@ -224,14 +223,16 @@ class TestDeployVerbPhases:
         assert result.exit_code == 0, result.output
         assert titles(recorder) == ["→ Preflight", f"→ Restarting {repo.name}"]
 
-    def test_down_reports_one_stopping_phase(self, runner, deploy_stubs, recorder, repo):
+    @pytest.mark.usefixtures("deploy_stubs")
+    def test_down_reports_one_stopping_phase(self, runner, recorder, repo):
         result = runner.invoke(cli, ["down"])
 
         assert result.exit_code == 0, result.output
         assert titles(recorder) == [f"→ Stopping {repo.name}"]
 
+    @pytest.mark.usefixtures("deploy_stubs")
     def test_an_attached_start_renders_its_phases_up_to_the_exec_point(
-        self, runner, deploy_stubs, recorder, monkeypatch, repo
+        self, runner, recorder, monkeypatch, repo
     ):
         """Attached (`up` without `-d`) hands the terminal to compose with
         os.execvpe, so this process is gone before the start phase can close.
@@ -253,8 +254,9 @@ class TestDeployVerbPhases:
         assert open_phase == [f"Starting {repo.name}"]
         assert closed(recorder)[0].startswith("✓ Preflight")
 
+    @pytest.mark.usefixtures("deploy_stubs")
     def test_a_failed_start_closes_its_phase_before_the_error(
-        self, runner, deploy_stubs, recorder, monkeypatch, repo
+        self, runner, recorder, monkeypatch, repo
     ):
         """The ✗ line has to come from the phase, not from the handler: the
         handler's message is about the deployment, the phase line is about which
@@ -271,8 +273,9 @@ class TestDeployVerbPhases:
         assert result.exit_code != 0
         assert closed(recorder)[-1].startswith(f"✗ Starting {repo.name}")
 
+    @pytest.mark.usefixtures("deploy_stubs")
     def test_preflight_fails_its_phase_when_there_is_no_build(
-        self, runner, deploy_stubs, recorder, monkeypatch, tmp_path
+        self, runner, recorder, monkeypatch, tmp_path
     ):
         from osprey.deployment import container_lifecycle
 
@@ -374,7 +377,8 @@ class TestBuildPhases:
         monkeypatch.setattr(build_cmd, "_warn_if_deployment_running", lambda *a, **k: None)
         return seen
 
-    def test_build_reports_the_venv_and_the_render(self, runner, build_stubs, recorder):
+    @pytest.mark.usefixtures("build_stubs")
+    def test_build_reports_the_venv_and_the_render(self, runner, recorder):
         """Six render passes, one phase. Reported one by one they would read as
         six builds of six different things."""
         result = runner.invoke(cli, ["build"])
@@ -397,7 +401,8 @@ class TestBuildPhases:
             "· 1 image build context(s)",
         ]
 
-    def test_skip_deps_opens_no_environment_phase(self, runner, build_stubs, recorder):
+    @pytest.mark.usefixtures("build_stubs")
+    def test_skip_deps_opens_no_environment_phase(self, runner, recorder):
         """--skip-deps is CI's "there is no venv to make". A phase announced for
         work that was skipped is the kind of small lie this feature removes."""
         result = runner.invoke(cli, ["build", "--skip-deps"])
@@ -418,17 +423,15 @@ class TestBuildPhases:
         )
         return recorded
 
-    def test_build_installs_its_own_reporter(
-        self, runner, build_stubs, restore_reporter, installed
-    ):
+    @pytest.mark.usefixtures("build_stubs", "restore_reporter")
+    def test_build_installs_its_own_reporter(self, runner, installed):
         result = runner.invoke(cli, ["build"])
 
         assert result.exit_code == 0, result.output
         assert installed == [("PhaseReporter", False)]
 
-    def test_verbose_silences_the_build_phases(
-        self, runner, build_stubs, restore_reporter, installed
-    ):
+    @pytest.mark.usefixtures("build_stubs", "restore_reporter")
+    def test_verbose_silences_the_build_phases(self, runner, installed):
         """The render is the biggest captured-subprocess consumer on the build
         path, so `is_verbose()` being True here is what makes `--verbose` mean
         "stream it" rather than just "print no phases"."""
@@ -459,7 +462,8 @@ class TestResetPhases:
         assert reset_stub == [("reset", "RecordingReporter", False)]
         assert recorder.lines == []
 
-    def test_verbose_reaches_reset_too(self, runner, reset_stub, restore_reporter):
+    @pytest.mark.usefixtures("restore_reporter")
+    def test_verbose_reaches_reset_too(self, runner, reset_stub):
         """Reset's teardown reaches the same captured-subprocess helpers the
         start verbs do, and `--verbose` has to mean the same thing there."""
         result = runner.invoke(cli, ["--verbose", "reset", "--dry-run", "-y"])
@@ -536,7 +540,8 @@ def _seen(seen, verb: str) -> None:
 
 
 class TestInitPhases:
-    def test_init_reports_one_creation_phase(self, runner, init_stubs, recorder, tmp_path):
+    @pytest.mark.usefixtures("init_stubs")
+    def test_init_reports_one_creation_phase(self, runner, recorder, tmp_path):
         target = tmp_path / "probe"
 
         result = runner.invoke(
@@ -550,7 +555,8 @@ class TestInitPhases:
         ]
         assert closed(recorder)[-1].startswith("✓ Creating probe")
 
-    def test_a_refused_init_opens_no_phase(self, runner, init_stubs, recorder, tmp_path):
+    @pytest.mark.usefixtures("init_stubs")
+    def test_a_refused_init_opens_no_phase(self, runner, recorder, tmp_path):
         """A run that is turned away prints its reason and nothing else — a
         `→ Creating x` above it would announce work that never started."""
         result = runner.invoke(cli, ["init", str(tmp_path / "probe")])
@@ -575,9 +581,8 @@ class TestInitPhases:
         assert len({handle for _, _, handle in init_stubs}) == 1
         assert titles(recorder) == ["→ Creating probe", "→ Preflight", "→ Starting probe"]
 
-    def test_the_chain_shares_the_reporter_init_installed(
-        self, runner, init_stubs, restore_reporter, tmp_path
-    ):
+    @pytest.mark.usefixtures("restore_reporter")
+    def test_the_chain_shares_the_reporter_init_installed(self, runner, init_stubs, tmp_path):
         """Same property with nothing pre-installed: the reporter the chained
         verbs report into is the one `init` installed, not one of their own."""
         target = tmp_path / "probe"
@@ -609,7 +614,11 @@ class _RecordSink(logging.Handler):
 
 
 @pytest.fixture
-def debug_probe(monkeypatch, deploy_stubs, restore_reporter):
+def debug_probe(
+    monkeypatch,
+    deploy_stubs,  # noqa: ARG001 - stubs the layer the verb this probe watches runs through
+    restore_reporter,  # noqa: ARG001 - gives back the reporter handle that verb installs
+):
     """One DEBUG record emitted from inside a running verb, and what survived.
 
     The demoted call sites all still log — at DEBUG, which

@@ -119,7 +119,7 @@ class FakeManager:
     def is_started(self) -> bool:
         return self.started
 
-    def applying_bound_s(self, *, fallback_retry: bool = True) -> float:
+    def applying_bound_s(self, *, fallback_retry: bool = True) -> float:  # noqa: ARG002 - ConnectorHostManager.applying_bound_s fixes this keyword-only parameter
         return self.bound_s
 
     def publish_display(self) -> bool:
@@ -261,7 +261,7 @@ def allow_every_target(monkeypatch):
     """Stub eligibility open, so the gate's third rung is not the subject."""
     from osprey.mcp_server.control_system.target_eligibility import TargetAvailability
 
-    def available(config, target, control_target, baseline_target, **kwargs):
+    def available(config, target, control_target, baseline_target, **kwargs):  # noqa: ARG001 - target_availability fixes this stand-in's signature
         return TargetAvailability(
             target=target,
             eligible=True,
@@ -393,7 +393,8 @@ def dead_pid() -> int:
 class TestOwnership:
     """A controls server is the fallback owner, and a quiet follower otherwise."""
 
-    async def test_an_ownerless_record_is_claimed_without_moving_it(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_an_ownerless_record_is_claimed_without_moving_it(self, monkeypatch):
         """The claim is a merge: it changes who may write, not what it says."""
         manager = FakeManager(target="va", generation=3)
         install_context(manager, monkeypatch)
@@ -407,7 +408,8 @@ class TestOwnership:
         assert (current.target, current.generation) == ("va", 3)
         assert current.posture == {"va": "sandbox"}
 
-    async def test_a_record_owned_by_a_dead_process_is_claimed(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_record_owned_by_a_dead_process_is_claimed(self, monkeypatch):
         manager = FakeManager()
         install_context(manager, monkeypatch)
         write_record(owned_by=fixtures.owner(control_context.OWNER_WEB_TERMINAL, dead_pid()))
@@ -416,7 +418,8 @@ class TestOwnership:
 
         assert record().owner.pid == os.getpid()
 
-    async def test_a_live_web_terminal_owner_is_followed_not_claimed(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_live_web_terminal_owner_is_followed_not_claimed(self, monkeypatch):
         """A terminal outranks a server: it is what the operator is looking at."""
         manager = FakeManager()
         install_context(manager, monkeypatch)
@@ -426,7 +429,8 @@ class TestOwnership:
 
         assert record().owner.pid == OTHER_PID
 
-    async def test_a_follower_reconciles_to_the_record_it_does_not_own(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_follower_reconciles_to_the_record_it_does_not_own(self, monkeypatch):
         """Following is about who WRITES; every server obeys what is written."""
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
@@ -440,7 +444,8 @@ class TestOwnership:
 
         assert manager.reconcile_calls == [("va", 4)]
 
-    async def test_a_follower_answers_no_request(self, monkeypatch, emitted, records):
+    @pytest.mark.usefixtures("emitted")
+    async def test_a_follower_answers_no_request(self, monkeypatch, records):
         """The outcome block belongs to the owner; a second answer is a clobber."""
         manager = FakeManager()
         install_context(manager, monkeypatch)
@@ -453,9 +458,8 @@ class TestOwnership:
         assert terminus() is None
         assert records == []
 
-    async def test_a_record_that_cannot_be_read_leaves_the_pass_harmless(
-        self, monkeypatch, records
-    ):
+    @pytest.mark.usefixtures("records")
+    async def test_a_record_that_cannot_be_read_leaves_the_pass_harmless(self, monkeypatch):
         """No record is not an error here: a claim that failed retries next tick."""
         manager = FakeManager()
         install_context(manager, monkeypatch)
@@ -473,7 +477,8 @@ class TestOwnership:
 
 
 class TestReconcileToTheRecord:
-    async def test_a_live_child_publishes_applying_before_it_reconciles(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_live_child_publishes_applying_before_it_reconciles(self, monkeypatch):
         """The window where this process is between two targets is announced.
 
         Read from INSIDE the reconcile call: a block published afterwards would
@@ -492,7 +497,8 @@ class TestReconcileToTheRecord:
         assert block["generation"] == 5
         assert block["at"] and block["expires_at"], "an applying block carries its own deadline"
 
-    async def test_the_deadline_is_the_bound_this_server_computes(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_the_deadline_is_the_bound_this_server_computes(self, monkeypatch):
         """Only this process knows its spawn, probe and drain timeouts."""
         manager = FakeManager(target="live", child=True)
         manager.bound_s = 30.0
@@ -505,7 +511,8 @@ class TestReconcileToTheRecord:
         span = datetime.fromisoformat(block["expires_at"]) - datetime.fromisoformat(block["at"])
         assert abs(span.total_seconds() - 30.0) < 1.0
 
-    async def test_no_live_child_adopts_silently_on_the_first_pass(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_no_live_child_adopts_silently_on_the_first_pass(self, monkeypatch):
         """A server joining a deployment already on generation 7 mints nothing.
 
         Nothing is bound, so nothing can be bound to the wrong generation, and
@@ -524,8 +531,9 @@ class TestReconcileToTheRecord:
         assert manager.launches == []
         assert report_block() is None
 
+    @pytest.mark.usefixtures("records")
     async def test_a_record_that_moves_under_a_childless_server_launches_the_child(
-        self, monkeypatch, records
+        self, monkeypatch
     ):
         """An operator's switch is answered by a server that has launched nothing.
 
@@ -556,9 +564,8 @@ class TestReconcileToTheRecord:
         assert report["applied_target"] == "va"
         assert report["applied_generation"] == 1
 
-    async def test_a_server_that_joined_silently_launches_on_the_next_move(
-        self, monkeypatch, records
-    ):
+    @pytest.mark.usefixtures("records")
+    async def test_a_server_that_joined_silently_launches_on_the_next_move(self, monkeypatch):
         """Joining is the first pass only; every later move is a gesture to answer."""
         manager = FakeManager(target="live", generation=0, child=False)
         install_context(manager, monkeypatch)
@@ -574,7 +581,8 @@ class TestReconcileToTheRecord:
         assert manager.launches == [("live", 8)]
         assert target_state.read()["applied_generation"] == 8
 
-    async def test_a_server_already_on_the_record_reconciles_nothing(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_server_already_on_the_record_reconciles_nothing(self, monkeypatch):
         """The steady state costs no lock, no publication and no write."""
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
@@ -586,7 +594,8 @@ class TestReconcileToTheRecord:
         assert manager.reconcile_calls == []
         assert report_block() is None
 
-    async def test_a_generation_that_moved_alone_is_still_reconciled(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_generation_that_moved_alone_is_still_reconciled(self, monkeypatch):
         """Same target, new generation: adopted against the child already there."""
         manager = FakeManager(target="live", generation=2)
         install_context(manager, monkeypatch)
@@ -597,7 +606,8 @@ class TestReconcileToTheRecord:
         assert manager.reconcile_calls == [("live", 3)]
         assert manager.active_generation() == 3
 
-    async def test_a_failed_reconcile_does_not_stop_the_pass(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_failed_reconcile_does_not_stop_the_pass(self, monkeypatch):
         """The supervisor already filed ``failed``; a second verdict here would
         be this task's opinion about a swap it did not run."""
         manager = FakeManager(target="live", generation=0)
@@ -614,7 +624,8 @@ class TestReconcileToTheRecord:
         # restated. A reconcile that raised out of the pass would have skipped it.
         assert manager.display_publishes == 1
 
-    async def test_the_reconcile_runs_before_the_realignment(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_the_reconcile_runs_before_the_realignment(self, monkeypatch):
         """PROPOSAL bullet 7: a same-target adoption leaves a narrowing pending,
         and the rebuild that answers it happens in the same pass, after it."""
         manager = FakeManager(target="live", generation=0)
@@ -634,8 +645,9 @@ class TestReconcileToTheRecord:
 
 
 class TestSwitchRequests:
+    @pytest.mark.usefixtures("allow_every_target")
     async def test_a_permitted_request_moves_the_record_and_mints(
-        self, monkeypatch, emitted, records, allow_every_target
+        self, monkeypatch, emitted, records
     ):
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
@@ -664,9 +676,8 @@ class TestSwitchRequests:
         assert records[0]["session"] == SESSION_KEY
         assert "operator" in records[0]["detail"]
 
-    async def test_the_connector_follows_on_the_next_tick(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "records", "allow_every_target")
+    async def test_the_connector_follows_on_the_next_tick(self, monkeypatch):
         """One writer moves the record; every server, this one included, obeys it."""
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
@@ -705,9 +716,8 @@ class TestSwitchRequests:
         assert emitted[0]["outcome"] == "failure"
         assert [record_["decision"] for record_ in records] == ["refused"]
 
-    async def test_the_gate_is_asked_immediately_before_the_answer(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "records", "allow_every_target")
+    async def test_the_gate_is_asked_immediately_before_the_answer(self, monkeypatch):
         """A marker planted after the request was written still refuses it."""
         manager = FakeManager(target="live")
         install_context(manager, monkeypatch)
@@ -719,9 +729,8 @@ class TestSwitchRequests:
         assert terminus()["reason"] == target_eligibility.REASON_EXECUTION_IN_FLIGHT
         assert record().target == "live"
 
-    async def test_a_request_for_the_target_of_record_mints_nothing(
-        self, monkeypatch, emitted, records
-    ):
+    @pytest.mark.usefixtures("records")
+    async def test_a_request_for_the_target_of_record_mints_nothing(self, monkeypatch, emitted):
         """Already there. A generation bumped for a switch that did not happen
         would refuse every write bound to the old one for nothing — and the gate
         is not consulted at all, which is why it may explode here."""
@@ -745,8 +754,9 @@ class TestSwitchRequests:
         assert requests() == []
         assert emitted[0]["outcome"] == "success"
 
+    @pytest.mark.usefixtures("allow_every_target")
     async def test_a_request_already_answered_is_unlinked_and_not_re_answered(
-        self, monkeypatch, emitted, records, allow_every_target
+        self, monkeypatch, emitted, records
     ):
         """Idempotency is on the id in the record, not on the file's absence.
 
@@ -780,9 +790,8 @@ class TestSwitchRequests:
         assert records == []
         assert emitted == []
 
-    async def test_only_one_request_is_answered_per_pass(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "allow_every_target")
+    async def test_only_one_request_is_answered_per_pass(self, monkeypatch, records):
         """A second answer while the fleet has not reported the first would
         clobber a terminus somebody is still waiting for."""
         manager = FakeManager(target="live", generation=0)
@@ -799,9 +808,8 @@ class TestSwitchRequests:
         assert requests() == []
         assert len(records) == 2
 
-    async def test_an_unconverged_fleet_leaves_every_request_alone(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "allow_every_target")
+    async def test_an_unconverged_fleet_leaves_every_request_alone(self, monkeypatch, records):
         """A swap is still landing somewhere: the record must not move under it."""
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
@@ -824,9 +832,8 @@ class TestSwitchRequests:
         assert terminus() is None
         assert records == []
 
-    async def test_a_settled_fleet_answers_the_request_it_was_holding(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "records", "allow_every_target")
+    async def test_a_settled_fleet_answers_the_request_it_was_holding(self, monkeypatch):
         """The other half of the gate above: an expired block stops nobody else."""
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
@@ -848,9 +855,8 @@ class TestSwitchRequests:
         assert requests() == []
         assert terminus()["status"] == session_control.STATUS_APPLIED
 
-    async def test_an_answer_that_did_not_stick_leaves_the_request(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "allow_every_target")
+    async def test_an_answer_that_did_not_stick_leaves_the_request(self, monkeypatch, records):
         """Two owners can believe they own one record until the loser finds out.
 
         Unlinking a request whose answer did not land would leave the requester
@@ -867,9 +873,8 @@ class TestSwitchRequests:
         assert terminus() is None
         assert records == [], "nothing happened, so nothing is filed"
 
-    async def test_a_record_write_that_raises_leaves_the_request(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "allow_every_target")
+    async def test_a_record_write_that_raises_leaves_the_request(self, monkeypatch, records):
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
 
@@ -884,8 +889,9 @@ class TestSwitchRequests:
         assert len(requests()) == 1
         assert records == []
 
+    @pytest.mark.usefixtures("allow_every_target")
     async def test_an_unexpected_exception_ends_the_request_as_a_refusal(
-        self, monkeypatch, emitted, records, allow_every_target
+        self, monkeypatch, emitted, records
     ):
         """A request this owner looked at is one it owes an answer to. Nothing
         moved, so the answer is a refusal — the record has no third word."""
@@ -919,9 +925,8 @@ class TestSwitchRequests:
         assert session_control.STATUS_APPLIED == control_context.SWITCH_APPLIED
         assert session_control.STATUS_REFUSED == control_context.SWITCH_REFUSED
 
-    async def test_a_second_gesture_from_the_same_requester_is_answered_too(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "records", "allow_every_target")
+    async def test_a_second_gesture_from_the_same_requester_is_answered_too(self, monkeypatch):
         """One slot per requester: the second write replaces the first, and the
         answer follows the request that is actually in the slot."""
         manager = FakeManager(target="live", generation=0)
@@ -949,9 +954,8 @@ class TestRequestsNobodyIsWaitingFor:
     gesture somebody IS watching.
     """
 
-    async def test_a_request_from_a_dead_process_is_dropped(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "allow_every_target")
+    async def test_a_request_from_a_dead_process_is_dropped(self, monkeypatch, records):
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
         write_request("va", pid=dead_pid())
@@ -963,9 +967,8 @@ class TestRequestsNobodyIsWaitingFor:
         assert record().target == "live"
         assert records == []
 
-    async def test_a_request_older_than_the_ttl_is_dropped(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "allow_every_target")
+    async def test_a_request_older_than_the_ttl_is_dropped(self, monkeypatch, records):
         """The operator who clicked Switch is no longer watching, and a switch
         that lands minutes after the gesture is a surprise, not a service."""
         manager = FakeManager(target="live", generation=0)
@@ -979,9 +982,8 @@ class TestRequestsNobodyIsWaitingFor:
         assert record().target == "live"
         assert records == []
 
-    async def test_an_unreadable_request_is_removed(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "records", "allow_every_target")
+    async def test_an_unreadable_request_is_removed(self, monkeypatch):
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
         target_state.request_file_path().write_text("{ not json", encoding="utf-8")
@@ -991,9 +993,8 @@ class TestRequestsNobodyIsWaitingFor:
         assert requests() == []
         assert terminus() is None
 
-    async def test_a_request_naming_no_requester_is_removed(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "records", "allow_every_target")
+    async def test_a_request_naming_no_requester_is_removed(self, monkeypatch):
         """Its slot cannot be swept by the pid in its name and nothing would
         ever clear it, so the owner that read it clears it."""
         manager = FakeManager(target="live", generation=0)
@@ -1008,9 +1009,8 @@ class TestRequestsNobodyIsWaitingFor:
         assert requests() == []
         assert terminus() is None
 
-    async def test_dropping_one_does_not_stop_the_pass_answering_another(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "records", "allow_every_target")
+    async def test_dropping_one_does_not_stop_the_pass_answering_another(self, monkeypatch):
         """Residue must not hold a live gesture for a whole tick.
 
         The residue is planted in a slot that sorts BEFORE this process's, so
@@ -1038,9 +1038,8 @@ class TestRequestsNobodyIsWaitingFor:
 
 
 class TestPostureRealignment:
-    async def test_a_narrowing_on_the_active_target_rebuilds_the_connector(
-        self, monkeypatch, records
-    ):
+    @pytest.mark.usefixtures("records")
+    async def test_a_narrowing_on_the_active_target_rebuilds_the_connector(self, monkeypatch):
         manager = FakeManager(target="live")
         install_context(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
@@ -1054,7 +1053,8 @@ class TestPostureRealignment:
         assert manager.respawns == 1
         assert realign()["state"] == session_control.REALIGN_DONE
 
-    async def test_a_narrowing_waits_for_a_running_execution(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_narrowing_waits_for_a_running_execution(self, monkeypatch):
         """The rebuild retires the child a running execution was promised."""
         manager = FakeManager(target="live")
         install_context(manager, monkeypatch)
@@ -1078,7 +1078,8 @@ class TestPostureRealignment:
         assert manager.respawns == 1
         assert realign()["state"] == session_control.REALIGN_DONE
 
-    async def test_a_rebuild_that_did_not_happen_stays_pending(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_rebuild_that_did_not_happen_stays_pending(self, monkeypatch):
         """The connector host can refuse to respawn, and it refuses quietly.
 
         ``invalidate_connector`` catches the ``SwitchError`` itself — the old
@@ -1111,7 +1112,8 @@ class TestPostureRealignment:
         assert manager.respawns == 3
         assert realign()["state"] == session_control.REALIGN_DONE
 
-    async def test_a_narrowing_on_another_target_is_not_a_realignment(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_narrowing_on_another_target_is_not_a_realignment(self, monkeypatch):
         """Narrowing the machine this server is not on changes nothing here."""
         manager = FakeManager(target="live")
         install_context(manager, monkeypatch)
@@ -1124,7 +1126,8 @@ class TestPostureRealignment:
         assert manager.respawns == 0
         assert realign() is None
 
-    async def test_an_unchanged_record_is_not_reconciled_twice(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_an_unchanged_record_is_not_reconciled_twice(self, monkeypatch):
         manager = FakeManager(target="live")
         install_context(manager, monkeypatch)
         reconciler = session_control.SessionControlReconciler()
@@ -1137,9 +1140,8 @@ class TestPostureRealignment:
 
         assert manager.respawns == 1
 
-    async def test_a_switch_re_baselines_the_posture_it_is_judged_by(
-        self, monkeypatch, emitted, records, allow_every_target
-    ):
+    @pytest.mark.usefixtures("emitted", "records", "allow_every_target")
+    async def test_a_switch_re_baselines_the_posture_it_is_judged_by(self, monkeypatch):
         """The child a switch built already read the record; it needs no rebuild."""
         manager = FakeManager(target="live", generation=0)
         install_context(manager, monkeypatch)
@@ -1249,7 +1251,8 @@ class TestDisplayRepublication:
 
 
 class TestTheLoop:
-    async def test_an_exception_in_one_pass_does_not_stop_the_loop(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_an_exception_in_one_pass_does_not_stop_the_loop(self, monkeypatch):
         """A reconciler that died on one bad poll would strand every later one."""
         manager = FakeManager(target="live")
         install_context(manager, monkeypatch)
@@ -1287,7 +1290,8 @@ class TestTheLoop:
         await reconciler.stop()
         assert reconciler.running is False
 
-    async def test_a_context_that_is_not_initialized_is_survived(self, monkeypatch, records):
+    @pytest.mark.usefixtures("records")
+    async def test_a_context_that_is_not_initialized_is_survived(self, monkeypatch):
         """A poll before the context exists reports nothing and raises nothing."""
         from osprey.mcp_server.control_system import server_context as server_context_mod
 

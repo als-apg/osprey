@@ -461,8 +461,9 @@ class TestDestructiveActionsAreReported:
 class TestSubStepRows:
     """The disposition table's ``sub-step`` rows, at the default altitude."""
 
+    @pytest.mark.usefixtures("default_altitude")
     def test_a_matching_fingerprint_says_why_the_seed_did_not_run(
-        self, default_altitude, printed, archiver_stubs, tmp_path
+        self, printed, archiver_stubs, tmp_path
     ):
         archiver_stubs["state"] = _seed_state("MATCH")
         printed.open_phase()
@@ -473,9 +474,8 @@ class TestSubStepRows:
 
         assert_sub_step(printed, "archive already seeded, skipping the base seed")
 
-    def test_the_base_seed_sets_the_expectation_before_it_starts(
-        self, default_altitude, printed, archiver_stubs, tmp_path
-    ):
+    @pytest.mark.usefixtures("default_altitude", "archiver_stubs")
+    def test_the_base_seed_sets_the_expectation_before_it_starts(self, printed, tmp_path):
         printed.open_phase()
 
         container_lifecycle._stage_archiver_store(
@@ -485,9 +485,8 @@ class TestSubStepRows:
         assert_sub_step(printed, "seeding the archive base: 2 channels over 7 days")
         assert "(minutes on a first deploy)" in printed.flowed
 
-    def test_the_finished_base_seed_reports_what_it_wrote(
-        self, default_altitude, printed, archiver_stubs, tmp_path
-    ):
+    @pytest.mark.usefixtures("default_altitude", "archiver_stubs")
+    def test_the_finished_base_seed_reports_what_it_wrote(self, printed, tmp_path):
         printed.open_phase()
 
         container_lifecycle._stage_archiver_store(
@@ -496,9 +495,8 @@ class TestSubStepRows:
 
         assert_sub_step(printed, "archive base: seeded 10 documents")
 
-    def test_the_reseed_closes_on_the_scenarios_it_put_back(
-        self, default_altitude, printed, tmp_path, monkeypatch
-    ):
+    @pytest.mark.usefixtures("default_altitude")
+    def test_the_reseed_closes_on_the_scenarios_it_put_back(self, printed, tmp_path, monkeypatch):
         _stub_reapply(monkeypatch, active=("nominal", "bpm_dropout"), archiver_describe="rewrote 3")
         printed.open_phase()
 
@@ -509,8 +507,9 @@ class TestSubStepRows:
         assert_sub_step(printed, "scenarios re-applied: nominal, bpm_dropout")
         assert "(rewrote 3)" in printed.flowed
 
+    @pytest.mark.usefixtures("default_altitude")
     def test_a_skipped_archive_rewrite_is_not_appended_to_the_reseed_line(
-        self, default_altitude, printed, tmp_path, monkeypatch
+        self, printed, tmp_path, monkeypatch
     ):
         """Row 1's condition: the parenthetical is the rewrite's counts or nothing.
 
@@ -525,9 +524,8 @@ class TestSubStepRows:
         assert_sub_step(printed, "scenarios re-applied: nominal")
         assert "(" not in printed.flowed.split("scenarios re-applied")[-1]
 
-    def test_no_archiver_at_all_leaves_the_reseed_line_bare(
-        self, default_altitude, printed, tmp_path, monkeypatch
-    ):
+    @pytest.mark.usefixtures("default_altitude")
+    def test_no_archiver_at_all_leaves_the_reseed_line_bare(self, printed, tmp_path, monkeypatch):
         _stub_reapply(monkeypatch, active=("nominal",), archiver=None)
         printed.open_phase()
 
@@ -536,9 +534,8 @@ class TestSubStepRows:
         assert_sub_step(printed, "scenarios re-applied: nominal")
         assert "(" not in printed.flowed.split("scenarios re-applied")[-1]
 
-    def test_the_seeded_logbook_reports_its_count(
-        self, default_altitude, printed, tmp_path, monkeypatch
-    ):
+    @pytest.mark.usefixtures("default_altitude")
+    def test_the_seeded_logbook_reports_its_count(self, printed, tmp_path, monkeypatch):
         _stub_ariel_stage(monkeypatch, seeded=12)
         printed.open_phase()
 
@@ -1991,9 +1988,8 @@ class TestTheArchiveKnobDiff:
         )
         assert "retention_days 5 -> 7" in printed.flowed
 
-    def test_the_diff_is_a_block_of_rows_under_its_heading(
-        self, default_altitude, printed, archiver_stubs, tmp_path
-    ):
+    @pytest.mark.usefixtures("default_altitude")
+    def test_the_diff_is_a_block_of_rows_under_its_heading(self, printed, archiver_stubs, tmp_path):
         """One row per knob that moved, indented under the heading -- the shape
         every other block of facts the CLI prints uses."""
         archiver_stubs["state"] = _seed_state("MISMATCH")
@@ -2007,8 +2003,9 @@ class TestTheArchiveKnobDiff:
         assert lines[heading + 1].startswith("  retention_days")
         assert lines[heading + 1].endswith("5 -> 7")
 
+    @pytest.mark.usefixtures("printed")
     def test_the_old_logged_diff_stays_out_of_the_terminal(
-        self, default_altitude, printed, archiver_stubs, tmp_path
+        self, default_altitude, archiver_stubs, tmp_path
     ):
         """`describe()`'s own spelling carries a colon the printed rows do not,
         so it is the fragment that tells the two forms apart."""
@@ -2025,9 +2022,8 @@ class TestTheArchiveKnobDiff:
         logging.getLogger(_WITNESS_LOGGER).error(_WITNESS)
         assert _WITNESS in default_altitude.rendered_text, "the probe console is not armed"
 
-    def test_a_matching_fingerprint_prints_no_diff(
-        self, default_altitude, printed, archiver_stubs, tmp_path
-    ):
+    @pytest.mark.usefixtures("default_altitude")
+    def test_a_matching_fingerprint_prints_no_diff(self, printed, archiver_stubs, tmp_path):
         """Nothing moved, so there is nothing to say about what moved."""
         archiver_stubs["state"] = _seed_state("MATCH")
 
@@ -2083,9 +2079,8 @@ def _stub_one_port_conflict(monkeypatch: pytest.MonkeyPatch, *, host_network: bo
 class TestTheHostPortConflictReport:
     """The preflight's refusal, in the shape every other refusal wears."""
 
-    def test_the_report_lands_on_stderr_as_a_failure(
-        self, default_altitude, printed_err, monkeypatch
-    ):
+    @pytest.mark.usefixtures("default_altitude")
+    def test_the_report_lands_on_stderr_as_a_failure(self, printed_err, monkeypatch):
         _stub_one_port_conflict(monkeypatch)
 
         with pytest.raises(RuntimeError):
@@ -2095,9 +2090,8 @@ class TestTheHostPortConflictReport:
         assert "port 8080 (127.0.0.1)" in printed_err.flowed
         assert "modules.web_terminals.nginx_port" in printed_err.flowed
 
-    def test_the_remedy_is_the_line_that_says_what_to_do(
-        self, default_altitude, printed_err, monkeypatch
-    ):
+    @pytest.mark.usefixtures("default_altitude")
+    def test_the_remedy_is_the_line_that_says_what_to_do(self, printed_err, monkeypatch):
         """The report's closing hint becomes the ``→`` line, which is what makes
         a remedy findable in a scrollback full of causes."""
         _stub_one_port_conflict(monkeypatch)
@@ -2110,7 +2104,14 @@ class TestTheHostPortConflictReport:
         )
 
     def test_the_report_is_no_longer_painted_by_the_log_handler(
-        self, default_altitude, printed_err, monkeypatch
+        self,
+        default_altitude,
+        # ``default_altitude`` runs the CLI group, whose theme initialisation
+        # pops the theme off ``styles.err_console``. A console substituted
+        # ahead of that run has nothing on its stack to pop, so this request
+        # stays an argument and keeps its place after it.
+        printed_err,  # noqa: ARG002 - ordered after default_altitude's CLI run
+        monkeypatch,
     ):
         _stub_one_port_conflict(monkeypatch)
 
@@ -2121,7 +2122,16 @@ class TestTheHostPortConflictReport:
         logging.getLogger(_WITNESS_LOGGER).warning(_WITNESS)
         assert _WITNESS in default_altitude.rendered_text, "the probe console is not armed"
 
-    def test_the_record_is_still_the_whole_report(self, default_altitude, printed_err, monkeypatch):
+    def test_the_record_is_still_the_whole_report(
+        self,
+        default_altitude,
+        # ``default_altitude`` runs the CLI group, whose theme initialisation
+        # pops the theme off ``styles.err_console``. A console substituted
+        # ahead of that run has nothing on its stack to pop, so this request
+        # stays an argument and keeps its place after it.
+        printed_err,  # noqa: ARG002 - ordered after default_altitude's CLI run
+        monkeypatch,
+    ):
         """A log file reads exactly what it read before: the report as one
         record, spacer lines and all."""
         _stub_one_port_conflict(monkeypatch)
@@ -2134,9 +2144,8 @@ class TestTheHostPortConflictReport:
             for message in default_altitude.messages
         ), "the log sinks lost the report"
 
-    def test_the_host_network_note_survives_as_a_cause_line(
-        self, default_altitude, printed_err, monkeypatch
-    ):
+    @pytest.mark.usefixtures("default_altitude")
+    def test_the_host_network_note_survives_as_a_cause_line(self, printed_err, monkeypatch):
         """The report's middle paragraphs are the failure's cause, so a
         multi-paragraph report keeps every paragraph."""
         _stub_one_port_conflict(monkeypatch, host_network=True)
@@ -2146,7 +2155,8 @@ class TestTheHostPortConflictReport:
 
         assert "bind these ports directly" in printed_err.flowed
 
-    def test_the_abort_is_unchanged(self, default_altitude, printed_err, monkeypatch):
+    @pytest.mark.usefixtures("default_altitude", "printed_err")
+    def test_the_abort_is_unchanged(self, monkeypatch):
         """`fail` only prints. The caller's own RuntimeError is still what stops
         the deploy, and it still carries the sentence it always carried."""
         _stub_one_port_conflict(monkeypatch)
@@ -2156,9 +2166,8 @@ class TestTheHostPortConflictReport:
 
         assert "host port preflight failed: 1 conflict" in str(raised.value)
 
-    def test_no_conflicts_reports_nothing_and_returns(
-        self, default_altitude, printed_err, monkeypatch
-    ):
+    @pytest.mark.usefixtures("default_altitude")
+    def test_no_conflicts_reports_nothing_and_returns(self, printed_err, monkeypatch):
         monkeypatch.setattr(container_lifecycle, "parse_host_port_bindings", lambda files: [])
         monkeypatch.setattr(container_lifecycle, "resolve_project_name", lambda config: "demo")
         monkeypatch.setattr(container_lifecycle, "find_port_conflicts", lambda *a, **k: [])

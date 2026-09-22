@@ -54,7 +54,7 @@ def _make_project(tmp_path: Path) -> Path:
 def _activate(project: Path, monkeypatch, names: list[str]) -> None:
     """Activate scenarios the way an operator would, without touching a database."""
 
-    async def _no_seed(ariel_config, entries):
+    async def _no_seed(_ariel_config, _entries):
         return 0, False
 
     monkeypatch.setattr("osprey.simulation.apply._seed_logbook", _no_seed)
@@ -65,15 +65,15 @@ def _stub_ariel(monkeypatch, *, existing: int) -> dict:
     """Stub ARIEL's database calls; return what the seeder was asked to write."""
     seen: dict = {"seeded": None, "counted": 0, "mirrored": 0}
 
-    async def _count(config_dict):
+    async def _count(_config_dict):
         seen["counted"] += 1
         return existing
 
-    async def _seed(config_dict, entries, progress=None):
+    async def _seed(_config_dict, entries, _progress=None):
         seen["seeded"] = entries
         return len(entries)
 
-    async def _resync(config_dict, rebuild=False, page_size=None, progress=None):
+    async def _resync(config_dict, rebuild=False, page_size=None, progress=None):  # noqa: ARG001 - stands in for run_qmd_resync, whose caller names rebuild and progress
         seen["mirrored"] += 1
         return None
 

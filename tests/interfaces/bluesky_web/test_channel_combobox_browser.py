@@ -398,7 +398,7 @@ def test_no_catalog_variant_renders_baseline_dom_with_no_console_errors(
         pageerrors: list[str] = []
         console_errors: list[str] = []
 
-        def _on_console(msg) -> None:  # noqa: ANN001 - Playwright ConsoleMessage
+        def _on_console(msg) -> None:
             if msg.type != "error":
                 return
             url = (msg.location or {}).get("url") or ""

@@ -39,7 +39,7 @@ class DOOCSConnector(ControlSystemConnector):
         self._connected: bool = False
         self._subscriptions: dict[str, Any] = {}
 
-    async def connect(self, config: dict[str, Any]) -> None:
+    async def connect(self, config: dict[str, Any]) -> None:  # noqa: ARG002 - ControlSystemConnector.connect signature; DOOCS reads its endpoint from the environment
         """
         Configure DOOCS environment and test connection.
 
@@ -86,7 +86,9 @@ class DOOCSConnector(ControlSystemConnector):
         logger.info("DOOCS connector disconnected")
 
     async def read_channel(
-        self, channel_address: str, timeout: float | None = None
+        self,
+        channel_address: str,
+        timeout: float | None = None,  # noqa: ARG002 - ControlSystemConnector.read_channel signature; doocs4py exposes no read timeout
     ) -> ChannelValue:
         """
         Read current value from a DOOCS property.

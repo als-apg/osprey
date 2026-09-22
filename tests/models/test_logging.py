@@ -437,7 +437,7 @@ class TestGetCallerInfo:
 class TestLogApiCall:
     """Test log_api_call function."""
 
-    def test_logging_disabled_by_default(self, tmp_path, monkeypatch):
+    def test_logging_disabled_by_default(self, monkeypatch):
         """Test that logging is disabled when save_all is False."""
         from osprey.models.logging import log_api_call
 
@@ -551,7 +551,7 @@ class TestLogApiCall:
         )
 
         # Mock get_agent_dir to raise an error
-        def failing_get_agent_dir(x):
+        def failing_get_agent_dir(_x):
             raise RuntimeError("Failed to get agent dir")
 
         monkeypatch.setattr("osprey.models.logging.get_agent_dir", failing_get_agent_dir)

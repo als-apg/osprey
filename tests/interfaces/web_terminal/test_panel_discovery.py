@@ -186,7 +186,7 @@ class TestApplyDiscoveredPanels:
         assert app.state.visible_panels == []
         assert app.state.discovered_panel_dirs == {}
 
-    def test_no_project_cwd_is_noop(self, tmp_path):
+    def test_no_project_cwd_is_noop(self):
         app = _fake_app(allow=True, project_cwd=None)
         assert apply_discovered_panels(app) == []
 

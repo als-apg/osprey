@@ -258,7 +258,7 @@ def _block_web_terminal_posts(request, monkeypatch):
 
     from osprey.mcp_server import http as _http
 
-    def _unreachable(url, payload, *, timeout=3):
+    def _unreachable(_url, _payload, *, timeout=3):  # noqa: ARG001 - _post_json_with_response fixes this keyword-only parameter
         raise urllib.error.URLError("web terminal POSTs are blocked in unit tests")
 
     monkeypatch.setattr(_http, "post_json", lambda *args, **kwargs: None)
@@ -266,7 +266,7 @@ def _block_web_terminal_posts(request, monkeypatch):
 
 
 @pytest.fixture
-def init_registry(tmp_path, monkeypatch):
+def init_registry():
     """Initialize the MCP registry after chdir and config setup.
 
     Call this fixture AFTER writing config.yml and chdir-ing to tmp_path.

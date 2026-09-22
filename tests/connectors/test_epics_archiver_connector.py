@@ -41,7 +41,7 @@ def captured_urls():
     """Patch ``urlopen`` to record each request URL and answer with no data."""
     urls: list[str] = []
 
-    def mock_urlopen(req, timeout=None):
+    def mock_urlopen(req, timeout=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
         urls.append(req.full_url)
         return _make_urlopen_response([])
 
@@ -197,7 +197,7 @@ class TestGetDataMethod:
 
         call_count = [0]
 
-        def mock_urlopen(req, timeout=None):
+        def mock_urlopen(req, timeout=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
             idx = call_count[0]
             call_count[0] += 1
             pv = "PV:1" if idx == 0 else "PV:2"
@@ -319,7 +319,7 @@ class TestMultiPVLongFormat:
 
         call_count = [0]
 
-        def mock_urlopen(req, timeout=None):
+        def mock_urlopen(req, timeout=None):  # noqa: ARG001 - stands in for urlopen, whose caller names timeout
             idx = call_count[0]
             call_count[0] += 1
             payload = (

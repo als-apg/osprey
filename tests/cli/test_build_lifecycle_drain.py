@@ -59,7 +59,7 @@ class _RecordingReporter(PhaseReporter):
         self._lines: list[str] = []
         self._emitted: list[str] = []
 
-    def emit(self, text: str, style: str | None = None) -> None:
+    def emit(self, text: str, style: str | None = None) -> None:  # noqa: ARG002 - the reporter signature this overrides
         with self._lock:
             self._emitted.append(text)
 

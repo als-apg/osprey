@@ -31,7 +31,7 @@ async def test_export_html_to_png(tmp_path, monkeypatch):
         tool_source="execute",
     )
 
-    async def fake_convert(html_path, output_path, fmt="png", width=1200, height=800):
+    async def fake_convert(html_path, output_path, fmt="png", width=1200, height=800):  # noqa: ARG001 - convert_html_to_image fixes this stand-in's signature
         from pathlib import Path
 
         Path(output_path).write_bytes(b"\x89PNG fake image")

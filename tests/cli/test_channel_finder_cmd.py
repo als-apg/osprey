@@ -84,7 +84,8 @@ class TestConfigResolution:
         (repo / "build" / "config.yml").write_text("project_name: demo\n")
         return repo
 
-    def test_repo_root_stance_finds_the_render(self, runner, tmp_path, monkeypatch):
+    @pytest.mark.usefixtures("runner")
+    def test_repo_root_stance_finds_the_render(self, tmp_path, monkeypatch):
         """Standing in a repo root resolves ``build/config.yml``, not a flat one.
 
         The rendered config lives in the build zone, so the flat
@@ -103,7 +104,8 @@ class TestConfigResolution:
 
         assert os.environ["CONFIG_FILE"] == str(repo / "build" / "config.yml")
 
-    def test_subdirectory_stance_finds_the_render(self, runner, tmp_path, monkeypatch):
+    @pytest.mark.usefixtures("runner")
+    def test_subdirectory_stance_finds_the_render(self, tmp_path, monkeypatch):
         """A subdirectory of the repo is the repo, the way every other verb reads it."""
         from osprey.cli.channel_finder_cmd import _setup_config
 
@@ -804,7 +806,7 @@ class TestCLIErrorPaths:
         assert len(standalone) >= 1
         assert len(templates) >= 1
 
-    def test_validate_with_pipeline_override(self, runner, tmp_path):
+    def test_validate_with_pipeline_override(self, runner):
         """validate --pipeline hierarchical with a hierarchical DB file."""
         from pathlib import Path
 

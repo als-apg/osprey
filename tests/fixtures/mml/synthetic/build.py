@@ -252,7 +252,7 @@ class _RingParam:
         self.Class = "RingParam"
 
 
-def at_index(ring: at.Lattice, positions: list[int]) -> list[int]:
+def at_index(positions: list[int]) -> list[int]:
     """The 1-based ``THERING`` indices of the given 0-based ring positions."""
     return [position + 2 for position in positions]
 
@@ -279,7 +279,7 @@ def _linear_brho(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
 def _linear_flat(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
     """A conversion that ignores the energy it is handed, the gain-and-offset branch."""
 
-    def convert(hardware: np.ndarray, energy: float) -> np.ndarray:
+    def convert(hardware: np.ndarray, _energy: float) -> np.ndarray:
         return gain * hardware
 
     return convert
@@ -321,7 +321,7 @@ def _gev2bend(energy: float) -> float:
     return _round_significant(-RAMP_TAU * math.log(1.0 - field / RAMP_GAIN), 12)
 
 
-def _quad_monitor_inverse(physics: np.ndarray, energy: float) -> np.ndarray:
+def _quad_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
     """The quadrupole readback's own way back to amps.
 
     Deliberately not the inverse of the calibration beside it: a facility's two
@@ -332,7 +332,7 @@ def _quad_monitor_inverse(physics: np.ndarray, energy: float) -> np.ndarray:
     return 95.0 * np.asarray(physics, dtype=float)
 
 
-def _qd_monitor_inverse(physics: np.ndarray, energy: float) -> np.ndarray:
+def _qd_monitor_inverse(physics: np.ndarray, _energy: float) -> np.ndarray:
     """A readback conversion with a curve in it, so the inverse is written as a table."""
     strength = np.asarray(physics, dtype=float)
     return -82.0 * strength + 3.0e3 * strength**3
@@ -341,7 +341,7 @@ def _qd_monitor_inverse(physics: np.ndarray, energy: float) -> np.ndarray:
 def _identity_inverse(gain: float) -> Callable[[np.ndarray, float], np.ndarray]:
     """The exact inverse of a flat linear conversion."""
 
-    def convert(physics: np.ndarray, energy: float) -> np.ndarray:
+    def convert(physics: np.ndarray, _energy: float) -> np.ndarray:
         return np.asarray(physics, dtype=float) / gain
 
     return convert
@@ -661,17 +661,17 @@ def _channels(family: str, field: str, count: int) -> list[str]:
 
 def build_ao(ring: at.Lattice) -> dict[str, Any]:
     """The Accelerator Objects of the invented sub-machine."""
-    quad_f = at_index(ring, _named(ring, "QF"))
-    quad_d = at_index(ring, _named(ring, "QD"))
-    sext = at_index(ring, _named(ring, "SF"))
-    monitors = at_index(ring, _named(ring, "BPM"))
-    dipoles = at_index(ring, _named(ring, "BD"))
-    cavity = at_index(ring, _named(ring, "RFC"))[0]
-    septum = at_index(ring, [len(ring) - 2])[0]
+    quad_f = at_index(_named(ring, "QF"))
+    quad_d = at_index(_named(ring, "QD"))
+    sext = at_index(_named(ring, "SF"))
+    monitors = at_index(_named(ring, "BPM"))
+    dipoles = at_index(_named(ring, "BD"))
+    cavity = at_index(_named(ring, "RFC"))[0]
+    septum = at_index([len(ring) - 2])[0]
 
     correctors = []
     for device in range(CELLS):
-        row = at_index(ring, _corrector_elements(ring, device))
+        row = at_index(_corrector_elements(ring, device))
         correctors.append(row + [float("nan")] * (2 - len(row)))
     corrector_index = np.array(correctors, dtype=float)
 
@@ -1206,7 +1206,7 @@ def _energy_table(
     family: str,
     devices: np.ndarray,
     sampled: dict[str, Any],
-    nominals: dict[str, np.ndarray],
+    _nominals: dict[str, np.ndarray],
     energy: float,
 ) -> tuple[dict[str, Any], str]:
     """What the facility's conversion says the ring's energy is over this family's grid."""
@@ -1250,7 +1250,7 @@ def _energy_table(
     return table, ""
 
 
-def _model_read(ring: at.Lattice, family: str, devices: int) -> tuple[np.ndarray, str]:
+def _model_read(ring: at.Lattice, family: str) -> tuple[np.ndarray, str]:
     """What the Middle Layer's model read answers for one family, and its units.
 
     Every answer but the beam monitors' is the seam the ring was built from,
@@ -1306,7 +1306,7 @@ def _nominals(
         block = body.get("Setpoint" if field == "Setpoint" else "Monitor", {}).get(
             "AT"
         ) or body.get("AT")
-        values, units = _model_read(ring, family, devices)
+        values, units = _model_read(ring, family)
 
         recorded[field] = {
             "values": values,

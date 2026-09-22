@@ -144,7 +144,8 @@ class TestComputeFootprint:
         ring = MagicMock()
         rng = np.random.default_rng(42)
 
-        def mock_track(rin, nturns, refpts=None):
+        # ``ring.track``'s signature: the worker names ``refpts``.
+        def mock_track(_rin, nturns, refpts=None):  # noqa: ARG001
             """Return sinusoidal TBT data with known tune."""
             turns = np.arange(nturns)
             # Tune ~ 0.25 with slight drift between halves
@@ -179,7 +180,8 @@ class TestComputeFootprint:
         ring = MagicMock()
         tracked_nturns = []
 
-        def mock_track(rin, nturns, refpts=None):
+        # ``ring.track``'s signature: the worker names ``refpts``.
+        def mock_track(_rin, nturns, refpts=None):  # noqa: ARG001
             tracked_nturns.append(nturns)
             turns = np.arange(nturns)
             data = np.zeros((6, 1, nturns))

@@ -235,7 +235,9 @@ def _capture_request(app, response_factory=None):
     """
     captured: dict[str, str] = {}
 
-    async def fake_request(*, method, url, headers, content, follow_redirects=True):
+    # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends, and the
+    # body asserts on the ones this test is about.
+    async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
         captured.update(headers)
         if response_factory is not None:
             return response_factory()
@@ -1029,7 +1031,9 @@ class TestRedirectContainment:
     def _record_calls(self, app, response_factory):
         calls: list[dict] = []
 
-        async def fake_request(*, method, url, headers, content, follow_redirects=True):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content, follow_redirects=True):  # noqa: ARG001
             calls.append(
                 {"url": str(url), "headers": dict(headers), "follow_redirects": follow_redirects}
             )

@@ -236,7 +236,11 @@ def test_retired_route_refuses_with_the_use_the_queue_code(
 
 @pytest.mark.parametrize(("method", "path", "replacement"), _RETIRED_ROUTES)
 def test_a_launch_token_does_not_buy_a_retired_route_back(
-    bridge, method: str, path: str, replacement: str, monkeypatch: pytest.MonkeyPatch
+    bridge,
+    method: str,
+    path: str,
+    replacement: str,  # noqa: ARG001 - the retired-route table is shared
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """These routes are gone for everyone. Holding the token that used to arm
     them changes nothing — there is no in-process execution left to arm."""

@@ -604,7 +604,7 @@ SANDBOX_CONFIG: dict[str, Any] = {
 def _config_reader(section: dict[str, Any], va_port: int):
     """A ``get_config_value`` stand-in serving the two keys this half reads."""
 
-    def get_config_value(path, default=None, config_path=None):
+    def get_config_value(path, default=None, _config_path=None):
         if path == "control_system":
             return section
         if path == "services.virtual_accelerator.port":
@@ -639,7 +639,7 @@ class TestSandboxEndpointMatchesTheDerivation:
     """CF-5's integration half: both halves of the stamp name one endpoint."""
 
     @pytest.fixture
-    def sandbox(self, state_root, monkeypatch):
+    def sandbox(self, state_root, monkeypatch):  # noqa: ARG002 - the stamped state root exists before the sandbox is built in it
         """A stamped sandbox with the fake registry the factory will build from."""
         import osprey.runtime as runtime
 

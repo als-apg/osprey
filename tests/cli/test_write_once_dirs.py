@@ -120,9 +120,8 @@ def _fail_on_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(build_profile_mod, "resolve_build_profile", resolve)
 
 
-def test_failed_first_run_leaves_no_seed(
-    synthetic_bundle: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.usefixtures("synthetic_bundle")
+def test_failed_first_run_leaves_no_seed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A run that seeds and then fails removes the tree it just created.
 
     The seed is not in ``MATERIALIZED_SOURCE_ENTRIES``, so the only thing that
@@ -151,7 +150,8 @@ def test_failed_first_run_leaves_no_seed(
     assert (target / "mcp_servers" / "fake_server" / "__init__.py").is_file()
 
 
-def test_seed_carries_no_byte_code(synthetic_bundle: Path, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("synthetic_bundle")
+def test_seed_carries_no_byte_code(tmp_path: Path) -> None:
     """A seed from a source checkout matches a seed from a wheel."""
     target = tmp_path / "repo"
 
@@ -181,7 +181,8 @@ def test_bundle_without_the_tree_seeds_nothing(tmp_path: Path) -> None:
     assert not (target / "mcp_servers").exists()
 
 
-def test_existing_directory_is_left_alone(synthetic_bundle: Path, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("synthetic_bundle")
+def test_existing_directory_is_left_alone(tmp_path: Path) -> None:
     """Write-once: a name already in the target is the operator's, not the bundle's.
 
     It is also not reported as seeded — the caller uses that list to decide what
@@ -200,7 +201,8 @@ def test_existing_directory_is_left_alone(synthetic_bundle: Path, tmp_path: Path
     assert not (target / "mcp_servers" / "fake_server").exists()
 
 
-def test_no_seed_dirs_asked_for_seeds_nothing(synthetic_bundle: Path, tmp_path: Path) -> None:
+@pytest.mark.usefixtures("synthetic_bundle")
+def test_no_seed_dirs_asked_for_seeds_nothing(tmp_path: Path) -> None:
     """Today's callers pass nothing, and see no behavior change from the seam."""
     target = tmp_path / "repo"
 

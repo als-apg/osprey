@@ -111,15 +111,15 @@ def in_session(monkeypatch, key: str = SESSION_KEY) -> None:
 
 
 class TestEnvOnlyPaths:
-    def test_nothing_narrowed_is_writes(self, agent_root):
+    def test_nothing_narrowed_is_writes(self):
         assert posture.posture() == posture.POSTURE_WRITES
 
-    def test_a_readonly_marker_is_sandbox(self, agent_root, monkeypatch):
+    def test_a_readonly_marker_is_sandbox(self, monkeypatch):
         monkeypatch.setenv(posture.POSTURE_ENV_VAR, posture.SANDBOX_MODE)
         assert posture.posture() == posture.POSTURE_SANDBOX
 
     @pytest.mark.parametrize("value", ["readwrite", "READONLY", "", "sandbox", "true"])
-    def test_the_value_comparison_is_exact(self, agent_root, monkeypatch, value):
+    def test_the_value_comparison_is_exact(self, monkeypatch, value):
         """Only the exact ``readonly`` string sandboxes — unchanged by the record."""
         monkeypatch.setenv(posture.POSTURE_ENV_VAR, value)
         assert posture.posture() == posture.POSTURE_WRITES
@@ -148,18 +148,18 @@ class TestEnvOnlyPaths:
 
 
 class TestPerTargetLookup:
-    def test_a_sandbox_entry_for_this_target_sandboxes(self, agent_root, monkeypatch):
+    def test_a_sandbox_entry_for_this_target_sandboxes(self, agent_root):
         write_record(agent_root, {"live": "sandbox"})
 
         assert posture.posture() == posture.POSTURE_SANDBOX
 
-    def test_a_sandbox_entry_for_another_target_does_not(self, agent_root, monkeypatch):
+    def test_a_sandbox_entry_for_another_target_does_not(self, agent_root):
         """The whole feature: narrowing ``live`` leaves a deployment on ``va`` alone."""
         write_record(agent_root, {"live": "sandbox"}, target="va")
 
         assert posture.posture() == posture.POSTURE_WRITES
 
-    def test_a_bare_sandbox_narrows_this_target(self, agent_root, monkeypatch):
+    def test_a_bare_sandbox_narrows_this_target(self, agent_root):
         """The pre-feature deployment-wide value still refuses, on every target.
 
         Written against ``standin`` rather than the default so the claim is
@@ -169,7 +169,7 @@ class TestPerTargetLookup:
 
         assert posture.posture() == posture.POSTURE_SANDBOX
 
-    def test_a_recorded_writes_entry_narrows_nothing(self, agent_root, monkeypatch):
+    def test_a_recorded_writes_entry_narrows_nothing(self, agent_root):
         write_record(agent_root, {"live": "writes"})
 
         assert posture.posture() == posture.POSTURE_WRITES
@@ -181,7 +181,7 @@ class TestPerTargetLookup:
 
 
 class TestSessionKeyIsNotAnIndex:
-    def test_a_narrowing_applies_without_a_session_key(self, agent_root, monkeypatch):
+    def test_a_narrowing_applies_without_a_session_key(self, agent_root):
         """A dispatch worker and a CLI run answer from the same record.
 
         The posture is a property of the deployment now, so a process that
@@ -198,11 +198,11 @@ class TestSessionKeyIsNotAnIndex:
 
         assert posture.posture() == posture.POSTURE_SANDBOX
 
-    def test_the_key_is_carried_verbatim_as_the_audit_session_id(self, agent_root, monkeypatch):
+    def test_the_key_is_carried_verbatim_as_the_audit_session_id(self, monkeypatch):
         in_session(monkeypatch)
         assert posture.posture_session() == SESSION_KEY
 
-    def test_a_blank_key_is_no_key(self, agent_root, monkeypatch):
+    def test_a_blank_key_is_no_key(self, monkeypatch):
         monkeypatch.setenv(posture.POSTURE_SESSION_ENV_VAR, "   ")
         assert posture.posture_session() is None
 
@@ -269,7 +269,7 @@ class TestTargetResolution:
 
         assert posture.posture() == posture.POSTURE_SANDBOX
 
-    def test_a_record_naming_an_unknown_target_is_no_answer(self, agent_root, monkeypatch):
+    def test_a_record_naming_an_unknown_target_is_no_answer(self, agent_root):
         """A record whose own ``target`` is unknown does not parse at all.
 
         Both halves of the answer come out of one file now, so a target name no
@@ -287,10 +287,10 @@ class TestTargetResolution:
 
 
 class TestDegradation:
-    def test_no_record_at_all(self, agent_root, monkeypatch):
+    def test_no_record_at_all(self):
         assert posture.posture() == posture.POSTURE_WRITES
 
-    def test_a_corrupt_record(self, agent_root, monkeypatch):
+    def test_a_corrupt_record(self, agent_root):
         path = control_context.record_path_under(agent_root)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("{not json at all")
@@ -302,7 +302,7 @@ class TestDegradation:
         hasattr(os, "geteuid") and os.geteuid() == 0,
         reason="root reads a mode-000 file, so the unreadable branch cannot be reached",
     )
-    def test_an_unreadable_record(self, agent_root, monkeypatch):
+    def test_an_unreadable_record(self, agent_root):
         path = write_record(agent_root, {"live": "sandbox"})
         path.chmod(0o000)
         try:
@@ -326,7 +326,7 @@ class TestDegradation:
 
         assert posture.posture() == posture.POSTURE_WRITES
 
-    def test_a_raising_target_resolver_keeps_an_env_sandbox(self, agent_root, monkeypatch):
+    def test_a_raising_target_resolver_keeps_an_env_sandbox(self, monkeypatch):
         monkeypatch.setenv(posture.POSTURE_ENV_VAR, posture.SANDBOX_MODE)
 
         def _explode() -> str | None:  # pragma: no cover - short-circuited
@@ -362,7 +362,7 @@ class TestSignatureCache:
     invalidation the fixtures happen to perform.
     """
 
-    def test_a_narrowing_lands_on_a_session_already_running(self, agent_root, monkeypatch):
+    def test_a_narrowing_lands_on_a_session_already_running(self, agent_root):
         """The point of enforcing at write time: no respawn carries this."""
         write_record(agent_root, {})
         assert posture.posture() == posture.POSTURE_WRITES
@@ -371,7 +371,7 @@ class TestSignatureCache:
 
         assert posture.posture() == posture.POSTURE_SANDBOX
 
-    def test_lifting_a_narrowing_is_seen_too(self, agent_root, monkeypatch):
+    def test_lifting_a_narrowing_is_seen_too(self, agent_root):
         write_record(agent_root, {"live": "sandbox"})
         assert posture.posture() == posture.POSTURE_SANDBOX
 
@@ -379,7 +379,7 @@ class TestSignatureCache:
 
         assert posture.posture() == posture.POSTURE_WRITES
 
-    def test_a_switch_moves_which_entry_is_read(self, agent_root, monkeypatch):
+    def test_a_switch_moves_which_entry_is_read(self, agent_root):
         """The target and the narrowings live in one file, so one write moves both."""
         write_record(agent_root, {"live": "sandbox"}, target="va")
         assert posture.posture() == posture.POSTURE_WRITES
@@ -388,7 +388,7 @@ class TestSignatureCache:
 
         assert posture.posture() == posture.POSTURE_SANDBOX
 
-    def test_a_same_size_rewrite_inside_one_clock_tick_is_still_seen(self, agent_root, monkeypatch):
+    def test_a_same_size_rewrite_inside_one_clock_tick_is_still_seen(self, agent_root):
         """The case the inode is in the key FOR.
 
         ``{"live": "sandbox"}`` and ``{"va": "sandbox"}`` are the same number of

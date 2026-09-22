@@ -27,6 +27,7 @@ import io
 import os
 from typing import Any
 
+import pytest
 from PIL import Image
 
 from osprey.bridges.core import FetchedArtifact
@@ -86,7 +87,7 @@ class RecordingFetcher:
         self.calls: list[tuple[str, str]] = []
 
     def __call__(
-        self, http: Any, cfg: Any, run_id: str, artifact_id: str
+        self, _http: Any, _cfg: Any, run_id: str, artifact_id: str
     ) -> FetchedArtifact | None:
         self.calls.append((run_id, artifact_id))
         return self.byte_map.get(artifact_id)
@@ -436,7 +437,8 @@ def test_a_fully_delivered_run_still_returns_an_empty_map() -> None:
 # --- with Pillow absent ------------------------------------------------------
 
 
-def test_every_image_is_skipped_with_the_note_when_pillow_is_missing(no_pillow: None) -> None:
+@pytest.mark.usefixtures("no_pillow")
+def test_every_image_is_skipped_with_the_note_when_pillow_is_missing() -> None:
     # Pillow lives in the optional teams extra. A deployment without it must
     # degrade to "the answer landed, the plots did not, and you were told" —
     # never to a traceback that costs the run its delivery.
@@ -449,7 +451,8 @@ def test_every_image_is_skipped_with_the_note_when_pillow_is_missing(no_pillow: 
     assert connector.texts == [skipped_images_note(["plot.png"])]
 
 
-def test_a_document_is_still_ignored_without_pillow(no_pillow: None) -> None:
+@pytest.mark.usefixtures("no_pillow")
+def test_a_document_is_still_ignored_without_pillow() -> None:
     ops, connector, _ = make_ops({"a1": fetched(b"%PDF-1.7 ...", "application/pdf")})
 
     assert ops.deliver_files(make_entry(), completed([descriptor("a1")])) == {}

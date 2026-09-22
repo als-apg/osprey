@@ -984,13 +984,21 @@ class TestSharedStores:
 
     @pytest.mark.parametrize(("attribute", "accessor", "kind", "label"), STORES, ids=IDS)
     def test_configured_app_builds_the_store(
-        self, attribute: str, accessor: Any, kind: type, label: str
+        self,
+        attribute: str,
+        accessor: Any,  # noqa: ARG002 - the store table is shared by every case in the class
+        kind: type,
+        label: str,  # noqa: ARG002 - the store table is shared by every case in the class
     ) -> None:
         assert isinstance(getattr(create_app(PASSWORD_ENV).state, attribute), kind)
 
     @pytest.mark.parametrize(("attribute", "accessor", "kind", "label"), STORES, ids=IDS)
     def test_every_route_gets_the_same_instance(
-        self, attribute: str, accessor: Any, kind: type, label: str
+        self,
+        attribute: str,
+        accessor: Any,
+        kind: type,  # noqa: ARG002 - the store table is shared by every case in the class
+        label: str,  # noqa: ARG002 - the store table is shared by every case in the class
     ) -> None:
         app = create_app(PASSWORD_ENV)
         seen: list[Any] = []
@@ -1009,13 +1017,21 @@ class TestSharedStores:
 
     @pytest.mark.parametrize(("attribute", "accessor", "kind", "label"), STORES, ids=IDS)
     def test_unconfigured_app_has_no_store(
-        self, attribute: str, accessor: Any, kind: type, label: str
+        self,
+        attribute: str,
+        accessor: Any,  # noqa: ARG002 - the store table is shared by every case in the class
+        kind: type,  # noqa: ARG002 - the store table is shared by every case in the class
+        label: str,  # noqa: ARG002 - the store table is shared by every case in the class
     ) -> None:
         assert getattr(create_app({}).state, attribute) is None
 
     @pytest.mark.parametrize(("attribute", "accessor", "kind", "label"), STORES, ids=IDS)
     def test_accessor_refuses_when_there_is_no_store(
-        self, attribute: str, accessor: Any, kind: type, label: str
+        self,
+        attribute: str,  # noqa: ARG002 - the store table is shared by every case in the class
+        accessor: Any,
+        kind: type,  # noqa: ARG002 - the store table is shared by every case in the class
+        label: str,
     ) -> None:
         request = SimpleNamespace(app=SimpleNamespace(state=create_app({}).state))
         with pytest.raises(RuntimeError, match="configuration guard"):
@@ -1206,7 +1222,7 @@ class TestRouteExtensionPoint:
             assert client.get("/verify").json() == {"status": "ok"}
 
     def test_a_broken_route_module_fails_loudly(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def _raise(name: str) -> ModuleType:
+        def _raise(_name: str) -> ModuleType:
             raise ModuleNotFoundError("No module named 'joserfc'", name="joserfc")
 
         monkeypatch.setattr(app_mod, "import_module", _raise)

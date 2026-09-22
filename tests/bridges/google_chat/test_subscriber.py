@@ -555,9 +555,8 @@ def test_the_default_factory_never_falls_back_to_application_default_credentials
     assert FakeSubscriberClient.instances == [((), {"credentials": fake_google.credentials})]
 
 
-def test_no_google_name_is_bound_at_module_import(
-    cfg: GoogleChatBridgeConfig, fake_google: FakeServiceAccountCredentials
-) -> None:
+@pytest.mark.usefixtures("fake_google")
+def test_no_google_name_is_bound_at_module_import(cfg: GoogleChatBridgeConfig) -> None:
     """The lazy-import seam, stated as an assertion rather than left to the fact
     that this file imported at all: the module must carry no Google binding, so
     importing it costs nothing on a host without the libraries — and the fakes

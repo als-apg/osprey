@@ -1366,7 +1366,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
 
     foreign = [*containers.foreign, *volumes.foreign]
     if foreign:
-        raise _foreign_refusal(repo_root, project, identity, foreign)
+        raise _foreign_refusal(project, identity, foreign)
 
     images = [
         image
@@ -1420,7 +1420,7 @@ def plan_reset(repo_root: Path, *, probe: RuntimeProbe, purge_audit: bool = Fals
 
 
 def _foreign_refusal(
-    repo_root: Path, project: str, identity: str, foreign: Sequence[Resource]
+    project: str, identity: str, foreign: Sequence[Resource]
 ) -> ForeignCheckoutError:
     """Build the refusal, claiming exactly as much as the labels support.
 
@@ -1445,10 +1445,6 @@ def _foreign_refusal(
     added separately by :func:`_path_liveness_note`. The remedy then branches on
     that (:func:`_foreign_remedies`), because "go and reset it over there" is
     wrong advice for a directory that is no longer on the host.
-
-    :param repo_root: The repo that refused. Not quoted into the text: the verb
-        that raises this already names it, and repeating it beside the foreign
-        paths invites reading it as one of them.
     """
     inventory = [
         f"  {resource.kind} {resource.name}  — {resource.describe_origin()}"

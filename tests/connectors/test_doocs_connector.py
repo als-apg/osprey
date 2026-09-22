@@ -395,7 +395,7 @@ class TestNonBlockingOffload:
         """
         validator = _make_limits_validator(confirm=False)
 
-        def slow_validate(_address, _value, *, read_current=None):
+        def slow_validate(_address, _value, *, read_current=None):  # noqa: ARG001 - the limits-validator interface names read_current
             time.sleep(0.3)  # stand-in for max_step's blocking fresh read
 
         validator.validate = MagicMock(side_effect=slow_validate)

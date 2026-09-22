@@ -137,7 +137,9 @@ class _PairConnector(ControlSystemConnector):
         raise ConnectionError(f"{type(self).__name__} serves no channel named {channel_address!r}")
 
     async def read_channel(
-        self, channel_address: str, timeout: float | None = None
+        self,
+        channel_address: str,
+        timeout: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
     ) -> ChannelValue:
         if channel_address == SLOW_CHANNEL:
             await asyncio.sleep(SLOW_SECONDS)
@@ -164,8 +166,8 @@ class _PairConnector(ControlSystemConnector):
         self,
         channel_address: str,
         value: Any,
-        timeout: float | None = None,
-        confirm: bool | None = None,
+        timeout: float | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
+        confirm: bool | None = None,  # noqa: ARG002 - the control-system connector base fixes this signature
     ) -> ChannelWriteResult:
         if channel_address == LIMITS_CHANNEL:
             raise make_limits_violation()
@@ -181,10 +183,10 @@ class _PairConnector(ControlSystemConnector):
     async def unsubscribe(self, subscription_id: str) -> None:
         raise NotImplementedError("the pair connectors serve reads and writes only")
 
-    async def get_metadata(self, channel_address: str) -> ChannelMetadata:
+    async def get_metadata(self, channel_address: str) -> ChannelMetadata:  # noqa: ARG002 - the control-system connector base fixes this signature
         return ChannelMetadata(units="mA")
 
-    async def validate_channel(self, channel_address: str) -> bool:
+    async def validate_channel(self, channel_address: str) -> bool:  # noqa: ARG002 - the control-system connector base fixes this signature
         return True
 
 

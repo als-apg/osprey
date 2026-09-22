@@ -183,7 +183,8 @@ def test_editing_a_delta_marks_the_ROOT_profile_stale(profile, persona):
 
 
 @pytest.mark.parametrize("change", ["added", "removed"])
-def test_the_set_of_deltas_is_part_of_the_root_hash(profile, persona, change):
+@pytest.mark.usefixtures("persona")
+def test_the_set_of_deltas_is_part_of_the_root_hash(profile, change):
     """A persona the catalog can reference is build input the moment it exists."""
     other = profile / "personas" / "writer.yml"
     if change == "removed":
@@ -242,7 +243,8 @@ def test_persona_hash_differs_from_its_root(profile, persona):
     assert compute_profile_hash(persona) != compute_profile_hash(profile / "profile.yml")
 
 
-def test_editing_the_delta_changes_the_persona_hash(profile, persona):
+@pytest.mark.usefixtures("profile")
+def test_editing_the_delta_changes_the_persona_hash(persona):
     """The persona's own layer is part of what it resolves to."""
     before = compute_profile_hash(persona)
 
@@ -298,7 +300,8 @@ def test_two_personas_under_one_root_hash_differently(profile, persona):
     assert compute_profile_hash(other) != compute_profile_hash(persona)
 
 
-def test_persona_inherits_the_roots_declarations(profile, persona):
+@pytest.mark.usefixtures("persona")
+def test_persona_inherits_the_roots_declarations(profile):
     """The merge really happens: a root key the delta omits still shapes the hash.
 
     Pinned by contrast with a delta that spells the same key itself — if the
@@ -314,7 +317,8 @@ def test_persona_inherits_the_roots_declarations(profile, persona):
     assert compute_profile_hash(inheriting) != compute_profile_hash(overriding)
 
 
-def test_persona_delta_exclude_is_applied(profile, persona):
+@pytest.mark.usefixtures("persona")
+def test_persona_delta_exclude_is_applied(profile):
     """``exclude:`` subtracts from the merged result, so it moves the hash."""
     _write(
         profile / "profile.yml",

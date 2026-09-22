@@ -1428,7 +1428,7 @@ class TestWebTerminalContextShipped:
         container = "dls-web-alice"
         seeded: list[bytes | None] = []
 
-        def _fake_run(argv, capture_output=True, text=False, env=None, check=False, input=None):
+        def _fake_run(argv, capture_output=True, text=False, env=None, check=False, input=None):  # noqa: ARG001 - the keywords subprocess.run is called with
             if argv[1] == "inspect":
                 rc = 0 if argv[-1] == container else 1
                 return subprocess.CompletedProcess(argv, returncode=rc, stdout="", stderr="")

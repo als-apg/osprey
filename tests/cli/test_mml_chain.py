@@ -581,7 +581,7 @@ def _full_pvs(graph: Graph) -> list[str]:
     return [str(value) for value in graph.objects(None, URIRef(f"{NARAD_P}fullPv"))]
 
 
-def _build_index_counts(root: Path, ttl: Path, output: Path) -> dict[str, int]:
+def _build_index_counts(ttl: Path, output: Path) -> dict[str, int]:
     """Run ``knowledge build-index`` on a corpus and read back what it reports."""
     result = _run("knowledge", "build-index", "--ttl", str(ttl), "--output", str(output))
     # Rich wraps the report line at the console width; the counts survive the
@@ -819,7 +819,7 @@ class TestZeroLoss:
     def test_build_index_counts_the_same_bindings_and_channels(
         self, chain: Chain, tmp_path: Path
     ) -> None:
-        counts = _build_index_counts(chain.root, chain.ttl, tmp_path / "index.json")
+        counts = _build_index_counts(chain.ttl, tmp_path / "index.json")
 
         assert counts["bindings"] == _census_bindings(chain.root, chain.mapping)
         assert counts["channels"] == len(_kept_addresses(chain.ao, chain.document))
@@ -1391,7 +1391,7 @@ def test_the_als_export_chains_to_its_pinned_counts(tmp_path: Path) -> None:
     assert _census_bindings(chain.root, chain.mapping) == ALS_BINDINGS
     assert len(_bindings(chain.graph)) == ALS_BINDINGS
     assert len(_kept_addresses(chain.ao, chain.document)) == ALS_DISTINCT_PVS
-    counts = _build_index_counts(chain.root, chain.ttl, tmp_path / "index.json")
+    counts = _build_index_counts(chain.ttl, tmp_path / "index.json")
     assert counts == {"bindings": ALS_BINDINGS, "channels": ALS_DISTINCT_PVS}
     for record in chain.passes:
         assert record.duck["channels"] == ALS_DISTINCT_PVS

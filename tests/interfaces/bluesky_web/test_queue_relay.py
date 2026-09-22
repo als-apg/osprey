@@ -45,7 +45,7 @@ from osprey.interfaces.web_auth import WebCredentials
 from osprey.utils.owner_header import OWNER_HEADER
 
 _BRIDGE_URL = "http://bridge.test"
-TOKEN = "s3cr3t-launch-token"  # noqa: S105 - test fixture value, not a real secret
+TOKEN = "s3cr3t-launch-token"
 
 
 @pytest.fixture(autouse=True)
@@ -157,7 +157,7 @@ def test_get_queue_relays_a_running_item_with_progress_verbatim() -> None:
         },
     }
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=snapshot)
 
     app = _build_app(handler)
@@ -215,7 +215,7 @@ def test_get_queue_removals_never_sends_the_launch_token(
 
 
 def test_get_queue_removals_bridge_unreachable_returns_502() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("no route")
 
     app = _build_app(handler)
@@ -505,10 +505,10 @@ def test_the_token_is_never_echoed_back_to_the_caller(monkeypatch: pytest.Monkey
 # middleware: ``op1``'s secret names a human, the entry with an empty owners
 # slot authorises without naming one (``UNNAMED_OPERATOR``), and the last names
 # an account the header's charset cannot carry.
-_OWN_SECRET = "deployment-wide-secret"  # noqa: S105 - test fixture value
-_OP1_SECRET = "op1-roster-secret"  # noqa: S105 - test fixture value
-_UNNAMED_SECRET = "roster-secret-nobody-owns"  # noqa: S105 - test fixture value
-_UNRENDERABLE_SECRET = "roster-secret-for-bjoern"  # noqa: S105 - test fixture value
+_OWN_SECRET = "deployment-wide-secret"
+_OP1_SECRET = "op1-roster-secret"
+_UNNAMED_SECRET = "roster-secret-nobody-owns"
+_UNRENDERABLE_SECRET = "roster-secret-for-bjoern"
 
 # The write surface, as the launch-token rows spell it: the owner rides all of
 # it for the same reason the token does.
@@ -546,7 +546,7 @@ def _gated_recording_app() -> tuple[FastAPI, list[httpx.Request], list[bytes]]:
     app.add_middleware(WebAuthMiddleware)
     app.state.web_credentials = WebCredentials(
         operator_secret=_OWN_SECRET,
-        panel_token="panel-token",  # noqa: S106 - test fixture value
+        panel_token="panel-token",
         roster_secrets=(_OP1_SECRET, _UNNAMED_SECRET, _UNRENDERABLE_SECRET),
         roster_owners=("op1", "", "björn"),
     )
@@ -1023,7 +1023,7 @@ def test_queue_events_disables_read_timeout() -> None:
 
 
 def test_queue_events_strips_hop_by_hop_headers() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+    def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(
             200,
             headers={
@@ -1169,7 +1169,7 @@ def test_the_queue_relay_shadows_no_pre_existing_sidecar_route() -> None:
 # 1 -- the wrong-machine relay the axis exists to remove.
 
 _VA_BRIDGE_URL = "http://bridge-va.test"
-VA_TOKEN = "va-launch-token"  # noqa: S105 - test fixture value, not a real secret
+VA_TOKEN = "va-launch-token"
 
 
 def _two_lane_app(

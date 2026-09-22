@@ -708,7 +708,7 @@ class TestSearchResultRendering:
         canned = self._keyword_result()
         stub = self._StubService(canned)
 
-        async def fake_create(config):
+        async def fake_create(_config):
             return stub
 
         monkeypatch.setattr(ariel_pkg, "create_ariel_service", fake_create)
@@ -735,7 +735,7 @@ class TestSearchResultRendering:
             lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
         )
 
-        async def fake_run_search(config_dict, query, mode, limit):
+        async def fake_run_search(_config_dict, query, _mode, _limit):
             return {
                 "query": query,
                 "answer": None,
@@ -778,7 +778,7 @@ class TestSearchResultRendering:
             lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
         )
 
-        async def fake_run_search(config_dict, query, mode, limit):
+        async def fake_run_search(_config_dict, query, _mode, _limit):
             return {
                 "query": query,
                 "answer": None,
@@ -864,7 +864,8 @@ class TestVocabCheckCommand:
         assert "ariel.vocabulary.path" in flat
         assert "Exit codes" in flat
 
-    def test_three_error_file_exits_one_listing_every_error(self, runner, tmp_path, no_config):
+    @pytest.mark.usefixtures("no_config")
+    def test_three_error_file_exits_one_listing_every_error(self, runner, tmp_path):
         path = self._write(tmp_path, _THREE_ERRORS)
 
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
@@ -876,9 +877,8 @@ class TestVocabCheckCommand:
         assert "unknown kind 'sideways'" in flat
         assert "'forms' must be a non-empty list, got an empty list" in flat
 
-    def test_warnings_only_file_exits_zero_and_prints_the_warning(
-        self, runner, tmp_path, no_config
-    ):
+    @pytest.mark.usefixtures("no_config")
+    def test_warnings_only_file_exits_zero_and_prints_the_warning(self, runner, tmp_path):
         path = self._write(tmp_path, _AMBIGUOUS)
 
         result = runner.invoke(ariel_group, ["vocab-check", str(path)])
@@ -890,7 +890,8 @@ class TestVocabCheckCommand:
         assert "timing system" in warning
         assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
 
-    def test_clean_file_reports_the_concept_count(self, runner, tmp_path, no_config):
+    @pytest.mark.usefixtures("no_config")
+    def test_clean_file_reports_the_concept_count(self, runner, tmp_path):
         path = self._write(
             tmp_path,
             "concepts:\n  - canonical: beam position monitor\n"
@@ -903,15 +904,15 @@ class TestVocabCheckCommand:
         assert result.stderr.strip() == ""
         assert "Vocabulary OK: 1 concepts" in _flat(result.stdout)
 
-    def test_missing_file_is_a_vocabulary_error_not_a_usage_error(
-        self, runner, tmp_path, no_config
-    ):
+    @pytest.mark.usefixtures("no_config")
+    def test_missing_file_is_a_vocabulary_error_not_a_usage_error(self, runner, tmp_path):
         result = runner.invoke(ariel_group, ["vocab-check", str(tmp_path / "absent.yml")])
 
         assert result.exit_code == 1
         assert "vocabulary file not found" in _flat(result.stderr)
 
-    def test_no_path_and_no_config_explains_both_ways_to_name_one(self, runner, no_config):
+    @pytest.mark.usefixtures("no_config")
+    def test_no_path_and_no_config_explains_both_ways_to_name_one(self, runner):
         result = runner.invoke(ariel_group, ["vocab-check"])
 
         assert result.exit_code == 1
@@ -921,7 +922,7 @@ class TestVocabCheckCommand:
         """Outside a project directory the config loader raises; PATH must still work."""
         path = self._write(tmp_path, _AMBIGUOUS)
 
-        def _no_project(key, default=None):
+        def _no_project(_key, _default=None):
             raise FileNotFoundError("No config.yml found in current directory")
 
         monkeypatch.setattr("osprey.cli.ariel.get_config_value", _no_project)
@@ -932,7 +933,7 @@ class TestVocabCheckCommand:
         assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
 
     def test_no_path_outside_a_project_still_reports_the_missing_config(self, runner, monkeypatch):
-        def _no_project(key, default=None):
+        def _no_project(_key, _default=None):
             raise FileNotFoundError("No config.yml found in current directory")
 
         monkeypatch.setattr("osprey.cli.ariel.get_config_value", _no_project)
@@ -958,9 +959,8 @@ class TestVocabCheckCommand:
         assert result.exit_code == 0
         assert "Vocabulary OK: 2 concepts" in _flat(result.stdout)
 
-    def test_json_emits_one_document_and_still_exits_one_on_errors(
-        self, runner, tmp_path, no_config
-    ):
+    @pytest.mark.usefixtures("no_config")
+    def test_json_emits_one_document_and_still_exits_one_on_errors(self, runner, tmp_path):
         import json as json_mod
 
         path = self._write(tmp_path, _THREE_ERRORS)
@@ -975,7 +975,8 @@ class TestVocabCheckCommand:
         assert len(document["errors"]) == 3
         assert document["warnings"] == []
 
-    def test_json_on_a_clean_file_exits_zero(self, runner, tmp_path, no_config):
+    @pytest.mark.usefixtures("no_config")
+    def test_json_on_a_clean_file_exits_zero(self, runner, tmp_path):
         import json as json_mod
 
         path = self._write(tmp_path, _AMBIGUOUS)
@@ -1004,7 +1005,7 @@ class TestStatusVocabularyLine:
         )
 
     def _patch_status(self, monkeypatch, result):
-        async def fake_get_status(config_dict, *, config_dir=None):
+        async def fake_get_status(config_dict, *, config_dir=None):  # noqa: ARG001 - the get_status signature
             return result
 
         monkeypatch.setattr(

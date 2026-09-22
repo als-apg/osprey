@@ -158,8 +158,10 @@ def audit_zone(tmp_path, monkeypatch):
     return zone
 
 
+# ``audit_zone`` redirects the ledger, so a refusal this client provokes is recorded in the test's
+# tree.
 @pytest.fixture
-def client(built_project, audit_zone):
+def client(built_project, audit_zone):  # noqa: ARG001
     app = FastAPI()
     app.include_router(router)
     app.state.config_path = built_project / "config.yml"
@@ -320,9 +322,8 @@ class TestPatchProtectedKeys:
         assert resp.status_code == 403
         assert (built_project / "config.yml").read_bytes() == before
 
-    def test_patch_protected_refusal_names_the_key_and_says_nothing_changed(
-        self, client, built_project
-    ):
+    @pytest.mark.usefixtures("built_project")
+    def test_patch_protected_refusal_names_the_key_and_says_nothing_changed(self, client):
         resp = client.patch(
             "/api/config",
             json={"updates": {"control_system.limits_checking.enabled": False}},
@@ -451,7 +452,7 @@ class TestConfigRouteRegen:
     def test_patch_fails_open_when_regen_raises(self, client, built_project, monkeypatch):
         """A regen error must never undo a config write that already succeeded."""
 
-        def boom(self, project_dir):
+        def boom(_self, _project_dir):
             raise RuntimeError("regen exploded")
 
         monkeypatch.setattr(TemplateManager, "regen_if_drift", boom)
@@ -521,7 +522,7 @@ class TestRenderZoneReadonlyRegen:
         """
         calls = []
 
-        def record(self, project_dir):
+        def record(_self, project_dir):
             calls.append(project_dir)
             return ["settings.json"]
 
@@ -599,9 +600,8 @@ class TestRenderZoneReadonlyRegen:
         assert "detail" not in body
         assert len(calls) == 1
 
-    def test_patch_render_readonly_absent_keeps_todays_regen(
-        self, client, built_project, monkeypatch
-    ):
+    @pytest.mark.usefixtures("built_project")
+    def test_patch_render_readonly_absent_keeps_todays_regen(self, client, monkeypatch):
         """The PATCH half of the same pin."""
         calls = self._recording_regen(monkeypatch)
 
@@ -1051,7 +1051,7 @@ class TestConfigBackupLocation:
         }
 
     def test_config_backup_ignores_project_cwd_and_anchors_on_the_repo_root(
-        self, client, built_project, tmp_path
+        self, client, built_project
     ):
         """The container defect, at the route: ``project_cwd`` is the RENDER.
 

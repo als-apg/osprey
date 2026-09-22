@@ -78,8 +78,8 @@ _LOAD_STATE_NOT_FOUND = "not-found"
 
 
 def systemd_unit(
-    config: Mapping[str, Any] | None = None,
-    context: HealthRuntime | None = None,
+    config: Mapping[str, Any] | None = None,  # noqa: ARG001 - health category factory signature; most categories read the config state
+    context: HealthRuntime | None = None,  # noqa: ARG001 - health category factory signature; categories that probe a runtime read the context
     *,
     cwd: Path | None = None,
 ) -> CategoryCallable:

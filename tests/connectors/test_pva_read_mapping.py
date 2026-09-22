@@ -489,7 +489,7 @@ class TestPvaErrorTranslation:
         invalidation logic key on.
         """
 
-        def get(name, timeout=None):
+        def get(name, timeout=None):  # noqa: ARG001 - stands in for the p4p context's get, whose caller names timeout
             raise FakeDisconnected("channel disconnected")
 
         connector = _pva_connector(get=get)
@@ -502,7 +502,7 @@ class TestPvaErrorTranslation:
 
     @pytest.mark.asyncio
     async def test_remote_error_becomes_a_connection_error(self):
-        def get(name, timeout=None):
+        def get(name, timeout=None):  # noqa: ARG001 - stands in for the p4p context's get, whose caller names timeout
             raise FakeRemoteError("server said no")
 
         connector = _pva_connector(get=get)
@@ -512,7 +512,7 @@ class TestPvaErrorTranslation:
 
     @pytest.mark.asyncio
     async def test_timeout_is_reported_as_timeout_error_with_the_budget(self):
-        def get(name, timeout=None):
+        def get(name, timeout=None):  # noqa: ARG001 - stands in for the p4p context's get, whose caller names timeout
             raise TimeoutError()
 
         connector = _pva_connector(get=get)
@@ -538,7 +538,7 @@ class TestPvaErrorTranslation:
     def test_unexpected_p4p_errors_are_not_swallowed(self):
         """Only the reachability exceptions are translated; anything else propagates."""
 
-        def get(name, timeout=None):
+        def get(name, timeout=None):  # noqa: ARG001 - stands in for the p4p context's get, whose caller names timeout
             raise KeyError("no such field")
 
         connector = _pva_connector(get=get)

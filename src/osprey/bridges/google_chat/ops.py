@@ -822,7 +822,11 @@ class GoogleChatOps:
             else:
                 self._client.create_message(space, thread, chunk)
 
-    def post_queued(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
+    def post_queued(
+        self,
+        entry: Mapping[str, Any],
+        result: Mapping[str, Any],  # noqa: ARG002 - channel-ops seam signature; channels that surface a parked delivery read the result
+    ) -> None:
         """Post the first-park "your request is queued" notice, threaded.
 
         May raise: the engine parks the entry BEFORE calling this and logs the raise, so a

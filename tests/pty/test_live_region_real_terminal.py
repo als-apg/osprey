@@ -734,8 +734,9 @@ def test_verbose_puts_the_transcript_back_on_the_same_terminal(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("unhurried_runtime")
 def test_the_region_mounts_repaints_and_tears_down_clean(
-    startable_repo: Path, pty_env: dict[str, str], unhurried_runtime: None
+    startable_repo: Path, pty_env: dict[str, str]
 ) -> None:
     """Mount, repaint, teardown — and a screen with nothing of the region left."""
     run = run_on_pty(["up", "-d"], cwd=startable_repo, env=pty_env)
@@ -745,8 +746,9 @@ def test_the_region_mounts_repaints_and_tears_down_clean(
     assert_screen_is_intact(run)
 
 
+@pytest.mark.usefixtures("unhurried_runtime")
 def test_two_paints_of_the_region_differ_only_by_the_clock(
-    startable_repo: Path, pty_env: dict[str, str], unhurried_runtime: None
+    startable_repo: Path, pty_env: dict[str, str]
 ) -> None:
     """Consecutive frames are the same picture, redrawn — not two pictures.
 
@@ -770,8 +772,9 @@ def test_two_paints_of_the_region_differ_only_by_the_clock(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("unhurried_runtime")
 def test_a_warning_lands_intact_above_a_mounted_region(
-    startable_repo: Path, pty_env: dict[str, str], unhurried_runtime: None
+    startable_repo: Path, pty_env: dict[str, str]
 ) -> None:
     """A real warning from the start path, on a real terminal, above the region.
 
@@ -959,8 +962,9 @@ sys.exit(cli())
 """
 
 
+@pytest.mark.usefixtures("unhurried_runtime")
 def test_a_repaint_that_raises_degrades_to_plain_lines(
-    startable_repo: Path, pty_env: dict[str, str], tmp_path: Path, unhurried_runtime: None
+    startable_repo: Path, pty_env: dict[str, str], tmp_path: Path
 ) -> None:
     """The region dies; the deploy does not, and the screen stays readable.
 
@@ -1234,8 +1238,9 @@ def issued_step_count(repo: Path) -> int:
     return int(receipt.read_text(encoding="utf-8"))
 
 
+@pytest.mark.usefixtures("unhurried_runtime")
 def test_a_warn_issued_from_inside_an_open_phase_lands_above_the_region(
-    startable_repo: Path, pty_env: dict[str, str], unhurried_runtime: None
+    startable_repo: Path, pty_env: dict[str, str]
 ) -> None:
     """A warning from the worst instruction in the verb, read off the terminal.
 
@@ -1295,8 +1300,9 @@ def test_a_warn_issued_from_inside_an_open_phase_lands_above_the_region(
     assert_screen_is_intact(run)
 
 
+@pytest.mark.usefixtures("unhurried_runtime")
 def test_control_the_same_line_through_the_reporter_console_never_welds(
-    startable_repo: Path, pty_env: dict[str, str], unhurried_runtime: None
+    startable_repo: Path, pty_env: dict[str, str]
 ) -> None:
     """CONTROL for the scenario above: same instruction, straight at the console.
 
@@ -1333,8 +1339,9 @@ def test_control_the_same_line_through_the_reporter_console_never_welds(
     assert_screen_is_intact(run)
 
 
+@pytest.mark.usefixtures("unhurried_runtime")
 def test_a_burst_of_warnings_across_repaints_never_tears_a_line(
-    startable_repo: Path, pty_env: dict[str, str], unhurried_runtime: None
+    startable_repo: Path, pty_env: dict[str, str]
 ) -> None:
     """What concurrency alone costs, once the routing is right.
 

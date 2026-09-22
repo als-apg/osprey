@@ -335,7 +335,7 @@ class SessionProbeConnector:
         self.writes.append((address, value))
         return type("Result", (), {"outcome": "confirmed", "observed_value": value})()
 
-    async def read_channel(self, address: str) -> Any:
+    async def read_channel(self, address: str) -> Any:  # noqa: ARG002 - the connector read signature
         return type("Reading", (), {"value": 0.0})()
 
 
@@ -433,7 +433,7 @@ class FakeBackend:
             if description.get("module") != SESSION_PLAN_MODULE
         }
 
-    async def status(self, *, reload: bool = False) -> dict[str, Any]:
+    async def status(self, *, reload: bool = False) -> dict[str, Any]:  # noqa: ARG002 - the queue server API signature
         self.calls.append("status")
         return {
             "worker_environment_exists": self.environment_open,
@@ -444,7 +444,7 @@ class FakeBackend:
         self.calls.append("plans_allowed")
         return {"success": True, "plans_allowed": dict(self.namespace)}
 
-    async def upload_script(self, script: str, *, update_lists: bool = True) -> dict[str, Any]:
+    async def upload_script(self, script: str, *, update_lists: bool = True) -> dict[str, Any]:  # noqa: ARG002 - the queue server API signature
         self.calls.append("upload_script")
         self.uploads.append(script)
         if self.upload_reply is not None:
@@ -456,7 +456,7 @@ class FakeBackend:
             self.namespace[name] = {"name": name, "module": SESSION_PLAN_MODULE}
         return {"success": True, "task_uid": f"task-{len(self.uploads)}"}
 
-    async def task_result(self, task_uid: str) -> dict[str, Any]:
+    async def task_result(self, task_uid: str) -> dict[str, Any]:  # noqa: ARG002 - the queue server API signature
         self.calls.append("task_result")
         return {"success": True, "status": self.task_status, "result": dict(self.task_outcome)}
 

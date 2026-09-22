@@ -91,7 +91,7 @@ def test_values_match_matrix(sent, observed, enum_label, expected):
 
 
 @pytest.mark.parametrize("sent,observed,enum_label,expected", _CASES, ids=_IDS)
-def test_values_match_is_symmetric(sent, observed, enum_label, expected):
+def test_values_match_is_symmetric(sent, observed, enum_label, expected):  # noqa: ARG001 - the _CASES table is shared with test_values_match_matrix, which reads this column
     """Swapping the arguments cannot change the verdict.
 
     The comparison is between two readings of the same channel, so which one the

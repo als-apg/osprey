@@ -103,12 +103,14 @@ def test_instructions_route_the_agent_through_the_read_path():
     assert "bounded" in instructions
 
 
-def test_create_server_returns_the_module_instance(sequence, project):
+@pytest.mark.usefixtures("sequence", "project")
+def test_create_server_returns_the_module_instance():
     """Tool modules register on the module-level ``mcp``; the factory must return that one."""
     assert cf_graph_server.create_server() is cf_graph_server.mcp
 
 
-def test_startup_initialises_the_context_before_importing_tools(sequence, project):
+@pytest.mark.usefixtures("project")
+def test_startup_initialises_the_context_before_importing_tools(sequence):
     """Context first, tools second — the tools read the store through the context."""
 
     cf_graph_server.create_server()
@@ -116,7 +118,8 @@ def test_startup_initialises_the_context_before_importing_tools(sequence, projec
     assert sequence == ["server_context", "tool_imports"]
 
 
-def test_startup_never_initialises_workspace_singletons(sequence, project):
+@pytest.mark.usefixtures("project")
+def test_startup_never_initialises_workspace_singletons(sequence):
     """The forbidden step is armed to raise, and ``create_server()`` never trips it."""
     import osprey.mcp_server.startup as startup
 
@@ -128,7 +131,8 @@ def test_startup_never_initialises_workspace_singletons(sequence, project):
     assert sequence == ["server_context", "tool_imports"]
 
 
-def test_startup_leaves_a_usable_graph_context(sequence, project):
+@pytest.mark.usefixtures("sequence", "project")
+def test_startup_leaves_a_usable_graph_context():
     """A project with no ``services.graphdb`` block still starts — unconfigured, not broken."""
     from osprey.mcp_server.graph.server_context import get_server_context
 
@@ -154,7 +158,8 @@ _MISSING = [name for name in TOOL_MODULES if not (_TOOLS_DIR / f"{name}.py").exi
 
 
 @pytest.mark.skipif(bool(_MISSING), reason=f"tool modules not written yet: {_MISSING}")
-def test_create_server_registers_every_tool(project):
+@pytest.mark.usefixtures("project")
+def test_create_server_registers_every_tool():
     """The real startup registers all four tools — and pulls in ``graph.server`` doing it.
 
     ``read_cypher`` and ``get_schema`` are re-registrations of the main-agent

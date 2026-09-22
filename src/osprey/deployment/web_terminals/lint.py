@@ -203,7 +203,7 @@ def lint_web_terminals(
             profile_root=profile_root,
         )
     )
-    findings.extend(_check_empty_facility_prefix(root, web_terminals, users))
+    findings.extend(_check_empty_facility_prefix(root, users))
     findings.extend(_check_unknown_image_source(web_terminals))
     findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
@@ -1824,9 +1824,7 @@ def _check_unknown_persona_reference(
     return findings
 
 
-def _check_empty_facility_prefix(
-    root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
-) -> list[Finding]:
+def _check_empty_facility_prefix(root: dict[str, Any], users: list[Any]) -> list[Finding]:
     """Every web container name is derived from ``facility.prefix``:
     ``<prefix>-nginx`` and ``<prefix>-web-<user>`` (see the compose template /
     :mod:`osprey.deployment.web_terminals.seeding`). An empty prefix renders

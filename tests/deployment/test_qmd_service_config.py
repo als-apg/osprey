@@ -264,7 +264,7 @@ def test_the_deploy_runs_the_preflight_before_it_touches_the_runtime(
     """
     from osprey.deployment import container_lifecycle
 
-    def _unreachable(config: object) -> tuple[bool, str]:
+    def _unreachable(_config: object) -> tuple[bool, str]:
         raise AssertionError(
             "the container runtime was probed before the models-dir preflight refused"
         )

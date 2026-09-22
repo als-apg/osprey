@@ -390,7 +390,7 @@ def ariel_service(monkeypatch: pytest.MonkeyPatch):
     import osprey.services.ariel_search as ariel_pkg
 
     def _install(service: _StubService) -> None:
-        async def _fake_create(config: Any) -> _StubService:
+        async def _fake_create(_config: Any) -> _StubService:
             return service
 
         monkeypatch.setattr(ariel_pkg, "create_ariel_service", _fake_create)

@@ -92,7 +92,7 @@ def _install_fake_epics(monkeypatch, reads, writes, read=None):
             return read(name(chid))
         return CURRENT
 
-    def put(chid, value, wait=False, timeout=60, **kwargs):
+    def put(chid, value, wait=False, timeout=60, **kwargs):  # noqa: ARG001 - pyepics ca.put signature
         writes.append((name(chid), value))
         return 1
 
@@ -131,11 +131,11 @@ class _RecordingContext:
         self.reads: list = []
         self.puts: list = []
 
-    def get(self, name, request=None, timeout=5.0):
+    def get(self, name, request=None, timeout=5.0):  # noqa: ARG002 - p4p Context signature
         self.reads.append(name)
         return CURRENT
 
-    def put(self, name, values, request=None, timeout=5.0, **kwargs):
+    def put(self, name, values, request=None, timeout=5.0, **kwargs):  # noqa: ARG002 - p4p Context signature
         self.puts.append((name, values))
         return "put-done"
 
@@ -147,11 +147,11 @@ class _AsyncioContext:
         self.reads: list = []
         self.puts: list = []
 
-    async def get(self, name, request=None, timeout=5.0):
+    async def get(self, name, request=None, timeout=5.0):  # noqa: ARG002 - p4p Context signature
         self.reads.append(name)
         return CURRENT
 
-    def put(self, name, values, request=None, timeout=5.0, **kwargs):
+    def put(self, name, values, request=None, timeout=5.0, **kwargs):  # noqa: ARG002 - p4p Context signature
         self.puts.append((name, values))
         return "put-done"
 

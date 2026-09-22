@@ -388,7 +388,7 @@ def _render_direct(manager, ctx):
     return manager.jinja_env.get_template(_HOOK_CONFIG_TEMPLATE).render(**ctx)
 
 
-def test_absent_mixed_key_renders_an_empty_list(tmp_path):
+def test_absent_mixed_key_renders_an_empty_list():
     """A context missing the key still emits it.
 
     Jinja is not strict here: an absent key renders as nothing at all, which
@@ -409,7 +409,7 @@ def test_absent_mixed_key_renders_an_empty_list(tmp_path):
     assert set(config) == _EXPECTED_KEYS
 
 
-def test_absent_servers_key_renders_empty_lists_silently(tmp_path):
+def test_absent_servers_key_renders_empty_lists_silently():
     """Documents the trap the other tests in this file exist to guard.
 
     Iterating an undefined name is not an error in this non-strict
@@ -430,7 +430,7 @@ def test_absent_servers_key_renders_empty_lists_silently(tmp_path):
     assert all(value == [] for value in config.values())
 
 
-def test_rendered_file_is_valid_json_on_a_bare_render(tmp_path):
+def test_rendered_file_is_valid_json_on_a_bare_render():
     """Every key present and typed, even with nothing enabled."""
     manager = TemplateManager()
     config = json.loads(_render_direct(manager, {"servers": [], "control_system_write_tools": []}))

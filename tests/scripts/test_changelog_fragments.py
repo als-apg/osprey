@@ -39,7 +39,8 @@ def write(directory: Path, name: str, text: str) -> Path:
     return path
 
 
-def refuse_io(self, *args, **kwargs):
+# A Path method stand-in keeps the receiver its callers bind positionally.
+def refuse_io(self, *args, **kwargs):  # noqa: ARG001
     """A `Path` method stand-in that fails the way a read-only file does."""
     raise PermissionError(13, "Permission denied")
 

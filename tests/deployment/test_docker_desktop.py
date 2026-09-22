@@ -105,9 +105,8 @@ class TestTheBackendApiSource:
     """The live setting, read from the running Docker Desktop."""
 
     @pytest.mark.parametrize("enabled", [False, True])
-    def test_it_reports_what_docker_desktop_says(
-        self, socket_dir, monkeypatch, no_settings_store, enabled
-    ):
+    @pytest.mark.usefixtures("no_settings_store")
+    def test_it_reports_what_docker_desktop_says(self, socket_dir, monkeypatch, enabled):
         """The load-bearing case: a disabled forwarder is reported as disabled,
         which is what lets a warning name the checkbox instead of hedging."""
         sock = socket_dir / "backend.sock"
@@ -116,9 +115,8 @@ class TestTheBackendApiSource:
 
         assert docker_desktop.host_networking_enabled() is enabled
 
-    def test_it_reads_a_value_wrapped_with_its_lock_state(
-        self, socket_dir, monkeypatch, no_settings_store
-    ):
+    @pytest.mark.usefixtures("no_settings_store")
+    def test_it_reads_a_value_wrapped_with_its_lock_state(self, socket_dir, monkeypatch):
         """Docker Desktop wraps some settings as ``{"locked", "value"}`` and
         leaves others bare, and which is which has moved between versions."""
         sock = socket_dir / "backend.sock"
@@ -127,9 +125,8 @@ class TestTheBackendApiSource:
 
         assert docker_desktop.host_networking_enabled() is True
 
-    def test_an_api_that_does_not_answer_this_path_tells_us_nothing(
-        self, socket_dir, monkeypatch, no_settings_store
-    ):
+    @pytest.mark.usefixtures("no_settings_store")
+    def test_an_api_that_does_not_answer_this_path_tells_us_nothing(self, socket_dir, monkeypatch):
         """A future Desktop that moves the endpoint must not read as disabled."""
         sock = socket_dir / "backend.sock"
         _serve_once(sock, "404 Not Found", "{}")
@@ -137,18 +134,16 @@ class TestTheBackendApiSource:
 
         assert docker_desktop.host_networking_enabled() is None
 
-    def test_a_body_that_is_not_the_expected_json_tells_us_nothing(
-        self, socket_dir, monkeypatch, no_settings_store
-    ):
+    @pytest.mark.usefixtures("no_settings_store")
+    def test_a_body_that_is_not_the_expected_json_tells_us_nothing(self, socket_dir, monkeypatch):
         sock = socket_dir / "backend.sock"
         _serve_once(sock, "200 OK", "not json at all")
         monkeypatch.setattr(docker_desktop, "backend_socket_path", lambda: sock)
 
         assert docker_desktop.host_networking_enabled() is None
 
-    def test_a_payload_without_the_key_tells_us_nothing(
-        self, socket_dir, monkeypatch, no_settings_store
-    ):
+    @pytest.mark.usefixtures("no_settings_store")
+    def test_a_payload_without_the_key_tells_us_nothing(self, socket_dir, monkeypatch):
         """Absent from the API is still absent: no key, no claim."""
         sock = socket_dir / "backend.sock"
         _serve_once(sock, "200 OK", json.dumps({"vm": {"network": {}}}))
@@ -156,9 +151,8 @@ class TestTheBackendApiSource:
 
         assert docker_desktop.host_networking_enabled() is None
 
-    def test_a_socket_nobody_is_listening_on_tells_us_nothing(
-        self, socket_dir, monkeypatch, no_settings_store
-    ):
+    @pytest.mark.usefixtures("no_settings_store")
+    def test_a_socket_nobody_is_listening_on_tells_us_nothing(self, socket_dir, monkeypatch):
         """Docker Desktop stopped between the deploy starting and this read."""
         sock = socket_dir / "backend.sock"
         sock.write_bytes(b"")  # a plain file where a socket should be
@@ -166,7 +160,8 @@ class TestTheBackendApiSource:
 
         assert docker_desktop.host_networking_enabled() is None
 
-    def test_no_socket_at_all_tells_us_nothing(self, monkeypatch, tmp_path, no_settings_store):
+    @pytest.mark.usefixtures("no_settings_store")
+    def test_no_socket_at_all_tells_us_nothing(self, monkeypatch):
         monkeypatch.setattr(docker_desktop, "backend_socket_path", lambda: None)
 
         assert docker_desktop.host_networking_enabled() is None
@@ -175,16 +170,16 @@ class TestTheBackendApiSource:
 class TestThePersistedStoreFallback:
     """The on-disk source, for the hosts whose backend cannot be dialled."""
 
-    def test_an_explicit_setting_is_read(self, monkeypatch, tmp_path, no_backend_socket):
+    @pytest.mark.usefixtures("no_backend_socket")
+    def test_an_explicit_setting_is_read(self, monkeypatch, tmp_path):
         store = tmp_path / "settings-store.json"
         store.write_text(json.dumps({"HostNetworkingEnabled": False}), encoding="utf-8")
         monkeypatch.setattr(docker_desktop, "settings_store_paths", lambda: (store,))
 
         assert docker_desktop.host_networking_enabled() is False
 
-    def test_a_store_without_the_key_tells_us_nothing(
-        self, monkeypatch, tmp_path, no_backend_socket
-    ):
+    @pytest.mark.usefixtures("no_backend_socket")
+    def test_a_store_without_the_key_tells_us_nothing(self, monkeypatch, tmp_path):
         """The case that makes this source the weaker one, and the reason it is
         second: the store persists only non-default settings, so a host that has
         never touched host networking has no key. This is what a fresh Docker
@@ -196,7 +191,8 @@ class TestThePersistedStoreFallback:
 
         assert docker_desktop.host_networking_enabled() is None
 
-    def test_the_older_filename_is_still_read(self, monkeypatch, tmp_path, no_backend_socket):
+    @pytest.mark.usefixtures("no_backend_socket")
+    def test_the_older_filename_is_still_read(self, monkeypatch, tmp_path):
         """Docker Desktop renamed ``settings.json`` to ``settings-store.json``."""
         legacy = tmp_path / "settings.json"
         legacy.write_text(json.dumps({"HostNetworkingEnabled": True}), encoding="utf-8")
@@ -208,7 +204,8 @@ class TestThePersistedStoreFallback:
 
         assert docker_desktop.host_networking_enabled() is True
 
-    def test_unreadable_json_tells_us_nothing(self, monkeypatch, tmp_path, no_backend_socket):
+    @pytest.mark.usefixtures("no_backend_socket")
+    def test_unreadable_json_tells_us_nothing(self, monkeypatch, tmp_path):
         store = tmp_path / "settings-store.json"
         store.write_text("{ truncated", encoding="utf-8")
         monkeypatch.setattr(docker_desktop, "settings_store_paths", lambda: (store,))
@@ -316,7 +313,7 @@ class TestTheDockerDesktopPredicate:
         """No runtime is resolved where the product does not exist."""
         monkeypatch.setattr(docker_desktop.sys, "platform", "freebsd13")
 
-        def fail(config: dict) -> list[str]:
+        def fail(_config: dict) -> list[str]:
             raise AssertionError("the runtime should not be resolved here")
 
         monkeypatch.setattr(docker_desktop, "get_runtime_command", fail)

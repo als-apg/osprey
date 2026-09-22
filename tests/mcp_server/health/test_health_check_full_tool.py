@@ -128,7 +128,7 @@ def env(monkeypatch):
         state["runtimes"].append(rt)
         return rt
 
-    async def _run_sync(fn, *args, timeout_s):
+    async def _run_sync(fn, *args, timeout_s):  # noqa: ARG001 - offload.run_sync fixes this keyword-only parameter
         # Yield once so concurrency is genuinely exercised; then run the load.
         await asyncio.sleep(0)
         return fn(*args)
@@ -158,7 +158,8 @@ def _call():
 # --- envelope ---------------------------------------------------------------
 
 
-async def test_envelope_wire_shape_and_always_fresh(env):
+@pytest.mark.usefixtures("env")
+async def test_envelope_wire_shape_and_always_fresh():
     result = extract_response_dict(await _call()(None))
 
     # Locked report wire keys.

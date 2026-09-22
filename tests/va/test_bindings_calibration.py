@@ -173,9 +173,8 @@ class TestASetpointsNominalIsTheStrengthItsElementCarries:
         passes through the origin."""
         assert any(_component(booted, binding) != 0.0 for binding in _writable(document))
 
-    def test_the_whole_writable_document_was_covered(
-        self, document: BindingsDocument, booted: PyATRingModel
-    ) -> None:
+    @pytest.mark.usefixtures("booted")
+    def test_the_whole_writable_document_was_covered(self, document: BindingsDocument) -> None:
         """Every writable binding reaches an element of the served ring, so
         the identity above ran on all of them rather than on a subset a
         lookup quietly dropped."""

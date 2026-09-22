@@ -981,7 +981,8 @@ class TestAdmittedMutations:
         assert downstream.called
         assert records == []
 
-    def test_the_request_body_still_reaches_the_route(self, records):
+    @pytest.mark.usefixtures("records")
+    def test_the_request_body_still_reaches_the_route(self):
         downstream = RecordingApp()
         drive(
             HttpAuditMiddleware(downstream),
@@ -991,7 +992,8 @@ class TestAdmittedMutations:
 
         assert downstream.bodies == [b'{"key": "value"}']
 
-    def test_the_response_still_reaches_the_client(self, records):
+    @pytest.mark.usefixtures("records")
+    def test_the_response_still_reaches_the_client(self):
         sent = drive(HttpAuditMiddleware(RecordingApp(status=201)), http_scope(method="POST"))
 
         assert status_of(sent) == 201
@@ -1095,7 +1097,8 @@ class TestTheNeverRaisesBoundaryEnclosesTheWholeEmitter:
         assert status_of(sent) == 201
         assert records == []
 
-    def test_the_routes_own_exception_is_not_masked(self, records, monkeypatch):
+    @pytest.mark.usefixtures("records")
+    def test_the_routes_own_exception_is_not_masked(self, monkeypatch):
         """A raise from the ``finally`` would replace the route's own failure."""
         monkeypatch.setattr(common_middleware, "_audit_detail", self._explode)
         with pytest.raises(RuntimeError, match="route blew up"):
@@ -1239,7 +1242,7 @@ class TestTheRouteCanOwnTheDecision:
     def recording_route(dedup, *, status: int = 200, raises: bool = False):
         """An ``async def``-equivalent route that refuses and records it itself."""
 
-        async def route(scope, receive, send):
+        async def route(_scope, _receive, send):
             dedup.record_and_mark(
                 decision=DECISION_REFUSED,
                 reason="protected_key",
@@ -1277,8 +1280,9 @@ class TestTheRouteCanOwnTheDecision:
         assert lines[0]["decision"] == DECISION_REFUSED
         assert lines[0]["surface"] == "web_terminal"
 
+    @pytest.mark.usefixtures("dedup")
     def test_a_route_that_recorded_nothing_is_recorded_here_as_before(
-        self, dedup, audit_root, monkeypatch
+        self, audit_root, monkeypatch
     ):
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
 
@@ -1326,7 +1330,7 @@ class TestTheRouteCanOwnTheDecision:
                 subject="POST /api/config",
             )
 
-        async def route(scope, receive, send):
+        async def route(_scope, _receive, send):
             await run_in_threadpool(sync_route_body)
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"refused"})
@@ -1357,7 +1361,7 @@ class TestTheRouteCanOwnTheDecision:
         """A record that never landed plus a 4xx would otherwise be total silence."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
 
-        async def route(scope, receive, send):
+        async def route(_scope, _receive, send):
             dedup.mark_recorded(DECISION_REFUSED, "protected_key", stored=False)
             await send({"type": "http.response.start", "status": 403, "headers": []})
             await send({"type": "http.response.body", "body": b"refused"})
@@ -1377,7 +1381,7 @@ class TestTheRouteCanOwnTheDecision:
         """Never ``allowed`` over a refusal, even one that reached no ledger."""
         monkeypatch.setenv(AUDIT_IDENTITY_ENV, "svc.terminal")
 
-        async def route(scope, receive, send):
+        async def route(_scope, _receive, send):
             dedup.mark_recorded(DECISION_REFUSED, "protected_key", stored=False)
             await send({"type": "http.response.start", "status": 200, "headers": []})
             await send({"type": "http.response.body", "body": b"ok"})

@@ -42,7 +42,7 @@ def captured_argv(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         captured["cmd"] = cmd
         # run_captured re-wraps this result to carry its spool path, so the
         # stand-in has to be a real completed process, and it passes redirection
@@ -65,7 +65,8 @@ def _parse_env(tmp_path):
     return parse_dotenv_file(path) if path.is_file() else {}
 
 
-def test_mongodb_deploy_mints_mongo_root_password(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_mongodb_deploy_mints_mongo_root_password(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
     env = _parse_env(tmp_path)
@@ -92,7 +93,8 @@ def test_mongo_root_password_generator_is_uri_safe_every_time():
         assert _validate_var("MONGO_ROOT_PASSWORD", value)
 
 
-def test_mongodb_mint_is_idempotent(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_mongodb_mint_is_idempotent(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     first = _parse_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -102,7 +104,8 @@ def test_mongodb_mint_is_idempotent(captured_argv, _clean_token_env, tmp_path):
     assert (tmp_path / ".env").read_text().count("MONGO_ROOT_PASSWORD=") == 1
 
 
-def test_existing_mongo_root_password_is_preserved(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_existing_mongo_root_password_is_preserved(_clean_token_env, tmp_path):
     """The volume that adopted the value outlives any later mint."""
     (tmp_path / ".env").write_text("MONGO_ROOT_PASSWORD=preexistingvalue\n", encoding="utf-8")
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -110,16 +113,16 @@ def test_existing_mongo_root_password_is_preserved(captured_argv, _clean_token_e
 
 
 @pytest.mark.parametrize("bad", ["p@ssword", "pass word", "a/b", "user:pw", "q?x", "frag#ment"])
-def test_operator_password_with_reserved_char_is_rejected(
-    captured_argv, _clean_token_env, tmp_path, bad
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_operator_password_with_reserved_char_is_rejected(_clean_token_env, tmp_path, bad):
     """Refuse at the deploy boundary rather than let a URI reader mis-parse it."""
     (tmp_path / ".env").write_text(f"MONGO_ROOT_PASSWORD={bad}\n", encoding="utf-8")
     with pytest.raises(RuntimeError, match="MONGO_ROOT_PASSWORD"):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
 
-def test_rejection_never_echoes_the_password(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_rejection_never_echoes_the_password(_clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("MONGO_ROOT_PASSWORD=p@ssword\n", encoding="utf-8")
     with pytest.raises(RuntimeError) as excinfo:
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)

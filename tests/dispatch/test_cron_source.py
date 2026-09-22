@@ -80,7 +80,7 @@ async def test_loop_fires_at_interval_then_stops(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_invalid_interval_spawns_no_task(monkeypatch):
+async def test_invalid_interval_spawns_no_task():
     callback = _RecordingCallback()
     source = CronSource()
     triggers = [

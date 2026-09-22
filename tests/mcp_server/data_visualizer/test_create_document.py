@@ -57,7 +57,7 @@ Welcome to the presentation.
     async def test_compilation_failure(self, tool_fn):
         bad_latex = r"\documentclass{article}\begin{document}\badcommand\end{document}"
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             result = MagicMock()
             result.returncode = 1
             result.stdout = "! Undefined control sequence.\n\\badcommand"
@@ -83,11 +83,11 @@ Welcome to the presentation.
         result = _exc_ctx["envelope"]
         assert "timed out" in result["error_message"]
 
-    async def test_successful_compilation(self, tool_fn, simple_latex, tmp_path):
+    async def test_successful_compilation(self, tool_fn, simple_latex):
         """Test successful PDF generation with mocked pdflatex."""
         call_count = 0
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             nonlocal call_count
             call_count += 1
             # Create a fake PDF on the first pass
@@ -122,7 +122,7 @@ Welcome to the presentation.
     async def test_pdf_and_source_artifacts(self, tool_fn, simple_latex):
         """Verify both PDF and .tex source are saved as artifacts."""
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             cwd = Path(kwargs.get("cwd", "."))
             (cwd / "document.pdf").write_bytes(b"%PDF-1.4 content")
             result = MagicMock()
@@ -156,7 +156,8 @@ Welcome to the presentation.
         assert tex_entry.mime_type == "application/x-tex"
         assert tex_entry.artifact_type == "text"
 
-    async def test_artifact_ids_resolved_to_build_dir(self, tool_fn, simple_latex):
+    @pytest.mark.usefixtures("simple_latex")
+    async def test_artifact_ids_resolved_to_build_dir(self, tool_fn):
         """Verify referenced artifact figures are copied to the build directory."""
         # Create a test artifact
         store = get_artifact_store()
@@ -172,7 +173,7 @@ Welcome to the presentation.
 
         captured_cwd = None
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             nonlocal captured_cwd
             captured_cwd = kwargs.get("cwd")
             cwd = Path(captured_cwd)
@@ -210,7 +211,7 @@ Welcome to the presentation.
     async def test_missing_artifact_id_skipped(self, tool_fn, simple_latex):
         """Non-existent artifact IDs are skipped without failing."""
 
-        def mock_run(cmd, **kwargs):
+        def mock_run(cmd, **kwargs):  # noqa: ARG001 - subprocess.run fixes this stand-in's signature
             cwd = Path(kwargs.get("cwd", "."))
             (cwd / "document.pdf").write_bytes(b"%PDF-1.4 content")
             result = MagicMock()

@@ -90,7 +90,9 @@ class TestDesignSystemIntercept:
         app, client = app_and_client
         forwarded = []
 
-        async def fake_request(*, method, url, headers, content):
+        # ``httpx.AsyncClient.request``'s signature: the proxy names every field it sends,
+        # and the body asserts on the ones this test is about.
+        async def fake_request(*, method, url, headers, content):  # noqa: ARG001
             forwarded.append(str(url))
             return httpx.Response(200, text="from-sidecar", headers={"content-type": "text/css"})
 

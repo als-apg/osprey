@@ -183,9 +183,8 @@ class TestKeywordSearchFunction:
         mock_repository.keyword_search.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_semantic_processor_terms_are_in_keyword_match_surface(
-        self, mock_repository, mock_config
-    ):
+    @pytest.mark.usefixtures("mock_config")
+    async def test_semantic_processor_terms_are_in_keyword_match_surface(self, mock_repository):
         """Generated summaries and keywords participate in keyword search."""
         from osprey.services.ariel_search.config import ARIELConfig
         from osprey.services.ariel_search.search.keyword import keyword_search
@@ -896,9 +895,8 @@ class TestSemanticSearchValidation:
         reason="Requires unified event system fixtures (captured_events) not yet implemented"
     )
     @pytest.mark.asyncio
-    async def test_embedding_dimension_mismatch_warning(
-        self, mock_config, captured_events, fallback_handler_with_capture
-    ):
+    @pytest.mark.usefixtures("fallback_handler_with_capture")
+    async def test_embedding_dimension_mismatch_warning(self, mock_config, captured_events):
         """Warning logged when embedding dimension mismatches config (TEST-H008)."""
         from unittest.mock import AsyncMock, MagicMock
 

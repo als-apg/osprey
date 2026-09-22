@@ -51,7 +51,7 @@ plt.rcParams.update({
 async def create_static_plot(
     code: str,
     title: str,
-    description: str = "",
+    description: str = "",  # noqa: ARG001 - MCP tool schema parameter; each artifact carries the description its save_artifact call names
     data_source: str | None = None,
 ) -> str:
     """Execute matplotlib/seaborn plotting code and save results as PNG artifacts.
@@ -123,8 +123,6 @@ async def create_static_plot(
     # Collect artifacts with category and embedded metadata
     artifact_ids = collect_and_register_artifacts(
         exec_result,
-        title,
-        description,
         tool_source="create_static_plot",
         category="visualization",
         code=code,

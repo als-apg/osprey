@@ -85,7 +85,8 @@ async def _measure_one_cycle(connector) -> dict[str, float]:
 
 class TestOrbitResponse:
     @pytest.mark.asyncio
-    async def test_corrector_write_moves_paired_bpm_antisymmetric_linear(self, va_container):
+    @pytest.mark.usefixtures("va_container")
+    async def test_corrector_write_moves_paired_bpm_antisymmetric_linear(self):
         with e2e_conftest.patched_config(**{"control_system.writes_enabled": True}):
             connector = await e2e_conftest.connect_va()
 

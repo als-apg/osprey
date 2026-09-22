@@ -80,7 +80,7 @@ SHAPE_KEYS = (
 CALIBRATION_SHAPES = (Linear, Table)
 
 
-def _shape_of(kind: str, value: object) -> str:
+def _shape_of(value: object) -> str:
     """The name of a calibration's shape, or ``none`` where there is none."""
     return "none" if value is None else type(value).__name__.lower()
 
@@ -133,8 +133,8 @@ def _shape(name: str, tree: Tree) -> Shape:
         counts["calibration"][
             (
                 kind,
-                f"setpoint={_shape_of(kind, binding.calibration)}",
-                f"inverse={_shape_of(kind, binding.monitor_inverse)}",
+                f"setpoint={_shape_of(binding.calibration)}",
+                f"inverse={_shape_of(binding.monitor_inverse)}",
             )
         ] += 1
         counts["readback"][(kind, binding.readback)] += 1

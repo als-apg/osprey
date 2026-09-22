@@ -120,7 +120,7 @@ class _RecordingReporter(PhaseReporter):
         super().__init__(color=False)
         self._sink = sink
 
-    def emit(self, text: str, style: str | None = None) -> None:
+    def emit(self, text: str, style: str | None = None) -> None:  # noqa: ARG002 - the reporter signature this overrides
         self._sink.append(text)
 
 

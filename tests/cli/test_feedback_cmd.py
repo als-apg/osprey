@@ -98,7 +98,7 @@ def fake_runtime(monkeypatch: pytest.MonkeyPatch) -> _FakeRuntime:
     """Stand a recording double in for docker/podman, daemon reported up."""
     runtime = _FakeRuntime()
 
-    def _fake_run(argv, capture_output=False, text=False, env=None, check=False):
+    def _fake_run(argv, capture_output=False, text=False, env=None, check=False):  # noqa: ARG001 - the keywords subprocess.run is called with
         runtime.calls.append(list(argv))
         if argv[1:3] == ["volume", "ls"]:
             listing = "\n".join(runtime.listed)
@@ -120,7 +120,7 @@ def fake_runtime(monkeypatch: pytest.MonkeyPatch) -> _FakeRuntime:
 class _FakePopen:
     """A ``Popen`` double whose stdout is a fixed byte string."""
 
-    def __init__(self, argv, stdout=None, stderr=None, env=None):
+    def __init__(self, argv, stdout=None, stderr=None, env=None):  # noqa: ARG002 - the keywords Popen is called with
         self.args = list(argv)
         if argv[1:2] != ["run"]:
             raise AssertionError(f"unexpected subprocess call: {argv}")

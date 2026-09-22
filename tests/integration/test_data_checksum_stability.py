@@ -232,7 +232,7 @@ class TestTheLoaderRejectsUnknownProfileKeys:
     the hash path cannot mask.
     """
 
-    def test_a_shipped_preset_loads(self, tmp_path: Path) -> None:
+    def test_a_shipped_preset_loads(self) -> None:
         """Control: the rejection below is about the added key, not the fixture."""
         from osprey.cli.build_profile import resolve_build_profile
 

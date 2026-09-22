@@ -311,7 +311,8 @@ async def test_interleaved_acquires_never_leave_two_live_entries(disk):
     assert {call.transcript_id for call in chat_spawn.calls} == {TRANSCRIPT}
 
 
-async def test_a_dead_entry_is_reaped_rather_than_handed_off(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_dead_entry_is_reaped_rather_than_handed_off():
     app = make_app()
     corpse = pool_pty(app)
     corpse.exit(1)
@@ -326,7 +327,8 @@ async def test_a_dead_entry_is_reaped_rather_than_handed_off(disk):
     assert_released(app)
 
 
-async def test_a_key_live_in_both_pools_is_reduced_to_one(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_key_live_in_both_pools_is_reduced_to_one():
     """The state this module exists to make unreachable, met head on."""
     app = make_app()
     pty = pool_pty(app)
@@ -349,7 +351,8 @@ async def test_a_key_live_in_both_pools_is_reduced_to_one(disk):
 # ---------------------------------------------------------------------------
 
 
-async def test_the_slot_and_the_reservation_are_taken_and_dropped_together(disk):
+@pytest.mark.usefixtures("disk")
+async def test_the_slot_and_the_reservation_are_taken_and_dropped_together():
     app = make_app()
     chat = Chat(busy=True)
     chats(app).sessions[KEY] = chat
@@ -366,7 +369,8 @@ async def test_the_slot_and_the_reservation_are_taken_and_dropped_together(disk)
     assert_released(app)
 
 
-async def test_the_eviction_pass_steps_over_the_key_a_handoff_reserved(disk):
+@pytest.mark.usefixtures("disk")
+async def test_the_eviction_pass_steps_over_the_key_a_handoff_reserved():
     app = make_app()
     app.state.pty_registry = PtyRegistry(max_background=2)
     outgoing = pool_pty(app)
@@ -470,8 +474,9 @@ EXIT_PATHS = {
 }
 
 
+@pytest.mark.usefixtures("disk")
 @pytest.mark.parametrize("name", list(EXIT_PATHS))
-async def test_the_pending_slot_is_released_exactly_once_on_every_exit(disk, name):
+async def test_the_pending_slot_is_released_exactly_once_on_every_exit(name):
     run, expected = EXIT_PATHS[name]
     app = make_app(hook=name != "needs_interrupt")
     violations = watch_slot_invariant(app)
@@ -487,8 +492,9 @@ async def test_the_pending_slot_is_released_exactly_once_on_every_exit(disk, nam
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("disk")
 @pytest.mark.parametrize("name", ["refused_409", "refused_503", "needs_interrupt"])
-async def test_a_refused_acquire_starts_no_process(disk, name):
+async def test_a_refused_acquire_starts_no_process(name):
     app = make_app(hook=name != "needs_interrupt")
     if name == "refused_409":
         pool_pty(app)
@@ -514,7 +520,8 @@ async def test_a_refused_acquire_starts_no_process(disk, name):
 # ---------------------------------------------------------------------------
 
 
-async def test_a_pty_that_survives_once_is_repooled_and_the_retry_leaves_one_child(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_pty_that_survives_once_is_repooled_and_the_retry_leaves_one_child():
     app = make_app()
     pty = pool_pty(app, StubbornPty())
     set_store(app, IDLE, 1.0)
@@ -538,12 +545,13 @@ async def test_a_pty_that_survives_once_is_repooled_and_the_retry_leaves_one_chi
     assert_released(app)
 
 
+@pytest.mark.usefixtures("disk")
 @pytest.mark.parametrize(
     ("returncode", "has_handle", "spawns"),
     [(None, True, False), (0, True, True), (None, False, True)],
 )
 async def test_the_chat_child_must_be_seen_gone_before_anything_is_spawned(
-    disk, returncode, has_handle, spawns
+    returncode, has_handle, spawns
 ):
     """A transport still holding a live child is a survivor, not a slow exit."""
     app = make_app()
@@ -568,7 +576,8 @@ async def test_the_chat_child_must_be_seen_gone_before_anything_is_spawned(
     assert_released(app)
 
 
-async def test_the_spawn_waits_for_the_kill_to_return_and_the_child_to_be_gone(disk):
+@pytest.mark.usefixtures("disk")
+async def test_the_spawn_waits_for_the_kill_to_return_and_the_child_to_be_gone():
     """The order a hand-off depends on: pop, kill, see it dead, only then spawn."""
     app = make_app()
     order: list[str] = []
@@ -608,7 +617,8 @@ async def test_the_spawn_waits_for_the_kill_to_return_and_the_child_to_be_gone(d
 # ---------------------------------------------------------------------------
 
 
-async def test_an_attachment_that_clears_within_the_grace_becomes_a_handoff(disk):
+@pytest.mark.usefixtures("disk")
+async def test_an_attachment_that_clears_within_the_grace_becomes_a_handoff():
     app = make_app()
     pty = pool_pty(app)
     owner = object()
@@ -633,7 +643,8 @@ async def test_an_attachment_that_clears_within_the_grace_becomes_a_handoff(disk
     assert_released(app)
 
 
-async def test_an_attachment_that_never_clears_is_the_409_for_the_other_surface(disk):
+@pytest.mark.usefixtures("disk")
+async def test_an_attachment_that_never_clears_is_the_409_for_the_other_surface():
     app = make_app()
     pty = pool_pty(app)
     assert registry(app).attach_session(KEY, object())
@@ -651,7 +662,8 @@ async def test_an_attachment_that_never_clears_is_the_409_for_the_other_surface(
     assert_released(app)
 
 
-async def test_the_same_surface_takes_the_attachment_over_without_waiting(disk):
+@pytest.mark.usefixtures("disk")
+async def test_the_same_surface_takes_the_attachment_over_without_waiting():
     app = make_app()
     pty = pool_pty(app)
     older, newer = object(), object()
@@ -669,7 +681,8 @@ async def test_the_same_surface_takes_the_attachment_over_without_waiting(disk):
     assert_released(app)
 
 
-async def test_the_expert_owns_the_pty_before_the_reservation_is_dropped(disk):
+@pytest.mark.usefixtures("disk")
+async def test_the_expert_owns_the_pty_before_the_reservation_is_dropped():
     app = make_app()
     chats(app).sessions[KEY] = Chat(busy=False)
     held = watch_attach(app)
@@ -688,7 +701,8 @@ async def test_the_expert_owns_the_pty_before_the_reservation_is_dropped(disk):
 # ---------------------------------------------------------------------------
 
 
-async def test_a_chat_held_key_is_handed_back_to_the_simple_view_untouched(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_chat_held_key_is_handed_back_to_the_simple_view_untouched():
     app = make_app()
     chat = Chat(busy=False)
     chats(app).sessions[KEY] = chat
@@ -705,7 +719,8 @@ async def test_a_chat_held_key_is_handed_back_to_the_simple_view_untouched(disk)
     assert_released(app)
 
 
-async def test_a_hookless_deployment_still_waits_on_a_busy_chat_for_the_expert(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_hookless_deployment_still_waits_on_a_busy_chat_for_the_expert():
     """The hook only speaks for a PTY; ``is_busy`` needs no hook at all."""
     app = make_app(hook=False)
     chat = Chat(busy=True)
@@ -732,7 +747,8 @@ async def test_a_hookless_deployment_still_waits_on_a_busy_chat_for_the_expert(d
 # ---------------------------------------------------------------------------
 
 
-async def test_a_never_idle_pty_is_never_terminated_by_a_plain_acquire(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_never_idle_pty_is_never_terminated_by_a_plain_acquire():
     app = make_app()
     pty = pool_pty(app)
     set_store(app, BUSY, 1.0)
@@ -757,7 +773,8 @@ async def test_a_never_idle_pty_is_never_terminated_by_a_plain_acquire(disk):
     assert_released(app)
 
 
-async def test_a_channel_that_closes_mid_wait_tears_nothing_down(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_channel_that_closes_mid_wait_tears_nothing_down():
     app = make_app()
     chat = Chat(busy=True)
     chats(app).sessions[KEY] = chat
@@ -779,7 +796,8 @@ async def test_a_channel_that_closes_mid_wait_tears_nothing_down(disk):
     assert_released(app)
 
 
-async def test_a_disconnect_during_the_teardown_still_leaves_the_key_usable(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_disconnect_during_the_teardown_still_leaves_the_key_usable():
     """The caller goes while the outgoing chat is being torn down (300 ms).
 
     The shield carries the phase to its end: the PTY is spawned, pooled and
@@ -818,7 +836,8 @@ async def test_a_disconnect_during_the_teardown_still_leaves_the_key_usable(disk
     assert live_entries(app) == 1
 
 
-async def test_the_loop_stays_responsive_while_a_kill_blocks_its_thread(disk):
+@pytest.mark.usefixtures("disk")
+async def test_the_loop_stays_responsive_while_a_kill_blocks_its_thread():
     """A concurrent request must complete while ``terminate`` blocks for 300 ms."""
     app = make_app()
     pool_pty(app, RecordingPty(terminate_blocks_s=0.3))
@@ -958,8 +977,9 @@ async def test_a_simple_round_trip_through_the_real_chat_pool(disk):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.usefixtures("disk")
 @pytest.mark.parametrize("stagger", range(6))
-async def test_two_expert_acquirers_leave_one_child_and_one_owner(disk, stagger):
+async def test_two_expert_acquirers_leave_one_child_and_one_owner(stagger):
     app = make_app()
     spawn = pty_spawner(app)
     first, second = object(), object()
@@ -981,8 +1001,9 @@ async def test_two_expert_acquirers_leave_one_child_and_one_owner(disk, stagger)
     assert_released(app)
 
 
+@pytest.mark.usefixtures("disk")
 @pytest.mark.parametrize("yields", range(26))
-async def test_a_cancel_at_any_point_leaves_the_key_consistent(disk, yields):
+async def test_a_cancel_at_any_point_leaves_the_key_consistent(yields):
     app = make_app()
     chat = Chat(busy=False)
     chats(app).sessions[KEY] = chat
@@ -1008,7 +1029,8 @@ async def test_a_cancel_at_any_point_leaves_the_key_consistent(disk, yields):
     assert len(spawn.calls) == int(registry(app).get_session(KEY) is not None)
 
 
-async def test_a_cancelled_acquire_leaves_the_key_free_for_the_next_one(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_cancelled_acquire_leaves_the_key_free_for_the_next_one():
     app = make_app()
     chat = Chat(busy=True)
     chats(app).sessions[KEY] = chat
@@ -1029,7 +1051,8 @@ async def test_a_cancelled_acquire_leaves_the_key_free_for_the_next_one(disk):
     assert_released(app)
 
 
-async def test_a_second_acquire_of_a_free_key_spawns_nothing_new(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_second_acquire_of_a_free_key_spawns_nothing_new():
     """The plain case the property loops are measured against."""
     app = make_app()
     spawn = chat_spawner(app)
@@ -1045,7 +1068,8 @@ async def test_a_second_acquire_of_a_free_key_spawns_nothing_new(disk):
     assert_released(app)
 
 
-async def test_an_expert_reattach_does_not_wait_on_a_running_turn(disk):
+@pytest.mark.usefixtures("disk")
+async def test_an_expert_reattach_does_not_wait_on_a_running_turn():
     app = make_app()
     pty = pool_pty(app)
     set_store(app, BUSY, 1.0)
@@ -1069,7 +1093,8 @@ async def test_an_expert_reattach_does_not_wait_on_a_running_turn(disk):
 # ---------------------------------------------------------------------------
 
 
-async def test_a_simple_interrupt_supersedes_the_pending_simple_wait_and_lands(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_simple_interrupt_supersedes_the_pending_simple_wait_and_lands():
     """The wait the operator wants to end is ended; the interrupt's own acquire completes.
 
     Through the real phase (c): the superseded wait releases its slot exactly
@@ -1124,7 +1149,8 @@ async def test_a_simple_interrupt_supersedes_the_pending_simple_wait_and_lands(d
     assert_released(app)
 
 
-async def test_a_supersede_arriving_during_phase_c_leaves_the_carrier_to_answer(disk):
+@pytest.mark.usefixtures("disk")
+async def test_a_supersede_arriving_during_phase_c_leaves_the_carrier_to_answer():
     """A call already carrying the key out is not cancelled; the interrupt reuses what it pooled.
 
     The first acquire has left its wait and is spawning the chat when the

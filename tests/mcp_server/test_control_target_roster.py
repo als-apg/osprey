@@ -258,8 +258,9 @@ def without_a_standin(**kwargs):
 
 
 class TestCorrectBeforeAnySwitch:
+    @pytest.mark.usefixtures("no_prober")
     async def test_a_fresh_session_reports_both_targets_from_config_alone(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         """CF-1: no child has ever run, no probe has ever been taken.
 
@@ -285,8 +286,9 @@ class TestCorrectBeforeAnySwitch:
         assert rows["va"]["eligible_from_baseline"] is True
         assert payload["summary"]["switchable_targets"] == ["va"]
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_an_unconfigured_target_reports_the_switchs_own_reason(
-        self, make_manager, monkeypatch, no_prober, state_root
+        self, make_manager, monkeypatch, state_root
     ):
         """The roster and the refusal are one function, not two agreeing ones."""
         raw = config_with_gateways(va_probe=None)
@@ -305,8 +307,9 @@ class TestCorrectBeforeAnySwitch:
             await get_tool_fn(control_target.control_target_set)(target="va")
         assert ctx["envelope"]["error_message"] == rows["va"]["detail"]
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_rows_carry_the_probe_channel_and_the_real_machine_flag(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         """Both come from the state file's display metadata, not a second derivation.
 
@@ -328,8 +331,9 @@ class TestCorrectBeforeAnySwitch:
         assert rows["live"]["label"] == display["live"]["label"]
         assert rows["live"]["connector_type"].endswith("MockConnector")
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_writes_permitted_follows_the_deployment_posture_no_type_states(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         """Neither connector block says anything, so both rows inherit the global key."""
         manager = make_manager(raw=config_with_gateways())
@@ -346,9 +350,8 @@ class TestCorrectBeforeAnySwitch:
         rows = extract_response_dict(await ROSTER())["access_details"]["targets"]
         assert all(row["writes_permitted"] for row in rows.values())
 
-    async def test_each_row_carries_its_own_targets_posture(
-        self, make_manager, monkeypatch, no_prober
-    ):
+    @pytest.mark.usefixtures("no_prober")
+    async def test_each_row_carries_its_own_targets_posture(self, make_manager, monkeypatch):
         """A deployment arms its simulator alone, and the two rows say so separately.
 
         The write posture the roster reports is per connector type, so the row
@@ -366,9 +369,8 @@ class TestCorrectBeforeAnySwitch:
         assert rows["va"]["writes_permitted"] is True
         assert rows["live"]["writes_permitted"] is False
 
-    async def test_a_readonly_run_reports_writes_as_not_permitted(
-        self, make_manager, monkeypatch, no_prober
-    ):
+    @pytest.mark.usefixtures("no_prober")
+    async def test_a_readonly_run_reports_writes_as_not_permitted(self, make_manager, monkeypatch):
         """The run's own claim counts, not only the deployment's posture."""
         raw = config_with_gateways()
         raw["control_system"]["writes_enabled"] = True
@@ -380,9 +382,8 @@ class TestCorrectBeforeAnySwitch:
 
         assert not any(row["writes_permitted"] for row in rows.values())
 
-    async def test_a_readonly_run_collapses_an_armed_target_too(
-        self, make_manager, monkeypatch, no_prober
-    ):
+    @pytest.mark.usefixtures("no_prober")
+    async def test_a_readonly_run_collapses_an_armed_target_too(self, make_manager, monkeypatch):
         """Per-target posture does not survive a read-only run — no row is armed."""
         raw = config_with_gateways()
         raw["control_system"]["writes_enabled"] = False
@@ -401,9 +402,8 @@ class TestCorrectBeforeAnySwitch:
 
 
 class TestReachabilityRows:
-    async def test_without_a_prober_no_row_claims_a_reachability(
-        self, make_manager, monkeypatch, no_prober
-    ):
+    @pytest.mark.usefixtures("no_prober")
+    async def test_without_a_prober_no_row_claims_a_reachability(self, make_manager, monkeypatch):
         """Absent measurement is absent, not "down" and not "ok"."""
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
@@ -480,8 +480,9 @@ class TestReachabilityRows:
 
 
 class TestAfterASwitch:
+    @pytest.mark.usefixtures("no_prober")
     async def test_the_roster_reflects_the_active_target_and_generation(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         manager = await started_on(make_manager, "live")
         install_context(manager, monkeypatch)
@@ -507,9 +508,8 @@ class TestAfterASwitch:
 
 
 class TestSideEffectFree:
-    async def test_a_roster_call_starts_nothing_and_writes_nothing(
-        self, make_manager, monkeypatch, no_prober, state_root
-    ):
+    @pytest.mark.usefixtures("no_prober", "state_root")
+    async def test_a_roster_call_starts_nothing_and_writes_nothing(self, make_manager, monkeypatch):
         """The whole point: asking the question must not answer it by acting."""
         manager = make_manager(raw=config_with_gateways())
         install_context(manager, monkeypatch)
@@ -533,8 +533,9 @@ class TestSideEffectFree:
         assert json.dumps(target_state.read(), sort_keys=True) == before
         assert sorted(p.name for p in state_dir.iterdir()) == before_files
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_the_roster_does_not_emit_a_switch_activity_event(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         """Reporting is not an attempt, so nothing is reported as one."""
         manager = make_manager(raw=config_with_gateways())
@@ -566,8 +567,9 @@ class TestDegradation:
 
         assert ctx["envelope"]["details"]["reason"] == control_target.REASON_CONTEXT_UNAVAILABLE
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_an_underivable_target_gets_no_row_and_is_still_refused(
-        self, make_manager, monkeypatch, no_prober, state_root
+        self, make_manager, monkeypatch, state_root
     ):
         """A deployment that never named its real machine has no 'live' row.
 
@@ -636,8 +638,9 @@ class TestThreeTargetRoster:
     where a reader meets it.
     """
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_a_standin_baselined_deployment_reports_all_three_rows(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         """Three machines, three rows, and the session sitting on the stand-in.
 
@@ -685,8 +688,9 @@ class TestThreeTargetRoster:
         assert rows["va"]["real_machine"] is False
         assert rows["va"]["available_now"] is True
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_the_live_row_wants_the_acknowledgment_the_standin_does_not(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         """The stand-in's equivalent was said at build time; live's is not.
 
@@ -713,9 +717,8 @@ class TestThreeTargetRoster:
         # acknowledgment at all.
         assert rows["standin"]["eligible"] is True
 
-    async def test_a_recorded_standin_store_closes_the_live_row(
-        self, make_manager, monkeypatch, no_prober
-    ):
+    @pytest.mark.usefixtures("no_prober")
+    async def test_a_recorded_standin_store_closes_the_live_row(self, make_manager, monkeypatch):
         """Acknowledged, strict, and still refused: the archive is the stand-in's.
 
         This is the gate the stand-in creates for ``live`` and for nothing else.
@@ -745,8 +748,9 @@ class TestThreeTargetRoster:
         assert rows["standin"]["eligible"] is True
         assert rows["va"]["available_now"] is True
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_an_acknowledged_deployment_that_records_nothing_offers_live(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         """The same deployment without the recorder: all three rows are usable.
 
@@ -773,8 +777,9 @@ class TestThreeTargetRoster:
         assert rows["va"]["available_now"] is True
         assert payload["summary"]["switchable_targets"] == ["live", "va"]
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_a_standin_block_off_loopback_is_a_row_that_refuses(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         """The target exists, so it gets a row; the endpoint is not the container.
 
@@ -800,9 +805,8 @@ class TestThreeTargetRoster:
         assert rows["standin"]["reason"] == REASON_STANDIN_NOT_DEPLOYED
         assert rows["standin"]["connector_type"] == "live_standin"
 
-    async def test_a_deployment_with_no_standin_has_no_standin_row(
-        self, make_manager, monkeypatch, no_prober
-    ):
+    @pytest.mark.usefixtures("no_prober")
+    async def test_a_deployment_with_no_standin_has_no_standin_row(self, make_manager, monkeypatch):
         """Widening the vocabulary must not grow a row on a two-target deployment.
 
         No ``control_system.connector.live_standin`` block means no stand-in
@@ -1114,14 +1118,16 @@ class TestEndpointFollowsThePosture:
         assert metadata["standin"]["selected_role"] == "read_only"
         assert metadata["live"]["selected_role"] == "write_access"
 
-    def test_an_unnarrowed_session_still_names_the_write_gateway(self, posture_root):
+    @pytest.mark.usefixtures("posture_root")
+    def test_an_unnarrowed_session_still_names_the_write_gateway(self):
         """Stamped, with nothing in the store: the ceiling answers unchanged."""
         metadata = target_display_metadata(split_gateway_config())
 
         assert metadata["standin"]["endpoint"] == f"localhost:{STANDIN_WRITE_PORT}"
         assert metadata["standin"]["selected_role"] == "write_access"
 
-    def test_the_store_never_widens_a_deployment_that_arms_nothing(self, posture_root):
+    @pytest.mark.usefixtures("posture_root")
+    def test_the_store_never_widens_a_deployment_that_arms_nothing(self):
         """Nothing a session holds can arm a target the deployment left unarmed."""
         metadata = target_display_metadata(split_gateway_config(writes_enabled=False))
 
@@ -1168,7 +1174,8 @@ class TestEndpointFollowsThePosture:
         assert injected["standin"]["label"] == "LIVE MACHINE (stand-in)"
         assert from_store["standin"]["endpoint"] != injected["standin"]["endpoint"]
 
-    def test_every_slot_carries_a_selected_role(self, posture_root):
+    @pytest.mark.usefixtures("posture_root")
+    def test_every_slot_carries_a_selected_role(self):
         """In-memory slots always carry the key, ``""`` where it is underivable."""
         metadata = target_display_metadata(split_gateway_config())
 
@@ -1194,9 +1201,8 @@ class TestLimitsPostureRows:
     true of the sandbox next to it.
     """
 
-    async def test_each_row_carries_its_own_targets_limits_posture(
-        self, make_manager, monkeypatch, no_prober
-    ):
+    @pytest.mark.usefixtures("no_prober")
+    async def test_each_row_carries_its_own_targets_limits_posture(self, make_manager, monkeypatch):
         """A permissive simulator beside two strict machines: three answers, not one.
 
         The deployment-wide block is strict and only the simulator's own block
@@ -1223,8 +1229,9 @@ class TestLimitsPostureRows:
         assert rows["standin"]["limits_strict"] is True
         assert rows["va"]["limits_strict"] is False
 
+    @pytest.mark.usefixtures("no_prober")
     async def test_a_deployment_that_states_no_posture_is_not_strict(
-        self, make_manager, monkeypatch, no_prober
+        self, make_manager, monkeypatch
     ):
         """Silence is not a guarantee: no block anywhere means no row is strict.
 

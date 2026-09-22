@@ -1395,7 +1395,7 @@ class TestResolveOspreySpec:
         with pytest.raises(BuildProfileError, match="not a released version"):
             _resolve_osprey_spec("local")
 
-    def test_pip_keyword_uses_unpinned_pypi(self, monkeypatch):
+    def test_pip_keyword_uses_unpinned_pypi(self):
         """Explicit ``osprey_install: pip`` → unpinned ``osprey-framework``."""
         from osprey.cli.build_cmd import _resolve_osprey_spec
 
@@ -1410,7 +1410,7 @@ class TestResolveOspreySpec:
         assert spec == "osprey-framework==2026.4.0"
         assert label == "osprey-framework==2026.4.0"
 
-    def test_metadata_missing_falls_back_to_source_tree(self, monkeypatch, tmp_path):
+    def test_metadata_missing_falls_back_to_source_tree(self, monkeypatch):
         """If metadata is unavailable but a source tree exists at parents[3], use it."""
         from importlib.metadata import PackageNotFoundError
 

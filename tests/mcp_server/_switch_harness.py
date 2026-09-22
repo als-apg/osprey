@@ -317,7 +317,7 @@ def live_type(request):
 
 
 @pytest.fixture
-async def make_manager(state_root, live_type):
+async def make_manager(state_root, live_type):  # noqa: ARG001 - the managers this factory builds resolve their agent data under the anchored root
     """Managers whose children are all reaped when the test ends."""
     created = []
 

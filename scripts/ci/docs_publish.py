@@ -144,7 +144,7 @@ def pre_release_tags(tags: Iterable[str]) -> list[str]:
     return [tag for _, tag in parsed]
 
 
-def plan(ref: str, event: str, input_tag: str, tags: Iterable[str]) -> Plan:
+def plan(ref: str, event: str, input_tag: str, tags: Iterable[str]) -> Plan:  # noqa: ARG001 - parity with the workflow's github.event_name; the rules decide on ref and input_tag
     """Decide what the current build publishes, and where.
 
     The rules are applied in this order:

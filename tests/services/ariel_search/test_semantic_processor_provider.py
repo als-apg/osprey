@@ -31,7 +31,7 @@ def provider_models(monkeypatch) -> None:
     """Give ``cborg`` a tier map so tier aliases resolve to a concrete model ID."""
     import osprey.models.config as models_config
 
-    def fake_provider_config(provider: str, config_path: str | None = None) -> dict[str, Any]:
+    def fake_provider_config(provider: str, _config_path: str | None = None) -> dict[str, Any]:
         if provider == "cborg":
             return {"models": {"haiku": "anthropic/claude-haiku"}}
         return {}
@@ -49,21 +49,24 @@ def _config(**overrides: Any) -> dict[str, Any]:
 class TestModuleProviderDrivesBothUses:
     """The single module-level key feeds tier resolution and the completion call."""
 
-    def test_tier_alias_resolves_from_module_provider(self, provider_models) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    def test_tier_alias_resolves_from_module_provider(self) -> None:
         """A tier alias is resolved against the module-level provider."""
         module = SemanticProcessorModule()
         module.configure(_config(model={"model_id": "haiku", "max_tokens": 256}))
 
         assert module._model_config["model_id"] == "anthropic/claude-haiku"
 
-    def test_module_provider_reaches_model_config(self, provider_models) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    def test_module_provider_reaches_model_config(self) -> None:
         """The completion call is given the module-level provider."""
         module = SemanticProcessorModule()
         module.configure(_config(model={"model_id": "haiku"}))
 
         assert module._model_config["provider"] == "cborg"
 
-    def test_nested_model_provider_is_optional(self, provider_models) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    def test_nested_model_provider_is_optional(self) -> None:
         """Omitting the retired ``model.provider`` still yields a usable model config."""
         module = SemanticProcessorModule()
         module.configure(_config(model={"model_id": "anthropic/claude-haiku", "max_tokens": 256}))
@@ -74,7 +77,8 @@ class TestModuleProviderDrivesBothUses:
             "max_tokens": 256,
         }
 
-    def test_legacy_nested_provider_does_not_win(self, provider_models) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    def test_legacy_nested_provider_does_not_win(self) -> None:
         """A leftover ``model.provider`` from an old config cannot override the module key."""
         module = SemanticProcessorModule()
         module.configure(
@@ -84,13 +88,14 @@ class TestModuleProviderDrivesBothUses:
         assert module._model_config["provider"] == "cborg"
 
     @pytest.mark.asyncio
-    async def test_provider_reaches_the_completion_call(self, provider_models) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    async def test_provider_reaches_the_completion_call(self) -> None:
         """The provider the module resolved is the one the LLM call is made with."""
         import osprey.models.completion as completion
 
         captured: dict[str, Any] = {}
 
-        def fake_completion(message: str, model_config: dict[str, Any] | None = None, **kwargs):
+        def fake_completion(message: str, model_config: dict[str, Any] | None = None, **kwargs):  # noqa: ARG001 - the get_chat_completion signature
             captured["model_config"] = model_config
             return '{"keywords": ["vacuum"], "summary": "Pump swapped."}'
 
@@ -194,7 +199,8 @@ class TestEmbeddingProviderIsNotAFallback:
 class TestEndToEndThroughConfig:
     """The whole path from ``config.yml`` shape to a configured module."""
 
-    def test_configured_provider_survives_the_full_path(self, provider_models) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    def test_configured_provider_survives_the_full_path(self) -> None:
         """One key in the config dict lands on the module's model config."""
         config = ARIELConfig.from_dict(
             {
@@ -244,20 +250,23 @@ class TestTheInputBudgetIsAConfigKey:
     authored rather than fixed, and a slice that happens is said out loud.
     """
 
-    def test_default_when_the_key_is_unstated(self, provider_models) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    def test_default_when_the_key_is_unstated(self) -> None:
         module = SemanticProcessorModule()
         module.configure(_config())
 
         assert module._max_input_chars == processor_module.DEFAULT_MAX_INPUT_CHARS
 
-    def test_configured_value_is_read(self, provider_models) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    def test_configured_value_is_read(self) -> None:
         module = SemanticProcessorModule()
         module.configure(_config(max_input_chars=32000))
 
         assert module._max_input_chars == 32000
 
     @pytest.mark.parametrize("bad", [0, -1, True, "8000", 1.5])
-    def test_an_unusable_budget_is_refused_naming_the_key(self, provider_models, bad) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    def test_an_unusable_budget_is_refused_naming_the_key(self, bad) -> None:
         """Refused at configure time, where the operator can still see the line."""
         module = SemanticProcessorModule()
 
@@ -265,14 +274,15 @@ class TestTheInputBudgetIsAConfigKey:
             module.configure(_config(max_input_chars=bad))
 
     @pytest.mark.asyncio
-    async def test_the_prompt_carries_only_the_budget(self, provider_models, monkeypatch) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    async def test_the_prompt_carries_only_the_budget(self, monkeypatch) -> None:
         """The slice is the configured one, not a fixed 8000."""
         module = SemanticProcessorModule()
         module.configure(_config(max_input_chars=10))
 
         captured: dict[str, Any] = {}
 
-        def fake_completion(message: str, model_config: Any = None) -> str:
+        def fake_completion(message: str, model_config: Any = None) -> str:  # noqa: ARG001 - the get_chat_completion signature
             captured["message"] = message
             return '{"keywords": [], "summary": ""}'
 
@@ -286,7 +296,8 @@ class TestTheInputBudgetIsAConfigKey:
         assert "x" * 11 not in captured["message"]
 
     @pytest.mark.asyncio
-    async def test_a_cut_entry_is_logged_by_id(self, provider_models, monkeypatch, caplog) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    async def test_a_cut_entry_is_logged_by_id(self, monkeypatch, caplog) -> None:
         """An operator reading the summary can tell it describes an opening."""
         module = SemanticProcessorModule()
         module.configure(_config(max_input_chars=10))
@@ -305,9 +316,8 @@ class TestTheInputBudgetIsAConfigKey:
         assert any("entry-42" in record.getMessage() for record in caplog.records)
 
     @pytest.mark.asyncio
-    async def test_an_entry_within_the_budget_is_not_logged(
-        self, provider_models, monkeypatch, caplog
-    ) -> None:
+    @pytest.mark.usefixtures("provider_models")
+    async def test_an_entry_within_the_budget_is_not_logged(self, monkeypatch, caplog) -> None:
         """No line for the normal case, which is every entry at most sites."""
         module = SemanticProcessorModule()
         module.configure(_config(max_input_chars=100))

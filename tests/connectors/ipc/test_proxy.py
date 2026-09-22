@@ -360,7 +360,7 @@ async def test_one_error_does_not_disturb_a_concurrent_request(teardown):
 
 
 async def test_child_death_mid_request_surfaces_as_connection_error(teardown):
-    async def handler(child, frame):
+    async def handler(child, _frame):
         await child.die()
 
     proxy, child = await _proxy_with_child(handler)
@@ -393,7 +393,7 @@ async def test_every_outstanding_request_fails_when_the_child_dies(teardown):
 
 
 async def test_calls_after_the_child_dies_raise_connection_error(teardown):
-    async def handler(child, frame):
+    async def handler(child, _frame):
         await child.die()
 
     proxy, child = await _proxy_with_child(handler)
@@ -435,7 +435,7 @@ async def test_a_transport_that_says_why_it_stopped_is_quoted_verbatim(teardown)
                 raise ConnectionError(self.reason)
             return chunk
 
-    async def never_answers(child, frame):
+    async def never_answers(_child, _frame):
         return
 
     parent_sock, child_sock = socket.socketpair()
@@ -458,7 +458,7 @@ async def test_a_transport_that_says_why_it_stopped_is_quoted_verbatim(teardown)
 
 
 async def test_a_garbled_stream_kills_the_proxy_rather_than_hanging(teardown):
-    async def handler(child, frame):
+    async def handler(child, _frame):
         child._writer.write(b"this is not a frame at all")
 
     proxy, child = await _proxy_with_child(handler)
@@ -508,7 +508,7 @@ async def test_a_timeout_reported_by_the_child_is_raised_as_is(teardown):
 async def test_drain_returns_true_once_everything_completes(teardown):
     held: list[frames.RequestFrame] = []
 
-    async def handler(child, frame):
+    async def handler(_child, frame):
         held.append(frame)
 
     proxy, child = await _proxy_with_child(handler)
@@ -563,7 +563,7 @@ async def test_refused_proxy_names_the_supplied_reason(teardown):
 async def test_outstanding_requests_survive_a_refusal(teardown):
     held: list[frames.RequestFrame] = []
 
-    async def handler(child, frame):
+    async def handler(_child, frame):
         held.append(frame)
 
     proxy, child = await _proxy_with_child(handler)
@@ -598,7 +598,7 @@ async def test_disconnect_sends_the_request_and_is_idempotent(teardown):
 
 
 async def test_disconnect_never_raises_when_the_child_is_already_gone(teardown):
-    async def handler(child, frame):
+    async def handler(child, _frame):
         await child.die()
 
     proxy, child = await _proxy_with_child(handler)

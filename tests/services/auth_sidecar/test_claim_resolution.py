@@ -115,13 +115,13 @@ class FakeOIDCClient:
         self.exchanged = False
         self.token_kwargs: dict[str, Any] = {}
 
-    async def create_authorization_url(self, redirect_uri: str | None = None) -> dict[str, Any]:
+    async def create_authorization_url(self, _redirect_uri: str | None = None) -> dict[str, Any]:
         return {"url": IDP_AUTHORIZE_URL, "state": FLOW_STATE, "nonce": "nonce-value"}
 
-    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:
+    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:  # noqa: ARG002 - the OIDC client signature
         return None
 
-    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:
+    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002 - the OIDC client signature
         self.exchanged = True
         self.token_kwargs = kwargs
         return self.token
@@ -798,7 +798,7 @@ class TestTheOtherDenialCategories:
     def test_the_audit_seam_never_costs_the_refusal(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """An unwritable ledger degrades the trail, never the decision."""
 
-        def boom(envelope: Any) -> None:
+        def boom(_envelope: Any) -> None:
             raise OSError("the ledger is unwritable")
 
         monkeypatch.setattr(audit, "write_envelope", boom)

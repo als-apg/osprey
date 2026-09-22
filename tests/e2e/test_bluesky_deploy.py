@@ -362,7 +362,8 @@ def _refusal_code(body: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def test_bridge_binds_loopback_only(deployed_bridge: Path) -> None:
+@pytest.mark.usefixtures("deployed_bridge")
+def test_bridge_binds_loopback_only() -> None:
     """`docker port` must show 127.0.0.1, never 0.0.0.0 (task 2.8's fail-closed bind)."""
     proc = subprocess.run(
         ["docker", "port", BRIDGE_CONTAINER],
@@ -375,7 +376,8 @@ def test_bridge_binds_loopback_only(deployed_bridge: Path) -> None:
     assert "0.0.0.0" not in proc.stdout, f"bridge must never bind 0.0.0.0: {proc.stdout!r}"
 
 
-def test_queueserver_publishes_no_ports(deployed_bridge: Path) -> None:
+@pytest.mark.usefixtures("deployed_bridge")
+def test_queueserver_publishes_no_ports() -> None:
     """The RE manager's control socket is never published to the host.
 
     Publishing it would put a second route to plan execution beside the
@@ -392,7 +394,8 @@ def test_queueserver_publishes_no_ports(deployed_bridge: Path) -> None:
         )
 
 
-def test_queue_stack_containers_reach_healthy(deployed_bridge: Path) -> None:
+@pytest.mark.usefixtures("deployed_bridge")
+def test_queue_stack_containers_reach_healthy() -> None:
     """Bridge, RE manager and Redis all reach ``healthy`` on a browse-only deploy.
 
     The manager's healthcheck is ``qserver ping``, which round-trips its own
@@ -424,7 +427,8 @@ def test_launch_token_and_control_plane_keypair_were_minted(deployed_bridge: Pat
     assert private_key != public_key
 
 
-def test_image_contains_unreleased_bluesky_bridge_modules(deployed_bridge: Path) -> None:
+@pytest.mark.usefixtures("deployed_bridge")
+def test_image_contains_unreleased_bluesky_bridge_modules() -> None:
     """Carry-forward from the 2.8 reviewer: assert CONTENT, not just "it builds".
 
     A PyPI-based (non---dev) build would lack the unreleased bluesky_bridge
@@ -451,7 +455,8 @@ def test_image_contains_unreleased_bluesky_bridge_modules(deployed_bridge: Path)
     )
 
 
-def test_browse_only_deployment_is_healthy_and_says_so(deployed_bridge: Path) -> None:
+@pytest.mark.usefixtures("deployed_bridge")
+def test_browse_only_deployment_is_healthy_and_says_so() -> None:
     """``hello-world`` deploys on the mock connector: healthy, and honestly browse-only.
 
     ``status: "ok"`` is deliberately independent of ``can_execute`` — a
@@ -476,7 +481,8 @@ def test_browse_only_deployment_is_healthy_and_says_so(deployed_bridge: Path) ->
     )
 
 
-def test_plans_are_browsable_but_unqueueable(deployed_bridge: Path) -> None:
+@pytest.mark.usefixtures("deployed_bridge")
+def test_plans_are_browsable_but_unqueueable() -> None:
     """The catalog browses; the queue refuses to hold what it could never run.
 
     This is what "browse-only" means as a behavior rather than a label: plans

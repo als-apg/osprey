@@ -98,7 +98,7 @@ class _FakeStore:
         raise AssertionError(f"unexpected query: {cypher!r}")
 
 
-def _raises(cypher: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+def _raises(_cypher: str, _params: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """A store that is up enough to be dialled and answers nothing but errors."""
     raise RuntimeError("store said no")
 

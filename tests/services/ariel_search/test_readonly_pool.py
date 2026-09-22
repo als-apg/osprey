@@ -102,7 +102,7 @@ async def test_a_refused_readonly_login_falls_back_and_says_so(monkeypatch, capl
     """
     calls: list[str] = []
 
-    async def _fake_create_pool(config, *, uri=None, max_size=10):
+    async def _fake_create_pool(config, *, uri=None, max_size=10):  # noqa: ARG001 - the create_connection_pool signature
         dialed = uri if uri is not None else config.uri
         calls.append(dialed)
         if uri is not None:
@@ -129,7 +129,8 @@ async def test_a_refused_readonly_login_falls_back_and_says_so(monkeypatch, capl
 
 
 @pytest.mark.asyncio
-async def test_the_readonly_pool_is_closed_with_the_service(pool_factory):
+@pytest.mark.usefixtures("pool_factory")
+async def test_the_readonly_pool_is_closed_with_the_service():
     """Both pools are the service's to close; leaking the smaller one would
     hold idle connections on a store the process is done with."""
 

@@ -80,7 +80,7 @@ class _RecordingFactory:
         return self.calls[0][1]
 
 
-async def _noop_connect(type_config: Any = None) -> None:
+async def _noop_connect(type_config: Any = None) -> None:  # noqa: ARG001 - the control-system connector interface fixes this signature
     return None
 
 
@@ -109,7 +109,8 @@ def recording_factory(monkeypatch: pytest.MonkeyPatch) -> _RecordingFactory:
 
 class TestFactoryStamp:
     @pytest.mark.asyncio
-    async def test_named_target_reaches_the_instance(self, registered_mock):
+    @pytest.mark.usefixtures("registered_mock")
+    async def test_named_target_reaches_the_instance(self):
         connector = await ConnectorFactory.create_control_system_connector(
             {"type": "mock", "connector": {"mock": {}}}, control_target="standin"
         )
@@ -121,7 +122,8 @@ class TestFactoryStamp:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_target_defaults_to_none(self, registered_mock):
+    @pytest.mark.usefixtures("registered_mock")
+    async def test_target_defaults_to_none(self):
         """Every pre-existing caller keeps working, naming no target."""
         connector = await ConnectorFactory.create_control_system_connector(
             {"type": "mock", "connector": {"mock": {}}}
@@ -143,7 +145,8 @@ class TestFactoryStamp:
 
 class TestConnectorHostChild:
     @pytest.mark.asyncio
-    async def test_child_stamps_the_payload_target(self, registered_mock, tmp_path, monkeypatch):
+    @pytest.mark.usefixtures("registered_mock")
+    async def test_child_stamps_the_payload_target(self, tmp_path, monkeypatch):
         """The init payload's target, through the real ``_build_connector``."""
         from osprey_connectors.ipc import host
 
@@ -165,9 +168,8 @@ class TestConnectorHostChild:
             await connector.disconnect()
 
     @pytest.mark.asyncio
-    async def test_child_stamps_a_target_that_is_not_the_baseline(
-        self, registered_mock, tmp_path, monkeypatch
-    ):
+    @pytest.mark.usefixtures("registered_mock")
+    async def test_child_stamps_a_target_that_is_not_the_baseline(self, tmp_path, monkeypatch):
         """A child on ``va`` says ``va`` even though the section's own type is live."""
         from osprey_connectors.ipc import host
 
@@ -357,7 +359,7 @@ class TestBlueskyWorker:
 
     @pytest.mark.asyncio
     async def test_degraded_lane_keeps_its_cleared_type_and_its_target(
-        self, recording_factory, monkeypatch, caplog
+        self, recording_factory, monkeypatch
     ):
         """Rung 3 clears the TYPE stamp only.
 

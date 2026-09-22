@@ -146,7 +146,7 @@ class TestGetLiteLLMModelName:
         import osprey.models.provider_registry as registry_module
 
         class _EmptyRegistry:
-            def get_provider(self, name):
+            def get_provider(self, _name):
                 return None
 
         monkeypatch.setattr(registry_module, "get_provider_registry", lambda: _EmptyRegistry())
@@ -158,7 +158,7 @@ class TestGetLiteLLMModelName:
         import osprey.models.provider_registry as registry_module
 
         class _EmptyRegistry:
-            def get_provider(self, name):
+            def get_provider(self, _name):
                 return None
 
         monkeypatch.setattr(registry_module, "get_provider_registry", lambda: _EmptyRegistry())

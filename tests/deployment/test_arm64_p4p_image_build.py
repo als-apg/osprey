@@ -227,7 +227,10 @@ def no_gateway_endpoint() -> Iterator[None]:
 
 
 @pytest.fixture(scope="module")
-def image_context(tmp_path_factory: pytest.TempPathFactory, no_gateway_endpoint: None) -> Path:
+def image_context(
+    tmp_path_factory: pytest.TempPathFactory,
+    no_gateway_endpoint: None,  # noqa: ARG001 - the gateway endpoint is exported empty
+) -> Path:
     """A built hello-world deployment repo's image build context.
 
     Resolved through the production helper rather than spelled here, exactly as

@@ -119,10 +119,12 @@ class TestSingleVoiceDuringLifecycleVerbs:
     def _record(self, level: int) -> logging.LogRecord:
         return logging.LogRecord("osprey.test", level, __file__, 1, "msg", None, None)
 
-    def test_warning_is_dropped_while_a_reporter_is_installed(self, lifecycle_reporter_installed):
+    @pytest.mark.usefixtures("lifecycle_reporter_installed")
+    def test_warning_is_dropped_while_a_reporter_is_installed(self):
         assert _AltitudeGate().filter(self._record(logging.WARNING)) is False
 
-    def test_error_still_paints_while_a_reporter_is_installed(self, lifecycle_reporter_installed):
+    @pytest.mark.usefixtures("lifecycle_reporter_installed")
+    def test_error_still_paints_while_a_reporter_is_installed(self):
         assert _AltitudeGate().filter(self._record(logging.ERROR)) is True
 
     def test_warning_paints_again_once_the_reporter_is_gone(self):

@@ -315,7 +315,7 @@ class _FakeRegistry:
             self.pooled[pooled_key] = session
         self.chats = _FakeChatPool(self)
 
-    async def get_or_create_chat_session(self, chat_id, cwd, env, *, resume_id=None):
+    async def get_or_create_chat_session(self, chat_id, _cwd, _env, *, resume_id=None):
         self.calls.append(chat_id)
         self.resume_ids.append(resume_id)
         if self._capacity:
@@ -323,7 +323,7 @@ class _FakeRegistry:
         self.pooled[chat_id] = self._session
         return self._session, False
 
-    def get_chat_session(self, chat_id):
+    def get_chat_session(self, _chat_id):
         return self._session
 
     async def terminate_chat_session(self, chat_id):
@@ -739,7 +739,7 @@ class _ScriptedSdkClient:
 def _clean_responder(text: str = "ok"):
     """One text block then a terminal result — a clean, prompt turn."""
 
-    async def responder(client, prompt):
+    async def responder(_client, _prompt):
         yield FakeAssistantMessage([FakeTextBlock(text)])
         yield FakeResultMessage(is_error=False)
 
@@ -749,7 +749,7 @@ def _clean_responder(text: str = "ok"):
 def _rich_responder():
     """A turn carrying every heavy/sensitive payload the strip filter must drop."""
 
-    async def responder(client, prompt):
+    async def responder(_client, _prompt):
         yield FakeAssistantMessage(
             [
                 FakeThinkingBlock("secret chain of thought"),
@@ -773,7 +773,7 @@ def _stall_responder():
     left in the queue for a subsequent turn on the same session to misread.
     """
 
-    async def responder(client, prompt):
+    async def responder(client, _prompt):
         client.reached_hold.set()
         await client.interrupted.wait()
         if False:  # pragma: no cover - present only to make this an async generator
@@ -785,7 +785,7 @@ def _stall_responder():
 def _partial_then_hold_responder(text: str = "partial"):
     """Emit one partial event, then park until interrupted (no terminal)."""
 
-    async def responder(client, prompt):
+    async def responder(client, _prompt):
         yield FakeAssistantMessage([FakeTextBlock(text)])
         client.reached_hold.set()
         await client.interrupted.wait()
@@ -803,7 +803,8 @@ def _seam(responder, *, aenter_delay: float = 0.0):
     """
     created: list[_ScriptedSdkClient] = []
 
-    def factory(options=None):
+    # ``ClaudeSDKClient``'s constructor, which the session calls with ``options`` by name.
+    def factory(options=None):  # noqa: ARG001
         client = _ScriptedSdkClient(responder, aenter_delay=aenter_delay)
         created.append(client)
         return client

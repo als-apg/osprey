@@ -146,9 +146,8 @@ def test_a_project_without_ariel_stages_nothing(ariel_stubs, tmp_path):
     assert ariel_stubs["migrated"] == []
 
 
-def test_the_staging_invocation_is_shaped_by_the_provider_it_is_handed(
-    ariel_stubs, tmp_path, monkeypatch
-):
+@pytest.mark.usefixtures("ariel_stubs")
+def test_the_staging_invocation_is_shaped_by_the_provider_it_is_handed(tmp_path, monkeypatch):
     """The provider must reach all three halves of the invocation contract:
     the argv builder, the env-file arguments, and the process environment.
     Left unthreaded, the store's `up` runs docker-shaped in the middle of a
@@ -157,15 +156,20 @@ def test_the_staging_invocation_is_shaped_by_the_provider_it_is_handed(
 
     seen: dict = {}
 
-    def _record_base(runtime_cmd, files, root, env_args, provider=None):
+    def _record_base(_runtime_cmd, _files, _root, _env_args, provider=None):
         seen["base_provider"] = provider
         return ["docker", "compose"]
 
-    def _record_env_files(root=None, provider=None):
+    def _record_env_files(_root=None, provider=None):
         seen["env_file_provider"] = provider
         return []
 
-    def _record_run(cmd, *, env=None, **kwargs):
+    def _record_run(
+        cmd,  # noqa: ARG001 - run_captured's argv, the rest in **kwargs
+        *,
+        env=None,
+        **kwargs,
+    ):
         seen["run_env"] = dict(env or {})
 
     monkeypatch.setattr(container_lifecycle, "compose_base_cmd", _record_base)
@@ -191,7 +195,7 @@ def test_an_unreachable_store_warns_and_leaves_the_deploy_standing(
     deploy whose plans and channels are fine is not aborted over its search tab."""
 
     # Arrange
-    def _boom(ariel_config, deadline):
+    def _boom(_ariel_config, _deadline):
         raise RuntimeError("connection refused")
 
     monkeypatch.setattr(container_lifecycle, "_wait_for_ariel_store", _boom)

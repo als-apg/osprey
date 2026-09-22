@@ -67,7 +67,7 @@ def archiver_project(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def archiver_read_tool(archiver_project):
+def archiver_read_tool(archiver_project):  # noqa: ARG001 - the tool resolves its archiver through the rendered project
     """``(tool, connector)`` with the archiver connector factory patched out.
 
     Set ``connector.get_data.return_value`` (or ``.side_effect``), then await
@@ -314,7 +314,8 @@ def test_parse_time_accepts_iso_spellings(expression, monkeypatch):
         ),
     ],
 )
-async def test_archiver_read_unparseable_time(archiver_project, field, bad_value, kwargs):
+@pytest.mark.usefixtures("archiver_project")
+async def test_archiver_read_unparseable_time(field, bad_value, kwargs):
     """A time outside the accepted spellings errors cleanly, naming the failing field."""
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as ctx:
@@ -596,7 +597,8 @@ async def test_archiver_read_enum_channel_keeps_null_gaps_between_strings(
     assert file_content["series"]["MACHINE:MODE"]["values"] == ["Standby", None, "Injecting"]
 
 
-async def test_archiver_read_empty_channels(archiver_project):
+@pytest.mark.usefixtures("archiver_project")
+async def test_archiver_read_empty_channels():
     """Empty channel list returns validation error."""
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
@@ -766,7 +768,8 @@ async def test_invalid_auto_bin_budget_is_refused_not_guessed(tmp_path, monkeypa
     assert "auto_bin_points" in ctx["envelope"]["error_message"]
 
 
-async def test_archiver_read_rejects_unknown_processing(archiver_project):
+@pytest.mark.usefixtures("archiver_project")
+async def test_archiver_read_rejects_unknown_processing():
     """An unsupported mode errors with the valid set, rather than silently downgrading."""
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as ctx:
@@ -831,7 +834,8 @@ async def test_archiver_read_bin_size_zero_is_full_resolution(archiver_read_tool
     assert kwargs["processing"] == "raw"
 
 
-async def test_archiver_read_bin_size_zero_rejects_non_raw_processing(archiver_project):
+@pytest.mark.usefixtures("archiver_project")
+async def test_archiver_read_bin_size_zero_rejects_non_raw_processing():
     """bin_size=0 (full resolution) has no bin — only valid with processing='raw'."""
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as ctx:
@@ -845,7 +849,8 @@ async def test_archiver_read_bin_size_zero_rejects_non_raw_processing(archiver_p
     assert "bin_size" in ctx["envelope"]["error_message"]
 
 
-async def test_archiver_read_rejects_negative_bin_size(archiver_project):
+@pytest.mark.usefixtures("archiver_project")
+async def test_archiver_read_rejects_negative_bin_size():
     """A negative bin_size is nonsensical and must error, not silently misbehave."""
     fn = _get_archiver_read()
     with assert_raises_error(error_type="validation_error") as ctx:
@@ -959,7 +964,8 @@ class TestArchiverReadRealMockConnector:
     real connector's ``get_data`` — including its handling of ``precision_ms``.
     """
 
-    async def test_bin_size_zero_full_resolution_succeeds(self, archiver_project):
+    @pytest.mark.usefixtures("archiver_project")
+    async def test_bin_size_zero_full_resolution_succeeds(self):
         """bin_size=0 (precision_ms=0) must not raise ZeroDivisionError on the real connector."""
         fn = _get_archiver_read()
         result = await fn(
@@ -976,7 +982,8 @@ class TestArchiverReadRealMockConnector:
         # `> 0` would still pass a degraded ten-point floor.
         assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 300
 
-    async def test_bin_size_zero_returns_more_points_than_binned(self, archiver_project):
+    @pytest.mark.usefixtures("archiver_project")
+    async def test_bin_size_zero_returns_more_points_than_binned(self):
         """Full resolution must strictly out-resolve a binned query on the same window.
 
         The hour-long window puts the binned count (60) above the old
@@ -998,7 +1005,8 @@ class TestArchiverReadRealMockConnector:
         assert binned_points > 0
         assert full_points > binned_points
 
-    async def test_normal_bin_size_succeeds(self, archiver_project):
+    @pytest.mark.usefixtures("archiver_project")
+    async def test_normal_bin_size_succeeds(self):
         """An ordinary positive bin_size runs the real connector's binning path."""
         fn = _get_archiver_read()
         result = await fn(
@@ -1014,7 +1022,8 @@ class TestArchiverReadRealMockConnector:
         # One sample per 60-second bin across a one-hour window.
         assert data["summary"]["per_channel"]["SR:DCCT"]["points"] == 60
 
-    async def test_processing_mode_succeeds(self, tmp_path, archiver_project):
+    @pytest.mark.usefixtures("archiver_project")
+    async def test_processing_mode_succeeds(self, tmp_path):
         """A non-raw mode really aggregates: one derived value per bin, not raw in disguise.
 
         A five-minute window at a 60 s bin puts two real samples in each of

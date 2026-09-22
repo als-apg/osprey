@@ -306,7 +306,7 @@ def test_an_operator_pin_answers_the_question_outright(monkeypatch):
     assert container_lifecycle._unreleased_pin_problem(_worker_config(), {}, False) is None
 
 
-def test_the_build_target_is_the_gate_the_build_itself_uses(monkeypatch):
+def test_the_build_target_is_the_gate_the_build_itself_uses():
     """5a's extraction has to answer the same question `_build_project_image`
     asks, or the probe and the build disagree about whether a build happens."""
     assert container_lifecycle._project_image_build_target({"deployed_services": []}, {}) is None

@@ -88,7 +88,7 @@ def captured_argv(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         captured["cmd"] = cmd
         captured["env"] = env
         return _FakeCompletedProcess(returncode=0)
@@ -162,7 +162,8 @@ def _parse_env(tmp_path):
     return parse_dotenv_file(p) if p.is_file() else {}
 
 
-def test_deploy_up_generates_tokens_when_unset(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_deploy_up_generates_tokens_when_unset(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
     env = _parse_env(tmp_path)
@@ -172,7 +173,8 @@ def test_deploy_up_generates_tokens_when_unset(captured_argv, _clean_token_env, 
     assert len(env["EVENT_DISPATCHER_TOKEN"]) >= 40
 
 
-def test_token_generation_is_idempotent(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_token_generation_is_idempotent(_clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     first = _parse_env(tmp_path)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -186,7 +188,8 @@ def test_token_generation_is_idempotent(captured_argv, _clean_token_env, tmp_pat
     assert text.count("DISPATCH_WORKER_TOKEN=") == 1
 
 
-def test_existing_env_token_is_preserved(captured_argv, _clean_token_env, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_existing_env_token_is_preserved(_clean_token_env, tmp_path):
     (tmp_path / ".env").write_text("EVENT_DISPATCHER_TOKEN=my-real-token\n", encoding="utf-8")
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
@@ -196,7 +199,8 @@ def test_existing_env_token_is_preserved(captured_argv, _clean_token_env, tmp_pa
     assert env.get("DISPATCH_WORKER_TOKEN")  # the missing one was generated
 
 
-def test_process_env_token_not_written_to_dotenv(captured_argv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_process_env_token_not_written_to_dotenv(monkeypatch, tmp_path):
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "from-shell")
     monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
 
@@ -208,9 +212,8 @@ def test_process_env_token_not_written_to_dotenv(captured_argv, monkeypatch, tmp
     assert env.get("DISPATCH_WORKER_TOKEN")
 
 
-def test_tokens_are_minted_into_the_repo_root_not_the_cwd(
-    captured_argv, _clean_token_env, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured_argv")
+def test_tokens_are_minted_into_the_repo_root_not_the_cwd(_clean_token_env, monkeypatch, tmp_path):
     """The mint follows the config's repo, not wherever the command was typed.
 
     Regression guard: the provisioners' ``env_path`` defaults to a cwd-relative
@@ -251,7 +254,8 @@ def test_non_dispatch_deploy_generates_no_tokens(monkeypatch, _clean_token_env, 
     assert not (tmp_path / ".env").exists()
 
 
-def test_an_exposed_deploy_refuses_an_empty_token(captured_argv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_an_exposed_deploy_refuses_an_empty_token(monkeypatch, tmp_path):
     # A token explicitly set empty must not be auto-overwritten, and a deployment
     # reachable off-host must refuse rather than bind a fail-open server to it.
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "")
@@ -317,13 +321,13 @@ def captured_web_runs(monkeypatch, tmp_path):
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
 
-    def _fake_write_artifacts(config, dest_dir="."):
+    def _fake_write_artifacts(config, _dest_dir="."):
         written.append(config)
         return []
 
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", _fake_write_artifacts)
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         calls.append({"cmd": list(cmd), "env": env})
         return _FakeCompletedProcess(returncode=0)
 
@@ -525,17 +529,17 @@ def captured_combined_runs(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
 
-    def _fake_build(config, dev_mode, env, build_context=None):
+    def _fake_build(config, dev_mode, _env, _build_context=None):
         build_calls.append({"config": config, "dev_mode": dev_mode})
 
     monkeypatch.setattr(container_lifecycle, "_build_project_image", _fake_build)
 
-    def _fake_tokens(config, expose_network, env_path=None):
+    def _fake_tokens(config, _expose_network, _env_path=None):
         token_calls.append({"config": config})
 
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", _fake_tokens)
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         calls.append({"cmd": list(cmd), "env": env})
         return _FakeCompletedProcess(returncode=0)
 
@@ -894,7 +898,7 @@ def test_local_mode_verifies_renders_then_ensure_env_production_then_build_then_
         lambda cfg, resolved_users, repo_root=None: order.append("verify_persona_renders"),
     )
 
-    def _fake_build(cfg, resolved_users, dev_mode, env):
+    def _fake_build(_cfg, _resolved_users, _dev_mode, _env):
         order.append("build_persona_images")
 
     monkeypatch.setattr(provision, "build_persona_images", _fake_build)
@@ -946,7 +950,7 @@ def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
 
     captured_users = []
 
-    def _fake_build(cfg, resolved_users, dev_mode, env):
+    def _fake_build(_cfg, resolved_users, _dev_mode, _env):
         captured_users.extend(resolved_users)
 
     monkeypatch.setattr(provision, "build_persona_images", _fake_build)
@@ -1177,9 +1181,8 @@ def test_deploy_up_raises_before_any_compose_call_when_shared_disk_missing(
     assert "cmd" not in captured_argv
 
 
-def test_web_deploy_raises_before_any_compose_call_when_shared_disk_missing(
-    captured_web_runs, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("captured_web_runs")
+def test_web_deploy_raises_before_any_compose_call_when_shared_disk_missing(monkeypatch, tmp_path):
     """Wired into deploy_up: a missing shared_disk host_path aborts before the
     web-terminals path (which also reaches compose via deploy_up_web_terminals)."""
     missing = tmp_path / "no-such-mount"
@@ -1611,7 +1614,7 @@ def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
     calls: list = []
 
-    def _fake_run(cmd, env=None, **k):
+    def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
         calls.append(list(cmd))
         return _FakeCompletedProcess(returncode=0)
 
@@ -1747,7 +1750,7 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     )
     runs: list = []
 
-    def _fake_run(cmd, env=None, **k):
+    def _fake_run(cmd, env=None, **k):  # noqa: ARG001 - subprocess.run's keywords
         runs.append(list(cmd))
         return _FakeCompletedProcess(returncode=0)
 
@@ -1874,13 +1877,15 @@ def _build_args(cmd):
     )
 
 
-def test_site_image_build_args_are_empty_when_nothing_is_configured(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_are_empty_when_nothing_is_configured(tmp_path):
     """A deployment that declares no site settings builds exactly what it did
     before these keys existed — the argv is unchanged, flag for flag."""
     assert container_lifecycle.site_image_build_args({"project_name": "x"}, tmp_path) == []
 
 
-def test_site_image_build_args_carry_every_axis(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_carry_every_axis(tmp_path):
     args = container_lifecycle.site_image_build_args(_site_config(tmp_path), tmp_path)
 
     assert _build_args(args) == {
@@ -1895,7 +1900,8 @@ def test_site_image_build_args_carry_every_axis(no_site_env, tmp_path):
     assert staged.read_text() == "-----BEGIN CERTIFICATE-----\n"
 
 
-def test_site_image_build_args_refuse_a_site_ca_that_is_not_there(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_refuse_a_site_ca_that_is_not_there(tmp_path):
     """A CA the build cannot find must fail the deploy: an image built without
     it does not trust the site proxy, and says so only much later."""
     config = {"project_name": "x", "images": {"site_ca": str(tmp_path / "nope.pem")}}
@@ -1903,7 +1909,8 @@ def test_site_image_build_args_refuse_a_site_ca_that_is_not_there(no_site_env, t
         container_lifecycle.site_image_build_args(config, tmp_path)
 
 
-def test_clear_staged_site_ca_removes_the_copy_the_build_read(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_clear_staged_site_ca_removes_the_copy_the_build_read(tmp_path):
     """The staged CA is a copy of the operator's own bundle, living in a
     directory they keep — the project image's context IS the deployment repo —
     so it is cleared once the build has read it, like the dev wheel beside it.
@@ -1918,7 +1925,8 @@ def test_clear_staged_site_ca_removes_the_copy_the_build_read(no_site_env, tmp_p
     assert not staged.exists()
 
 
-def test_clear_staged_site_ca_leaves_a_file_this_build_did_not_stage(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_clear_staged_site_ca_leaves_a_file_this_build_did_not_stage(tmp_path):
     """Keyed on the argv rather than on the name: a deployment that configures
     no CA keeps whatever it happens to keep under that name."""
     theirs = tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME
@@ -1931,12 +1939,13 @@ def test_clear_staged_site_ca_leaves_a_file_this_build_did_not_stage(no_site_env
     assert theirs.read_text() == "the operator's own file\n"
 
 
-def test_the_project_image_build_stages_the_ca_then_clears_it(no_site_env, tmp_path, monkeypatch):
+@pytest.mark.usefixtures("no_site_env")
+def test_the_project_image_build_stages_the_ca_then_clears_it(tmp_path, monkeypatch):
     """End to end for the one context that is not regenerable: the CA is there
     while the build runs and gone when it returns."""
     staged_while_building: list[bool] = []
 
-    def _run(cmd, **kwargs):
+    def _run(cmd, **kwargs):  # noqa: ARG001 - run_captured's argv, the rest in **kwargs
         staged_while_building.append(
             (tmp_path / container_lifecycle.SITE_CA_CONTEXT_FILENAME).is_file()
         )
@@ -2194,7 +2203,8 @@ def test_an_attached_deploy_on_a_prebuilt_host_clears_them_too(tmp_path, monkeyp
     assert execd["staged"] is False, execd
 
 
-def test_site_image_build_args_read_offline_from_the_top_level_key(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_read_offline_from_the_top_level_key(tmp_path):
     """`offline: true` is what makes the image vendor its web assets — the same
     key `vendor.is_offline` reads at run time to decide whether to serve them."""
     args = container_lifecycle.site_image_build_args(
@@ -2203,7 +2213,8 @@ def test_site_image_build_args_read_offline_from_the_top_level_key(no_site_env, 
     assert _build_args(args) == {"OSPREY_OFFLINE": "1"}
 
 
-def test_site_image_build_args_omit_offline_when_the_key_is_off(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_site_image_build_args_omit_offline_when_the_key_is_off(tmp_path):
     args = container_lifecycle.site_image_build_args(
         {"project_name": "x", "offline": False}, tmp_path
     )
@@ -2227,7 +2238,8 @@ def test_site_image_build_args_take_the_environment_ahead_of_the_config(monkeypa
     }
 
 
-def test_project_image_build_cmd_carries_the_site_build_args(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_project_image_build_cmd_carries_the_site_build_args(tmp_path):
     """The project image is one of the three managed builds fed by the helper."""
     cmd = container_lifecycle._project_image_build_cmd(
         _site_config(tmp_path, offline=True), "docker", str(tmp_path)
@@ -2241,7 +2253,8 @@ def test_project_image_build_cmd_carries_the_site_build_args(no_site_env, tmp_pa
     assert cmd[-1] == str(tmp_path)
 
 
-def test_project_and_persona_builds_share_one_site_arg_producer(no_site_env, tmp_path):
+@pytest.mark.usefixtures("no_site_env")
+def test_project_and_persona_builds_share_one_site_arg_producer(tmp_path):
     """Two builders, one producer: an image built for a persona and the project
     image must not end up trusting different CAs or resolving from different
     indexes on the same host."""
@@ -2718,7 +2731,7 @@ def _dev_deploy_cmds(
     # which branch ran.
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         cmds.append(list(cmd))
         return _FakeCompletedProcess(returncode=0)
 
@@ -3054,7 +3067,7 @@ class _FakeAdmin:
         self.fail_times = fail_times
         self.pings = 0
 
-    def command(self, name):
+    def command(self, _name):
         self.pings += 1
         if self.fail_times > 0:
             self.fail_times -= 1
@@ -3137,7 +3150,7 @@ def staged_archiver(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
     monkeypatch.setattr(container_lifecycle, "log_endpoint_summary", lambda *a, **k: None)
 
-    def _fake_run(cmd, env=None, check=False, **kwargs):
+    def _fake_run(cmd, env=None, check=False, **kwargs):  # noqa: ARG001 - subprocess.run's keywords
         state["cmds"].append(list(cmd))
         # A real CompletedProcess, because the quiesce checks its returncode.
         # `returncode` models the *quiesce* specifically: every other compose
@@ -3175,7 +3188,12 @@ def staged_archiver(monkeypatch, tmp_path):
         ),
     )
 
-    def _fake_seed_base(collection, channels, knobs, **kwargs):
+    def _fake_seed_base(
+        collection,  # noqa: ARG001 - seed_base's collection handle, the rest in **kwargs
+        channels,
+        knobs,
+        **kwargs,
+    ):
         state["seeded"].append({"channels": list(channels), "knobs": knobs, "kwargs": kwargs})
         # The staged step reports on what it wrote, so hand back a real report.
         return archiver_seed.SeedReport(documents=10, channels=len(channels))
@@ -3321,7 +3339,8 @@ def test_seeder_authenticates_with_the_project_dotenv_password(staged_archiver, 
     assert staged_archiver["store"]["password"] == "s3cret"
 
 
-def test_deploy_without_the_store_service_stages_nothing(captured_argv, monkeypatch, tmp_path):
+@pytest.mark.usefixtures("captured_argv")
+def test_deploy_without_the_store_service_stages_nothing(monkeypatch, tmp_path):
     """A project that reads a store someone else runs must never have its history
     seeded by a local deploy."""
     staged: list = []
@@ -3426,9 +3445,8 @@ def test_health_poll_is_bounded(monkeypatch):
         container_lifecycle._wait_for_archiver_store(collection, time.monotonic() - 1)
 
 
-def test_missing_store_password_aborts_with_the_variable_named(
-    staged_archiver, monkeypatch, tmp_path
-):
+@pytest.mark.usefixtures("staged_archiver")
+def test_missing_store_password_aborts_with_the_variable_named(monkeypatch, tmp_path):
     """Without the credential the store is created with, the seeder cannot open
     the store it is staging — and the fix is a named variable."""
     (tmp_path / ".env").write_text("")
@@ -3455,7 +3473,11 @@ def test_reapply_anchors_on_the_persisted_t0_not_a_fresh_one(monkeypatch, tmp_pa
     anchor = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
     forwarded: dict = {}
 
-    def _record(project_dir, names, **kwargs):
+    def _record(
+        project_dir,  # noqa: ARG001 - apply_scenarios's project dir, the rest in **kwargs
+        names,
+        **kwargs,
+    ):
         forwarded.update(names=names, **kwargs)
         return apply_mod.ApplyResult(active=tuple(names), logbook_seeded=0, purged=False)
 
@@ -3585,7 +3607,7 @@ def test_authentication_is_retried_while_a_fresh_volume_initializes(monkeypatch)
     collection = _FakeCollection()
     refusals = [3]
 
-    def _initializing(name):
+    def _initializing(_name):
         collection.admin.pings += 1
         if refusals[0] > 0:
             refusals[0] -= 1
@@ -3614,7 +3636,7 @@ def test_authentication_failure_past_the_grace_window_fails_with_the_cause(monke
     monkeypatch.setattr(container_lifecycle, "_ARCHIVER_AUTH_GRACE_S", 0.0)
     collection = _FakeCollection()
 
-    def _refuse(name):
+    def _refuse(_name):
         collection.admin.pings += 1
         raise OperationFailure("Authentication failed.", code=18)
 
@@ -3640,7 +3662,7 @@ def test_a_non_auth_operation_failure_is_not_swallowed(monkeypatch):
     monkeypatch.setattr(container_lifecycle.time, "sleep", lambda seconds: None)
     collection = _FakeCollection()
 
-    def _fail(name):
+    def _fail(_name):
         raise OperationFailure("not authorized on admin", code=13)
 
     collection.admin.command = _fail
@@ -3864,7 +3886,7 @@ class _StoreRuntime:
 
 
 @pytest.fixture
-def store_preflight(monkeypatch, tmp_path):
+def store_preflight(monkeypatch):
     """One store, one surviving volume whose container holds a different value.
 
     The mismatch is the setup, not the assertion: whether the preflight *sees*
@@ -4270,7 +4292,7 @@ def test_deploy_up_removes_orphan_terminals_before_the_host_port_preflight(
     order: list[str] = []
     _record_web_deploy(monkeypatch, tmp_path, order, {"enabled": True, "image_source": "local"})
 
-    def _fake_remove(config):
+    def _fake_remove(_config):
         order.append("orphans")
         return {"ariel": "als-web-ariel"}
 

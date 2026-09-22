@@ -778,9 +778,8 @@ def test_env_production_existing_file_with_the_endpoint_in_the_chain_is_not_refu
     assert env_production.parse_dotenv_file(written)["ALS_APG_BASE_URL"] == "https://gw.test/v1"
 
 
-def test_the_preflight_report_carries_the_missing_endpoint_of_an_existing_file(
-    tmp_path, a_gateway_that_ships_no_endpoint
-):
+@pytest.mark.usefixtures("a_gateway_that_ships_no_endpoint")
+def test_the_preflight_report_carries_the_missing_endpoint_of_an_existing_file(tmp_path):
     """The collect-all pass reports what the gate raises on, for an existing
     file as much as for a render it would refuse to generate."""
     from osprey.deployment.web_terminals.provision import web_terminal_preflight_report
@@ -1421,7 +1420,7 @@ def test_an_absent_telemetry_switch_reads_as_off(tmp_path):
     assert env_production._telemetry_credential_requirements(config, tmp_path) == {}
 
 
-def test_the_deployed_services_gate_reads_the_registry_not_a_spelling(tmp_path):
+def test_the_deployed_services_gate_reads_the_registry_not_a_spelling():
     """`deploy_issued_credential_vars` answers from the registry entry's own
     service, so a var registered for a store this deploy does not run is not
     silently carved out by the name of a store it does."""

@@ -577,7 +577,7 @@ def test_a_stuck_corrector_is_traced_and_named_not_fitted() -> None:
 def test_a_failing_fit_panel_degrades_to_the_traces(monkeypatch) -> None:
     """The second stage of the fallback, exercised rather than assumed."""
 
-    def _boom(matrix):
+    def _boom(_matrix):
         raise RuntimeError("anomaly scoring blew up")
 
     monkeypatch.setattr(orm, "column_anomaly", _boom)

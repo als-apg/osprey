@@ -186,13 +186,13 @@ class RecordingReceiver:
         self.pulls.append((max_messages, max_wait))
         return []
 
-    def complete(self, msg: Any) -> None:
+    def complete(self, _msg: Any) -> None:
         raise AssertionError("nothing was delivered to complete")
 
-    def dead_letter(self, msg: Any, reason: str) -> None:
+    def dead_letter(self, _msg: Any, _reason: str) -> None:
         raise AssertionError("nothing was delivered to dead-letter")
 
-    def register(self, msg: Any) -> None:
+    def register(self, _msg: Any) -> None:
         raise AssertionError("nothing was delivered to register")
 
     def close(self) -> None:
@@ -226,7 +226,7 @@ class FakeRuntime:
     def supervise(self) -> None:
         self.supervised += 1
 
-    def handle_event(self, event: Any) -> str:
+    def handle_event(self, _event: Any) -> str:
         return "ignored"
 
 
@@ -523,9 +523,8 @@ def test_a_raise_from_the_pull_still_closes_the_receiver(cfg: TeamsBridgeConfig)
     assert receiver.closed == 1
 
 
-def test_the_default_factory_is_the_packages_own_and_opens_nothing(
-    cfg: TeamsBridgeConfig, no_servicebus: None
-) -> None:
+@pytest.mark.usefixtures("no_servicebus")
+def test_the_default_factory_is_the_packages_own_and_opens_nothing(cfg: TeamsBridgeConfig) -> None:
     """Wiring a bridge imports no Service Bus: the factory is named here and called
     only when the engine is ready to pull, which is what lets an ``osprey build`` host
     and every non-extra test import this module."""
@@ -596,7 +595,7 @@ def test_run_lets_a_caller_replace_the_deps_bundle(
     ``gate`` seam travels the same way."""
     forever: dict[str, Any] = {}
 
-    def fake_run_forever(core: CoreConfig, ops: Any, serve: Any, **kwargs: Any) -> None:
+    def fake_run_forever(core: CoreConfig, ops: Any, serve: Any, **kwargs: Any) -> None:  # noqa: ARG001 - stands in for run_forever, which collects its remaining arguments as keywords
         forever.update(kwargs)
 
     def always_healthy() -> bool:
@@ -666,8 +665,9 @@ def test_the_exported_names_are_sorted() -> None:
     assert package.__all__ == sorted(package.__all__)
 
 
+@pytest.mark.usefixtures("no_servicebus", "no_pillow")
 def test_the_package_root_imports_without_the_optional_extra(
-    monkeypatch: pytest.MonkeyPatch, no_servicebus: None, no_pillow: None
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The standing promise of the package, proven the only way it can be: with both
     optional distributions blocked AND the package purged from the module cache, so the

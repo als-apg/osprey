@@ -207,7 +207,8 @@ class TestOneRecordPerSurfaceAndKey:
 
 
 class TestTheOuterLayerDefersExactlyWhereItShould:
-    def test_a_claiming_refusal_marks_the_decision(self, audit_root):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_claiming_refusal_marks_the_decision(self):
         protected.record_protected_refusal(
             surface=SURFACE_HTTP_CONFIG,
             target_file="config.yml",
@@ -238,7 +239,7 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
         assert _records(audit_root, SURFACE_SCAFFOLD_RESTORE), "the refusal is still durable"
         assert dedup.recorded_decision() is None
 
-    def test_the_restore_call_site_itself_asks_not_to_claim(self, audit_root, tmp_path):
+    def test_the_restore_call_site_itself_asks_not_to_claim(self, audit_root):
         """The site, not just the funnel: ``ownership`` must pass ``claim=False``.
 
         The test above pins what the funnel does when asked. This one drives
@@ -290,7 +291,8 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
 
         assert _keys(_records(audit_root, SURFACE_CLAUDE_SETUP)) == [(SURFACE_CLAUDE_SETUP, PATH_A)]
 
-    def test_the_last_key_of_a_multi_key_refusal_owns_the_call(self, audit_root):
+    @pytest.mark.usefixtures("audit_root")
+    def test_the_last_key_of_a_multi_key_refusal_owns_the_call(self):
         """A per-key loop marks per key; the outer layer needs only one answer."""
         for key in (KEY_A, KEY_B):
             protected.record_protected_refusal(
@@ -314,7 +316,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
     """The duplicate the retirement removes, driven through both layers."""
 
     @pytest.fixture
-    def client(self, audit_root):
+    def client(self, audit_root):  # noqa: ARG002 - audit_root redirects the audit zone under a temporary root
         from osprey.interfaces.web_terminal.routes import config as config_routes
 
         app = FastAPI()
@@ -360,7 +362,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
         app = FastAPI()
 
         @app.patch("/api/config")
-        async def allow(request: Request):
+        async def allow(_request: Request):
             return {"status": "ok"}
 
         app.add_middleware(HttpAuditMiddleware)
@@ -376,7 +378,7 @@ class TestTheHttpLayerFilesNothingOnTopOfTheRoute:
 
 class TestTheSetupPatchToolRecordsPerKey:
     @pytest.fixture
-    def render(self, audit_root, tmp_path, monkeypatch):
+    def render(self, audit_root, tmp_path):  # noqa: ARG002 - audit_root redirects the audit zone under a temporary root
         """The minimal render ``setup_patch`` resolves its root from."""
         from unittest.mock import patch as mock_patch
 
@@ -396,7 +398,8 @@ class TestTheSetupPatchToolRecordsPerKey:
         ):
             yield tmp_path
 
-    async def test_two_refused_patches_are_two_records(self, render, audit_root):
+    @pytest.mark.usefixtures("render")
+    async def test_two_refused_patches_are_two_records(self, audit_root):
         from unittest.mock import patch as mock_patch
 
         from osprey.mcp_server.workspace.tools.setup import setup_patch

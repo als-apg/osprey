@@ -103,7 +103,8 @@ class TestFileTree:
         assert sub["type"] == "directory"
         assert [c["name"] for c in sub["children"]] == ["nested.py"]
 
-    def test_nonexistent_workspace_returns_empty_children(self, client, workspace):
+    @pytest.mark.usefixtures("workspace")
+    def test_nonexistent_workspace_returns_empty_children(self, client):
         """A session-scoped subdir that doesn't exist yields an empty tree
         rather than erroring."""
         resp = client.get("/api/files/tree?session_id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")

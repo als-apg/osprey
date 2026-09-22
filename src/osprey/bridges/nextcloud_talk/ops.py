@@ -660,7 +660,11 @@ class NextcloudTalkOps:
             # rather than repeating the quote on every chunk.
             self._client.post_message(room, chunk, reply_to=reply_to if index == 0 else None)
 
-    def post_queued(self, entry: Mapping[str, Any], result: Mapping[str, Any]) -> None:
+    def post_queued(
+        self,
+        entry: Mapping[str, Any],
+        result: Mapping[str, Any],  # noqa: ARG002 - channel-ops seam signature; channels that surface a parked delivery read the result
+    ) -> None:
         """Post the first-park "your question is waiting" notice.
 
         May raise: the engine parks the entry BEFORE calling this and swallows the raise,

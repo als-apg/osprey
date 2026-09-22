@@ -341,7 +341,8 @@ class TestGrammar:
         assert resp.status_code == 400
         assert resp.json()["detail"]["error"] == "invalid_session_id"
 
-    def test_a_body_with_no_session_id_is_accepted(self, client, agent_data_root):
+    @pytest.mark.usefixtures("agent_data_root")
+    def test_a_body_with_no_session_id_is_accepted(self, client):
         """The posture is the deployment's, so the gesture needs no session."""
         resp = post_posture(client, session_id=None)
         assert resp.status_code == 200, resp.text
@@ -448,7 +449,7 @@ class TestOwnership:
 class TestCeiling:
     """403 ``writes_disabled``, per target, naming that target's own key."""
 
-    def test_widening_an_unarmed_target_is_403_naming_its_key(self, client, tmp_path):
+    def test_widening_an_unarmed_target_is_403_naming_its_key(self, client):
         resp = post_posture(client, target="standin", posture="writes")
         assert resp.status_code == 403
         detail = resp.json()["detail"]

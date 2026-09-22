@@ -50,7 +50,7 @@ DIGEST_PREFIX_LEN = 12
 def _patch_config(monkeypatch: pytest.MonkeyPatch, block: object) -> None:
     """Make ``services.graphdb`` read as *block* wherever the verb looks it up."""
 
-    def _get_config_value(path: str, default: object = None, config_path: object = None) -> object:
+    def _get_config_value(path: str, default: object = None, _config_path: object = None) -> object:
         if path == "services.graphdb":
             return block
         if path == "services.graphdb.ttl_path":
@@ -189,9 +189,8 @@ def test_build_index_typed_ttl_stays_shell_relative(
 # ---------------------------------------------------------------------------
 
 
-def test_build_index_prints_the_seed_marker_digest_prefix(
-    render: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.usefixtures("render")
+def test_build_index_prints_the_seed_marker_digest_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
     """The printed prefix is the store's seed digest, so the two can be compared."""
     from osprey.services.facility_knowledge.seeder.graph_seeder import ttl_sha256
 
@@ -313,9 +312,8 @@ def test_build_index_uncreatable_output_parent_is_a_clean_error(
     assert f"Cannot create {output.parent}" in _flat(result)
 
 
-def test_build_index_refuses_a_malformed_index_path(
-    render: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+@pytest.mark.usefixtures("render")
+def test_build_index_refuses_a_malformed_index_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """A non-string services.graphdb.index_path is refused by name, not a traceback."""
     _patch_config(monkeypatch, {"ttl_path": "./data/demo.ttl", "index_path": 7})
 

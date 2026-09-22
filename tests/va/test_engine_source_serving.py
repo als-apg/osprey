@@ -247,7 +247,7 @@ def _source(
 
 
 @pytest.fixture()
-def source(engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ANN001
+def source(engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ANN001, ARG001 - the driver is attached to the serving records before the source is built over them
     return _source(engine, serving, data_dir, state_dir)
 
 
@@ -420,7 +420,7 @@ class TestSetpointEchoSyncReadsThroughTheDriver:
     expression channel would never move."""
 
     @pytest.fixture()
-    def echo_source(self, engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ANN001
+    def echo_source(self, engine, serving, data_dir, state_dir, driver) -> EngineSource:  # noqa: ANN001, ARG002 - the driver is attached to the serving records before the source is built over them
         return _source(engine, serving, data_dir, state_dir, echo=True)
 
     def test_baseline_expression_reflects_the_boot_setpoint(
@@ -488,12 +488,11 @@ class TestOneRecordNeverKillsTheLoop:
         return drv
 
     @pytest.fixture()
-    def broken_source(self, engine, serving, data_dir, state_dir, broken) -> EngineSource:  # noqa: ANN001
+    def broken_source(self, engine, serving, data_dir, state_dir, broken) -> EngineSource:  # noqa: ANN001, ARG002 - the raising driver is attached to the serving records before the source is built over them
         return _source(engine, serving, data_dir, state_dir)
 
-    def test_the_raising_record_really_raises(
-        self, serving: ServingRecords, broken: FakeDriver
-    ) -> None:
+    @pytest.mark.usefixtures("broken")
+    def test_the_raising_record_really_raises(self, serving: ServingRecords) -> None:
         """Guard against a vacuously-green survival test: if the shim swallowed
         the driver error, the tests below would prove nothing."""
         with pytest.raises(RuntimeError):
@@ -506,8 +505,9 @@ class TestOneRecordNeverKillsTheLoop:
         assert broken.values[VAC_RB] == pytest.approx(1e-8)
         assert broken.values[UNMODELED_RB] == pytest.approx(100.0)
 
+    @pytest.mark.usefixtures("broken")
     def test_the_failure_is_reported_not_swallowed_silently(
-        self, broken_source: EngineSource, broken: FakeDriver, capsys: pytest.CaptureFixture
+        self, broken_source: EngineSource, capsys: pytest.CaptureFixture
     ) -> None:
         broken_source.poll_once()
         stderr = capsys.readouterr().err

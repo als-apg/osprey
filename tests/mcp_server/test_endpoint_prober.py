@@ -494,7 +494,8 @@ async def test_published_rows_carry_the_gateway_they_were_measured_at(listener):
     datetime.fromisoformat(row["probed_at"])
 
 
-async def test_the_real_publisher_accepts_what_the_prober_produces(listener, published_state):
+@pytest.mark.usefixtures("published_state")
+async def test_the_real_publisher_accepts_what_the_prober_produces(listener):
     """End to end through ``target_state``: the file is read back, not mocked."""
     prober = _prober(_va_config(listener), targets=(VA,), interval_s=1000.0)
 
@@ -518,13 +519,14 @@ async def test_a_failed_publish_does_not_stop_the_loop(listener, monkeypatch, ca
     """An unwritable state directory costs a publish, never the measurements."""
     calls: list[int] = []
 
-    def _boom(rows: Any, **kwargs: Any) -> bool:
+    def _boom(rows: Any, **kwargs: Any) -> bool:  # noqa: ARG001 - target_state.publish_reachability fixes this stand-in's signature
         calls.append(1)
         raise OSError("state directory is read-only")
 
     monkeypatch.setattr(ep.target_state, "publish_reachability", _boom)
 
-    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01)
+    clock = FakeClock()
+    prober = _prober(_va_config(listener), targets=(VA,), interval_s=0.01, monotonic=clock)
 
     with caplog.at_level("WARNING", logger=ep.logger.name):
         await prober.start()

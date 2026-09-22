@@ -60,7 +60,7 @@ def _ports(context: dict) -> dict[str, int]:
         ``osprey_ports`` — slot name to host port.
     """
     ctx = TemplateManager()._project_context(
-        "build", Path("/tmp/does-not-need-to-exist"), "control_assistant", context, None
+        "build", Path("/tmp/does-not-need-to-exist"), context, None
     )
     return ctx["osprey_ports"]
 

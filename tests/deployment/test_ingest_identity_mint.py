@@ -161,7 +161,7 @@ def test_both_account_names_are_written_together(tmp_path, _clean_ingest_env):
     assert env_path.read_text().count("# Service account names (osprey up)") == 1
 
 
-def test_the_ingest_name_is_a_different_account_from_root(tmp_path, _clean_ingest_env):
+def test_the_ingest_name_is_a_different_account_from_root(_clean_ingest_env):
     """The whole point of the identity — same default value would be a no-op."""
     written = dict(_SERVICE_DEFAULT_VARS["openobserve"])
 

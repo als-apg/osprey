@@ -197,17 +197,17 @@ class FakeOIDCClient:
         }
         self.exchanged = False
 
-    async def create_authorization_url(self, redirect_uri: str | None = None) -> dict[str, Any]:
+    async def create_authorization_url(self, _redirect_uri: str | None = None) -> dict[str, Any]:
         return {
             "url": f"https://idp.example.org/authorize?state={FLOW_STATE}",
             "state": FLOW_STATE,
             "nonce": "nonce-value",
         }
 
-    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:
+    async def save_authorize_data(self, request: Any, **kwargs: Any) -> None:  # noqa: ARG002 - the OIDC client signature
         return None
 
-    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:
+    async def authorize_access_token(self, request: Any, **kwargs: Any) -> dict[str, Any]:  # noqa: ARG002 - the OIDC client signature
         self.exchanged = True
         return self.token
 
@@ -779,7 +779,7 @@ class TestNonAsciiSubjectFailsClosed:
         """A ledger that cannot be written degrades the audit trail, never the
         decision: the login is still refused when the seam raises."""
 
-        def boom(envelope: Any) -> None:
+        def boom(_envelope: Any) -> None:
             raise OSError("the ledger is unwritable")
 
         monkeypatch.setattr(audit, "write_envelope", boom)

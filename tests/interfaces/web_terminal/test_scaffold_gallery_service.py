@@ -352,7 +352,8 @@ class TestListArtifacts:
         by_name = {a["name"]: a for a in result}
         assert by_name[WRITABLE_ARTIFACT]["status"] == "user-owned"
 
-    def test_list_artifacts_marks_a_reserved_artifact_read_only(self, service, audit_zone):
+    @pytest.mark.usefixtures("audit_zone")
+    def test_list_artifacts_marks_a_reserved_artifact_read_only(self, service):
         """The badge has to mean what the gate does, so both are asserted here.
 
         A card that offers an edit the save then refuses is worse than one that
@@ -688,9 +689,8 @@ class TestSaveOverrideProtectedSet:
 
     # ── The route ────────────────────────────────────────────────────
 
-    def test_save_override_route_refuses_with_403_and_records_activity(
-        self, project_dir, audit_zone
-    ):
+    @pytest.mark.usefixtures("audit_zone")
+    def test_save_override_route_refuses_with_403_and_records_activity(self, project_dir):
         """The PUT route maps the refusal to 403 and publishes it to the ring."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
@@ -1081,9 +1081,8 @@ class TestDeleteUntrackedProtectedSet:
         assert target.exists()
         assert len(_protected_records(audit_zone)) == 1
 
-    def test_delete_untracked_route_refuses_with_403_and_records_activity(
-        self, project_dir, audit_zone
-    ):
+    @pytest.mark.usefixtures("audit_zone")
+    def test_delete_untracked_route_refuses_with_403_and_records_activity(self, project_dir):
         """The DELETE route maps the refusal to 403 and publishes it to the ring.
 
         The service holds no ``Request``, so naming the refusal in the agent's
@@ -1548,7 +1547,7 @@ class TestProfileMode:
 
         message = "Nothing was moved.\n  Rebuild it from a profile, then claim again."
 
-        def _refuse(project_dir, name):
+        def _refuse(_project_dir, _name):
             raise scaffold_cmd.ScaffoldClaimError(message)
 
         monkeypatch.setattr(scaffold_cmd, "claim_into_profile", _refuse)
@@ -1576,7 +1575,8 @@ class TestVolumeMode:
         assert _get_user_owned(container_project) == before
         assert _store_index(volume_dir)["artifacts"][WRITABLE_ARTIFACT]["state"] == "claimed"
 
-    def test_claim_survives_a_container_recreation(self, container_project, volume_dir, tmp_path):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_claim_survives_a_container_recreation(self, container_project, tmp_path):
         """The test this feature exists for.
 
         A recreated container gets a pristine tree from the image and the same
@@ -1601,9 +1601,8 @@ class TestVolumeMode:
             "the running agent reads the project tree, so the body must be restored there too"
         )
 
-    def test_created_artifact_survives_a_container_recreation(
-        self, container_project, volume_dir, tmp_path
-    ):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_created_artifact_survives_a_container_recreation(self, container_project, tmp_path):
         """A file that exists only in the container is the easiest thing to lose."""
         pristine = _recreate_container(container_project, tmp_path / "image-rebuild")
 
@@ -1633,7 +1632,8 @@ class TestVolumeMode:
         assert name not in svc._user_owned
         assert _store_index(volume_dir)["artifacts"][name]["state"] == "released"
 
-    def test_release_survives_a_container_recreation(self, container_project, volume_dir, tmp_path):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_release_survives_a_container_recreation(self, container_project, tmp_path):
         """A release is durable for the same reason a claim is."""
         pristine = _recreate_container(container_project, tmp_path / "image-rebuild")
         name = _get_user_owned(container_project)[0]
@@ -1727,7 +1727,8 @@ class TestVolumeMode:
         assert "rules/retired" not in listed
         assert not (container_project / ".claude" / "rules" / "retired.md").exists()
 
-    def test_local_edit_is_not_clobbered_by_the_durable_copy(self, container_project, volume_dir):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_local_edit_is_not_clobbered_by_the_durable_copy(self, container_project):
         """Rehydration restores an image-fresh file, never a newer local edit.
 
         Someone editing through the terminal rather than the gallery is doing
@@ -1894,7 +1895,8 @@ class TestRestoreContainment:
 class TestArtifactShapes:
     """Two shapes whose paths do not follow the ``<name>.md`` assumption."""
 
-    def test_hook_paths_keep_their_py_suffix(self, container_project, volume_dir):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_hook_paths_keep_their_py_suffix(self, container_project):
         """A hook is a ``.py`` script and is owned under a name that says so.
 
         Appending ``.md`` to it would record the claimed body against a path
@@ -1920,7 +1922,8 @@ class TestArtifactShapes:
         body = volume_dir / "osprey" / "scaffold" / "files" / ".claude" / "hooks" / "shift-check.py"
         assert body.read_text(encoding="utf-8") == hook.read_text(encoding="utf-8")
 
-    def test_directory_artifacts_are_not_read_as_text(self, service, project_dir):
+    @pytest.mark.usefixtures("project_dir")
+    def test_directory_artifacts_are_not_read_as_text(self, service):
         """A skill is a directory. Reading its profile slot as text would raise.
 
         The gallery edits single files; a directory-shaped artifact has no body
@@ -1936,8 +1939,9 @@ class TestArtifactShapes:
 class TestVolumeSaveDurability:
     """Editing an artifact you already own is as losable as claiming one."""
 
+    @pytest.mark.usefixtures("volume_dir")
     def test_editing_a_build_derived_artifact_survives_recreation(
-        self, container_project, volume_dir, tmp_path
+        self, container_project, tmp_path
     ):
         """Ownership from the image's config.yml carries no store record.
 
@@ -2010,7 +2014,8 @@ class TestGeneratedPathsAreNeverOwnable:
             detached_service.scaffold_override(name)
         assert _get_user_owned(detached_service.project_dir) == before
 
-    def test_the_other_spelling_is_refused_too(self, container_project, volume_dir, audit_zone):
+    @pytest.mark.usefixtures("audit_zone")
+    def test_the_other_spelling_is_refused_too(self, container_project, volume_dir):
         """Ownership follows the path, so naming it by filename changes nothing.
 
         ``register_untracked`` takes the name the file has on disk rather than
@@ -2234,9 +2239,8 @@ class TestTreeAndStoreDisagree:
     see and will destroy with their next save.
     """
 
-    def test_an_edit_made_outside_the_gallery_is_what_the_gallery_shows(
-        self, container_project, volume_dir
-    ):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_an_edit_made_outside_the_gallery_is_what_the_gallery_shows(self, container_project):
         svc = ScaffoldGalleryService(container_project)
         svc.scaffold_override(WRITABLE_ARTIFACT)
         svc.save_override(WRITABLE_ARTIFACT, "# Saved through the gallery\n")
@@ -2251,9 +2255,8 @@ class TestTreeAndStoreDisagree:
             "the gallery must show the copy the agent is reading, not the older durable one"
         )
 
-    def test_saving_what_the_gallery_showed_does_not_revert_that_edit(
-        self, container_project, volume_dir
-    ):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_saving_what_the_gallery_showed_does_not_revert_that_edit(self, container_project):
         """The consequence of getting the read wrong, asserted directly."""
         svc = ScaffoldGalleryService(container_project)
         svc.scaffold_override(WRITABLE_ARTIFACT)
@@ -2273,8 +2276,9 @@ class TestTreeAndStoreDisagree:
             encoding="utf-8"
         ) == edited_in_terminal
 
+    @pytest.mark.usefixtures("volume_dir")
     def test_an_untouched_image_copy_still_loses_to_the_durable_one(
-        self, container_project, volume_dir, tmp_path
+        self, container_project, tmp_path
     ):
         """The recreation case must keep working: image-fresh tree, older claim."""
         pristine = _recreate_container(container_project, tmp_path / "image-rebuild")
@@ -2377,9 +2381,8 @@ class TestUnclaimIsHonestAboutTheProfile:
 
         assert outcome["message"] == still_supplied_by_profile_message(str(slot))
 
-    def test_an_artifact_the_profile_does_not_supply_still_releases(
-        self, container_project, volume_dir
-    ):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_an_artifact_the_profile_does_not_supply_still_releases(self, container_project):
         """The honest path must not swallow the ordinary one."""
         svc = ScaffoldGalleryService(container_project)
         svc.scaffold_override(WRITABLE_ARTIFACT)
@@ -2417,9 +2420,8 @@ class TestRouteRefusals:
         app.state.project_cwd = str(project_dir)
         return TestClient(app)
 
-    def test_a_store_that_will_not_take_the_write_is_a_409(
-        self, container_project, volume_dir, monkeypatch
-    ):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_a_store_that_will_not_take_the_write_is_a_409(self, container_project, monkeypatch):
         """A full or read-only volume, reported rather than swallowed."""
         from osprey.interfaces.web_terminal import ownership as ownership_mod
 
@@ -2590,9 +2592,8 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert not (container_project / ".claude" / "rules" / f"{name}.md").exists()
         assert len(_protected_records(audit_zone)) == 1
 
-    def test_create_artifact_route_refuses_with_403_and_records_activity(
-        self, project_dir, audit_zone
-    ):
+    @pytest.mark.usefixtures("audit_zone")
+    def test_create_artifact_route_refuses_with_403_and_records_activity(self, project_dir):
         """The POST route maps the refusal to 403 and publishes it to the ring."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
@@ -2699,9 +2700,8 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert (_profile_root(project_dir) / "agents" / "channel-finder.md").is_file()
         assert _protected_records(audit_zone) == []
 
-    def test_claim_route_refuses_a_reserved_skill_with_403_and_records_activity(
-        self, project_dir, audit_zone
-    ):
+    @pytest.mark.usefixtures("audit_zone")
+    def test_claim_route_refuses_a_reserved_skill_with_403_and_records_activity(self, project_dir):
         """A pattern-reserved claim is a 403 naming the channel, not a 500.
 
         The app-level handler turns the CLI's refusal into a 409, but it only
@@ -2808,9 +2808,8 @@ class TestCreateClaimUnoverrideProtectedSet:
         assert not orphan.exists()
         assert _protected_records(audit_zone) == []
 
-    def test_unoverride_route_refuses_with_403_and_records_activity(
-        self, detached_project_dir, audit_zone
-    ):
+    @pytest.mark.usefixtures("audit_zone")
+    def test_unoverride_route_refuses_with_403_and_records_activity(self, detached_project_dir):
         """The DELETE route had no clause for this: the refusal was a 500."""
         from fastapi import FastAPI
         from fastapi.testclient import TestClient
@@ -3727,7 +3726,8 @@ class TestRestoreRefusesBodiesThatEscapeTheStore:
         assert restore_scaffold_bodies(container_project) == []
         assert _protected_records(audit_zone) == []
 
-    def test_an_ordinary_body_is_still_restored(self, container_project, volume_dir, tmp_path):
+    @pytest.mark.usefixtures("volume_dir")
+    def test_an_ordinary_body_is_still_restored(self, container_project, tmp_path):
         """The guard must not cost the feature: a real body still comes back."""
         pristine = _recreate_container(container_project, tmp_path / "image-rebuild")
         svc = ScaffoldGalleryService(container_project)

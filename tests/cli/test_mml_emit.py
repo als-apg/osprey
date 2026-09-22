@@ -458,7 +458,8 @@ class TestDemoKnowledge:
 class TestCollapseReport:
     """Which bindings the DuckDB collapse report counts, and how it names them."""
 
-    def test_shared_pv_owners_are_counted_from_one(self, repo: Path) -> None:
+    @pytest.mark.usefixtures("repo")
+    def test_shared_pv_owners_are_counted_from_one(self) -> None:
         """The owners of a shared PV are named by device ordinal, not by index."""
         pytest.importorskip("duckdb")
 
@@ -483,7 +484,8 @@ class TestCollapseReport:
         database = wrapped_repo / "data" / "channel_databases" / "middle_layer.json"
         assert database.read_text(encoding="utf-8").count(f'"{pv}"') == 1
 
-    def test_a_broadcast_row_still_collapses(self, wrapped_repo: Path) -> None:
+    @pytest.mark.usefixtures("wrapped_repo")
+    def test_a_broadcast_row_still_collapses(self) -> None:
         """An answered family does not silence the report the rest of the export earns."""
         pytest.importorskip("duckdb")
 
@@ -859,7 +861,7 @@ def _database_only_addresses(repo: Path) -> list[str]:
     return [address for address in _channel_addresses(database) if address not in served]
 
 
-def _emitted_tree(repo: Path) -> None:
+def _emitted_tree() -> None:
     """Emit once, so the documents this tree's scenarios are judged against exist."""
     result = _emit()
     assert result.exit_code == 0, result.output
@@ -873,7 +875,7 @@ def _served_scenario(repo: Path, name: str) -> Path:
     stated against the machine it will meet rather than against a name typed
     here.
     """
-    _emitted_tree(repo)
+    _emitted_tree()
     channels = _machine_channels(repo)
     assert channels, "the emitted machine carries no channel"
     return _write_scenario(repo, name, channels[0])
@@ -994,7 +996,8 @@ class TestVirtualAcceleratorLane:
             "export states 516883548 Hz; the served model solves 6D." in result.output
         )
 
-    def test_a_deck_that_carries_its_own_cavity_is_served_no_built_one(self, va_repo: Path) -> None:
+    @pytest.mark.usefixtures("va_repo")
+    def test_a_deck_that_carries_its_own_cavity_is_served_no_built_one(self) -> None:
         result = _emit()
 
         assert result.exit_code == 0, result.output
@@ -1151,7 +1154,8 @@ class TestVirtualAcceleratorLane:
         assert result.exit_code == 0, result.output
         assert (repo / "data" / "simulation" / "scenarios" / "demo-thermal").is_dir()
 
-    def test_a_tree_with_no_ring_of_its_own_says_nothing_about_one(self, repo: Path) -> None:
+    @pytest.mark.usefixtures("repo")
+    def test_a_tree_with_no_ring_of_its_own_says_nothing_about_one(self) -> None:
         result = _emit()
 
         assert result.exit_code == 0, result.output
@@ -1315,7 +1319,7 @@ class TestVirtualAcceleratorLane:
         # against the machine, so an address that is in the database and not on
         # the machine -- a readback, typically -- is one the simulation would
         # stop on however well it reads.
-        _emitted_tree(va_repo)
+        _emitted_tree()
         absent = _database_only_addresses(va_repo)
         assert absent, "this export seeds every address the database carries"
         _write_scenario(va_repo, "readback-probe", absent[0], key="overrides")

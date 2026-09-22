@@ -171,12 +171,14 @@ def _seed_reads(service):
 
 
 class TestDisabledRefusesEveryWrite:
-    def test_every_write_verb_refuses_with_403(self, disabled_client, svc):
+    @pytest.mark.usefixtures("svc")
+    def test_every_write_verb_refuses_with_403(self, disabled_client):
         for label, call in _write_requests(disabled_client):
             resp = call()
             assert resp.status_code == 403, f"{label} answered {resp.status_code}"
 
-    def test_refusal_names_the_key_that_produced_it(self, disabled_client, svc):
+    @pytest.mark.usefixtures("svc")
+    def test_refusal_names_the_key_that_produced_it(self, disabled_client):
         """An operator who meets the refusal must learn which switch made it."""
         for label, call in _write_requests(disabled_client):
             detail = call().json()["detail"]

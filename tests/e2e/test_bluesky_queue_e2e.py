@@ -946,7 +946,8 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[QueueStack]:
 # ===========================================================================
 
 
-def test_1_capability_is_executable_on_the_shipped_preset(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_1_capability_is_executable_on_the_shipped_preset() -> None:
     """``/health`` reports an EXECUTABLE deployment -- with no connector override.
 
     The reason code is imported from ``queue_backend`` rather than spelled as a
@@ -967,7 +968,8 @@ def test_1_capability_is_executable_on_the_shipped_preset(stack: QueueStack) -> 
     assert capability["detail"], "capability carries no operator-facing detail sentence"
 
 
-def test_1_capability_relayed_verbatim_by_the_sidecar(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_1_capability_relayed_verbatim_by_the_sidecar() -> None:
     """The sidecar's ``/bridge/health`` relays the bridge's record UNCHANGED.
 
     ``/bridge/health``, not ``/health`` -- the sidecar keeps the latter for its
@@ -1041,7 +1043,8 @@ def test_2_shipped_preset_arms_the_queue(stack: QueueStack) -> None:
     assert after == before, f"the refused add left an item in the queue ({before} -> {after})"
 
 
-def test_2_stop_disarms_the_idle_queue(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_2_stop_disarms_the_idle_queue() -> None:
     """The ungated Stop on an idle armed queue is the disarm, said plainly.
 
     Nothing is running, so there is nothing to stop after: the response says
@@ -1207,7 +1210,8 @@ def test_2_preflight_caps_the_move_list_but_never_the_total(stack: QueueStack) -
     assert payload["truncated"] is True, f"a sliced trajectory must say so: {payload}"
 
 
-def test_2_preflight_reports_an_unknown_plan_as_a_reason_not_a_404(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_2_preflight_reports_an_unknown_plan_as_a_reason_not_a_404() -> None:
     """An unavailable trajectory answers 200 in the same nine keys.
 
     A 404 would give the approval gate a status branch beside the ``ok`` branch
@@ -1232,7 +1236,8 @@ def test_2_preflight_reports_an_unknown_plan_as_a_reason_not_a_404(stack: QueueS
 # ===========================================================================
 
 
-def test_3_start_requires_the_launch_token(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_3_start_requires_the_launch_token() -> None:
     """``POST /queue/start`` without the token is refused ``launch_token_required``.
 
     Starting a stopped queue is an arming action -- it switches autostart on
@@ -1456,11 +1461,11 @@ def queue_tools_context_reset() -> Iterator[None]:
     reset_config_cache()
 
 
+@pytest.mark.usefixtures("queue_tools_context_reset")
 async def test_3_the_queue_tool_names_its_approved_queue_on_the_wire(
     stack: QueueStack,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    queue_tools_context_reset: None,
 ) -> None:
     """A start an approval bound quotes that queue to the bridge, and is judged on it.
 
@@ -1525,11 +1530,10 @@ async def test_3_the_queue_tool_names_its_approved_queue_on_the_wire(
     )
 
 
+@pytest.mark.usefixtures("stack", "queue_tools_context_reset")
 async def test_3_an_unbound_queue_tool_start_names_no_queue_at_all(
-    stack: QueueStack,
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    queue_tools_context_reset: None,
 ) -> None:
     """A start no approval bound carries no ``expected_plan_queue_uid`` key.
 
@@ -1787,7 +1791,8 @@ def test_4_results_read_back_off_the_live_buffer(stack: QueueStack) -> None:
     )
 
 
-def test_4_unknown_run_data_is_404_not_an_empty_scan(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_4_unknown_run_data_is_404_not_an_empty_scan() -> None:
     """A run neither source knows 404s -- never a 200 with an empty table.
 
     A 200-empty answer would make a nonexistent run indistinguishable from a
@@ -2064,7 +2069,8 @@ def test_5_session_plan_with_stale_validation_is_refused_at_enqueue(stack: Queue
     )
 
 
-def test_5_session_write_refuses_a_retired_metadata_key(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_5_session_write_refuses_a_retired_metadata_key() -> None:
     """A deployed bridge rejects ``category``/``required_devices`` on a plan write.
 
     The write payload is the same three fields the catalog publishes. A stale
@@ -2210,7 +2216,8 @@ def test_6_abort_halts_a_running_plan_without_a_token(stack: QueueStack) -> None
     assert after["status"] == "completed", f"the post-abort run did not complete: {after}"
 
 
-def test_6_abort_with_nothing_running_is_nothing_running(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_6_abort_with_nothing_running_is_nothing_running() -> None:
     """An abort with no plan under way is an honest 409, not a fake success.
 
     ``nothing_running`` is the truth -- nothing was stopped because there was
@@ -2230,7 +2237,8 @@ def test_6_abort_with_nothing_running_is_nothing_running(stack: QueueStack) -> N
 # ===========================================================================
 
 
-def test_7_bridge_restart_preserves_queue_and_history(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_7_bridge_restart_preserves_queue_and_history() -> None:
     """Restarting ONLY the bridge keeps the queue and the run history.
 
     The bridge holds no queue state -- it is a facade over the RE manager, whose
@@ -2277,7 +2285,8 @@ def test_7_bridge_restart_preserves_queue_and_history(stack: QueueStack) -> None
     )
 
 
-def test_7_completed_run_data_serves_from_tiled_after_the_restart(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_7_completed_run_data_serves_from_tiled_after_the_restart() -> None:
     """Post-restart, the same run's data comes off the DURABLE Tiled path.
 
     The live-row buffer is in-process and died with the bridge, so this read can
@@ -2307,7 +2316,8 @@ def test_7_completed_run_data_serves_from_tiled_after_the_restart(stack: QueueSt
     )
 
 
-def test_7_a_stored_run_exports_as_csv_and_parquet(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_7_a_stored_run_exports_as_csv_and_parquet() -> None:
     """``GET /runs/{id}/export`` hands back the stored table as a real file.
 
     Placed after the restart deliberately: the export reads the DURABLE copy, so
@@ -2345,7 +2355,8 @@ def test_7_a_stored_run_exports_as_csv_and_parquet(stack: QueueStack) -> None:
     )
 
 
-def test_7_export_refuses_in_the_uniform_shape(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_7_export_refuses_in_the_uniform_shape() -> None:
     """The export's refusals carry ``detail.code`` like every other route here.
 
     An unsupported format is the caller's mistake and names what IS supported;
@@ -2498,7 +2509,8 @@ def _project_network(name: str) -> str:
     return networks[0]
 
 
-def test_9_security_redis_is_unreachable_from_osprey_network(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_9_security_redis_is_unreachable_from_osprey_network() -> None:
     """Redis answers only on ``bluesky-internal``, never from ``osprey-network``.
 
     Redis holds the queue and history and has no authentication of its own; the
@@ -2555,9 +2567,8 @@ def test_9_security_redis_is_unreachable_from_osprey_network(stack: QueueStack) 
     )
 
 
-def test_9_security_control_socket_refuses_a_client_without_the_public_key(
-    stack: QueueStack,
-) -> None:
+@pytest.mark.usefixtures("stack")
+def test_9_security_control_socket_refuses_a_client_without_the_public_key() -> None:
     """The queueserver CONTROL socket answers no one without the server public key.
 
     The manager runs ``CURVE_SERVER=1`` with NO authenticator and NO client
@@ -2606,7 +2617,8 @@ def test_9_security_control_socket_refuses_a_client_without_the_public_key(
     )
 
 
-def test_9_security_document_plane_rejects_an_uncertified_publisher(stack: QueueStack) -> None:
+@pytest.mark.usefixtures("stack")
+def test_9_security_document_plane_rejects_an_uncertified_publisher() -> None:
     """A publisher with no CURVE client certificate lands no documents.
 
     The bridge's 0MQ Proxy binds with ``ServerCurve`` and a PINNED directory of

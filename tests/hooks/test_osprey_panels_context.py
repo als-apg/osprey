@@ -31,7 +31,7 @@ class _FakeResponse:
 def _stub_urlopen(monkeypatch, *, payload=None, raises=None, bad_body=False):
     """Point the hook's urlopen at a fake response, an error, or garbage body."""
 
-    def _fake(url, timeout=None):
+    def _fake(url, timeout=None):  # noqa: ARG001 - urlopen takes the url positionally and timeout by keyword
         if raises is not None:
             raise raises
         if bad_body:
@@ -247,7 +247,8 @@ def test_write_snapshot_roundtrips_and_leaves_no_temp_file(temp_snapshot_dir):
     assert list(temp_snapshot_dir.iterdir()) == [temp_snapshot_dir / "osprey-workspace-sess-1.json"]
 
 
-def test_write_snapshot_overwrites_previous_content(temp_snapshot_dir):
+@pytest.mark.usefixtures("temp_snapshot_dir")
+def test_write_snapshot_overwrites_previous_content():
     path = panels._snapshot_path("sess-1")
     panels._write_snapshot(path, {"tiles": ["old"], "active": "old", "visible": ["old"]})
     panels._write_snapshot(path, {"tiles": ["new"], "active": "new", "visible": ["new"]})
@@ -342,7 +343,7 @@ def test_main_uses_configured_web_port(monkeypatch):
     monkeypatch.setenv("OSPREY_WEB_PORT", "9123")
     seen = {}
 
-    def _fake(url, timeout=None):
+    def _fake(url, timeout=None):  # noqa: ARG001 - urlopen takes the url positionally and timeout by keyword
         seen["url"] = url
         return _FakeResponse({"enabled": [], "custom": []})
 

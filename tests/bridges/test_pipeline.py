@@ -147,7 +147,7 @@ class CountingProbe:
         self.verdicts = list(verdicts) or [True]
         self.calls = 0
 
-    def __call__(self, cfg: Any, capability: str) -> bool:
+    def __call__(self, _cfg: Any, capability: str) -> bool:
         assert capability == "input_files"
         self.calls += 1
         return self.verdicts[min(self.calls - 1, len(self.verdicts) - 1)]
@@ -449,7 +449,7 @@ def test_retryable_failure_parks_via_real_retry_queue(tmp_path):
 def test_injected_park_seam_receives_persisted_entry_and_result(tmp_path):
     parked: list[tuple[str, str, str]] = []
 
-    def park(ops_, dedup_, message_id, entry, result):
+    def park(_ops, _dedup, message_id, entry, result):
         parked.append((message_id, entry["text"], result["failure_class"]))
 
     ops = RecordingChannelOps(parse_result=make_event())

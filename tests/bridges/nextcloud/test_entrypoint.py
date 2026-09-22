@@ -477,7 +477,8 @@ def test_one_poller_per_configured_room(tmp_path):
     assert [poller.room for poller in pollers] == [ROOM, OTHER_ROOM]
 
 
-def test_one_stop_event_reaches_every_poller_and_the_directory(recorded, tmp_path):
+@pytest.mark.usefixtures("recorded")
+def test_one_stop_event_reaches_every_poller_and_the_directory(tmp_path):
     """Asserted by identity, not by timing. A missed injection costs up to
     ``BACKOFF_CAP`` seconds of a container ignoring SIGTERM, and a test that waited that
     out to find out would be both slow and weaker than ``is``."""
@@ -494,7 +495,8 @@ def test_one_stop_event_reaches_every_poller_and_the_directory(recorded, tmp_pat
     assert wiring.rooms.sleep_arg == wiring.stop.wait
 
 
-def test_the_ops_object_and_the_pollers_hold_the_same_directory(recorded, tmp_path):
+@pytest.mark.usefixtures("recorded")
+def test_the_ops_object_and_the_pollers_hold_the_same_directory(tmp_path):
     cfg = _cfg(tmp_path, rooms=(ROOM, OTHER_ROOM))
     wiring = entry.build_wiring(cfg, talk=_talk(FakeNextcloud(last_message_id=1)))
 

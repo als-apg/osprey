@@ -144,9 +144,8 @@ def read_env(repo_root: Path) -> dict[str, str]:
 class TestSeedMintsTerminalSecrets:
     """``osprey users seed`` prepares a workspace; a workspace needs a front door."""
 
-    def test_seeding_mints_a_secret_for_every_roster_user(
-        self, cli_runner, repo_root, stub_engines
-    ):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_seeding_mints_a_secret_for_every_roster_user(self, cli_runner, repo_root):
         result = cli_runner.invoke(users, ["seed"])
 
         assert result.exit_code == 0
@@ -155,9 +154,8 @@ class TestSeedMintsTerminalSecrets:
         assert stored[BOB_SECRET]
         assert stored[ALICE_SECRET] != stored[BOB_SECRET]
 
-    def test_seeding_one_user_still_provisions_the_whole_roster(
-        self, cli_runner, repo_root, stub_engines
-    ):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_seeding_one_user_still_provisions_the_whole_roster(self, cli_runner, repo_root):
         """The mint is idempotent, and a secret missing for somebody else is a gap
         `osprey up` refuses on either way — so narrowing it would only defer that."""
         result = cli_runner.invoke(users, ["seed", "alice"])
@@ -179,9 +177,8 @@ class TestSeedMintsTerminalSecrets:
         assert result.exit_code == 0
         assert seen == [True]
 
-    def test_reseeding_never_rotates_an_established_secret(
-        self, cli_runner, repo_root, stub_engines
-    ):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_reseeding_never_rotates_an_established_secret(self, cli_runner, repo_root):
         cli_runner.invoke(users, ["seed"])
         before = read_env(repo_root)
 
@@ -190,7 +187,8 @@ class TestSeedMintsTerminalSecrets:
         assert result.exit_code == 0
         assert read_env(repo_root) == before
 
-    def test_an_operators_own_secret_survives_a_seed(self, cli_runner, repo_root, stub_engines):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_an_operators_own_secret_survives_a_seed(self, cli_runner, repo_root):
         (repo_root / ENV_LOCAL_FILENAME).write_text(
             f"{ALICE_SECRET}=set-by-hand\n", encoding="utf-8"
         )
@@ -259,9 +257,8 @@ class TestEnvMintsTerminalSecrets:
 class TestRemovePurgesTheDepartedSecret:
     """The engines' own purge reaches ``.env.auth`` only."""
 
-    def test_the_removed_users_secret_is_dropped_from_the_deploy_env(
-        self, cli_runner, repo_root, stub_engines
-    ):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_the_removed_users_secret_is_dropped_from_the_deploy_env(self, cli_runner, repo_root):
         cli_runner.invoke(users, ["seed"])
         bob_before = read_env(repo_root)[BOB_SECRET]
 
@@ -272,8 +269,9 @@ class TestRemovePurgesTheDepartedSecret:
         assert ALICE_SECRET not in stored
         assert stored[BOB_SECRET] == bob_before
 
+    @pytest.mark.usefixtures("stub_engines")
     def test_a_re_added_user_does_not_inherit_the_previous_holders_secret(
-        self, cli_runner, repo_root, stub_engines
+        self, cli_runner, repo_root
     ):
         cli_runner.invoke(users, ["seed"])
         original = read_env(repo_root)[ALICE_SECRET]
@@ -301,9 +299,8 @@ class TestRemovePurgesTheDepartedSecret:
         assert result.exit_code != 0
         assert ALICE_SECRET in read_env(repo_root)
 
-    def test_an_unwritable_env_warns_and_names_the_variable(
-        self, cli_runner, repo_root, stub_engines, monkeypatch
-    ):
+    @pytest.mark.usefixtures("repo_root", "stub_engines")
+    def test_an_unwritable_env_warns_and_names_the_variable(self, cli_runner, monkeypatch):
         """Everything else about the removal already succeeded, so this cannot
         abort the verb — it has to say what is left over and how to finish it."""
         cli_runner.invoke(users, ["seed"])
@@ -319,8 +316,9 @@ class TestRemovePurgesTheDepartedSecret:
         assert ALICE_SECRET in result.output
         assert "read-only file system" in result.output
 
+    @pytest.mark.usefixtures("stub_engines")
     def test_a_secret_shared_with_a_surviving_user_is_left_alone(
-        self, cli_runner, tmp_path, monkeypatch, stub_engines
+        self, cli_runner, tmp_path, monkeypatch
     ):
         """`alice-b` and `alice_b` key one variable. Such a roster can never be
         minted for — the mint refuses it — so this only fires on a hand-placed
@@ -346,9 +344,8 @@ class TestRemovePurgesTheDepartedSecret:
 class TestPrunePurgesOrphanSecrets:
     """Prune discovers orphans in the runtime and reports no names back."""
 
-    def test_secrets_for_users_off_the_roster_are_removed(
-        self, cli_runner, tmp_path, monkeypatch, stub_engines
-    ):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_secrets_for_users_off_the_roster_are_removed(self, cli_runner, tmp_path, monkeypatch):
         root = _make_repo(tmp_path)
         monkeypatch.chdir(root)
         cli_runner.invoke(users, ["seed"])
@@ -364,7 +361,8 @@ class TestPrunePurgesOrphanSecrets:
         assert BOB_SECRET not in stored
         assert stored[ALICE_SECRET] == alice_before
 
-    def test_dry_run_removes_nothing(self, cli_runner, tmp_path, monkeypatch, stub_engines):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_dry_run_removes_nothing(self, cli_runner, tmp_path, monkeypatch):
         root = _make_repo(tmp_path)
         monkeypatch.chdir(root)
         cli_runner.invoke(users, ["seed"])
@@ -376,9 +374,8 @@ class TestPrunePurgesOrphanSecrets:
         assert result.exit_code == 0
         assert (root / ENV_LOCAL_FILENAME).read_text(encoding="utf-8") == before
 
-    def test_an_intact_roster_keeps_every_secret(
-        self, cli_runner, repo_root, stub_engines, monkeypatch
-    ):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_an_intact_roster_keeps_every_secret(self, cli_runner, repo_root):
         cli_runner.invoke(users, ["seed"])
         before = (repo_root / ENV_LOCAL_FILENAME).read_text(encoding="utf-8")
 
@@ -387,9 +384,8 @@ class TestPrunePurgesOrphanSecrets:
         assert result.exit_code == 0
         assert (repo_root / ENV_LOCAL_FILENAME).read_text(encoding="utf-8") == before
 
-    def test_an_unwritable_env_warns_without_failing_the_prune(
-        self, cli_runner, repo_root, stub_engines, monkeypatch
-    ):
+    @pytest.mark.usefixtures("repo_root", "stub_engines")
+    def test_an_unwritable_env_warns_without_failing_the_prune(self, cli_runner, monkeypatch):
         def _fail(*_args, **_kwargs):
             raise OSError("read-only file system")
 
@@ -404,17 +400,20 @@ class TestPrunePurgesOrphanSecrets:
 class TestTheDeployEnvItself:
     """Where the secrets land, and what they must not disturb."""
 
-    def test_the_deploy_env_is_created_0600(self, cli_runner, repo_root, stub_engines):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_the_deploy_env_is_created_0600(self, cli_runner, repo_root):
         cli_runner.invoke(users, ["seed"])
 
         assert (repo_root / ENV_LOCAL_FILENAME).stat().st_mode & 0o777 == 0o600
 
-    def test_nothing_is_written_to_env_auth(self, cli_runner, repo_root, stub_engines):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_nothing_is_written_to_env_auth(self, cli_runner, repo_root):
         cli_runner.invoke(users, ["seed"])
 
         assert not (repo_root / ".env.auth").exists()
 
-    def test_an_operators_other_variables_survive(self, cli_runner, repo_root, stub_engines):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_an_operators_other_variables_survive(self, cli_runner, repo_root):
         (repo_root / ENV_LOCAL_FILENAME).write_text(
             "# my notes\nCBORG_API_KEY=llm-secret\n", encoding="utf-8"
         )
@@ -425,8 +424,9 @@ class TestTheDeployEnvItself:
         assert "# my notes" in text
         assert "CBORG_API_KEY=llm-secret" in text
 
+    @pytest.mark.usefixtures("stub_engines")
     def test_a_roster_that_cannot_be_keyed_refuses_rather_than_guessing(
-        self, cli_runner, tmp_path, monkeypatch, stub_engines
+        self, cli_runner, tmp_path, monkeypatch
     ):
         """Two usernames on one env-var suffix would share a single secret — one
         user's key opening another's terminal."""
@@ -443,9 +443,8 @@ class TestTheDeployEnvItself:
         assert result.exit_code != 0
         assert not (root / ENV_LOCAL_FILENAME).exists()
 
-    def test_a_repo_with_no_roster_writes_no_env_at_all(
-        self, cli_runner, tmp_path, monkeypatch, stub_engines
-    ):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_a_repo_with_no_roster_writes_no_env_at_all(self, cli_runner, tmp_path, monkeypatch):
         rosterless = yaml.safe_load(RENDERED_CONFIG)
         rosterless["modules"]["web_terminals"].pop("users")
         root = _make_repo(tmp_path, yaml.safe_dump(rosterless))
@@ -456,8 +455,9 @@ class TestTheDeployEnvItself:
         assert result.exit_code == 0
         assert not (root / ENV_LOCAL_FILENAME).exists()
 
+    @pytest.mark.usefixtures("stub_engines")
     def test_the_verb_writes_the_repo_root_env_not_one_under_build(
-        self, cli_runner, repo_root, stub_engines, monkeypatch
+        self, cli_runner, repo_root, monkeypatch
     ):
         """The repo root's .env is the file compose interpolates from; the verbs
         chdir there, so a bare relative path would be right by accident."""
@@ -472,8 +472,9 @@ class TestTheDeployEnvItself:
         assert not (subdir / ENV_LOCAL_FILENAME).exists()
         assert not (repo_root / "build" / ENV_LOCAL_FILENAME).exists()
 
+    @pytest.mark.usefixtures("stub_engines")
     def test_the_working_directory_is_restored_afterwards(
-        self, cli_runner, repo_root, stub_engines, monkeypatch, tmp_path
+        self, cli_runner, repo_root, monkeypatch, tmp_path
     ):
         elsewhere = tmp_path / "elsewhere"
         elsewhere.mkdir()
@@ -546,7 +547,8 @@ class TestLoginUrl:
     URL. Nothing else in the multi-user shape hands that URL out.
     """
 
-    def test_prints_the_users_own_login_url(self, cli_runner, repo_with_origin, stub_engines):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_prints_the_users_own_login_url(self, cli_runner, repo_with_origin):
         cli_runner.invoke(users, ["seed"])
         secret = read_env(repo_with_origin)[ALICE_SECRET]
 
@@ -557,9 +559,8 @@ class TestLoginUrl:
             result.stdout.strip() == f"http://dls-deploy.example.org:8080/u/alice/?token={secret}"
         )
 
-    def test_stdout_carries_the_url_and_nothing_else(
-        self, cli_runner, repo_with_origin, stub_engines
-    ):
+    @pytest.mark.usefixtures("repo_with_origin", "stub_engines")
+    def test_stdout_carries_the_url_and_nothing_else(self, cli_runner):
         """So `osprey users login-url alice | pbcopy` copies a working URL.
 
         The warning about what the URL contains is real and must be printed —
@@ -575,9 +576,8 @@ class TestLoginUrl:
         # The caution is not silently dropped; it goes to stderr.
         assert "secret" in result.stderr.lower()
 
-    def test_a_long_url_is_printed_on_one_unwrapped_line(
-        self, cli_runner, tmp_path, monkeypatch, stub_engines
-    ):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_a_long_url_is_printed_on_one_unwrapped_line(self, cli_runner, tmp_path, monkeypatch):
         """The URL goes through the renderer, which wraps by default.
 
         A newline folded into the middle of a URL an operator is about to paste
@@ -599,7 +599,8 @@ class TestLoginUrl:
         assert result.exit_code == 0
         assert result.stdout == f"http://{long_host}:8080/u/alice/?token={secret}\n"
 
-    def test_each_user_gets_their_own_secret(self, cli_runner, repo_with_origin, stub_engines):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_each_user_gets_their_own_secret(self, cli_runner, repo_with_origin):
         """One secret per user is the isolation the carrier exists to establish;
         a URL that handed out a shared value would erase it."""
         cli_runner.invoke(users, ["seed"])
@@ -613,8 +614,9 @@ class TestLoginUrl:
         assert stored[BOB_SECRET] not in alice
         assert stored[ALICE_SECRET] not in bob
 
+    @pytest.mark.usefixtures("stub_engines")
     def test_a_hand_pinned_secret_is_percent_encoded_into_the_query(
-        self, cli_runner, repo_with_origin, stub_engines
+        self, cli_runner, repo_with_origin
     ):
         """A minted secret needs no escaping; one an operator pinned by hand may."""
         (repo_with_origin / ENV_LOCAL_FILENAME).write_text(
@@ -626,9 +628,8 @@ class TestLoginUrl:
         assert result.exit_code == 0
         assert result.stdout.strip().endswith("?token=a%2Bb%2Fc%3Dd")
 
-    def test_a_user_off_the_roster_is_refused_by_name(
-        self, cli_runner, repo_with_origin, stub_engines
-    ):
+    @pytest.mark.usefixtures("repo_with_origin", "stub_engines")
+    def test_a_user_off_the_roster_is_refused_by_name(self, cli_runner):
         """Named before the secret is looked up: a user who is not on the roster
         has no variable to be missing, and reporting the absent variable would
         send an operator to edit .env over what is really a roster edit."""
@@ -642,9 +643,8 @@ class TestLoginUrl:
         assert "alice" in combined and "bob" in combined
         assert "http://" not in result.stdout
 
-    def test_an_unminted_secret_is_refused_with_the_verb_that_mints_it(
-        self, cli_runner, repo_with_origin, stub_engines
-    ):
+    @pytest.mark.usefixtures("repo_with_origin", "stub_engines")
+    def test_an_unminted_secret_is_refused_with_the_verb_that_mints_it(self, cli_runner):
         """No `.env` at all: the deployment has never been started. The remedy is
         the mint, which runs in every auth method, not a value to invent."""
         result = cli_runner.invoke(users, ["login-url", "alice"])
@@ -655,9 +655,8 @@ class TestLoginUrl:
         assert "osprey up" in combined
         assert "http://" not in result.stdout
 
-    def test_a_blank_secret_is_refused_rather_than_handed_out(
-        self, cli_runner, repo_with_origin, stub_engines
-    ):
+    @pytest.mark.usefixtures("stub_engines")
+    def test_a_blank_secret_is_refused_rather_than_handed_out(self, cli_runner, repo_with_origin):
         """A present-but-empty variable builds a URL with an empty token, which
         the app refuses — an operator would read that as their own mistake."""
         (repo_with_origin / ENV_LOCAL_FILENAME).write_text(f"{ALICE_SECRET}=\n", encoding="utf-8")
@@ -667,8 +666,9 @@ class TestLoginUrl:
         assert result.exit_code != 0
         assert "token=" not in result.stdout
 
+    @pytest.mark.usefixtures("stub_engines")
     def test_a_user_behind_the_login_wall_is_refused_and_told_where_they_sign_in(
-        self, cli_runner, walled_repo, stub_engines
+        self, cli_runner, walled_repo
     ):
         """The URL is inert for a walled user, so printing it leaks a live
         credential for nothing.
@@ -691,8 +691,9 @@ class TestLoginUrl:
         assert "/u/alice/" not in combined
         assert read_env(walled_repo)[ALICE_SECRET] not in combined
 
+    @pytest.mark.usefixtures("stub_engines")
     def test_a_user_on_an_open_deployment_is_refused_and_told_the_plain_address(
-        self, cli_runner, open_repo, stub_engines
+        self, cli_runner, open_repo
     ):
         """`auth.method: none` vouches for every non-exempt terminal itself, so
         there is neither a login page nor a `?token=` exchange to trade — the
@@ -712,8 +713,9 @@ class TestLoginUrl:
         # its path rather than on the query it would have carried.)
         assert read_env(open_repo)[ALICE_SECRET] not in combined
 
+    @pytest.mark.usefixtures("stub_engines")
     def test_the_retired_login_key_does_not_exempt_an_entry_from_the_refusal(
-        self, cli_runner, walled_repo, stub_engines
+        self, cli_runner, walled_repo
     ):
         """`login: false` used to put one entry outside the wall and make this
         verb answer for it. The key is retired: an entry still carrying it
@@ -729,9 +731,8 @@ class TestLoginUrl:
         assert "/auth/login" in combined
         assert secret not in combined
 
-    def test_a_deployment_with_no_fqdn_says_which_key_is_missing(
-        self, cli_runner, repo_root, stub_engines
-    ):
+    @pytest.mark.usefixtures("repo_root", "stub_engines")
+    def test_a_deployment_with_no_fqdn_says_which_key_is_missing(self, cli_runner):
         """`deploy.fqdn` is the only host this deployment records; without it
         there is no origin to put in front of the path, and a URL built from
         `localhost` would be one the containers' own Origin check refuses."""

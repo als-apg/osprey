@@ -105,10 +105,10 @@ class DeclaringModel(LUMEModel):
     def supported_variables(self) -> dict[str, Variable]:
         return self._vars
 
-    def _get(self, names: list[str]) -> dict[str, Any]:  # pragma: no cover - unused
+    def _get(self, names: list[str]) -> dict[str, Any]:  # noqa: ARG002 - the model surface fixes this signature  # pragma: no cover - unused
         raise AssertionError("partitioning must never read a value")
 
-    def _set(self, values: dict[str, Any]) -> None:  # pragma: no cover - unused
+    def _set(self, values: dict[str, Any]) -> None:  # noqa: ARG002 - the model surface fixes this signature  # pragma: no cover - unused
         raise AssertionError("partitioning must never write a value")
 
     def reset(self) -> None:  # pragma: no cover - unused
@@ -714,7 +714,7 @@ class TestSetRefusals:
         configured: str | None,
         presented: str | None,
         values: dict[str, float],
-        reason: str,
+        reason: str,  # noqa: ARG002 - a column of the shared REFUSED_SETS table
     ) -> None:
         surface = _writer(_writable_model(), records, model_write_token=configured)
 

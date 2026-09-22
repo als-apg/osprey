@@ -28,10 +28,10 @@ def _provider(result: tuple[bool, str], sleep: float = 0.0) -> type:
     class _Fake:
         def check_health(
             self,
-            api_key: str | None,
-            base_url: str | None,
-            timeout: float = 5.0,
-            model_id: str | None = None,
+            _api_key: str | None,
+            _base_url: str | None,
+            _timeout: float = 5.0,
+            _model_id: str | None = None,
         ) -> tuple[bool, str]:
             if sleep:
                 time.sleep(sleep)

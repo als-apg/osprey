@@ -100,7 +100,7 @@ async def test_screenshot_region_mode(tmp_path, monkeypatch):
         "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
     )
 
-    async def mock_capture_region(x, y, w, h, filepath):
+    async def mock_capture_region(_x, _y, _w, _h, filepath):
         open(filepath, "wb").write(b"PNG_DATA")
         return _mock_image_info(filepath=filepath, width=800, height=600)
 
@@ -126,7 +126,7 @@ async def test_screenshot_display_mode(tmp_path, monkeypatch):
         "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
     )
 
-    async def mock_capture_display(display, filepath):
+    async def mock_capture_display(_display, filepath):
         open(filepath, "wb").write(b"PNG_DATA")
         return _mock_image_info(filepath=filepath)
 
@@ -151,7 +151,7 @@ async def test_screenshot_window_by_wid(tmp_path, monkeypatch):
         "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
     )
 
-    async def mock_capture_window(target, filepath):
+    async def mock_capture_window(_target, filepath):
         open(filepath, "wb").write(b"PNG_DATA")
         return _mock_image_info(filepath=filepath)
 
@@ -176,7 +176,7 @@ async def test_screenshot_window_by_name(tmp_path, monkeypatch):
         "screen_capture:\n  output_dir: '" + str(tmp_path / "screenshots") + "'\n"
     )
 
-    async def mock_capture_window(target, filepath):
+    async def mock_capture_window(_target, filepath):
         open(filepath, "wb").write(b"PNG_DATA")
         return _mock_image_info(filepath=filepath)
 

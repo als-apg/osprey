@@ -86,7 +86,11 @@ def phase():
 
 
 @pytest.fixture
-def clean_run(captured_runs, phase, tmp_path):
+def clean_run(
+    captured_runs,
+    phase,  # noqa: ARG001 - a recording phase is open while the clean runs
+    tmp_path,
+):
     """Run ``clean_deployment`` pinned to ``tmp_path`` as the deployment repo."""
     compose_generator.clean_deployment(
         ["docker-compose.yml"], {"project_name": "myproj", "project_root": str(tmp_path)}
@@ -128,7 +132,8 @@ def test_each_site_still_receives_the_pinned_compose_environment(clean_run):
         assert kwargs["env"]["COMPOSE_PROJECT_NAME"] == "myproj"
 
 
-def test_each_site_announces_itself_as_a_step_on_the_open_phase(clean_run, phase):
+@pytest.mark.usefixtures("clean_run")
+def test_each_site_announces_itself_as_a_step_on_the_open_phase(phase):
     assert len(phase.steps) == 2
     assert phase.steps[0] != phase.steps[1]
 

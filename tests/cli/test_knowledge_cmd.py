@@ -333,9 +333,7 @@ def test_seed_from_ttl_help_listed() -> None:
     assert "seed-from-ttl" in result.output
 
 
-def test_seed_from_ttl_no_rdflib_clean_error(
-    mini_ttl: Path, seed_bundle: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_seed_from_ttl_no_rdflib_clean_error(mini_ttl: Path, seed_bundle: Path) -> None:
     """Missing rdflib produces a clean ClickException, not a traceback."""
     import sys
     import unittest.mock as mock
@@ -538,7 +536,7 @@ def graph_ttl(tmp_path: Path) -> Path:
 def _patch_config(monkeypatch: pytest.MonkeyPatch, block: object) -> None:
     """Make ``services.graphdb`` read as *block* wherever the verb looks it up."""
 
-    def _get_config_value(path: str, default: object = None, config_path: object = None) -> object:
+    def _get_config_value(path: str, default: object = None, _config_path: object = None) -> object:
         if path == "services.graphdb":
             return block
         if path == "services.graphdb.ttl_path":
@@ -646,7 +644,7 @@ def baked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[Path]:
 
     calls: list[Path] = []
 
-    def _bake(session: object, render_dir: Path) -> list[Path]:
+    def _bake(_session: object, render_dir: Path) -> list[Path]:
         calls.append(render_dir)
         return [render_dir / ".claude" / "agents" / "facility-knowledge-graph.md"]
 
@@ -654,12 +652,9 @@ def baked(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> list[Path]:
     return calls
 
 
+@pytest.mark.usefixtures("graph")
 def test_seed_graph_bakes_the_prompt_snapshot_after_seeding(
-    graph: _GraphStub,
-    graph_ttl: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    baked: list[Path],
-    tmp_path: Path,
+    graph_ttl: Path, monkeypatch: pytest.MonkeyPatch, baked: list[Path], tmp_path: Path
 ) -> None:
     """A successful seed refreshes the rendered agent prompt from the store."""
     _patch_config(monkeypatch, {})
@@ -719,7 +714,7 @@ def test_seed_graph_survives_a_failed_bake(
     (render / "config.yml").write_text("project_name: demo\n", encoding="utf-8")
     monkeypatch.setenv("OSPREY_CONFIG", str(render / "config.yml"))
 
-    def _boom(session: object, render_dir: Path) -> list[Path]:
+    def _boom(_session: object, _render_dir: Path) -> list[Path]:
         raise RuntimeError("render is read-only")
 
     monkeypatch.setattr(prompt_snapshot, "bake_snapshot", _boom)
@@ -987,8 +982,9 @@ def test_seed_graph_unreachable_store_is_a_clean_error(
     assert "Traceback" not in result.output
 
 
+@pytest.mark.usefixtures("graph")
 def test_seed_graph_names_a_missing_n10s_plugin(
-    graph: _GraphStub, graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
+    graph_ttl: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A store without the plugin is reported in those words — not as a
     missing stored procedure, and not as a connection failure."""

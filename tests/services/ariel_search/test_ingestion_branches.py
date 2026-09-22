@@ -1112,7 +1112,8 @@ class TestGenericAdapterGuards:
         assert "source_url is required" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_since_and_until_bounds_are_exclusive(self, tmp_path, facility_tz):
+    @pytest.mark.usefixtures("facility_tz")
+    async def test_since_and_until_bounds_are_exclusive(self, tmp_path):
         """Entries on either bound are dropped, matching the other adapters."""
         path = tmp_path / "entries.json"
         path.write_text(
@@ -1138,7 +1139,8 @@ class TestGenericAdapterGuards:
         assert [e["entry_id"] for e in entries] == ["middle"]
 
     @pytest.mark.asyncio
-    async def test_limit_stops_reading(self, tmp_path, facility_tz):
+    @pytest.mark.usefixtures("facility_tz")
+    async def test_limit_stops_reading(self, tmp_path):
         """limit truncates the yielded entries."""
         path = tmp_path / "entries.json"
         path.write_text(
@@ -1158,7 +1160,8 @@ class TestGenericAdapterGuards:
         assert [e["entry_id"] for e in entries] == ["0", "1"]
 
     @pytest.mark.asyncio
-    async def test_unparseable_timestamp_drops_the_entry(self, tmp_path, facility_tz, caplog):
+    @pytest.mark.usefixtures("facility_tz")
+    async def test_unparseable_timestamp_drops_the_entry(self, tmp_path, caplog):
         """The generic adapter drops an entry with a bad timestamp, unlike ALS/ORNL.
 
         ``_parse_timestamp`` raises rather than defaulting to now, and
@@ -1316,7 +1319,8 @@ class TestGenericAppendEntry:
 class TestGenericConvertEntry:
     """Metadata passthrough and timestamp resolution."""
 
-    def test_optional_metadata_fields_are_carried(self, facility_tz):
+    @pytest.mark.usefixtures("facility_tz")
+    def test_optional_metadata_fields_are_carried(self):
         """Every optional source field lands under its ARIEL metadata key."""
         adapter = _generic_adapter("/tmp/entries.json")
 
@@ -1360,7 +1364,8 @@ class TestGenericConvertEntry:
         }
         assert entry["raw_text"] == "Title\n\nBody"
 
-    def test_attachments_carry_optional_fields(self, facility_tz):
+    @pytest.mark.usefixtures("facility_tz")
+    def test_attachments_carry_optional_fields(self):
         """Attachment dicts without a url are skipped; the rest keep their extras."""
         adapter = _generic_adapter("/tmp/entries.json")
 
@@ -1410,7 +1415,8 @@ class TestGenericConvertEntry:
         assert entry["timestamp"].date() == expected_date
         assert entry["timestamp"].strftime("%H:%M:%S") == "13:45:00"
 
-    def test_relative_when_defaults_to_midnight(self, facility_tz):
+    @pytest.mark.usefixtures("facility_tz")
+    def test_relative_when_defaults_to_midnight(self):
         """``when`` without a ``time`` resolves to midnight facility time."""
         adapter = _generic_adapter("/tmp/entries.json")
 
@@ -1423,7 +1429,8 @@ class TestGenericConvertEntry:
         [-1, True, "3", 1.5, None],
         ids=["negative", "bool", "string", "float", "none"],
     )
-    def test_invalid_days_ago_raises(self, facility_tz, days_ago):
+    @pytest.mark.usefixtures("facility_tz")
+    def test_invalid_days_ago_raises(self, days_ago):
         """``days_ago`` must be a non-negative int; bools are rejected explicitly."""
         adapter = _generic_adapter("/tmp/entries.json")
 
@@ -1433,7 +1440,8 @@ class TestGenericConvertEntry:
             )
 
     @pytest.mark.parametrize("time_value", ["25:99", 5, None], ids=["malformed", "int", "none"])
-    def test_invalid_when_time_raises(self, facility_tz, time_value):
+    @pytest.mark.usefixtures("facility_tz")
+    def test_invalid_when_time_raises(self, time_value):
         """``when.time`` must be an 'HH:MM:SS' string."""
         adapter = _generic_adapter("/tmp/entries.json")
 
@@ -1442,7 +1450,8 @@ class TestGenericConvertEntry:
                 {"id": "1", "title": "T", "when": {"days_ago": 1, "time": time_value}}
             )
 
-    def test_absolute_timestamp_ignores_the_facility_anchor(self, facility_tz):
+    @pytest.mark.usefixtures("facility_tz")
+    def test_absolute_timestamp_ignores_the_facility_anchor(self):
         """An absolute timestamp is parsed verbatim, not shifted toward ``now``."""
         adapter = _generic_adapter("/tmp/entries.json")
 

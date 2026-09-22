@@ -181,7 +181,8 @@ class TestRfThermalContract:
             f"(base 27 + noise); an excursion has leaked outside the anchored band"
         )
 
-    def test_bundle_offsets_match_the_pinned_contract(self, engine_factory):
+    @pytest.mark.usefixtures("engine_factory")
+    def test_bundle_offsets_match_the_pinned_contract(self):
         """The shipped bundle carries exactly the offsets/width this file asserts."""
         bundle = json.loads((TEMPLATE_SIM / "scenarios/rf-thermal/scenario.json").read_text())
         cav01_temp = next(
