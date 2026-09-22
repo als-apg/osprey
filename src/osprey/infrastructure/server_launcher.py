@@ -73,6 +73,12 @@ _OPERATOR_SECRET_HEADER = "x-osprey-terminal-secret"
 #: test. Only a *carrier*: see :meth:`ServerLauncher._operator_secret`.
 _OPERATOR_SECRET_ENV = "OSPREY_TERMINAL_SECRET"
 
+#: The multi-user bind-host declaration. Mirrors
+#: :data:`osprey.interfaces.web_auth.BIND_HOST_ENV` rather than importing it,
+#: because infrastructure/ does not import interfaces/; pinned equal by a test.
+#: Read, never popped: ``osprey web`` reads it too.
+_BIND_HOST_ENV = "OSPREY_TERMINAL_BIND_HOST"
+
 
 def _loopback_for(host: str) -> str:
     """Map a wildcard bind host to a loopback address reachable as a *client*.
@@ -191,6 +197,10 @@ class ServerLauncher:
         # refusal, so an unchanged verdict logs at info rather than warning.
         # Reset alongside _refused_once, and for the same reason.
         self._last_refusal: tuple[int | None, str] | None = None
+        # Whether the proxied-without-an-identity decline has been reported, so
+        # a per-save caller reads one line and not one per save. Never reset:
+        # the shape it describes does not change while the process lives.
+        self._declined_without_identity = False
         self._lock = threading.Lock()
 
     def _port_is_bindable(self, host: str, port: int) -> bool:
@@ -316,6 +326,39 @@ class ServerLauncher:
         if credentials is None:
             return None
         return (credentials.operator_secret or "").strip() or None
+
+    def _behind_the_proxy_without_an_identity(self) -> bool:
+        """Whether this process must not launch: proxied, and holding no identity.
+
+        A declared bind host means nginx owns the perimeter and every app in the
+        deployment authenticates against a secret the deploy ``.env`` pinned. A
+        process there that holds none cannot build an interface app at all:
+        construction settles the credentials and refuses rather than mint a
+        secret nginx would never match. Asking anyway is not a free no — the
+        refusal consumes this process's panel-token carrier on its way out, so
+        the attempt costs it the credential its launcher handed it, and it pays
+        that again on the next call.
+
+        So the launch is declined here, before the bind probe. The deployment's
+        own terminal holds the secret and owns the companion servers; an
+        agent-side process is a client of them.
+
+        One line the first time, at debug afterwards: the most frequent caller
+        asks on every artifact save.
+        """
+        if not (os.environ.get(_BIND_HOST_ENV) or "").strip():
+            return False
+        if self._operator_secret() is not None:
+            return False
+        log = logger.debug if self._declined_without_identity else logger.info
+        self._declined_without_identity = True
+        log(
+            "%s: this process holds no operator secret and %s is declared, so the "
+            "deployment's terminal owns the companion servers. Not launching.",
+            self._name,
+            _BIND_HOST_ENV,
+        )
+        return True
 
     def _probe_status(self, host: str, port: int, secret: str | None = None) -> int | None:
         """GET :data:`_ADOPTION_PROBE_PATH` on *host:port*; return its HTTP status.
@@ -581,6 +624,9 @@ class ServerLauncher:
         answered by a listener which does not block our bind (a Docker Desktop
         host-loopback pass-through) is not an owner at all. Instead:
 
+        * behind the reverse proxy with no operator identity -> never launch;
+          ownership is not in question there, the deployment's terminal owns
+          the companions. See :meth:`_behind_the_proxy_without_an_identity`;
         * port bindable          -> launch and own it, whatever answers a
           connect there;
         * unbindable then freed  -> a shutting-down predecessor; waited out,
@@ -606,6 +652,9 @@ class ServerLauncher:
 
         with self._lock:
             if self._launched:
+                return
+
+            if self._behind_the_proxy_without_an_identity():
                 return
 
             # A recent "held by a non-responder" outcome throttles re-probing so
