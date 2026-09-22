@@ -218,7 +218,9 @@ class TestConfigCannotNameARuntimeInterpreter:
             )
 
     def test_registry_placeholder_substitutes_the_generating_interpreter(
-        self, project_dir, variant
+        self,
+        project_dir,
+        variant,  # noqa: ARG002 - the class-level table its project_dir fixture also reads
     ):
         """The third consumer of the key: ``{current_python_env}`` substitution.
 

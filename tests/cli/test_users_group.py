@@ -180,7 +180,7 @@ def fake_runtime(monkeypatch):
     calls: list[list[str]] = []
     listing: dict[str, list[str]] = {"containers": [], "volumes": []}
 
-    def _fake_run(argv, capture_output=True, text=True, env=None, check=False):
+    def _fake_run(argv, capture_output=True, text=True, env=None, check=False):  # noqa: ARG001 - the keywords subprocess.run is called with
         calls.append(list(argv))
         if argv[1:3] == ["ps", "-a"]:
             stdout = "\n".join(listing["containers"])

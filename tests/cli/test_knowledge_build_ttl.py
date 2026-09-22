@@ -259,7 +259,7 @@ def _no_config(monkeypatch: pytest.MonkeyPatch) -> None:
     to land in that module's namespace rather than on the config module.
     """
 
-    def _lookup(path: str, default: object = None, config_path: object = None) -> object:
+    def _lookup(_path: str, default: object = None, _config_path: object = None) -> object:
         return default
 
     monkeypatch.setattr(
@@ -271,7 +271,7 @@ def _no_config(monkeypatch: pytest.MonkeyPatch) -> None:
 def _config_channel_db(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
     """Make ``channel_finder.pipelines.hierarchical.database.path`` read as *value*."""
 
-    def _lookup(path: str, default: object = None, config_path: object = None) -> object:
+    def _lookup(path: str, default: object = None, _config_path: object = None) -> object:
         if path == "channel_finder.pipelines.hierarchical.database.path":
             return value
         return default
@@ -282,7 +282,7 @@ def _config_channel_db(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
 def _config_facility_prefix(monkeypatch: pytest.MonkeyPatch, value: object) -> None:
     """Make ``facility.prefix`` read as *value* for the token resolution."""
 
-    def _lookup(path: str, default: object = None, config_path: object = None) -> object:
+    def _lookup(path: str, default: object = None, _config_path: object = None) -> object:
         if path == "facility.prefix":
             return value
         return default
@@ -298,7 +298,7 @@ def _config_graph_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     the state the graph arm has to pre-empt.
     """
 
-    def _lookup(path: str, default: object = None, config_path: object = None) -> object:
+    def _lookup(path: str, default: object = None, _config_path: object = None) -> object:
         if path == "channel_finder.pipeline_mode":
             return "graph"
         return default

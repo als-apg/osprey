@@ -117,7 +117,7 @@ def test_a_healthy_backend_only_project_gets_no_line(
 def test_the_health_read_belongs_to_the_running_state_alone(
     web_repo: Path, recorder: Recorded, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def never(repo_root):
+    def never(_repo_root):
         raise AssertionError("a stopped card asks nothing")
 
     monkeypatch.setattr("osprey.deployment.container_lifecycle.unhealthy_containers", never)

@@ -179,7 +179,7 @@ def test_generate_manifest_survives_unhashable_preset(tmp_path, monkeypatch):
     """Hash stamping is best-effort: a failing hash must not break the build."""
     from osprey.cli.templates import manifest as manifest_mod
 
-    def _boom(name):
+    def _boom(_name):
         raise RuntimeError("hash exploded")
 
     monkeypatch.setattr(build_profile, "compute_preset_hash", _boom)

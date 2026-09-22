@@ -84,7 +84,7 @@ def test_a_pinned_runtime_is_written_as_pinned(tmp_path: Path, monkeypatch):
 def test_no_runtime_answering_leaves_auto_in_place(tmp_path: Path, monkeypatch):
     """A host with no runtime can still build; the question stays open."""
 
-    def _nothing(config=None):
+    def _nothing(_config=None):
         raise RuntimeError("No container runtime found.")
 
     monkeypatch.setattr(runtime_helper, "get_runtime_command", _nothing)

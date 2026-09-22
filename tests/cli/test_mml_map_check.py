@@ -103,14 +103,14 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return root
 
 
-def _import(root: Path, name: str) -> dict:
-    """Import fixture ``name`` into ``root`` and return its committed mapping."""
+def _import(name: str) -> dict:
+    """Import fixture ``name`` into the repo under test and return its committed mapping."""
     sources, extra = IMPORTS[name]
-    return _import_files(root, name, [FIXTURES / source for source in sources], extra)
+    return _import_files(name, [FIXTURES / source for source in sources], extra)
 
 
-def _import_files(root: Path, name: str, paths: list[Path], extra: tuple[str, ...]) -> dict:
-    """Import ``paths`` into ``root`` and return fixture ``name``'s committed mapping."""
+def _import_files(name: str, paths: list[Path], extra: tuple[str, ...]) -> dict:
+    """Import ``paths`` into the repo under test, and return fixture ``name``'s mapping."""
     inputs = [str(path) for path in paths]
     result = CliRunner().invoke(cli, ["mml", "import", *inputs, *extra], catch_exceptions=False)
     assert result.exit_code == 0, result.output
@@ -166,7 +166,7 @@ def _judgment_block(root: Path, dotted: str) -> list[str]:
 _LTB_BEND_FIELDS = ("Monitor", "Setpoint", "OnControl", "Fault")
 
 
-def _import_short_ltb_bend(root: Path, work: Path) -> dict:
+def _import_short_ltb_bend(work: Path) -> dict:
     """Import nsls2 with LTB ``BEND`` one device short of its channels.
 
     Every ``BEND`` channel list of the LTB export loses its last entry, so
@@ -176,7 +176,6 @@ def _import_short_ltb_bend(root: Path, work: Path) -> dict:
     rather than about the edit.
 
     Args:
-        root: The deployment repo to import into.
         work: A directory to build the edited export in.
 
     Returns:
@@ -193,7 +192,7 @@ def _import_short_ltb_bend(root: Path, work: Path) -> dict:
     for field in _LTB_BEND_FIELDS:
         export["BEND"][field]["ChannelNames"] = export["BEND"][field]["ChannelNames"][:-1]
     short.write_text(json.dumps(export), encoding="utf-8")
-    return _import_files(root, "nsls2", [exports / "nsls2.storagering.ao.json", short], ())
+    return _import_files("nsls2", [exports / "nsls2.storagering.ao.json", short], ())
 
 
 _STATED_READ = {"direction": "read", "provenance": "stated", "override": False}
@@ -437,7 +436,7 @@ class TestHelpers:
 class TestCommittedBase:
     @pytest.mark.parametrize("name", sorted(IMPORTS))
     def test_unmutated_mapping_passes(self, repo: Path, name: str) -> None:
-        result = _check(repo, _import(repo, name), "--no-derived")
+        result = _check(repo, _import(name), "--no-derived")
 
         assert result.exit_code == 0, result.output
         assert "passes the check" in result.output
@@ -447,7 +446,7 @@ class TestRejections:
     @pytest.mark.parametrize("case", sorted(REJECTIONS))
     def test_mutation_is_rejected_naming_the_key(self, repo: Path, case: str) -> None:
         name, edits, key, message = REJECTIONS[case]
-        document = _import(repo, name)
+        document = _import(name)
         for dotted_key, value in edits:
             document = mutate(document, dotted_key, value)
 
@@ -456,7 +455,7 @@ class TestRejections:
         _assert_rejected(result, key, message)
 
     def test_cycle_names_both_branches(self, repo: Path) -> None:
-        document = _import(repo, "wrapped")
+        document = _import("wrapped")
         document = mutate(document, "branches.A", {"parent": "B", "description": None})
         document = mutate(document, "branches.B", {"parent": "A", "description": None})
 
@@ -474,7 +473,7 @@ class TestJudgmentRejections:
         self, repo: Path, case: str
     ) -> None:
         spec = JUDGMENTS[case]
-        document = _import(repo, spec.fixture)
+        document = _import(spec.fixture)
         for dotted_key, value in spec.edits:
             document = mutate(document, dotted_key, value)
 
@@ -489,7 +488,7 @@ class TestJudgmentRejections:
         self, repo: Path
     ) -> None:
         """A ``field:`` answer the export takes stands; its two entries are named once each."""
-        document = _import(repo, "nsls2")
+        document = _import("nsls2")
         document = mutate(document, "families.DCCT.fields.Lifetime", DELETE)
         document = mutate(document, "directions[DCCT.Lifetime]", DELETE)
 
@@ -508,7 +507,7 @@ class TestTwoSystems:
     def test_an_ordinal_pending_in_one_system_is_answered_for_that_system(
         self, repo: Path, tmp_path: Path
     ) -> None:
-        document = _import_short_ltb_bend(repo, tmp_path)
+        document = _import_short_ltb_bend(tmp_path)
         storage = "\n".join(_judgment_block(repo, "StorageRing.BEND"))
         ltb = "\n".join(_judgment_block(repo, "LTB.BEND"))
         assert "unbound device" not in storage, storage
@@ -529,7 +528,7 @@ class TestAcceptances:
     def test_an_owner_answer_naming_a_member_of_its_group_passes(self, repo: Path) -> None:
         # wrapped's one supply group is QM's, keyed by its lowest ordinal 2;
         # an owner that strands the group's other member is the reviewer's call.
-        document = mutate(_import(repo, "wrapped"), "judgments.QM.shared_pvs", {})
+        document = mutate(_import("wrapped"), "judgments.QM.shared_pvs", {})
         document = mutate(document, "judgments.QM.shared_pvs.2", 3)
 
         result = _check(repo, document)
@@ -538,7 +537,7 @@ class TestAcceptances:
         assert not _lines_starting(result.output, "judgments."), result.output
 
     def test_zero_channel_family_without_class_or_branch_passes(self, repo: Path) -> None:
-        document = _import(repo, "wrapped")
+        document = _import("wrapped")
         gun = document["families"]["GUN"]
         assert gun["channels"] == 0
         assert "class" not in gun and "branch" not in gun
@@ -551,7 +550,7 @@ class TestAcceptances:
     def test_stated_direction_on_undecided_vote_passes_without_override(self, repo: Path) -> None:
         # QM.On carries no MemberOf tags, so the vote is undecided; either
         # stated direction is accepted without override.
-        document = _import(repo, "wrapped")
+        document = _import("wrapped")
         assert document["directions"]["QM.On"]["direction"] == "read"
         document = mutate(document, "directions[QM.On].direction", "write")
         assert document["directions"]["QM.On"]["override"] is False
@@ -775,7 +774,7 @@ class TestNoDerived:
     def test_one_derived_slot_fails_only_under_no_derived(
         self, repo: Path, dotted_key: str, key: str
     ) -> None:
-        document = mutate(_import(repo, "wrapped"), dotted_key, "derived")
+        document = mutate(_import("wrapped"), dotted_key, "derived")
 
         plain = _check(repo, document)
         assert plain.exit_code == 0, plain.output

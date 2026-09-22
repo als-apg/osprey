@@ -36,11 +36,11 @@ def registered_ingest(monkeypatch) -> list[dict[str, Any]]:
     """Stub ``osprey ariel ingest``'s work and record what it was called with."""
     calls: list[dict[str, Any]] = []
 
-    async def _fake_ingest(config_dict, source, adapter, since, limit, dry_run, progress=None):
+    async def _fake_ingest(config_dict, _source, adapter, _since, _limit, _dry_run, progress=None):  # noqa: ARG001 - the progress keyword the ariel verb passes
         calls.append({"config": config_dict, "adapter": adapter})
         return ops.IngestResult(count=0, enhanced_count=0, failed_count=0, dry_run=True)
 
-    async def _no_resync(config_dict, progress=None):
+    async def _no_resync(_config_dict, progress=None):  # noqa: ARG001 - the progress keyword the ariel verb passes
         return None
 
     monkeypatch.setattr(ops, "run_ingest", _fake_ingest)
@@ -107,7 +107,7 @@ class TestIngestHonoursTheConfiguredAdapter:
         class _Adapter:
             source_system_name = "als_logbook"
 
-            async def fetch_entries(self, since=None, limit=None):
+            async def fetch_entries(self, since=None, limit=None):  # noqa: ARG002 - the ingestion adapter signature this stands in for
                 return
                 yield  # pragma: no cover — makes this an async generator
 

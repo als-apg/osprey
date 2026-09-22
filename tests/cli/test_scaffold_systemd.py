@@ -682,7 +682,7 @@ def test_an_unrunnable_findmnt_is_not_an_error(home: Path, monkeypatch: pytest.M
         lambda name: "/usr/bin/findmnt" if name == "findmnt" else None,
     )
 
-    def unrunnable(argv, **kwargs):
+    def unrunnable(argv, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
         raise OSError("Permission denied")
 
     monkeypatch.setattr("osprey.cli.deploy_scaffold.subprocess.run", unrunnable)

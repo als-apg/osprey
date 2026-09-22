@@ -111,7 +111,7 @@ def handoff(monkeypatch: pytest.MonkeyPatch) -> list[Handoff]:
     """Record the output-policy state instead of starting an agent."""
     recorded: list[Handoff] = []
 
-    def fake_run(argv, *args, **kwargs):
+    def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
         recorded.append(
             Handoff(
                 gate_installed=gate_installed(),
@@ -288,7 +288,7 @@ class TestAgentTextPassesThrough:
         stub_build(lifecycle_repo)
         monkeypatch.setattr("osprey.cli.chat_cmd._launch_companion_servers", lambda p: [])
 
-        def fake_run(argv, *args, **kwargs):
+        def fake_run(argv, *args, **kwargs):  # noqa: ARG001 - the command position subprocess.run is called at
             sys.stdout.write(agent_line + "\n")
             return SimpleNamespace(returncode=0)
 
