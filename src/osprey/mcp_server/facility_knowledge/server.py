@@ -180,12 +180,12 @@ def _resolve_bundle_path(config: dict, config_dir: Path) -> Path | None:
     is the ordinary shape for a deployment that runs this server without a
     bundle yet; so, less obviously, is a block present but empty
     (``facility_knowledge:`` with nothing under it) or one whose
-    ``bundle_path`` was emptied but left in place. Subscripting turned the
-    first of those into a ``KeyError`` and the other two into a ``TypeError``
-    that nothing caught, so the same missing configuration either logged a
-    warning or crashed the server at startup depending on how it was spelled.
-    The caller says so once, clearly, and the tools then refuse with
-    ``server_not_initialised``.
+    ``bundle_path`` was emptied but left in place. Every one of those spellings
+    is the same missing configuration and answers ``None`` here, so
+    :func:`create_server` warns once naming the config file and records
+    ``bundle_not_configured``; every tool then refuses with that code, which
+    names the key an operator has to set rather than telling them to start a
+    server that is already running.
 
     Args:
         config: Parsed OSPREY config dict.
