@@ -1049,7 +1049,7 @@ class TestConfigBackupLocation:
         }
 
     def test_config_backup_ignores_project_cwd_and_anchors_on_the_repo_root(
-        self, client, built_project, tmp_path
+        self, client, built_project
     ):
         """The container defect, at the route: ``project_cwd`` is the RENDER.
 

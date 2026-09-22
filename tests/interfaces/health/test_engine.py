@@ -199,7 +199,7 @@ async def test_suite_run_is_unfiltered_and_never_on_demand(monkeypatch: pytest.M
     assert captured["config"] == {"api": {"providers": {}}}  # config conduit forwarded
 
 
-async def test_restart_notice_row_is_appended(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_restart_notice_row_is_appended() -> None:
     notice = CheckResult("control_system", "configuration", Status.WARNING, RESTART_NOTICE_MESSAGE)
 
     class _NoticeLifecycle(HealthRuntimeLifecycle):
@@ -315,9 +315,7 @@ async def test_breaker_does_not_trip_on_completing_phase() -> None:
     assert loader.calls == 2
 
 
-async def test_breaker_resumes_on_disk_signature_change(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
+async def test_breaker_resumes_on_disk_signature_change() -> None:
     clock = _FakeClock()
     loader = _HangingLoader()
     sig = {"v": 0}

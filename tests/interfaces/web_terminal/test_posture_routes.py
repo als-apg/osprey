@@ -449,7 +449,7 @@ class TestOwnership:
 class TestCeiling:
     """403 ``writes_disabled``, per target, naming that target's own key."""
 
-    def test_widening_an_unarmed_target_is_403_naming_its_key(self, client, tmp_path):
+    def test_widening_an_unarmed_target_is_403_naming_its_key(self, client):
         resp = post_posture(client, target="standin", posture="writes")
         assert resp.status_code == 403
         detail = resp.json()["detail"]

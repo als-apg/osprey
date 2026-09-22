@@ -11,21 +11,21 @@ from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 
 class TestResolveSessionsDir:
-    def test_path_encoding(self, tmp_path):
+    def test_path_encoding(self):
         """Verify /Users/x/proj encodes to -Users-x-proj."""
         discovery = SessionDiscovery("/Users/x/proj")
         sessions_dir = discovery._resolve_sessions_dir()
         assert sessions_dir.name == "-Users-x-proj"
         assert sessions_dir.parent.name == "projects"
 
-    def test_leading_dash_preserved(self, tmp_path):
+    def test_leading_dash_preserved(self):
         """Leading - from / replacement is preserved (matches Claude Code)."""
         discovery = SessionDiscovery("/foo/bar")
         sessions_dir = discovery._resolve_sessions_dir()
         # /foo/bar -> -foo-bar (leading - kept)
         assert sessions_dir.name == "-foo-bar"
 
-    def test_underscores_normalized_to_dashes(self, tmp_path):
+    def test_underscores_normalized_to_dashes(self):
         """Underscores in the cwd must be normalized to dashes.
 
         Claude Code's CLI replaces every non-alphanumeric char (not just
