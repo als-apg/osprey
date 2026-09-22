@@ -103,7 +103,8 @@ class TestPreparingTheProcess:
         assert stamps[posture.POSTURE_SESSION_ENV_VAR] == f"kernel:{KERNEL_ID}"
         assert kernel_env[posture.POSTURE_SESSION_ENV_VAR] == f"kernel:{KERNEL_ID}"
 
-    def test_the_joined_flag_names_the_session_stamp_too(self, tmp_path, kernel_env, monkeypatch):
+    @pytest.mark.usefixtures("kernel_env")
+    def test_the_joined_flag_names_the_session_stamp_too(self, tmp_path, monkeypatch):
         """``-f=<path>`` is the other spelling ``traitlets`` accepts."""
         monkeypatch.setenv(posture_store.AGENT_DATA_ROOT_ENV_VAR, str(tmp_path))
         path = tmp_path / f"kernel-{KERNEL_ID}.json"
@@ -112,9 +113,8 @@ class TestPreparingTheProcess:
 
         assert stamps[posture.POSTURE_SESSION_ENV_VAR] == f"kernel:{KERNEL_ID}"
 
-    def test_an_unusual_connection_file_still_yields_a_session_stamp(
-        self, tmp_path, kernel_env, monkeypatch
-    ):
+    @pytest.mark.usefixtures("kernel_env")
+    def test_an_unusual_connection_file_still_yields_a_session_stamp(self, tmp_path, monkeypatch):
         """A name outside Jupyter's shape is used whole, not refused.
 
         A kernel that cannot say which one it is is worse than one whose id
@@ -452,7 +452,8 @@ class TestTheAuditRecord:
     """One refusal, one record — the ledger's whole claim about a cell."""
 
     @pytest.mark.parametrize("name", sorted(REFUSALS))
-    def test_each_refusal_files_exactly_one_record(self, name, shell, audit_records, unstamped):
+    @pytest.mark.usefixtures("unstamped")
+    def test_each_refusal_files_exactly_one_record(self, name, shell, audit_records):
         """Every class the hook traps is audited, not only the write refusals."""
         fire(shell, REFUSALS[name]())
 
@@ -461,23 +462,24 @@ class TestTheAuditRecord:
         assert audit_records[0]["decision"] == DECISION_REFUSED
         assert audit_records[0]["subject"] == jupyter_kernel.REFUSAL_SUBJECT
 
-    def test_the_channel_is_the_detail_and_the_class_is_the_reason(
-        self, shell, audit_records, unstamped
-    ):
+    @pytest.mark.usefixtures("unstamped")
+    def test_the_channel_is_the_detail_and_the_class_is_the_reason(self, shell, audit_records):
         """A cell has no name to give, so the channel is what identifies the write."""
         fire(shell, REFUSALS["write_blocked"]())
 
         assert audit_records[0]["reason"] == "channel_write_blocked"
         assert audit_records[0]["detail"] == "channel=SR:MAG:1"
 
-    def test_a_refusal_with_no_channel_carries_no_detail(self, shell, audit_records, unstamped):
+    @pytest.mark.usefixtures("unstamped")
+    def test_a_refusal_with_no_channel_carries_no_detail(self, shell, audit_records):
         """``ControlTargetChangedError`` names no channel, and detail is optional."""
         fire(shell, REFUSALS["target_changed"]())
 
         assert audit_records[0]["detail"] is None
         assert audit_records[0]["reason"] == "control_target_changed"
 
-    def test_a_writer_that_fails_does_not_swallow_the_refusal(self, shell, monkeypatch, unstamped):
+    @pytest.mark.usefixtures("unstamped")
+    def test_a_writer_that_fails_does_not_swallow_the_refusal(self, shell, monkeypatch):
         """The audit trail degrades; the traceback the cell needs still arrives."""
 
         def explode(**fields):
@@ -493,9 +495,8 @@ class TestTheAuditRecord:
 class TestTheActionLine:
     """At most one line, and only where it names what the message did not."""
 
-    def test_a_moved_target_asks_for_the_cell_to_be_re_run(
-        self, shell, audit_records, unstamped, capsys
-    ):
+    @pytest.mark.usefixtures("audit_records", "unstamped")
+    def test_a_moved_target_asks_for_the_cell_to_be_re_run(self, shell, capsys):
         """The kernel re-routes itself from the record before every cell.
 
         The refusal's own message ends by asking for ``execute()``, which is
@@ -505,7 +506,8 @@ class TestTheActionLine:
 
         assert capsys.readouterr().out == jupyter_kernel.HINT_TARGET_CHANGED + "\n"
 
-    def test_a_switch_in_flight_gets_no_line(self, shell, audit_records, unstamped, capsys):
+    @pytest.mark.usefixtures("audit_records", "unstamped")
+    def test_a_switch_in_flight_gets_no_line(self, shell, capsys):
         """Its message opens with the shared token and ends with the same re-run."""
         error = SwitchInProgressError("switch_in_progress:4242")
 
@@ -515,9 +517,8 @@ class TestTheActionLine:
         assert str(error).startswith("switch_in_progress:4242")
         assert "re-run the cell" in str(error)
 
-    def test_a_cell_pinned_everywhere_asks_for_the_chip(
-        self, shell, audit_records, unstamped, capsys
-    ):
+    @pytest.mark.usefixtures("audit_records")
+    def test_a_cell_pinned_everywhere_asks_for_the_chip(self, shell, unstamped, capsys):
         """``*=sandbox`` is what a cell the record could not route is pinned to."""
         unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
 
@@ -525,9 +526,8 @@ class TestTheActionLine:
 
         assert capsys.readouterr().out == jupyter_kernel.HINT_WRITES_OFF + "\n"
 
-    def test_a_cell_pinned_on_a_named_target_asks_for_the_chip_too(
-        self, shell, audit_records, unstamped, capsys
-    ):
+    @pytest.mark.usefixtures("audit_records")
+    def test_a_cell_pinned_on_a_named_target_asks_for_the_chip_too(self, shell, unstamped, capsys):
         """Writes were off for that target when the cell opened."""
         unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "accelerator=sandbox")
         unstamped.setenv(posture.CONTROL_TARGET_ENV_VAR, "accelerator")
@@ -536,13 +536,15 @@ class TestTheActionLine:
 
         assert capsys.readouterr().out == jupyter_kernel.HINT_WRITES_OFF + "\n"
 
-    def test_a_live_store_refusal_gets_no_line(self, shell, audit_records, unstamped, capsys):
+    @pytest.mark.usefixtures("audit_records", "unstamped")
+    def test_a_live_store_refusal_gets_no_line(self, shell, capsys):
         """The pin permits, so the store refused — and its message already says so."""
         fire(shell, REFUSALS["write_blocked"]())
 
         assert capsys.readouterr().out == ""
 
-    def test_a_limits_violation_gets_no_line(self, shell, audit_records, unstamped, capsys):
+    @pytest.mark.usefixtures("audit_records")
+    def test_a_limits_violation_gets_no_line(self, shell, unstamped, capsys):
         """Re-running changes nothing about a value outside the configured range."""
         unstamped.setenv(posture_store.LAUNCH_POSTURE_ENV_VAR, "*=sandbox")
 
@@ -588,9 +590,8 @@ def root_handlers():
 class TestTheProcessLog:
     """A cell shows the refusal and the action line; the log goes to the terminal."""
 
-    def test_records_reach_the_inherited_stderr_and_not_the_replaced_one(
-        self, root_handlers, monkeypatch, capfd
-    ):
+    @pytest.mark.usefixtures("root_handlers")
+    def test_records_reach_the_inherited_stderr_and_not_the_replaced_one(self, monkeypatch, capfd):
         """``ipykernel`` publishes ``sys.stderr`` into the cell; the log must miss it.
 
         The replaced stream stands in for that: a handler that resolves stderr
@@ -634,7 +635,8 @@ class TestTheProcessLog:
 class TestTheTraceback:
     """The hook adds to the cell's output; it never takes the traceback away."""
 
-    def test_the_original_triple_is_delegated(self, shell, audit_records, unstamped):
+    @pytest.mark.usefixtures("audit_records", "unstamped")
+    def test_the_original_triple_is_delegated(self, shell):
         """Not a rebuilt one: the frames a cell needs are the ones that raised."""
         triple = fire(shell, REFUSALS["write_blocked"](), tb_offset=2)
 
@@ -695,9 +697,8 @@ class TestTheCellStamp:
     the last one.
     """
 
-    def test_a_settled_record_routes_the_cell(
-        self, control_context_root, write_control_context, kernel_env, named_kernel, resolvable
-    ):
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
+    def test_a_settled_record_routes_the_cell(self, control_context_root, write_control_context):
         """Target, generation, and the posture the record answers for it."""
         write_control_context(control_context_root, target="va", generation=3)
 
@@ -708,8 +709,9 @@ class TestTheCellStamp:
         assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=writes"
         assert stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL) is None
 
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_narrowed_target_pins_the_cell_sandboxed_on_it(
-        self, control_context_root, write_control_context, kernel_env, named_kernel, resolvable
+        self, control_context_root, write_control_context
     ):
         """The cell still reaches the target; its writes are refused there.
 
@@ -726,8 +728,9 @@ class TestTheCellStamp:
         assert stamped(executor.ENV_CONTROL_TARGET) == "va"
         assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "va=sandbox"
 
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_widened_record_widens_the_next_cell(
-        self, control_context_root, write_control_context, kernel_env, named_kernel, resolvable
+        self, control_context_root, write_control_context
     ):
         """The pin the LAST cell wrote must not be what decides this one.
 
@@ -761,14 +764,9 @@ class TestTheCellStamp:
         # again through the same rule every write surface asks.
         assert posture_store.store_permits("va") is True
 
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_switch_in_flight_refuses_the_cell(
-        self,
-        control_context_root,
-        write_control_context,
-        write_server_report,
-        kernel_env,
-        named_kernel,
-        resolvable,
+        self, control_context_root, write_control_context, write_server_report
     ):
         """No target, sandboxed everywhere, and the refusal names the server.
 
@@ -789,14 +787,9 @@ class TestTheCellStamp:
             == f"switch_in_progress:{os.getpid()}"
         )
 
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_the_refusal_token_is_the_one_every_surface_refuses_with(
-        self,
-        control_context_root,
-        write_control_context,
-        write_server_report,
-        kernel_env,
-        named_kernel,
-        resolvable,
+        self, control_context_root, write_control_context, write_server_report
     ):
         """The executor's message opens with exactly what the kernel stamps."""
         write_control_context(control_context_root, target="va", generation=3)
@@ -807,9 +800,8 @@ class TestTheCellStamp:
         refusal = stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL)
         assert executor.switch_in_progress_message((os.getpid(),)).startswith(f"{refusal}.")
 
-    def test_no_record_leaves_the_cell_on_the_baseline(
-        self, control_context_root, kernel_env, named_kernel, resolvable
-    ):
+    @pytest.mark.usefixtures("control_context_root", "kernel_env", "named_kernel", "resolvable")
+    def test_no_record_leaves_the_cell_on_the_baseline(self):
         """The fail-closed outcome the kernel starts in, and no refusal.
 
         Nothing is in flight, so there is nobody to wait for: the cell reads
@@ -822,8 +814,9 @@ class TestTheCellStamp:
         assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "*=sandbox"
         assert stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL) is None
 
+    @pytest.mark.usefixtures("kernel_env", "named_kernel")
     def test_a_target_this_deployment_cannot_build_is_not_stamped(
-        self, control_context_root, write_control_context, kernel_env, named_kernel, monkeypatch
+        self, control_context_root, write_control_context, monkeypatch
     ):
         """The executor's answer, so both surfaces decline the same record.
 
@@ -839,8 +832,9 @@ class TestTheCellStamp:
         assert stamped(posture_store.LAUNCH_POSTURE_ENV_VAR) == "*=sandbox"
         assert stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL) is None
 
+    @pytest.mark.usefixtures("kernel_env", "resolvable")
     def test_every_name_is_rewritten_and_none_is_merged(
-        self, control_context_root, write_control_context, kernel_env, named_kernel, resolvable
+        self, control_context_root, write_control_context, named_kernel
     ):
         """What the last cell left is replaced."""
         for name in executor._STAMP_ENV_NAMES:
@@ -854,14 +848,9 @@ class TestTheCellStamp:
         assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) == "7"
         assert stamped(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL) is None
 
+    @pytest.mark.usefixtures("kernel_env", "resolvable")
     def test_a_stale_target_does_not_survive_a_refusal(
-        self,
-        control_context_root,
-        write_control_context,
-        write_server_report,
-        kernel_env,
-        named_kernel,
-        resolvable,
+        self, control_context_root, write_control_context, write_server_report, named_kernel
     ):
         """The other direction: a cell that is refused carries no target."""
         named_kernel.setenv(executor.ENV_CONTROL_TARGET, "va")
@@ -874,9 +863,8 @@ class TestTheCellStamp:
         assert stamped(executor.ENV_CONTROL_TARGET) is None
         assert stamped(executor.ENV_CONTROL_TARGET_GENERATION) is None
 
-    def test_the_cell_is_marked_open(
-        self, control_context_root, write_control_context, kernel_env, named_kernel, resolvable
-    ):
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
+    def test_the_cell_is_marked_open(self, control_context_root, write_control_context):
         """The flag is what makes an in-flight marker a CELL's claim."""
         write_control_context(control_context_root, target="va", generation=3)
 
@@ -905,7 +893,8 @@ def write_marker(root, name, kernel_id):
 class TestClosingTheCell:
     """``post_run_cell`` runs in ``run_cell``'s ``finally``, so it always runs."""
 
-    def test_the_cell_is_marked_closed(self, kernel_env, named_kernel):
+    @pytest.mark.usefixtures("kernel_env")
+    def test_the_cell_is_marked_closed(self, named_kernel):
         """A thread reaching the control system between cells claims nothing."""
         named_kernel.setenv(jupyter_kernel.ENV_IN_CELL, jupyter_kernel.IN_CELL)
 
@@ -913,9 +902,8 @@ class TestClosingTheCell:
 
         assert stamped(jupyter_kernel.ENV_IN_CELL) is None
 
-    def test_only_this_kernels_markers_are_removed(
-        self, control_context_root, kernel_env, named_kernel
-    ):
+    @pytest.mark.usefixtures("kernel_env", "named_kernel")
+    def test_only_this_kernels_markers_are_removed(self, control_context_root):
         """Another kernel's cell and another surface's run are not this one's.
 
         A marker left behind refuses every later target switch; one removed on
@@ -932,7 +920,8 @@ class TestClosingTheCell:
         assert another_kernel.exists()
         assert an_execution.exists()
 
-    def test_an_unnamed_kernel_removes_nothing(self, control_context_root, kernel_env, monkeypatch):
+    @pytest.mark.usefixtures("kernel_env")
+    def test_an_unnamed_kernel_removes_nothing(self, control_context_root, monkeypatch):
         """No session stamp is no id, and no id attributes no marker."""
         monkeypatch.delenv(posture.POSTURE_SESSION_ENV_VAR, raising=False)
         marker = write_marker(control_context_root, "1_aaa", KERNEL_ID)
@@ -941,9 +930,8 @@ class TestClosingTheCell:
 
         assert marker.exists()
 
-    def test_a_sweep_that_fails_does_not_reach_the_cell(
-        self, kernel_env, named_kernel, monkeypatch, caplog
-    ):
+    @pytest.mark.usefixtures("kernel_env", "named_kernel")
+    def test_a_sweep_that_fails_does_not_reach_the_cell(self, monkeypatch, caplog):
         """It runs in a ``finally``: raising here would replace the cell's own."""
 
         def unreadable():
@@ -1025,9 +1013,8 @@ def open_cell(named_kernel):
 class TestRefusingTheCell:
     """``pre_run_cell`` leaves the refusal; the first call is where it lands."""
 
-    def test_a_refused_cell_raises_on_its_first_call(
-        self, control_context_root, kernel_env, open_cell
-    ):
+    @pytest.mark.usefixtures("control_context_root", "kernel_env")
+    def test_a_refused_cell_raises_on_its_first_call(self, open_cell):
         """The token an operator meets here is the one every surface refuses with."""
         open_cell.setenv(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL, "switch_in_progress:11,12")
 
@@ -1038,7 +1025,8 @@ class TestRefusingTheCell:
         assert str(caught.value).startswith("switch_in_progress:11,12")
         assert "re-run the cell" in str(caught.value)
 
-    def test_a_refused_cell_claims_nothing(self, control_context_root, kernel_env, open_cell):
+    @pytest.mark.usefixtures("kernel_env")
+    def test_a_refused_cell_claims_nothing(self, control_context_root, open_cell):
         """It reached no target, so there is nothing for a switch to wait on."""
         open_cell.setenv(jupyter_kernel.ENV_CONTROL_TARGET_REFUSAL, "switch_in_progress:11")
 
@@ -1047,7 +1035,8 @@ class TestRefusingTheCell:
 
         assert cell_markers(control_context_root) == []
 
-    def test_the_refusal_is_read_before_the_stamp(self, kernel_env, open_cell):
+    @pytest.mark.usefixtures("kernel_env")
+    def test_the_refusal_is_read_before_the_stamp(self, open_cell):
         """A refused cell carries no stamp, so nothing may consult one first."""
 
         def unreachable():
@@ -1059,9 +1048,8 @@ class TestRefusingTheCell:
         with pytest.raises(SwitchInProgressError):
             asyncio.run(runtime._get_connector())
 
-    def test_a_cell_that_was_not_refused_reaches_the_connector(
-        self, control_context_root, kernel_env, open_cell, stub_factory
-    ):
+    @pytest.mark.usefixtures("control_context_root", "kernel_env", "open_cell")
+    def test_a_cell_that_was_not_refused_reaches_the_connector(self, stub_factory):
         """Absence is the normal state, and it gates nothing."""
         asyncio.run(runtime._get_connector())
 
@@ -1071,9 +1059,8 @@ class TestRefusingTheCell:
 class TestClaimingTheCell:
     """The marker is a CELL's claim, written by the call that first needs one."""
 
-    def test_the_first_call_claims_the_cell(
-        self, control_context_root, kernel_env, open_cell, stub_factory
-    ):
+    @pytest.mark.usefixtures("kernel_env", "stub_factory")
+    def test_the_first_call_claims_the_cell(self, control_context_root, open_cell):
         """A switch waits on this, and 5.4 names the busy client from it."""
         open_cell.setenv(executor.ENV_CONTROL_TARGET, "va")
 
@@ -1087,18 +1074,16 @@ class TestClaimingTheCell:
         assert marker["target"] == "va"
         assert marker["launch_posture"] == "*=sandbox"
 
-    def test_a_second_call_in_the_same_cell_claims_nothing_more(
-        self, control_context_root, kernel_env, open_cell, stub_factory
-    ):
+    @pytest.mark.usefixtures("kernel_env", "open_cell", "stub_factory")
+    def test_a_second_call_in_the_same_cell_claims_nothing_more(self, control_context_root):
         """One cell is one claim; a switch waiting on two would wait twice."""
         asyncio.run(runtime._get_connector())
         asyncio.run(runtime._get_connector())
 
         assert len(cell_markers(control_context_root)) == 1
 
-    def test_the_next_cell_claims_again(
-        self, control_context_root, kernel_env, open_cell, stub_factory
-    ):
+    @pytest.mark.usefixtures("kernel_env", "open_cell", "stub_factory")
+    def test_the_next_cell_claims_again(self, control_context_root):
         """The claim is re-checked against the file the last cell's end removed."""
         asyncio.run(runtime._get_connector())
         jupyter_kernel.post_run_cell()
@@ -1108,9 +1093,8 @@ class TestClaimingTheCell:
 
         assert len(cell_markers(control_context_root)) == 1
 
-    def test_a_thread_after_the_cell_holds_no_marker(
-        self, control_context_root, kernel_env, open_cell, stub_factory
-    ):
+    @pytest.mark.usefixtures("kernel_env", "open_cell", "stub_factory")
+    def test_a_thread_after_the_cell_holds_no_marker(self, control_context_root):
         """There is no cell for a switch to wait on; the pin holds its writes."""
         asyncio.run(runtime._get_connector())
         jupyter_kernel.post_run_cell()
@@ -1119,8 +1103,9 @@ class TestClaimingTheCell:
 
         assert cell_markers(control_context_root) == []
 
+    @pytest.mark.usefixtures("kernel_env", "named_kernel", "resolvable")
     def test_a_cell_with_no_control_system_call_holds_no_marker(
-        self, control_context_root, write_control_context, kernel_env, named_kernel, resolvable
+        self, control_context_root, write_control_context
     ):
         """The claim is lazy: a cell that touches nothing blocks nothing."""
         write_control_context(control_context_root, target="va", generation=3)
@@ -1130,9 +1115,8 @@ class TestClaimingTheCell:
 
         assert cell_markers(control_context_root) == []
 
-    def test_a_call_outside_a_cell_claims_nothing(
-        self, control_context_root, kernel_env, open_cell, stub_factory
-    ):
+    @pytest.mark.usefixtures("kernel_env", "stub_factory")
+    def test_a_call_outside_a_cell_claims_nothing(self, control_context_root, open_cell):
         """The executor's own runs claim their own markers; this is the notebook's."""
         open_cell.delenv(jupyter_kernel.ENV_IN_CELL)
 
@@ -1140,9 +1124,8 @@ class TestClaimingTheCell:
 
         assert cell_markers(control_context_root) == []
 
-    def test_an_unnamed_kernel_claims_nothing(
-        self, control_context_root, kernel_env, open_cell, stub_factory
-    ):
+    @pytest.mark.usefixtures("kernel_env", "stub_factory")
+    def test_an_unnamed_kernel_claims_nothing(self, control_context_root, open_cell):
         """``post_run_cell`` removes markers by kernel id, and there is none.
 
         A marker nothing can remove would refuse every later switch on this
@@ -1154,8 +1137,9 @@ class TestClaimingTheCell:
 
         assert cell_markers(control_context_root) == []
 
+    @pytest.mark.usefixtures("control_context_root", "kernel_env")
     def test_a_claim_that_cannot_be_written_does_not_reach_the_cell(
-        self, control_context_root, kernel_env, open_cell, stub_factory, caplog
+        self, open_cell, stub_factory, caplog
     ):
         """The marker is advisory; the generation pin is what actually holds."""
 

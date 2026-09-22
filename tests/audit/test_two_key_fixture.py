@@ -207,7 +207,8 @@ class TestOneRecordPerSurfaceAndKey:
 
 
 class TestTheOuterLayerDefersExactlyWhereItShould:
-    def test_a_claiming_refusal_marks_the_decision(self, audit_root):
+    @pytest.mark.usefixtures("audit_root")
+    def test_a_claiming_refusal_marks_the_decision(self):
         protected.record_protected_refusal(
             surface=SURFACE_HTTP_CONFIG,
             target_file="config.yml",
@@ -290,7 +291,8 @@ class TestTheOuterLayerDefersExactlyWhereItShould:
 
         assert _keys(_records(audit_root, SURFACE_CLAUDE_SETUP)) == [(SURFACE_CLAUDE_SETUP, PATH_A)]
 
-    def test_the_last_key_of_a_multi_key_refusal_owns_the_call(self, audit_root):
+    @pytest.mark.usefixtures("audit_root")
+    def test_the_last_key_of_a_multi_key_refusal_owns_the_call(self):
         """A per-key loop marks per key; the outer layer needs only one answer."""
         for key in (KEY_A, KEY_B):
             protected.record_protected_refusal(
@@ -396,7 +398,8 @@ class TestTheSetupPatchToolRecordsPerKey:
         ):
             yield tmp_path
 
-    async def test_two_refused_patches_are_two_records(self, render, audit_root):
+    @pytest.mark.usefixtures("render")
+    async def test_two_refused_patches_are_two_records(self, audit_root):
         from unittest.mock import patch as mock_patch
 
         from osprey.mcp_server.workspace.tools.setup import setup_patch

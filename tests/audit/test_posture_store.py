@@ -111,15 +111,15 @@ def in_session(monkeypatch, key: str = SESSION_KEY) -> None:
 
 
 class TestEnvOnlyPaths:
-    def test_nothing_narrowed_is_writes(self, agent_root):
+    def test_nothing_narrowed_is_writes(self):
         assert posture.posture() == posture.POSTURE_WRITES
 
-    def test_a_readonly_marker_is_sandbox(self, agent_root, monkeypatch):
+    def test_a_readonly_marker_is_sandbox(self, monkeypatch):
         monkeypatch.setenv(posture.POSTURE_ENV_VAR, posture.SANDBOX_MODE)
         assert posture.posture() == posture.POSTURE_SANDBOX
 
     @pytest.mark.parametrize("value", ["readwrite", "READONLY", "", "sandbox", "true"])
-    def test_the_value_comparison_is_exact(self, agent_root, monkeypatch, value):
+    def test_the_value_comparison_is_exact(self, monkeypatch, value):
         """Only the exact ``readonly`` string sandboxes — unchanged by the record."""
         monkeypatch.setenv(posture.POSTURE_ENV_VAR, value)
         assert posture.posture() == posture.POSTURE_WRITES
@@ -198,11 +198,11 @@ class TestSessionKeyIsNotAnIndex:
 
         assert posture.posture() == posture.POSTURE_SANDBOX
 
-    def test_the_key_is_carried_verbatim_as_the_audit_session_id(self, agent_root, monkeypatch):
+    def test_the_key_is_carried_verbatim_as_the_audit_session_id(self, monkeypatch):
         in_session(monkeypatch)
         assert posture.posture_session() == SESSION_KEY
 
-    def test_a_blank_key_is_no_key(self, agent_root, monkeypatch):
+    def test_a_blank_key_is_no_key(self, monkeypatch):
         monkeypatch.setenv(posture.POSTURE_SESSION_ENV_VAR, "   ")
         assert posture.posture_session() is None
 
@@ -287,7 +287,7 @@ class TestTargetResolution:
 
 
 class TestDegradation:
-    def test_no_record_at_all(self, agent_root, monkeypatch):
+    def test_no_record_at_all(self, monkeypatch):
         assert posture.posture() == posture.POSTURE_WRITES
 
     def test_a_corrupt_record(self, agent_root, monkeypatch):
@@ -326,7 +326,7 @@ class TestDegradation:
 
         assert posture.posture() == posture.POSTURE_WRITES
 
-    def test_a_raising_target_resolver_keeps_an_env_sandbox(self, agent_root, monkeypatch):
+    def test_a_raising_target_resolver_keeps_an_env_sandbox(self, monkeypatch):
         monkeypatch.setenv(posture.POSTURE_ENV_VAR, posture.SANDBOX_MODE)
 
         def _explode() -> str | None:  # pragma: no cover - short-circuited

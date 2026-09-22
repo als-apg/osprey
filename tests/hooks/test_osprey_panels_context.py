@@ -247,7 +247,8 @@ def test_write_snapshot_roundtrips_and_leaves_no_temp_file(temp_snapshot_dir):
     assert list(temp_snapshot_dir.iterdir()) == [temp_snapshot_dir / "osprey-workspace-sess-1.json"]
 
 
-def test_write_snapshot_overwrites_previous_content(temp_snapshot_dir):
+@pytest.mark.usefixtures("temp_snapshot_dir")
+def test_write_snapshot_overwrites_previous_content():
     path = panels._snapshot_path("sess-1")
     panels._write_snapshot(path, {"tiles": ["old"], "active": "old", "visible": ["old"]})
     panels._write_snapshot(path, {"tiles": ["new"], "active": "new", "visible": ["new"]})

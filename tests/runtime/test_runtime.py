@@ -113,7 +113,8 @@ def clear_runtime_state():
     runtime._limits_validator = None
 
 
-def test_write_channel_success(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_channel_success():
     """Test write_channel with successful write."""
     mock_connector = MockConnector()
 
@@ -129,7 +130,8 @@ def test_write_channel_success(clear_runtime_state):
         assert mock_connector.write_calls[0][1] == 42.0
 
 
-def test_write_channel_failure(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_channel_failure():
     """A write the control system could not deliver raises ChannelWriteFailedError."""
     mock_connector = MockConnector(
         canned_result=ChannelWriteResult(
@@ -160,7 +162,8 @@ class TestRuntimeWriteConfirmation:
     failure, never as a silent return.
     """
 
-    def test_mismatch_raises(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_mismatch_raises(self):
         """A MISMATCH outcome raises with both the sent and observed values."""
         mock_connector = MockConnector(
             canned_result=ChannelWriteResult(
@@ -187,7 +190,8 @@ class TestRuntimeWriteConfirmation:
             assert "42.0" in str(excinfo.value)
             assert "0.0" in str(excinfo.value)
 
-    def test_multi_channel_mismatch_raises(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_multi_channel_mismatch_raises(self):
         """The multi-channel path enforces the same contract as the single path."""
         mock_connector = MockConnector(
             canned_result=ChannelWriteResult(
@@ -208,7 +212,8 @@ class TestRuntimeWriteConfirmation:
 
             assert excinfo.value.reason == "MISMATCH"
 
-    def test_unconfirmed_raises(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_unconfirmed_raises(self):
         """A confirming re-read that itself failed (UNCONFIRMED) still raises."""
         mock_connector = MockConnector(
             canned_result=ChannelWriteResult(
@@ -229,7 +234,8 @@ class TestRuntimeWriteConfirmation:
 
             assert excinfo.value.reason == "UNCONFIRMED"
 
-    def test_refused_write_raises_blocked(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_refused_write_raises_blocked(self):
         """A refusal (never attempted) surfaces as ChannelWriteBlockedError."""
         mock_connector = MockConnector(
             canned_result=ChannelWriteResult(
@@ -251,7 +257,8 @@ class TestRuntimeWriteConfirmation:
 
             assert excinfo.value.reason == "WRITES_DISABLED"
 
-    def test_confirmed_with_alarm_returns(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_confirmed_with_alarm_returns(self):
         """CONFIRMED returns even in an alarm state -- alarm severity is reported,
         never raised on."""
         mock_connector = MockConnector(
@@ -272,7 +279,8 @@ class TestRuntimeWriteConfirmation:
 
             write_channel("TEST:PV", 42.0)  # must not raise
 
-    def test_unrequested_returns(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    def test_unrequested_returns(self):
         """confirm=False means nothing was checked (UNREQUESTED): the write returns."""
         mock_connector = MockConnector(
             canned_result=ChannelWriteResult(
@@ -290,7 +298,8 @@ class TestRuntimeWriteConfirmation:
             write_channel("TEST:PV", 42.0)  # must not raise
 
 
-def test_read_channel_success(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_read_channel_success():
     """Test read_channel with successful read."""
     mock_connector = MockConnector()
 
@@ -306,7 +315,8 @@ def test_read_channel_success(clear_runtime_state):
         assert value == 42.0
 
 
-def test_write_channels_bulk(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_channels_bulk():
     """Test write_channels bulk operation."""
     mock_connector = MockConnector()
 
@@ -324,7 +334,8 @@ def test_write_channels_bulk(clear_runtime_state):
 
 
 @pytest.mark.asyncio
-async def test_cleanup_runtime(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+async def test_cleanup_runtime():
     """Test cleanup_runtime properly releases resources."""
     import osprey.runtime as runtime
 
@@ -345,7 +356,8 @@ async def test_cleanup_runtime(clear_runtime_state):
         assert runtime._runtime_connector is None
 
 
-def test_connector_reuse(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_connector_reuse():
     """Test that connector is created once and reused."""
     mock_connector = MockConnector()
 
@@ -365,7 +377,8 @@ def test_connector_reuse(clear_runtime_state):
 
 
 @pytest.mark.asyncio
-async def test_connector_recreated_after_cleanup(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+async def test_connector_recreated_after_cleanup():
     """Test that connector is recreated after cleanup."""
     mock_connector1 = MockConnector()
     mock_connector2 = MockConnector()
@@ -390,7 +403,8 @@ class TestRuntimeLimitsValidation:
     """Tests that _limits_validator fires before anything is written (I-2)."""
 
     @pytest.mark.asyncio
-    async def test_limits_violation_raises_before_the_write(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    async def test_limits_violation_raises_before_the_write(self):
         """A rejected value raises and nothing is sent to the control system.
 
         The connector itself is acquired first — the safety net asks it for the
@@ -459,7 +473,8 @@ class TestRuntimeStepCheckReader:
         return ReadingConnector()
 
     @pytest.mark.asyncio
-    async def test_step_within_limit_is_measured_and_written(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    async def test_step_within_limit_is_measured_and_written(self):
         import osprey.runtime as runtime
 
         runtime._limits_validator = self._validator()
@@ -474,7 +489,8 @@ class TestRuntimeStepCheckReader:
         assert connector.write_calls[0][:2] == ("TEST:PV", 51.0)
 
     @pytest.mark.asyncio
-    async def test_step_beyond_limit_is_refused_as_a_step_violation(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    async def test_step_beyond_limit_is_refused_as_a_step_violation(self):
         import osprey.runtime as runtime
 
         runtime._limits_validator = self._validator()
@@ -490,7 +506,8 @@ class TestRuntimeStepCheckReader:
         assert connector.write_calls == []
 
     @pytest.mark.asyncio
-    async def test_bulk_write_gets_the_same_reader(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    async def test_bulk_write_gets_the_same_reader(self):
         """write_channels' multi-channel branch validates with the connector's reader too."""
         import osprey.runtime as runtime
         from osprey.runtime import _write_channels_async
@@ -508,7 +525,8 @@ class TestRuntimeStepCheckReader:
         assert len(connector.write_calls) == 2
 
     @pytest.mark.asyncio
-    async def test_no_validator_calls_connector_normally(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    async def test_no_validator_calls_connector_normally(self):
         """When _limits_validator is None, the connector is called normally."""
         import osprey.runtime as runtime
 
@@ -528,7 +546,8 @@ class TestRuntimeStepCheckReader:
             assert mock_connector.write_calls[0][1] == 42.0
 
     @pytest.mark.asyncio
-    async def test_valid_value_passes_through_to_connector(self, clear_runtime_state):
+    @pytest.mark.usefixtures("clear_runtime_state")
+    async def test_valid_value_passes_through_to_connector(self):
         """When _limits_validator approves the value, the connector write proceeds."""
         import osprey.runtime as runtime
 

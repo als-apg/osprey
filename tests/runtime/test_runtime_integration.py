@@ -82,7 +82,8 @@ async def clear_runtime_state():
     runtime._runtime_connector = None
 
 
-def test_write_read_with_mock_connector(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_read_with_mock_connector():
     """Test write and read operations with Mock connector."""
     test_channel = "TEST:VOLTAGE"
     test_value = 123.45
@@ -93,7 +94,8 @@ def test_write_read_with_mock_connector(clear_runtime_state):
     assert read_value == test_value
 
 
-def test_write_channels_bulk_with_mock(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_write_channels_bulk_with_mock():
     """Test bulk write operation with Mock connector."""
     test_channels = {"MAGNET:H01": 5.0, "MAGNET:H02": 5.2, "MAGNET:H03": 4.8}
 
@@ -105,7 +107,8 @@ def test_write_channels_bulk_with_mock(clear_runtime_state):
 
 
 @pytest.mark.asyncio
-async def test_runtime_cleanup_and_reconnect(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+async def test_runtime_cleanup_and_reconnect():
     """Test that runtime can cleanup and reconnect."""
     write_channel("TEST:PV1", 100.0)
 
@@ -117,14 +120,16 @@ async def test_runtime_cleanup_and_reconnect(clear_runtime_state):
     assert value == 200.0
 
 
-def test_error_handling_invalid_channel(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_error_handling_invalid_channel():
     """Test error handling for invalid channel operations."""
     write_channel("ANY:CHANNEL:NAME", 42.0)
     value = read_channel("ANY:CHANNEL:NAME")
     assert value == 42.0
 
 
-def test_connector_reuse_across_operations(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_connector_reuse_across_operations():
     """Test that connector is reused efficiently across operations."""
     import osprey.runtime as runtime
 
@@ -140,7 +145,8 @@ def test_connector_reuse_across_operations(clear_runtime_state):
     assert runtime._runtime_connector is connector
 
 
-def test_kwargs_passthrough(clear_runtime_state):
+@pytest.mark.usefixtures("clear_runtime_state")
+def test_kwargs_passthrough():
     """Test that additional kwargs are passed through to connector."""
     write_channel("TEST:PV", 42.0, timeout=10.0)
 
