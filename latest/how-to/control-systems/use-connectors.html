@@ -843,6 +843,58 @@ are still returned correctly, each on its own timestamp series. The
 connector’s MongoDB client ships with OSPREY, so there is nothing extra
 to install.</p>
 </div>
+<input id="sd-tab-item-10" name="sd-tab-set-1" type="radio">
+<label class="sd-tab-label" data-sync-group="cs" data-sync-id="mya" for="sd-tab-item-10">
+MYA</label><div class="sd-tab-content docutils">
+<p>MYA, Jefferson Lab’s archiver, read over its <code class="docutils literal notranslate"><span class="pre">myquery</span></code> HTTP service.
+Every key is optional – the <code class="docutils literal notranslate"><span class="pre">jlab-archiver-client</span></code> library carries its
+own server and protocol – so a deployment inside the facility’s network
+needs only the type:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mya_archiver</span>
+</pre></div>
+</div>
+<p>To name a different myquery host, a non-production MYA deployment, or the
+zone it reads query bounds in:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mya_archiver</span>
+<span class="w">  </span><span class="nt">mya_archiver</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">myquery_server</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">myquery.facility.edu</span>
+<span class="w">    </span><span class="nt">deployment</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ops</span><span class="w">        </span><span class="c1"># MYA deployment to query</span>
+<span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">            </span><span class="c1"># seconds per request</span>
+<span class="w">    </span><span class="nt">timezone</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">America/New_York</span><span class="w">   </span><span class="c1"># default: system.timezone</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">timezone</span></code> spells a UTC query window in the server’s own local time,
+which is the one place myquery has no offset to read. It does not affect
+the samples that come back: those carry epoch milliseconds, which name an
+instant outright and so survive the autumn fall-back hour, when every
+wall-clock time occurs twice.</p>
+<p>The client library is not installed with OSPREY. Add it to the profile’s
+top-level <code class="docutils literal notranslate"><span class="pre">dependencies:</span></code> so the image carries it:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">dependencies</span><span class="p">:</span>
+  <span class="o">-</span> <span class="n">jlab</span><span class="o">-</span><span class="n">archiver</span><span class="o">-</span><span class="n">client</span><span class="o">&gt;=</span><span class="mf">4.0.1</span>
+</pre></div>
+</div>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>4.0.1 is a floor, not a preference. Earlier releases accept the
+request for epoch timestamps and then parse them as nanoseconds,
+dating every sample to January 1970 with no error. The connector
+checks for that and refuses rather than serving it.</p>
+</div>
+<p>Aggregates (<code class="docutils literal notranslate"><span class="pre">mean</span></code>, <code class="docutils literal notranslate"><span class="pre">min</span></code>, <code class="docutils literal notranslate"><span class="pre">max</span></code>, <code class="docutils literal notranslate"><span class="pre">std</span></code>…) are computed by
+myquery’s <code class="docutils literal notranslate"><span class="pre">mystats</span></code> endpoint. <code class="docutils literal notranslate"><span class="pre">median</span></code> is the exception – MYA does
+not compute one – so that mode alone fetches raw events and bins them
+client-side.</p>
+<p><code class="docutils literal notranslate"><span class="pre">mystats</span></code> is asked for a number of bins rather than a bin width, so a
+width that does not divide the window evenly costs one extra request:
+the whole bins, then the ragged remainder as a final partial bin.</p>
+<p>MYA records changes, not samples – a value stays in effect until the
+next update. Reads therefore ask for the prior point, so a channel whose
+last change predates the window still reports its value, stamped at the
+window start, instead of answering with nothing at all.</p>
+</div>
 </div>
 </section>
 <section id="contracts-and-custom-connectors">
