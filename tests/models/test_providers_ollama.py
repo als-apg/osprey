@@ -55,10 +55,6 @@ class TestOllamaMetadata:
         """Test provider has health check model."""
         assert OllamaProviderAdapter.health_check_model_id is not None
 
-    def test_has_available_models(self):
-        """Test provider lists available models."""
-        assert len(OllamaProviderAdapter.available_models) > 0
-
     def test_api_key_note(self):
         """Test provider notes no API key needed."""
         assert OllamaProviderAdapter.api_key_note is not None

@@ -349,3 +349,41 @@ async def test_unknown_via_provider_param_uses_result_name() -> None:
 async def test_lazy_registry_resolves_to_run() -> None:
     probe = get_probe("provider_canary")
     assert probe is run
+
+
+async def test_catalog_health_model_is_probed() -> None:
+    """The provider entry's ``health_model`` is the id the canary asks for."""
+    captured: list[dict[str, Any]] = []
+    cls = _capturing_provider(captured, (True, "ok"))
+    config = {
+        "api": {
+            "providers": {
+                "gw": {
+                    "base_url": "https://gw",
+                    "default_model": "big",
+                    "health_model": "small",
+                    "models": ["big", "small"],
+                }
+            }
+        }
+    }
+    await run({"name": "gw"}, _ctx(config), registry=_registry("gw", cls))
+    assert captured[0]["model_id"] == "small"
+
+
+async def test_default_model_answers_when_neither_entry_nor_adapter_names_a_health_model() -> None:
+    captured: list[dict[str, Any]] = []
+    cls = _capturing_provider(captured, (True, "ok"))
+    cls.health_check_model_id = None
+    config = {"api": {"providers": {"gw": {"base_url": "https://gw", "default_model": "big"}}}}
+    await run({"name": "gw"}, _ctx(config), registry=_registry("gw", cls))
+    assert captured[0]["model_id"] == "big"
+
+
+async def test_adapter_health_model_beats_the_entry_default() -> None:
+    captured: list[dict[str, Any]] = []
+    cls = _capturing_provider(captured, (True, "ok"))
+    cls.health_check_model_id = "adapter-small"
+    config = {"api": {"providers": {"gw": {"base_url": "https://gw", "default_model": "big"}}}}
+    await run({"name": "gw"}, _ctx(config), registry=_registry("gw", cls))
+    assert captured[0]["model_id"] is None

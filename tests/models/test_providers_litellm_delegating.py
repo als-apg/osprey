@@ -31,6 +31,7 @@ from osprey.models.providers.google import GoogleProviderAdapter
 from osprey.models.providers.litellm_delegating import LiteLLMDelegatingProvider
 from osprey.models.providers.openai import OpenAIProviderAdapter
 from osprey.models.providers.stanford import StanfordProviderAdapter
+from osprey.profiles.providers import load_provider_catalog
 
 #: Every adapter in the table resolves a supplied endpoint to itself, whatever
 #: its policy for a missing one, so one endpoint serves every case that is not
@@ -38,7 +39,7 @@ from osprey.models.providers.stanford import StanfordProviderAdapter
 PROXY_URL = "https://proxy"
 MODEL_ID = "m"
 #: An explicit model id replaces the health-check default without being checked
-#: against ``available_models``, so a value no adapter lists is what proves the
+#: against the served list, so a value no catalog entry lists is what proves the
 #: replacement is unconditional.
 OTHER_MODEL_ID = "other-model"
 
@@ -252,11 +253,11 @@ class TestTheDeclaredMetadata:
         assert row.adapter.health_check_model_id == row.health_check_model_id
 
     @pytest.mark.parametrize("row", LITELLM_ADAPTERS, ids=_ids(LITELLM_ADAPTERS))
-    def test_available_models_include_the_default_and_health_models(self, row):
-        models = row.adapter.available_models
-        assert len(models) > 0
-        assert row.default_model_id in models
-        assert row.health_check_model_id in models
+    def test_the_catalog_lists_the_default_and_the_model_the_health_check_probes(self, row):
+        entry = load_provider_catalog(None).entries[row.name]
+        models = entry["models"]
+        assert entry["default_model"] in models
+        assert entry.get("health_model", row.health_check_model_id) in models
 
     @pytest.mark.parametrize("row", LITELLM_ADAPTERS, ids=_ids(LITELLM_ADAPTERS))
     def test_the_litellm_routing_metadata(self, row):

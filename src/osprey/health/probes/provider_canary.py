@@ -127,8 +127,9 @@ async def run(
             * ``base_url`` (str | None): custom endpoint; may contain ``${VAR}``.
               Falls back to ``api.providers.<provider>.base_url`` (same
               precedence) when absent.
-            * ``model_id`` (str | None): optional model to probe (provider picks
-              its cheapest when ``None``).
+            * ``model_id`` (str | None): optional model to probe. Absent, the
+              provider entry's ``health_model`` answers, then the adapter's own
+              health model, then the entry's ``default_model``.
             * ``timeout_s`` (float): provider request timeout in seconds
               (default ``5.0``); also bounds the off-loaded call.
         ctx: Shared per-run context. The canary needs no control-system
@@ -176,6 +177,13 @@ async def run(
         block = _provider_block(provider_name, ctx.config)
     api_key = _resolve_secret(spec["api_key"] if "api_key" in spec else block.get("api_key"))
     base_url = _resolve_secret(spec["base_url"] if "base_url" in spec else block.get("base_url"))
+    # The model probed: the spec's, else the entry's health_model, else the
+    # adapter's own health model, else the entry's default_model — so an entry
+    # and adapter that name no cheap model still probe an id the gateway serves.
+    if model_id is None:
+        model_id = block.get("health_model")
+    if model_id is None and getattr(provider_class, "health_check_model_id", None) is None:
+        model_id = block.get("default_model")
 
     t0 = perf_counter()
     probed = False

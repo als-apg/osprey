@@ -19,10 +19,6 @@ class TestDS4Provider:
         # test_litellm_adapter.py::TestStructuredOutputCapabilityFlag::test_ds4_declares_false_end_to_end.
         assert DS4ProviderAdapter.supports_native_structured_output is False
 
-    def test_serves_deepseek_models(self):
-        assert "deepseek-v4-flash" in DS4ProviderAdapter.available_models
-        assert "deepseek-v4-pro" in DS4ProviderAdapter.available_models
-
     def test_check_health_builds_models_url_without_mangling(self, monkeypatch):
         """removesuffix('/v1') must strip only the literal suffix, not characters.
 

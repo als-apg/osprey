@@ -1009,13 +1009,36 @@ def test_a_missing_union_size_goes_red():
     assert str(len(guard.union())) in details(guard)
 
 
-def test_incomplete_provider_tier_map_goes_red():
-    def demand_a_tier_no_provider_maps(manifest):
-        manifest["keys"]["api.providers"]["key-shape"]["models-tiers"] = ["fable"]
+def _render_one_provider(guard: Any, block: dict[str, Any]) -> None:
+    guard._rendered = {"framework": [{"api": {"providers": {"gw": block}}}]}
 
-    guard = make_guard(demand_a_tier_no_provider_maps)
+
+def test_a_default_model_the_provider_does_not_list_goes_red():
+    guard = make_guard()
+    _render_one_provider(
+        guard, {"base_url": "https://gw/v1", "default_model": "m-2", "models": ["m-1"]}
+    )
     guard.check_provider_shape()
     assert "provider-shape" in modes(guard)
+    assert "m-2" in details(guard)
+
+
+def test_a_models_map_instead_of_a_list_goes_red():
+    guard = make_guard()
+    _render_one_provider(
+        guard, {"base_url": "https://gw/v1", "default_model": "m-1", "models": {"haiku": "m-1"}}
+    )
+    guard.check_provider_shape()
+    assert "provider-shape" in modes(guard)
+
+
+def test_a_well_shaped_provider_passes():
+    guard = make_guard()
+    _render_one_provider(
+        guard, {"base_url": "https://gw/v1", "default_model": "m-1", "models": ["m-1"]}
+    )
+    guard.check_provider_shape()
+    assert "provider-shape" not in modes(guard)
 
 
 # ── back-test: developer-time, behind a flag ─────────────────────────────

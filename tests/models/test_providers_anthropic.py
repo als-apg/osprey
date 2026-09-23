@@ -57,14 +57,6 @@ class TestAnthropicProviderMetadata:
         # Should use fast/cheap model for health checks
         assert "haiku" in provider.health_check_model_id.lower()
 
-    def test_has_available_models_list(self):
-        """Test provider lists available models."""
-        provider = AnthropicProviderAdapter()
-        assert isinstance(provider.available_models, list)
-        assert len(provider.available_models) > 0
-        # All should be Claude models
-        assert all("claude" in model.lower() for model in provider.available_models)
-
     def test_has_api_key_url(self):
         """Test provider has API key acquisition URL."""
         provider = AnthropicProviderAdapter()

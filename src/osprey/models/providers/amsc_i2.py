@@ -23,13 +23,6 @@ class AMSCI2ProviderAdapter(LiteLLMDelegatingProvider):
     default_base_url = None
     default_model_id = "claude-haiku"  # Claude Haiku via AMSC i2 for general use
     health_check_model_id = "claude-haiku"  # Fast and cost-effective for health checks
-    available_models = [
-        "claude-opus",
-        "claude-sonnet",
-        "claude-haiku",
-        "gpt-oss-120b",
-        "gpt-oss-20b",
-    ]
 
     # API key acquisition information
     api_key_url = "https://api.i2-core.american-science-cloud.org/"

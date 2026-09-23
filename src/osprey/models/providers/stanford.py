@@ -26,18 +26,6 @@ class StanfordProviderAdapter(LiteLLMDelegatingProvider):
     default_base_url = "https://aiapi-prod.stanford.edu/v1"
     default_model_id = "gpt-4o"
     health_check_model_id = "gpt-4o-mini"  # Cheapest OpenAI model for health checks
-    available_models = [
-        # Anthropic Claude models
-        "claude-3-7-sonnet",
-        # OpenAI models
-        "gpt-4o",
-        "gpt-4o-mini",
-        "o3-mini",
-        # Google models
-        "gemini-2.0-flash-001",
-        # DeepSeek models
-        "deepseek-r1",
-    ]
 
     # API key acquisition help
     api_key_url = "https://uit.stanford.edu/service/ai-api-gateway"
