@@ -26,15 +26,14 @@
  * `{node, dispose}` rather than a bare node, and this module runs `dispose`
  * on detach, on rebuild, and on teardown.
  *
- * ---- What "detach" means today ----
+ * ---- What "detach" means ----
  *
- * bar-host.js has no detach hook to subscribe to: parking a shell is an
- * `appendChild` into `#bar-item-pool` and nothing else. Rather than ask every
- * item to guess, this module watches the pool for arrivals and runs the same
- * idempotent pass, {@link syncBarItems}, that a caller may also run by hand
- * after a `reconcile()`. Both routes converge on one function, so an
- * `onItemDetach` seam in bar-host later replaces the observer by calling
- * `syncBarItems()` — one line, no item changes.
+ * Parking is the only way a shell leaves a bar, and bar-host.js reports every
+ * park through `onItemDetach()`. This module subscribes once, at import, and
+ * disposes the parked shell's body in the same call stack as the move — no
+ * caller of `reconcile()` or `parkShell()` has to remember to. A shell that
+ * leaves the document without being parked is not a detach bar-host can see;
+ * {@link syncBarItems} is the pass that catches those.
  *
  * Re-attach is the mirror image: on detach the shell's `data-bar-built` stamp
  * is cleared, so the next placement rebuilds the body through the builder
@@ -53,11 +52,10 @@
  * localStorage is a measurement of nothing.
  */
 
-import { isLive, poolElement, registerItemBuilder } from './bar-host.js';
+import { isLive, onItemDetach, registerItemBuilder } from './bar-host.js';
 import { defaultOptions } from './bar-catalog.js';
 
 /** @typedef {import('./bar-host.js').BarBuildContext} BarBuildContext */
-/** @typedef {import('./bar-host.js').BarRoot} BarRoot */
 /** @typedef {import('./bar-catalog.js').BarItemOptions} BarItemOptions */
 
 /**
@@ -78,12 +76,6 @@ const instances = new Map();
 /** @type {Map<string, BarItemFactory>} */
 const factories = new Map();
 
-/** The pool currently under observation, so re-arming is idempotent. */
-/** @type {Element | null} */
-let watchedPool = null;
-/** @type {MutationObserver | null} */
-let poolObserver = null;
-
 /* ---- lifecycle ---- */
 
 /**
@@ -100,7 +92,6 @@ export function defineBarItem(type, factory) {
     disposeShell(ctx.shell);
     const instance = factory(ctx);
     if (instance.dispose) instances.set(ctx.shell, instance.dispose);
-    watchPool(ctx.shell.ownerDocument);
     return instance.node;
   });
   return () => {
@@ -116,7 +107,7 @@ export function defineBarItem(type, factory) {
  * Build one type's body OUTSIDE the bars, for the customize sheet's tiles: the
  * same factory, at the type's default options, so a tile shows the item as it
  * will look rather than a name for it. The instance is the caller's — it is
- * not registered against a shell, so the pool watcher never sees it, and the
+ * not registered against a shell, so no detach ever reaches it, and the
  * returned `dispose` is the only thing that stops it.
  * @param {string} type
  * @param {Document} doc
@@ -140,37 +131,42 @@ export function previewBarItem(type, doc, density) {
 }
 
 /**
- * Dispose every item whose shell is no longer live — parked in the pool by a
- * fold or a reconcile, or gone from the document entirely. Idempotent and
- * synchronous: safe to call after every `reconcile()`, and safe to call twice.
+ * Dispose one shell's body and clear its build stamp, so the next placement
+ * rebuilds it through the builder. A shell with no live instance is left
+ * alone: its body started nothing, and its stamp is still true.
  *
  * Attaching is deliberately NOT done here. A body is built in exactly one
  * place, bar-host's builder path, so there is no second implementation of the
  * build signature to keep in step; clearing `data-bar-built` is what hands the
  * rebuild back to it.
- * @param {BarRoot} [root]
+ * @param {HTMLElement} shell
  */
-export function syncBarItems(root = document) {
-  watchPool(root);
+function detachShell(shell) {
+  if (!instances.has(shell)) return;
+  disposeShell(shell);
+  delete shell.dataset.barBuilt;
+}
+
+onItemDetach(detachShell);
+
+/**
+ * Dispose every item whose shell is no longer live. A parked shell is already
+ * disposed by the detach hook; what this pass adds is a shell that left the
+ * document without being parked. Idempotent and synchronous.
+ */
+export function syncBarItems() {
   for (const shell of Array.from(instances.keys())) {
     if (shell.isConnected && isLive(shell)) continue;
-    disposeShell(shell);
-    delete shell.dataset.barBuilt;
+    detachShell(shell);
   }
 }
 
 /**
- * Dispose every live item and stop watching the pool. The teardown entry
- * point — a page leaving, or a test starting from a clean module.
+ * Dispose every live item. The teardown entry point — a page leaving, or a
+ * test starting from a clean module.
  */
 export function disposeBarItems() {
-  for (const shell of Array.from(instances.keys())) {
-    disposeShell(shell);
-    delete shell.dataset.barBuilt;
-  }
-  if (poolObserver) poolObserver.disconnect();
-  poolObserver = null;
-  watchedPool = null;
+  for (const shell of Array.from(instances.keys())) detachShell(shell);
 }
 
 /**
@@ -187,23 +183,6 @@ function disposeShell(shell) {
   } catch (err) {
     console.error(`[bar-items] disposer for "${shell.dataset.barItem}" threw`, err);
   }
-}
-
-/**
- * Watch the item pool so a parked shell disposes on its own, with no
- * cooperation from whoever called `reconcile()`. Re-arms when the pool node
- * changes (a re-rendered document), and is a no-op where MutationObserver is
- * absent — {@link syncBarItems} is still the deterministic path.
- * @param {BarRoot | null} root
- */
-function watchPool(root) {
-  if (!root || typeof MutationObserver === 'undefined') return;
-  const pool = poolElement(root);
-  if (!pool || pool === watchedPool) return;
-  if (poolObserver) poolObserver.disconnect();
-  poolObserver = new MutationObserver(() => syncBarItems(root));
-  poolObserver.observe(pool, { childList: true });
-  watchedPool = pool;
 }
 
 /* ---- shared formatting ---- */

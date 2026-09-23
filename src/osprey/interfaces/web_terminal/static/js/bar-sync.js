@@ -74,8 +74,9 @@
  * arrangement this deployment cannot show.
  *
  * NOT HERE: the edit UI (Phase 3), which is the only caller `saveLayout()` has,
- * and item disposal — bar-items.js watches the pool itself, so the shells a
- * reconcile parks are disposed without this module telling it to.
+ * and item disposal — bar-host.js reports every shell it parks to bar-items.js,
+ * so the shells a reconcile parks are disposed without this module telling it
+ * to.
  */
 
 import { withPrefix } from './api.js';

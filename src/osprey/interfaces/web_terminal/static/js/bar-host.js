@@ -142,6 +142,17 @@ const builders = new Map();
 /** @type {Map<HTMLElement, Set<() => void>>} */
 const popovers = new Map();
 
+/** Listeners told about every shell {@link parkShell} moves into the pool. */
+/** @type {Set<(shell: HTMLElement) => void>} */
+const detachListeners = new Set();
+
+/**
+ * Shells parked during the reconcile in flight, reported when it ends. Null
+ * outside a reconcile, where a park is reported at once.
+ * @type {Set<HTMLElement> | null}
+ */
+let parkedThisPass = null;
+
 /** The `hidden` mirror watching each shell's body. One per shell. */
 /** @type {Map<HTMLElement, MutationObserver>} */
 const mirrors = new Map();
@@ -267,6 +278,40 @@ function fillUnbuilt(type) {
     if (!density) continue;
     buildBody(shell, type, readOptions(shell, type), /** @type {BarDensity} */ (density));
     armMirror(shell);
+  }
+}
+
+/**
+ * Be told each time a shell leaves the bars for the pool. Parking is the only
+ * removal this module performs, so this is the one moment an item's body stops
+ * being on screen: bar-items.js disposes the body's subscriptions here.
+ *
+ * The listener runs synchronously, with the shell already in the pool. A
+ * `reconcile()` reports once, as it returns, and only the shells that ended
+ * the pass in the pool: an item moved from the header to the status bar passes
+ * through the pool on the way, and that is a move, not a detach.
+ * @param {(shell: HTMLElement) => void} listener
+ * @returns {() => void} unsubscribe
+ */
+export function onItemDetach(listener) {
+  detachListeners.add(listener);
+  return () => {
+    detachListeners.delete(listener);
+  };
+}
+
+/**
+ * Tell every detach listener about one parked shell. A throwing listener must
+ * not stop the others, nor the move that is already done.
+ * @param {HTMLElement} shell
+ */
+function notifyDetach(shell) {
+  for (const listener of Array.from(detachListeners)) {
+    try {
+      listener(shell);
+    } catch (err) {
+      console.error('[bar-host] detach listener threw', err);
+    }
   }
 }
 
@@ -560,10 +605,18 @@ export function reconcile(layout, root = activeRoot ?? document) {
   // Keys are assigned over the whole document, so a repeated type keeps a
   // stable identity when the operator moves one of them between hosts.
   const plans = BAR_HOSTS.map((host) => ({ host, items: planHost(layout, host, counts) }));
-  for (const { host, items } of plans) {
-    const container = hostElement(host, root);
-    if (container) placeItems(container, host, items, root);
+  /** @type {Set<HTMLElement>} */
+  const parked = new Set();
+  parkedThisPass = parked;
+  try {
+    for (const { host, items } of plans) {
+      const container = hostElement(host, root);
+      if (container) placeItems(container, host, items, root);
+    }
+  } finally {
+    parkedThisPass = null;
   }
+  for (const shell of parked) if (!isLive(shell)) notifyDetach(shell);
   applyBarVisibility(layout, root);
   restoreFocus(focus);
 }
@@ -824,6 +877,8 @@ export function parkShell(shell, root = activeRoot ?? document) {
   delete shell.dataset.follows;
   ensurePool(root).appendChild(shell);
   armMirror(shell);
+  if (parkedThisPass) parkedThisPass.add(shell);
+  else notifyDetach(shell);
 }
 
 /**
