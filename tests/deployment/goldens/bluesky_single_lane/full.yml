@@ -589,8 +589,9 @@ services:
     # Public upstream image, overridable like every other service image
     # (env → config → default): set OSPREY_TILED_IMAGE, or
     # services.bluesky.tiled_image in config.yml, to point at a mirror or a
-    # pinned digest.
-    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}
+    # pinned digest. The tag is a published bluesky/tiled release no older than
+    # the `tiled[client]` floor in the framework's own dependencies.
+    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.18}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy Tiled on one host without colliding on one
     # name. The bridge reaches this service by its compose service key `tiled`

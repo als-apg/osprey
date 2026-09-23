@@ -1878,7 +1878,7 @@ def test_bluesky_tiled_service_renders_when_enabled() -> None:
     not at the storage URI — the real cause is visible only server-side.
 
     The catalog volume mounts at /storage, NOT /data (Task 1.3 fix):
-    ``ghcr.io/bluesky/tiled:0.2.12`` ships /storage pre-owned by uid=999(app),
+    ``ghcr.io/bluesky/tiled:0.2.18`` ships /storage pre-owned by uid=999(app),
     the user the container runs as, so a fresh named volume inherits that
     ownership from the image. /data does not exist in the image, so Docker
     creates it root:root and the uid=999 tiled process can't open a catalog
@@ -1890,7 +1890,7 @@ def test_bluesky_tiled_service_renders_when_enabled() -> None:
     rendered = _render_bluesky_tiled(tiled_enabled=True)
 
     assert "\n  tiled:\n" in rendered
-    assert "ghcr.io/bluesky/tiled:0.2.12" in rendered
+    assert "ghcr.io/bluesky/tiled:0.2.18" in rendered
 
     assert "tiled serve catalog /storage/catalog.db" in rendered
     assert "--init" in rendered
@@ -3412,7 +3412,7 @@ def test_tiled_external_image_stays_unprefixed() -> None:
         services={"bluesky": {"port": 10080, "tiled_enabled": True}},
     )
     tiled = yaml.safe_load(rendered)["services"]["tiled"]
-    assert tiled["image"] == "${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}"
+    assert tiled["image"] == "${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.18}"
     assert "build" not in tiled
 
 

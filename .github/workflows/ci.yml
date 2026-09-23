@@ -2801,7 +2801,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Deploys the control-assistant preset, so the bring-up builds that preset's
     # images (qmd ~3.4GB, bluesky-web ~2.4GB, va ~2.4GB) before the bridge image
-    # and the ghcr.io/bluesky/tiled:0.2.12 pull it actually tests. ~6.5min with
+    # and the Tiled image pull it actually tests. ~6.5min with
     # images cached, ~9-11min on a warm runner, but a fully cold one has been
     # observed still building at 15min with every build progressing normally —
     # so the caps below are sized for that worst case, not the median.
