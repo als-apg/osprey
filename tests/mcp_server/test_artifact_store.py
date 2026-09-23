@@ -170,6 +170,41 @@ class TestArtifactStore:
         assert len(results) == 1
         assert results[0].title == "Beam Current Plot"
 
+        by_name = store.save_file(
+            file_content=b"x",
+            filename="quadrupole_scan.txt",
+            artifact_type="text",
+            title="Scan Output",
+            mime_type="text/plain",
+            tool_source="test",
+        )
+        by_type = store.save_file(
+            file_content=b"{}",
+            filename="cells.ipynb",
+            artifact_type="notebook",
+            title="Worked Cells",
+            mime_type="application/json",
+            tool_source="test",
+        )
+        assert [e.id for e in store.list_entries(search="quadrupole")] == [by_name.id]
+        assert [e.id for e in store.list_entries(search="NOTEBOOK")] == [by_type.id]
+
+    def test_list_entries_search_still_ignores_unrelated_entries(self, tmp_path):
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        store.save_file(
+            file_content=b"x",
+            filename="vacuum.txt",
+            artifact_type="text",
+            title="Vacuum Trend",
+            description="Pressure over the shift",
+            mime_type="text/plain",
+            tool_source="test",
+        )
+
+        assert store.list_entries(search="orbit") == []
+
     def test_page_entries_returns_the_newest_entries_first(self, tmp_path):
         from osprey.stores.artifact_store import ArtifactStore
 
