@@ -1228,6 +1228,10 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     # for backends whose SPA bootstraps its API base from a
                     # JSON config endpoint.
                     "rewriteJsonPaths": spec.get("rewrite_json_paths") or [],
+                    # Root-absolute prefixes rewritten in this panel's responses on top
+                    # of its own `path` (see routes/proxy.py) — for a backend that
+                    # serves a prefix its `path` does not cover.
+                    "rewritePrefixes": spec.get("rewrite_prefixes") or [],
                 }
             )
 

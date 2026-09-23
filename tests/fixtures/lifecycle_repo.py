@@ -1112,13 +1112,17 @@ config:
   web.channel_suggestions.max_channels: 50000
   # Custom panels are `web.panels.<id>.*` keys here; the built-in tabs are
   # switched by `web_panels:` above. `rewrite_json_paths` opts a backend's
-  # JSON bootstrap endpoints into the reverse proxy's path rewrite.
+  # JSON bootstrap endpoints into the reverse proxy's path rewrite. The proxy
+  # also rewrites the panel's own `path` in what the backend serves, and
+  # `rewrite_prefixes` names any further root-absolute prefix it serves, for
+  # that panel alone.
   # web.panels.my-grafana.label: GRAFANA
   # web.panels.my-grafana.url: http://grafana.local:3000
   # web.panels.my-grafana.health_endpoint: /api/health
   # web.panels.my-grafana.path: /
   # web.panels.my-grafana.hidden: true
   # web.panels.my-grafana.rewrite_json_paths: ["/config.json"]
+  # web.panels.my-grafana.rewrite_prefixes: ["/grafana"]
   # Runtime panel control by the agent, off by default. Named layouts a human
   # applies from the "+" popover are the `panel_presets:` field, not a key.
   # web.allow_runtime_panels: true

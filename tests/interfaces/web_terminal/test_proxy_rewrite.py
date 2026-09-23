@@ -350,6 +350,60 @@ class TestPanelPathIsARewritePrefix:
             for ref in _SPA_REFERENCES:
                 assert f'"/pvinfo/{ref}"' in text
 
+    def _declared(self, workspace_dir, **extra):
+        """A client whose ``pvinfo`` panel carries ``extra`` on top of its path."""
+        return _make_client(workspace_dir, [{**_PVINFO_PANEL, **extra}])
+
+    _JS_BODY = 'const base="/pvinfo";fetch("/pvinfo/api/x");'
+
+    def _proxied_js(self, workspace_dir, **extra):
+        for app, client in self._declared(workspace_dir, **extra):
+            return _proxy_body(
+                app, client, "/panel/pvinfo/pvinfo/app.js", self._JS_BODY, "text/javascript"
+            )
+        raise AssertionError("no client")
+
+    def test_a_declared_prefix_joins_the_derived_one(self, workspace_dir, monkeypatch):
+        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+        text = self._proxied_js(workspace_dir, rewritePrefixes=["/pvinfo"])
+        assert text == 'const base="/panel/pvinfo/pvinfo";fetch("/panel/pvinfo/pvinfo/api/x");'
+
+    def test_a_declared_prefix_is_accepted_as_a_bare_string(self, workspace_dir, monkeypatch):
+        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+        text = self._proxied_js(workspace_dir, rewritePrefixes="/pvinfo")
+        assert text == 'const base="/panel/pvinfo/pvinfo";fetch("/panel/pvinfo/pvinfo/api/x");'
+
+    def test_a_repeated_prefix_substitutes_once(self, workspace_dir, monkeypatch):
+        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+        repeated = self._proxied_js(workspace_dir, rewritePrefixes=["/pvinfo/", "/pvinfo/"])
+        single = self._proxied_js(workspace_dir, rewritePrefixes=["/pvinfo/"])
+        assert repeated == single
+        for app, _client in self._declared(workspace_dir, rewritePrefixes=["/pvinfo/", "/pvinfo/"]):
+            assert _panel_rewrite_prefixes(SimpleNamespace(app=app), "pvinfo") == ("/pvinfo/",)
+
+    def test_an_opted_in_json_bootstrap_carries_the_prefixes(self, workspace_dir, monkeypatch):
+        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+        body = '{"api_url": "/pvinfo/api"}'
+        for app, client in self._declared(workspace_dir, rewriteJsonPaths=["/config.json"]):
+            opted_in = _proxy_body(
+                app, client, "/panel/pvinfo/pvinfo/config.json", body, "application/json"
+            )
+            other = _proxy_body(
+                app, client, "/panel/pvinfo/pvinfo/status.json", body, "application/json"
+            )
+        assert opted_in == '{"api_url": "/panel/pvinfo/pvinfo/api"}'
+        assert other == body
+
+    def test_a_runtime_panel_ignores_a_declared_prefix(self, workspace_dir, monkeypatch):
+        monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
+        panel = {k: v for k, v in _PVINFO_PANEL.items() if k != "configDefined"}
+        panel["rewritePrefixes"] = ["/pvinfo"]
+        for app, client in _make_client(workspace_dir, [panel]):
+            text = _proxy_body(
+                app, client, "/panel/pvinfo/pvinfo/app.js", self._JS_BODY, "text/javascript"
+            )
+        assert text == self._JS_BODY
+
     def test_a_default_path_panel_is_unchanged(self, app_and_client, monkeypatch):
         app, client = app_and_client
         monkeypatch.delenv("OSPREY_TERMINAL_USER", raising=False)
