@@ -164,7 +164,7 @@ facilities' gateway addresses.
 
 .. code-block:: bash
 
-   osprey set model=sonnet
+   osprey set model=claude-sonnet-5
    osprey set connector=epics
    osprey set tier=1 channel_finder_mode=in_context
    osprey set config.facility.name='Storage Ring'
@@ -349,7 +349,7 @@ source a deployment is built from — see :doc:`/how-to/build-profiles`.
 .. code-block:: bash
 
    osprey profile presets
-   osprey init my-facility --preset control-assistant --set model=opus
+   osprey init my-facility --preset control-assistant --set model=claude-opus-5
    cd my-facility
    osprey validate
    osprey build
@@ -1398,7 +1398,7 @@ or pass ``--build`` to build the profile first.
 ``--build`` — Build a profile in a temp directory, then audit the result.
 
 ``--model TEXT`` — Model for the reviewer agent. Defaults to the project's
-sonnet tier.
+main model.
 
 ``--budget FLOAT`` — Maximum budget in USD.
 

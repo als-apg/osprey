@@ -22,6 +22,7 @@ from osprey.models.display import claude_code_alias_candidates, display_model_na
         ("us.anthropic.claude-opus-4-6-v1", "Opus 4.6"),
         ("claude-opus-4.6-high", "Opus 4.6 high"),
         ("anthropic/claude-sonnet-5", "Sonnet 5"),
+        ("claude-opus-5-5[1m]", "Opus 5.5"),
         ("claude-sonnet", "Sonnet"),
         ("gpt-6-sol", "gpt-6-sol"),
         ("ollama/gpt-oss:20b", "gpt-oss:20b"),

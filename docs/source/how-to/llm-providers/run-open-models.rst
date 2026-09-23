@@ -39,24 +39,26 @@ In ``providers.yml``, beside the deployment's ``profile.yml``:
      cborg-open:
        api_key: ${CBORG_OPEN_API_KEY}
        base_url: https://api.cborg.lbl.gov/v1   # keep the /v1
+       default_model: gpt-oss-120b
        models:
-         haiku: gpt-oss-120b
-         sonnet: gpt-oss-120b
-         opus: gpt-oss-120b
+         - gpt-oss-120b
 
 and in ``profile.yml``:
 
 .. code-block:: yaml
 
    provider: cborg-open
-   model: sonnet
+
+The entry names ``gpt-oss-120b`` as its default, so the profile needs no
+``model:``. The provider serves no Claude models, so the build prints one line
+saying Claude Code's haiku, sonnet and opus aliases point at ``gpt-oss-120b``.
 
 A provider you add yourself takes its key from ``<NAME>_API_KEY`` — uppercased,
 dashes to underscores — so ``cborg-open`` reads ``CBORG_OPEN_API_KEY``. Put
 ``CBORG_OPEN_API_KEY=<your CBORG key>`` in the repo's ``.env``; the same CBORG
 key serves both entries.
 
-Any model ID from CBORG's catalogue works in the ``models`` block — the
+Any model ID from CBORG's catalogue works in the ``models`` list — the
 *Benchmark snapshot* box on this page shows which ones hold up in practice. The
 provider list and the keys behind it are in :doc:`configure-providers`.
 

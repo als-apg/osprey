@@ -11,7 +11,7 @@ agent speaks the Anthropic Messages API, while the MCP tool servers call the
 same named providers directly through LiteLLM. Both draw endpoints and keys
 from one catalog -- ``providers.yml`` beside the deployment's ``profile.yml``,
 rendered into ``api.providers`` -- so a key set there serves both. Which
-provider and model tier each one runs on is chosen separately: the profile's
+provider and model each one runs on is chosen separately: the profile's
 top-level ``provider:`` field for the agent, and each tool server's own
 provider setting, some of which default to the agent's.
 
