@@ -793,16 +793,27 @@ def test_the_per_agent_model_table_is_opt_in(lifecycle_repo):
 
     assert "agent models" not in default
     assert "agent models" in with_agents
-    assert "model tiers" in default
+    assert "Claude Code aliases" in default
+    assert "model tiers" not in default
+
+
+@pytest.mark.usefixtures("runtime")
+def test_each_alias_names_its_model_and_where_it_came_from(lifecycle_repo):
+    render_build(lifecycle_repo)
+
+    text = report(lifecycle_repo)
+
+    assert "claude-sonnet-5 (derived)" in text
+    assert "claude-opus-5-5 (derived)" in text
 
 
 @pytest.mark.usefixtures("runtime")
 def test_the_agent_table_lists_every_framework_agent(lifecycle_repo):
-    """The table is the agent catalog, not the subset the tier map names.
+    """The table is the agent catalog, not the subset agent_models names.
 
-    An agent absent from ``AGENT_DEFAULT_TIERS`` still runs — it takes the
-    resolver's ``sonnet`` fallback — so leaving it out of the report would make
-    status the one place its model went unsaid.
+    An agent absent from ``claude_code.agent_models`` still runs — on the main
+    model — so leaving it out of the report would make status the one place its
+    model went unsaid.
     """
     from osprey.registry.mcp import FRAMEWORK_AGENTS
 
@@ -812,6 +823,7 @@ def test_the_agent_table_lists_every_framework_agent(lifecycle_repo):
 
     for agent_name in FRAMEWORK_AGENTS:
         assert agent_name in text, agent_name
+    assert "(main model)" in text
 
 
 # ---------------------------------------------------------------------------

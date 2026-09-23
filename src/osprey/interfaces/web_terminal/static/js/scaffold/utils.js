@@ -18,10 +18,6 @@ import { escapeHtml } from '/design-system/js/dom.js';
 
 // ---- Constants ---- //
 
-// TODO: Pull from provider registry when Claude is routed through CBORG/other providers
-/** @type {string[]} */
-export const AGENT_MODEL_OPTIONS = ['haiku', 'sonnet', 'opus'];
-
 /**
  * Help text for each artifact category, shown in the header tooltip.
  *

@@ -196,7 +196,7 @@ async def test_run_query_passes_disallowed_tools_to_options(project_dir: Path) -
 
 @pytest.mark.asyncio
 async def test_run_query_uses_resolved_model_when_none(project_dir: Path) -> None:
-    """When model=None, the haiku-tier model is resolved from the project config."""
+    """When model=None, the project's main model is resolved from its config."""
     async_cm, _ = _make_mock_client()
     captured_options: list[ClaudeAgentOptions] = []
 

@@ -867,6 +867,7 @@ def _stub_spec(**overrides):
 
     defaults = {
         "provider": "als-apg",
+        "default_model_id": "claude-haiku-4-5-20251001",
         "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
         "auth_secret_env": "ALS_APG_API_KEY",
         "needs_proxy": True,

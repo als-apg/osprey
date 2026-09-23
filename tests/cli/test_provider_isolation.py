@@ -20,7 +20,6 @@ from osprey.build.claude_code_resolver import (
     detect_managed_policy_conflicts,
     inject_provider_env,
 )
-from osprey.models.tiers import VALID_TIERS
 from tests.conftest import GATEWAY_BASE_URL, GATEWAY_ORIGIN
 
 #: ``als-apg`` ships no endpoint of its own, so every case that resolves it has
@@ -35,10 +34,10 @@ class TestManagedEnvVars:
 
     ``EXPECTED`` is the *single* human-readable review-gate pin for the managed
     set — changing what OSPREY scrubs should require one conscious edit here (in
-    lockstep with the source frozenset), never a third hand-list. The per-tier
+    lockstep with the source frozenset), never a third hand-list. The per-alias
     ``ANTHROPIC_DEFAULT_*_MODEL`` names are therefore spliced in from the single
-    ``TIER_MODEL_ENV_VARS`` source rather than re-typed, so a tier added there
-    cannot silently disagree with this pin (#357).
+    ``TIER_MODEL_ENV_VARS`` source rather than re-typed, so the two cannot
+    silently disagree.
     """
 
     EXPECTED = {
@@ -46,7 +45,7 @@ class TestManagedEnvVars:
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_BASE_URL",
-        # Model selectors — the tier vars derive from the single source
+        # Model selectors — the alias vars derive from the single source
         "ANTHROPIC_MODEL",
         *TIER_MODEL_ENV_VARS.values(),
         "ANTHROPIC_DEFAULT_FABLE_MODEL",
@@ -71,9 +70,9 @@ class TestManagedEnvVars:
     def test_contains_expected(self):
         assert MANAGED_ENV_VARS == self.EXPECTED
 
-    def test_tier_model_vars_are_managed(self):
-        """The tier-model env vars are always a subset of the scrub set, derived
-        from the single source (not re-listed) — guards the #350 drift class."""
+    def test_alias_model_vars_are_managed(self):
+        """The alias-model env vars are always a subset of the scrub set, derived
+        from the single source (not re-listed)."""
         assert set(TIER_MODEL_ENV_VARS.values()) <= MANAGED_ENV_VARS
 
     def test_excludes_secret_keys(self):
@@ -210,11 +209,8 @@ class TestAuthFieldPassthrough:
             api_providers={
                 "my-lab": {
                     "base_url": "https://proxy.example.com",
-                    "models": {
-                        "haiku": "lab-haiku",
-                        "sonnet": "lab-sonnet",
-                        "opus": "lab-opus",
-                    },
+                    "default_model": "lab-opus",
+                    "models": ["lab-haiku", "lab-sonnet", "lab-opus"],
                 }
             },
         )
@@ -231,6 +227,7 @@ class TestDetectEnvConflicts:
     def test_finds_mismatch(self):
         spec = ClaudeCodeModelSpec(
             provider="test",
+            default_model_id="m",
             env_block={"ANTHROPIC_BASE_URL": "https://project.example.com"},
         )
         conflicts = spec.detect_env_conflicts({"ANTHROPIC_BASE_URL": "https://shell.example.com"})
@@ -243,6 +240,7 @@ class TestDetectEnvConflicts:
     def test_ignores_match(self):
         spec = ClaudeCodeModelSpec(
             provider="test",
+            default_model_id="m",
             env_block={"ANTHROPIC_MODEL": "claude-opus-4-6"},
         )
         conflicts = spec.detect_env_conflicts({"ANTHROPIC_MODEL": "claude-opus-4-6"})
@@ -251,6 +249,7 @@ class TestDetectEnvConflicts:
     def test_ignores_absent(self):
         spec = ClaudeCodeModelSpec(
             provider="test",
+            default_model_id="m",
             env_block={"ANTHROPIC_BASE_URL": "https://project.example.com"},
         )
         conflicts = spec.detect_env_conflicts({})
@@ -336,8 +335,8 @@ class TestManagedListsAgree:
     e2e force-tuple, so the matrix sent the wrong model on background calls).
     """
 
-    def test_lists_agree_tier_map_keys_equal_valid_tiers(self):
-        assert set(TIER_MODEL_ENV_VARS) == VALID_TIERS
+    def test_lists_agree_alias_map_keys_are_claude_codes_alias_names(self):
+        assert tuple(TIER_MODEL_ENV_VARS) == ("haiku", "sonnet", "opus")
 
     def test_lists_agree_injectable_model_keys_are_managed(self):
         """Every model/endpoint key resolve() can inject is in the scrub set —
@@ -424,7 +423,7 @@ class TestResolveEnvBlockRegression:
         assert spec.env_block == {
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
             "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5",
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5",
             "ANTHROPIC_MODEL": "claude-sonnet-5",
         }
 
@@ -450,7 +449,7 @@ class TestResolveEnvBlockRegression:
             "ANTHROPIC_BASE_URL": GATEWAY_ORIGIN,
             "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
             "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-5",
-            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-5-5",
             "ANTHROPIC_MODEL": "claude-haiku-4-5-20251001",
         }
 
@@ -462,28 +461,26 @@ class TestResolveEnvBlockRegression:
             {
                 "my-lab": {
                     "base_url": "https://proxy.example.com/v1",
-                    "models": {
-                        "haiku": "lab-haiku",
-                        "sonnet": "lab-sonnet",
-                        "opus": "lab-opus",
-                    },
+                    "default_model": "lab-opus",
+                    "models": ["lab-haiku", "lab-sonnet", "lab-opus"],
                 }
             },
         )
         assert spec.env_block == {
             "ANTHROPIC_BASE_URL": "https://proxy.example.com",
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "lab-haiku",
-            "ANTHROPIC_DEFAULT_SONNET_MODEL": "lab-sonnet",
+            # No Claude model is served, so every alias runs the main model.
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "lab-opus",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "lab-opus",
             "ANTHROPIC_DEFAULT_OPUS_MODEL": "lab-opus",
             "ANTHROPIC_MODEL": "lab-opus",
         }
 
     def test_env_block_regression_key_order_is_map_order(self):
-        """The tier-var keys appear in TIER_MODEL_ENV_VARS insertion order
-        (haiku→sonnet→opus) — the property the loop rewrite could have broken."""
+        """The alias-var keys appear in TIER_MODEL_ENV_VARS insertion order
+        (haiku→sonnet→opus)."""
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
-        tier_keys = [k for k in spec.env_block if k in set(TIER_MODEL_ENV_VARS.values())]
-        assert tier_keys == list(TIER_MODEL_ENV_VARS.values())
+        alias_keys = [k for k in spec.env_block if k in set(TIER_MODEL_ENV_VARS.values())]
+        assert alias_keys == list(TIER_MODEL_ENV_VARS.values())
 
 
 # ── Proxy env var warning ────────────────────────────────────────
@@ -687,7 +684,8 @@ class TestSpendAttributionEnv:
             "my-gw": {
                 "base_url": "https://gw.example/v1",
                 "gateway": "litellm",
-                "models": {"haiku": "h", "sonnet": "s", "opus": "o"},
+                "default_model": "s",
+                "models": ["h", "s", "o"],
             }
         }
         spec = ClaudeCodeModelResolver.resolve({"provider": "my-gw"}, providers)

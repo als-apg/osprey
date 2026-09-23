@@ -20,14 +20,14 @@
  */
 
 import { fetchJSON } from '../api.js';
-import { AGENT_MODEL_OPTIONS, parseFrontMatter, lockEditor } from './utils.js';
+import { parseFrontMatter, lockEditor } from './utils.js';
 
 /**
  * `detailContentEl` grows `_frontMatterFields`/`_bodyTextarea` when the
  * front-matter form is mounted below -- both read back by
  * ArtifactGallery.saveOverride() (scaffold/edit.js).
  * @typedef {HTMLElement & {
- *   _frontMatterFields?: Record<string, HTMLInputElement|HTMLSelectElement>,
+ *   _frontMatterFields?: Record<string, HTMLInputElement>,
  *   _bodyTextarea?: HTMLTextAreaElement,
  * }} EditContentElement
  */
@@ -41,6 +41,8 @@ import { AGENT_MODEL_OPTIONS, parseFrontMatter, lockEditor } from './utils.js';
  * @property {EditContentElement|null} detailContentEl
  * @property {number} detailRenderSeq
  * @property {() => void} renderDetailModes
+ * @property {{id: string, name: string}[]} [servedModels] Ids the provider
+ *   serves, offered as suggestions in an agent's model field.
  */
 
 /**
@@ -121,17 +123,17 @@ export function createScaffoldGalleryEditForm(gallery) {
     const fieldDefs = [
       { key: 'name', label: 'name', type: 'text' },
       { key: 'description', label: 'description', type: 'text' },
-      { key: 'model', label: 'model', type: 'select', options: AGENT_MODEL_OPTIONS },
+      { key: 'model', label: 'model', type: 'model' },
       { key: 'maxTurns', label: 'maxTurns', type: 'number' },
       { key: 'disallowedTools', label: 'disallowedTools', type: 'text' },
     ];
 
-    /** @type {Record<string, HTMLInputElement|HTMLSelectElement>} */
+    /** @type {Record<string, HTMLInputElement>} */
     const fieldRefs = {};
 
     for (const def of fieldDefs) {
       const value = frontMatter[def.key] || '';
-      const { wrapper, input } = _createFormField(def.key, def.label, def.type, value, def.options);
+      const { wrapper, input } = _createFormField(def.key, def.label, def.type, value);
       form.appendChild(wrapper);
       fieldRefs[def.key] = input;
     }
@@ -170,10 +172,9 @@ export function createScaffoldGalleryEditForm(gallery) {
    * @param {string} label
    * @param {string} type
    * @param {string} value
-   * @param {string[]} [options]
-   * @returns {{wrapper: HTMLDivElement, input: HTMLInputElement|HTMLSelectElement}}
+   * @returns {{wrapper: HTMLDivElement, input: HTMLInputElement}}
    */
-  function _createFormField(key, label, type, value, options) {
+  function _createFormField(key, label, type, value) {
     const wrapper = document.createElement('div');
     wrapper.className = 'prompts-fm-field';
 
@@ -182,18 +183,29 @@ export function createScaffoldGalleryEditForm(gallery) {
     labelEl.textContent = label;
     wrapper.appendChild(labelEl);
 
-    /** @type {HTMLInputElement|HTMLSelectElement} */
+    /** @type {HTMLInputElement} */
     let input;
 
-    if (type === 'select') {
-      input = document.createElement('select');
-      input.className = 'settings-select';
-      for (const opt of (options || [])) {
-        const optEl = document.createElement('option');
-        optEl.value = opt;
-        optEl.textContent = opt;
-        if (opt === value) optEl.selected = true;
-        input.appendChild(optEl);
+    if (type === 'model') {
+      // A model id the provider serves. Free text: the served ids, when the
+      // gallery carries them, are offered as suggestions, never as the only
+      // choices.
+      input = document.createElement('input');
+      input.type = 'text';
+      input.className = 'settings-input';
+      input.value = value;
+      const served = gallery.servedModels || [];
+      if (served.length) {
+        const list = document.createElement('datalist');
+        list.id = `prompts-fm-${key}-options`;
+        for (const model of served) {
+          const optEl = document.createElement('option');
+          optEl.value = model.id;
+          optEl.label = model.name;
+          list.appendChild(optEl);
+        }
+        input.setAttribute('list', list.id);
+        wrapper.appendChild(list);
       }
     } else if (type === 'number') {
       input = document.createElement('input');

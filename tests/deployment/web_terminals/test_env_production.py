@@ -502,8 +502,8 @@ _GATEWAY_WITHOUT_ENDPOINT_ENTRY = {
     "base_url": None,
     "requires_base_url": True,
     "base_url_env_var": _GATEWAY_WITHOUT_ENDPOINT_VAR,
-    "default_model_tier": "haiku",
-    "models": {"haiku": "fast", "sonnet": "balanced", "opus": "capable"},
+    "default_model": "fast",
+    "models": ["fast", "balanced", "capable"],
 }
 
 
