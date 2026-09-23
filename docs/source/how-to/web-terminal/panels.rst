@@ -105,6 +105,24 @@ is the named path: where the backing service is also reachable at an address of
 its own, a login there names nobody, and what it does is governed by nobody's
 chip — see :ref:`service door, not a terminal <web-terminal-service-door>`.
 
+A service hosted under a sub-path of its own writes its asset and API
+references root-absolute, and in the tab those would resolve against the
+terminal's address rather than the service's. The proxy rewrites them into the
+tab instead. The ``path`` you configured is rewritten for you; name any further
+prefix the service serves with ``rewrite_prefixes``:
+
+.. code-block:: yaml
+
+   web:
+     panels:
+       pvinfo:
+         url: https://controls.example.org
+         path: /pvinfo/
+         rewrite_prefixes: ["/pvinfo"]   # the bundle's own router base
+
+Each list applies to the panel that declares it, so a prefix one service needs
+is never rewritten in another's pages.
+
 Theming a URL-backed panel
 --------------------------
 
