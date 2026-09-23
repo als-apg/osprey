@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import signal
 import socket
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -1632,10 +1633,13 @@ class TestOperatorLoginUrl:
         assert f"?token={secret}" in result.output
         # The env carrier was set before the spawn, and Popen inherits it.
         assert fake_subprocess.Popen.call_args.kwargs.get("env") is None
-        # Nothing carrying the token is in the child argv.
+        # Nothing carrying the token is in the child argv. argv[0] is the
+        # interpreter, a path this test does not compose; every element after
+        # it is what `web` built, and none of those may name a token.
         child_argv = fake_subprocess.Popen.call_args.args[0]
+        assert child_argv[0] == sys.executable
         assert secret not in child_argv
-        assert not any("token" in str(arg) for arg in child_argv)
+        assert not any("token" in str(arg) for arg in child_argv[1:])
         # Catch an EMBEDDED secret too, not just a standalone argv element.
         assert not any(secret in str(arg) for arg in child_argv)
 
