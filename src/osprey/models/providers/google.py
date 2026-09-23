@@ -22,11 +22,6 @@ class GoogleProviderAdapter(LiteLLMDelegatingProvider):
     default_base_url = None
     default_model_id = "gemini-3.8-flash"  # Current stable Flash for general use
     health_check_model_id = "gemini-3.5-flash-lite"  # Cheapest/fastest stable, for health checks
-    available_models = [
-        "gemini-2.5-pro",  # Most capable stable Gemini model (no stable Pro successor yet)
-        "gemini-3.8-flash",  # Current stable Flash, good balance
-        "gemini-3.5-flash-lite",  # Fastest, most cost-effective stable model
-    ]
 
     # API key acquisition information
     api_key_url = "https://aistudio.google.com/app/apikey"

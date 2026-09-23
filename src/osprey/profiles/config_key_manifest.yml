@@ -1558,20 +1558,18 @@ keys:
   api.providers:
     data-map: true
     key-shape:
-      required: [base_url, models]
-      models-tiers: [haiku, sonnet, opus]
-    evidence: 'defines no models mapping'
+      required: [base_url, default_model, models]
+      models-list: true
+    evidence: 'lists no models and names no default_model'
     note: >-
       Provider NAMES are user-extensible data, not schema — membership
       deliberately differs (10 providers in project/control_assistant/
       hello_world, a 6-provider subset in the two standalone bundles). The
-      guard checks SHAPE per provider (base_url present, all three tiers
-      mapped), never membership. At runtime a tier no source maps falls back
-      to the default model with a warning; only a provider with no models map
-      AND no default model to fall back on hard-errors in
-      build/claude_code_resolver.py, which is the quoted evidence. The guard
-      stays stricter than the runtime on purpose — a shipped template should
-      map every tier rather than lean on that fallback.
+      guard checks SHAPE per provider (base_url present, default_model
+      present and in the models list, models a non-empty list of ids), never
+      membership. A provider that names no default_model and lists no models
+      hard-errors in build/claude_code_resolver.py, which is the quoted
+      evidence.
     default: {}
 
   # ── Claude Code ─────────────────────────────────────────────────────
@@ -1585,7 +1583,28 @@ keys:
   claude_code.default_model:
     evidence: 'claude_code_config\.get\("default_model"\)'
     default: derived
-    default_note: the provider entry's own default_model_tier
+    default_note: the provider entry's default_model
+  claude_code.aliases:
+    data-map: true
+    rendered: false
+    evidence: 'claude_code_config\.get\("aliases"\)'
+    note: >-
+      Claude Code's own alias names (haiku, sonnet, opus) — the model Claude
+      Code runs when it, or an agent, asks for one of those words. Keys are
+      only those three; each value is a model id the provider serves.
+      Documented as a commented override in the presets.
+    default: derived
+    default_note: >-
+      per alias, the provider entry's claude_code_aliases, else the newest
+      served id of that Claude family, else the deployment's main model
+  claude_code.agent_models:
+    data-map: true
+    evidence: 'claude_code_config\.get\("agent_models"\)'
+    note: >-
+      Agent name to the model id that agent runs. Keys are agent names, which
+      a deployment may add, so the leaves are data.
+    default: derived
+    default_note: every agent runs the deployment's main model
   claude_code.servers:
     all-templates: true
     evidence: 'claude_code_config\.get\("servers", \{\}\)'
@@ -1647,6 +1666,23 @@ keys:
 
   # ── Channel finder ──────────────────────────────────────────────────
   channel_finder: {evidence: 'channel_finder = config\.get\("channel_finder"', default: null}
+  channel_finder.channel_name_generation.llm_model.provider:
+    rendered: false
+    evidence: 'llm_config\.get\("provider"\)'
+    note: Documented as a commented override in the presets.
+    default: no-fallback
+    default_note: the channel namer refuses to run without a provider
+  channel_finder.channel_name_generation.llm_model.model_id:
+    rendered: false
+    evidence: 'llm_config\.get\("model_id"\)'
+    note: Documented as a commented override in the presets.
+    default: derived
+    default_note: the deployment's main model
+  channel_finder.channel_name_generation.llm_model.max_tokens:
+    rendered: false
+    evidence: 'llm_config\.get\("max_tokens", 1000\)'
+    note: Documented as a commented override in the presets.
+    default: 1000
   channel_finder.pipeline_mode: {evidence: 'pipeline_mode', default: derived, default_note: "the paradigm implied by whichever pipeline database paths are configured"}
   channel_finder.pipelines: {covered-by: channel_finder, default: {}}
   channel_finder.pipelines.in_context: {covered-by: channel_finder.pipelines, default: {}}
@@ -1948,7 +1984,14 @@ keys:
   logbook: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
   logbook.composition: {evidence: 'get_config_value\("logbook\.composition", \{\}\)', default: {}}
   logbook.composition.provider: {covered-by: logbook.composition, default: derived, default_note: claude_code.provider}
-  logbook.composition.default_tier: {evidence: 'default_tier', default: haiku}
+  logbook.composition.model:
+    rendered: false
+    evidence: 'comp\.get\("model"\)'
+    note: >-
+      The model id the compose panel uses when the operator picks none.
+      Documented as a commented override in the presets.
+    default: derived
+    default_note: the deployment's main model
   facility_knowledge:
     evidence: 'config_key="facility_knowledge"'
     note: >-
@@ -2550,9 +2593,15 @@ deleted:
   # EPICS gateway ports are untouched and remain live.
 - control_system.connector.virtual_accelerator.gateways.read_only.port
 - control_system.connector.virtual_accelerator.gateways.write_access.port
-  # Ledger 31 — composition resolves a tier through
-  # api.providers[provider].models; there is no model_id key here.
+  # Ledger 31 — composition names its model under logbook.composition.model;
+  # there is no model_id key here.
 - logbook.composition.model_id
+  # Renamed claude_code.aliases: the map fills Claude Code's own alias names,
+  # it never named OSPREY models.
+- claude_code.models
+  # Composition names a model id under logbook.composition.model, or runs on
+  # the deployment's main model.
+- logbook.composition.default_tier
   # Preset-config surface: a commented `# system.facility_name: My Facility`
   # dotted override in profiles/presets/control-assistant.yml at merge-base,
   # removed by this branch. Distinct from the dispatch-profile `facility_name`
@@ -2746,7 +2795,7 @@ render_contexts:
     project_name: demo
     project_root: /tmp/demo
     default_provider: anthropic
-    default_model: haiku
+    default_model: claude-haiku-4-5
     environment_python: null
     environment_packages: []
     environment_inherit_exclude: []
@@ -3025,10 +3074,10 @@ notes:
     site: tests/cli/test_manifest_build_args.py
     detail: >-
       Carries 'anthropic/claude-opus' as fixture data. It never reaches the
-      resolver, so it is harmless and was left alone. If cheap, the guard could
-      flag provider/model-SHAPED default_model values (a '/' in a value that
-      should be a bare tier: haiku | sonnet | opus), since claude_code.default_model
-      takes a tier, not a wire id.
+      resolver, so it is harmless and was left alone. claude_code.default_model
+      takes a model id the provider serves, spelled as the gateway spells it;
+      a vendor-routed id with a '/' is a legitimate value for a gateway that
+      serves one.
   prefix_rule_drift:
     detail: >-
       RESOLVED. The only place stating facility.prefix must be lowercase alnum

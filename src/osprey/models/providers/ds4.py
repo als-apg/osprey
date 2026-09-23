@@ -35,11 +35,6 @@ class DS4ProviderAdapter(BaseProvider):
     default_model_id = "deepseek-v4-flash"
     health_check_model_id = None  # query the server for available models
 
-    available_models = [
-        "deepseek-v4-flash",
-        "deepseek-v4-pro",
-    ]
-
     api_key_url = "https://github.com/antirez/ds4"
     api_key_instructions = [
         "ds4 is a local server and requires no API key.",

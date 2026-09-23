@@ -41,11 +41,16 @@ _PROVIDERS_KEY = "providers"
 #: than keeping a second copy of it.
 VALID_API_PROTOCOLS = frozenset({"anthropic", "openai"})
 
-#: Keys the contract documents. ``base_url`` is the only required one — an entry
-#: without it names no endpoint, so nothing downstream can call it. ``api_key``,
-#: ``models`` and ``api_protocol`` are optional, and an entry may carry further
-#: keys the framework renders through without reading.
+#: Keys the contract documents. ``base_url`` is the only required string — an
+#: entry without it names no endpoint, so nothing downstream can call it.
+#: ``default_model`` and ``models`` are required too and checked by their own
+#: shape (:func:`_validate_models`). ``api_key``, ``health_model``,
+#: ``claude_code_aliases`` and ``api_protocol`` are optional, and an entry may
+#: carry further keys the framework renders through without reading.
 _REQUIRED_ENTRY_KEYS = ("base_url",)
+
+#: Claude Code's own alias names — the only keys ``claude_code_aliases`` takes.
+CLAUDE_CODE_ALIAS_NAMES = ("haiku", "sonnet", "opus")
 
 
 @dataclass(frozen=True)
@@ -176,9 +181,52 @@ def _validate_entry(path: Path, name: str, entry: Any) -> None:
             f"Provider catalog {path}: `{_PROVIDERS_KEY}.{name}.api_protocol` is "
             f"{protocol!r}; expected one of {', '.join(sorted(VALID_API_PROTOCOLS))}."
         )
+    _validate_models(path, name, entry)
+
+
+def _validate_models(path: Path, name: str, entry: dict[str, Any]) -> None:
+    """Check the served-model list and every key that must name one of its ids."""
+    where = f"Provider catalog {path}: `{_PROVIDERS_KEY}.{name}"
     models = entry.get("models")
-    if models is not None and not isinstance(models, dict):
+    if (
+        not isinstance(models, list)
+        or not models
+        or not all(isinstance(m, str) and m.strip() for m in models)
+    ):
+        shape = type(models).__name__ if models is not None else "nothing"
         raise BuildProfileError(
-            f"Provider catalog {path}: `{_PROVIDERS_KEY}.{name}.models` must be a "
-            f"mapping of tier to model ID, got {type(models).__name__}."
+            f"{where}.models` must be a non-empty list of the model ids the gateway "
+            f"serves, got {shape}. `osprey profile expand --providers` refreshes a "
+            f"copied catalog to the packaged entries."
         )
+    default = entry.get("default_model")
+    if not isinstance(default, str) or default not in models:
+        raise BuildProfileError(
+            f"{where}.default_model` must be one of its models "
+            f"({', '.join(models)}), got {default!r}."
+        )
+    health = entry.get("health_model")
+    if health is not None and health not in models:
+        raise BuildProfileError(
+            f"{where}.health_model` must be one of its models "
+            f"({', '.join(models)}), got {health!r}."
+        )
+    aliases = entry.get("claude_code_aliases")
+    if aliases is None:
+        return
+    if not isinstance(aliases, dict):
+        raise BuildProfileError(
+            f"{where}.claude_code_aliases` must be a mapping of Claude Code alias "
+            f"name to model id, got {type(aliases).__name__}."
+        )
+    for alias, model_id in aliases.items():
+        if alias not in CLAUDE_CODE_ALIAS_NAMES:
+            raise BuildProfileError(
+                f"{where}.claude_code_aliases` names {alias!r}; Claude Code's alias "
+                f"names are {', '.join(CLAUDE_CODE_ALIAS_NAMES)}."
+            )
+        if model_id not in models:
+            raise BuildProfileError(
+                f"{where}.claude_code_aliases.{alias}` must be one of its models "
+                f"({', '.join(models)}), got {model_id!r}."
+            )
