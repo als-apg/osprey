@@ -2,7 +2,7 @@
 
 Reads Claude Code state JSON from stdin and emits a single colored line:
 
-    Sonnet | 45% 90k/200K | my-project (main) | v2.0.0 | osprey-v2026.5.0
+    Sonnet 5 | 45% 90k/200K | my-project (main) | v2.0.0 | osprey-v2026.5.0
 
 Design notes:
     - Matches the style of .claude/hooks/osprey_*.py (stdin JSON, graceful
@@ -26,7 +26,16 @@ def _read_input() -> dict:
 
 
 def _model_short(data: dict) -> str:
-    raw = (data.get("model") or {}).get("display_name") or ""
+    model = data.get("model") or {}
+    model_id = model.get("id") or ""
+    if model_id:
+        try:
+            from osprey.models.display import display_model_name
+        except ImportError:
+            pass
+        else:
+            return display_model_name(model_id)
+    raw = model.get("display_name") or ""
     for name in ("Opus", "Sonnet", "Haiku"):
         if name.lower() in raw.lower():
             return name

@@ -22,6 +22,7 @@ CLAUDE_CODE_ALIASES: tuple[str, ...] = ("haiku", "sonnet", "opus")
 
 _FAMILY_RE = re.compile(r"^claude-?(?P<family>fable|opus|sonnet|haiku)(?P<rest>.*)$")
 _REGION_PREFIX_RE = re.compile(r"^(?:[a-z]{2}\.)?anthropic\.")
+_CONTEXT_TAG_RE = re.compile(r"\[[^\]]*\]$")
 _DATE_RE = re.compile(r"^\d{8}$")
 _REVISION_RE = re.compile(r"^v\d+$")
 
@@ -34,9 +35,10 @@ class _ClaudeId:
 
 
 def _strip_vendor(model_id: str) -> str:
-    """Drop one leading ``vendor/`` segment and a Bedrock ``us.anthropic.`` prefix."""
+    """Drop one leading ``vendor/`` segment, a Bedrock ``us.anthropic.`` prefix,
+    and a trailing context-window tag such as Claude Code's ``[1m]``."""
     bare = model_id.split("/", 1)[1] if "/" in model_id else model_id
-    return _REGION_PREFIX_RE.sub("", bare)
+    return _CONTEXT_TAG_RE.sub("", _REGION_PREFIX_RE.sub("", bare))
 
 
 def _parse(model_id: str) -> _ClaudeId | None:

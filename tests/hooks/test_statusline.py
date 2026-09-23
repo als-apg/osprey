@@ -113,6 +113,21 @@ def test_model_short_maps_known_families(display_name, expected):
     assert statusline._model_short({"model": {"display_name": display_name}}) == expected
 
 
+@pytest.mark.parametrize(
+    ("model_id", "expected"),
+    [
+        ("claude-sonnet-5", "Sonnet 5"),
+        ("claude-haiku-4-5-20251001", "Haiku 4.5"),
+        ("claude-fable-5-1", "Fable 5.1"),
+        ("claude-opus-5[1m]", "Opus 5"),
+        ("gpt-6-sol", "gpt-6-sol"),
+    ],
+)
+def test_model_short_names_the_id_without_the_vendor_prefix(model_id, expected):
+    data = {"model": {"id": model_id, "display_name": "Claude Something"}}
+    assert statusline._model_short(data) == expected
+
+
 def test_model_short_unknown_returns_raw():
     assert statusline._model_short({"model": {"display_name": "Gemini Pro"}}) == "Gemini Pro"
 

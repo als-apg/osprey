@@ -143,7 +143,7 @@ Provider Configuration
 
 Two files in the deployment repository configure providers, and they answer
 different questions. ``providers.yml`` is the catalog: every provider this
-deployment can name, with its endpoint and model IDs. ``profile.yml`` selects
+deployment can name, with its endpoint and the model ids it serves. ``profile.yml`` selects
 one of them, with its top-level ``provider:`` and ``model:`` keys
 (``osprey set provider=… model=…`` writes them for you).
 
@@ -155,10 +155,11 @@ A gateway that OSPREY does not ship is an entry appended to ``providers.yml``:
      my-gateway:
        api_key: ${MY_GATEWAY_API_KEY}
        base_url: https://my-gateway.example.com/v1
+       default_model: claude-sonnet-5
        models:
-         haiku: claude-haiku-4-5
-         sonnet: claude-sonnet-5
-         opus: claude-opus-5
+         - claude-opus-5
+         - claude-sonnet-5
+         - claude-haiku-4-5
 
 and one line in ``profile.yml`` naming it:
 
@@ -177,9 +178,9 @@ which every build wipes and re-renders; edit the two source files, never the
 rendered one. The rendered file has two relevant sections:
 
 1. ``api.providers`` — declares available providers with their endpoints and
-   model IDs.
-2. ``claude_code`` — selects which provider the OSPREY agent uses and at which
-   model tier.
+   the model ids each serves.
+2. ``claude_code`` — selects which provider the OSPREY agent uses and, when the
+   profile names one, which model.
 
 The YAML blocks below show that **rendered** ``build/config.yml``, so you can
 see what the two source files become. The whole catalog appears under
@@ -199,38 +200,41 @@ see what the two source files become. The whole catalog appears under
        anthropic:
          api_key: ${ANTHROPIC_API_KEY}
          base_url: https://api.anthropic.com
+         default_model: claude-sonnet-5
          models:
-           haiku: claude-haiku-4-5
-           sonnet: claude-sonnet-5
-           opus: claude-opus-5
+           - claude-fable-5-1
+           - claude-opus-5-5
+           - claude-opus-5
+           - claude-sonnet-5
+           - claude-haiku-4-5
 
        cborg:
          api_key: ${CBORG_API_KEY}
          base_url: https://api.cborg.lbl.gov/v1
+         default_model: claude-haiku-4-5
+         health_model: claude-haiku-4-5
          models:
-           # Use pinned versions here — unversioned aliases like
-           # anthropic/claude-sonnet break the agent's capability detection.
-           haiku: claude-haiku-4-5
-           sonnet: claude-sonnet-5
-           opus: claude-opus-5
+           - claude-opus-5
+           - claude-sonnet-5
+           - claude-haiku-4-5
 
        stanford:
          api_key: ${STANFORD_API_KEY}
          base_url: https://aiapi-prod.stanford.edu/v1
+         default_model: gpt-4o
          models:
-           # A gateway need not serve Claude models at all — map its own IDs
-           # onto the tiers by capability and cost.
-           haiku: gpt-4o-mini
-           sonnet: gpt-4o
-           opus: o3-mini
+           - gpt-4o-mini
+           - gpt-4o
+           - o3-mini
 
-Each entry in ``providers.yml`` takes ``api_key``, ``base_url``, and a ``models`` mapping
-that assigns provider-specific model IDs to tiers (``haiku``, ``sonnet``,
-``opus``). A full tier map is recommended — subagent tier routing uses it —
-but it is not required: a tier that no source maps falls back to the default
-model, with a build warning naming each substitution. The framework never
-substitutes another provider's model IDs; a provider with no ``models``
-mapping *and* no ``default_model`` to fall back on is refused.
+Each entry in ``providers.yml`` takes ``base_url``, ``default_model`` and
+``models`` — a list of the model ids the gateway serves, spelled as the gateway
+spells them, which must contain ``default_model`` — plus optional ``api_key``,
+``health_model`` (the cheapest served id, used by ``osprey health``) and
+``claude_code_aliases`` (see :ref:`claude-code-alias-names` below). Use the
+versioned ids a gateway serves: an unversioned alias such as
+``anthropic/claude-sonnet`` carries no version for the agent's capability
+detection to match.
 
 ``base_url`` is the endpoint the agent itself talks to. Every entry the shipped
 catalog carries names one, and a value here replaces it: the institutional
@@ -253,7 +257,7 @@ upstream key from it, so ``api_key`` stays the gateway credential while
 .. code-block:: yaml
 
    provider: cborg
-   model: sonnet
+   model: claude-sonnet-5
 
 which render as ``claude_code.provider`` and ``claude_code.default_model``:
 
@@ -261,60 +265,68 @@ which render as ``claude_code.provider`` and ``claude_code.default_model``:
 
    claude_code:
      provider: cborg
-     default_model: sonnet
+     default_model: claude-sonnet-5
 
 Both rendered keys are the build's to write, so spelling either under
 ``config:`` is refused, naming the field to set instead.
 
-``provider`` picks one of the entries in ``providers.yml``.
-``model`` selects the model for the main conversation. Give it a tier
-name, or any model ID the selected provider serves. An ID found in the
-provider's ``models`` block resolves to that tier; any other ID is passed
-through verbatim to the provider — a newly released model or a gateway-only
-alias works without waiting for the tier map to catch up, and a misspelt ID
-fails at the provider (an error naming the ID), not at resolution. If omitted,
-the default model falls back to the provider's own default tier — ``sonnet``
-for ``anthropic``, ``haiku`` for ``cborg`` and ``als-apg``, and ``opus`` for
-custom providers.
+Which model answers
+-------------------
 
-Model Tier Mapping
-------------------
+``provider`` picks one of the entries in ``providers.yml``. ``model`` is the
+deployment's main model: a model id the provider serves. Omit it and the
+provider entry's ``default_model`` answers. An id the entry's ``models`` list
+does not carry is still used — the build logs that it trusts the gateway, so a
+newly released model works before the catalog lists it, and a misspelt id fails
+at the provider (an error naming the id). A bare ``haiku``, ``sonnet`` or
+``opus`` is refused, with the ids the provider serves: those words are Claude
+Code's alias names, not model ids.
 
-The OSPREY agent uses three model tiers — ``haiku`` (fast/cheap), ``sonnet``
-(balanced), and ``opus`` (most capable). Each provider maps these to its own model
-IDs via the ``models`` block in its ``providers.yml`` entry.
+Every job that calls a model names its own id or runs on the main model:
 
-The resolver applies model IDs in this priority order:
-
-1. ``claude_code.models`` — explicit per-tier overrides (highest priority).
-2. The selected provider's own ``models`` block, from ``providers.yml``.
-3. Built-in defaults — the bundled fallback model IDs the framework ships for
-   ``anthropic``, ``cborg``, and ``als-apg``.
-
-A tier that no source maps falls back to the default model, with a build
-warning naming each substitution — agents pinned to an unmapped tier then run
-the default model, not a tier-appropriate one, so a full map is recommended.
-No provider ever inherits another provider's model IDs; only a provider with
-no models and no ``default_model`` at all is refused.
-
-For example, to override the opus tier for a specific deployment, in that
-deployment's ``profile.yml``:
+* ``claude_code.agent_models.<agent>`` — the model one agent runs; omitted, the
+  main model.
+* ``channel_finder.channel_name_generation.llm_model.model_id`` — omitted, the
+  main model.
+* ``logbook.composition.model`` — the compose panel's model when the operator
+  picks none; omitted, the main model. The panel offers the ids the provider
+  serves.
 
 .. code-block:: yaml
 
    provider: cborg
-   model: sonnet
+   model: claude-sonnet-5
    config:
-     # use sonnet even for opus-tier agents
-     claude_code.models.opus: claude-sonnet-5
+     claude_code.agent_models.channel-finder: claude-haiku-4-5
+     claude_code.agent_models.logbook-deep-research: claude-opus-5
 
-Agents can also be pinned to specific tiers:
+.. _claude-code-alias-names:
+
+Claude Code's alias names
+-------------------------
+
+Claude Code has three alias names of its own — ``haiku``, ``sonnet`` and
+``opus`` — which it reads from ``ANTHROPIC_DEFAULT_HAIKU_MODEL``,
+``ANTHROPIC_DEFAULT_SONNET_MODEL`` and ``ANTHROPIC_DEFAULT_OPUS_MODEL``, and its
+own background calls ask for ``haiku``. OSPREY fills all three at build:
+
+1. Derived from the served list: each alias takes the newest served id of that
+   Claude family (``claude-opus-5`` over ``claude-opus-4-6``).
+2. A gateway's ``claude_code_aliases`` in its catalog entry wins over
+   derivation.
+3. ``claude_code.aliases.<name>`` in a deployment's ``profile.yml`` wins over
+   both.
+4. An alias nothing resolves points at the main model, and the build prints
+   one line naming the substitution — on a gateway that serves no Claude
+   models, all three.
 
 .. code-block:: yaml
 
    config:
-     claude_code.agent_models.channel-finder: haiku
-     claude_code.agent_models.logbook-search: sonnet
+     claude_code.aliases.haiku: claude-haiku-4-5
+
+``osprey status --agents`` lists each alias with its model and where it came
+from, and each agent's model with its origin.
 
 Protocol Translation
 --------------------
@@ -342,12 +354,10 @@ proxy in Anthropic mode), add ``api_protocol: anthropic`` to its
        api_key: ${MY_GATEWAY_KEY}
        base_url: https://my-gateway.example.com/v1
        api_protocol: anthropic
+       default_model: claude-sonnet-5
        models:
-         haiku: claude-haiku-4-5-20251001
-         sonnet: claude-sonnet-4-5-20250929
-
-(The unmapped ``opus`` tier here falls back to the default model at build
-time, with a warning — map it to silence the substitution.)
+         - claude-sonnet-5
+         - claude-haiku-4-5-20251001
 
 ``api_protocol`` takes exactly two values, ``anthropic`` and ``openai``.
 Anything else — including a capitalised ``Anthropic`` — is refused when the
@@ -421,14 +431,13 @@ deployment unhealthy. The rendered result in ``build/config.yml``:
        my-provider:
          api_key: ${MY_PROVIDER_API_KEY}
          base_url: https://api.my-provider.com/v1
+         default_model: my-model-large
          models:
-           haiku: claude-3-haiku
-           sonnet: claude-3-sonnet
-           opus: claude-3-opus
+           - my-model-small
+           - my-model-large
 
    claude_code:
      provider: my-provider
-     default_model: sonnet
 
 The framework automatically:
 
@@ -438,7 +447,9 @@ The framework automatically:
   derives that variable name from the provider's own name — uppercased, dashes to
   underscores — and never reads the entry's ``api_key`` value, so the name here
   lines up only because the provider is called ``my-provider``.
-- Injects the resolved model IDs into the OSPREY agent's environment.
+- Injects the resolved model ids into the OSPREY agent's environment; Claude
+  Code's three alias names point at ``my-model-large``, the main model, since
+  the provider serves no Claude models.
 
 .. note::
 
