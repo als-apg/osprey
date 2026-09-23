@@ -21,7 +21,8 @@ from osprey.cli.build_profile_panels import (
     panel_selection_errors,
     panel_selection_overrides,
 )
-from osprey.profiles.web_panels import panel_spec_enabled
+from osprey.profiles.web_panels import panel_id_refusal, panel_spec_enabled
+from osprey.utils.config_writer import config_update_fields, load_config_document
 
 # ---------------------------------------------------------------------------
 # panel_spec_enabled — the shared predicate
@@ -203,6 +204,93 @@ def test_a_dot_segment_block_is_refused_as_the_empty_id_it_reads_as() -> None:
     """
     (error,) = panel_id_errors({"web.panels..url": "http://x:1"})
     assert "[A-Za-z0-9][A-Za-z0-9._-]*" in error
+
+
+def _prefix_over_mapping(panel_id):
+    return {"web.panels": {panel_id: {"url": "http://x:1"}}}
+
+
+def _nested(panel_id):
+    return {"web": {"panels": {panel_id: {"url": "http://x:1"}}}}
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param(_prefix_over_mapping, id="prefix_over_mapping"),
+        pytest.param(_nested, id="nested"),
+    ],
+)
+@pytest.mark.parametrize(
+    "panel_id",
+    [
+        pytest.param("beam.view er", id="space_after_dot"),
+        pytest.param("beam./viewer", id="slash_after_dot"),
+        pytest.param(".beam", id="leading_dot"),
+    ],
+)
+def test_a_dotted_id_written_as_a_mapping_key_is_checked_whole(panel_id, spelling) -> None:
+    """The render keeps a mapping key whole and the terminal refuses what it keeps.
+
+    So the build reads that key whole too, and refuses it before it deploys.
+    """
+    (error,) = panel_id_errors(spelling(panel_id))
+    assert repr(panel_id) in error
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param(_prefix_over_mapping, id="prefix_over_mapping"),
+        pytest.param(_nested, id="nested"),
+    ],
+)
+def test_a_dotted_id_the_terminal_can_serve_passes(spelling) -> None:
+    """A dot alone is inside the id class, so a dotted id the terminal serves passes."""
+    assert panel_id_errors(spelling("beam.viewer")) == []
+
+
+def test_a_whole_dotted_key_splits_at_every_dot() -> None:
+    """The render splits a top-level key at every dot.
+
+    This key renders panel ``beam`` with a child ``view er``, and ``beam`` is an
+    id the terminal serves.
+    """
+    assert panel_id_errors({"web.panels.beam.view er.url": "http://x:1"}) == []
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        pytest.param(_prefix_over_mapping("beam.view er"), id="prefix_over_mapping_refused"),
+        pytest.param(_nested("beam.view er"), id="nested_refused"),
+        pytest.param(_prefix_over_mapping("beam.viewer"), id="prefix_over_mapping_served"),
+        pytest.param(_nested("beam.viewer"), id="nested_served"),
+        pytest.param({"web.panels.beam.view er.url": "http://x:1"}, id="dotted_split"),
+        pytest.param({"web.panels.überblick.url": "http://x:1"}, id="dotted_refused"),
+    ],
+)
+def test_the_lint_reads_each_id_the_render_writes(tmp_path, spelling) -> None:
+    """The build lint and the terminal share one verdict and the ids it is asked about.
+
+    ``config_update_fields`` is what ``osprey build`` applies a profile's
+    ``config:`` through, so the ids are read off its output rather than restated.
+    """
+    path = tmp_path / "config.yml"
+    path.write_text("web:\n  panels:\n    okf:\n      enabled: true\n")
+    config_update_fields(path, spelling)
+    rendered = load_config_document(path)["web"]["panels"]
+    assert panel_id_errors(spelling) == [
+        r for pid in sorted(map(str, rendered)) if (r := panel_id_refusal(pid)) is not None
+    ]
+
+
+def test_an_authored_enabled_on_a_dotted_id_is_judged_under_that_id() -> None:
+    """An ``enabled`` on a dotted id under a mapping is judged under the whole id."""
+    config = {"web.panels": {"beam.viewer": {"url": "http://x:1", "enabled": True}}}
+    (error,) = panel_selection_errors(config, [])
+    assert "'beam.viewer' is not in web_panels" in error
+    assert panel_selection_errors(config, ["beam.viewer"]) == []
 
 
 def test_an_ordinary_id_passes() -> None:

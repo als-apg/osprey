@@ -135,7 +135,13 @@ def panel_id_errors(config: Any) -> list[str]:
 
 
 def _spelled_panel_ids(config: Any) -> set[str]:
-    """Every panel id a ``config:`` block names under ``web.panels``, any spelling."""
+    """Every panel id a ``config:`` block names under ``web.panels``, as the render keys it.
+
+    The render splits a top-level key at every dot, so ``web.panels.<id>.<leaf>``
+    names its id in the third segment. A key inside a mapping is written as one
+    key, dots included, so each key of a mapping under ``web.panels`` is an id
+    taken whole. Only the mapping spellings can carry an id with a dot in it.
+    """
     ids: set[str] = set()
     if not isinstance(config, Mapping):
         return ids
@@ -145,7 +151,7 @@ def _spelled_panel_ids(config: Any) -> set[str]:
             if len(parts) > 2:
                 ids.add(parts[2])
             elif isinstance(value, Mapping):
-                ids.update(str(sub).split(".")[0] for sub in value)
+                ids.update(str(sub) for sub in value)
         elif parts == ["web"] and isinstance(value, Mapping):
             for sub_key, sub_value in value.items():
                 sub_parts = str(sub_key).split(".")
@@ -154,7 +160,7 @@ def _spelled_panel_ids(config: Any) -> set[str]:
                 if len(sub_parts) > 1:
                     ids.add(sub_parts[1])
                 elif isinstance(sub_value, Mapping):
-                    ids.update(str(leaf).split(".")[0] for leaf in sub_value)
+                    ids.update(str(leaf) for leaf in sub_value)
     return ids
 
 
