@@ -54,10 +54,9 @@ import { parseFrontMatter, lockEditor } from './utils.js';
 export function createScaffoldGalleryEditForm(gallery) {
   /** @returns {Promise<void>} */
   async function renderEdit() {
-    // Same claim on the content pane the read-side renderers take: taking
-    // ownership on a first edit reopens the detail view in Preview and
-    // switches to Edit immediately, so both renders are in flight at once and
-    // the later one has to win regardless of which fetch lands first (see
+    // Same claim on the content pane the read-side renderers take: a mode
+    // click during a slow fetch puts a second render in flight, and the later
+    // one has to win regardless of which fetch lands first (see
     // scaffold/detail.js's renderDetailContent).
     const render = gallery.detailRenderSeq;
 
