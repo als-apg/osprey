@@ -775,7 +775,7 @@ export function queueEmptyState(state) {
 }
 
 /**
- * What the completed-runs list says when it shows no rows.
+ * What the History card says when it lists nothing.
  *
  * Same rule as `queueEmptyState`: until a `GET /runs` fetch has actually
  * landed, "No completed runs yet." would be a claim about history this panel
@@ -783,12 +783,18 @@ export function queueEmptyState(state) {
  * the last one did — a transient failure after a good read leaves the last
  * known list on screen, which is still the best answer available.
  *
+ * Withdrawal rows are rows. Once either half lists anything the line is
+ * hidden, whatever the runs fetch did, so it never sits beside removed-plan
+ * rows claiming the card is empty. `historyClearControl` decides the empty
+ * case the same way, so the line and the Clear always agree.
+ *
  * @param {Array<unknown>} records
+ * @param {Array<unknown>} removals
  * @param {boolean} loaded
  * @returns {EmptyState}
  */
-export function historyEmptyState(records, loaded) {
-  if (records.length > 0) return { hidden: true, message: '' };
+export function historyEmptyState(records, removals, loaded) {
+  if (records.length > 0 || removals.length > 0) return { hidden: true, message: '' };
   return loaded
     ? { hidden: false, message: 'No completed runs yet.' }
     : { hidden: false, message: 'Completed runs could not be loaded.' };

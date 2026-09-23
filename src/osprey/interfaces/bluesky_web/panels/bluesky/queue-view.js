@@ -533,7 +533,7 @@ export function createQueueView({ root, api, onSelectRun, onStatus = () => {} })
 
   function renderHistory() {
     historyList.replaceChildren();
-    const empty = historyEmptyState(state.history, state.historyLoaded);
+    const empty = historyEmptyState(state.history, state.removals, state.historyLoaded);
     historyEmpty.textContent = empty.message;
     historyEmpty.hidden = empty.hidden;
 
